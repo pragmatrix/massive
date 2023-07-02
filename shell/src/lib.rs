@@ -7,18 +7,15 @@ use winit::{
 };
 
 struct State {
-    // Destruction order is significant. The surface must be dropped before the Window.
     surface: wgpu::Surface,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-
-    window: Window,
 }
 
 impl State {
     // Creating some of the wgpu types requires async code
-    async fn new(window: Window) -> Self {
+    async fn new(window: &Window) -> State {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -93,16 +90,11 @@ impl State {
         surface.configure(&device, &config);
 
         Self {
-            window,
             surface,
             device,
             queue,
             config,
         }
-    }
-
-    pub fn window(&self) -> &Window {
-        &self.window
     }
 
     fn resize_surface(&mut self, new_size: (u32, u32)) {
@@ -167,14 +159,14 @@ impl State {
 pub async fn run() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut state = State::new(window).await;
+    let mut state = State::new(&window).await;
 
     event_loop.run(move |event, _, control_flow| {
         match event {
             Event::WindowEvent {
                 ref event,
                 window_id,
-            } if window_id == state.window().id() => {
+            } if window_id == window.id() => {
                 // UPDATED!
                 match event {
                     WindowEvent::CloseRequested
@@ -197,7 +189,7 @@ pub async fn run() {
                 }
             }
 
-            Event::RedrawRequested(window_id) if window_id == state.window().id() => {
+            Event::RedrawRequested(window_id) if window_id == window.id() => {
                 state.update();
                 match state.render() {
                     Ok(_) => {}
@@ -213,7 +205,7 @@ pub async fn run() {
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                state.window().request_redraw();
+                window.request_redraw();
             }
             _ => {}
         }
