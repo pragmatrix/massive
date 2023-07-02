@@ -1,0 +1,16 @@
+[workspace]
+
+members = [
+    "shell",
+    "text",
+    "geometry"
+]
+
+[workspace.dependencies]
+serde_tuple = "0.5.0"
+serde = { version = "1.0.164", features = ["derive"] }
+derive_more = "0.99.17"
+log = "0.4.19"
+env_logger = "0.10.0"
+# TODO: Only select the features we need
+tokio = { version = "1.29.1", features = ["full"] }

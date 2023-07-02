@@ -1,0 +1,11 @@
+[package]
+name = "granularity-shell"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+winit = "0.28.6"
+wgpu = "0.16.1"
+log = { workspace= true }
+tokio = { workspace= true }
+env_logger = { workspace = true }

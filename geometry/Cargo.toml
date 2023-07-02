@@ -1,0 +1,11 @@
+[package]
+name = "geometry"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+flo_curves = "0.7.2"
+serde = { workspace = true }
+serde_tuple = { workspace = true }
+derive_more = { workspace = true }
+log = { workspace = true }
