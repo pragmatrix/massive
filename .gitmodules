@@ -1,0 +1,3 @@
+[submodule "granularity"]
+	path = granularity
+	url = ../../pragmatrix/granularity

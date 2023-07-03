@@ -5,10 +5,13 @@
         "dmag",
         "dscale",
         "Gustavson",
+        "multiview",
         "rsqrt",
         "SSEDT",
         "texel",
+        "unclipped",
         "webgl",
-        "wgpu"
+        "wgpu",
+        "Wgsl"
     ]
 }

@@ -14,3 +14,6 @@ log = "0.4.19"
 env_logger = "0.10.0"
 # TODO: Only select the features we need
 tokio = { version = "1.29.1", features = ["full"] }
+wgpu = "0.16.1"
+granularity = { path = "granularity" }
+anyhow = "1.0.71"
