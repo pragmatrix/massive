@@ -2,7 +2,7 @@ use std::mem;
 
 use anyhow::Result;
 use swash::{
-    scale::{Render, ScaleContext, Source, StrikeWith},
+    scale::{image::Image, Render, ScaleContext, Source, StrikeWith},
     zeno::Format,
     FontRef,
 };
@@ -12,44 +12,139 @@ use wgpu::util::DeviceExt;
 async fn main() {
     env_logger::init();
 
-    // Render a Q shape into a buffer using swash.
-    let mut context = ScaleContext::new();
-    let font = include_bytes!("Roboto-Regular.ttf");
-    let font = FontRef::from_index(font, 0).unwrap();
-
-    let scaler_builder = context.builder(font);
-    let mut scaler = scaler_builder.size(200.0).hint(false).build();
-    let glyph_id = font.charmap().map('Q');
-
-    // We don't really care how the final image is rendered in detail, so we initialize a priority
-    // list of sources and let the renderer decide what to use.
-    let mut render = Render::new(&[
-        // Color outline with the first palette
-        Source::ColorOutline(0),
-        // Color bitmap with best fit selection mode
-        Source::ColorBitmap(StrikeWith::BestFit),
-        // Standard scalable outline
-        Source::Outline,
-    ]);
-    render.format(Format::Alpha).offset((0.0, 0.0).into());
-
-    let image1 = render.render(&mut scaler, glyph_id).expect("image");
-
     granularity_shell::run(self::render).await;
 }
 
 fn render(
     device: &wgpu::Device,
+    queue: &wgpu::Queue,
     surface: &wgpu::Surface,
     config: &wgpu::SurfaceConfiguration,
 ) -> Result<(wgpu::CommandBuffer, wgpu::SurfaceTexture)> {
     // TODO: Retrieve the surface configuration from the surface.
 
+    // Shader
+
     let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+
+    // Encoder
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Render Encoder"),
+    });
+
+    let output = surface.get_current_texture()?;
+    let view = output
+        .texture
+        .create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Texture
+
+    let image = render_character('Q');
+
+    let texture_size = wgpu::Extent3d {
+        width: image.placement.width,
+        height: image.placement.height,
+        depth_or_array_layers: 1,
+    };
+
+    let character_texture = device.create_texture(&wgpu::TextureDescriptor {
+        // All textures are stored as 3D, we represent our 2D texture
+        // by setting depth to 1.
+        size: texture_size,
+        mip_level_count: 1, // We'll talk about this a little later
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        // Most images are stored using sRGB so we need to reflect that here.
+        format: wgpu::TextureFormat::R8Unorm,
+        // TEXTURE_BINDING tells wgpu that we want to use this texture in shaders
+        // COPY_DST means that we want to copy data to this texture
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        label: Some("Character Texture"),
+        // This is the same as with the SurfaceConfig. It
+        // specifies what texture formats can be used to
+        // create TextureViews for this texture. The base
+        // texture format (Rgba8UnormSrgb in this case) is
+        // always supported. Note that using a different
+        // texture format is not supported on the WebGL2
+        // backend.
+        view_formats: &[],
+    });
+
+    queue.write_texture(
+        // Tells wgpu where to copy the pixel data
+        wgpu::ImageCopyTexture {
+            texture: &character_texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        // The actual pixel data
+        &image.data,
+        // The layout of the texture
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(image.placement.width),
+            rows_per_image: Some(image.placement.height),
+        },
+        texture_size,
+    );
+
+    let character_texture_view =
+        character_texture.create_view(&wgpu::TextureViewDescriptor::default());
+    let character_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Nearest,
+        min_filter: wgpu::FilterMode::Nearest,
+        ..Default::default()
+    });
+
+    let texture_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Texture Bind Group Layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        multisampled: false,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    // This should match the filterable field of the
+                    // corresponding Texture entry above.
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
+    let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Texture Bind Group"),
+        layout: &texture_bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&character_texture_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::Sampler(&character_sampler),
+            },
+        ],
+    });
+
+    // Pipeline
 
     let render_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Render Pipeline Layout"),
-        bind_group_layouts: &[],
+        bind_group_layouts: &[&texture_bind_group_layout],
         push_constant_ranges: &[],
     });
 
@@ -65,7 +160,7 @@ fn render(
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[Vertex::desc().clone()],
+            buffers: &[TextureVertex::desc().clone()],
         },
         fragment: Some(wgpu::FragmentState {
             // 3.
@@ -93,29 +188,23 @@ fn render(
 
     let pipeline = device.create_render_pipeline(&pipeline);
 
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Render Encoder"),
-    });
-
-    let output = surface.get_current_texture()?;
-    let view = output
-        .texture
-        .create_view(&wgpu::TextureViewDescriptor::default());
-
-    // Create the vertex buffer (must live longer than render_passe)
-
-    const VERTICES: &[Vertex] = &[
-        Vertex {
+    // Vertex Buffer (must live longer than render_pass)
+    const VERTICES: &[TextureVertex] = &[
+        TextureVertex {
             position: [-0.5, 0.5, 0.0],
+            tex_coords: [0.0, 0.0],
         },
-        Vertex {
+        TextureVertex {
             position: [-0.5, -0.5, 0.0],
+            tex_coords: [0.0, 1.0],
         },
-        Vertex {
+        TextureVertex {
             position: [0.5, -0.5, 0.0],
+            tex_coords: [1.0, 1.0],
         },
-        Vertex {
+        TextureVertex {
             position: [0.5, 0.5, 0.0],
+            tex_coords: [1.0, 0.0],
         },
     ];
 
@@ -148,6 +237,7 @@ fn render(
         });
 
         render_pass.set_pipeline(&pipeline);
+        render_pass.set_bind_group(0, &texture_bind_group, &[]);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
         render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
         render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
@@ -172,4 +262,49 @@ impl Vertex {
 
         &LAYOUT
     }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+struct TextureVertex {
+    position: [f32; 3],
+    tex_coords: [f32; 2],
+}
+
+impl TextureVertex {
+    fn desc() -> &'static wgpu::VertexBufferLayout<'static> {
+        const LAYOUT: wgpu::VertexBufferLayout = wgpu::VertexBufferLayout {
+            array_stride: mem::size_of::<TextureVertex>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
+        };
+
+        &LAYOUT
+    }
+}
+
+// Render a character using swash.
+
+fn render_character(c: char) -> Image {
+    let mut context = ScaleContext::new();
+    let font = include_bytes!("Roboto-Regular.ttf");
+    let font = FontRef::from_index(font, 0).unwrap();
+
+    let scaler_builder = context.builder(font);
+    let mut scaler = scaler_builder.size(200.0).hint(false).build();
+    let glyph_id = font.charmap().map(c);
+
+    // We don't really care how the final image is rendered in detail, so we initialize a priority
+    // list of sources and let the renderer decide what to use.
+    let mut render = Render::new(&[
+        // Color outline with the first palette
+        Source::ColorOutline(0),
+        // Color bitmap with best fit selection mode
+        Source::ColorBitmap(StrikeWith::BestFit),
+        // Standard scalable outline
+        Source::Outline,
+    ]);
+    render.format(Format::Alpha).offset((0.0, 0.0).into());
+
+    render.render(&mut scaler, glyph_id).expect("image")
 }

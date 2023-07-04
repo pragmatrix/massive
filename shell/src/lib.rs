@@ -124,12 +124,13 @@ impl State {
         &mut self,
         f: impl Fn(
             &wgpu::Device,
+            &wgpu::Queue,
             &wgpu::Surface,
             &wgpu::SurfaceConfiguration,
         ) -> Result<(wgpu::CommandBuffer, wgpu::SurfaceTexture)>,
     ) -> Result<(), wgpu::SurfaceError> {
         let (command_buffer, surface_texture) =
-            f(&self.device, &self.surface, &self.config).expect("render failed");
+            f(&self.device, &self.queue, &self.surface, &self.config).expect("render failed");
 
         self.queue.submit([command_buffer]);
         surface_texture.present();
@@ -141,6 +142,7 @@ impl State {
 pub async fn run(
     f: impl Fn(
             &wgpu::Device,
+            &wgpu::Queue,
             &wgpu::Surface,
             &wgpu::SurfaceConfiguration,
         ) -> Result<(wgpu::CommandBuffer, wgpu::SurfaceTexture)>
