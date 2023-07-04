@@ -7,7 +7,11 @@ edition = "2021"
 winit = "0.28.6"
 log = { workspace= true }
 tokio = { workspace= true }
-env_logger = { workspace = true }
 wgpu = { workspace = true }
 granularity = { workspace = true }
 anyhow = { workspace = true }
+
+[dev-dependencies]
+swash = { workspace = true }
+bytemuck = { workspace = true }
+env_logger = { workspace = true }

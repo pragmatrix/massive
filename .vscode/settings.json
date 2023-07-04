@@ -1,5 +1,7 @@
 {
     "cSpell.words": [
+        "bytemuck",
+        "charmap",
         "curr",
         "Danielsson's",
         "dmag",
@@ -12,6 +14,7 @@
         "unclipped",
         "webgl",
         "wgpu",
-        "Wgsl"
+        "Wgsl",
+        "Zeroable"
     ]
 }
