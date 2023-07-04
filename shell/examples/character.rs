@@ -64,9 +64,8 @@ fn render(
         layout: Some(&render_pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
-            entry_point: "vs_main", // 1.
-            // TODO: may provide all buffers const.
-            buffers: &[Vertex::desc().clone()], // 2.
+            entry_point: "vs_main",
+            buffers: &[Vertex::desc().clone()],
         },
         fragment: Some(wgpu::FragmentState {
             // 3.
@@ -107,7 +106,7 @@ fn render(
 
     const VERTICES: &[Vertex] = &[
         Vertex {
-            position: [0.0, 0.5, 0.0],
+            position: [-0.5, 0.5, 0.0],
         },
         Vertex {
             position: [-0.5, -0.5, 0.0],
@@ -115,12 +114,23 @@ fn render(
         Vertex {
             position: [0.5, -0.5, 0.0],
         },
+        Vertex {
+            position: [0.5, 0.5, 0.0],
+        },
     ];
 
     let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Vertex Buffer"),
         contents: bytemuck::cast_slice(VERTICES),
         usage: wgpu::BufferUsages::VERTEX,
+    });
+
+    const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
+
+    let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Index Buffer"),
+        contents: bytemuck::cast_slice(INDICES),
+        usage: wgpu::BufferUsages::INDEX,
     });
 
     {
@@ -139,7 +149,8 @@ fn render(
 
         render_pass.set_pipeline(&pipeline);
         render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-        render_pass.draw(0..3, 0..1);
+        render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
+        render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
     }
 
     Ok((encoder.finish(), output))
