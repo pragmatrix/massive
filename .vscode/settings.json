@@ -1,11 +1,13 @@
 {
     "cSpell.words": [
         "bytemuck",
+        "cgmath",
         "charmap",
         "curr",
         "Danielsson's",
         "dmag",
         "dscale",
+        "fovy",
         "Gustavson",
         "multisampled",
         "multiview",
@@ -16,6 +18,8 @@
         "webgl",
         "wgpu",
         "Wgsl",
-        "Zeroable"
+        "Zeroable",
+        "zfar",
+        "znear"
     ]
 }
