@@ -142,16 +142,19 @@ fn render(
 
     // Camera
 
+    let fovy = 45.0;
+    let camera_distance = 1.0 / (fovy / 2.0f32).to_radians().tan();
+
     let camera = Camera {
         // position the camera one unit up and 2 units back
         // +z is out of the screen
-        eye: (0.0, 0.0, 2.0).into(),
+        eye: (0.0, 0.0, camera_distance).into(),
         // have it look at the origin
         target: (0.0, 0.0, 0.0).into(),
         // which way is "up"
         up: cgmath::Vector3::unit_y(),
         aspect: config.width as f32 / config.height as f32,
-        fovy: 45.0,
+        fovy,
         znear: 0.1,
         zfar: 100.0,
     };
@@ -375,12 +378,8 @@ struct Camera {
 impl Camera {
     fn view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
         let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        println!("view: {:?}", view);
         let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-        println!("projection: {:?}", proj);
-        let n = OPENGL_TO_WGPU_MATRIX * proj * view;
-        println!("projection - wgpu: {:?}", n);
-        n
+        OPENGL_TO_WGPU_MATRIX * proj * view
     }
 }
 
