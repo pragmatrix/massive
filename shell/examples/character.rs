@@ -25,7 +25,7 @@ fn render(
 
     // Shader
 
-    let shader = device.create_shader_module(wgpu::include_wgsl!("shader.wgsl"));
+    let shader = device.create_shader_module(wgpu::include_wgsl!("character-shader.wgsl"));
 
     // Encoder
 

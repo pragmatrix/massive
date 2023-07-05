@@ -29,5 +29,7 @@ var s_sampler: sampler;
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return textureSample(t_texture, s_sampler, in.tex_coords);
+    let sample = textureSample(t_texture, s_sampler, in.tex_coords);
+
+    return vec4<f32>(1.0 - sample.r, 1.0 - sample.r, 1.0 - sample.r, 1.0);
 }
