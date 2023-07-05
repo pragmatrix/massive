@@ -237,22 +237,24 @@ fn render(
 
     let pipeline = device.create_render_pipeline(&pipeline);
 
+    const SZ: f32 = 1.0;
+
     // Vertex Buffer (must live longer than render_pass)
     const VERTICES: &[TextureVertex] = &[
         TextureVertex {
-            position: [-0.5, 0.5, 0.0],
+            position: [-SZ, SZ, 0.0],
             tex_coords: [0.0, 0.0],
         },
         TextureVertex {
-            position: [-0.5, -0.5, 0.0],
+            position: [-SZ, -SZ, 0.0],
             tex_coords: [0.0, 1.0],
         },
         TextureVertex {
-            position: [0.5, -0.5, 0.0],
+            position: [SZ, -SZ, 0.0],
             tex_coords: [1.0, 1.0],
         },
         TextureVertex {
-            position: [0.5, 0.5, 0.0],
+            position: [SZ, SZ, 0.0],
             tex_coords: [1.0, 0.0],
         },
     ];
