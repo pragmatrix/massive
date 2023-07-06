@@ -1,6 +1,7 @@
 use std::mem;
 
 use anyhow::Result;
+use granularity::{map_ref, Value};
 use swash::{
     scale::{image::Image, Render, ScaleContext, Source, StrikeWith},
     zeno::Format,
@@ -13,6 +14,25 @@ async fn main() {
     env_logger::init();
 
     granularity_shell::run(self::render).await;
+}
+
+fn render_graph(
+    device: Value<wgpu::Device>,
+    queue: Value<wgpu::Queue>,
+    surface: Value<wgpu::Surface>,
+    config: Value<wgpu::SurfaceConfiguration>,
+) {
+    let shader = map_ref!(|device| {
+        device.create_shader_module(wgpu::include_wgsl!("character-shader.wgsl"))
+    });
+
+    let encoder = map_ref!(|device| {
+        device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Render Encoder"),
+        })
+    });
+
+    let output = map_ref!(|surface| surface.get_current_texture().unwrap());
 }
 
 fn render(

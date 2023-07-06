@@ -7,6 +7,8 @@ members = [
 ]
 
 [workspace.dependencies]
+granularity = { path = "granularity" }
+
 serde_tuple = "0.5.0"
 serde = { version = "1.0.164", features = ["derive"] }
 derive_more = "0.99.17"
@@ -15,7 +17,6 @@ env_logger = "0.10.0"
 # TODO: Only select the features we need
 tokio = { version = "1.29.1", features = ["full"] }
 wgpu = "0.16.1"
-granularity = { path = "granularity" }
 anyhow = "1.0.71"
 swash = "0.1.8"
 bytemuck = { version = "1.13.1", features = ["derive"] }
