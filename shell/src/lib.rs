@@ -1,6 +1,7 @@
 use anyhow::Result;
+use granularity::Value;
 use log::{error, info};
-use wgpu::PresentMode;
+use wgpu::{CommandBuffer, PresentMode, SurfaceTexture};
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -8,10 +9,10 @@ use winit::{
 };
 
 struct State {
-    surface: wgpu::Surface,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    config: wgpu::SurfaceConfiguration,
+    surface: Value<wgpu::Surface>,
+    device: Value<wgpu::Device>,
+    queue: Value<wgpu::Queue>,
+    config: Value<wgpu::SurfaceConfiguration>,
 }
 
 impl State {
@@ -90,6 +91,13 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        // TODO: analyze dependencies and integrate the shell and its updates into the graph.
+        let runtime = granularity::Runtime::new();
+        let surface = runtime.var(surface);
+        let device = runtime.var(device);
+        let queue = runtime.var(queue);
+        let config = runtime.var(config);
+
         Self {
             surface,
             device,
@@ -102,38 +110,39 @@ impl State {
         let new_surface_size = (new_size.0.max(1), new_size.1.max(1));
 
         if new_surface_size != self.surface_size() {
-            self.config.width = new_surface_size.0;
-            self.config.height = new_surface_size.1;
+            self.config.apply(|mut config| {
+                config.width = new_surface_size.0;
+                config.height = new_surface_size.1;
+                config
+            });
+
             self.reconfigure_surface();
         }
     }
 
     /// Reconfigure the surface after a change to the window's size or format.
     fn reconfigure_surface(&mut self) {
-        self.surface.configure(&self.device, &self.config);
+        self.surface.apply(|surface| {
+            surface.configure(&self.device.get_ref(), &self.config.get_ref());
+            surface
+        })
     }
 
     // Surface size may not match the Window's size, for example if the window's size is 0,0.
     fn surface_size(&self) -> (u32, u32) {
-        (self.config.width, self.config.height)
+        let config = self.config.get_ref();
+        (config.width, config.height)
     }
 
     fn update(&mut self) {}
 
     fn render(
         &mut self,
-        f: impl Fn(
-            &wgpu::Device,
-            &wgpu::Queue,
-            &wgpu::Surface,
-            &wgpu::SurfaceConfiguration,
-        ) -> Result<(wgpu::CommandBuffer, wgpu::SurfaceTexture)>,
+        command_buffer: &mut Value<CommandBuffer>,
+        surface_texture: &mut Value<SurfaceTexture>,
     ) -> Result<(), wgpu::SurfaceError> {
-        let (command_buffer, surface_texture) =
-            f(&self.device, &self.queue, &self.surface, &self.config).expect("render failed");
-
-        self.queue.submit([command_buffer]);
-        surface_texture.present();
+        self.queue.get_ref().submit([command_buffer.take()]);
+        surface_texture.take().present();
 
         Ok(())
     }
@@ -141,16 +150,23 @@ impl State {
 
 pub async fn run(
     f: impl Fn(
-            &wgpu::Device,
-            &wgpu::Queue,
-            &wgpu::Surface,
-            &wgpu::SurfaceConfiguration,
-        ) -> Result<(wgpu::CommandBuffer, wgpu::SurfaceTexture)>
+            Value<wgpu::Device>,
+            Value<wgpu::Queue>,
+            Value<wgpu::Surface>,
+            Value<wgpu::SurfaceConfiguration>,
+        ) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
         + 'static,
-) {
+) -> Result<()> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut state = State::new(&window).await;
+
+    let (mut command_buffer, mut surface_texture) = f(
+        state.device.clone(),
+        state.queue.clone(),
+        state.surface.clone(),
+        state.config.clone(),
+    );
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -182,7 +198,7 @@ pub async fn run(
 
             Event::RedrawRequested(window_id) if window_id == window.id() => {
                 state.update();
-                match state.render(&f) {
+                match state.render(&mut command_buffer, &mut surface_texture) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     // TODO: shouldn't we redraw here?
