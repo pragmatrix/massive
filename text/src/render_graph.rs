@@ -1,7 +1,6 @@
 use std::mem;
 
-use anyhow::Result;
-use granularity::{map_ref, Value};
+use granularity_shell::Shell;
 use swash::{
     scale::{image::Image, Render, ScaleContext, Source, StrikeWith},
     zeno::Format,
@@ -9,12 +8,18 @@ use swash::{
 };
 use wgpu::util::DeviceExt;
 
+use granularity::{map_ref, Value};
+use granularity_geometry::{scalar, view_projection_matrix, Camera, Projection};
+
 pub fn render_graph(
-    device: Value<wgpu::Device>,
-    queue: Value<wgpu::Queue>,
-    surface: Value<wgpu::Surface>,
-    config: Value<wgpu::SurfaceConfiguration>,
+    camera: Value<Camera>,
+    shell: &Shell,
 ) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>) {
+    let device = &shell.device;
+    let queue = &shell.queue;
+    let config = &shell.config;
+    let surface = &shell.surface;
+
     let shader = map_ref!(|device| {
         device.create_shader_module(wgpu::include_wgsl!("shaders/character-shader.wgsl"))
     });
@@ -130,33 +135,22 @@ pub fn render_graph(
 
     // Camera
 
-    let fovy = 45.0;
-    let camera_distance = 1.0 / (fovy / 2.0f32).to_radians().tan();
+    let projection = map_ref!(|config| Projection::new(
+        config.width as scalar / config.height as scalar,
+        0.1,
+        100.0
+    ));
 
-    let camera = map_ref!(|config| Camera {
-        // position the camera one unit up and 2 units back
-        // +z is out of the screen
-        eye: (0.0, 0.0, camera_distance).into(),
-        // have it look at the origin
-        target: (0.0, 0.0, 0.0).into(),
-        // which way is "up"
-        up: cgmath::Vector3::unit_y(),
-        aspect: config.width as f32 / config.height as f32,
-        fovy,
-        znear: 0.1,
-        zfar: 100.0,
+    let view_projection_uniform = map_ref!(|camera, projection| {
+        let matrix = view_projection_matrix(camera, projection);
+        let m: cgmath::Matrix4<f32> = matrix.cast().expect("matrix casting to f32 failed");
+        ViewProjectionUniform(m.into())
     });
 
-    let camera_uniform = map_ref!(|camera| {
-        let mut camera_uniform = CameraUniform::new();
-        camera_uniform.update_view_proj(camera);
-        camera_uniform
-    });
-
-    let camera_buffer = map_ref!(|device, camera_uniform| {
+    let view_projection_buffer = map_ref!(|device, view_projection_uniform| {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[*camera_uniform]),
+            contents: bytemuck::cast_slice(&[*view_projection_uniform]),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         })
     });
@@ -177,15 +171,19 @@ pub fn render_graph(
         })
     });
 
-    let camera_bind_group = map_ref!(|device, camera_bind_group_layout, camera_buffer| device
-        .create_bind_group(&wgpu::BindGroupDescriptor {
-            layout: camera_bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-            label: Some("Camera Bind Group"),
-        }));
+    let camera_bind_group =
+        map_ref!(
+            |device, camera_bind_group_layout, view_projection_buffer| device.create_bind_group(
+                &wgpu::BindGroupDescriptor {
+                    layout: camera_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: view_projection_buffer.as_entire_binding(),
+                    }],
+                    label: Some("Camera Bind Group"),
+                }
+            )
+        );
 
     // Pipeline
 
@@ -381,52 +379,8 @@ fn render_character(c: char) -> Image {
     render.render(&mut scaler, glyph_id).expect("image")
 }
 
-#[derive(Debug)]
-struct Camera {
-    eye: cgmath::Point3<f32>,
-    target: cgmath::Point3<f32>,
-    up: cgmath::Vector3<f32>,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
-}
-
-impl Camera {
-    fn view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_at_rh(self.eye, self.target, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-        OPENGL_TO_WGPU_MATRIX * proj * view
-    }
-}
-
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-);
-
 // We need this for Rust to store our data correctly for the shaders
 #[repr(C)]
 // This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct CameraUniform {
-    // We can't use cgmath with bytemuck directly so we'll have
-    // to convert the Matrix4 into a 4x4 f32 array
-    view_proj: [[f32; 4]; 4],
-}
-
-impl CameraUniform {
-    fn new() -> Self {
-        use cgmath::SquareMatrix;
-        Self {
-            view_proj: cgmath::Matrix4::identity().into(),
-        }
-    }
-
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_proj = camera.view_projection_matrix().into();
-    }
-}
+struct ViewProjectionUniform([[f32; 4]; 4]);

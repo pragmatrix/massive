@@ -8,16 +8,17 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-struct State {
-    surface: Value<wgpu::Surface>,
-    device: Value<wgpu::Device>,
-    queue: Value<wgpu::Queue>,
-    config: Value<wgpu::SurfaceConfiguration>,
+#[derive(Clone)]
+pub struct Shell {
+    pub surface: Value<wgpu::Surface>,
+    pub device: Value<wgpu::Device>,
+    pub queue: Value<wgpu::Queue>,
+    pub config: Value<wgpu::SurfaceConfiguration>,
 }
 
-impl State {
+impl Shell {
     // Creating some of the wgpu types requires async code
-    async fn new(window: &Window) -> State {
+    async fn new(runtime: granularity::Runtime, window: &Window) -> Shell {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -91,7 +92,6 @@ impl State {
         surface.configure(&device, &config);
 
         // TODO: analyze dependencies and integrate the shell and its updates into the graph.
-        let runtime = granularity::Runtime::new();
         let surface = runtime.var(surface);
         let device = runtime.var(device);
         let queue = runtime.var(queue);
@@ -148,24 +148,15 @@ impl State {
 }
 
 pub async fn run(
-    f: impl Fn(
-            Value<wgpu::Device>,
-            Value<wgpu::Queue>,
-            Value<wgpu::Surface>,
-            Value<wgpu::SurfaceConfiguration>,
-        ) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
+    runtime: granularity::Runtime,
+    create_render_graph: impl FnOnce(&Shell) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
         + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut state = State::new(&window).await;
+    let mut shell = Shell::new(runtime, &window).await;
 
-    let (mut command_buffer, mut surface_texture) = f(
-        state.device.clone(),
-        state.queue.clone(),
-        state.surface.clone(),
-        state.config.clone(),
-    );
+    let (mut command_buffer, mut surface_texture) = create_render_graph(&shell);
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -186,22 +177,22 @@ pub async fn run(
                         ..
                     } => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
-                        state.resize_surface((physical_size.width, physical_size.height));
+                        shell.resize_surface((physical_size.width, physical_size.height));
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize_surface((new_inner_size.width, new_inner_size.height));
+                        shell.resize_surface((new_inner_size.width, new_inner_size.height));
                     }
                     _ => {}
                 }
             }
 
             Event::RedrawRequested(window_id) if window_id == window.id() => {
-                state.update();
-                match state.render(&mut command_buffer, &mut surface_texture) {
+                shell.update();
+                match shell.render(&mut command_buffer, &mut surface_texture) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     // TODO: shouldn't we redraw here?
-                    Err(wgpu::SurfaceError::Lost) => state.reconfigure_surface(),
+                    Err(wgpu::SurfaceError::Lost) => shell.reconfigure_surface(),
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
