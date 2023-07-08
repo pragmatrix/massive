@@ -9,21 +9,14 @@ use swash::{
 };
 use wgpu::util::DeviceExt;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    env_logger::init();
-
-    granularity_shell::run(render_graph).await
-}
-
-fn render_graph(
+pub fn render_graph(
     device: Value<wgpu::Device>,
     queue: Value<wgpu::Queue>,
     surface: Value<wgpu::Surface>,
     config: Value<wgpu::SurfaceConfiguration>,
 ) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>) {
     let shader = map_ref!(|device| {
-        device.create_shader_module(wgpu::include_wgsl!("character-shader.wgsl"))
+        device.create_shader_module(wgpu::include_wgsl!("shaders/character-shader.wgsl"))
     });
 
     // TODO: handle errors here (but how or if? should they propagate through the graph?)
@@ -366,7 +359,7 @@ impl TextureVertex {
 
 fn render_character(c: char) -> Image {
     let mut context = ScaleContext::new();
-    let font = include_bytes!("Roboto-Regular.ttf");
+    let font = include_bytes!("fonts/Roboto-Regular.ttf");
     let font = FontRef::from_index(font, 0).unwrap();
 
     let scaler_builder = context.builder(font);

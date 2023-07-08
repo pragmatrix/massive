@@ -15,4 +15,3 @@ anyhow = { workspace = true }
 swash = { workspace = true }
 bytemuck = { workspace = true }
 env_logger = { workspace = true }
-cgmath = "0.18.0"

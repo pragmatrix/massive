@@ -4,4 +4,15 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitflags = "1.2.1"
+bitflags = { workspace = true }
+wgpu = { workspace = true }
+anyhow = { workspace = true }
+granularity = { workspace = true }
+swash = { workspace = true }
+cgmath = { workspace = true }
+bytemuck = { workspace = true }
+
+[dev-dependencies]
+granularity-shell = { path = "../shell" }
+tokio = { workspace = true }
+env_logger = { workspace = true }

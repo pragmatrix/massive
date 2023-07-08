@@ -20,4 +20,5 @@ wgpu = "0.16.1"
 anyhow = "1.0.71"
 swash = "0.1.8"
 bytemuck = { version = "1.13.1", features = ["derive"] }
-
+bitflags = { version = "2.3.3" }
+cgmath = "0.18.0"
