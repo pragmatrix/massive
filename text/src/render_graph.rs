@@ -1,6 +1,6 @@
 use std::mem;
 
-use granularity_shell::Shell;
+use granularity_shell::{time, Shell};
 use swash::{
     scale::{image::Image, Render, ScaleContext, Source, StrikeWith},
     zeno::Format,

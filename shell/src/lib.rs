@@ -147,6 +147,13 @@ impl Shell {
     }
 }
 
+pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
+    let start = std::time::Instant::now();
+    let r = f();
+    println!("{name}: {:?}", start.elapsed());
+    r
+}
+
 pub async fn run(
     runtime: granularity::Runtime,
     create_render_graph: impl FnOnce(&Shell) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
@@ -178,9 +185,11 @@ pub async fn run(
                     } => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
                         shell.resize_surface((physical_size.width, physical_size.height));
+                        window.request_redraw()
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
                         shell.resize_surface((new_inner_size.width, new_inner_size.height));
+                        window.request_redraw()
                     }
                     _ => {}
                 }
@@ -202,7 +211,7 @@ pub async fn run(
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                window.request_redraw();
+                // window.request_redraw();
             }
             _ => {}
         }
