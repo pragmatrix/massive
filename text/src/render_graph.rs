@@ -516,6 +516,7 @@ fn image_to_texture_view(
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
+// Until vertex conversion, coordinate system is ((0,0), (surface.width,surface.height))
 const BASELINE_Y: i32 = 200;
 
 // TODO: need a rect structure.
@@ -525,9 +526,12 @@ fn place_glyph(pos: (i32, i32), placement: text::Placement) -> (Point2<i32>, Poi
     // placement goes up (right handed coordinate system).
     let top = pos.1 + BASELINE_Y - placement.top;
     let right = left + placement.width as i32;
-    let bottom = top - placement.height as i32;
+    let bottom = top + placement.height as i32;
 
-    ((left, top).into(), (right, bottom).into())
+    let r = ((left, top).into(), (right, bottom).into());
+    debug!("{:?}", r);
+
+    r
 }
 
 fn glyph_to_texture_vertex(
@@ -535,10 +539,10 @@ fn glyph_to_texture_vertex(
     rect: (Point2<f32>, Point2<f32>),
 ) -> [TextureVertex; 4] {
     // TODO: use a 2D matrix here?
-    let left = rect.0.x / surface_config.width as f32 * 2.0 - 1.0;
-    let top = rect.0.y / surface_config.width as f32 * 2.0 - 1.0;
-    let right = rect.1.x / surface_config.width as f32 * 2.0 - 1.0;
-    let bottom = rect.1.y / surface_config.width as f32 * 2.0 - 1.0;
+    let left = rect.0.x / surface_config.height as f32 * 2.0 - 1.0;
+    let top = (rect.0.y / surface_config.height as f32 * 2.0 - 1.0) * -1.0;
+    let right = rect.1.x / surface_config.height as f32 * 2.0 - 1.0;
+    let bottom = (rect.1.y / surface_config.height as f32 * 2.0 - 1.0) * -1.0;
 
     let v = [
         TextureVertex {
