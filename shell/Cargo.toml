@@ -10,6 +10,7 @@ tokio = { workspace= true }
 wgpu = { workspace = true }
 granularity = { workspace = true }
 anyhow = { workspace = true }
+cosmic-text = { workspace = true }
 
 [dev-dependencies]
 swash = { workspace = true }

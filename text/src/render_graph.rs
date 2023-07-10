@@ -1,20 +1,54 @@
-use std::mem;
+use std::{mem, ops::DerefMut};
 
+use cosmic_text::{self as text, SwashImage};
+use granularity_geometry::Point;
 use granularity_shell::{time, Shell};
+use log::debug;
 use swash::{
     scale::{image::Image, Render, ScaleContext, Source, StrikeWith},
     zeno::Format,
     FontRef,
 };
+use text::AttrsList;
 use wgpu::util::DeviceExt;
 
 use granularity::{map_ref, Value};
 use granularity_geometry::{scalar, view_projection_matrix, Camera, Projection};
 
+struct PlacedGlyph {
+    cache_key: text::CacheKey,
+    pos: (i32, i32),
+}
+
+impl PlacedGlyph {
+    fn new(cache_key: text::CacheKey, pos: (i32, i32)) -> Self {
+        Self { cache_key, pos }
+    }
+}
+
+fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PlacedGlyph> {
+    glyphs
+        .iter()
+        .map(|glyph| {
+            // TODO: disable Subpixel rendering?
+            let (cc, x, y) = text::CacheKey::new(
+                glyph.font_id,
+                glyph.glyph_id,
+                glyph.font_size,
+                (glyph.x, glyph.y),
+            );
+            PlacedGlyph::new(cc, (x, y))
+        })
+        .collect()
+}
+
 pub fn render_graph(
     camera: Value<Camera>,
+    text: Value<String>,
     shell: &Shell,
 ) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>) {
+    let font_system = &shell.font_system;
+    let glyph_cache = &shell.glyph_cache;
     let device = &shell.device;
     let queue = &shell.queue;
     let config = &shell.config;
@@ -33,51 +67,48 @@ pub fn render_graph(
             .create_view(&wgpu::TextureViewDescriptor::default())
     });
 
-    // Texture
+    let font_size = 140.0;
 
-    let image = render_character('Q');
+    // Text
 
-    let texture_size = wgpu::Extent3d {
-        width: image.placement.width,
-        height: image.placement.height,
-        depth_or_array_layers: 1,
-    };
-
-    let texture = map_ref!(|device, queue| {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            size: texture_size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            label: Some("Character Texture"),
-            view_formats: &[],
-        });
-
-        // TODO: how to separate this from texture creation?
-        queue.write_texture(
-            wgpu::ImageCopyTexture {
-                texture: &texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            &image.data,
-            wgpu::ImageDataLayout {
-                offset: 0,
-                bytes_per_row: Some(image.placement.width),
-                // TODO: this looks optional.
-                rows_per_image: Some(image.placement.height),
-            },
-            texture_size,
+    let placed_glyphs = map_ref!(|font_system, text| {
+        let mut font_system = font_system.borrow_mut();
+        let font_system = font_system.deref_mut();
+        // TODO: Cosmic text recommends to use a single buffer for a widget, but we are creating a
+        // new one every time the text change. Not sure if that makes a big difference, because it
+        // seems that all the shaping information is being destroyed and only the buffer's memory
+        // is preserved.
+        let mut buffer = text::BufferLine::new(
+            text,
+            text::AttrsList::new(text::Attrs::new()),
+            text::Shaping::Advanced,
         );
-
-        texture
+        let line = &buffer.layout(font_system, font_size, f32::MAX, text::Wrap::None)[0].glyphs;
+        place_glyphs(line)
     });
 
-    let texture_view =
-        map_ref!(|texture| texture.create_view(&wgpu::TextureViewDescriptor::default()));
+    // TODO: cache these, too.
+    let glyph_texture_views = map_ref!(|device, queue, font_system, glyph_cache, placed_glyphs| {
+        let mut font_system = font_system.borrow_mut();
+        let mut glyph_cache = glyph_cache.borrow_mut();
+        let glyph_cache = glyph_cache.deref_mut();
+        placed_glyphs
+            .iter()
+            .map(|placed_glyph| {
+                let image = glyph_cache
+                    .get_image(&mut font_system, placed_glyph.cache_key)
+                    .as_ref();
+
+                image
+                    .and_then(|image| {
+                        (image.placement.width != 0 && image.placement.height != 0).then_some(image)
+                    })
+                    .map(|image| image_to_texture_view(device, queue, image))
+            })
+            .collect::<Vec<_>>()
+    });
+
+    // Sample & Texture Bind Group
 
     let texture_sampler = map_ref!(|device| device.create_sampler(&wgpu::SamplerDescriptor {
         address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -113,24 +144,31 @@ pub fn render_graph(
         })
     });
 
-    let texture_bind_group = map_ref!(|device,
-                                       texture_bind_group_layout,
-                                       texture_view,
-                                       texture_sampler| {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Texture Bind Group"),
-            layout: texture_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(texture_sampler),
-                },
-            ],
-        })
+    let texture_bind_groups = map_ref!(|device,
+                                        texture_bind_group_layout,
+                                        glyph_texture_views,
+                                        texture_sampler| {
+        glyph_texture_views
+            .iter()
+            .map(|texture_view| {
+                texture_view.as_ref().map(|texture_view| {
+                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Texture Bind Group"),
+                        layout: texture_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(texture_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(texture_sampler),
+                            },
+                        ],
+                    })
+                })
+            })
+            .collect::<Vec<_>>()
     });
 
     // Camera
@@ -280,7 +318,7 @@ pub fn render_graph(
     let command_buffer = map_ref!(|device,
                                    view,
                                    pipeline,
-                                   texture_bind_group,
+                                   texture_bind_groups,
                                    camera_bind_group,
                                    vertex_buffer,
                                    index_buffer| {
@@ -303,13 +341,15 @@ pub fn render_graph(
             });
 
             render_pass.set_pipeline(pipeline);
-            render_pass.set_bind_group(0, texture_bind_group, &[]);
             render_pass.set_bind_group(1, camera_bind_group, &[]);
             render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
-            render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
-        }
 
+            for texture_bind_group in texture_bind_groups.iter().filter_map(|b| b.as_ref()) {
+                render_pass.set_bind_group(0, texture_bind_group, &[]);
+                render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+            }
+        }
         encoder.finish()
     });
 
@@ -353,6 +393,12 @@ impl TextureVertex {
     }
 }
 
+// We need this for Rust to store our data correctly for the shaders
+#[repr(C)]
+// This is so we can store this in a buffer
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct ViewProjectionUniform([[f32; 4]; 4]);
+
 // Render a character using swash.
 
 fn render_character(c: char) -> Image {
@@ -362,6 +408,7 @@ fn render_character(c: char) -> Image {
 
     let scaler_builder = context.builder(font);
     let mut scaler = scaler_builder.size(200.0).hint(false).build();
+
     let glyph_id = font.charmap().map(c);
 
     // We don't really care how the final image is rendered in detail, so we initialize a priority
@@ -379,8 +426,48 @@ fn render_character(c: char) -> Image {
     render.render(&mut scaler, glyph_id).expect("image")
 }
 
-// We need this for Rust to store our data correctly for the shaders
-#[repr(C)]
-// This is so we can store this in a buffer
-#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct ViewProjectionUniform([[f32; 4]; 4]);
+/// Creates an empty texture and queues it for uploading to the GPU.
+fn image_to_texture_view(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &SwashImage,
+) -> wgpu::TextureView {
+    let texture_size = wgpu::Extent3d {
+        width: image.placement.width,
+        height: image.placement.height,
+        depth_or_array_layers: 1,
+    };
+
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        size: texture_size,
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::R8Unorm,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        label: Some("Character Texture"),
+        view_formats: &[],
+    });
+
+    // TODO: how to separate this from texture creation?
+    queue.write_texture(
+        wgpu::ImageCopyTexture {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &image.data,
+        wgpu::ImageDataLayout {
+            offset: 0,
+            bytes_per_row: Some(image.placement.width),
+            // TODO: this looks optional.
+            rows_per_image: Some(image.placement.height),
+        },
+        texture_size,
+    );
+
+    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    texture_view
+}

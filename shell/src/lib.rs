@@ -1,4 +1,7 @@
+use std::cell::RefCell;
+
 use anyhow::Result;
+use cosmic_text::{FontSystem, SwashCache};
 use granularity::Value;
 use log::{error, info};
 use wgpu::{CommandBuffer, PresentMode, SurfaceTexture};
@@ -10,6 +13,8 @@ use winit::{
 
 #[derive(Clone)]
 pub struct Shell {
+    pub font_system: Value<RefCell<FontSystem>>,
+    pub glyph_cache: Value<RefCell<SwashCache>>,
     pub surface: Value<wgpu::Surface>,
     pub device: Value<wgpu::Device>,
     pub queue: Value<wgpu::Queue>,
@@ -91,6 +96,8 @@ impl Shell {
         };
         surface.configure(&device, &config);
 
+        let font_system = runtime.var(FontSystem::new().into());
+        let glyph_cache = runtime.var(SwashCache::new().into());
         // TODO: analyze dependencies and integrate the shell and its updates into the graph.
         let surface = runtime.var(surface);
         let device = runtime.var(device);
@@ -98,6 +105,8 @@ impl Shell {
         let config = runtime.var(config);
 
         Self {
+            font_system,
+            glyph_cache,
             surface,
             device,
             queue,
