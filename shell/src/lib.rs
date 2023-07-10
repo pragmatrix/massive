@@ -18,7 +18,7 @@ pub struct Shell {
     pub surface: Value<wgpu::Surface>,
     pub device: Value<wgpu::Device>,
     pub queue: Value<wgpu::Queue>,
-    pub config: Value<wgpu::SurfaceConfiguration>,
+    pub surface_config: Value<wgpu::SurfaceConfiguration>,
 }
 
 impl Shell {
@@ -110,7 +110,7 @@ impl Shell {
             surface,
             device,
             queue,
-            config,
+            surface_config: config,
         }
     }
 
@@ -118,7 +118,7 @@ impl Shell {
         let new_surface_size = (new_size.0.max(1), new_size.1.max(1));
 
         if new_surface_size != self.surface_size() {
-            self.config.apply(|mut config| {
+            self.surface_config.apply(|mut config| {
                 config.width = new_surface_size.0;
                 config.height = new_surface_size.1;
                 config
@@ -131,14 +131,14 @@ impl Shell {
     /// Reconfigure the surface after a change to the window's size or format.
     fn reconfigure_surface(&mut self) {
         self.surface.apply(|surface| {
-            surface.configure(&self.device.get_ref(), &self.config.get_ref());
+            surface.configure(&self.device.get_ref(), &self.surface_config.get_ref());
             surface
         })
     }
 
     // Surface size may not match the Window's size, for example if the window's size is 0,0.
     fn surface_size(&self) -> (u32, u32) {
-        let config = self.config.get_ref();
+        let config = self.surface_config.get_ref();
         (config.width, config.height)
     }
 

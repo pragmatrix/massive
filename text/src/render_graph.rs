@@ -1,7 +1,7 @@
 use std::{mem, ops::DerefMut};
 
+use cgmath::Point2;
 use cosmic_text::{self as text, SwashImage};
-use granularity_geometry::Point;
 use granularity_shell::{time, Shell};
 use log::debug;
 use swash::{
@@ -9,11 +9,10 @@ use swash::{
     zeno::Format,
     FontRef,
 };
-use text::AttrsList;
 use wgpu::util::DeviceExt;
 
 use granularity::{map_ref, Value};
-use granularity_geometry::{scalar, view_projection_matrix, Camera, Projection};
+use granularity_geometry::{scalar, view_projection_matrix, Camera, Point, Projection};
 
 struct PlacedGlyph {
     cache_key: text::CacheKey,
@@ -51,8 +50,9 @@ pub fn render_graph(
     let glyph_cache = &shell.glyph_cache;
     let device = &shell.device;
     let queue = &shell.queue;
-    let config = &shell.config;
+    let config = &shell.surface_config;
     let surface = &shell.surface;
+    let surface_config = &shell.surface_config;
 
     let shader = map_ref!(|device| {
         device.create_shader_module(wgpu::include_wgsl!("shaders/character-shader.wgsl"))
@@ -87,26 +87,55 @@ pub fn render_graph(
         place_glyphs(line)
     });
 
-    // TODO: cache these, too.
-    let glyph_texture_views = map_ref!(|device, queue, font_system, glyph_cache, placed_glyphs| {
-        let mut font_system = font_system.borrow_mut();
-        let mut glyph_cache = glyph_cache.borrow_mut();
-        let glyph_cache = glyph_cache.deref_mut();
-        placed_glyphs
-            .iter()
-            .map(|placed_glyph| {
-                let image = glyph_cache
-                    .get_image(&mut font_system, placed_glyph.cache_key)
-                    .as_ref();
+    // For now they have to be combined because we only receive placements and the imagines together
+    // from the SwashCache, and the images are only accessible by reference.
+    // TODO: Find a way to separate them.
+    let placements_and_texture_views =
+        map_ref!(|device, queue, font_system, glyph_cache, placed_glyphs| {
+            let mut font_system = font_system.borrow_mut();
+            let mut glyph_cache = glyph_cache.borrow_mut();
+            let glyph_cache = glyph_cache.deref_mut();
+            placed_glyphs
+                .iter()
+                .map(|placed_glyph| {
+                    let image = glyph_cache
+                        .get_image(&mut font_system, placed_glyph.cache_key)
+                        .as_ref();
 
-                image
-                    .and_then(|image| {
-                        (image.placement.width != 0 && image.placement.height != 0).then_some(image)
+                    image
+                        .and_then(|image| {
+                            (image.placement.width != 0 && image.placement.height != 0)
+                                .then_some(image)
+                        })
+                        .map(|image| (image.placement, image_to_texture_view(device, queue, image)))
+                })
+                .collect::<Vec<_>>()
+        });
+
+    let vertex_buffers = map_ref!(
+        |device, surface_config, placed_glyphs, placements_and_texture_views| {
+            placements_and_texture_views
+                .iter()
+                .enumerate()
+                .map(|(i, placement_and_view)| {
+                    placement_and_view.as_ref().map(|(placement, _)| {
+                        let rect = place_glyph(placed_glyphs[i].pos, *placement);
+
+                        let vertices = glyph_to_texture_vertex(
+                            surface_config,
+                            (rect.0.cast().unwrap(), rect.1.cast().unwrap()),
+                        );
+
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Vertex Buffer"),
+                            contents: bytemuck::cast_slice(&vertices),
+                            usage: wgpu::BufferUsages::VERTEX,
+                        })
                     })
-                    .map(|image| image_to_texture_view(device, queue, image))
-            })
-            .collect::<Vec<_>>()
-    });
+                })
+                .collect::<Vec<_>>()
+        }
+    );
 
     // Sample & Texture Bind Group
 
@@ -146,12 +175,13 @@ pub fn render_graph(
 
     let texture_bind_groups = map_ref!(|device,
                                         texture_bind_group_layout,
-                                        glyph_texture_views,
+                                        placements_and_texture_views,
                                         texture_sampler| {
-        glyph_texture_views
+        placements_and_texture_views
             .iter()
-            .map(|texture_view| {
-                texture_view.as_ref().map(|texture_view| {
+            .enumerate()
+            .map(|(i, placement_and_view)| {
+                placement_and_view.as_ref().map(|(_, texture_view)| {
                     device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("Texture Bind Group"),
                         layout: texture_bind_group_layout,
@@ -277,33 +307,33 @@ pub fn render_graph(
 
     const SZ: f32 = 1.0;
 
-    // Vertex Buffer (must live longer than render_pass)
-    const VERTICES: &[TextureVertex] = &[
-        TextureVertex {
-            position: [-SZ, SZ, 0.0],
-            tex_coords: [0.0, 0.0],
-        },
-        TextureVertex {
-            position: [-SZ, -SZ, 0.0],
-            tex_coords: [0.0, 1.0],
-        },
-        TextureVertex {
-            position: [SZ, -SZ, 0.0],
-            tex_coords: [1.0, 1.0],
-        },
-        TextureVertex {
-            position: [SZ, SZ, 0.0],
-            tex_coords: [1.0, 0.0],
-        },
-    ];
+    // // Vertex Buffer (must live longer than render_pass)
+    // const VERTICES: &[TextureVertex] = &[
+    //     TextureVertex {
+    //         position: [-SZ, SZ, 0.0],
+    //         tex_coords: [0.0, 0.0],
+    //     },
+    //     TextureVertex {
+    //         position: [-SZ, -SZ, 0.0],
+    //         tex_coords: [0.0, 1.0],
+    //     },
+    //     TextureVertex {
+    //         position: [SZ, -SZ, 0.0],
+    //         tex_coords: [1.0, 1.0],
+    //     },
+    //     TextureVertex {
+    //         position: [SZ, SZ, 0.0],
+    //         tex_coords: [1.0, 0.0],
+    //     },
+    // ];
 
-    let vertex_buffer = map_ref!(|device| device.create_buffer_init(
-        &wgpu::util::BufferInitDescriptor {
-            label: Some("Vertex Buffer"),
-            contents: bytemuck::cast_slice(VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        }
-    ));
+    // let vertex_buffer = map_ref!(|device| device.create_buffer_init(
+    //     &wgpu::util::BufferInitDescriptor {
+    //         label: Some("Vertex Buffer"),
+    //         contents: bytemuck::cast_slice(VERTICES),
+    //         usage: wgpu::BufferUsages::VERTEX,
+    //     }
+    // ));
 
     const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
@@ -320,7 +350,7 @@ pub fn render_graph(
                                    pipeline,
                                    texture_bind_groups,
                                    camera_bind_group,
-                                   vertex_buffer,
+                                   vertex_buffers,
                                    index_buffer| {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
@@ -342,11 +372,15 @@ pub fn render_graph(
 
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(1, camera_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
 
-            for texture_bind_group in texture_bind_groups.iter().filter_map(|b| b.as_ref()) {
+            for (i, texture_bind_group) in texture_bind_groups
+                .iter()
+                .enumerate()
+                .filter_map(|(i, b)| b.as_ref().map(|b| (i, b)))
+            {
                 render_pass.set_bind_group(0, texture_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, vertex_buffers[i].as_ref().unwrap().slice(..));
                 render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
             }
         }
@@ -363,6 +397,12 @@ struct Vertex {
 }
 
 impl Vertex {
+    fn new(x: f32, y: f32, z: f32) -> Self {
+        Self {
+            position: [x, y, z],
+        }
+    }
+
     fn desc() -> &'static wgpu::VertexBufferLayout<'static> {
         const LAYOUT: wgpu::VertexBufferLayout = wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
@@ -374,10 +414,16 @@ impl Vertex {
     }
 }
 
+impl From<(f32, f32, f32)> for Vertex {
+    fn from(v: (f32, f32, f32)) -> Self {
+        Self::new(v.0, v.1, v.2)
+    }
+}
+
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 struct TextureVertex {
-    position: [f32; 3],
+    position: Vertex,
     tex_coords: [f32; 2],
 }
 
@@ -467,7 +513,53 @@ fn image_to_texture_view(
         texture_size,
     );
 
-    let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
 
-    texture_view
+const BASELINE_Y: i32 = 200;
+
+// TODO: need a rect structure.
+
+fn place_glyph(pos: (i32, i32), placement: text::Placement) -> (Point2<i32>, Point2<i32>) {
+    let left = pos.0 + placement.left;
+    // placement goes up (right handed coordinate system).
+    let top = pos.1 + BASELINE_Y - placement.top;
+    let right = left + placement.width as i32;
+    let bottom = top - placement.height as i32;
+
+    ((left, top).into(), (right, bottom).into())
+}
+
+fn glyph_to_texture_vertex(
+    surface_config: &wgpu::SurfaceConfiguration,
+    rect: (Point2<f32>, Point2<f32>),
+) -> [TextureVertex; 4] {
+    // TODO: use a 2D matrix here?
+    let left = rect.0.x / surface_config.width as f32 * 2.0 - 1.0;
+    let top = rect.0.y / surface_config.width as f32 * 2.0 - 1.0;
+    let right = rect.1.x / surface_config.width as f32 * 2.0 - 1.0;
+    let bottom = rect.1.y / surface_config.width as f32 * 2.0 - 1.0;
+
+    let v = [
+        TextureVertex {
+            position: (left, top, 0.0).into(),
+            tex_coords: [0.0, 0.0],
+        },
+        TextureVertex {
+            position: (left, bottom, 0.0).into(),
+            tex_coords: [0.0, 1.0],
+        },
+        TextureVertex {
+            position: (right, bottom, 0.0).into(),
+            tex_coords: [1.0, 1.0],
+        },
+        TextureVertex {
+            position: (right, top, 0.0).into(),
+            tex_coords: [1.0, 0.0],
+        },
+    ];
+
+    debug!("{:?}", v);
+
+    v
 }
