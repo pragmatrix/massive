@@ -25,16 +25,24 @@ impl PlacedGlyph {
     }
 }
 
+const RENDER_SUBPIXEL: bool = false;
+
 fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PlacedGlyph> {
     glyphs
         .iter()
         .map(|glyph| {
+            let fractional_pos = if RENDER_SUBPIXEL {
+                (glyph.x, glyph.y)
+            } else {
+                (glyph.x.round(), glyph.y.round())
+            };
+
             // TODO: disable Subpixel rendering?
             let (cc, x, y) = text::CacheKey::new(
                 glyph.font_id,
                 glyph.glyph_id,
                 glyph.font_size,
-                (glyph.x, glyph.y),
+                fractional_pos,
             );
             PlacedGlyph::new(cc, (x, y))
         })
