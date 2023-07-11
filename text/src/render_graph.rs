@@ -75,7 +75,7 @@ pub fn render_graph(
             .create_view(&wgpu::TextureViewDescriptor::default())
     });
 
-    let font_size = 140.0;
+    let font_size = 28.0;
 
     // Text
 
