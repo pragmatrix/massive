@@ -2,7 +2,7 @@ use std::{mem, ops::DerefMut};
 
 use cgmath::Point2;
 use cosmic_text::{self as text, SwashImage};
-use granularity_shell::{time, Shell};
+use granularity_shell::Shell;
 use log::debug;
 use swash::{
     scale::{image::Image, Render, ScaleContext, Source, StrikeWith},
@@ -12,7 +12,7 @@ use swash::{
 use wgpu::util::DeviceExt;
 
 use granularity::{map_ref, Value};
-use granularity_geometry::{scalar, view_projection_matrix, Camera, Point, Projection};
+use granularity_geometry::{scalar, view_projection_matrix, Camera, Projection};
 
 struct PlacedGlyph {
     cache_key: text::CacheKey,
