@@ -107,7 +107,7 @@ pub fn render_graph(
                             (image.placement.width != 0 && image.placement.height != 0)
                                 .then_some(image)
                         })
-                        .map(|image| (image.placement, image_to_texture_view(device, queue, image)))
+                        .map(|image| (image.placement, image_to_texture(device, queue, image)))
                 })
                 .collect::<Vec<_>>()
         });
@@ -180,7 +180,7 @@ pub fn render_graph(
         placements_and_texture_views
             .iter()
             .enumerate()
-            .map(|(i, placement_and_view)| {
+            .map(|(_, placement_and_view)| {
                 placement_and_view.as_ref().map(|(_, texture_view)| {
                     device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("Texture Bind Group"),
@@ -285,6 +285,7 @@ pub fn render_graph(
                 targets,
             }),
             primitive: wgpu::PrimitiveState {
+                // TODO: do we really need / use triangle lists.
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,
@@ -473,7 +474,7 @@ fn render_character(c: char) -> Image {
 }
 
 /// Creates an empty texture and queues it for uploading to the GPU.
-fn image_to_texture_view(
+fn image_to_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &SwashImage,
@@ -528,10 +529,7 @@ fn place_glyph(pos: (i32, i32), placement: text::Placement) -> (Point2<i32>, Poi
     let right = left + placement.width as i32;
     let bottom = top + placement.height as i32;
 
-    let r = ((left, top).into(), (right, bottom).into());
-    debug!("{:?}", r);
-
-    r
+    ((left, top).into(), (right, bottom).into())
 }
 
 fn glyph_to_texture_vertex(
@@ -544,7 +542,7 @@ fn glyph_to_texture_vertex(
     let right = rect.1.x / surface_config.height as f32 * 2.0 - 1.0;
     let bottom = (rect.1.y / surface_config.height as f32 * 2.0 - 1.0) * -1.0;
 
-    let v = [
+    [
         TextureVertex {
             position: (left, top, 0.0).into(),
             tex_coords: [0.0, 0.0],
@@ -561,9 +559,5 @@ fn glyph_to_texture_vertex(
             position: (right, top, 0.0).into(),
             tex_coords: [1.0, 0.0],
         },
-    ];
-
-    debug!("{:?}", v);
-
-    v
+    ]
 }
