@@ -314,36 +314,6 @@ pub fn render_graph(
         device.create_render_pipeline(&pipeline)
     });
 
-    const SZ: f32 = 1.0;
-
-    // // Vertex Buffer (must live longer than render_pass)
-    // const VERTICES: &[TextureVertex] = &[
-    //     TextureVertex {
-    //         position: [-SZ, SZ, 0.0],
-    //         tex_coords: [0.0, 0.0],
-    //     },
-    //     TextureVertex {
-    //         position: [-SZ, -SZ, 0.0],
-    //         tex_coords: [0.0, 1.0],
-    //     },
-    //     TextureVertex {
-    //         position: [SZ, -SZ, 0.0],
-    //         tex_coords: [1.0, 1.0],
-    //     },
-    //     TextureVertex {
-    //         position: [SZ, SZ, 0.0],
-    //         tex_coords: [1.0, 0.0],
-    //     },
-    // ];
-
-    // let vertex_buffer = map_ref!(|device| device.create_buffer_init(
-    //     &wgpu::util::BufferInitDescriptor {
-    //         label: Some("Vertex Buffer"),
-    //         contents: bytemuck::cast_slice(VERTICES),
-    //         usage: wgpu::BufferUsages::VERTEX,
-    //     }
-    // ));
-
     const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
     let index_buffer = map_ref!(|device| device.create_buffer_init(
