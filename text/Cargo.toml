@@ -4,4 +4,20 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bitflags = "1.2.1"
+bitflags = { workspace = true }
+wgpu = { workspace = true }
+anyhow = { workspace = true }
+granularity = { workspace = true }
+cgmath = { workspace = true }
+bytemuck = { workspace = true }
+granularity-geometry = { workspace = true }
+# TODO: remove (move the renderer to the shell)
+granularity-shell = { workspace = true }
+cosmic-text = { workspace = true }
+# TODO: remove (use only cosmic-text)
+swash = { workspace = true }
+log = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+env_logger = { workspace = true }

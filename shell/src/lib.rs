@@ -1,4 +1,7 @@
+use std::cell::RefCell;
+
 use anyhow::Result;
+use cosmic_text::{FontSystem, SwashCache};
 use granularity::Value;
 use log::{error, info};
 use wgpu::{CommandBuffer, PresentMode, SurfaceTexture};
@@ -8,16 +11,19 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-struct State {
-    surface: Value<wgpu::Surface>,
-    device: Value<wgpu::Device>,
-    queue: Value<wgpu::Queue>,
-    config: Value<wgpu::SurfaceConfiguration>,
+#[derive(Clone)]
+pub struct Shell {
+    pub font_system: Value<RefCell<FontSystem>>,
+    pub glyph_cache: Value<RefCell<SwashCache>>,
+    pub surface: Value<wgpu::Surface>,
+    pub device: Value<wgpu::Device>,
+    pub queue: Value<wgpu::Queue>,
+    pub surface_config: Value<wgpu::SurfaceConfiguration>,
 }
 
-impl State {
+impl Shell {
     // Creating some of the wgpu types requires async code
-    async fn new(window: &Window) -> State {
+    async fn new(runtime: granularity::Runtime, window: &Window) -> Shell {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -90,18 +96,21 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        let font_system = runtime.var(FontSystem::new().into());
+        let glyph_cache = runtime.var(SwashCache::new().into());
         // TODO: analyze dependencies and integrate the shell and its updates into the graph.
-        let runtime = granularity::Runtime::new();
         let surface = runtime.var(surface);
         let device = runtime.var(device);
         let queue = runtime.var(queue);
         let config = runtime.var(config);
 
         Self {
+            font_system,
+            glyph_cache,
             surface,
             device,
             queue,
-            config,
+            surface_config: config,
         }
     }
 
@@ -109,7 +118,7 @@ impl State {
         let new_surface_size = (new_size.0.max(1), new_size.1.max(1));
 
         if new_surface_size != self.surface_size() {
-            self.config.apply(|mut config| {
+            self.surface_config.apply(|mut config| {
                 config.width = new_surface_size.0;
                 config.height = new_surface_size.1;
                 config
@@ -122,14 +131,14 @@ impl State {
     /// Reconfigure the surface after a change to the window's size or format.
     fn reconfigure_surface(&mut self) {
         self.surface.apply(|surface| {
-            surface.configure(&self.device.get_ref(), &self.config.get_ref());
+            surface.configure(&self.device.get_ref(), &self.surface_config.get_ref());
             surface
         })
     }
 
     // Surface size may not match the Window's size, for example if the window's size is 0,0.
     fn surface_size(&self) -> (u32, u32) {
-        let config = self.config.get_ref();
+        let config = self.surface_config.get_ref();
         (config.width, config.height)
     }
 
@@ -147,25 +156,23 @@ impl State {
     }
 }
 
+pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
+    let start = std::time::Instant::now();
+    let r = f();
+    println!("{name}: {:?}", start.elapsed());
+    r
+}
+
 pub async fn run(
-    f: impl Fn(
-            Value<wgpu::Device>,
-            Value<wgpu::Queue>,
-            Value<wgpu::Surface>,
-            Value<wgpu::SurfaceConfiguration>,
-        ) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
+    runtime: granularity::Runtime,
+    create_render_graph: impl FnOnce(&Shell) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
         + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut state = State::new(&window).await;
+    let mut shell = Shell::new(runtime, &window).await;
 
-    let (mut command_buffer, mut surface_texture) = f(
-        state.device.clone(),
-        state.queue.clone(),
-        state.surface.clone(),
-        state.config.clone(),
-    );
+    let (mut command_buffer, mut surface_texture) = create_render_graph(&shell);
 
     event_loop.run(move |event, _, control_flow| {
         match event {
@@ -186,22 +193,24 @@ pub async fn run(
                         ..
                     } => *control_flow = ControlFlow::Exit,
                     WindowEvent::Resized(physical_size) => {
-                        state.resize_surface((physical_size.width, physical_size.height));
+                        shell.resize_surface((physical_size.width, physical_size.height));
+                        window.request_redraw()
                     }
                     WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize_surface((new_inner_size.width, new_inner_size.height));
+                        shell.resize_surface((new_inner_size.width, new_inner_size.height));
+                        window.request_redraw()
                     }
                     _ => {}
                 }
             }
 
             Event::RedrawRequested(window_id) if window_id == window.id() => {
-                state.update();
-                match state.render(&mut command_buffer, &mut surface_texture) {
+                shell.update();
+                match shell.render(&mut command_buffer, &mut surface_texture) {
                     Ok(_) => {}
                     // Reconfigure the surface if lost
                     // TODO: shouldn't we redraw here?
-                    Err(wgpu::SurfaceError::Lost) => state.reconfigure_surface(),
+                    Err(wgpu::SurfaceError::Lost) => shell.reconfigure_surface(),
                     // The system is out of memory, we should probably quit
                     Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
                     // All other errors (Outdated, Timeout) should be resolved by the next frame
@@ -211,7 +220,7 @@ pub async fn run(
             Event::MainEventsCleared => {
                 // RedrawRequested will only trigger once, unless we manually
                 // request it.
-                window.request_redraw();
+                // window.request_redraw();
             }
             _ => {}
         }
