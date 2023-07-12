@@ -1,8 +1,3 @@
-use swash::{
-    scale::{image::Image, Render, ScaleContext, Source, StrikeWith},
-    zeno::Format,
-    FontRef,
-};
 use wgpu::util::DeviceExt;
 
 use granularity::{map_ref, Value};
@@ -42,8 +37,8 @@ pub fn render_graph(
     let texture_sampler = map_ref!(|device| device.create_sampler(&wgpu::SamplerDescriptor {
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Nearest,
-        min_filter: wgpu::FilterMode::Nearest,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
         ..Default::default()
     }));
 

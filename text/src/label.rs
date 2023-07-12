@@ -9,10 +9,24 @@ use wgpu::{util::DeviceExt, TextureView};
 use crate::TextureVertex;
 
 pub struct Label {
-    pub placed_glyphs: Value<Vec<PlacedGlyph>>,
+    placed_glyphs: Value<(LabelMetrics, Vec<PlacedGlyph>)>,
+    pub metrics: Value<LabelMetrics>,
     /// TODO: Separate?
     pub placements_and_texture_views: Value<Vec<Option<(text::Placement, TextureView)>>>,
     pub vertex_buffers: Value<Vec<Option<wgpu::Buffer>>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct LabelMetrics {
+    pub ascent: u32,
+    pub descent: u32,
+    pub width: u32,
+}
+
+impl LabelMetrics {
+    pub fn size(&self) -> (u32, u32) {
+        (self.width, self.ascent + self.descent)
+    }
 }
 
 pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> Label {
@@ -34,9 +48,19 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
             text::AttrsList::new(text::Attrs::new()),
             text::Shaping::Advanced,
         );
-        let line = &buffer.layout(font_system, *font_size, f32::MAX, text::Wrap::None)[0].glyphs;
-        place_glyphs(line)
+        let line = &buffer.layout(font_system, *font_size, f32::MAX, text::Wrap::None)[0];
+        let line_glyphs = &line.glyphs;
+        let placed = place_glyphs(line_glyphs);
+        println!("placed: {:?}", placed);
+        let metrics = LabelMetrics {
+            ascent: line.max_ascent as u32,
+            descent: line.max_descent as u32,
+            width: line.w.ceil() as u32,
+        };
+        (metrics, placed)
     });
+
+    let metrics = map_ref!(|placed_glyphs| placed_glyphs.0);
 
     // For now they have to be combined because we only receive placements and the imagines together
     // from the SwashCache, and the images are only accessible by reference.
@@ -47,6 +71,7 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
             let mut glyph_cache = glyph_cache.borrow_mut();
             let glyph_cache = glyph_cache.deref_mut();
             placed_glyphs
+                .1
                 .iter()
                 .map(|placed_glyph| {
                     let image = glyph_cache
@@ -70,7 +95,7 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
                 .enumerate()
                 .map(|(i, placement_and_view)| {
                     placement_and_view.as_ref().map(|(placement, _)| {
-                        let rect = place_glyph(placed_glyphs[i].pos, *placement);
+                        let rect = place_glyph(placed_glyphs.1[i].hitbox_pos, *placement);
 
                         let vertices = glyph_to_texture_vertex(
                             surface_config,
@@ -90,19 +115,26 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
 
     Label {
         placed_glyphs,
+        metrics,
         placements_and_texture_views,
         vertex_buffers,
     }
 }
 
+#[derive(Debug)]
 pub struct PlacedGlyph {
     pub cache_key: text::CacheKey,
-    pub pos: (i32, i32),
+    pub hitbox_pos: (i32, i32),
+    pub hitbox_width: f32,
 }
 
 impl PlacedGlyph {
-    fn new(cache_key: text::CacheKey, pos: (i32, i32)) -> Self {
-        Self { cache_key, pos }
+    fn new(cache_key: text::CacheKey, hitbox_pos: (i32, i32), hitbox_width: f32) -> Self {
+        Self {
+            cache_key,
+            hitbox_pos,
+            hitbox_width,
+        }
     }
 }
 
@@ -118,14 +150,15 @@ fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PlacedGlyph> {
                 (glyph.x.round(), glyph.y.round())
             };
 
-            // TODO: disable Subpixel rendering?
             let (cc, x, y) = text::CacheKey::new(
                 glyph.font_id,
                 glyph.glyph_id,
                 glyph.font_size,
                 fractional_pos,
             );
-            PlacedGlyph::new(cc, (x, y))
+            // Note: hitbox with is fractional, but does not change with / without subpixel
+            // rendering.
+            PlacedGlyph::new(cc, (x, y), glyph.w)
         })
         .collect()
 }
@@ -175,14 +208,14 @@ fn image_to_texture(
 }
 
 // Until vertex conversion, coordinate system is ((0,0), (surface.width,surface.height))
-const BASELINE_Y: i32 = 200;
+const BASELINE_Y: i32 = 0;
 
 // TODO: need a rect structure.
 
-fn place_glyph(pos: (i32, i32), placement: text::Placement) -> (Point2<i32>, Point2<i32>) {
-    let left = pos.0 + placement.left;
+fn place_glyph(hitbox_pos: (i32, i32), placement: text::Placement) -> (Point2<i32>, Point2<i32>) {
+    let left = hitbox_pos.0 + placement.left;
     // placement goes up (right handed coordinate system).
-    let top = pos.1 + BASELINE_Y - placement.top;
+    let top = hitbox_pos.1 + BASELINE_Y - placement.top;
     let right = left + placement.width as i32;
     let bottom = top + placement.height as i32;
 
@@ -194,10 +227,10 @@ fn glyph_to_texture_vertex(
     rect: (Point2<f32>, Point2<f32>),
 ) -> [TextureVertex; 4] {
     // TODO: use a 2D matrix here?
-    let left = rect.0.x / surface_config.height as f32 * 2.0 - 1.0;
-    let top = (rect.0.y / surface_config.height as f32 * 2.0 - 1.0) * -1.0;
-    let right = rect.1.x / surface_config.height as f32 * 2.0 - 1.0;
-    let bottom = (rect.1.y / surface_config.height as f32 * 2.0 - 1.0) * -1.0;
+    let left = rect.0.x / surface_config.height as f32 * 2.0;
+    let top = (rect.0.y / surface_config.height as f32 * 2.0) * -1.0;
+    let right = rect.1.x / surface_config.height as f32 * 2.0;
+    let bottom = (rect.1.y / surface_config.height as f32 * 2.0) * -1.0;
 
     [
         TextureVertex {
