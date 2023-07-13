@@ -4,7 +4,7 @@ use cgmath::Point2;
 use cosmic_text as text;
 use granularity::{map_ref, Value};
 use granularity_shell::Shell;
-use wgpu::{util::DeviceExt, TextureView};
+use wgpu::util::DeviceExt;
 
 use crate::TextureVertex;
 
@@ -12,7 +12,7 @@ pub struct Label {
     placed_glyphs: Value<(LabelMetrics, Vec<PlacedGlyph>)>,
     pub metrics: Value<LabelMetrics>,
     /// TODO: Separate?
-    pub placements_and_texture_views: Value<Vec<Option<(text::Placement, TextureView)>>>,
+    pub placements_and_texture_views: Value<Vec<Option<(text::Placement, wgpu::TextureView)>>>,
     pub vertex_buffers: Value<Vec<Option<wgpu::Buffer>>>,
 }
 
@@ -226,7 +226,7 @@ fn glyph_to_texture_vertex(
     surface_config: &wgpu::SurfaceConfiguration,
     rect: (Point2<f32>, Point2<f32>),
 ) -> [TextureVertex; 4] {
-    // TODO: use a 2D matrix here?
+    // TODO: use a 2D / 3D matrix here?
     let left = rect.0.x / surface_config.height as f32 * 2.0;
     let top = (rect.0.y / surface_config.height as f32 * 2.0) * -1.0;
     let right = rect.1.x / surface_config.height as f32 * 2.0;
