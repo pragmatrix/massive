@@ -1,10 +1,11 @@
+use cgmath::SquareMatrix;
 use wgpu::util::DeviceExt;
 
 use granularity::{map_ref, Value};
-use granularity_geometry::{scalar, view_projection_matrix, Camera, Projection};
+use granularity_geometry::{scalar, view_projection_matrix, Bounds3, Camera, Matrix4, Projection};
 use granularity_shell::Shell;
 
-use crate::{new_label, TextureVertex};
+use crate::{layout, new_label, TextureVertex};
 
 pub fn render_graph(
     camera: Value<Camera>,
@@ -14,6 +15,17 @@ pub fn render_graph(
     let device = &shell.device;
     let config = &shell.surface_config;
     let surface = &shell.surface;
+    let surface_config = &shell.surface_config;
+
+    // Create a pixel bounds for a window that covers the entire surface.
+    let window_bounds = map_ref!(|surface_config| {
+        let half_width = surface_config.width / 2;
+        let half_height = surface_config.height / 2;
+        Bounds3::new(
+            (-(half_width as f64), -(half_height as f64), 0.0).into(),
+            (half_width as f64, half_height as f64, 0.0).into(),
+        )
+    });
 
     let shader = map_ref!(|device| {
         device.create_shader_module(wgpu::include_wgsl!("shaders/character-shader.wgsl"))
@@ -31,6 +43,16 @@ pub fn render_graph(
     let font_size = shell.surface.runtime().var(28.0);
 
     let label = new_label(shell, font_size, text);
+
+    // A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
+    // 1.0 in each axis. Also flips y.
+    let pixel_matrix = map_ref!(|surface_config| {
+        Matrix4::from_scale(1.0 / surface_config.height as f64 * 2.0)
+            * Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
+    });
+
+    let center_matrix = layout::center(window_bounds, label.metrics);
+    let label_matrix = map_ref!(|pixel_matrix, center_matrix| pixel_matrix * center_matrix);
 
     // Sample & Texture Bind Group
 
@@ -109,7 +131,7 @@ pub fn render_graph(
     let view_projection_uniform = map_ref!(|camera, projection| {
         let matrix = view_projection_matrix(camera, projection);
         let m: cgmath::Matrix4<f32> = matrix.cast().expect("matrix casting to f32 failed");
-        ViewProjectionUniform(m.into())
+        Matrix4Uniform(m.into())
     });
 
     let view_projection_buffer = map_ref!(|device, view_projection_uniform| {
@@ -150,16 +172,67 @@ pub fn render_graph(
             )
         );
 
+    // Model Matrix
+
+    let model_matrix_uniform = map_ref!(|label_matrix| {
+        let m: cgmath::Matrix4<f32> = label_matrix.cast().expect("matrix casting to f32 failed");
+        Matrix4Uniform(m.into())
+    });
+
+    let model_matrix_buffer = map_ref!(|device, model_matrix_uniform| {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Model Matrix Buffer"),
+            contents: bytemuck::cast_slice(&[*model_matrix_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        })
+    });
+
+    let model_matrix_bind_group_layout = map_ref!(|device| {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("Model Matrix Bind Group Layout"),
+        })
+    });
+
+    let model_matrix_bind_group = map_ref!(
+        |device, model_matrix_bind_group_layout, model_matrix_buffer| device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
+                layout: model_matrix_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: model_matrix_buffer.as_entire_binding(),
+                }],
+                label: Some("Model Matrix Bind Group"),
+            }
+        )
+    );
+
     // Pipeline
 
-    let render_pipeline_layout = map_ref!(
-        |device, texture_bind_group_layout, camera_bind_group_layout| device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+    let render_pipeline_layout =
+        map_ref!(|device,
+                  texture_bind_group_layout,
+                  camera_bind_group_layout,
+                  model_matrix_bind_group_layout| device.create_pipeline_layout(
+            &wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[texture_bind_group_layout, camera_bind_group_layout],
+                bind_group_layouts: &[
+                    texture_bind_group_layout,
+                    camera_bind_group_layout,
+                    model_matrix_bind_group_layout
+                ],
                 push_constant_ranges: &[],
-            })
-    );
+            }
+        ));
 
     let targets = map_ref!(|config| [Some(wgpu::ColorTargetState {
         format: config.format,
@@ -220,6 +293,7 @@ pub fn render_graph(
                                    pipeline,
                                    texture_bind_groups,
                                    camera_bind_group,
+                                   model_matrix_bind_group,
                                    vertex_buffers,
                                    index_buffer| {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -242,6 +316,7 @@ pub fn render_graph(
 
             render_pass.set_pipeline(pipeline);
             render_pass.set_bind_group(1, camera_bind_group, &[]);
+            render_pass.set_bind_group(2, model_matrix_bind_group, &[]);
             render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
 
             for (i, texture_bind_group) in texture_bind_groups
@@ -264,4 +339,4 @@ pub fn render_graph(
 #[repr(C)]
 // This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
-struct ViewProjectionUniform([[f32; 4]; 4]);
+struct Matrix4Uniform([[f32; 4]; 4]);

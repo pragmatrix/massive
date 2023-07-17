@@ -3,10 +3,11 @@ use std::ops::DerefMut;
 use cgmath::Point2;
 use cosmic_text as text;
 use granularity::{map_ref, Value};
+use granularity_geometry::Size3;
 use granularity_shell::Shell;
 use wgpu::util::DeviceExt;
 
-use crate::TextureVertex;
+use crate::{Extent, TextureVertex};
 
 pub struct Label {
     placed_glyphs: Value<(LabelMetrics, Vec<PlacedGlyph>)>,
@@ -18,14 +19,25 @@ pub struct Label {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LabelMetrics {
-    pub ascent: u32,
-    pub descent: u32,
+    pub max_ascent: u32,
+    pub max_descent: u32,
     pub width: u32,
 }
 
 impl LabelMetrics {
     pub fn size(&self) -> (u32, u32) {
-        (self.width, self.ascent + self.descent)
+        (self.width, self.max_ascent + self.max_descent)
+    }
+}
+
+impl Extent for LabelMetrics {
+    fn size(&self) -> Size3 {
+        let (width, height) = self.size();
+        Size3::new((width as f64, height as f64, 0.0).into())
+    }
+
+    fn baseline(&self) -> Option<f64> {
+        Some(self.max_ascent as f64)
     }
 }
 
@@ -34,9 +46,8 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
     let queue = &shell.queue;
     let font_system = &shell.font_system;
     let glyph_cache = &shell.glyph_cache;
-    let surface_config = &shell.surface_config;
 
-    let placed_glyphs = map_ref!(|font_system, text, font_size| {
+    let metrics_and_placed_glyphs = map_ref!(|font_system, text, font_size| {
         let mut font_system = font_system.borrow_mut();
         let font_system = font_system.deref_mut();
         // TODO: Cosmic text recommends to use a single buffer for a widget, but we are creating a
@@ -51,26 +62,26 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
         let line = &buffer.layout(font_system, *font_size, f32::MAX, text::Wrap::None)[0];
         let line_glyphs = &line.glyphs;
         let placed = place_glyphs(line_glyphs);
-        println!("placed: {:?}", placed);
         let metrics = LabelMetrics {
-            ascent: line.max_ascent as u32,
-            descent: line.max_descent as u32,
+            max_ascent: line.max_ascent as u32,
+            max_descent: line.max_descent as u32,
             width: line.w.ceil() as u32,
         };
         (metrics, placed)
     });
 
-    let metrics = map_ref!(|placed_glyphs| placed_glyphs.0);
+    let metrics = map_ref!(|metrics_and_placed_glyphs| metrics_and_placed_glyphs.0);
 
     // For now they have to be combined because we only receive placements and the imagines together
     // from the SwashCache, and the images are only accessible by reference.
     // TODO: Find a way to separate them.
-    let placements_and_texture_views =
-        map_ref!(|device, queue, font_system, glyph_cache, placed_glyphs| {
+    let placements_and_texture_views = map_ref!(
+        |device, queue, font_system, glyph_cache, metrics_and_placed_glyphs| {
             let mut font_system = font_system.borrow_mut();
             let mut glyph_cache = glyph_cache.borrow_mut();
             let glyph_cache = glyph_cache.deref_mut();
-            placed_glyphs
+            let metrics = &metrics_and_placed_glyphs.0;
+            metrics_and_placed_glyphs
                 .1
                 .iter()
                 .map(|placed_glyph| {
@@ -86,21 +97,27 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
                         .map(|image| (image.placement, image_to_texture(device, queue, image)))
                 })
                 .collect::<Vec<_>>()
-        });
+        }
+    );
 
     let vertex_buffers = map_ref!(
-        |device, surface_config, placed_glyphs, placements_and_texture_views| {
+        |device, metrics_and_placed_glyphs, placements_and_texture_views| {
+            let metrics = &metrics_and_placed_glyphs.0;
             placements_and_texture_views
                 .iter()
                 .enumerate()
                 .map(|(i, placement_and_view)| {
                     placement_and_view.as_ref().map(|(placement, _)| {
-                        let rect = place_glyph(placed_glyphs.1[i].hitbox_pos, *placement);
-
-                        let vertices = glyph_to_texture_vertex(
-                            surface_config,
-                            (rect.0.cast().unwrap(), rect.1.cast().unwrap()),
+                        let rect = place_glyph(
+                            metrics.max_ascent,
+                            metrics_and_placed_glyphs.1[i].hitbox_pos,
+                            *placement,
                         );
+
+                        let vertices = glyph_to_texture_vertex((
+                            rect.0.cast().unwrap(),
+                            rect.1.cast().unwrap(),
+                        ));
 
                         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                             label: Some("Vertex Buffer"),
@@ -114,7 +131,7 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
     );
 
     Label {
-        placed_glyphs,
+        placed_glyphs: metrics_and_placed_glyphs,
         metrics,
         placements_and_texture_views,
         vertex_buffers,
@@ -207,30 +224,26 @@ fn image_to_texture(
     texture.create_view(&wgpu::TextureViewDescriptor::default())
 }
 
-// Until vertex conversion, coordinate system is ((0,0), (surface.width,surface.height))
-const BASELINE_Y: i32 = 0;
-
 // TODO: need a rect structure.
 
-fn place_glyph(hitbox_pos: (i32, i32), placement: text::Placement) -> (Point2<i32>, Point2<i32>) {
+fn place_glyph(
+    max_ascent: u32,
+    hitbox_pos: (i32, i32),
+    placement: text::Placement,
+) -> (Point2<i32>, Point2<i32>) {
     let left = hitbox_pos.0 + placement.left;
-    // placement goes up (right handed coordinate system).
-    let top = hitbox_pos.1 + BASELINE_Y - placement.top;
+    let top = hitbox_pos.1 + (max_ascent as i32) - placement.top;
     let right = left + placement.width as i32;
     let bottom = top + placement.height as i32;
 
     ((left, top).into(), (right, bottom).into())
 }
 
-fn glyph_to_texture_vertex(
-    surface_config: &wgpu::SurfaceConfiguration,
-    rect: (Point2<f32>, Point2<f32>),
-) -> [TextureVertex; 4] {
-    // TODO: use a 2D / 3D matrix here?
-    let left = rect.0.x / surface_config.height as f32 * 2.0;
-    let top = (rect.0.y / surface_config.height as f32 * 2.0) * -1.0;
-    let right = rect.1.x / surface_config.height as f32 * 2.0;
-    let bottom = (rect.1.y / surface_config.height as f32 * 2.0) * -1.0;
+fn glyph_to_texture_vertex(rect: (Point2<f32>, Point2<f32>)) -> [TextureVertex; 4] {
+    let left = rect.0.x;
+    let top = rect.0.y;
+    let right = rect.1.x;
+    let bottom = rect.1.y;
 
     [
         TextureVertex {

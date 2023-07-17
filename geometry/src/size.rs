@@ -1,4 +1,4 @@
-use std::ops::{Add, Div, Sub};
+use std::ops;
 
 use crate::Point;
 
@@ -20,7 +20,15 @@ impl From<(f64, f64)> for Size {
     }
 }
 
-impl Div<f64> for Size {
+impl ops::Mul<f64> for Size {
+    type Output = Size;
+
+    fn mul(self, rhs: f64) -> Self::Output {
+        Self::new(self.width * rhs, self.height * rhs)
+    }
+}
+
+impl ops::Div<f64> for Size {
     type Output = Size;
 
     fn div(self, rhs: f64) -> Self::Output {
@@ -28,18 +36,18 @@ impl Div<f64> for Size {
     }
 }
 
-impl Sub<Size> for Point {
-    type Output = Point;
-
-    fn sub(self, rhs: Size) -> Self::Output {
-        Point::new(self.x - rhs.width, self.y - rhs.height)
-    }
-}
-
-impl Add<Size> for Point {
+impl ops::Add<Size> for Point {
     type Output = Point;
 
     fn add(self, rhs: Size) -> Self::Output {
         Point::new(self.x + rhs.width, self.y + rhs.height)
+    }
+}
+
+impl ops::Sub<Size> for Point {
+    type Output = Point;
+
+    fn sub(self, rhs: Size) -> Self::Output {
+        Point::new(self.x - rhs.width, self.y - rhs.height)
     }
 }
