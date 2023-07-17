@@ -154,6 +154,10 @@ impl Shell {
 
         Ok(())
     }
+
+    fn runtime(&self) -> granularity::Runtime {
+        self.font_system.runtime()
+    }
 }
 
 pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {

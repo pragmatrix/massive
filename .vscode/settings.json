@@ -9,6 +9,7 @@
         "dscale",
         "fovy",
         "Gustavson",
+        "hitbox",
         "multisampled",
         "multiview",
         "rsqrt",

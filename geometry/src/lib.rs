@@ -2,6 +2,7 @@
 
 mod bezier_algorithms;
 mod bounds;
+mod bounds3;
 mod camera;
 mod color;
 mod cubic_bezier;
@@ -11,9 +12,11 @@ mod point;
 mod projection;
 mod rect;
 mod size;
+mod size3;
 mod unit_interval;
 
 pub use bounds::*;
+pub use bounds3::*;
 pub use camera::*;
 pub use color::*;
 pub use cubic_bezier::*;
@@ -21,7 +24,8 @@ pub use line::*;
 pub use point::*;
 pub use projection::*;
 pub use rect::*;
-pub use size::Size;
+pub use size::*;
+pub use size3::*;
 pub use unit_interval::*;
 
 #[allow(non_camel_case_types)]
@@ -46,6 +50,7 @@ pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matri
 }
 
 // TODO: this is WGPU specific.
+// <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
 #[rustfmt::skip]
 pub const OPENGL_TO_WGPU_MATRIX: Matrix4 = Matrix4::new(
     1.0, 0.0, 0.0, 0.0,
