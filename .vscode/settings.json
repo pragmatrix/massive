@@ -16,6 +16,7 @@
         "SSEDT",
         "texel",
         "texels",
+        "ulps",
         "unclipped",
         "webgl",
         "wgpu",

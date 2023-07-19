@@ -17,6 +17,7 @@ cosmic-text = { workspace = true }
 # TODO: remove (use only cosmic-text)
 swash = { workspace = true }
 log = { workspace = true }
+nearly = "0.2.0"
 
 [dev-dependencies]
 tokio = { workspace = true }

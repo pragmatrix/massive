@@ -648,6 +648,7 @@ dependencies = [
  "granularity-geometry",
  "granularity-shell",
  "log",
+ "nearly",
  "swash",
  "tokio",
  "wgpu",
@@ -991,6 +992,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "nearly"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b3649bfb049d1217abf66654f8a94d8540d8428f455e46bde9db58fdf1aee93"
+dependencies = [
+ "paste",
+]
+
+[[package]]
 name = "nix"
 version = "0.24.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1186,6 +1196,12 @@ dependencies = [
  "smallvec",
  "windows-targets 0.48.1",
 ]
+
+[[package]]
+name = "paste"
+version = "1.0.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "de3145af08024dea9fa9914f381a17b8fc6034dfb00f3a84013f7ff43f29ed4c"
 
 [[package]]
 name = "percent-encoding"

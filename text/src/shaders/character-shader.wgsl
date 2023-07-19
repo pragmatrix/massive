@@ -21,7 +21,8 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = vertex_input.tex_coords;
-    out.clip_position = camera * model * vec4<f32>(vertex_input.position, 1.0);
+    // out.clip_position = camera * model * vec4<f32>(vertex_input.position, 1.0);
+    out.clip_position = model * vec4<f32>(vertex_input.position, 1.0);
     return out;
 }
 

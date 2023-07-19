@@ -6,6 +6,19 @@ pub struct Bounds {
     pub max: Point,
 }
 
+impl Bounds {
+    pub fn new(min: impl Into<Point>, max: impl Into<Point>) -> Self {
+        Self {
+            min: min.into(),
+            max: max.into(),
+        }
+    }
+
+    pub fn to_rect(&self) -> Rect {
+        Rect::from(*self)
+    }
+}
+
 impl From<Bounds> for Rect {
     fn from(b: Bounds) -> Self {
         (b.min, b.max).into()

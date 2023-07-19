@@ -1,17 +1,21 @@
-use std::ops::DerefMut;
-
-use cgmath::Point2;
+use cgmath::{Point2, Transform};
 use cosmic_text as text;
 use granularity::{map_ref, Value};
-use granularity_geometry::Size3;
+use granularity_geometry::{Bounds, Bounds3, Matrix4, Point3, Size3};
 use granularity_shell::Shell;
+use nearly::nearly_eq;
+use std::ops::DerefMut;
+use swash::shape::cluster::Glyph;
 use wgpu::util::DeviceExt;
 
 use crate::{Extent, TextureVertex};
 
 pub struct Label {
-    placed_glyphs: Value<(LabelMetrics, Vec<PlacedGlyph>)>,
+    placed_glyphs: Value<(LabelMetrics, Vec<PositionedGlyph>)>,
     pub metrics: Value<LabelMetrics>,
+}
+
+pub struct RenderLabel {
     /// TODO: Separate?
     pub placements_and_texture_views: Value<Vec<Option<(text::Placement, wgpu::TextureView)>>>,
     pub vertex_buffers: Value<Vec<Option<wgpu::Buffer>>>,
@@ -42,10 +46,7 @@ impl Extent for LabelMetrics {
 }
 
 pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> Label {
-    let device = &shell.device;
-    let queue = &shell.queue;
     let font_system = &shell.font_system;
-    let glyph_cache = &shell.glyph_cache;
 
     let metrics_and_placed_glyphs = map_ref!(|font_system, text, font_size| {
         let mut font_system = font_system.borrow_mut();
@@ -67,85 +68,143 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
             max_descent: line.max_descent as u32,
             width: line.w.ceil() as u32,
         };
+
         (metrics, placed)
     });
 
     let metrics = map_ref!(|metrics_and_placed_glyphs| metrics_and_placed_glyphs.0);
 
-    // For now they have to be combined because we only receive placements and the imagines together
-    // from the SwashCache, and the images are only accessible by reference.
-    // TODO: Find a way to separate them.
-    let placements_and_texture_views = map_ref!(
-        |device, queue, font_system, glyph_cache, metrics_and_placed_glyphs| {
-            let mut font_system = font_system.borrow_mut();
-            let mut glyph_cache = glyph_cache.borrow_mut();
-            let glyph_cache = glyph_cache.deref_mut();
-            let metrics = &metrics_and_placed_glyphs.0;
-            metrics_and_placed_glyphs
-                .1
-                .iter()
-                .map(|placed_glyph| {
-                    let image = glyph_cache
-                        .get_image(&mut font_system, placed_glyph.cache_key)
-                        .as_ref();
-
-                    image
-                        .and_then(|image| {
-                            (image.placement.width != 0 && image.placement.height != 0)
-                                .then_some(image)
-                        })
-                        .map(|image| (image.placement, image_to_texture(device, queue, image)))
-                })
-                .collect::<Vec<_>>()
-        }
-    );
-
-    let vertex_buffers = map_ref!(
-        |device, metrics_and_placed_glyphs, placements_and_texture_views| {
-            let metrics = &metrics_and_placed_glyphs.0;
-            placements_and_texture_views
-                .iter()
-                .enumerate()
-                .map(|(i, placement_and_view)| {
-                    placement_and_view.as_ref().map(|(placement, _)| {
-                        let rect = place_glyph(
-                            metrics.max_ascent,
-                            metrics_and_placed_glyphs.1[i].hitbox_pos,
-                            *placement,
-                        );
-
-                        let vertices = glyph_to_texture_vertex((
-                            rect.0.cast().unwrap(),
-                            rect.1.cast().unwrap(),
-                        ));
-
-                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                            label: Some("Vertex Buffer"),
-                            contents: bytemuck::cast_slice(&vertices),
-                            usage: wgpu::BufferUsages::VERTEX,
-                        })
-                    })
-                })
-                .collect::<Vec<_>>()
-        }
-    );
-
     Label {
         placed_glyphs: metrics_and_placed_glyphs,
         metrics,
-        placements_and_texture_views,
-        vertex_buffers,
     }
 }
 
+impl Label {
+    // TODO: The shell here might be different compared to the one the label was created with.
+    pub fn render(
+        &self,
+        shell: &Shell,
+        matrix: Value<Matrix4>,
+        surface_matrix: Value<Matrix4>,
+    ) -> RenderLabel {
+        let device = &shell.device;
+        let queue = &shell.queue;
+        let glyph_cache = &shell.glyph_cache;
+        let font_system = &shell.font_system;
+        let metrics_and_placed_glyphs = &self.placed_glyphs;
+
+        // The pixel bounds in the center of the placed glyphs.
+        let pixel_bounds = map_ref!(|metrics_and_placed_glyphs| {
+            let metrics = &metrics_and_placed_glyphs.0;
+            let (width, height) = metrics.size();
+            // TODO: we might pull this up to the center of the part of the glyph above the
+            // baseline.
+            let offset = (width / 2, height / 2);
+
+            metrics_and_placed_glyphs
+                .1
+                .iter()
+                .map(|placed_glyph| placed_glyph.pixel_bounds_at(offset))
+                .collect::<Vec<_>>()
+        });
+
+        let label_to_surface_matrix = map_ref!(|matrix, surface_matrix| surface_matrix * matrix);
+
+        let glyph_classifications = map_ref!(|pixel_bounds, label_to_surface_matrix| {
+            pixel_bounds
+                .iter()
+                .map(|pixel_bounds| {
+                    let points = pixel_bounds
+                        .to_rect()
+                        .to_quad()
+                        .map(|p| p.with_z(0.0))
+                        .map(|p| label_to_surface_matrix.transform_point(p));
+                    println!("points: {:?}", points);
+                    GlyphClassifier::from_transformed_pixel(&points)
+                })
+                .collect::<Vec<_>>()
+        });
+
+        // For now placements and textures have to be combined because we only receive placements
+        // and the imagines together from the SwashCache, and the images are only accessible by
+        // reference. TODO: Find a way to separate them.
+        let placements_and_texture_views =
+            map_ref!(|device,
+                      queue,
+                      font_system,
+                      glyph_cache,
+                      metrics_and_placed_glyphs,
+                      glyph_classifications| {
+                println!("Glyph classifications: {:?}", glyph_classifications);
+
+                let mut font_system = font_system.borrow_mut();
+                let mut glyph_cache = glyph_cache.borrow_mut();
+                let glyph_cache = glyph_cache.deref_mut();
+                metrics_and_placed_glyphs
+                    .1
+                    .iter()
+                    .map(|placed_glyph| {
+                        let image = glyph_cache
+                            .get_image(&mut font_system, placed_glyph.cache_key)
+                            .as_ref();
+
+                        image
+                            .and_then(|image| {
+                                (image.placement.width != 0 && image.placement.height != 0)
+                                    .then_some(image)
+                            })
+                            .map(|image| (image.placement, image_to_texture(device, queue, image)))
+                    })
+                    .collect::<Vec<_>>()
+            });
+
+        let vertex_buffers = map_ref!(
+            |device, metrics_and_placed_glyphs, placements_and_texture_views| {
+                let metrics = &metrics_and_placed_glyphs.0;
+                placements_and_texture_views
+                    .iter()
+                    .enumerate()
+                    .map(|(i, placement_and_view)| {
+                        placement_and_view.as_ref().map(|(placement, _)| {
+                            let rect = place_glyph(
+                                metrics.max_ascent,
+                                metrics_and_placed_glyphs.1[i].hitbox_pos,
+                                *placement,
+                            );
+
+                            let vertices = glyph_to_texture_vertex((
+                                rect.0.cast().unwrap(),
+                                rect.1.cast().unwrap(),
+                            ));
+
+                            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                                label: Some("Vertex Buffer"),
+                                contents: bytemuck::cast_slice(&vertices),
+                                usage: wgpu::BufferUsages::VERTEX,
+                            })
+                        })
+                    })
+                    .collect::<Vec<_>>()
+            }
+        );
+
+        RenderLabel {
+            placements_and_texture_views,
+            vertex_buffers,
+        }
+    }
+}
+
+/// A glyph that is positioned and ready to be rendered.
 #[derive(Debug)]
-pub struct PlacedGlyph {
+pub struct PositionedGlyph {
     pub cache_key: text::CacheKey,
     pub hitbox_pos: (i32, i32),
     pub hitbox_width: f32,
 }
 
-impl PlacedGlyph {
+impl PositionedGlyph {
     fn new(cache_key: text::CacheKey, hitbox_pos: (i32, i32), hitbox_width: f32) -> Self {
         Self {
             cache_key,
@@ -153,11 +212,19 @@ impl PlacedGlyph {
             hitbox_width,
         }
     }
+
+    // The bounds enclosing a pixel at the offset of the hitbox
+    fn pixel_bounds_at(&self, offset: (u32, u32)) -> Bounds {
+        let x = self.hitbox_pos.0 + offset.0 as i32;
+        let y = self.hitbox_pos.1 + offset.1 as i32;
+
+        Bounds::new((x as f64, y as f64), ((x + 1) as f64, (y + 1) as f64))
+    }
 }
 
 const RENDER_SUBPIXEL: bool = false;
 
-fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PlacedGlyph> {
+fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PositionedGlyph> {
     glyphs
         .iter()
         .map(|glyph| {
@@ -175,7 +242,7 @@ fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PlacedGlyph> {
             );
             // Note: hitbox with is fractional, but does not change with / without subpixel
             // rendering.
-            PlacedGlyph::new(cc, (x, y), glyph.w)
+            PositionedGlyph::new(cc, (x, y), glyph.w)
         })
         .collect()
 }
@@ -263,4 +330,79 @@ fn glyph_to_texture_vertex(rect: (Point2<f32>, Point2<f32>)) -> [TextureVertex; 
             tex_coords: [1.0, 0.0],
         },
     ]
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum GlyphClassifier {
+    /// Pixel has the same size on screen compared to the rendered size (Zoomed(1.0))
+    PixelPerfect { alignment: (bool, bool) },
+    /// The center pixel is uniformly scaled by the following factor.
+    Zoomed(f64),
+    /// Either by some weird matrix, or perspective projection.
+    Distorted(DistortedClassifier),
+}
+
+#[allow(clippy::enum_variant_names)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum DistortedClassifier {
+    NonPlanar,
+    NonRectangular,
+    NonQuadratic,
+}
+
+/// For planar comparisons of Z values (we might transform them to pixels too, this way we can use
+/// PIXEL_EPSILON).
+const ULPS_Z: i64 = 8;
+/// One thousandth of a pixel should be good enough.
+const PIXEL_EPSILON: f64 = 0.0001;
+
+impl GlyphClassifier {
+    /// Classify the glyph based on a transformed pixel at the center of the glyph. `quad`
+    /// represents the 4 points of the glyph in the final pixel coordinate system where `0,0` is the
+    /// top left corner.
+    ///
+    /// The quad is clockwise, starting from the left top corner of the glyph as rendered.
+    ///
+    /// The 4 points are guaranteed to be in the same plane.
+    pub fn from_transformed_pixel(quad: &[Point3; 4]) -> Self {
+        // TODO: 3 Points might be enough.
+
+        // TODO: may compare z for quad[3]?
+        let planar_z = nearly_eq!(quad[0].z, quad[1].z, ulps = ULPS_Z)
+            && nearly_eq!(quad[0].z, quad[2].z, ulps = ULPS_Z);
+
+        if !planar_z {
+            return GlyphClassifier::Distorted(DistortedClassifier::NonPlanar);
+        }
+
+        let rectangular = nearly_eq!(quad[0].y, quad[1].y, eps = PIXEL_EPSILON)
+            && nearly_eq!(quad[2].y, quad[3].y, eps = PIXEL_EPSILON)
+            && nearly_eq!(quad[0].x, quad[3].x, eps = PIXEL_EPSILON)
+            && nearly_eq!(quad[1].x, quad[2].x, eps = PIXEL_EPSILON);
+
+        if !rectangular {
+            return GlyphClassifier::Distorted(DistortedClassifier::NonRectangular);
+        }
+
+        // TODO: may add the lower / or right parts of the rectangle and divide by 2.
+        let scale_x = quad[1].x - quad[0].x;
+        let scale_y = quad[2].y - quad[0].y;
+
+        let quadratic = nearly_eq!(scale_x, scale_y, eps = PIXEL_EPSILON);
+        if !quadratic {
+            return GlyphClassifier::Distorted(DistortedClassifier::NonQuadratic);
+        }
+
+        let pixel_perfect = nearly_eq!(scale_x, 1.0, eps = PIXEL_EPSILON);
+        if !pixel_perfect {
+            return GlyphClassifier::Zoomed((scale_x + scale_y) / 2.0);
+        }
+
+        let aligned_x = nearly_eq!(quad[0].x, quad[0].x.floor(), eps = PIXEL_EPSILON);
+        let aligned_y = nearly_eq!(quad[0].y, quad[0].y.floor(), eps = PIXEL_EPSILON);
+
+        GlyphClassifier::PixelPerfect {
+            alignment: (aligned_x, aligned_y),
+        }
+    }
 }

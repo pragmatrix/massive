@@ -71,6 +71,7 @@ impl Rect {
         (self.right, self.bottom).into()
     }
 
+    /// Returns a clockwise quad starting a left / top.
     pub fn to_quad(&self) -> [Point; 4] {
         [
             (self.left, self.top).into(),

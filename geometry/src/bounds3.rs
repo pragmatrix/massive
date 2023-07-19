@@ -7,8 +7,11 @@ pub struct Bounds3 {
 }
 
 impl Bounds3 {
-    pub fn new(min: Point3, max: Point3) -> Self {
-        Self { min, max }
+    pub fn new(min: impl Into<Point3>, max: impl Into<Point3>) -> Self {
+        Self {
+            min: min.into(),
+            max: max.into(),
+        }
     }
 
     pub fn size(&self) -> Size3 {
