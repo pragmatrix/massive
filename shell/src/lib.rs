@@ -155,7 +155,7 @@ impl Shell {
         Ok(())
     }
 
-    fn runtime(&self) -> granularity::Runtime {
+    pub fn runtime(&self) -> granularity::Runtime {
         self.font_system.runtime()
     }
 }
