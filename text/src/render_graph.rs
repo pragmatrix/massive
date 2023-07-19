@@ -1,4 +1,4 @@
-use cgmath::{SquareMatrix, Transform};
+use cgmath::SquareMatrix;
 use wgpu::util::DeviceExt;
 
 use granularity::{map_ref, Value};
@@ -121,6 +121,7 @@ pub fn render_graph(
     });
 
     let center_matrix = layout::center(window_bounds, label.metrics.clone());
+
     // let label_matrix = map_ref!(|pixel_matrix, center_matrix| pixel_matrix * center_matrix);
     let label_matrix = map_ref!(|pixel_matrix, center_matrix, view_projection_matrix| {
         view_projection_matrix * pixel_matrix * center_matrix

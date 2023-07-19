@@ -1,11 +1,11 @@
+use std::ops::DerefMut;
+
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
 use granularity::{map_ref, Value};
-use granularity_geometry::{Bounds, Bounds3, Matrix4, Point3, Size3};
+use granularity_geometry::{Bounds, Matrix4, Point3, Size3};
 use granularity_shell::Shell;
 use nearly::nearly_eq;
-use std::ops::DerefMut;
-use swash::shape::cluster::Glyph;
 use wgpu::util::DeviceExt;
 
 use crate::{Extent, TextureVertex};
@@ -97,15 +97,18 @@ impl Label {
         // The pixel bounds in the center of the placed glyphs.
         let pixel_bounds = map_ref!(|metrics_and_placed_glyphs| {
             let metrics = &metrics_and_placed_glyphs.0;
-            let (width, height) = metrics.size();
+            let (_, height) = metrics.size();
             // TODO: we might pull this up to the center of the part of the glyph above the
             // baseline.
-            let offset = (width / 2, height / 2);
+            let half_height = height / 2;
 
             metrics_and_placed_glyphs
                 .1
                 .iter()
-                .map(|placed_glyph| placed_glyph.pixel_bounds_at(offset))
+                .map(|positioned_glyph| {
+                    let x = (positioned_glyph.hitbox_width as u32) / 2;
+                    positioned_glyph.pixel_bounds_at((x, half_height))
+                })
                 .collect::<Vec<_>>()
         });
 
@@ -120,7 +123,6 @@ impl Label {
                         .to_quad()
                         .map(|p| p.with_z(0.0))
                         .map(|p| label_to_surface_matrix.transform_point(p));
-                    println!("points: {:?}", points);
                     GlyphClassifier::from_transformed_pixel(&points)
                 })
                 .collect::<Vec<_>>()
