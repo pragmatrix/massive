@@ -493,8 +493,8 @@ pub(crate) unsafe fn generate_distance_field_from_image(
     }
 
     // copy results to final distance field data
-    curr_data = data_ptr.add(data_width + 1);
-    curr_edge = edge_ptr.add(data_width + 1);
+    let mut curr_data = data_ptr.add(data_width + 1);
+    let mut curr_edge = edge_ptr.add(data_width + 1);
     let mut df_ptr = distance_field.as_mut_ptr();
     for _j in 1..data_height - 1 {
         for _i in 1..data_width - 1 {
