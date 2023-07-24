@@ -22,8 +22,8 @@ pub fn render_graph(
         let half_width = surface_config.width / 2;
         let half_height = surface_config.height / 2;
         Bounds3::new(
-            (-(half_width as f64), -(half_height as f64), 0.0).into(),
-            (half_width as f64, half_height as f64, 0.0).into(),
+            (-(half_width as f64), -(half_height as f64), 0.0),
+            (half_width as f64, half_height as f64, 0.0),
         )
     });
 
@@ -40,19 +40,94 @@ pub fn render_graph(
             .create_view(&wgpu::TextureViewDescriptor::default())
     });
 
-    let font_size = shell.surface.runtime().var(28.0);
+    // Camera
+
+    let projection = map_ref!(|config| Projection::new(
+        config.width as scalar / config.height as scalar,
+        0.1,
+        100.0
+    ));
+
+    let view_projection_matrix =
+        map_ref!(|camera, projection| view_projection_matrix(camera, projection));
+
+    let view_projection_uniform = map_ref!(|view_projection_matrix| {
+        let m: cgmath::Matrix4<f32> = view_projection_matrix
+            .cast()
+            .expect("matrix casting to f32 failed");
+        Matrix4Uniform(m.into())
+    });
+
+    let view_projection_buffer = map_ref!(|device, view_projection_uniform| {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Camera Buffer"),
+            contents: bytemuck::cast_slice(&[*view_projection_uniform]),
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        })
+    });
+
+    let camera_bind_group_layout = map_ref!(|device| {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+            label: Some("Camera Bind Group Layout"),
+        })
+    });
+
+    let camera_bind_group =
+        map_ref!(
+            |device, camera_bind_group_layout, view_projection_buffer| device.create_bind_group(
+                &wgpu::BindGroupDescriptor {
+                    layout: camera_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: view_projection_buffer.as_entire_binding(),
+                    }],
+                    label: Some("Camera Bind Group"),
+                }
+            )
+        );
+
+    // Label
+
+    let font_size = shell.surface.runtime().var(280.0);
 
     let label = new_label(shell, font_size, text);
 
     // A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
     // 1.0 in each axis. Also flips y.
     let pixel_matrix = map_ref!(|surface_config| {
-        Matrix4::from_scale(1.0 / surface_config.height as f64 * 2.0)
-            * Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
+        Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
+            * Matrix4::from_scale(1.0 / surface_config.height as f64 * 2.0)
     });
 
-    let center_matrix = layout::center(window_bounds, label.metrics);
-    let label_matrix = map_ref!(|pixel_matrix, center_matrix| pixel_matrix * center_matrix);
+    // A Matrix that translates from the WGPU coordinate system to the surface coordinate
+    let surface_matrix = map_ref!(|surface_config| {
+        println!("surface_config: {:?}", surface_config);
+
+        Matrix4::from_nonuniform_scale(
+            surface_config.width as f64 / 2.0,
+            (surface_config.height as f64 / 2.0) * -1.0,
+            1.0,
+        ) * Matrix4::from_translation(cgmath::Vector3::new(1.0, -1.0, 0.0))
+    });
+
+    let center_matrix = layout::center(window_bounds, label.metrics.clone());
+
+    // let label_matrix = map_ref!(|pixel_matrix, center_matrix| pixel_matrix * center_matrix);
+    let label_matrix = map_ref!(|pixel_matrix, center_matrix, view_projection_matrix| {
+        view_projection_matrix * pixel_matrix * center_matrix
+    });
+
+    let label = label.render(shell, label_matrix.clone(), surface_matrix.clone());
 
     // Sample & Texture Bind Group
 
@@ -119,58 +194,6 @@ pub fn render_graph(
             })
             .collect::<Vec<_>>()
     });
-
-    // Camera
-
-    let projection = map_ref!(|config| Projection::new(
-        config.width as scalar / config.height as scalar,
-        0.1,
-        100.0
-    ));
-
-    let view_projection_uniform = map_ref!(|camera, projection| {
-        let matrix = view_projection_matrix(camera, projection);
-        let m: cgmath::Matrix4<f32> = matrix.cast().expect("matrix casting to f32 failed");
-        Matrix4Uniform(m.into())
-    });
-
-    let view_projection_buffer = map_ref!(|device, view_projection_uniform| {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[*view_projection_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        })
-    });
-
-    let camera_bind_group_layout = map_ref!(|device| {
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("Camera Bind Group Layout"),
-        })
-    });
-
-    let camera_bind_group =
-        map_ref!(
-            |device, camera_bind_group_layout, view_projection_buffer| device.create_bind_group(
-                &wgpu::BindGroupDescriptor {
-                    layout: camera_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: view_projection_buffer.as_entire_binding(),
-                    }],
-                    label: Some("Camera Bind Group"),
-                }
-            )
-        );
 
     // Model Matrix
 
@@ -255,7 +278,6 @@ pub fn render_graph(
                 targets,
             }),
             primitive: wgpu::PrimitiveState {
-                // TODO: do we really need / use triangle lists.
                 topology: wgpu::PrimitiveTopology::TriangleList,
                 strip_index_format: None,
                 front_face: wgpu::FrontFace::Ccw,

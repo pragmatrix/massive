@@ -2,7 +2,7 @@ use std::cell::RefCell;
 
 use anyhow::Result;
 use cosmic_text::{FontSystem, SwashCache};
-use granularity::Value;
+use granularity::{Producer, Value};
 use log::{error, info};
 use wgpu::{CommandBuffer, PresentMode, SurfaceTexture};
 use winit::{
@@ -19,6 +19,11 @@ pub struct Shell {
     pub device: Value<wgpu::Device>,
     pub queue: Value<wgpu::Queue>,
     pub surface_config: Value<wgpu::SurfaceConfiguration>,
+}
+
+pub trait Application {
+    fn update(&mut self, window_event: WindowEvent<'static>);
+    fn runtime(&self) -> granularity::Runtime;
 }
 
 impl Shell {
@@ -155,7 +160,7 @@ impl Shell {
         Ok(())
     }
 
-    fn runtime(&self) -> granularity::Runtime {
+    pub fn runtime(&self) -> granularity::Runtime {
         self.font_system.runtime()
     }
 }
@@ -167,47 +172,46 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
-pub async fn run(
-    runtime: granularity::Runtime,
-    create_render_graph: impl FnOnce(&Shell) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
+pub async fn run<A: Application + 'static>(
+    mut application: A,
+    create_render_graph: impl FnOnce(&A, &Shell) -> (Value<wgpu::CommandBuffer>, Value<wgpu::SurfaceTexture>)
         + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let runtime = application.runtime();
     let mut shell = Shell::new(runtime, &window).await;
 
-    let (mut command_buffer, mut surface_texture) = create_render_graph(&shell);
+    let (mut command_buffer, mut surface_texture) = create_render_graph(&application, &shell);
 
     event_loop.run(move |event, _, control_flow| {
         match event {
-            Event::WindowEvent {
-                ref event,
-                window_id,
-            } if window_id == window.id() => {
-                // UPDATED!
-                match event {
-                    WindowEvent::CloseRequested
-                    | WindowEvent::KeyboardInput {
-                        input:
-                            KeyboardInput {
-                                state: ElementState::Pressed,
-                                virtual_keycode: Some(VirtualKeyCode::Escape),
-                                ..
-                            },
-                        ..
-                    } => *control_flow = ControlFlow::Exit,
-                    WindowEvent::Resized(physical_size) => {
-                        shell.resize_surface((physical_size.width, physical_size.height));
-                        window.request_redraw()
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        shell.resize_surface((new_inner_size.width, new_inner_size.height));
-                        window.request_redraw()
-                    }
-                    _ => {}
+            Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
+                WindowEvent::CloseRequested
+                | WindowEvent::KeyboardInput {
+                    input:
+                        KeyboardInput {
+                            state: ElementState::Pressed,
+                            virtual_keycode: Some(VirtualKeyCode::Escape),
+                            ..
+                        },
+                    ..
+                } => *control_flow = ControlFlow::Exit,
+                WindowEvent::Resized(physical_size) => {
+                    shell.resize_surface((physical_size.width, physical_size.height));
+                    window.request_redraw()
                 }
-            }
-
+                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                    shell.resize_surface((new_inner_size.width, new_inner_size.height));
+                    window.request_redraw()
+                }
+                event => {
+                    if let Some(static_event) = event.to_static() {
+                        application.update(static_event);
+                        window.request_redraw()
+                    }
+                }
+            },
             Event::RedrawRequested(window_id) if window_id == window.id() => {
                 shell.update();
                 match shell.render(&mut command_buffer, &mut surface_texture) {
