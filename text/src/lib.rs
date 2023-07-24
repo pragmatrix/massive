@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 mod distance_field_gen;
 mod label;
 mod layout;
