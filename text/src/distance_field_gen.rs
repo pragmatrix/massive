@@ -45,15 +45,16 @@ bitflags! {
 // outside of the image
 unsafe fn found_edge(image_ptr: *const u8, width: usize, neighbor_flags: NeighborFlags) -> bool {
     const NUM_8_CONNECTED_NEIGHBORS: usize = 8;
+    let width = width as isize;
     let offsets: [isize; NUM_8_CONNECTED_NEIGHBORS] = [
         -1,
         1,
-        -(width as isize) - 1,
-        -(width as isize),
-        -(width as isize) + 1,
-        width as isize - 1,
-        width as isize,
-        width as isize + 1,
+        -width - 1,
+        -width,
+        -width + 1,
+        width - 1,
+        width,
+        width + 1,
     ];
     debug_assert_eq!(
         NUM_8_CONNECTED_NEIGHBORS,
