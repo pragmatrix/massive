@@ -110,7 +110,7 @@ fn init_glyph_data(
             let mut check_mask = NeighborFlags::ALL;
             if i == 0 {
                 check_mask &=
-                    !(NeighborFlags::LEFT | NeighborFlags::TOP | NeighborFlags::BOTTOM_LEFT);
+                    !(NeighborFlags::LEFT | NeighborFlags::TOP_LEFT | NeighborFlags::BOTTOM_LEFT);
             }
             if i == image_width - 1 {
                 check_mask &= !(NeighborFlags::RIGHT
