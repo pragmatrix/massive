@@ -144,42 +144,38 @@ fn init_glyph_data(
 fn edge_distance(direction: Point, alpha: f32) -> f32 {
     let dx = direction.x.abs();
     let dy = direction.y.abs();
-    let distance;
     if dx < f32::EPSILON || dy < f32::EPSILON {
-        distance = 0.5 - alpha;
-    } else {
-        // this is easier if we treat the direction as being in the first octant
-        // (other octants are symmetrical)
-        let (dx, dy) = {
-            if dx < dy {
-                (dy, dx)
-            } else {
-                (dx, dy)
-            }
-        };
-
-        // a1 = 0.5*dy/dx is the smaller fractional area chopped off by the edge
-        // to avoid the divide, we just consider the numerator
-        let a1num = 0.5 * dy;
-
-        // we now compute the approximate distance, depending where the alpha falls
-        // relative to the edge fractional area
-
-        // if 0 <= alpha < a1
-        if alpha * dx < a1num {
-            // TODO: find a way to do this without square roots?
-            distance = 0.5 * (dx + dy) - (2.0 * dx * dy * alpha).sqrt();
-        // if a1 <= alpha <= 1 - a1
-        } else if alpha * dx < dx - a1num {
-            distance = (0.5 - alpha) * dx;
-        // if 1 - a1 < alpha <= 1
-        } else {
-            // TODO: find a way to do this without square roots?
-            distance = -0.5 * (dx + dy) + (2.0 * dx * dy * (1.0 - alpha)).sqrt();
-        }
+        return 0.5 - alpha;
     }
+    // this is easier if we treat the direction as being in the first octant
+    // (other octants are symmetrical)
+    let (dx, dy) = {
+        if dx < dy {
+            (dy, dx)
+        } else {
+            (dx, dy)
+        }
+    };
 
-    distance
+    // a1 = 0.5*dy/dx is the smaller fractional area chopped off by the edge
+    // to avoid the divide, we just consider the numerator
+    let a1num = 0.5 * dy;
+
+    // we now compute the approximate distance, depending where the alpha falls
+    // relative to the edge fractional area
+
+    // if 0 <= alpha < a1
+    if alpha * dx < a1num {
+        // TODO: find a way to do this without square roots?
+        return 0.5 * (dx + dy) - (2.0 * dx * dy * alpha).sqrt();
+    }
+    // if a1 <= alpha <= 1 - a1
+    if alpha * dx < dx - a1num {
+        return (0.5 - alpha) * dx;
+    }
+    // if 1 - a1 < alpha <= 1
+    // TODO: find a way to do this without square roots?
+    -0.5 * (dx + dy) + (2.0 * dx * dy * (1.0 - alpha)).sqrt()
 }
 
 unsafe fn init_distances(data: *mut DFData, mut edges: *const u8, width: usize, height: usize) {
