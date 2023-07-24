@@ -142,15 +142,21 @@ fn init_glyph_data(
 // computes the distance to an edge given an edge normal vector and a pixel's alpha value
 // assumes that direction has been pre-normalized
 fn edge_distance(direction: Point, alpha: f32) -> f32 {
-    let dx = direction.x;
-    let dy = direction.y;
+    let dx = direction.x.abs();
+    let dy = direction.y.abs();
     let distance;
-    if dx.abs() < f32::EPSILON || dy.abs() < f32::EPSILON {
+    if dx < f32::EPSILON || dy < f32::EPSILON {
         distance = 0.5 - alpha;
     } else {
         // this is easier if we treat the direction as being in the first octant
         // (other octants are symmetrical)
-        let (dx, dy) = if dx < dy { (dy, dx) } else { (dx, dy) };
+        let (dx, dy) = {
+            if dx < dy {
+                (dy, dx)
+            } else {
+                (dx, dy)
+            }
+        };
 
         // a1 = 0.5*dy/dx is the smaller fractional area chopped off by the edge
         // to avoid the divide, we just consider the numerator
