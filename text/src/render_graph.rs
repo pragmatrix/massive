@@ -98,7 +98,7 @@ pub fn render_graph(
 
     // Label
 
-    let font_size = shell.surface.runtime().var(28.0);
+    let font_size = shell.surface.runtime().var(280.0);
 
     let label = new_label(shell, font_size, text);
 
