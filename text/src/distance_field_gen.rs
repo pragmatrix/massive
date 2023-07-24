@@ -1,3 +1,5 @@
+// Ported from m115.
+
 //
 //  Copyright 2014 Google Inc.
 //
@@ -14,7 +16,7 @@ const DISTANCE_FIELD_MAGNITUDE: usize = 4;
 
 // we need to pad around the original glyph to allow our maximum distance of
 // SK_DistanceFieldMagnitude texels away from any edge
-const DISTANCE_FIELD_PAD: usize = 4;
+pub(crate) const DISTANCE_FIELD_PAD: usize = 4;
 
 #[derive(Debug)]
 struct DFData {
@@ -41,7 +43,7 @@ bitflags! {
 // where we have two non-zero pixels that are <128.
 // 'neighborFlags' is used to limit the directions in which we test to avoid indexing
 // outside of the image
-fn found_edge(image_ptr: &[u8], width: usize, neighbor_flags: NeighborFlags) -> bool {
+unsafe fn found_edge(image_ptr: *const u8, width: usize, neighbor_flags: NeighborFlags) -> bool {
     const NUM_8_CONNECTED_NEIGHBORS: usize = 8;
     let offsets: [isize; NUM_8_CONNECTED_NEIGHBORS] = [
         -1,
@@ -58,15 +60,14 @@ fn found_edge(image_ptr: &[u8], width: usize, neighbor_flags: NeighborFlags) -> 
         NeighborFlags::ALL.bits().count_ones() as usize
     );
 
-    let curr_val = image_ptr[0];
+    let curr_val = *image_ptr;
     let curr_check = curr_val >> 7;
-    #[allow(clippy::needless_range_loop)]
     for i in 0..NUM_8_CONNECTED_NEIGHBORS {
         if (1 << i) & neighbor_flags.bits() == 0 {
             continue;
         }
-        let check_ptr = unsafe { image_ptr.as_ptr().offset(offsets[i]) };
-        let neighbor_val = unsafe { *check_ptr };
+        let check_ptr = image_ptr.offset(offsets[i]);
+        let neighbor_val = *check_ptr;
         let neighbor_check = neighbor_val >> 7;
         debug_assert!(curr_check == 0 || curr_check == 1);
         debug_assert!(neighbor_check == 0 || neighbor_check == 1);
@@ -93,14 +94,16 @@ fn init_glyph_data(
 ) {
     let mut data = &mut data[pad * data_width + pad..];
     let mut edges = &mut edges[pad * data_width + pad..];
-
+    let mut image = image.as_ptr();
     for j in 0..image_height {
         for i in 0..image_width {
-            #[allow(clippy::excessive_precision)]
-            if 255 == image[j * image_width + i] {
+            if 255 == unsafe { *image } {
                 data[0].alpha = 1.0;
             } else {
-                data[0].alpha = image[j * image_width + i] as f32 * 0.00392156862;
+                #[allow(clippy::excessive_precision)]
+                {
+                    data[0].alpha = unsafe { *image } as f32 * 0.00392156862;
+                }
                 // 1/255
             }
             let mut check_mask = NeighborFlags::ALL;
@@ -122,10 +125,11 @@ fn init_glyph_data(
                     | NeighborFlags::BOTTOM
                     | NeighborFlags::BOTTOM_RIGHT);
             }
-            if found_edge(image, image_width, check_mask) {
+            if unsafe { found_edge(image, image_width, check_mask) } {
                 edges[0] = 255; // using 255 makes for convenient debug rendering
             }
             data = &mut data[1..];
+            image = unsafe { image.add(1) };
             edges = &mut edges[1..];
         }
         data = &mut data[2 * pad..];
@@ -286,7 +290,7 @@ unsafe fn f2(curr: *mut DFData, _width: usize) {
 
 // first stage backward pass
 // (backward in Y, forward in X)
-unsafe fn b1(curr: *mut DFData, width: usize) {
+unsafe fn b1(curr: *mut DFData, _width: usize) {
     // left
     let check = curr.offset(-1);
     let mut dist_vec = (*check).dist_vector;
@@ -375,21 +379,21 @@ fn pack_distance_field_val<const DISTANCE_MAGNITUDE: usize>(dist: f32) -> u8 {
 
 // assumes a padded 8-bit image and distance field
 // width and height are the original width and height of the image
-unsafe fn generate_distance_field_from_image(
+pub(crate) unsafe fn generate_distance_field_from_image(
     distance_field: &mut [u8],
     copy_ptr: &[u8],
     width: usize,
     height: usize,
 ) -> bool {
-    debug_assert!(
-        distance_field.len()
-            >= (width + 2 * DISTANCE_FIELD_PAD + 1) * (height + 2 * DISTANCE_FIELD_PAD + 1)
-    );
-    debug_assert!(copy_ptr.len() >= width * height);
-
     // we expand our temp data by one more on each side to simplify
     // the scanning code -- will always be treated as infinitely far away
     let pad = DISTANCE_FIELD_PAD + 1;
+
+    debug_assert!(
+        distance_field.len()
+            == (width + 2 * DISTANCE_FIELD_PAD) * (height + 2 * DISTANCE_FIELD_PAD)
+    );
+    debug_assert!(copy_ptr.len() == (width + 2) * (height + 2));
 
     // set params for distance field data
     let data_width = width + 2 * pad;
@@ -511,7 +515,7 @@ unsafe fn generate_distance_field_from_image(
                     (*curr_data).dist_sq.sqrt()
                 };
                 *df_ptr = pack_distance_field_val::<DISTANCE_FIELD_MAGNITUDE>(dist);
-                df_ptr = unsafe { df_ptr.add(1) };
+                df_ptr = df_ptr.add(1);
             }
             curr_data = curr_data.add(1);
             curr_edge = curr_edge.add(1);
