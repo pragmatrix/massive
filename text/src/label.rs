@@ -12,6 +12,7 @@ use wgpu::util::DeviceExt;
 
 use crate::{
     distance_field_gen::{generate_distance_field_from_image, DISTANCE_FIELD_PAD},
+    render_graph::{Pipeline, PipelineTextureView},
     Extent, TextureVertex,
 };
 
@@ -22,7 +23,7 @@ pub struct Label {
 
 pub struct RenderLabel {
     /// TODO: Separate?
-    pub placements_and_texture_views: Value<Vec<Option<(text::Placement, wgpu::TextureView)>>>,
+    pub placements_and_texture_views: Value<Vec<Option<(text::Placement, PipelineTextureView)>>>,
     pub vertex_buffers: Value<Vec<Option<wgpu::Buffer>>>,
 }
 
@@ -134,7 +135,7 @@ impl Label {
         });
 
         // For now placements and textures have to be combined because we only receive placements
-        // and the imagines together from the SwashCache, and the images are only accessible by
+        // and the images together from the SwashCache, and the images are only accessible by
         // reference. TODO: Find a way to separate them.
         let placements_and_texture_views =
             map_ref!(|device,
@@ -277,17 +278,20 @@ fn image_to_texture_with_classification(
     queue: &wgpu::Queue,
     image: &SwashImage,
     classification: GlyphClassifier,
-) -> Result<(text::Placement, wgpu::TextureView)> {
+) -> Result<(text::Placement, PipelineTextureView)> {
     match classification {
-        GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => {
-            Ok((image.placement, image_to_texture(device, queue, image)))
-        }
+        GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => Ok((
+            image.placement,
+            PipelineTextureView::new(Pipeline::Flat, image_to_texture(device, queue, image)),
+        )),
         GlyphClassifier::Distorted(_) => render_sdf(image)
             .map(|sdf_image| {
-                (
-                    sdf_image.placement,
-                    image_to_texture(device, queue, &sdf_image),
-                )
+                (sdf_image.placement, {
+                    PipelineTextureView::new(
+                        Pipeline::Sdf,
+                        image_to_texture(device, queue, &sdf_image),
+                    )
+                })
             })
             .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image")),
     }

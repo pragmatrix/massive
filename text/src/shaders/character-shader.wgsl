@@ -34,13 +34,13 @@ var t_texture: texture_2d<f32>;
 var s_sampler: sampler;
 
 
-// @fragment
-// fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-//     let sample = textureSample(t_texture, s_sampler, in.tex_coords);
-//     let alpha = sample.r;
+@fragment
+fn fs_flat(in: VertexOutput) -> @location(0) vec4<f32> {
+    let sample = textureSample(t_texture, s_sampler, in.tex_coords);
+    let alpha = sample.r;
 
-//     return vec4<f32>(0.0, 0.0, 0.0, alpha);
-// }
+    return vec4<f32>(0.0, 0.0, 0.0, alpha);
+}
 
 // For the fragment shader:
 //   The distance field is constructed as unsigned char values,
@@ -49,13 +49,12 @@ var s_sampler: sampler;
 // #define SK_DistanceFieldMultiplier   "7.96875"
 // #define SK_DistanceFieldThreshold    "0.50196078431"
 
-
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     // fetch the SDF value from the texture
     let sdf = (textureSample(t_texture, s_sampler, in.tex_coords).r - 0.50196078431) * 7.96875;
 
-     // apply anti-aliasing
+    // apply anti-aliasing
 
     let width: f32 = length(vec2<f32>(dpdx(sdf), dpdy(sdf))) * 0.70710678118654757;
     let alpha = smoothstep(0.0, width, sdf);

@@ -643,6 +643,7 @@ dependencies = [
  "bytemuck",
  "cgmath",
  "cosmic-text",
+ "derive_more",
  "env_logger",
  "granularity",
  "granularity-geometry",

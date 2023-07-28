@@ -1,4 +1,5 @@
 use cgmath::SquareMatrix;
+use derive_more::Constructor;
 use wgpu::util::DeviceExt;
 
 use granularity::{map_ref, Value};
@@ -6,6 +7,24 @@ use granularity_geometry::{scalar, view_projection_matrix, Bounds3, Camera, Matr
 use granularity_shell::Shell;
 
 use crate::{layout, new_label, TextureVertex};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Pipeline {
+    Flat,
+    Sdf,
+}
+
+#[derive(Debug, Constructor)]
+pub struct PipelineTextureView {
+    pipeline: Pipeline,
+    texture_view: wgpu::TextureView,
+}
+
+#[derive(Debug, Constructor)]
+pub struct PipelineBindGroup {
+    pub pipeline: Pipeline,
+    pub bind_group: wgpu::BindGroup,
+}
 
 pub fn render_graph(
     camera: Value<Camera>,
@@ -129,7 +148,7 @@ pub fn render_graph(
 
     let label = label.render(shell, label_matrix.clone(), surface_matrix.clone());
 
-    // Sample & Texture Bind Group
+    // Sampler & Texture Bind Group
 
     let texture_sampler = map_ref!(|device| device.create_sampler(&wgpu::SamplerDescriptor {
         address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -176,20 +195,26 @@ pub fn render_graph(
             .enumerate()
             .map(|(_, placement_and_view)| {
                 placement_and_view.as_ref().map(|(_, texture_view)| {
-                    device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("Texture Bind Group"),
                         layout: texture_bind_group_layout,
                         entries: &[
                             wgpu::BindGroupEntry {
                                 binding: 0,
-                                resource: wgpu::BindingResource::TextureView(texture_view),
+                                resource: wgpu::BindingResource::TextureView(
+                                    &texture_view.texture_view,
+                                ),
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
                                 resource: wgpu::BindingResource::Sampler(texture_sampler),
                             },
                         ],
-                    })
+                    });
+                    PipelineBindGroup {
+                        pipeline: texture_view.pipeline,
+                        bind_group,
+                    }
                 })
             })
             .collect::<Vec<_>>()
@@ -263,39 +288,31 @@ pub fn render_graph(
         write_mask: wgpu::ColorWrites::ALL,
     })]);
 
-    let pipeline = map_ref!(|device, shader, render_pipeline_layout, targets| {
-        let pipeline = wgpu::RenderPipelineDescriptor {
-            label: Some("Render Pipeline"),
-            layout: Some(render_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: shader,
-                entry_point: "vs_main",
-                buffers: &[TextureVertex::desc().clone()],
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: shader,
-                entry_point: "fs_main",
-                targets,
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: Some(wgpu::Face::Back),
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState {
-                count: 1,
-                mask: !0,
-                alpha_to_coverage_enabled: false,
-            },
-            multiview: None,
-        };
-
-        device.create_render_pipeline(&pipeline)
+    let pipelines = map_ref!(|device, shader, render_pipeline_layout, targets| {
+        [
+            (
+                Pipeline::Flat,
+                create_pipeline(
+                    "Pipeline",
+                    device,
+                    shader,
+                    render_pipeline_layout,
+                    targets,
+                    "fs_flat",
+                ),
+            ),
+            (
+                Pipeline::Sdf,
+                create_pipeline(
+                    "SDF Pipeline",
+                    device,
+                    shader,
+                    render_pipeline_layout,
+                    targets,
+                    "fs_sdf",
+                ),
+            ),
+        ]
     });
 
     const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
@@ -312,7 +329,7 @@ pub fn render_graph(
 
     let command_buffer = map_ref!(|device,
                                    view,
-                                   pipeline,
+                                   pipelines,
                                    texture_bind_groups,
                                    camera_bind_group,
                                    model_matrix_bind_group,
@@ -336,19 +353,26 @@ pub fn render_graph(
                 depth_stencil_attachment: None,
             });
 
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_bind_group(1, camera_bind_group, &[]);
-            render_pass.set_bind_group(2, model_matrix_bind_group, &[]);
-            render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
+            for pipeline in pipelines {
+                let kind = pipeline.0;
+                let pipeline = &pipeline.1;
+                render_pass.set_pipeline(pipeline);
+                render_pass.set_bind_group(1, camera_bind_group, &[]);
+                render_pass.set_bind_group(2, model_matrix_bind_group, &[]);
+                render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
 
-            for (i, texture_bind_group) in texture_bind_groups
-                .iter()
-                .enumerate()
-                .filter_map(|(i, b)| b.as_ref().map(|b| (i, b)))
-            {
-                render_pass.set_bind_group(0, texture_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, vertex_buffers[i].as_ref().unwrap().slice(..));
-                render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+                for (i, texture_bind_group) in texture_bind_groups
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, b)| b.as_ref().map(|b| (i, b)))
+                {
+                    if texture_bind_group.pipeline != kind {
+                        continue;
+                    }
+                    render_pass.set_bind_group(0, &texture_bind_group.bind_group, &[]);
+                    render_pass.set_vertex_buffer(0, vertex_buffers[i].as_ref().unwrap().slice(..));
+                    render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
+                }
             }
         }
         encoder.finish()
@@ -362,3 +386,45 @@ pub fn render_graph(
 // This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Matrix4Uniform([[f32; 4]; 4]);
+
+fn create_pipeline(
+    label: &str,
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    render_pipeline_layout: &wgpu::PipelineLayout,
+    targets: &[Option<wgpu::ColorTargetState>],
+    fragment_shader_entry: &str,
+) -> wgpu::RenderPipeline {
+    let pipeline = wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(render_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: "vs_main",
+            buffers: &[TextureVertex::desc().clone()],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: fragment_shader_entry,
+            targets,
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: Some(wgpu::Face::Back),
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState {
+            count: 1,
+            mask: !0,
+            alpha_to_coverage_enabled: false,
+        },
+        multiview: None,
+    };
+
+    device.create_render_pipeline(&pipeline)
+}
