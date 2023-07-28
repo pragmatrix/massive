@@ -1,4 +1,3 @@
-use cgmath::SquareMatrix;
 use derive_more::Constructor;
 use wgpu::util::DeviceExt;
 
@@ -18,6 +17,7 @@ pub enum Pipeline {
 pub struct PipelineTextureView {
     pipeline: Pipeline,
     texture_view: wgpu::TextureView,
+    size: (u32, u32),
 }
 
 #[derive(Debug, Constructor)]
@@ -172,8 +172,19 @@ pub fn render_graph(
                     },
                     count: None,
                 },
+                // Texture size
                 wgpu::BindGroupLayoutEntry {
                     binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
                     visibility: wgpu::ShaderStages::FRAGMENT,
                     // This should match the filterable field of the
                     // corresponding Texture entry above.
@@ -195,6 +206,16 @@ pub fn render_graph(
             .enumerate()
             .map(|(_, placement_and_view)| {
                 placement_and_view.as_ref().map(|(_, texture_view)| {
+                    let texture_size = texture_view.size;
+                    let texture_size =
+                        TextureSizeUniform([texture_size.0 as f32, texture_size.1 as f32]);
+                    let texture_size_buffer =
+                        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                            label: Some("Texture Size Buffer"),
+                            contents: bytemuck::cast_slice(&[texture_size]),
+                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        });
+
                     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
                         label: Some("Texture Bind Group"),
                         layout: texture_bind_group_layout,
@@ -207,6 +228,10 @@ pub fn render_graph(
                             },
                             wgpu::BindGroupEntry {
                                 binding: 1,
+                                resource: texture_size_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
                                 resource: wgpu::BindingResource::Sampler(texture_sampler),
                             },
                         ],
@@ -386,6 +411,11 @@ pub fn render_graph(
 // This is so we can store this in a buffer
 #[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
 struct Matrix4Uniform([[f32; 4]; 4]);
+
+#[repr(C)]
+// This is so we can store this in a buffer
+#[derive(Debug, Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+struct TextureSizeUniform([f32; 2]);
 
 fn create_pipeline(
     label: &str,

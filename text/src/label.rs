@@ -7,7 +7,7 @@ use granularity::{map_ref, Value};
 use granularity_geometry::{Bounds, Matrix4, Point3, Size3};
 use granularity_shell::Shell;
 use nearly::nearly_eq;
-use text::{rustybuzz::ttf_parser::gdef::GlyphClass, SwashImage};
+use text::SwashImage;
 use wgpu::util::DeviceExt;
 
 use crate::{
@@ -284,7 +284,11 @@ fn image_to_texture_with_classification(
             let padded = pad_image(image);
             Ok((
                 padded.placement,
-                PipelineTextureView::new(Pipeline::Flat, image_to_texture(device, queue, &padded)),
+                PipelineTextureView::new(
+                    Pipeline::Flat,
+                    image_to_texture(device, queue, &padded),
+                    (padded.placement.width, padded.placement.height),
+                ),
             ))
         }
         GlyphClassifier::Distorted(_) => render_sdf(image)
@@ -293,6 +297,7 @@ fn image_to_texture_with_classification(
                     PipelineTextureView::new(
                         Pipeline::Sdf,
                         image_to_texture(device, queue, &sdf_image),
+                        (sdf_image.placement.width, sdf_image.placement.height),
                     )
                 })
             })
