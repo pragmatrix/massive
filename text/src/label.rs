@@ -280,10 +280,13 @@ fn image_to_texture_with_classification(
     classification: GlyphClassifier,
 ) -> Result<(text::Placement, PipelineTextureView)> {
     match classification {
-        GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => Ok((
-            image.placement,
-            PipelineTextureView::new(Pipeline::Flat, image_to_texture(device, queue, image)),
-        )),
+        GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => {
+            let padded = pad_image(image);
+            Ok((
+                padded.placement,
+                PipelineTextureView::new(Pipeline::Flat, image_to_texture(device, queue, &padded)),
+            ))
+        }
         GlyphClassifier::Distorted(_) => render_sdf(image)
             .map(|sdf_image| {
                 (sdf_image.placement, {
@@ -468,7 +471,7 @@ fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
     let sdf_ok = unsafe {
         generate_distance_field_from_image(
             distance_field.as_mut_slice(),
-            &padded_image,
+            &padded_image.data,
             width,
             height,
         )
@@ -491,13 +494,24 @@ fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
 }
 
 /// Pad an image by one pixel.
-fn pad_image(image: &text::SwashImage) -> Vec<u8> {
+fn pad_image(image: &text::SwashImage) -> text::SwashImage {
     debug_assert!(image.content == text::SwashContent::Mask);
-    pad_image_data(
+    let padded_data = pad_image_data(
         &image.data,
         image.placement.width as usize,
         image.placement.height as usize,
-    )
+    );
+
+    text::SwashImage {
+        placement: text::Placement {
+            left: image.placement.left - 1,
+            top: image.placement.top + 1,
+            width: image.placement.width + 2,
+            height: image.placement.height + 2,
+        },
+        data: padded_data,
+        ..*image
+    }
 }
 
 fn pad_image_data(image: &[u8], width: usize, height: usize) -> Vec<u8> {
