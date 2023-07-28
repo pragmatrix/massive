@@ -161,14 +161,16 @@ impl Label {
                         .as_ref();
 
                     if let Some(image) = image {
-                        if (image.placement.width != 0 && image.placement.height != 0) {
-                            if let Ok(texture) = image_to_texture_with_classification(
-                                device,
-                                queue,
-                                image,
-                                glyph_classification,
-                            ) {
-                                r.push(Some((image.placement, texture)));
+                        if image.placement.width != 0 && image.placement.height != 0 {
+                            if let Ok(placement_and_texture_view) =
+                                image_to_texture_with_classification(
+                                    device,
+                                    queue,
+                                    image,
+                                    glyph_classification,
+                                )
+                            {
+                                r.push(Some(placement_and_texture_view));
                             } else {
                                 r.push(None)
                             }
@@ -275,13 +277,18 @@ fn image_to_texture_with_classification(
     queue: &wgpu::Queue,
     image: &SwashImage,
     classification: GlyphClassifier,
-) -> Result<wgpu::TextureView> {
+) -> Result<(text::Placement, wgpu::TextureView)> {
     match classification {
         GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => {
-            Ok(image_to_texture(device, queue, image))
+            Ok((image.placement, image_to_texture(device, queue, image)))
         }
         GlyphClassifier::Distorted(_) => render_sdf(image)
-            .map(|sdf_image| image_to_texture(device, queue, &sdf_image))
+            .map(|sdf_image| {
+                (
+                    sdf_image.placement,
+                    image_to_texture(device, queue, &sdf_image),
+                )
+            })
             .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image")),
     }
 }
@@ -321,8 +328,7 @@ fn image_to_texture(
         wgpu::ImageDataLayout {
             offset: 0,
             bytes_per_row: Some(image.placement.width),
-            // TODO: this looks optional.
-            rows_per_image: Some(image.placement.height),
+            rows_per_image: None,
         },
         texture_size,
     );
@@ -458,7 +464,7 @@ fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
     let sdf_ok = unsafe {
         generate_distance_field_from_image(
             distance_field.as_mut_slice(),
-            &padded_image.data,
+            &padded_image,
             width,
             height,
         )
@@ -480,24 +486,14 @@ fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
     None
 }
 
-fn pad_image(image: &text::SwashImage) -> text::SwashImage {
+/// Pad an image by one pixel.
+fn pad_image(image: &text::SwashImage) -> Vec<u8> {
     debug_assert!(image.content == text::SwashContent::Mask);
-    let padded_data = pad_image_data(
+    pad_image_data(
         &image.data,
         image.placement.width as usize,
         image.placement.height as usize,
-    );
-    let placement = &image.placement;
-    text::SwashImage {
-        data: padded_data,
-        placement: text::Placement {
-            left: placement.left - 1,
-            top: placement.top + 1,
-            width: placement.width + 2,
-            height: placement.height + 2,
-        },
-        ..*image
-    }
+    )
 }
 
 fn pad_image_data(image: &[u8], width: usize, height: usize) -> Vec<u8> {
