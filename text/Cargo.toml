@@ -18,6 +18,7 @@ cosmic-text = { workspace = true }
 swash = { workspace = true }
 log = { workspace = true }
 nearly = "0.2.0"
+derive_more = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

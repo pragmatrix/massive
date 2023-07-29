@@ -1,14 +1,20 @@
 use std::ops::DerefMut;
 
+use anyhow::Result;
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
 use granularity::{map_ref, Value};
 use granularity_geometry::{Bounds, Matrix4, Point3, Size3};
 use granularity_shell::Shell;
 use nearly::nearly_eq;
+use text::SwashImage;
 use wgpu::util::DeviceExt;
 
-use crate::{Extent, TextureVertex};
+use crate::{
+    distance_field_gen::{generate_distance_field_from_image, DISTANCE_FIELD_PAD},
+    render_graph::{Pipeline, PipelineTextureView},
+    Extent, TextureVertex,
+};
 
 pub struct Label {
     placed_glyphs: Value<(LabelMetrics, Vec<PositionedGlyph>)>,
@@ -17,7 +23,7 @@ pub struct Label {
 
 pub struct RenderLabel {
     /// TODO: Separate?
-    pub placements_and_texture_views: Value<Vec<Option<(text::Placement, wgpu::TextureView)>>>,
+    pub placements_and_texture_views: Value<Vec<Option<(text::Placement, PipelineTextureView)>>>,
     pub vertex_buffers: Value<Vec<Option<wgpu::Buffer>>>,
 }
 
@@ -129,7 +135,7 @@ impl Label {
         });
 
         // For now placements and textures have to be combined because we only receive placements
-        // and the imagines together from the SwashCache, and the images are only accessible by
+        // and the images together from the SwashCache, and the images are only accessible by
         // reference. TODO: Find a way to separate them.
         let placements_and_texture_views =
             map_ref!(|device,
@@ -139,26 +145,44 @@ impl Label {
                       metrics_and_placed_glyphs,
                       glyph_classifications| {
                 println!("Glyph classifications: {:?}", glyph_classifications);
+                debug_assert!(metrics_and_placed_glyphs.1.len() == glyph_classifications.len());
 
                 let mut font_system = font_system.borrow_mut();
                 let mut glyph_cache = glyph_cache.borrow_mut();
                 let glyph_cache = glyph_cache.deref_mut();
-                metrics_and_placed_glyphs
-                    .1
-                    .iter()
-                    .map(|placed_glyph| {
-                        let image = glyph_cache
-                            .get_image(&mut font_system, placed_glyph.cache_key)
-                            .as_ref();
 
-                        image
-                            .and_then(|image| {
-                                (image.placement.width != 0 && image.placement.height != 0)
-                                    .then_some(image)
-                            })
-                            .map(|image| (image.placement, image_to_texture(device, queue, image)))
-                    })
-                    .collect::<Vec<_>>()
+                let count = metrics_and_placed_glyphs.1.len();
+                let mut r = Vec::with_capacity(count);
+
+                for i in 0..count {
+                    let placed_glyph = &metrics_and_placed_glyphs.1[i];
+                    let glyph_classification = glyph_classifications[i];
+                    let image = glyph_cache
+                        .get_image(&mut font_system, placed_glyph.cache_key)
+                        .as_ref();
+
+                    if let Some(image) = image {
+                        if image.placement.width != 0 && image.placement.height != 0 {
+                            if let Ok(placement_and_texture_view) =
+                                image_to_texture_with_classification(
+                                    device,
+                                    queue,
+                                    image,
+                                    glyph_classification,
+                                )
+                            {
+                                r.push(Some(placement_and_texture_view));
+                            } else {
+                                r.push(None)
+                            }
+                        } else {
+                            r.push(None)
+                        }
+                    } else {
+                        r.push(None)
+                    }
+                }
+                r
             });
 
         let vertex_buffers = map_ref!(
@@ -249,7 +273,39 @@ fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PositionedGlyph> {
         .collect()
 }
 
-/// Creates an empty texture and queues it for uploading to the GPU.
+fn image_to_texture_with_classification(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    image: &SwashImage,
+    classification: GlyphClassifier,
+) -> Result<(text::Placement, PipelineTextureView)> {
+    match classification {
+        GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => {
+            let padded = pad_image(image);
+            Ok((
+                padded.placement,
+                PipelineTextureView::new(
+                    Pipeline::Flat,
+                    image_to_texture(device, queue, &padded),
+                    (padded.placement.width, padded.placement.height),
+                ),
+            ))
+        }
+        GlyphClassifier::Distorted(_) => render_sdf(image)
+            .map(|sdf_image| {
+                (sdf_image.placement, {
+                    PipelineTextureView::new(
+                        Pipeline::Sdf,
+                        image_to_texture(device, queue, &sdf_image),
+                        (sdf_image.placement.width, sdf_image.placement.height),
+                    )
+                })
+            })
+            .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image")),
+    }
+}
+
+/// Creates a texture and uploads the image's content to the GPU.
 fn image_to_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -284,8 +340,7 @@ fn image_to_texture(
         wgpu::ImageDataLayout {
             offset: 0,
             bytes_per_row: Some(image.placement.width),
-            // TODO: this looks optional.
-            rows_per_image: Some(image.placement.height),
+            rows_per_image: None,
         },
         texture_size,
     );
@@ -407,4 +462,71 @@ impl GlyphClassifier {
             alignment: (aligned_x, aligned_y),
         }
     }
+}
+
+fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
+    let width = image.placement.width as usize;
+    let height = image.placement.height as usize;
+
+    // TODO: Don't need the temporary SwashImage here.
+    let padded_image = pad_image(image);
+    let pad = DISTANCE_FIELD_PAD;
+    let mut distance_field = vec![0u8; (width + 2 * pad) * (height + 2 * pad)];
+
+    let sdf_ok = unsafe {
+        generate_distance_field_from_image(
+            distance_field.as_mut_slice(),
+            &padded_image.data,
+            width,
+            height,
+        )
+    };
+
+    if sdf_ok {
+        return Some(text::SwashImage {
+            placement: text::Placement {
+                left: image.placement.left - pad as i32,
+                top: image.placement.top + pad as i32,
+                width: image.placement.width + 2 * pad as u32,
+                height: image.placement.height + 2 * pad as u32,
+            },
+            data: distance_field,
+            ..*image
+        });
+    };
+
+    None
+}
+
+/// Pad an image by one pixel.
+fn pad_image(image: &text::SwashImage) -> text::SwashImage {
+    debug_assert!(image.content == text::SwashContent::Mask);
+    let padded_data = pad_image_data(
+        &image.data,
+        image.placement.width as usize,
+        image.placement.height as usize,
+    );
+
+    text::SwashImage {
+        placement: text::Placement {
+            left: image.placement.left - 1,
+            top: image.placement.top + 1,
+            width: image.placement.width + 2,
+            height: image.placement.height + 2,
+        },
+        data: padded_data,
+        ..*image
+    }
+}
+
+fn pad_image_data(image: &[u8], width: usize, height: usize) -> Vec<u8> {
+    let mut padded_image = vec![0u8; (width + 2) * (height + 2)];
+    let row_offset = width + 2;
+    for line in 0..height {
+        let dest_offset = (line + 1) * row_offset + 1;
+        let src_offset = line * width;
+        padded_image[dest_offset..dest_offset + width]
+            .copy_from_slice(&image[src_offset..src_offset + width]);
+    }
+    padded_image
 }
