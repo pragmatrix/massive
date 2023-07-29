@@ -161,7 +161,7 @@ impl Label {
                         .get_image(&mut font_system, placed_glyph.cache_key)
                         .as_ref();
 
-                    if let Some(image) = image {
+                    let image_and_texture_view = if let Some(image) = image {
                         if image.placement.width != 0 && image.placement.height != 0 {
                             if let Ok(placement_and_texture_view) =
                                 image_to_texture_with_classification(
@@ -171,16 +171,18 @@ impl Label {
                                     glyph_classification,
                                 )
                             {
-                                r.push(Some(placement_and_texture_view));
+                                Some(placement_and_texture_view)
                             } else {
-                                r.push(None)
+                                None
                             }
                         } else {
-                            r.push(None)
+                            None
                         }
                     } else {
-                        r.push(None)
-                    }
+                        None
+                    };
+
+                    r.push(image_and_texture_view)
                 }
                 r
             });
