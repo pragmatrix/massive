@@ -1,5 +1,5 @@
 use cgmath::EuclideanSpace;
-use granularity::{map_ref, Value};
+use granularity::{map, Value};
 use granularity_geometry::{Bounds3, Matrix4, Point3, Size3, Vector3};
 
 pub trait Extent {
@@ -15,7 +15,7 @@ pub trait Extent {
 }
 
 pub fn center<E: Extent>(container: Value<Bounds3>, inner: Value<E>) -> Value<Matrix4> {
-    map_ref!(|container, inner| {
+    map!(|*container, inner| {
         let container_size = container.size();
         let inner_size = inner.size();
         let container_center = container.min + container_size / 2.0;

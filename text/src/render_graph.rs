@@ -1,7 +1,7 @@
 use derive_more::Constructor;
 use wgpu::util::DeviceExt;
 
-use granularity::{map_ref, Value};
+use granularity::{map, Value};
 use granularity_geometry::{scalar, view_projection_matrix, Bounds3, Camera, Matrix4, Projection};
 use granularity_shell::Shell;
 
@@ -37,7 +37,7 @@ pub fn render_graph(
     let surface_config = &shell.surface_config;
 
     // Create a pixel bounds for a window that covers the entire surface.
-    let window_bounds = map_ref!(|surface_config| {
+    let window_bounds = map!(|surface_config| {
         let half_width = surface_config.width / 2;
         let half_height = surface_config.height / 2;
         Bounds3::new(
@@ -46,14 +46,14 @@ pub fn render_graph(
         )
     });
 
-    let shader = map_ref!(|device| {
+    let shader = map!(|device| {
         device.create_shader_module(wgpu::include_wgsl!("shaders/character-shader.wgsl"))
     });
 
     // TODO: handle errors here (but how or if? should they propagate through the graph?)
-    let output = map_ref!(|surface| surface.get_current_texture().unwrap());
+    let output = map!(|surface| surface.get_current_texture().unwrap());
 
-    let view = map_ref!(|output| {
+    let view = map!(|output| {
         output
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default())
@@ -61,23 +61,23 @@ pub fn render_graph(
 
     // Camera
 
-    let projection = map_ref!(|config| Projection::new(
+    let projection = map!(|config| Projection::new(
         config.width as scalar / config.height as scalar,
         0.1,
         100.0
     ));
 
     let view_projection_matrix =
-        map_ref!(|camera, projection| view_projection_matrix(camera, projection));
+        map!(|camera, projection| view_projection_matrix(camera, projection));
 
-    let view_projection_uniform = map_ref!(|view_projection_matrix| {
+    let view_projection_uniform = map!(|view_projection_matrix| {
         let m: cgmath::Matrix4<f32> = view_projection_matrix
             .cast()
             .expect("matrix casting to f32 failed");
         Matrix4Uniform(m.into())
     });
 
-    let view_projection_buffer = map_ref!(|device, view_projection_uniform| {
+    let view_projection_buffer = map!(|device, view_projection_uniform| {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Camera Buffer"),
             contents: bytemuck::cast_slice(&[*view_projection_uniform]),
@@ -85,7 +85,7 @@ pub fn render_graph(
         })
     });
 
-    let camera_bind_group_layout = map_ref!(|device| {
+    let camera_bind_group_layout = map!(|device| {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -101,19 +101,18 @@ pub fn render_graph(
         })
     });
 
-    let camera_bind_group =
-        map_ref!(
-            |device, camera_bind_group_layout, view_projection_buffer| device.create_bind_group(
-                &wgpu::BindGroupDescriptor {
-                    layout: camera_bind_group_layout,
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: view_projection_buffer.as_entire_binding(),
-                    }],
-                    label: Some("Camera Bind Group"),
-                }
-            )
-        );
+    let camera_bind_group = map!(
+        |device, camera_bind_group_layout, view_projection_buffer| device.create_bind_group(
+            &wgpu::BindGroupDescriptor {
+                layout: camera_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: view_projection_buffer.as_entire_binding(),
+                }],
+                label: Some("Camera Bind Group"),
+            }
+        )
+    );
 
     // Label
 
@@ -123,13 +122,13 @@ pub fn render_graph(
 
     // A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
     // 1.0 in each axis. Also flips y.
-    let pixel_matrix = map_ref!(|surface_config| {
+    let pixel_matrix = map!(|surface_config| {
         Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
             * Matrix4::from_scale(1.0 / surface_config.height as f64 * 2.0)
     });
 
     // A Matrix that translates from the WGPU coordinate system to the surface coordinate
-    let surface_matrix = map_ref!(|surface_config| {
+    let surface_matrix = map!(|surface_config| {
         println!("surface_config: {:?}", surface_config);
 
         Matrix4::from_nonuniform_scale(
@@ -141,8 +140,8 @@ pub fn render_graph(
 
     let center_matrix = layout::center(window_bounds, label.metrics.clone());
 
-    // let label_matrix = map_ref!(|pixel_matrix, center_matrix| pixel_matrix * center_matrix);
-    let label_matrix = map_ref!(|pixel_matrix, center_matrix, view_projection_matrix| {
+    // let label_matrix = map!(|pixel_matrix, center_matrix| pixel_matrix * center_matrix);
+    let label_matrix = map!(|pixel_matrix, center_matrix, view_projection_matrix| {
         view_projection_matrix * pixel_matrix * center_matrix
     });
 
@@ -150,7 +149,7 @@ pub fn render_graph(
 
     // Sampler & Texture Bind Group
 
-    let texture_sampler = map_ref!(|device| device.create_sampler(&wgpu::SamplerDescriptor {
+    let texture_sampler = map!(|device| device.create_sampler(&wgpu::SamplerDescriptor {
         address_mode_u: wgpu::AddressMode::ClampToEdge,
         address_mode_v: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
@@ -158,7 +157,7 @@ pub fn render_graph(
         ..Default::default()
     }));
 
-    let texture_bind_group_layout = map_ref!(|device| {
+    let texture_bind_group_layout = map!(|device| {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Texture Bind Group Layout"),
             entries: &[
@@ -197,10 +196,10 @@ pub fn render_graph(
 
     let placements_and_texture_views = &label.placements_and_texture_views;
 
-    let texture_bind_groups = map_ref!(|device,
-                                        texture_bind_group_layout,
-                                        placements_and_texture_views,
-                                        texture_sampler| {
+    let texture_bind_groups = map!(|device,
+                                    texture_bind_group_layout,
+                                    placements_and_texture_views,
+                                    texture_sampler| {
         placements_and_texture_views
             .iter()
             .enumerate()
@@ -247,12 +246,12 @@ pub fn render_graph(
 
     // Model Matrix
 
-    let model_matrix_uniform = map_ref!(|label_matrix| {
+    let model_matrix_uniform = map!(|label_matrix| {
         let m: cgmath::Matrix4<f32> = label_matrix.cast().expect("matrix casting to f32 failed");
         Matrix4Uniform(m.into())
     });
 
-    let model_matrix_buffer = map_ref!(|device, model_matrix_uniform| {
+    let model_matrix_buffer = map!(|device, model_matrix_uniform| {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Model Matrix Buffer"),
             contents: bytemuck::cast_slice(&[*model_matrix_uniform]),
@@ -260,7 +259,7 @@ pub fn render_graph(
         })
     });
 
-    let model_matrix_bind_group_layout = map_ref!(|device| {
+    let model_matrix_bind_group_layout = map!(|device| {
         device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -276,7 +275,7 @@ pub fn render_graph(
         })
     });
 
-    let model_matrix_bind_group = map_ref!(
+    let model_matrix_bind_group = map!(
         |device, model_matrix_bind_group_layout, model_matrix_buffer| device.create_bind_group(
             &wgpu::BindGroupDescriptor {
                 layout: model_matrix_bind_group_layout,
@@ -292,10 +291,10 @@ pub fn render_graph(
     // Pipeline
 
     let render_pipeline_layout =
-        map_ref!(|device,
-                  texture_bind_group_layout,
-                  camera_bind_group_layout,
-                  model_matrix_bind_group_layout| device.create_pipeline_layout(
+        map!(|device,
+              texture_bind_group_layout,
+              camera_bind_group_layout,
+              model_matrix_bind_group_layout| device.create_pipeline_layout(
             &wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
                 bind_group_layouts: &[
@@ -307,13 +306,13 @@ pub fn render_graph(
             }
         ));
 
-    let targets = map_ref!(|config| [Some(wgpu::ColorTargetState {
+    let targets = map!(|config| [Some(wgpu::ColorTargetState {
         format: config.format,
         blend: Some(wgpu::BlendState::ALPHA_BLENDING),
         write_mask: wgpu::ColorWrites::ALL,
     })]);
 
-    let pipelines = map_ref!(|device, shader, render_pipeline_layout, targets| {
+    let pipelines = map!(|device, shader, render_pipeline_layout, targets| {
         [
             (
                 Pipeline::Flat,
@@ -342,7 +341,7 @@ pub fn render_graph(
 
     const INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
-    let index_buffer = map_ref!(|device| device.create_buffer_init(
+    let index_buffer = map!(|device| device.create_buffer_init(
         &wgpu::util::BufferInitDescriptor {
             label: Some("Index Buffer"),
             contents: bytemuck::cast_slice(INDICES),
@@ -352,14 +351,14 @@ pub fn render_graph(
 
     let vertex_buffers = &label.vertex_buffers;
 
-    let command_buffer = map_ref!(|device,
-                                   view,
-                                   pipelines,
-                                   texture_bind_groups,
-                                   camera_bind_group,
-                                   model_matrix_bind_group,
-                                   vertex_buffers,
-                                   index_buffer| {
+    let command_buffer = map!(|device,
+                               view,
+                               pipelines,
+                               texture_bind_groups,
+                               camera_bind_group,
+                               model_matrix_bind_group,
+                               vertex_buffers,
+                               index_buffer| {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Render Encoder"),
         });

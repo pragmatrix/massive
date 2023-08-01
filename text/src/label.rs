@@ -3,7 +3,7 @@ use std::ops::DerefMut;
 use anyhow::Result;
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
-use granularity::{map_ref, Value};
+use granularity::{map, Value};
 use granularity_geometry::{Bounds, Matrix4, Point3, Size3};
 use granularity_shell::Shell;
 use nearly::nearly_eq;
@@ -54,7 +54,7 @@ impl Extent for LabelMetrics {
 pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> Label {
     let font_system = &shell.font_system;
 
-    let metrics_and_placed_glyphs = map_ref!(|font_system, text, font_size| {
+    let metrics_and_placed_glyphs = map!(|font_system, text, font_size| {
         let mut font_system = font_system.borrow_mut();
         let font_system = font_system.deref_mut();
         // TODO: Cosmic text recommends to use a single buffer for a widget, but we are creating a
@@ -78,7 +78,7 @@ pub fn new_label(shell: &Shell, font_size: Value<f32>, text: Value<String>) -> L
         (metrics, placed)
     });
 
-    let metrics = map_ref!(|metrics_and_placed_glyphs| metrics_and_placed_glyphs.0);
+    let metrics = map!(|metrics_and_placed_glyphs| metrics_and_placed_glyphs.0);
 
     Label {
         placed_glyphs: metrics_and_placed_glyphs,
@@ -101,7 +101,7 @@ impl Label {
         let metrics_and_placed_glyphs = &self.placed_glyphs;
 
         // The pixel bounds in the center of the placed glyphs.
-        let pixel_bounds = map_ref!(|metrics_and_placed_glyphs| {
+        let pixel_bounds = map!(|metrics_and_placed_glyphs| {
             let metrics = &metrics_and_placed_glyphs.0;
             let (_, height) = metrics.size();
             // TODO: we might pull this up to the center of the part of the glyph above the
@@ -118,9 +118,9 @@ impl Label {
                 .collect::<Vec<_>>()
         });
 
-        let label_to_surface_matrix = map_ref!(|matrix, surface_matrix| surface_matrix * matrix);
+        let label_to_surface_matrix = map!(|matrix, surface_matrix| surface_matrix * matrix);
 
-        let glyph_classifications = map_ref!(|pixel_bounds, label_to_surface_matrix| {
+        let glyph_classifications = map!(|pixel_bounds, label_to_surface_matrix| {
             pixel_bounds
                 .iter()
                 .map(|pixel_bounds| {
@@ -138,12 +138,12 @@ impl Label {
         // and the images together from the SwashCache, and the images are only accessible by
         // reference. TODO: Find a way to separate them.
         let placements_and_texture_views =
-            map_ref!(|device,
-                      queue,
-                      font_system,
-                      glyph_cache,
-                      metrics_and_placed_glyphs,
-                      glyph_classifications| {
+            map!(|device,
+                  queue,
+                  font_system,
+                  glyph_cache,
+                  metrics_and_placed_glyphs,
+                  glyph_classifications| {
                 println!("Glyph classifications: {:?}", glyph_classifications);
                 debug_assert!(metrics_and_placed_glyphs.1.len() == glyph_classifications.len());
 
@@ -187,7 +187,7 @@ impl Label {
                 r
             });
 
-        let vertex_buffers = map_ref!(
+        let vertex_buffers = map!(
             |device, metrics_and_placed_glyphs, placements_and_texture_views| {
                 let metrics = &metrics_and_placed_glyphs.0;
                 placements_and_texture_views
