@@ -70,50 +70,6 @@ pub fn render_graph(
     let view_projection_matrix =
         map!(|camera, projection| view_projection_matrix(camera, projection));
 
-    let view_projection_uniform = map!(|view_projection_matrix| {
-        let m: cgmath::Matrix4<f32> = view_projection_matrix
-            .cast()
-            .expect("matrix casting to f32 failed");
-        Matrix4Uniform(m.into())
-    });
-
-    let view_projection_buffer = map!(|device, view_projection_uniform| {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Camera Buffer"),
-            contents: bytemuck::cast_slice(&[*view_projection_uniform]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        })
-    });
-
-    let camera_bind_group_layout = map!(|device| {
-        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-            label: Some("Camera Bind Group Layout"),
-        })
-    });
-
-    let camera_bind_group = map!(
-        |device, camera_bind_group_layout, view_projection_buffer| device.create_bind_group(
-            &wgpu::BindGroupDescriptor {
-                layout: camera_bind_group_layout,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: view_projection_buffer.as_entire_binding(),
-                }],
-                label: Some("Camera Bind Group"),
-            }
-        )
-    );
-
     // Label
 
     let font_size = shell.surface.runtime().var(100.0);
@@ -290,21 +246,14 @@ pub fn render_graph(
 
     // Pipeline
 
-    let render_pipeline_layout =
-        map!(|device,
-              texture_bind_group_layout,
-              camera_bind_group_layout,
-              model_matrix_bind_group_layout| device.create_pipeline_layout(
-            &wgpu::PipelineLayoutDescriptor {
+    let render_pipeline_layout = map!(
+        |device, texture_bind_group_layout, model_matrix_bind_group_layout| device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("Render Pipeline Layout"),
-                bind_group_layouts: &[
-                    texture_bind_group_layout,
-                    camera_bind_group_layout,
-                    model_matrix_bind_group_layout
-                ],
+                bind_group_layouts: &[model_matrix_bind_group_layout, texture_bind_group_layout],
                 push_constant_ranges: &[],
-            }
-        ));
+            })
+    );
 
     let targets = map!(|config| [Some(wgpu::ColorTargetState {
         format: config.format,
@@ -355,7 +304,6 @@ pub fn render_graph(
                                view,
                                pipelines,
                                texture_bind_groups,
-                               camera_bind_group,
                                model_matrix_bind_group,
                                vertex_buffers,
                                index_buffer| {
@@ -381,8 +329,7 @@ pub fn render_graph(
                 let kind = pipeline.0;
                 let pipeline = &pipeline.1;
                 render_pass.set_pipeline(pipeline);
-                render_pass.set_bind_group(1, camera_bind_group, &[]);
-                render_pass.set_bind_group(2, model_matrix_bind_group, &[]);
+                render_pass.set_bind_group(0, model_matrix_bind_group, &[]);
                 render_pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint16); // 1.
 
                 for (i, texture_bind_group) in texture_bind_groups
@@ -393,7 +340,7 @@ pub fn render_graph(
                     if texture_bind_group.pipeline != kind {
                         continue;
                     }
-                    render_pass.set_bind_group(0, &texture_bind_group.bind_group, &[]);
+                    render_pass.set_bind_group(1, &texture_bind_group.bind_group, &[]);
                     render_pass.set_vertex_buffer(0, vertex_buffers[i].as_ref().unwrap().slice(..));
                     render_pass.draw_indexed(0..INDICES.len() as u32, 0, 0..1);
                 }
