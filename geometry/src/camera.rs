@@ -3,7 +3,7 @@ use crate::{scalar, Matrix4, Point3, Vector3};
 // TODO: May use yaw / pitch based camera?
 // <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Camera {
     pub eye: Point3,
     pub target: Point3,

@@ -29,14 +29,14 @@ async fn main() {
         hello_world,
     };
 
-    granularity_shell::run(application, move |application, shell| {
-        granularity_text::render_graph(
-            application.camera.clone(),
-            application.hello_world.clone(),
-            shell,
-        )
-    })
-    .await;
+    // granularity_shell::run(application, move |application, shell| {
+    //     granularity_text::render_graph(
+    //         application.camera.clone(),
+    //         application.hello_world.clone(),
+    //         shell,
+    //     )
+    // })
+    // .await;
 }
 
 impl Application {
@@ -69,12 +69,12 @@ impl Application {
     }
 }
 
-impl granularity_shell::Application for Application {
-    fn update(&mut self, window_event: WindowEvent<'static>) {
-        self.update(window_event)
-    }
+// impl granularity_shell::Application for Application {
+//     fn update(&mut self, window_event: WindowEvent<'static>) {
+//         self.update(window_event)
+//     }
 
-    fn runtime(&self) -> granularity::Runtime {
-        self.camera.runtime()
-    }
-}
+//     fn runtime(&self) -> granularity::Runtime {
+//         self.camera.runtime()
+//     }
+// }

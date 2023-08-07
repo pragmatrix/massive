@@ -1,0 +1,9 @@
+[package]
+name = "granularity-shapes"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+granularity-geometry = { workspace = true }
+# TODO: This is a bit heavyweight here, we need it for the CacheKey
+cosmic-text = { workspace = true }

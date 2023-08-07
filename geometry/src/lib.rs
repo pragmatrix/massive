@@ -18,6 +18,7 @@ mod unit_interval;
 pub use bounds::*;
 pub use bounds3::*;
 pub use camera::*;
+use cgmath::One;
 pub use color::*;
 pub use cubic_bezier::*;
 pub use line::*;
@@ -42,6 +43,16 @@ pub trait Contains<Other> {
 pub type Matrix4 = cgmath::Matrix4<f64>;
 pub type Point3 = cgmath::Point3<f64>;
 pub type Vector3 = cgmath::Vector3<f64>;
+
+pub trait Identity {
+    fn identity() -> Self;
+}
+
+impl Identity for Matrix4 {
+    fn identity() -> Self {
+        cgmath::Matrix4::one()
+    }
+}
 
 pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
     let view = camera.view_matrix();

@@ -647,6 +647,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "granularity-renderer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bitflags 2.3.3",
+ "bytemuck",
+ "cgmath",
+ "cosmic-text",
+ "derive_more",
+ "granularity-geometry",
+ "granularity-shapes",
+ "log",
+ "nearly",
+ "swash",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
+name = "granularity-shapes"
+version = "0.1.0"
+dependencies = [
+ "cosmic-text",
+ "granularity-geometry",
+]
+
+[[package]]
 name = "granularity-shell"
 version = "0.1.0"
 dependencies = [
@@ -655,6 +682,7 @@ dependencies = [
  "cosmic-text",
  "env_logger",
  "granularity",
+ "granularity-renderer",
  "log",
  "swash",
  "tokio",
@@ -675,7 +703,6 @@ dependencies = [
  "env_logger",
  "granularity",
  "granularity-geometry",
- "granularity-shell",
  "log",
  "nearly",
  "swash",

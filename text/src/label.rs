@@ -5,7 +5,6 @@ use cgmath::{Point2, Transform};
 use cosmic_text as text;
 use granularity::{map, Value};
 use granularity_geometry::{Bounds, Matrix4, Point3, Size3};
-use granularity_shell::Shell;
 use nearly::nearly_eq;
 use text::SwashImage;
 use wgpu::util::DeviceExt;
@@ -464,71 +463,4 @@ impl GlyphClassifier {
             alignment: (aligned_x, aligned_y),
         }
     }
-}
-
-fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
-    let width = image.placement.width as usize;
-    let height = image.placement.height as usize;
-
-    // TODO: Don't need the temporary SwashImage here.
-    let padded_image = pad_image(image);
-    let pad = DISTANCE_FIELD_PAD;
-    let mut distance_field = vec![0u8; (width + 2 * pad) * (height + 2 * pad)];
-
-    let sdf_ok = unsafe {
-        generate_distance_field_from_image(
-            distance_field.as_mut_slice(),
-            &padded_image.data,
-            width,
-            height,
-        )
-    };
-
-    if sdf_ok {
-        return Some(text::SwashImage {
-            placement: text::Placement {
-                left: image.placement.left - pad as i32,
-                top: image.placement.top + pad as i32,
-                width: image.placement.width + 2 * pad as u32,
-                height: image.placement.height + 2 * pad as u32,
-            },
-            data: distance_field,
-            ..*image
-        });
-    };
-
-    None
-}
-
-/// Pad an image by one pixel.
-fn pad_image(image: &text::SwashImage) -> text::SwashImage {
-    debug_assert!(image.content == text::SwashContent::Mask);
-    let padded_data = pad_image_data(
-        &image.data,
-        image.placement.width as usize,
-        image.placement.height as usize,
-    );
-
-    text::SwashImage {
-        placement: text::Placement {
-            left: image.placement.left - 1,
-            top: image.placement.top + 1,
-            width: image.placement.width + 2,
-            height: image.placement.height + 2,
-        },
-        data: padded_data,
-        ..*image
-    }
-}
-
-fn pad_image_data(image: &[u8], width: usize, height: usize) -> Vec<u8> {
-    let mut padded_image = vec![0u8; (width + 2) * (height + 2)];
-    let row_offset = width + 2;
-    for line in 0..height {
-        let dest_offset = (line + 1) * row_offset + 1;
-        let src_offset = line * width;
-        padded_image[dest_offset..dest_offset + width]
-            .copy_from_slice(&image[src_offset..src_offset + width]);
-    }
-    padded_image
 }
