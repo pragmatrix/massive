@@ -1,32 +1,43 @@
-use std::collections::{hash_map, HashMap};
+use std::{
+    collections::{hash_map, HashMap, HashSet},
+    rc::Rc,
+};
 
 use anyhow::Result;
 use cosmic_text as text;
 use swash::scale::ScaleContext;
 
+use super::{glyph_image_renderer::render_sdf, glyph_param::GlyphRenderParam};
 use crate::{
-    command::{Pipeline, PipelineTextureView},
-    glyph::{
-        glyph_classifier::GlyphClass,
-        glyph_renderer::{pad_image, render_glyph_image},
-    },
+    glyph::glyph_image_renderer::{pad_image, render_glyph_image},
+    primitives::Pipeline,
+    texture,
 };
 
-use super::glyph_renderer::render_sdf;
-
+#[derive(Default)]
 pub struct GlyphCache {
     scaler: ScaleContext,
     cache: HashMap<RenderGlyphKey, Option<RenderGlyph>>,
+    retainer: HashSet<RenderGlyphKey>,
 }
 
 impl GlyphCache {
+    /// Returns a `RenderGlyph` and marks this one as used.
     pub fn get(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         font_system: &mut text::FontSystem,
-        key: RenderGlyphKey,
+        glyph_key: text::CacheKey,
+        glyph_param: GlyphRenderParam,
     ) -> Option<&RenderGlyph> {
+        let key = RenderGlyphKey {
+            glyph_key,
+            glyph_param,
+        };
+
+        self.retainer.insert(key.clone());
+
         use hash_map::Entry::*;
         match self.cache.entry(key) {
             Occupied(e) => e.into_mut().as_ref(),
@@ -36,34 +47,25 @@ impl GlyphCache {
             }
         }
     }
+
+    /// Flushes all the unused glyphs from the cache.
+    pub fn flush_unused(&mut self) {
+        self.cache.retain(|x, _| self.retainer.contains(x));
+        self.retainer.clear();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RenderGlyphKey {
     pub glyph_key: text::CacheKey,
-    pub texture_param: TextureParam,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct TextureParam {
-    // TODO: Add scaling
-    sdf: bool,
-}
-
-impl TextureParam {
-    fn pipeline(&self) -> Pipeline {
-        if self.sdf {
-            Pipeline::Sdf
-        } else {
-            Pipeline::Flat
-        }
-    }
+    pub glyph_param: GlyphRenderParam,
 }
 
 #[derive(Debug)]
 pub struct RenderGlyph {
-    placement: text::Placement,
-    texture_view: PipelineTextureView,
+    pub placement: text::Placement,
+    pub pipeline: Pipeline,
+    pub texture_view: texture::View,
 }
 
 fn render_glyph(
@@ -78,11 +80,11 @@ fn render_glyph(
         return None;
     }
 
-    if let Ok((placement, texture_view)) =
-        image_to_texture(device, queue, &image, &key.texture_param)
+    if let Ok((placement, texture_view)) = image_to_texture(device, queue, &image, &key.glyph_param)
     {
         Some(RenderGlyph {
             placement,
+            pipeline: key.glyph_param.pipeline(),
             texture_view,
         })
     } else {
@@ -90,41 +92,24 @@ fn render_glyph(
     }
 }
 
-fn classification_to_param(class: GlyphClass) -> TextureParam {
-    use GlyphClass::*;
-    match class {
-        Zoomed(_) | PixelPerfect { .. } => TextureParam { sdf: false },
-        Distorted(_) => TextureParam { sdf: true },
-    }
-}
-
 fn image_to_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &text::SwashImage,
-    param: &TextureParam,
-) -> Result<(text::Placement, PipelineTextureView)> {
+    param: &GlyphRenderParam,
+) -> Result<(text::Placement, texture::View)> {
     match param.sdf {
         false => {
+            // Need to pad the image, otherwise edges may look clamped.
             let padded = pad_image(image);
-            Ok((
-                padded.placement,
-                PipelineTextureView::new(
-                    Pipeline::Flat,
-                    create_gpu_texture(device, queue, &padded),
-                    (padded.placement.width, padded.placement.height),
-                ),
-            ))
+            Ok((padded.placement, create_gpu_texture(device, queue, &padded)))
         }
         true => render_sdf(image)
             .map(|sdf_image| {
-                (sdf_image.placement, {
-                    PipelineTextureView::new(
-                        Pipeline::Sdf,
-                        create_gpu_texture(device, queue, &sdf_image),
-                        (sdf_image.placement.width, sdf_image.placement.height),
-                    )
-                })
+                (
+                    sdf_image.placement,
+                    create_gpu_texture(device, queue, &sdf_image),
+                )
             })
             .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image")),
     }
@@ -135,40 +120,12 @@ fn create_gpu_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &text::SwashImage,
-) -> wgpu::TextureView {
-    let texture_size = wgpu::Extent3d {
-        width: image.placement.width,
-        height: image.placement.height,
-        depth_or_array_layers: 1,
-    };
-
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        size: texture_size,
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::R8Unorm,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        label: Some("Character Texture"),
-        view_formats: &[],
-    });
-
-    // TODO: how to separate this from texture creation?
-    queue.write_texture(
-        wgpu::ImageCopyTexture {
-            texture: &texture,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
+) -> texture::View {
+    let placement = image.placement;
+    texture::View::from_data(
+        device,
+        queue,
         &image.data,
-        wgpu::ImageDataLayout {
-            offset: 0,
-            bytes_per_row: Some(image.placement.width),
-            rows_per_image: None,
-        },
-        texture_size,
-    );
-
-    texture.create_view(&wgpu::TextureViewDescriptor::default())
+        (placement.width, placement.height),
+    )
 }

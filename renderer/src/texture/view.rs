@@ -1,5 +1,3 @@
-use crate::command::ImageData;
-
 use super::Size;
 
 #[derive(Debug)]
@@ -10,10 +8,15 @@ pub struct View {
 
 impl View {
     /// Creates a texture and uploads the image's content to the GPU.
-    pub fn from_image_data(device: &wgpu::Device, queue: &wgpu::Queue, image: &ImageData) -> Self {
+    pub fn from_data(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        data: &[u8],
+        (width, height): (u32, u32),
+    ) -> Self {
         let size = wgpu::Extent3d {
-            width: image.size.0,
-            height: image.size.1,
+            width,
+            height,
             depth_or_array_layers: 1,
         };
 
@@ -35,17 +38,17 @@ impl View {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &image.data,
+            data,
             wgpu::ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(image.size.0),
+                bytes_per_row: Some(width),
                 rows_per_image: None,
             },
             size,
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let size = Size::new(device, image.size);
+        let size = Size::new(device, (width, height));
         Self { view, size }
     }
 

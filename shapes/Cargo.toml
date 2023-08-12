@@ -7,3 +7,4 @@ edition = "2021"
 granularity-geometry = { workspace = true }
 # TODO: This is a bit heavyweight here, we need it for the CacheKey
 cosmic-text = { workspace = true }
+derive_more = { workspace = true }

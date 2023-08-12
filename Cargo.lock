@@ -656,11 +656,13 @@ dependencies = [
  "cgmath",
  "cosmic-text",
  "derive_more",
+ "env_logger",
  "granularity-geometry",
  "granularity-shapes",
  "log",
  "nearly",
  "swash",
+ "tokio",
  "wgpu",
  "winit",
 ]
@@ -670,6 +672,7 @@ name = "granularity-shapes"
 version = "0.1.0"
 dependencies = [
  "cosmic-text",
+ "derive_more",
  "granularity-geometry",
 ]
 
@@ -682,7 +685,6 @@ dependencies = [
  "cosmic-text",
  "env_logger",
  "granularity",
- "granularity-renderer",
  "log",
  "swash",
  "tokio",
@@ -703,6 +705,7 @@ dependencies = [
  "env_logger",
  "granularity",
  "granularity-geometry",
+ "granularity-shell",
  "log",
  "nearly",
  "swash",

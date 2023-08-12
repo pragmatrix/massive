@@ -53,19 +53,3 @@ impl Identity for Matrix4 {
         cgmath::Matrix4::one()
     }
 }
-
-pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
-    let view = camera.view_matrix();
-    let proj = projection.perspective_matrix(camera.fovy);
-    OPENGL_TO_WGPU_MATRIX * proj * view
-}
-
-// TODO: this is WGPU specific.
-// <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Matrix4 = Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-);

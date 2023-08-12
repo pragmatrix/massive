@@ -1,5 +1,3 @@
-// Copied from cosmic_text/swash.rs, because we might need finer control and don't need a cache.
-
 use cosmic_text as text;
 use swash::{
     scale::{Render, ScaleContext, Source, StrikeWith},
@@ -13,6 +11,8 @@ pub fn render_glyph_image(
     context: &mut ScaleContext,
     cache_key: text::CacheKey,
 ) -> Option<text::SwashImage> {
+    // Copied from cosmic_text/swash.rs, because we might need finer control and don't need a cache.
+
     let font = match font_system.get_font(cache_key.font_id) {
         Some(some) => some,
         None => {

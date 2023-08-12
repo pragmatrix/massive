@@ -1,27 +1,24 @@
-use std::mem;
+use std::{mem, result};
 
-use anyhow::Result;
-use granularity_geometry::{scalar, view_projection_matrix, Camera, Projection};
+use granularity_geometry::Matrix4;
 use wgpu::util::DeviceExt;
 
 use crate::{
-    command::{Command, Pipeline},
     pods::{self, TextureVertex},
+    primitives::{Pipeline, Primitive},
     texture::{self, Texture},
 };
 
-struct Glyph {}
-
 pub struct Renderer {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
     surface: wgpu::Surface,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
 
     view_projection_buffer: wgpu::Buffer,
     view_projection_bind_group: wgpu::BindGroup,
-    texture_sampler: wgpu::Sampler,
-    texture_bind_group_layout: texture::BindGroupLayout,
+    pub texture_sampler: wgpu::Sampler,
+    pub texture_bind_group_layout: texture::BindGroupLayout,
 
     pipelines: [(Pipeline, wgpu::RenderPipeline); 2],
 
@@ -97,13 +94,19 @@ impl Renderer {
         renderer
     }
 
-    fn render_and_present_frame(&mut self, camera: Camera, commands: &[Command]) -> Result<()> {
+    // TODO: Can't we handle SurfaceError::Lost here by just reconfiguring the surface and trying
+    // again?
+    pub fn render_and_present(
+        &mut self,
+        view_projection_matrix: &Matrix4,
+        primitives: &[Primitive],
+    ) -> result::Result<(), wgpu::SurfaceError> {
         let surface_texture = self.surface.get_current_texture()?;
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        self.queue_view_projection_matrix(camera);
+        self.queue_view_projection_matrix(view_projection_matrix);
 
         let command_buffer = {
             let mut encoder = self
@@ -126,48 +129,34 @@ impl Renderer {
                     depth_stencil_attachment: None,
                 });
 
-                // let texture_bind_groups = Vec::new();
-                for command in commands {
-                    match command {
-                        Command::DrawImage(pipeline, points, image_data) => {
-                            let texture = Texture::from_vertices_and_image_data(
-                                &self.device,
-                                &self.queue,
-                                *pipeline,
-                                &self.texture_bind_group_layout,
-                                points,
-                                image_data,
-                                &self.texture_sampler,
-                            );
+                for pipeline in &self.pipelines {
+                    let kind = pipeline.0;
+                    let pipeline = &pipeline.1;
+                    render_pass.set_pipeline(pipeline);
+                    render_pass.set_bind_group(0, &self.view_projection_bind_group, &[]);
+                    render_pass.set_index_buffer(
+                        self.quad_index_buffer.slice(..),
+                        wgpu::IndexFormat::Uint16,
+                    );
+
+                    for primitive in primitives.iter().filter(|p| p.pipeline() == kind) {
+                        match primitive {
+                            Primitive::Texture(Texture {
+                                bind_group,
+                                vertex_buffer,
+                                ..
+                            }) => {
+                                render_pass.set_bind_group(1, bind_group, &[]);
+                                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                                render_pass.draw_indexed(
+                                    0..Self::QUAD_INDICES.len() as u32,
+                                    0,
+                                    0..1,
+                                );
+                            }
                         }
-                        Command::DrawImageLazy(_, _, _) => todo!(),
                     }
                 }
-
-                // for pipeline in self.pipelines {
-                //     let kind = pipeline.0;
-                //     let pipeline = &pipeline.1;
-                //     render_pass.set_pipeline(pipeline);
-                //     render_pass.set_bind_group(0, &self.view_projection_bind_group, &[]);
-                //     render_pass.set_index_buffer(
-                //         self.quad_index_buffer.slice(..),
-                //         wgpu::IndexFormat::Uint16,
-                //     );
-
-                //     for (i, texture_bind_group) in texture_bind_groups
-                //         .iter()
-                //         .enumerate()
-                //         .filter_map(|(i, b)| b.as_ref().map(|b| (i, b)))
-                //     {
-                //         if texture_bind_group.pipeline != kind {
-                //             continue;
-                //         }
-                //         render_pass.set_bind_group(1, &texture_bind_group.bind_group, &[]);
-                //         render_pass
-                //             .set_vertex_buffer(0, vertex_buffers[i].as_ref().unwrap().slice(..));
-                //         render_pass.draw_indexed(0..Self::QUAD_INDICES.len() as u32, 0, 0..1);
-                //     }
-                // }
             }
             encoder.finish()
         };
@@ -179,15 +168,7 @@ impl Renderer {
 
     const QUAD_INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
 
-    fn queue_view_projection_matrix(&self, camera: Camera) {
-        let projection = Projection::new(
-            self.surface_config.width as scalar / self.surface_config.height as scalar,
-            0.1,
-            100.0,
-        );
-
-        let view_projection_matrix = view_projection_matrix(&camera, &projection);
-
+    fn queue_view_projection_matrix(&self, view_projection_matrix: &Matrix4) {
         let view_projection_uniform = {
             let m: cgmath::Matrix4<f32> = view_projection_matrix
                 .cast()
@@ -202,9 +183,19 @@ impl Renderer {
         )
     }
 
+    // A Matrix that projects from normalized view coordinates -1.0 to 1.0 (3D, all axis, Z from 0.1
+    // to 100) to 2D coordinates.
+
+    // A Matrix that translates from the WGPU coordinate system to surface coordinates.
+    pub fn surface_matrix(&self) -> Matrix4 {
+        let (width, height) = self.surface_size();
+        Matrix4::from_nonuniform_scale(width as f64 / 2.0, (height as f64 / 2.0) * -1.0, 1.0)
+            * Matrix4::from_translation(cgmath::Vector3::new(1.0, -1.0, 0.0))
+    }
+
     /// Resizes the surface, if necessary.
     /// Keeps the surface size at least 1x1.
-    fn resize_surface(&mut self, new_size: (u32, u32)) {
+    pub fn resize_surface(&mut self, new_size: (u32, u32)) {
         let new_surface_size = (new_size.0.max(1), new_size.1.max(1));
 
         if new_surface_size == self.surface_size() {
@@ -219,12 +210,12 @@ impl Renderer {
 
     /// Returns the current surface size.
     /// It may not match the window's size, for example if the window's size is 0,0.
-    fn surface_size(&self) -> (u32, u32) {
+    pub fn surface_size(&self) -> (u32, u32) {
         let config = &self.surface_config;
         (config.width, config.height)
     }
 
-    fn reconfigure_surface(&mut self) {
+    pub fn reconfigure_surface(&mut self) {
         self.surface.configure(&self.device, &self.surface_config)
     }
 }
@@ -238,7 +229,7 @@ fn create_pipelines(
     [
         (
             Pipeline::Flat,
-            create_pipeline("Pipeline", device, shader, layout, targets, "fs_flat"),
+            create_pipeline("Flat Pipeline", device, shader, layout, targets, "fs_flat"),
         ),
         (
             Pipeline::Sdf,

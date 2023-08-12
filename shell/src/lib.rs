@@ -1,5 +1,3 @@
-mod window_renderer;
-
 use std::cell::RefCell;
 
 use anyhow::Result;

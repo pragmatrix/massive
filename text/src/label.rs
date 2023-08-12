@@ -5,6 +5,7 @@ use cgmath::{Point2, Transform};
 use cosmic_text as text;
 use granularity::{map, Value};
 use granularity_geometry::{Bounds, Matrix4, Point3, Size3};
+use granularity_shell::Shell;
 use nearly::nearly_eq;
 use text::SwashImage;
 use wgpu::util::DeviceExt;
@@ -280,30 +281,31 @@ fn image_to_texture_with_classification(
     image: &SwashImage,
     classification: GlyphClassifier,
 ) -> Result<(text::Placement, PipelineTextureView)> {
-    match classification {
-        GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => {
-            let padded = pad_image(image);
-            Ok((
-                padded.placement,
-                PipelineTextureView::new(
-                    Pipeline::Flat,
-                    image_to_texture(device, queue, &padded),
-                    (padded.placement.width, padded.placement.height),
-                ),
-            ))
-        }
-        GlyphClassifier::Distorted(_) => render_sdf(image)
-            .map(|sdf_image| {
-                (sdf_image.placement, {
-                    PipelineTextureView::new(
-                        Pipeline::Sdf,
-                        image_to_texture(device, queue, &sdf_image),
-                        (sdf_image.placement.width, sdf_image.placement.height),
-                    )
-                })
-            })
-            .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image")),
-    }
+    // match classification {
+    //     GlyphClassifier::Zoomed(_) | GlyphClassifier::PixelPerfect { .. } => {
+    //         let padded = pad_image(image);
+    //         Ok((
+    //             padded.placement,
+    //             PipelineTextureView::new(
+    //                 Pipeline::Flat,
+    //                 image_to_texture(device, queue, &padded),
+    //                 (padded.placement.width, padded.placement.height),
+    //             ),
+    //         ))
+    //     }
+    //     GlyphClassifier::Distorted(_) => render_sdf(image)
+    //         .map(|sdf_image| {
+    //             (sdf_image.placement, {
+    //                 PipelineTextureView::new(
+    //                     Pipeline::Sdf,
+    //                     image_to_texture(device, queue, &sdf_image),
+    //                     (sdf_image.placement.width, sdf_image.placement.height),
+    //                 )
+    //             })
+    //         })
+    //         .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image")),
+    // }
+    anyhow::bail!("xx")
 }
 
 /// Creates a texture and uploads the image's content to the GPU.

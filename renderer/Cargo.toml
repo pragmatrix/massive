@@ -18,3 +18,6 @@ log = { workspace = true }
 nearly = { workspace = true }
 bitflags = { workspace = true }
 
+[dev-dependencies]
+tokio = { workspace = true }
+env_logger = { workspace = true }

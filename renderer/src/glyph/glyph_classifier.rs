@@ -26,9 +26,9 @@ const ULPS_Z: i64 = 8;
 const PIXEL_EPSILON: f64 = 0.0001;
 
 impl GlyphClass {
-    /// Classify the glyph based on a transformed pixel at the center of the glyph. `quad`
-    /// represents the 4 points of the glyph in the final pixel coordinate system where `0,0` is the
-    /// top left corner.
+    /// Classify the glyph based on a transformed pixel to the surface pixel range at the center of
+    /// the glyph. `quad` represents the 4 points of the glyph in the final pixel coordinate system
+    /// where `0,0` is the top left corner.
     ///
     /// The quad is clockwise, starting from the left top corner of the glyph as rendered.
     ///

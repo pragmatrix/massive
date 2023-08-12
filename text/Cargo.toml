@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+granularity-shell = { workspace = true }
 bitflags = { workspace = true }
 wgpu = { workspace = true }
 anyhow = { workspace = true }

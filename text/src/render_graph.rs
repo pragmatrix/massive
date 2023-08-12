@@ -1,8 +1,11 @@
 use derive_more::Constructor;
+use granularity_shell::Shell;
 use wgpu::util::DeviceExt;
 
 use granularity::{map, Value};
-use granularity_geometry::{scalar, view_projection_matrix, Bounds3, Camera, Matrix4, Projection};
+use granularity_geometry::{scalar, Bounds3, Camera, Matrix4, Projection};
+
+use crate::{label::new_label, layout, TextureVertex};
 // use granularity_shell::Shell;
 
 // use crate::{layout, new_label, TextureVertex};
@@ -404,3 +407,20 @@ fn create_pipeline(
 
     device.create_render_pipeline(&pipeline)
 }
+
+pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
+    let view = camera.view_matrix();
+    let proj = projection.perspective_matrix(camera.fovy);
+    OPENGL_TO_WGPU_MATRIX * proj * view
+}
+
+// Convert from a projection (OpenGL) from a left handed coordinate system to a right handed
+// coordinate system (WGPU).
+// <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
+#[rustfmt::skip]
+pub const OPENGL_TO_WGPU_MATRIX: Matrix4 = Matrix4::new(
+    1.0, 0.0, 0.0, 0.0,
+    0.0, 1.0, 0.0, 0.0,
+    0.0, 0.0, 0.5, 0.0,
+    0.0, 0.0, 0.5, 1.0,
+);

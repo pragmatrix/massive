@@ -1,4 +1,3 @@
-use granularity_renderer::Renderer;
 use log::info;
 use wgpu::PresentMode;
 use winit::window::Window;
