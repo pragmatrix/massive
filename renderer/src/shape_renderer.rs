@@ -134,7 +134,7 @@ impl ShapeRenderer {
             let right = rb.x as f64;
             let bottom = rb.y as f64;
 
-            // TODO: might immediately use Point3 here.
+            // TODO: might use Point3 here.
             let points: [Point; 4] = [
                 (left, top).into(),
                 (left, bottom).into(),
