@@ -1,9 +1,9 @@
 use wgpu::util::DeviceExt;
 
 #[derive(Debug)]
-pub struct Size(wgpu::Buffer);
+pub struct SizeBuffer(wgpu::Buffer);
 
-impl Size {
+impl SizeBuffer {
     pub fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Texture Size Buffer"),

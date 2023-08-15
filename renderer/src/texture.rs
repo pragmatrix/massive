@@ -4,11 +4,11 @@ use wgpu::util::DeviceExt;
 use crate::{pods::TextureVertex, primitives::Pipeline, texture};
 
 mod bind_group_layout;
-mod size;
+mod size_buffer;
 mod view;
 
 pub use bind_group_layout::*;
-pub use size::*;
+pub use size_buffer::*;
 pub use view::*;
 
 /// A texture ready to be rendered.

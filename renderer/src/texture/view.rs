@@ -1,9 +1,9 @@
-use super::Size;
+use super::SizeBuffer;
 
 #[derive(Debug)]
 pub struct View {
     view: wgpu::TextureView,
-    size: Size,
+    size: SizeBuffer,
 }
 
 impl View {
@@ -48,11 +48,11 @@ impl View {
         );
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let size = Size::new(device, (width, height));
+        let size = SizeBuffer::new(device, (width, height));
         Self { view, size }
     }
 
-    pub fn size(&self) -> &Size {
+    pub fn size(&self) -> &SizeBuffer {
         &self.size
     }
 
