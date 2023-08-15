@@ -54,7 +54,7 @@ fn points_to_texture_vertices(points: &[Point3; 4]) -> [TextureVertex; 4] {
         },
         TextureVertex {
             position: points[1].into(),
-            tex_coords: [1.0, 0.0],
+            tex_coords: [0.0, 1.0],
         },
         TextureVertex {
             position: points[2].into(),
@@ -62,7 +62,7 @@ fn points_to_texture_vertices(points: &[Point3; 4]) -> [TextureVertex; 4] {
         },
         TextureVertex {
             position: points[3].into(),
-            tex_coords: [0.0, 1.0],
+            tex_coords: [1.0, 0.0],
         },
     ]
 }
