@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 // Ported from m115.
 
 //
@@ -538,11 +540,6 @@ pub struct Point {
 impl Point {
     pub fn new(x: f32, y: f32) -> Self {
         Self { x, y }
-    }
-
-    pub fn set(&mut self, x: f32, y: f32) {
-        self.x = x;
-        self.y = y;
     }
 
     pub fn set_length_fast(&mut self, length: f32) -> bool {

@@ -26,6 +26,7 @@ impl Vertex {
         }
     }
 
+    #[allow(unused)]
     fn desc() -> &'static wgpu::VertexBufferLayout<'static> {
         const LAYOUT: wgpu::VertexBufferLayout = wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,

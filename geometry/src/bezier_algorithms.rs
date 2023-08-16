@@ -17,6 +17,7 @@ const EPSILON: f64 = 2.7105054312137610850186320021749e-20;
 const DEGREE: usize = 3;
 const W_DEGREE: usize = 5;
 
+#[allow(unused)]
 pub fn nearest_point_on_cubic_bezier(v: &[Point], p: Point) -> Point {
     let t = nearest_t_on_cubic_bezier(v, p);
     bezier(v, DEGREE, t, None, None)

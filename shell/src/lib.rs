@@ -1,16 +1,17 @@
 use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
-use granularity_geometry::{scalar, Camera, Matrix4};
-use granularity_renderer::{Renderer, ShapeRenderer, ShapeRendererContext};
-use granularity_shapes::Shape;
 use log::{error, info};
-use wgpu::{CommandBuffer, PresentMode, SurfaceTexture};
+use wgpu::PresentMode;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
+
+use granularity_geometry::{scalar, Camera, Matrix4};
+use granularity_renderer::{Renderer, ShapeRenderer, ShapeRendererContext};
+use granularity_shapes::Shape;
 
 pub trait Application {
     fn update(&mut self, window_event: WindowEvent<'static>);
@@ -206,6 +207,7 @@ impl Shell {
     }
 
     // Surface size may not match the Window's size, for example if the window's size is 0,0.
+    #[allow(unused)]
     fn surface_size(&self) -> (u32, u32) {
         self.renderer.surface_size()
     }
@@ -216,9 +218,4 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let r = f();
     println!("{name}: {:?}", start.elapsed());
     r
-}
-
-fn main() {
-    // TODO: Need to put the shell into its own crate.
-    println!("Run the hello example instead")
 }

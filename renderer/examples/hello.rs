@@ -29,7 +29,7 @@ async fn main() {
         hello_world: hello_world.to_string(),
     };
 
-    shell::run(application).await;
+    let _ = shell::run(application).await;
 }
 
 impl shell::Application for Application {

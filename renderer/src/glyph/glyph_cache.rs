@@ -1,7 +1,4 @@
-use std::{
-    collections::{hash_map, HashMap, HashSet},
-    rc::Rc,
-};
+use std::collections::{hash_map, HashMap, HashSet};
 
 use anyhow::Result;
 use cosmic_text as text;

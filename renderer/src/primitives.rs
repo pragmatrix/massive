@@ -1,7 +1,5 @@
 //! Low level render primitives.
 
-use derive_more::Constructor;
-
 use crate::texture::Texture;
 
 pub enum Primitive {
