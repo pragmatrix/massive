@@ -1,9 +1,20 @@
-//! TODO: This belongs to shell.
-
+use bytemuck::{Pod, Zeroable};
+use granularity_geometry::Point3;
 use std::mem;
 
+// We need this for Rust to store our data correctly for the shaders
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+// This is so we can store this in a buffer
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct Matrix4(pub [[f32; 4]; 4]);
+
+#[repr(C)]
+// This is so we can store this in a buffer
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct TextureSize(pub [f32; 2]);
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct Vertex {
     position: [f32; 3],
 }
@@ -15,6 +26,7 @@ impl Vertex {
         }
     }
 
+    #[allow(unused)]
     fn desc() -> &'static wgpu::VertexBufferLayout<'static> {
         const LAYOUT: wgpu::VertexBufferLayout = wgpu::VertexBufferLayout {
             array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
@@ -32,8 +44,15 @@ impl From<(f32, f32, f32)> for Vertex {
     }
 }
 
+impl From<Point3> for Vertex {
+    fn from(v: Point3) -> Self {
+        let v = v.cast::<f32>().expect("Failed to cast Point3 to f32");
+        Self::new(v.x, v.y, v.z)
+    }
+}
+
 #[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct TextureVertex {
     pub position: Vertex,
     pub tex_coords: [f32; 2],

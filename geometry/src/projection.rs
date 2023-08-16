@@ -1,6 +1,6 @@
 use crate::{scalar, Matrix4};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Projection {
     pub aspect: scalar,
     pub near: scalar,

@@ -18,6 +18,7 @@ mod unit_interval;
 pub use bounds::*;
 pub use bounds3::*;
 pub use camera::*;
+use cgmath::One;
 pub use color::*;
 pub use cubic_bezier::*;
 pub use line::*;
@@ -43,18 +44,12 @@ pub type Matrix4 = cgmath::Matrix4<f64>;
 pub type Point3 = cgmath::Point3<f64>;
 pub type Vector3 = cgmath::Vector3<f64>;
 
-pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
-    let view = camera.view_matrix();
-    let proj = projection.perspective_matrix(camera.fovy);
-    OPENGL_TO_WGPU_MATRIX * proj * view
+pub trait Identity {
+    fn identity() -> Self;
 }
 
-// TODO: this is WGPU specific.
-// <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Matrix4 = Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-);
+impl Identity for Matrix4 {
+    fn identity() -> Self {
+        cgmath::Matrix4::one()
+    }
+}

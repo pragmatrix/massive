@@ -1,0 +1,24 @@
+[package]
+name = "granularity-renderer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+granularity-geometry = { workspace = true }
+granularity-shapes = { workspace = true }
+winit = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+cgmath = { workspace = true }
+anyhow = { workspace = true }
+derive_more = { workspace = true }
+cosmic-text = { workspace = true }
+swash = { workspace = true }
+log = { workspace = true }
+nearly = { workspace = true }
+bitflags = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+env_logger = { workspace = true }
+granularity-shell = { workspace = true }
