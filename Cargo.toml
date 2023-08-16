@@ -3,7 +3,6 @@
 members = [
     "geometry",
     "shapes",
-    "text",
     "renderer",
     "shell",
 ]
@@ -13,7 +12,6 @@ granularity = { path = "granularity" }
 granularity-geometry = { path = "geometry" }
 granularity-shell = { path = "shell" }
 granularity-renderer = { path = "renderer" }
-granularity-text = { path = "text" }
 granularity-shapes = { path = "shapes" }
 
 log = "0.4.19"

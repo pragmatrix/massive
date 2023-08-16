@@ -21,3 +21,4 @@ bitflags = { workspace = true }
 [dev-dependencies]
 tokio = { workspace = true }
 env_logger = { workspace = true }
+granularity-shell = { workspace = true }

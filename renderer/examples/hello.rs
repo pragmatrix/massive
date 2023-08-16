@@ -6,9 +6,7 @@ use granularity_geometry::{Camera, Matrix4, Vector3};
 use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use winit::event::{VirtualKeyCode, WindowEvent};
 
-use shell::Shell;
-
-mod shell;
+use granularity_shell::{self as shell, Shell};
 
 struct Application {
     camera: Camera,

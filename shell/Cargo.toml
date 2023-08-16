@@ -11,6 +11,9 @@ wgpu = { workspace = true }
 granularity = { workspace = true }
 anyhow = { workspace = true }
 cosmic-text = { workspace = true }
+granularity-geometry = { workspace = true }
+granularity-renderer = { workspace = true }
+granularity-shapes = { workspace = true }
 
 [dev-dependencies]
 swash = { workspace = true }
