@@ -17,6 +17,8 @@ swash = { workspace = true }
 log = { workspace = true }
 nearly = { workspace = true }
 bitflags = { workspace = true }
+tiny-skia = { workspace = true }
+tiny-skia-path = { workspace = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

@@ -12,6 +12,7 @@
         "hitbox",
         "multisampled",
         "multiview",
+        "orthog",
         "rsqrt",
         "SSEDT",
         "texel",

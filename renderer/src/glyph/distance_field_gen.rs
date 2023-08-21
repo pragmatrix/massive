@@ -2,14 +2,16 @@
 
 // Ported from m115.
 
-//
 //  Copyright 2014 Google Inc.
 //
 //  Use of this source code is governed by a BSD-style license that can be
 //  found in the LICENSE file.
 
-use bitflags::bitflags;
 use std::{f32, mem, slice};
+
+use bitflags::bitflags;
+
+use crate::skia::Point;
 
 // the max magnitude for the distance field
 // distance values are limited to the range (-SK_DistanceFieldMagnitude, SK_DistanceFieldMagnitude]
@@ -206,7 +208,7 @@ unsafe fn init_distances(data: *mut DFData, mut edges: *const u8, width: usize, 
                         + (*next_data.offset(1)).alpha
                         - (*prev_data.offset(1)).alpha,
                 };
-                curr_grad.set_length_fast(1.0);
+                curr_grad.set_length(1.0);
 
                 // init squared distance to edge and distance vector
                 let dist = edge_distance(curr_grad, (*curr_data).alpha);
@@ -528,49 +530,5 @@ pub(crate) unsafe fn generate_distance_field_from_image(
         curr_edge = curr_edge.add(2);
     }
 
-    true
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct Point {
-    pub x: f32,
-    pub y: f32,
-}
-
-impl Point {
-    pub fn new(x: f32, y: f32) -> Self {
-        Self { x, y }
-    }
-
-    pub fn set_length_fast(&mut self, length: f32) -> bool {
-        set_point_length(true, self, self.x, self.y, length, None)
-    }
-}
-
-fn set_point_length(
-    use_rsqrt: bool,
-    pt: &mut Point,
-    x: f32,
-    y: f32,
-    length: f32,
-    orig_length: Option<&mut f32>,
-) -> bool {
-    assert!(!use_rsqrt || orig_length.is_none());
-
-    let (xx, yy) = (x as f64, y as f64);
-    let dmag = (xx * xx + yy * yy).sqrt();
-    let dscale = length as f64 / dmag;
-    let (x, y) = ((x as f64 * dscale) as f32, (y as f64 * dscale) as f32);
-
-    if !x.is_finite() || !y.is_finite() || (x == 0.0 && y == 0.0) {
-        *pt = Point::new(0.0, 0.0);
-        return false;
-    }
-
-    if let Some(orig_length) = orig_length {
-        *orig_length = dmag as f32;
-    }
-
-    *pt = Point::new(x, y);
     true
 }
