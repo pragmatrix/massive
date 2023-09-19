@@ -1,6 +1,6 @@
 use derive_more::Deref;
 
-use crate::SizeBuffer;
+use crate::{tools::BindGroupLayoutBuilder, SizeBuffer};
 
 /// The bind group layout of a texture.
 #[derive(Debug, Deref)]
@@ -8,24 +8,11 @@ pub struct BindGroupLayout(wgpu::BindGroupLayout);
 
 impl BindGroupLayout {
     pub fn new(device: &wgpu::Device) -> Self {
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Shape Bind Group Layout"),
-            entries: &[
-                // Pixel size, this is used for Sdf anti-aliasing.
-                wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                },
-            ],
-        });
-
-        Self(layout)
+        Self(
+            BindGroupLayoutBuilder::fragment()
+                .uniform()
+                .build("Shape Bind Group Layout", device),
+        )
     }
 
     pub fn create_bind_group(&self, device: &wgpu::Device, size: &SizeBuffer) -> wgpu::BindGroup {

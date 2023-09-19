@@ -8,6 +8,7 @@ use crate::{
     primitives::{Pipeline, Primitive},
     shape,
     texture::{self, Texture},
+    tools::BindGroupLayoutBuilder,
 };
 
 pub struct Renderer {
@@ -292,19 +293,9 @@ fn create_view_projection_bind_group(
     device: &wgpu::Device,
     view_projection_buffer: &wgpu::Buffer,
 ) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
-    let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::VERTEX,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
-        label: Some("Camera Bind Group Layout"),
-    });
+    let layout = BindGroupLayoutBuilder::vertex()
+        .uniform()
+        .build("Camera Bind Group Layout", device);
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &layout,

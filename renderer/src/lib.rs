@@ -6,8 +6,8 @@ mod shape;
 mod shape_renderer;
 mod size_buffer;
 mod texture;
+mod tools;
 
 pub use renderer::Renderer;
 pub use shape_renderer::*;
 pub use size_buffer::*;
-
