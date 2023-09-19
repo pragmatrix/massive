@@ -6,6 +6,7 @@ use wgpu::util::DeviceExt;
 use crate::{
     pods::{self, TextureVertex},
     primitives::{Pipeline, Primitive},
+    shape,
     texture::{self, Texture},
 };
 
@@ -20,7 +21,7 @@ pub struct Renderer {
     pub texture_sampler: wgpu::Sampler,
     pub texture_bind_group_layout: texture::BindGroupLayout,
 
-    pipelines: [(Pipeline, wgpu::RenderPipeline); 2],
+    pipelines: Vec<(Pipeline, wgpu::RenderPipeline)>,
 
     quad_index_buffer: wgpu::Buffer,
 }
@@ -47,6 +48,8 @@ impl Renderer {
 
         let texture_bind_group_layout = texture::BindGroupLayout::new(&device);
 
+        let shape_bind_group_layout = shape::BindGroupLayout::new(&device);
+
         let quad_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Index Buffer"),
             contents: bytemuck::cast_slice(Self::QUAD_INDICES),
@@ -54,26 +57,19 @@ impl Renderer {
         });
 
         let pipelines = {
-            let render_pipeline_layout =
-                device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("Render Pipeline Layout"),
-                    bind_group_layouts: &[
-                        &view_projection_bind_group_layout,
-                        &texture_bind_group_layout,
-                    ],
-                    push_constant_ranges: &[],
-                });
-
-            let shader =
-                device.create_shader_module(wgpu::include_wgsl!("shaders/character-shader.wgsl"));
-
             let targets = [Some(wgpu::ColorTargetState {
                 format: surface_config.format,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 write_mask: wgpu::ColorWrites::ALL,
             })];
 
-            create_pipelines(&device, &shader, &render_pipeline_layout, &targets)
+            create_pipelines(
+                &device,
+                &view_projection_bind_group_layout,
+                &texture_bind_group_layout,
+                &shape_bind_group_layout,
+                &targets,
+            )
         };
 
         let mut renderer = Self {
@@ -222,20 +218,74 @@ impl Renderer {
 
 fn create_pipelines(
     device: &wgpu::Device,
-    shader: &wgpu::ShaderModule,
-    layout: &wgpu::PipelineLayout,
+    view_projection_bind_group_layout: &wgpu::BindGroupLayout,
+    texture_bind_group_layout: &wgpu::BindGroupLayout,
+    shape_bind_group_layout: &wgpu::BindGroupLayout,
     targets: &[Option<wgpu::ColorTargetState>],
-) -> [(Pipeline, wgpu::RenderPipeline); 2] {
+) -> Vec<(Pipeline, wgpu::RenderPipeline)> {
+    let glyph_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Glyph Pipeline Layout"),
+        bind_group_layouts: &[view_projection_bind_group_layout, texture_bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
+    let glyph_shader = &device.create_shader_module(wgpu::include_wgsl!("texture/glyph.wgsl"));
+
+    let shape_shader = &device.create_shader_module(wgpu::include_wgsl!("shape/shape.wgsl"));
+
+    let shape_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Shape Pipeline Layout"),
+        bind_group_layouts: &[view_projection_bind_group_layout, shape_bind_group_layout],
+        push_constant_ranges: &[],
+    });
+
     [
         (
-            Pipeline::Flat,
-            create_pipeline("Flat Pipeline", device, shader, layout, targets, "fs_flat"),
+            Pipeline::PlanarGlyph,
+            create_pipeline(
+                "Planar Glyph Pipeline",
+                device,
+                glyph_shader,
+                "fs_planar",
+                &glyph_pipeline_layout,
+                targets,
+            ),
         ),
         (
-            Pipeline::Sdf,
-            create_pipeline("SDF Pipeline", device, shader, layout, targets, "fs_sdf"),
+            Pipeline::SdfGlyph,
+            create_pipeline(
+                "SDF Glyph Pipeline",
+                device,
+                glyph_shader,
+                "fs_sdf_glyph",
+                &glyph_pipeline_layout,
+                targets,
+            ),
+        ),
+        (
+            Pipeline::Circle,
+            create_pipeline(
+                "Circle Pipeline",
+                device,
+                shape_shader,
+                "fs_sdf_circle",
+                &shape_pipeline_layout,
+                targets,
+            ),
+        ),
+        (
+            Pipeline::RoundedRect,
+            create_pipeline(
+                "Rounded Rect Pipeline",
+                device,
+                shape_shader,
+                "fs_sdf_rounded_rect",
+                &shape_pipeline_layout,
+                targets,
+            ),
         ),
     ]
+    .into()
 }
 
 fn create_view_projection_bind_group(
@@ -283,9 +333,9 @@ fn create_pipeline(
     label: &str,
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
+    fragment_shader_entry: &str,
     render_pipeline_layout: &wgpu::PipelineLayout,
     targets: &[Option<wgpu::ColorTargetState>],
-    fragment_shader_entry: &str,
 ) -> wgpu::RenderPipeline {
     let pipeline = wgpu::RenderPipelineDescriptor {
         label: Some(label),

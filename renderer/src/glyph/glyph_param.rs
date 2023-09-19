@@ -10,9 +10,9 @@ pub struct GlyphRenderParam {
 impl GlyphRenderParam {
     pub fn pipeline(&self) -> Pipeline {
         if self.sdf {
-            Pipeline::Sdf
+            Pipeline::SdfGlyph
         } else {
-            Pipeline::Flat
+            Pipeline::PlanarGlyph
         }
     }
 }

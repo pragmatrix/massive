@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use cosmic_text as text;
 use derive_more::Constructor;
-use granularity_geometry::{Camera, Matrix4, Vector3};
+use granularity_geometry::{Camera, Matrix4, Point3, Vector3};
 use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use winit::event::{VirtualKeyCode, WindowEvent};
 
@@ -20,7 +20,9 @@ async fn main() {
     let fovy: f64 = 45.0;
     let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
 
-    let camera = Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0));
+    let mut camera = Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0));
+
+    camera.eye = Point3::new(0.8999999999999992, 0.0, 0.11421356237309382);
 
     let hello_world = "Hello, world!";
 
@@ -46,6 +48,8 @@ impl shell::Application for Application {
             } else {
                 {}
             }
+
+            println!("eye: {:?}", self.camera.eye)
         }
     }
 

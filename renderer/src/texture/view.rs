@@ -1,4 +1,4 @@
-use super::SizeBuffer;
+use crate::SizeBuffer;
 
 #[derive(Debug)]
 pub struct View {

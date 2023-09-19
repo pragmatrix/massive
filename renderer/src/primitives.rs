@@ -16,6 +16,8 @@ impl Primitive {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Pipeline {
-    Flat,
-    Sdf,
+    PlanarGlyph,
+    SdfGlyph,
+    Circle,
+    RoundedRect,
 }
