@@ -50,7 +50,7 @@ fn fs_sdf_circle(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var distance: f32 = sd_circle(norm_tex_coords, 0.5) * -1.0;
 
-    // Multiplying by texture_size to correct the aspect ratio of the distance vector, so that
+    // Multiplying by `shape_size` to correct the aspect ratio of the distance vector, so that
     // ellipses can be rendered with proper anti-aliasing.
     var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance)) * shape_size;
 

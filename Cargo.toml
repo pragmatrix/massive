@@ -28,5 +28,6 @@ bytemuck = { version = "1.13.1", features = ["derive"] }
 bitflags = { version = "2.3.3" }
 cgmath = "0.18.0"
 cosmic-text = { version = "0.9.0", features = ["swash"] }
-winit = "0.28.6"
+# Must be .7, .6 posts the initial Resize event with an invalid size on macOS.
+winit = "0.28.7"
 nearly = "0.2.0"

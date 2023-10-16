@@ -22,7 +22,7 @@ async fn main() {
 
     let mut camera = Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0));
 
-    camera.eye = Point3::new(0.8999999999999992, 0.0, 0.11421356237309382);
+    // camera.eye = Point3::new(0.8999999999999992, 0.0, 0.11421356237309382);
 
     let hello_world = "Hello, world!";
 
