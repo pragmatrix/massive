@@ -1,7 +1,7 @@
 use std::{mem, result};
 
 use granularity_geometry::Matrix4;
-use wgpu::util::DeviceExt;
+use wgpu::{util::DeviceExt, StoreOp};
 
 use crate::{
     pods::{self, TextureVertex},
@@ -11,8 +11,8 @@ use crate::{
     tools::BindGroupLayoutBuilder,
 };
 
-pub struct Renderer {
-    surface: wgpu::Surface,
+pub struct Renderer<'window> {
+    surface: wgpu::Surface<'window>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     surface_config: wgpu::SurfaceConfiguration,
@@ -27,12 +27,12 @@ pub struct Renderer {
     quad_index_buffer: wgpu::Buffer,
 }
 
-impl Renderer {
+impl<'window> Renderer<'window> {
     /// Creates a new renderer and reconfigures the surface according to the given configuration.
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
-        surface: wgpu::Surface,
+        surface: wgpu::Surface<'window>,
         surface_config: wgpu::SurfaceConfiguration,
     ) -> Self {
         let view_projection_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -120,10 +120,12 @@ impl Renderer {
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
-                            store: true,
+                            store: StoreOp::Store,
                         },
                     })],
                     depth_stencil_attachment: None,
+                    timestamp_writes: None,
+                    occlusion_query_set: None,
                 });
 
                 for pipeline in &self.pipelines {
