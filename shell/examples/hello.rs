@@ -3,6 +3,7 @@ use std::rc::Rc;
 use cosmic_text as text;
 use granularity_geometry::{Camera, Matrix4, Vector3};
 use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
+use text::CacheKeyFlags;
 use winit::{
     event::{KeyEvent, WindowEvent},
     keyboard::{Key, NamedKey},
@@ -106,7 +107,7 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         text::AttrsList::new(text::Attrs::new()),
         text::Shaping::Advanced,
     );
-    let line = &buffer.layout(font_system, font_size, f32::MAX, text::Wrap::None)[0];
+    let line = &buffer.layout(font_system, font_size, f32::MAX, text::Wrap::None, None)[0];
     let placed = place_glyphs(&line.glyphs);
     let metrics = GlyphRunMetrics {
         max_ascent: line.max_ascent as u32,
@@ -134,6 +135,7 @@ fn place_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PositionedGlyph> {
                 glyph.glyph_id,
                 glyph.font_size,
                 fractional_pos,
+                CacheKeyFlags::empty(),
             );
             // Note: hitbox with is fractional, but does not change with / without subpixel
             // rendering.
