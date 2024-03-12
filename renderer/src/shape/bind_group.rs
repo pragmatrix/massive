@@ -15,6 +15,7 @@ impl BindGroupLayout {
         )
     }
 
+    #[allow(dead_code)]
     pub fn create_bind_group(&self, device: &wgpu::Device, size: &SizeBuffer) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Shape Bind Group"),

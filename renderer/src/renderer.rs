@@ -163,7 +163,7 @@ impl Renderer {
         Ok(())
     }
 
-    const QUAD_INDICES: &[u16] = &[0, 1, 2, 0, 2, 3];
+    const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
 
     fn queue_view_projection_matrix(&self, view_projection_matrix: &Matrix4) {
         let view_projection_uniform = {

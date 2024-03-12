@@ -1,7 +1,6 @@
 use std::rc::Rc;
 
 use cosmic_text as text;
-use derive_more::Constructor;
 
 use crate::geometry::{Bounds, Matrix4};
 
@@ -31,7 +30,7 @@ impl GlyphRunMetrics {
     }
 }
 
-#[derive(Debug, Clone, Constructor)]
+#[derive(Debug, Clone)]
 pub struct PositionedGlyph {
     // This is for rendering the image of the glyph.
     pub key: text::CacheKey,
@@ -40,6 +39,14 @@ pub struct PositionedGlyph {
 }
 
 impl PositionedGlyph {
+    pub fn new(key: text::CacheKey, hitbox_pos: (i32, i32), hitbox_width: f32) -> Self {
+        Self {
+            key,
+            hitbox_pos,
+            hitbox_width,
+        }
+    }
+
     // The bounds enclosing a pixel at the offset of the hitbox
     pub fn pixel_bounds_at(&self, offset: (u32, u32)) -> Bounds {
         let x = self.hitbox_pos.0 + offset.0 as i32;
