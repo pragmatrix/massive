@@ -19,3 +19,5 @@ granularity-shapes = { workspace = true }
 swash = { workspace = true }
 bytemuck = { workspace = true }
 env_logger = { workspace = true }
+tokio = { workspace = true }
+derive_more = { workspace = true }

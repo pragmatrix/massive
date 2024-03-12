@@ -4,7 +4,6 @@
 
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
-use derive_more::Constructor;
 use granularity_geometry::{Matrix4, Point};
 use granularity_shapes::{GlyphRun, PositionedGlyph, Shape};
 
@@ -19,13 +18,30 @@ pub struct ShapeRenderer {
     glyph_cache: GlyphCache,
 }
 
-#[derive(Constructor)]
 pub struct ShapeRendererContext<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
     pub texture_sampler: &'a wgpu::Sampler,
     pub texture_bind_group_layout: &'a texture::BindGroupLayout,
     pub font_system: &'a mut text::FontSystem,
+}
+
+impl<'a> ShapeRendererContext<'a> {
+    pub fn new(
+        device: &'a wgpu::Device,
+        queue: &'a wgpu::Queue,
+        texture_sampler: &'a wgpu::Sampler,
+        texture_bind_group_layout: &'a texture::BindGroupLayout,
+        font_system: &'a mut text::FontSystem,
+    ) -> Self {
+        Self {
+            device,
+            queue,
+            texture_sampler,
+            texture_bind_group_layout,
+            font_system,
+        }
+    }
 }
 
 impl ShapeRenderer {
@@ -70,7 +86,7 @@ impl ShapeRenderer {
         surface_matrix: &Matrix4,
         glyph_run: &GlyphRun,
     ) -> Vec<Primitive> {
-        // TODO: this has to be cached.
+        // TODO: cache this.
         let glyph_to_surface = surface_matrix * view_projection_matrix * *glyph_run.model_matrix;
 
         glyph_run
@@ -117,7 +133,9 @@ impl ShapeRenderer {
             context.font_system,
             glyph.key,
             render_param,
-        )  else { return None };
+        ) else {
+            return None;
+        };
 
         // TODO: Need a i32 and f32 2D Rect here.
 

@@ -165,7 +165,10 @@ impl Shell {
             .find(|f| *f == PresentMode::Immediate)
             .unwrap_or(surface_caps.present_modes[0]);
 
-        info!("Selecting present mode {:?}", present_mode);
+        info!(
+            "Selecting present mode {:?}, size: {:?}",
+            present_mode, size
+        );
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: *surface_format,

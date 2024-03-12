@@ -1,6 +1,6 @@
 #![allow(clippy::needless_range_loop)]
 
-// Ported from m115.
+// Ported from Skia Milestone 115.
 
 //
 //  Copyright 2014 Google Inc.
