@@ -15,5 +15,5 @@ derive_more = { workspace = true }
 cosmic-text = { workspace = true }
 swash = { workspace = true }
 log = { workspace = true }
-nearly = { workspace = true }
+approx = { workspace = true }
 bitflags = { workspace = true }
