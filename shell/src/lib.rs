@@ -2,10 +2,11 @@ use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
 use log::{error, info};
-use wgpu::PresentMode;
+use wgpu::{PresentMode, SurfaceTarget};
 use winit::{
     event::*,
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::EventLoop,
+    keyboard::{Key, NamedKey},
     window::{Window, WindowBuilder},
 };
 
@@ -14,108 +15,107 @@ use granularity_renderer::{Renderer, ShapeRenderer, ShapeRendererContext};
 use granularity_shapes::Shape;
 
 pub trait Application {
-    fn update(&mut self, window_event: WindowEvent<'static>);
+    fn update(&mut self, window_event: WindowEvent);
     fn render(&self, shell: &mut Shell) -> (Camera, Vec<Shape>);
 }
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
 pub async fn run<A: Application + 'static>(mut application: A) -> Result<()> {
-    let event_loop = EventLoop::new();
+    let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut shell = Shell::new(&window).await;
 
-    event_loop.run(move |event, _, control_flow| {
+    event_loop.run(|event, window_target| {
         match event {
             Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
                 WindowEvent::CloseRequested
                 | WindowEvent::KeyboardInput {
-                    input:
-                        KeyboardInput {
+                    event:
+                        KeyEvent {
                             state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
+                            logical_key: Key::Named(NamedKey::Escape),
                             ..
                         },
                     ..
-                } => *control_flow = ControlFlow::Exit,
+                } => window_target.exit(),
                 WindowEvent::Resized(physical_size) => {
                     shell.resize_surface((physical_size.width, physical_size.height));
                     window.request_redraw()
                 }
-                WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                WindowEvent::ScaleFactorChanged { .. } => {
+                    let new_inner_size = window.inner_size();
                     shell.resize_surface((new_inner_size.width, new_inner_size.height));
                     window.request_redraw()
                 }
-                event => {
-                    if let Some(static_event) = event.to_static() {
-                        application.update(static_event);
-                        window.request_redraw()
+                WindowEvent::RedrawRequested => {
+                    let (camera, shapes) = application.render(&mut shell);
+                    let surface_matrix = shell.renderer.surface_matrix();
+                    let surface_size = shell.renderer.surface_size();
+                    // TODO: This is a mess.
+                    let mut shape_renderer_context = ShapeRendererContext {
+                        device: &shell.renderer.device,
+                        queue: &shell.renderer.queue,
+                        texture_sampler: &shell.renderer.texture_sampler,
+                        texture_bind_group_layout: &shell.renderer.texture_bind_group_layout,
+                        font_system: &mut shell.font_system,
+                    };
+                    let view_projection_matrix =
+                        camera.view_projection_matrix(Z_RANGE, surface_size);
+                    let primitives = shell.shape_renderer.render(
+                        &mut shape_renderer_context,
+                        &view_projection_matrix,
+                        &surface_matrix,
+                        &shapes,
+                    );
+                    // TODO: pass primitives as value.
+                    match shell
+                        .renderer
+                        .render_and_present(&view_projection_matrix, &primitives)
+                    {
+                        Ok(_) => {}
+                        // Reconfigure the surface if lost
+                        // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
+                        Err(wgpu::SurfaceError::Lost) => shell.reconfigure_surface(),
+                        // The system is out of memory, we should probably quit
+                        Err(wgpu::SurfaceError::OutOfMemory) => window_target.exit(),
+                        // All other errors (Outdated, Timeout) should be resolved by the next frame
+                        Err(e) => error!("{:?}", e),
                     }
                 }
-            },
-            Event::RedrawRequested(window_id) if window_id == window.id() => {
-                let (camera, shapes) = application.render(&mut shell);
-                let surface_matrix = shell.renderer.surface_matrix();
-                let surface_size = shell.renderer.surface_size();
-                // TODO: This is a mess.
-                let mut shape_renderer_context = ShapeRendererContext {
-                    device: &shell.renderer.device,
-                    queue: &shell.renderer.queue,
-                    texture_sampler: &shell.renderer.texture_sampler,
-                    texture_bind_group_layout: &shell.renderer.texture_bind_group_layout,
-                    font_system: &mut shell.font_system,
-                };
-                let view_projection_matrix = camera.view_projection_matrix(Z_RANGE, surface_size);
-                let primitives = shell.shape_renderer.render(
-                    &mut shape_renderer_context,
-                    &view_projection_matrix,
-                    &surface_matrix,
-                    &shapes,
-                );
-                // TODO: pass primitives as value.
-                match shell
-                    .renderer
-                    .render_and_present(&view_projection_matrix, &primitives)
-                {
-                    Ok(_) => {}
-                    // Reconfigure the surface if lost
-                    // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
-                    Err(wgpu::SurfaceError::Lost) => shell.reconfigure_surface(),
-                    // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                    // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => error!("{:?}", e),
+
+                event => {
+                    application.update(event);
+                    window.request_redraw()
                 }
-            }
-            Event::MainEventsCleared => {
-                // RedrawRequested will only trigger once, unless we manually
-                // request it.
-                // window.request_redraw();
-            }
+            },
             _ => {}
         }
-    });
+    })?;
+    Ok(())
 }
 
-pub struct Shell {
+pub struct Shell<'window> {
     pub font_system: text::FontSystem,
     shape_renderer: ShapeRenderer,
-    renderer: Renderer,
+    renderer: Renderer<'window>,
 }
 
-impl Shell {
+const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
+
+impl<'window> Shell<'window> {
     // Creating some of the wgpu types requires async code
-    async fn new(window: &Window) -> Shell {
+    async fn new(window: &'window Window) -> Shell {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::default();
 
-        // # Safety
-        //
-        // The surface needs to live as long as the window that created it.
-        let surface = unsafe { instance.create_surface(&window) }.unwrap();
+        let surface = {
+            let surface_target: SurfaceTarget = window.into();
+            instance.create_surface(surface_target).expect("surface")
+        };
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -132,10 +132,10 @@ impl Shell {
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
-                    features: wgpu::Features::empty(),
+                    required_features: wgpu::Features::empty(),
                     // WebGL doesn't support all of wgpu's features, so if
                     // we're building for the web we'll have to disable some.
-                    limits: if cfg!(target_arch = "wasm32") {
+                    required_limits: if cfg!(target_arch = "wasm32") {
                         wgpu::Limits::downlevel_webgl2_defaults()
                     } else {
                         wgpu::Limits::default()
@@ -178,6 +178,7 @@ impl Shell {
             // TODO: Select this explicitly
             alpha_mode: surface_caps.alpha_modes[0],
             view_formats: vec![],
+            desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
         };
         surface.configure(&device, &surface_config);
 

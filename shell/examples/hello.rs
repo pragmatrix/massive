@@ -3,7 +3,10 @@ use std::rc::Rc;
 use cosmic_text as text;
 use granularity_geometry::{Camera, Matrix4, Vector3};
 use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
-use winit::event::{VirtualKeyCode, WindowEvent};
+use winit::{
+    event::{KeyEvent, WindowEvent},
+    keyboard::{Key, NamedKey},
+};
 
 use granularity_shell::{self as shell, Shell};
 
@@ -34,14 +37,26 @@ async fn main() {
 }
 
 impl shell::Application for Application {
-    fn update(&mut self, window_event: WindowEvent<'static>) {
-        if let WindowEvent::KeyboardInput { input, .. } = window_event {
-            if input.state == winit::event::ElementState::Pressed {
-                match input.virtual_keycode {
-                    Some(VirtualKeyCode::Left) => self.camera.eye += Vector3::new(0.1, 0.0, 0.0),
-                    Some(VirtualKeyCode::Right) => self.camera.eye -= Vector3::new(0.1, 0.0, 0.0),
-                    Some(VirtualKeyCode::Up) => self.camera.eye += Vector3::new(0.0, 0.0, 0.1),
-                    Some(VirtualKeyCode::Down) => self.camera.eye -= Vector3::new(0.0, 0.0, 0.1),
+    fn update(&mut self, window_event: WindowEvent) {
+        if let WindowEvent::KeyboardInput {
+            event: KeyEvent {
+                logical_key, state, ..
+            },
+            ..
+        } = window_event
+        {
+            if state == winit::event::ElementState::Pressed {
+                match logical_key {
+                    Key::Named(NamedKey::ArrowLeft) => {
+                        self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
+                    }
+                    Key::Named(NamedKey::ArrowRight) => {
+                        self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
+                    }
+                    Key::Named(NamedKey::ArrowUp) => self.camera.eye += Vector3::new(0.0, 0.0, 0.1),
+                    Key::Named(NamedKey::ArrowDown) => {
+                        self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
+                    }
                     _ => {}
                 }
             } else {

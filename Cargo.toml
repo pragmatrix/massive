@@ -17,13 +17,13 @@ granularity-renderer = { path = "renderer" }
 granularity-shapes = { path = "shapes" }
 
 log = "0.4.19"
-env_logger = "0.10.0"
+env_logger = "0.11.3"
 serde_tuple = "0.5.0"
 serde = { version = "1.0.164", features = ["derive"] }
 derive_more = "0.99.17"
 # TODO: Only select the features we need
 tokio = { version = "1.29.1", features = ["full"] }
-wgpu = "0.17.0"
+wgpu = "0.19.3"
 anyhow = "1.0.71"
 swash = "0.1.8"
 bytemuck = { version = "1.13.1", features = ["derive"] }
@@ -31,5 +31,5 @@ bitflags = { version = "2.3.3" }
 cgmath = "0.18.0"
 cosmic-text = { version = "0.9.0", features = ["swash"] }
 # Must be .7, .6 posts the initial Resize event with an invalid size on macOS.
-winit = "0.28.7"
+winit = "0.29.14"
 nearly = "0.2.0"
