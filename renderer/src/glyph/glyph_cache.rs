@@ -77,7 +77,8 @@ fn render_glyph(
         return None;
     }
 
-    if let Ok((placement, texture_view)) = image_to_texture(device, queue, &image, &key.glyph_param)
+    if let Ok((placement, texture_view)) =
+        image_to_gpu_texture(device, queue, &image, &key.glyph_param)
     {
         Some(RenderGlyph {
             placement,
@@ -89,27 +90,26 @@ fn render_glyph(
     }
 }
 
-fn image_to_texture(
+fn image_to_gpu_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &text::SwashImage,
     param: &GlyphRenderParam,
 ) -> Result<(text::Placement, texture::View)> {
-    match param.sdf {
-        false => {
-            // Need to pad the image, otherwise edges may look clamped.
-            let padded = pad_image(image);
-            Ok((padded.placement, create_gpu_texture(device, queue, &padded)))
-        }
-        true => render_sdf(image)
+    if param.sdf {
+        return render_sdf(image)
             .map(|sdf_image| {
                 (
                     sdf_image.placement,
                     create_gpu_texture(device, queue, &sdf_image),
                 )
             })
-            .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image")),
+            .ok_or_else(|| anyhow::anyhow!("Failed to generate SDF image"));
     }
+
+    // Need to pad the image, otherwise edges may look cut off.
+    let padded = pad_image(image);
+    Ok((padded.placement, create_gpu_texture(device, queue, &padded)))
 }
 
 /// Creates a texture and uploads the image's content to the GPU.

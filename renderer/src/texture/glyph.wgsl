@@ -127,7 +127,7 @@ fn fs_sdf_circle(in: VertexOutput) -> @location(0) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, val);
 }
 
-// from <https://iquilezles.org/articles/distfunctions>
+// From <https://iquilezles.org/articles/distfunctions>
 fn sd_rounded_rect(p: vec2<f32>, size: vec2<f32>, radius: f32) -> f32 {
     return length(max(abs(p) - size + vec2(radius, radius), vec2(0.0, 0.0)))-radius;
 }

@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-flo_curves = "0.7.2"
+flo_curves = { workspace = true }
 serde = { workspace = true }
 serde_tuple = { workspace = true }
 derive_more = { workspace = true }
