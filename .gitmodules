@@ -1,3 +1,8 @@
-[submodule "granularity"]
-	path = granularity
-	url = ../../pragmatrix/granularity
+[submodule "glyphon"]
+	path = glyphon
+	url = ../glyphon
+	branch = granularity-ui
+[submodule "inlyne"]
+	path = inlyne
+	url = ../inlyne
+	branch = granularity-ui
