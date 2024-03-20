@@ -2,7 +2,9 @@ use std::collections::{hash_map, HashMap, HashSet};
 
 use anyhow::Result;
 use cosmic_text as text;
+use log::warn;
 use swash::scale::ScaleContext;
+use text::SwashContent;
 
 use super::{glyph_image_renderer::render_sdf, glyph_param::GlyphRenderParam};
 use crate::{
@@ -74,6 +76,10 @@ fn render_glyph(
 ) -> Option<RenderGlyph> {
     let image = render_glyph_image(font_system, scale_context, key.glyph_key)?;
     if image.placement.width == 0 || image.placement.height == 0 {
+        return None;
+    }
+    if image.content != SwashContent::Mask {
+        warn!("image content type {:?} is unsupported", image.content);
         return None;
     }
 
