@@ -15,7 +15,7 @@ pub struct Renderer<'window> {
     surface: wgpu::Surface<'window>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
-    surface_config: wgpu::SurfaceConfiguration,
+    pub surface_config: wgpu::SurfaceConfiguration,
 
     view_projection_buffer: wgpu::Buffer,
     view_projection_bind_group: wgpu::BindGroup,

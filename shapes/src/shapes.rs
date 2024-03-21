@@ -6,14 +6,19 @@ use crate::geometry::{Bounds, Matrix4};
 
 #[derive(Debug)]
 pub enum Shape {
-    GlyphRun(GlyphRun),
+    GlyphRun(Rc<Matrix4>, GlyphRun),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct GlyphRun {
-    pub model_matrix: Rc<Matrix4>,
     pub metrics: GlyphRunMetrics,
     pub glyphs: Vec<PositionedGlyph>,
+}
+
+impl GlyphRun {
+    pub fn new(metrics: GlyphRunMetrics, glyphs: Vec<PositionedGlyph>) -> Self {
+        Self { metrics, glyphs }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
