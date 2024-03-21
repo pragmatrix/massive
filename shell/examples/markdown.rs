@@ -85,13 +85,9 @@ async fn main() -> Result<()> {
     let mut elements: Vec<Positioned<Element>> =
         elements.into_iter().map(Positioned::new).collect();
 
-    let mut text_system = {
-        let font_system = Arc::new(Mutex::new(FontSystem::new()));
-
-        TextSystem {
-            font_system,
-            text_cache: text_cache.clone(),
-        }
+    let mut text_system = TextSystem {
+        font_system: Arc::new(Mutex::new(FontSystem::new())),
+        text_cache: text_cache.clone(),
     };
 
     let zoom = 1.0;
