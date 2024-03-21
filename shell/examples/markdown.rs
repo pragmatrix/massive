@@ -139,7 +139,7 @@ async fn main() -> Result<()> {
 
                 let positioned = position_glyphs(run.glyphs);
 
-                let offset = Point::new(text_area.left as _, text_area.top as _);
+                let offset = Point::new(text_area.left as _, (text_area.top + run.line_top) as _);
 
                 glyph_runs.push((offset, GlyphRun::new(glyph_run_metrics, positioned)));
 
