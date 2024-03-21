@@ -17,7 +17,7 @@ use inlyne::{
     Element,
 };
 use winit::{
-    event::{KeyEvent, WindowEvent},
+    event::{DeviceId, KeyEvent, MouseButton, WindowEvent},
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
     window::WindowBuilder,
@@ -125,10 +125,6 @@ async fn main() -> Result<()> {
             for run in text_area.buffer.layout_runs() {
                 let max_ascent = run.line_y - run.line_top;
 
-                println!("line_height: {}, max_ascent: {}", line_height, max_ascent);
-
-                println!("run: {:?}", run);
-
                 let glyph_run_metrics = GlyphRunMetrics {
                     max_ascent: max_ascent.ceil() as _,
                     max_descent: (line_height - max_ascent).ceil() as _,
@@ -167,6 +163,9 @@ async fn main() -> Result<()> {
         camera,
         glyph_runs,
         page_width,
+        left_mouse_button_pressed: None,
+        positions: HashMap::new(),
+        translation: Point::default(),
     };
 
     shell.run(event_loop, application)
@@ -263,36 +262,81 @@ struct Application {
     camera: Camera,
     glyph_runs: Vec<(Point, GlyphRun)>,
     page_width: u32,
+
+    /// If pressed, the origin.
+    left_mouse_button_pressed: Option<MouseButtonPressedState>,
+    /// Tracked positions of all devices.
+    positions: HashMap<DeviceId, Point>,
+
+    /// Current x / y Translation in pixel-space.
+    translation: Point,
+}
+
+struct MouseButtonPressedState {
+    origin: Point,
+    translation_origin: Point,
 }
 
 impl shell::Application for Application {
     fn update(&mut self, window_event: WindowEvent) {
-        if let WindowEvent::KeyboardInput {
-            event: KeyEvent {
-                logical_key, state, ..
-            },
-            ..
-        } = window_event
-        {
-            if state == winit::event::ElementState::Pressed {
-                match logical_key {
-                    Key::Named(NamedKey::ArrowLeft) => {
-                        self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
-                    }
-                    Key::Named(NamedKey::ArrowRight) => {
-                        self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
-                    }
-                    Key::Named(NamedKey::ArrowUp) => self.camera.eye += Vector3::new(0.0, 0.0, 0.1),
-                    Key::Named(NamedKey::ArrowDown) => {
-                        self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
-                    }
-                    _ => {}
-                }
-            } else {
-                {}
-            }
+        match window_event {
+            WindowEvent::CursorMoved {
+                device_id,
+                position,
+            } => {
+                // track
+                let current = Point::new(position.x, position.y);
+                self.positions.insert(device_id, current);
 
-            println!("eye: {:?}", self.camera.eye)
+                // ongoing movement?
+                if let Some(pressed_state) = &self.left_mouse_button_pressed {
+                    let delta = current - pressed_state.origin;
+                    self.translation = pressed_state.translation_origin + delta;
+                }
+            }
+            WindowEvent::MouseInput {
+                device_id,
+                state,
+                button,
+            } if button == MouseButton::Left && self.positions.contains_key(&device_id) => {
+                if state.is_pressed() {
+                    self.left_mouse_button_pressed = Some(MouseButtonPressedState {
+                        origin: self.positions[&device_id],
+                        translation_origin: self.translation,
+                    });
+                } else {
+                    self.left_mouse_button_pressed = None
+                }
+            }
+            WindowEvent::KeyboardInput {
+                event: KeyEvent {
+                    logical_key, state, ..
+                },
+                ..
+            } => {
+                if state == winit::event::ElementState::Pressed {
+                    match logical_key {
+                        Key::Named(NamedKey::ArrowLeft) => {
+                            self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
+                        }
+                        Key::Named(NamedKey::ArrowRight) => {
+                            self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
+                        }
+                        Key::Named(NamedKey::ArrowUp) => {
+                            self.camera.eye += Vector3::new(0.0, 0.0, 0.1)
+                        }
+                        Key::Named(NamedKey::ArrowDown) => {
+                            self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
+                        }
+                        _ => {}
+                    }
+                } else {
+                    {}
+                }
+
+                println!("eye: {:?}", self.camera.eye)
+            }
+            _ => (),
         }
     }
 
@@ -301,6 +345,11 @@ impl shell::Application for Application {
 
         let page_x_center: f64 = -((self.page_width / 2) as f64);
         let center_transformation = Matrix4::from_translation((page_x_center, 0.0, 0.0).into());
+        let current_translation = Matrix4::from_translation(
+            (self.translation.x as _, self.translation.y as _, 0 as _).into(),
+        );
+
+        let current_transformation = center_transformation * current_translation;
 
         for glyph_run in &self.glyph_runs {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
@@ -310,7 +359,7 @@ impl shell::Application for Application {
             let local_offset_matrix =
                 Matrix4::from_translation((local_offset.0, local_offset.1, 0.0).into());
 
-            let matrix = shell.pixel_matrix() * center_transformation * local_offset_matrix;
+            let matrix = shell.pixel_matrix() * current_transformation * local_offset_matrix;
 
             // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep them stored.
             shapes.push(Shape::GlyphRun(matrix.into(), glyph_run.1.clone()));
