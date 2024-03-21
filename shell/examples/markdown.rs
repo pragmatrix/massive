@@ -23,7 +23,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use granularity_geometry::{Camera, Matrix4, Point, Vector3};
+use granularity_geometry::{Camera, Matrix4, Point, PointI, Vector3};
 use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use granularity_shell::{self as shell, Shell};
 
@@ -165,7 +165,7 @@ async fn main() -> Result<()> {
         page_width,
         left_mouse_button_pressed: None,
         positions: HashMap::new(),
-        translation: Point::default(),
+        translation: PointI::default(),
     };
 
     shell.run(event_loop, application)
@@ -264,17 +264,17 @@ struct Application {
     page_width: u32,
 
     /// If pressed, the origin.
-    left_mouse_button_pressed: Option<MouseButtonPressedState>,
+    left_mouse_button_pressed: Option<MouseButtonPressed>,
     /// Tracked positions of all devices.
-    positions: HashMap<DeviceId, Point>,
+    positions: HashMap<DeviceId, PointI>,
 
     /// Current x / y Translation in pixel-space.
-    translation: Point,
+    translation: PointI,
 }
 
-struct MouseButtonPressedState {
-    origin: Point,
-    translation_origin: Point,
+struct MouseButtonPressed {
+    origin: PointI,
+    translation_origin: PointI,
 }
 
 impl shell::Application for Application {
@@ -285,7 +285,8 @@ impl shell::Application for Application {
                 position,
             } => {
                 // track
-                let current = Point::new(position.x, position.y);
+                // These positions aren't discrete on macOS, but why?
+                let current = PointI::new(position.x.round() as _, position.y.round() as _);
                 self.positions.insert(device_id, current);
 
                 // ongoing movement?
@@ -300,7 +301,7 @@ impl shell::Application for Application {
                 button,
             } if button == MouseButton::Left && self.positions.contains_key(&device_id) => {
                 if state.is_pressed() {
-                    self.left_mouse_button_pressed = Some(MouseButtonPressedState {
+                    self.left_mouse_button_pressed = Some(MouseButtonPressed {
                         origin: self.positions[&device_id],
                         translation_origin: self.translation,
                     });
