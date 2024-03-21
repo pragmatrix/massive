@@ -7,7 +7,6 @@ members = [
     "shapes",
     "renderer",
     "shell",
-    "markdown-renderer",
     "inlyne"
 ]
 
