@@ -16,8 +16,9 @@ use inlyne::{
     utils::{markdown_to_html, Rect},
     Element,
 };
+use wgpu::core::device;
 use winit::{
-    event::{DeviceId, KeyEvent, MouseButton, WindowEvent},
+    event::{DeviceId, KeyEvent, Modifiers, MouseButton, WindowEvent},
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
     window::WindowBuilder,
@@ -162,6 +163,8 @@ async fn main() -> Result<()> {
         left_mouse_button_pressed: None,
         positions: HashMap::new(),
         translation: PointI::default(),
+        rotation: PointI::default(),
+        modifiers: Modifiers::default(),
     };
 
     shell.run(event_loop, application)
@@ -263,14 +266,19 @@ struct Application {
     left_mouse_button_pressed: Option<MouseButtonPressed>,
     /// Tracked positions of all devices.
     positions: HashMap<DeviceId, PointI>,
+    modifiers: Modifiers,
 
     /// Current x / y Translation in pixel-space.
     translation: PointI,
+    /// Rotation in discrete degrees.
+    rotation: PointI,
 }
 
 struct MouseButtonPressed {
+    device_id: DeviceId,
     origin: PointI,
     translation_origin: PointI,
+    rotation_origin: PointI,
 }
 
 impl shell::Application for Application {
@@ -288,7 +296,12 @@ impl shell::Application for Application {
                 // ongoing movement?
                 if let Some(pressed_state) = &self.left_mouse_button_pressed {
                     let delta = current - pressed_state.origin;
-                    self.translation = pressed_state.translation_origin + delta;
+
+                    if self.modifiers.state().control_key() {
+                        self.rotation = pressed_state.rotation_origin + delta;
+                    } else {
+                        self.translation = pressed_state.translation_origin + delta;
+                    }
                 }
             }
             WindowEvent::MouseInput {
@@ -298,11 +311,25 @@ impl shell::Application for Application {
             } if button == MouseButton::Left && self.positions.contains_key(&device_id) => {
                 if state.is_pressed() {
                     self.left_mouse_button_pressed = Some(MouseButtonPressed {
+                        device_id,
                         origin: self.positions[&device_id],
                         translation_origin: self.translation,
+                        rotation_origin: self.rotation,
                     });
                 } else {
                     self.left_mouse_button_pressed = None
+                }
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                if self.modifiers != modifiers {
+                    // If there is an ongoing move and modifiers change, reset origins.
+                    if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
+                        mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
+                        mouse_pressed.translation_origin = self.translation;
+                        mouse_pressed.rotation_origin = self.rotation;
+                    }
+
+                    self.modifiers = modifiers
                 }
             }
             WindowEvent::KeyboardInput {
@@ -345,8 +372,14 @@ impl shell::Application for Application {
         let current_translation = Matrix4::from_translation(
             (self.translation.x as _, self.translation.y as _, 0 as _).into(),
         );
+        let angle_x = cgmath::Rad((self.rotation.x as f64 / 10.).to_radians());
+        let angle_y = cgmath::Rad((-self.rotation.y as f64 / 10.).to_radians());
 
-        let current_transformation = center_transformation * current_translation;
+        let x_rotation = Matrix4::from_angle_y(angle_x);
+        let y_rotation = Matrix4::from_angle_x(angle_y);
+
+        let current_transformation =
+            center_transformation * x_rotation * y_rotation * current_translation;
 
         for glyph_run in &self.glyph_runs {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;

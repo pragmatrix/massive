@@ -2068,6 +2068,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "cgmath",
  "cosmic-text",
  "derive_more",
  "env_logger",
