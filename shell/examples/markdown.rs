@@ -320,8 +320,8 @@ impl shell::Application for Application {
             WindowEvent::MouseInput {
                 device_id,
                 state,
-                button,
-            } if button == MouseButton::Left && self.positions.contains_key(&device_id) => {
+                button: MouseButton::Left,
+            } if self.positions.contains_key(&device_id) => {
                 if state.is_pressed() {
                     self.left_mouse_button_pressed = Some(MouseButtonPressed {
                         device_id,
@@ -332,6 +332,12 @@ impl shell::Application for Application {
                 } else {
                     self.left_mouse_button_pressed = None
                 }
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Middle,
+                ..
+            } => {
+                self.rotation = PointI::default();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 if self.modifiers != modifiers {
