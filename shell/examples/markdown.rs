@@ -16,7 +16,6 @@ use inlyne::{
     utils::{markdown_to_html, Rect},
     Element,
 };
-use wgpu::core::device;
 use winit::{
     event::{DeviceId, KeyEvent, Modifiers, MouseButton, WindowEvent},
     event_loop::EventLoop,
@@ -24,7 +23,7 @@ use winit::{
     window::WindowBuilder,
 };
 
-use granularity_geometry::{Camera, Matrix4, Point, PointI, Vector3};
+use granularity_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
 use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use granularity_shell::{self as shell, Shell};
 
@@ -107,6 +106,7 @@ async fn main() -> Result<()> {
     )?;
 
     let mut glyph_runs = Vec::new();
+    let mut page_height = 0;
 
     {
         let text_cache = text_cache.lock().unwrap();
@@ -117,6 +117,7 @@ async fn main() -> Result<()> {
                 .map(|cta| cta.text_area(&text_cache))
         };
 
+        // Note: text_area.bounds are not set (for some reason?).
         for text_area in text_areas.take(10) {
             let line_height = text_area.buffer.metrics().line_height;
             for run in text_area.buffer.layout_runs() {
@@ -128,13 +129,14 @@ async fn main() -> Result<()> {
                     width: run.line_w.ceil() as u32,
                 };
 
-                println!("top: {}", text_area.top);
-
                 let positioned = position_glyphs(run.glyphs);
 
-                let offset = Point::new(text_area.left as _, (text_area.top + run.line_top) as _);
+                let top = text_area.top + run.line_top;
+                let offset = Point::new(text_area.left as _, top as _);
 
                 glyph_runs.push((offset, GlyphRun::new(glyph_run_metrics, positioned)));
+
+                page_height = (top + line_height).ceil() as _;
 
                 // println!("run: {:?}", run);
                 // for glyph in run.glyphs.iter() {
@@ -159,7 +161,7 @@ async fn main() -> Result<()> {
     let application = Application {
         camera,
         glyph_runs,
-        page_width,
+        page_size: SizeI::new(page_width as _, page_height),
         left_mouse_button_pressed: None,
         positions: HashMap::new(),
         translation: PointI::default(),
@@ -260,7 +262,7 @@ fn position_glyphs(glyphs: &[LayoutGlyph]) -> Vec<PositionedGlyph> {
 struct Application {
     camera: Camera,
     glyph_runs: Vec<(Point, GlyphRun)>,
-    page_width: u32,
+    page_size: SizeI,
 
     /// If pressed, the origin.
     left_mouse_button_pressed: Option<MouseButtonPressed>,
@@ -367,8 +369,10 @@ impl shell::Application for Application {
     fn render(&self, shell: &mut Shell) -> (Camera, Vec<Shape>) {
         let mut shapes = Vec::new();
 
-        let page_x_center: f64 = -((self.page_width / 2) as f64);
-        let center_transformation = Matrix4::from_translation((page_x_center, 0.0, 0.0).into());
+        let page_x_center: f64 = -((self.page_size.width / 2) as f64);
+        let page_y_center: f64 = -((self.page_size.height / 2) as f64);
+        let center_transformation =
+            Matrix4::from_translation((page_x_center, page_y_center, 0.0).into());
         let current_translation = Matrix4::from_translation(
             (self.translation.x as _, self.translation.y as _, 0 as _).into(),
         );
