@@ -17,7 +17,9 @@ use inlyne::{
     Element,
 };
 use winit::{
-    event::{DeviceId, KeyEvent, Modifiers, MouseButton, WindowEvent},
+    event::{
+        DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
+    },
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
     window::WindowBuilder,
@@ -165,6 +167,7 @@ async fn main() -> Result<()> {
         left_mouse_button_pressed: None,
         positions: HashMap::new(),
         translation: PointI::default(),
+        translation_z: 0,
         rotation: PointI::default(),
         modifiers: Modifiers::default(),
     };
@@ -270,8 +273,9 @@ struct Application {
     positions: HashMap<DeviceId, PointI>,
     modifiers: Modifiers,
 
-    /// Current x / y Translation in pixel-space.
+    /// Current x / y Translation.
     translation: PointI,
+    translation_z: i32,
     /// Rotation in discrete degrees.
     rotation: PointI,
 }
@@ -282,6 +286,8 @@ struct MouseButtonPressed {
     translation_origin: PointI,
     rotation_origin: PointI,
 }
+
+const MOUSE_WHEEL_SCROLL_TO_Z_PIXELS: i32 = 16;
 
 impl shell::Application for Application {
     fn update(&mut self, window_event: WindowEvent) {
@@ -306,6 +312,11 @@ impl shell::Application for Application {
                     }
                 }
             }
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, y_delta),
+                phase: TouchPhase::Moved,
+                ..
+            } => self.translation_z += y_delta.round() as i32 * MOUSE_WHEEL_SCROLL_TO_Z_PIXELS,
             WindowEvent::MouseInput {
                 device_id,
                 state,
@@ -374,7 +385,12 @@ impl shell::Application for Application {
         let center_transformation =
             Matrix4::from_translation((page_x_center, page_y_center, 0.0).into());
         let current_translation = Matrix4::from_translation(
-            (self.translation.x as _, self.translation.y as _, 0 as _).into(),
+            (
+                self.translation.x as _,
+                self.translation.y as _,
+                self.translation_z as _,
+            )
+                .into(),
         );
         let angle_x = cgmath::Rad((self.rotation.x as f64 / 10.).to_radians());
         let angle_y = cgmath::Rad((-self.rotation.y as f64 / 10.).to_radians());
