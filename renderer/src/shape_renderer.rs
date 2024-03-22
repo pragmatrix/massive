@@ -135,15 +135,13 @@ impl ShapeRenderer {
         let render_param: GlyphRenderParam = class.into();
         let pipeline = render_param.pipeline();
 
-        let Some(render_glyph) = self.glyph_cache.get(
+        let render_glyph = self.glyph_cache.get(
             context.device,
             context.queue,
             context.font_system,
             glyph.key,
             render_param,
-        ) else {
-            return None;
-        };
+        )?;
 
         // TODO: Need a i32 and f32 2D Rect here.
 
