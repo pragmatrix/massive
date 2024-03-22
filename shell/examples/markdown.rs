@@ -383,7 +383,7 @@ impl shell::Application for Application {
         let y_rotation = Matrix4::from_angle_x(angle_y);
 
         let current_transformation =
-            center_transformation * x_rotation * y_rotation * current_translation;
+            current_translation * y_rotation * x_rotation * center_transformation;
 
         for glyph_run in &self.glyph_runs {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
