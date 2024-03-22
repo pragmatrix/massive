@@ -8,12 +8,12 @@ winit = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
 wgpu = { workspace = true }
-granularity = { workspace = true }
 anyhow = { workspace = true }
 cosmic-text = { workspace = true }
 granularity-geometry = { workspace = true }
 granularity-renderer = { workspace = true }
 granularity-shapes = { workspace = true }
+cgmath = { workspace = true }
 
 [dev-dependencies]
 swash = { workspace = true }
@@ -21,3 +21,4 @@ bytemuck = { workspace = true }
 env_logger = { workspace = true }
 tokio = { workspace = true }
 derive_more = { workspace = true }
+inlyne = { workspace = true }

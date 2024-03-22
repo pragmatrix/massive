@@ -2,7 +2,7 @@ use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
 use log::{error, info};
-use wgpu::{PresentMode, SurfaceTarget};
+use wgpu::{PresentMode, SurfaceTarget, TextureFormat};
 use winit::{
     event::*,
     event_loop::EventLoop,
@@ -21,81 +21,15 @@ pub trait Application {
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
-pub async fn run<A: Application + 'static>(mut application: A) -> Result<()> {
+pub async fn run<A: Application + 'static>(application: A) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut shell = Shell::new(&window).await;
-
-    event_loop.run(|event, window_target| {
-        match event {
-            Event::WindowEvent { event, window_id } if window_id == window.id() => match event {
-                WindowEvent::CloseRequested
-                | WindowEvent::KeyboardInput {
-                    event:
-                        KeyEvent {
-                            state: ElementState::Pressed,
-                            logical_key: Key::Named(NamedKey::Escape),
-                            ..
-                        },
-                    ..
-                } => window_target.exit(),
-                WindowEvent::Resized(physical_size) => {
-                    shell.resize_surface((physical_size.width, physical_size.height));
-                    window.request_redraw()
-                }
-                WindowEvent::ScaleFactorChanged { .. } => {
-                    let new_inner_size = window.inner_size();
-                    shell.resize_surface((new_inner_size.width, new_inner_size.height));
-                    window.request_redraw()
-                }
-                WindowEvent::RedrawRequested => {
-                    let (camera, shapes) = application.render(&mut shell);
-                    let surface_matrix = shell.renderer.surface_matrix();
-                    let surface_size = shell.renderer.surface_size();
-                    // TODO: This is a mess.
-                    let mut shape_renderer_context = ShapeRendererContext {
-                        device: &shell.renderer.device,
-                        queue: &shell.renderer.queue,
-                        texture_sampler: &shell.renderer.texture_sampler,
-                        texture_bind_group_layout: &shell.renderer.texture_bind_group_layout,
-                        font_system: &mut shell.font_system,
-                    };
-                    let view_projection_matrix =
-                        camera.view_projection_matrix(Z_RANGE, surface_size);
-                    let primitives = shell.shape_renderer.render(
-                        &mut shape_renderer_context,
-                        &view_projection_matrix,
-                        &surface_matrix,
-                        &shapes,
-                    );
-                    // TODO: pass primitives as value.
-                    match shell
-                        .renderer
-                        .render_and_present(&view_projection_matrix, &primitives)
-                    {
-                        Ok(_) => {}
-                        // Reconfigure the surface if lost
-                        // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
-                        Err(wgpu::SurfaceError::Lost) => shell.reconfigure_surface(),
-                        // The system is out of memory, we should probably quit
-                        Err(wgpu::SurfaceError::OutOfMemory) => window_target.exit(),
-                        // All other errors (Outdated, Timeout) should be resolved by the next frame
-                        Err(e) => error!("{:?}", e),
-                    }
-                }
-
-                event => {
-                    application.update(event);
-                    window.request_redraw()
-                }
-            },
-            _ => {}
-        }
-    })?;
-    Ok(())
+    shell.run(event_loop, application)
 }
 
 pub struct Shell<'window> {
+    pub window: &'window Window,
     pub font_system: text::FontSystem,
     shape_renderer: ShapeRenderer,
     renderer: Renderer<'window>,
@@ -105,7 +39,7 @@ const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
 impl<'window> Shell<'window> {
     // Creating some of the wgpu types requires async code
-    async fn new(window: &'window Window) -> Shell {
+    pub async fn new(window: &'window Window) -> Shell {
         let size = window.inner_size();
 
         // The instance is a handle to our GPU
@@ -158,6 +92,8 @@ impl<'window> Shell<'window> {
             .find(|f| f.is_srgb())
             .unwrap_or(&surface_caps.formats[0]);
 
+        info!("Surface format: {:?}", surface_format);
+
         let present_mode = surface_caps
             .present_modes
             .iter()
@@ -169,6 +105,7 @@ impl<'window> Shell<'window> {
             "Selecting present mode {:?}, size: {:?}",
             present_mode, size
         );
+
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: *surface_format,
@@ -187,10 +124,92 @@ impl<'window> Shell<'window> {
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
         Self {
+            window,
             font_system,
             shape_renderer: ShapeRenderer::default(),
             renderer,
         }
+    }
+
+    pub fn run<A: Application>(
+        &mut self,
+        event_loop: EventLoop<()>,
+        mut application: A,
+    ) -> Result<()> {
+        event_loop.run(|event, window_target| {
+            match event {
+                Event::WindowEvent { event, window_id } if window_id == self.window.id() => {
+                    match event {
+                        WindowEvent::CloseRequested
+                        | WindowEvent::KeyboardInput {
+                            event:
+                                KeyEvent {
+                                    state: ElementState::Pressed,
+                                    logical_key: Key::Named(NamedKey::Escape),
+                                    ..
+                                },
+                            ..
+                        } => window_target.exit(),
+                        WindowEvent::Resized(physical_size) => {
+                            self.resize_surface((physical_size.width, physical_size.height));
+                            self.window.request_redraw()
+                        }
+                        WindowEvent::ScaleFactorChanged { .. } => {
+                            let new_inner_size = self.window.inner_size();
+                            self.resize_surface((new_inner_size.width, new_inner_size.height));
+                            self.window.request_redraw()
+                        }
+                        WindowEvent::RedrawRequested => {
+                            let (camera, shapes) = application.render(self);
+                            let surface_matrix = self.renderer.surface_matrix();
+                            let surface_size = self.renderer.surface_size();
+                            // TODO: This is a mess.
+                            let mut shape_renderer_context = ShapeRendererContext {
+                                device: &self.renderer.device,
+                                queue: &self.renderer.queue,
+                                texture_sampler: &self.renderer.texture_sampler,
+                                texture_bind_group_layout: &self.renderer.texture_bind_group_layout,
+                                font_system: &mut self.font_system,
+                            };
+                            let view_projection_matrix =
+                                camera.view_projection_matrix(Z_RANGE, surface_size);
+                            let primitives = self.shape_renderer.render(
+                                &mut shape_renderer_context,
+                                &view_projection_matrix,
+                                &surface_matrix,
+                                &shapes,
+                            );
+                            // TODO: pass primitives as value.
+                            match self
+                                .renderer
+                                .render_and_present(&view_projection_matrix, &primitives)
+                            {
+                                Ok(_) => {}
+                                // Reconfigure the surface if lost
+                                // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
+                                Err(wgpu::SurfaceError::Lost) => self.reconfigure_surface(),
+                                // The system is out of memory, we should probably quit
+                                Err(wgpu::SurfaceError::OutOfMemory) => window_target.exit(),
+                                // All other errors (Outdated, Timeout) should be resolved by the next frame
+                                Err(e) => error!("{:?}", e),
+                            }
+                        }
+
+                        event => {
+                            application.update(event);
+                            self.window.request_redraw()
+                        }
+                    }
+                }
+                _ => {}
+            }
+        })?;
+        Ok(())
+    }
+
+    /// The format chosen for the swapchain.
+    pub fn surface_format(&self) -> TextureFormat {
+        self.renderer.surface_config.format
     }
 
     /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to

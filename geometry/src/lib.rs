@@ -9,10 +9,12 @@ mod cubic_bezier;
 mod flo_curves;
 mod line;
 mod point;
+mod point_i;
 mod projection;
 mod rect;
 mod size;
 mod size3;
+mod size_i;
 mod unit_interval;
 
 pub use bounds::*;
@@ -23,10 +25,12 @@ pub use color::*;
 pub use cubic_bezier::*;
 pub use line::*;
 pub use point::*;
+pub use point_i::*;
 pub use projection::*;
 pub use rect::*;
 pub use size::*;
 pub use size3::*;
+pub use size_i::*;
 pub use unit_interval::*;
 
 #[allow(non_camel_case_types)]

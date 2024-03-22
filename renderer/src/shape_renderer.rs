@@ -73,9 +73,13 @@ impl ShapeRenderer {
         shape: &Shape,
     ) -> Vec<Primitive> {
         match shape {
-            Shape::GlyphRun(glyph_run) => {
-                self.render_glyph_run(context, view_projection_matrix, surface_matrix, glyph_run)
-            }
+            Shape::GlyphRun(model_matrix, glyph_run) => self.render_glyph_run(
+                context,
+                view_projection_matrix,
+                surface_matrix,
+                model_matrix,
+                glyph_run,
+            ),
         }
     }
 
@@ -84,21 +88,25 @@ impl ShapeRenderer {
         context: &mut ShapeRendererContext,
         view_projection_matrix: &Matrix4,
         surface_matrix: &Matrix4,
+        model_matrix: &Matrix4,
         glyph_run: &GlyphRun,
     ) -> Vec<Primitive> {
         // TODO: cache this.
-        let glyph_to_surface = surface_matrix * view_projection_matrix * *glyph_run.model_matrix;
+        let glyph_to_surface = surface_matrix * view_projection_matrix * *model_matrix;
 
         glyph_run
             .glyphs
             .iter()
-            .filter_map(|glyph| self.render_glyph(context, glyph_run, &glyph_to_surface, glyph))
+            .filter_map(|glyph| {
+                self.render_glyph(context, model_matrix, glyph_run, &glyph_to_surface, glyph)
+            })
             .collect()
     }
 
     fn render_glyph(
         &mut self,
         context: &mut ShapeRendererContext,
+        model_matrix: &Matrix4,
         run: &GlyphRun,
         glyph_to_surface: &Matrix4,
         glyph: &PositionedGlyph,
@@ -127,15 +135,13 @@ impl ShapeRenderer {
         let render_param: GlyphRenderParam = class.into();
         let pipeline = render_param.pipeline();
 
-        let Some(render_glyph) = self.glyph_cache.get(
+        let render_glyph = self.glyph_cache.get(
             context.device,
             context.queue,
             context.font_system,
             glyph.key,
             render_param,
-        ) else {
-            return None;
-        };
+        )?;
 
         // TODO: Need a i32 and f32 2D Rect here.
 
@@ -165,7 +171,7 @@ impl ShapeRenderer {
 
         // Transform them with the pixel / model matrix.
 
-        let transformed = points.map(|p| run.model_matrix.transform_point(p));
+        let transformed = points.map(|p| model_matrix.transform_point(p));
 
         let texture = Texture::new(
             context.device,
