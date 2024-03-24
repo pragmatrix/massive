@@ -43,7 +43,7 @@
 
 - Designed an API for routing telephone calls over a WebSocket interface.
 
-- Created a translation tool in F# that extracts text from .NET applications and supports XLIFF & Excel rountrips and Google based machine translations.
+- Created a translation tool in F# that extracts text from .NET applications and supports XLIFF & Excel roundtrips and Google based machine translations.
 
 - Built a prototype for a WebRTC / SIP [Click2Call](https://en.wikipedia.org/wiki/Click-to-call) solution in F# and [Fable](http://fable.io/).
 
@@ -51,7 +51,7 @@
 
 - With help of the team at [QuestNet GmbH](http://www.questnet.de), I ported most of their interactive voice applications to VoIP and delivered them to production on an infrastructure that processes several millions telephone calls per year.
 
-- I managed and helped to build an iOS application for scanning 3D body parts that are used to manufacture ortheses for [Ortholutions](http://www.ortholutions.com/).
+- I managed and helped to build an iOS application for scanning 3D body parts that are used to manufacture orthoses for [Ortholutions](http://www.ortholutions.com/).
 
 - Personal Research (F#):
 	- Created a rope data structure that can be used in Text Editors.
@@ -69,7 +69,7 @@ Started a new iteration of my personal [Live Programming](http://en.wikipedia.or
 
 ### November
 
-Created [BuildOnSave](https://github.com/pragmatrix/BuildOnSave), a Visual Studio extension that builds the current solution when a file is saved. Also available in the [Visual Studio Gallary](https://visualstudiogallery.msdn.microsoft.com/2b31b977-ffc9-4066-83e8-c5596786acd0).
+Created [BuildOnSave](https://github.com/pragmatrix/BuildOnSave), a Visual Studio extension that builds the current solution when a file is saved. Also available in the [Visual Studio Gallery](https://visualstudiogallery.msdn.microsoft.com/2b31b977-ffc9-4066-83e8-c5596786acd0).
 
 ### August
 
@@ -171,7 +171,7 @@ Created [Promise](https://github.com/pragmatrix/Promise), a strongly typed promi
 
 ### February
 
-Created a [MRCP](http://en.wikipedia.org/wiki/Media_Resource_Control_Protocol)/[SIP](http://de.wikipedia.org/wiki/Session_Initiation_Protocol) client that simplifies access to the [Nuance](http://www.nuance.com/) speech server recognition and text to speech features for [Questnet GmbH](http://questnet.de/). Most parsing was implemented by using [Sprache](https://github.com/sprache/Sprache).
+Created an [MRCP](http://en.wikipedia.org/wiki/Media_Resource_Control_Protocol)/[SIP](http://de.wikipedia.org/wiki/Session_Initiation_Protocol) client that simplifies access to the [Nuance](http://www.nuance.com/) speech server recognition and text to speech features for [Questnet GmbH](http://questnet.de/). Most parsing was implemented by using [Sprache](https://github.com/sprache/Sprache).
  
 
 ### January
@@ -256,7 +256,7 @@ Founded the company rootloft GmbH.
 
 Customized xtCommerce and built [egreenfee.de](http://www.egreenfee.de/) for a friend:
 
-- built a PDF generator for golf greenfees with ruby
+- built a PDF generator for golf green-fees with ruby
 - customized an xtCommerce Paypal module in PHP
 
 ## 2008
@@ -276,7 +276,7 @@ Created a generic framework for cash machines, named "libfinance".
 Implemented large parts of the HDi implementation for [Nero](http://www.nero.com/)'s HD DVD player software and public interfaces, which included:
 
 - An [SMIL](http://de.wikipedia.org/wiki/Synchronized_Multimedia_Integration_Language) implementation.
-- An incremental, dependency tracking layouter for HDi's subset of HTML.
+- An incremental, dependency tracking layouting algorithm for HDi's subset of HTML.
 - A dependency tracking [XPath](http://de.wikipedia.org/wiki/XPath) evaluator. 
 
 Implemented the workflow engine, business logic, and supervisor component for the cash depositing machine "DPD Einzahler" and "Cashin 2" for Tomaxx GmbH.
@@ -307,7 +307,7 @@ Created a state-machine based user interface and coordination system for Leicher
 
 Created a user interface for a cash depositing machine in Delphi for Leicher GmbH.
 
-Created a platform independented WYSIWIG text editor component with incremental layout including rotated and round texts for [Envel GmbH](http://www.envel.com/) in C++. The component was used in the label printing program DesignPro 2000 by Zweckform.
+Created a WYSIWIG text editor component with incremental layout including rotated and round texts for [Envel GmbH](http://www.envel.com/) in C++. The component was used in the label printing program DesignPro 2000 by Zweckform.
 
 Created an automated extraction and reference documentation system for C++ source in Haskell.
 
