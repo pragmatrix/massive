@@ -1,11 +1,11 @@
 [package]
-name = "granularity-renderer"
+name = "massive-renderer"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-granularity-geometry = { workspace = true }
-granularity-shapes = { workspace = true }
+massive-geometry = { workspace = true }
+massive-shapes = { workspace = true }
 winit = { workspace = true }
 wgpu = { workspace = true }
 bytemuck = { workspace = true }

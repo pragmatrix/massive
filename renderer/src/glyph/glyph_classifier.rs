@@ -1,5 +1,5 @@
 use approx::{abs_diff_eq, ulps_eq};
-use granularity_geometry::Point3;
+use massive_geometry::Point3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GlyphClass {

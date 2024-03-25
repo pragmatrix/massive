@@ -2,4 +2,4 @@ mod shapes;
 
 pub use shapes::*;
 
-use granularity_geometry as geometry;
+use massive_geometry as geometry;

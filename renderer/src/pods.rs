@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use granularity_geometry::Point3;
+use massive_geometry::Point3;
 use std::mem;
 
 // We need this for Rust to store our data correctly for the shaders

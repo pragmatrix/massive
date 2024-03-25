@@ -5,9 +5,9 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
-use granularity_geometry::{Camera, Matrix4, Vector3};
-use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
-use granularity_shell::{self as shell, Shell};
+use massive_geometry::{Camera, Matrix4, Vector3};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
+use massive_shell::{self as shell, Shell};
 
 struct Application {
     camera: Camera,

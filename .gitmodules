@@ -1,8 +1,8 @@
 [submodule "glyphon"]
 	path = glyphon
 	url = ../glyphon
-	branch = granularity-ui
+	branch = massive-text
 [submodule "inlyne"]
 	path = inlyne
 	url = ../inlyne
-	branch = granularity-ui
+	branch = massive-text

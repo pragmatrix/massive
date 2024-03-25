@@ -1,4 +1,4 @@
-use granularity_geometry::Point3;
+use massive_geometry::Point3;
 use wgpu::util::DeviceExt;
 
 use crate::{pods::TextureVertex, primitives::Pipeline, texture};

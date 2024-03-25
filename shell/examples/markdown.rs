@@ -25,9 +25,9 @@ use winit::{
     window::WindowBuilder,
 };
 
-use granularity_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
-use granularity_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
-use granularity_shell::{self as shell, Shell};
+use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
+use massive_shell::{self as shell, Shell};
 
 #[tokio::main]
 async fn main() -> Result<()> {

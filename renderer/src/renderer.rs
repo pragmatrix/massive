@@ -1,6 +1,6 @@
 use std::{mem, result};
 
-use granularity_geometry::Matrix4;
+use massive_geometry::Matrix4;
 use wgpu::{util::DeviceExt, StoreOp};
 
 use crate::{

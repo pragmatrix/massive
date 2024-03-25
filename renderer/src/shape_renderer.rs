@@ -4,8 +4,8 @@
 
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
-use granularity_geometry::{Matrix4, Point};
-use granularity_shapes::{GlyphRun, PositionedGlyph, Shape};
+use massive_geometry::{Matrix4, Point};
+use massive_shapes::{GlyphRun, PositionedGlyph, Shape};
 
 use crate::{
     glyph::{GlyphCache, GlyphClass, GlyphRenderParam},

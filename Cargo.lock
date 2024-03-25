@@ -2023,67 +2023,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "granularity-geometry"
-version = "0.1.0"
-dependencies = [
- "cgmath",
- "derive_more",
- "flo_curves",
- "log",
- "serde",
- "serde_tuple",
-]
-
-[[package]]
-name = "granularity-renderer"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "approx 0.5.1",
- "bitflags 2.4.1",
- "bytemuck",
- "cgmath",
- "cosmic-text",
- "derive_more",
- "granularity-geometry",
- "granularity-shapes",
- "log",
- "swash",
- "wgpu 0.19.3",
- "winit 0.29.14",
-]
-
-[[package]]
-name = "granularity-shapes"
-version = "0.1.0"
-dependencies = [
- "cosmic-text",
- "derive_more",
- "granularity-geometry",
-]
-
-[[package]]
-name = "granularity-shell"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytemuck",
- "cgmath",
- "cosmic-text",
- "derive_more",
- "env_logger",
- "granularity-geometry",
- "granularity-renderer",
- "granularity-shapes",
- "inlyne",
- "log",
- "swash",
- "tokio",
- "wgpu 0.19.3",
- "winit 0.29.14",
-]
-
-[[package]]
 name = "grid"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2855,6 +2794,67 @@ dependencies = [
  "string_cache",
  "string_cache_codegen",
  "tendril",
+]
+
+[[package]]
+name = "massive-geometry"
+version = "0.1.0"
+dependencies = [
+ "cgmath",
+ "derive_more",
+ "flo_curves",
+ "log",
+ "serde",
+ "serde_tuple",
+]
+
+[[package]]
+name = "massive-renderer"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "approx 0.5.1",
+ "bitflags 2.4.1",
+ "bytemuck",
+ "cgmath",
+ "cosmic-text",
+ "derive_more",
+ "log",
+ "massive-geometry",
+ "massive-shapes",
+ "swash",
+ "wgpu 0.19.3",
+ "winit 0.29.14",
+]
+
+[[package]]
+name = "massive-shapes"
+version = "0.1.0"
+dependencies = [
+ "cosmic-text",
+ "derive_more",
+ "massive-geometry",
+]
+
+[[package]]
+name = "massive-shell"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytemuck",
+ "cgmath",
+ "cosmic-text",
+ "derive_more",
+ "env_logger",
+ "inlyne",
+ "log",
+ "massive-geometry",
+ "massive-renderer",
+ "massive-shapes",
+ "swash",
+ "tokio",
+ "wgpu 0.19.3",
+ "winit 0.29.14",
 ]
 
 [[package]]

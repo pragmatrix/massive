@@ -1,18 +1,18 @@
 [package]
-name = "granularity-shell"
+name = "massive-shell"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+massive-geometry = { workspace = true }
+massive-renderer = { workspace = true }
+massive-shapes = { workspace = true }
 winit = { workspace = true }
 log = { workspace = true }
 tokio = { workspace = true }
 wgpu = { workspace = true }
 anyhow = { workspace = true }
 cosmic-text = { workspace = true }
-granularity-geometry = { workspace = true }
-granularity-renderer = { workspace = true }
-granularity-shapes = { workspace = true }
 cgmath = { workspace = true }
 
 [dev-dependencies]

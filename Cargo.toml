@@ -13,10 +13,10 @@ members = [
 # exclude = [ "inlyne" ]
 
 [workspace.dependencies]
-granularity-geometry = { path = "geometry" }
-granularity-shell = { path = "shell" }
-granularity-renderer = { path = "renderer" }
-granularity-shapes = { path = "shapes" }
+massive-geometry = { path = "geometry" }
+massive-shell = { path = "shell" }
+massive-renderer = { path = "renderer" }
+massive-shapes = { path = "shapes" }
 inlyne = { path = "inlyne" }
 
 log = "0.4.19"

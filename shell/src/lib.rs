@@ -10,9 +10,9 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use granularity_geometry::{scalar, Camera, Matrix4};
-use granularity_renderer::{Renderer, ShapeRenderer, ShapeRendererContext};
-use granularity_shapes::Shape;
+use massive_geometry::{scalar, Camera, Matrix4};
+use massive_renderer::{Renderer, ShapeRenderer, ShapeRendererContext};
+use massive_shapes::Shape;
 
 pub trait Application {
     fn update(&mut self, window_event: WindowEvent);
