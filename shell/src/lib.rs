@@ -57,8 +57,7 @@ impl<'window> Shell<'window> {
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                // default: LowPower
-                power_preference: wgpu::PowerPreference::LowPower,
+                power_preference: wgpu::PowerPreference::None,
                 // Be sure the adapter can present the surface.
                 compatible_surface: Some(&surface),
                 // software fallback?
