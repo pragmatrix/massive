@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
-    env, mem,
-    path::PathBuf,
+    mem,
     sync::{Arc, Mutex},
 };
 
@@ -9,7 +8,7 @@ use anyhow::{Context, Result};
 use cosmic_text::{CacheKey, CacheKeyFlags, FontSystem, LayoutGlyph};
 use inlyne::{
     color::Theme,
-    interpreter::{HtmlInterpreter, ImageCallback, WindowInteractor},
+    interpreter::HtmlInterpreter,
     opts::ResolvedTheme,
     positioner::{Positioned, Positioner, DEFAULT_MARGIN},
     text::{CachedTextArea, TextCache, TextSystem},
@@ -29,15 +28,37 @@ use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use massive_shell::{self as shell, Shell};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> Result<()> {
     env_logger::init();
 
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    // Use the runtime to block on the async function
+    rt.block_on(async_main())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    console_error_panic_hook::set_once();
+    console_log::init().expect("Could not initialize logger");
+
+    wasm_bindgen_futures::spawn_local(async {
+        match async_main().await {
+            Ok(()) => {}
+            Err(e) => {
+                log::error!("{e}");
+            }
+        }
+    });
+}
+
+async fn async_main() -> Result<()> {
     let markdown = include_str!("replicator.org.md");
-    let current_dir = env::current_dir().expect("Failed to get current directory");
-    let file_path: PathBuf = [current_dir.to_str().unwrap(), "replicator.org.md"]
-        .iter()
-        .collect();
+    // The concepts of a current dir does not exist in wasm I guess.
+    // let current_dir = env::current_dir().expect("Failed to get current directory");
+    // let file_path: PathBuf = [current_dir.to_str().unwrap(), "replicator.org.md"]
+    //     .iter()
+    //     .collect();
 
     let theme = Theme::light_default();
     let html = markdown_to_html(markdown, theme.code_highlighter.clone());
@@ -59,9 +80,8 @@ async fn main() -> Result<()> {
         element_queue.clone(),
         theme,
         hidpi_scale as _,
-        file_path,
+        // file_path,
         image_cache,
-        Box::new(Interactor {}),
         color_scheme,
     );
 
@@ -172,32 +192,31 @@ async fn main() -> Result<()> {
         modifiers: Modifiers::default(),
     };
 
-    shell.run(event_loop, application)
+    shell.run(event_loop, application).await
 }
 
-#[derive(Debug)]
-struct Interactor {}
+// #[derive(Debug)]
+// struct Interactor {}
 
-impl WindowInteractor for Interactor {
-    fn finished_single_doc(&self) {}
+// impl WindowInteractor for Interactor {
+//     fn finished_single_doc(&self) {}
 
-    fn request_redraw(&self) {}
+//     fn request_redraw(&self) {}
 
-    fn image_callback(&self) -> Box<dyn inlyne::interpreter::ImageCallback + Send> {
-        println!("Interactor: Acquiring image callback");
-        Box::new(ImageCallbackImpl {})
-    }
-}
+//     fn image_callback(&self) -> Box<dyn inlyne::interpreter::ImageCallback + Send> {
+//         println!("Interactor: Acquiring image callback");
+//         Box::new(ImageCallbackImpl {})
+//     }
+// }
 
-#[derive(Debug)]
+// #[derive(Debug)]
+// struct ImageCallbackImpl {}
 
-struct ImageCallbackImpl {}
-
-impl ImageCallback for ImageCallbackImpl {
-    fn loaded_image(&self, src: String, _image_data: Arc<Mutex<Option<inlyne::image::ImageData>>>) {
-        println!("Interactor.ImageCallback: Loaded Image {}", src)
-    }
-}
+// impl ImageCallback for ImageCallbackImpl {
+//     fn loaded_image(&self, src: String, _image_data: Arc<Mutex<Option<inlyne::image::ImageData>>>) {
+//         println!("Interactor.ImageCallback: Loaded Image {}", src)
+//     }
+// }
 
 // A stripped down port of the `inlyne::renderer::render_elements` function.
 fn get_text_areas(

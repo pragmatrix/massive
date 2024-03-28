@@ -1,5 +1,4 @@
 [workspace]
-
 resolver = "2"
 
 members = [
@@ -7,8 +6,12 @@ members = [
     "shapes",
     "renderer",
     "shell",
-    "inlyne"
+    "inlyne",
 ]
+
+[workspace.metadata]
+# For trunk
+root-package = "shell"
 
 # exclude = [ "inlyne" ]
 
@@ -24,8 +27,8 @@ env_logger = "0.11.3"
 serde_tuple = "0.5.0"
 serde = { version = "1.0.164", features = ["derive"] }
 derive_more = "0.99.17"
-# TODO: Only select the features we need
-tokio = { version = "1.29.1", features = ["full"] }
+# rt-multi-thread is not supported on wasm.
+tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
 wgpu = "0.19.3"
 anyhow = "1.0.71"
 swash = "0.1.8"
@@ -33,6 +36,6 @@ bytemuck = { version = "1.13.1", features = ["derive"] }
 bitflags = { version = "2.3.3" }
 cgmath = "0.18.0"
 cosmic-text = { version = "0.11.2", features = ["swash"] }
-winit = "0.29.14"
+winit = { version = "0.29.15" }
 approx = "0.5.1"
 flo_curves = "0.7.2"

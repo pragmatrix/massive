@@ -25,7 +25,7 @@ pub async fn run<A: Application + 'static>(application: A) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
     let mut shell = Shell::new(&window).await;
-    shell.run(event_loop, application)
+    shell.run(event_loop, application).await
 }
 
 pub struct Shell<'window> {
@@ -44,7 +44,14 @@ impl<'window> Shell<'window> {
 
         // The instance is a handle to our GPU
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::default();
+        // let instance = wgpu::Instance::default();
+
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            flags: wgpu::InstanceFlags::empty(),
+            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
+            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
+        });
 
         let surface = {
             let surface_target: SurfaceTarget = window.into();
@@ -131,7 +138,7 @@ impl<'window> Shell<'window> {
         }
     }
 
-    pub fn run<A: Application>(
+    pub async fn run<A: Application>(
         &mut self,
         event_loop: EventLoop<()>,
         mut application: A,

@@ -21,6 +21,7 @@
         "Interactor",
         "multisampled",
         "multiview",
+        "reqwest",
         "rsqrt",
         "shortcodes",
         "SSEDT",
