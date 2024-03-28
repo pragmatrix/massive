@@ -1,5 +1,7 @@
+use std::sync::{Arc, Mutex};
+
 use cosmic_text as text;
-use text::CacheKeyFlags;
+use text::{CacheKeyFlags, FontSystem};
 use winit::{
     event::{KeyEvent, WindowEvent},
     keyboard::{Key, NamedKey},
@@ -31,7 +33,9 @@ async fn main() {
         hello_world: hello_world.to_string(),
     };
 
-    let _ = shell::run(application).await;
+    let font_system = Arc::new(Mutex::new(FontSystem::new()));
+
+    let _ = shell::run(application, font_system).await;
 }
 
 impl shell::Application for Application {
@@ -68,7 +72,9 @@ impl shell::Application for Application {
     fn render(&self, shell: &mut Shell) -> (Camera, Vec<Shape>) {
         const FONT_SIZE: f32 = 100.0;
 
-        let glyph_run = shape_text(&mut shell.font_system, &self.hello_world, FONT_SIZE);
+        let mut font_system = shell.font_system.lock().unwrap();
+
+        let glyph_run = shape_text(&mut font_system, &self.hello_world, FONT_SIZE);
 
         let center_x: i32 = (glyph_run.metrics.width / 2) as _;
         let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;

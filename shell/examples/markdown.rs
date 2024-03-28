@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use cosmic_text::{CacheKey, CacheKeyFlags, FontSystem, LayoutGlyph};
+use cosmic_text::{fontdb, CacheKey, CacheKeyFlags, FontSystem, LayoutGlyph};
 use inlyne::{
     color::Theme,
     interpreter::HtmlInterpreter,
@@ -67,7 +67,23 @@ async fn async_main() -> Result<()> {
 
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new(&window).await;
+
+    let font_system = {
+        // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
+        const DEFAULT_LOCALE: &str = "en-US";
+
+        // Don't load system fonts for now, this way we get the same result on wasm and local runs.
+        let mut font_db = fontdb::Database::new();
+        let montserrat = include_bytes!("Montserrat-Regular.ttf");
+        let source = fontdb::Source::Binary(Arc::new(montserrat));
+        font_db.load_font_source(source);
+        Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(
+            DEFAULT_LOCALE.into(),
+            font_db,
+        )))
+    };
+
+    let mut shell = Shell::new(&window, font_system.clone()).await;
 
     // TODO: Pass surface format.
     let _surface_format = shell.surface_format();
@@ -108,7 +124,7 @@ async fn async_main() -> Result<()> {
         elements.into_iter().map(Positioned::new).collect();
 
     let mut text_system = TextSystem {
-        font_system: Arc::new(Mutex::new(FontSystem::new())),
+        font_system,
         text_cache: text_cache.clone(),
     };
 

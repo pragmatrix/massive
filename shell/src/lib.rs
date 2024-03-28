@@ -1,3 +1,5 @@
+use std::sync::{Arc, Mutex};
+
 use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
@@ -21,16 +23,19 @@ pub trait Application {
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
-pub async fn run<A: Application + 'static>(application: A) -> Result<()> {
+pub async fn run<A: Application + 'static>(
+    application: A,
+    font_system: Arc<Mutex<FontSystem>>,
+) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new(&window).await;
+    let mut shell = Shell::new(&window, font_system).await;
     shell.run(event_loop, application).await
 }
 
 pub struct Shell<'window> {
     pub window: &'window Window,
-    pub font_system: text::FontSystem,
+    pub font_system: Arc<Mutex<text::FontSystem>>,
     shape_renderer: ShapeRenderer,
     renderer: Renderer<'window>,
 }
@@ -39,19 +44,11 @@ const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
 impl<'window> Shell<'window> {
     // Creating some of the wgpu types requires async code
-    pub async fn new(window: &'window Window) -> Shell {
+    // TODO: We need the `FontSystem` only while rendering.
+    pub async fn new(window: &'window Window, font_system: Arc<Mutex<FontSystem>>) -> Shell {
         let size = window.inner_size();
 
-        // The instance is a handle to our GPU
-        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        // let instance = wgpu::Instance::default();
-
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            flags: wgpu::InstanceFlags::empty(),
-            dx12_shader_compiler: wgpu::Dx12Compiler::default(),
-            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
-        });
+        let instance = wgpu::Instance::default();
 
         let surface = {
             let surface_target: SurfaceTarget = window.into();
@@ -126,8 +123,6 @@ impl<'window> Shell<'window> {
         };
         surface.configure(&device, &surface_config);
 
-        let font_system = FontSystem::new();
-
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
         Self {
@@ -170,22 +165,28 @@ impl<'window> Shell<'window> {
                             let (camera, shapes) = application.render(self);
                             let surface_matrix = self.renderer.surface_matrix();
                             let surface_size = self.renderer.surface_size();
-                            // TODO: This is a mess.
-                            let mut shape_renderer_context = ShapeRendererContext {
-                                device: &self.renderer.device,
-                                queue: &self.renderer.queue,
-                                texture_sampler: &self.renderer.texture_sampler,
-                                texture_bind_group_layout: &self.renderer.texture_bind_group_layout,
-                                font_system: &mut self.font_system,
-                            };
                             let view_projection_matrix =
                                 camera.view_projection_matrix(Z_RANGE, surface_size);
-                            let primitives = self.shape_renderer.render(
-                                &mut shape_renderer_context,
-                                &view_projection_matrix,
-                                &surface_matrix,
-                                &shapes,
-                            );
+
+                            let primitives = {
+                                // TODO: This is a mess.
+                                let mut font_system = self.font_system.lock().unwrap();
+                                let mut shape_renderer_context = ShapeRendererContext {
+                                    device: &self.renderer.device,
+                                    queue: &self.renderer.queue,
+                                    texture_sampler: &self.renderer.texture_sampler,
+                                    texture_bind_group_layout: &self
+                                        .renderer
+                                        .texture_bind_group_layout,
+                                    font_system: &mut font_system,
+                                };
+                                self.shape_renderer.render(
+                                    &mut shape_renderer_context,
+                                    &view_projection_matrix,
+                                    &surface_matrix,
+                                    &shapes,
+                                )
+                            };
                             // TODO: pass primitives as value.
                             match self
                                 .renderer
