@@ -36,6 +36,6 @@ bytemuck = { version = "1.13.1", features = ["derive"] }
 bitflags = { version = "2.3.3" }
 cgmath = "0.18.0"
 cosmic-text = { version = "0.11.2", features = ["swash"] }
-winit = { version = "0.29.15" }
+winit = { version = "0.29.15", features = ["rwh_06"] }
 approx = "0.5.1"
 flo_curves = "0.7.2"
