@@ -1,0 +1,3 @@
+[build]
+# Uncomment to get proper IDE support for wasm builds
+# target = "wasm32-unknown-unknown"

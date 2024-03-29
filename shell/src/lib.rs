@@ -4,8 +4,9 @@ use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
 use log::{error, info};
-use wgpu::{PresentMode, SurfaceTarget, TextureFormat};
+use wgpu::{InstanceDescriptor, PresentMode, SurfaceTarget, TextureFormat};
 use winit::{
+    dpi::PhysicalSize,
     event::*,
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
@@ -29,7 +30,7 @@ pub async fn run<A: Application + 'static>(
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new(&window, font_system).await;
+    let mut shell = Shell::new(&window, window.inner_size(), font_system).await;
     shell.run(event_loop, application).await
 }
 
@@ -45,13 +46,34 @@ const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 impl<'window> Shell<'window> {
     // Creating some of the wgpu types requires async code
     // TODO: We need the `FontSystem` only while rendering.
-    pub async fn new(window: &'window Window, font_system: Arc<Mutex<FontSystem>>) -> Shell {
-        let size = window.inner_size();
+    pub async fn new(
+        window: &'window Window,
+        initial_size: PhysicalSize<u32>,
+        font_system: Arc<Mutex<FontSystem>>,
+    ) -> Shell {
+        #[cfg(not(target_arch = "wasm32"))]
+        let instance_descriptor = InstanceDescriptor::default();
+        #[cfg(target_arch = "wasm32")]
+        let instance_descriptor = InstanceDescriptor {
+            // backends: wgpu::Backends::GL,
+            ..InstanceDescriptor::default()
+        };
 
-        let instance = wgpu::Instance::default();
+        let instance = wgpu::Instance::new(instance_descriptor);
 
         let surface = {
             let surface_target: SurfaceTarget = window.into();
+
+            info!(
+                "Creating surface on target: {:?}",
+                match surface_target {
+                    SurfaceTarget::Window(_) => "Window",
+                    SurfaceTarget::Canvas(_) => "Canvas",
+                    SurfaceTarget::OffscreenCanvas(_) => "OffscreenCanvas",
+                    _ => "(Undefined SurfaceTarget, Internal Error)",
+                }
+            );
+
             instance.create_surface(surface_target).expect("surface")
         };
 
@@ -65,6 +87,8 @@ impl<'window> Shell<'window> {
             })
             .await
             .expect("Adapter not found");
+
+        info!("Effective WebGPU backend: {:?}", adapter.get_info().backend);
 
         let (device, queue) = adapter
             .request_device(
@@ -105,15 +129,15 @@ impl<'window> Shell<'window> {
             .unwrap_or(surface_caps.present_modes[0]);
 
         info!(
-            "Selecting present mode {:?}, size: {:?}",
-            present_mode, size
+            "Selecting present mode {:?}, initial size: {:?}",
+            present_mode, initial_size
         );
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: *surface_format,
-            width: size.width,
-            height: size.height,
+            width: initial_size.width,
+            height: initial_size.height,
             present_mode,
             // TODO: Select this explicitly
             alpha_mode: surface_caps.alpha_modes[0],
@@ -137,9 +161,11 @@ impl<'window> Shell<'window> {
         event_loop: EventLoop<()>,
         mut application: A,
     ) -> Result<()> {
+        info!("Entering event loop");
         event_loop.run(|event, window_target| {
             match event {
                 Event::WindowEvent { event, window_id } if window_id == self.window.id() => {
+                    info!("{:?}", event);
                     match event {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
@@ -152,6 +178,7 @@ impl<'window> Shell<'window> {
                             ..
                         } => window_target.exit(),
                         WindowEvent::Resized(physical_size) => {
+                            info!("{:?}", event);
                             self.resize_surface((physical_size.width, physical_size.height));
                             self.window.request_redraw()
                         }

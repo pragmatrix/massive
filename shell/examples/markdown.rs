@@ -15,18 +15,26 @@ use inlyne::{
     utils::{markdown_to_html, Rect},
     Element,
 };
+use log::info;
 use winit::{
+    dpi::{self, PhysicalSize},
     event::{
         DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
     },
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::WindowBuilder,
+    window::{Window, WindowBuilder},
 };
+
+#[cfg(target_arch = "wasm32")]
+use {winit::platform::web::WindowBuilderExtWebSys, winit::platform::web::WindowExtWebSys};
 
 use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use massive_shell::{self as shell, Shell};
+
+// Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
+const CANVAS_ID: &str = "markdown";
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<()> {
@@ -66,7 +74,8 @@ async fn async_main() -> Result<()> {
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
     let event_loop = EventLoop::new()?;
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let window = create_window(&event_loop)?;
+    info!("Initial Window inner size: {:?}", window.inner_size());
 
     let font_system = {
         // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
@@ -83,7 +92,44 @@ async fn async_main() -> Result<()> {
         )))
     };
 
-    let mut shell = Shell::new(&window, font_system.clone()).await;
+    #[cfg(not(target_arch = "wasm32"))]
+    fn create_window(event_loop: &EventLoop<()>) -> Result<Window> {
+        Ok(WindowBuilder::new().build(event_loop)?)
+    }
+
+    // Explicitly query for the canvas, and initialize the window with it.
+    //
+    // If we use the implicit of `data-raw-handle="1"`, no resize event will be sent.
+    #[cfg(target_arch = "wasm32")]
+    fn create_window(event_loop: &EventLoop<()>) -> Result<Window> {
+        use wasm_bindgen::JsCast;
+
+        let canvas = web_sys::window()
+            .expect("No Window")
+            .document()
+            .expect("No document")
+            .query_selector(&format!("#{CANVAS_ID}"))
+            // what a shit-show here, why is the error not compatible with anyhow.
+            .map_err(|err| anyhow::anyhow!(err.as_string().unwrap()))?
+            .expect("No Canvas with a matching id found");
+
+        let canvas: web_sys::HtmlCanvasElement = canvas
+            .dyn_into()
+            .map_err(|_| anyhow::anyhow!("Failed to cast to HtmlCanvasElement"))?;
+
+        Ok(WindowBuilder::new()
+            .with_canvas(Some(canvas))
+            .build(event_loop)?)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let initial_size = window.inner_size();
+    // On wasm, the initial size is always, 0,0, so we set one (this is also used for the page
+    // layout) and leave it to subsequent resize events to configure the proper size.
+    #[cfg(target_arch = "wasm32")]
+    let initial_size = PhysicalSize::new(1280, 800);
+
+    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await;
 
     // TODO: Pass surface format.
     let _surface_format = shell.surface_format();
@@ -108,12 +154,11 @@ async fn async_main() -> Result<()> {
         mem::take(&mut *elements_queue)
     };
 
-    let inner_window_size = window.inner_size();
-    let width = inner_window_size.width;
+    let width = initial_size.width;
     let page_width = width;
 
     let mut positioner = Positioner::new(
-        (width as _, inner_window_size.height as _),
+        (width as _, initial_size.height as _),
         hidpi_scale as _,
         page_width as _,
     );
