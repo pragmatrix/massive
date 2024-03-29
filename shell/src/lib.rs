@@ -68,7 +68,9 @@ impl<'window> Shell<'window> {
                 "Creating surface on target: {:?}",
                 match surface_target {
                     SurfaceTarget::Window(_) => "Window",
+                    #[cfg(target_arch = "wasm32")]
                     SurfaceTarget::Canvas(_) => "Canvas",
+                    #[cfg(target_arch = "wasm32")]
                     SurfaceTarget::OffscreenCanvas(_) => "OffscreenCanvas",
                     _ => "(Undefined SurfaceTarget, Internal Error)",
                 }
