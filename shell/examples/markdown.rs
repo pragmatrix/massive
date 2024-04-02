@@ -33,6 +33,7 @@ use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use massive_shell::{self as shell, Shell};
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
+#[cfg(target_arch = "wasm32")]
 const CANVAS_ID: &str = "markdown";
 
 #[cfg(not(target_arch = "wasm32"))]

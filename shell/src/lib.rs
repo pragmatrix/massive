@@ -30,7 +30,7 @@ pub async fn run<A: Application + 'static>(
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new((&window).into(), window.inner_size(), font_system).await?;
+    let mut shell = Shell::new(&window, window.inner_size(), font_system).await?;
     shell.run(event_loop, &window, application).await
 }
 
@@ -50,8 +50,15 @@ impl<'window> Shell<'window> {
         initial_size: PhysicalSize<u32>,
         font_system: Arc<Mutex<FontSystem>>,
     ) -> Result<Shell> {
-        let instance_and_surface =
-            Self::create_instance_and_surface(InstanceDescriptor::default(), window);
+        let instance_and_surface = Self::create_instance_and_surface(
+            InstanceDescriptor::default(),
+            // Use this for testing webgl:
+            // InstanceDescriptor {
+            //     backends: wgpu::Backends::GL,
+            //     ..InstanceDescriptor::default()
+            // },
+            window,
+        );
         // On wasm, attempt to fall back to webgl
         #[cfg(target_arch = "wasm32")]
         let instance_and_surface = match instance_and_surface {

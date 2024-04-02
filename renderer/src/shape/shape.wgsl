@@ -25,8 +25,13 @@ fn vs_main(
 
 // Fragment shader
 
+struct ShapeSize {
+    value: vec2<f32>,
+    _padding: vec2<f32>
+}
+
 @group(1) @binding(0)
-var<uniform> shape_size: vec2<f32>;
+var<uniform> shape_size: ShapeSize;
 
 // For the fragment shader:
 //   The distance field is constructed as unsigned char values,
@@ -52,7 +57,7 @@ fn fs_sdf_circle(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Multiplying by `shape_size` to correct the aspect ratio of the distance vector, so that
     // ellipses can be rendered with proper anti-aliasing.
-    var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance)) * shape_size;
+    var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance)) * shape_size.value;
 
     // Normalize distance gradient vector.
     let dg_len2 : f32 = dot(dist_grad, dist_grad);
@@ -88,9 +93,9 @@ fn sd_rounded_rect(p: vec2<f32>, size: vec2<f32>, radius: f32) -> f32 {
 fn fs_sdf_rounded_rect(in: VertexOutput) -> @location(0) vec4<f32> {
     let norm_tex_coords = in.tex_coords - vec2<f32>(0.5,0.5);
 
-    let half_shape_size = shape_size * 0.5;
+    let half_shape_size = shape_size.value * 0.5;
 
-    var distance: f32 = sd_rounded_rect(norm_tex_coords * shape_size, half_shape_size * 0.5, 10.0) * -1.0 ;
+    var distance: f32 = sd_rounded_rect(norm_tex_coords * shape_size.value, half_shape_size * 0.5, 10.0) * -1.0 ;
     var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance));
 
     // Normalize distance gradient vector.
@@ -101,7 +106,7 @@ fn fs_sdf_rounded_rect(in: VertexOutput) -> @location(0) vec4<f32> {
         dist_grad = dist_grad * inverseSqrt(dg_len2);
     };
 
-    let unorm_text_coords = in.tex_coords * shape_size;
+    let unorm_text_coords = in.tex_coords * shape_size.value;
 
     let jdx = dpdx(unorm_text_coords);
     let jdy = dpdy(unorm_text_coords);
