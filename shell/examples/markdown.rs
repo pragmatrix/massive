@@ -129,7 +129,7 @@ async fn async_main() -> Result<()> {
     #[cfg(target_arch = "wasm32")]
     let initial_size = PhysicalSize::new(1280, 800);
 
-    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await;
+    let mut shell = Shell::new((&window).into(), initial_size, font_system.clone()).await;
 
     // TODO: Pass surface format.
     let _surface_format = shell.surface_format();
@@ -253,7 +253,7 @@ async fn async_main() -> Result<()> {
         modifiers: Modifiers::default(),
     };
 
-    shell.run(event_loop, application).await
+    shell.run(event_loop, &window, application).await
 }
 
 // #[derive(Debug)]

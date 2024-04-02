@@ -30,15 +30,14 @@ pub async fn run<A: Application + 'static>(
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new(&window, window.inner_size(), font_system).await;
-    shell.run(event_loop, application).await
+    let mut shell = Shell::new((&window).into(), window.inner_size(), font_system).await;
+    shell.run(event_loop, &window, application).await
 }
 
-pub struct Shell<'window> {
-    pub window: &'window Window,
+pub struct Shell<'target> {
     pub font_system: Arc<Mutex<text::FontSystem>>,
     shape_renderer: ShapeRenderer,
-    renderer: Renderer<'window>,
+    renderer: Renderer<'target>,
 }
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
@@ -47,7 +46,7 @@ impl<'window> Shell<'window> {
     // Creating some of the wgpu types requires async code
     // TODO: We need the `FontSystem` only while rendering.
     pub async fn new(
-        window: &'window Window,
+        surface_target: SurfaceTarget<'window>,
         initial_size: PhysicalSize<u32>,
         font_system: Arc<Mutex<FontSystem>>,
     ) -> Shell {
@@ -62,10 +61,8 @@ impl<'window> Shell<'window> {
         let instance = wgpu::Instance::new(instance_descriptor);
 
         let surface = {
-            let surface_target: SurfaceTarget = window.into();
-
             info!(
-                "Creating surface on target: {:?}",
+                "Creating surface on a {} target",
                 match surface_target {
                     SurfaceTarget::Window(_) => "Window",
                     #[cfg(target_arch = "wasm32")]
@@ -151,7 +148,6 @@ impl<'window> Shell<'window> {
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
         Self {
-            window,
             font_system,
             shape_renderer: ShapeRenderer::default(),
             renderer,
@@ -161,12 +157,13 @@ impl<'window> Shell<'window> {
     pub async fn run<A: Application>(
         &mut self,
         event_loop: EventLoop<()>,
+        window: &Window,
         mut application: A,
     ) -> Result<()> {
         info!("Entering event loop");
         event_loop.run(|event, window_target| {
             match event {
-                Event::WindowEvent { event, window_id } if window_id == self.window.id() => {
+                Event::WindowEvent { event, window_id } if window_id == window.id() => {
                     info!("{:?}", event);
                     match event {
                         WindowEvent::CloseRequested
@@ -182,12 +179,12 @@ impl<'window> Shell<'window> {
                         WindowEvent::Resized(physical_size) => {
                             info!("{:?}", event);
                             self.resize_surface((physical_size.width, physical_size.height));
-                            self.window.request_redraw()
+                            window.request_redraw()
                         }
                         WindowEvent::ScaleFactorChanged { .. } => {
-                            let new_inner_size = self.window.inner_size();
+                            let new_inner_size = window.inner_size();
                             self.resize_surface((new_inner_size.width, new_inner_size.height));
-                            self.window.request_redraw()
+                            window.request_redraw()
                         }
                         WindowEvent::RedrawRequested => {
                             let (camera, shapes) = application.render(self);
@@ -233,7 +230,7 @@ impl<'window> Shell<'window> {
 
                         event => {
                             application.update(event);
-                            self.window.request_redraw()
+                            window.request_redraw()
                         }
                     }
                 }
