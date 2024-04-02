@@ -377,16 +377,17 @@ impl shell::Application for Application {
                 device_id,
                 position,
             } => {
-                // track
-                // These positions aren't discrete on macOS, but why?
+                // Track positions.
+                //
+                // These positions aren't discrete / integral on macOS, but why?
                 let current = PointI::new(position.x.round() as _, position.y.round() as _);
                 self.positions.insert(device_id, current);
 
-                // ongoing movement?
+                // Is there an ongoing movement?
                 if let Some(pressed_state) = &self.left_mouse_button_pressed {
                     let delta = current - pressed_state.origin;
 
-                    if self.modifiers.state().control_key() {
+                    if self.modifiers.state().super_key() {
                         self.rotation = pressed_state.rotation_origin + delta;
                     } else {
                         self.translation = pressed_state.translation_origin + delta;
@@ -419,7 +420,7 @@ impl shell::Application for Application {
                         rotation_origin: self.rotation,
                     });
                 } else {
-                    self.left_mouse_button_pressed = None
+                    self.left_mouse_button_pressed = None;
                 }
             }
             WindowEvent::MouseInput {
