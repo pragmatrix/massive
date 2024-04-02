@@ -246,6 +246,7 @@ async fn async_main() -> Result<()> {
         glyph_runs,
         page_size: SizeI::new(page_width as _, page_height),
         left_mouse_button_pressed: None,
+        middle_mouse_button_pressed: None,
         positions: HashMap::new(),
         translation: PointI::default(),
         translation_z: 0,
@@ -348,7 +349,8 @@ struct Application {
     page_size: SizeI,
 
     /// If pressed, the origin.
-    left_mouse_button_pressed: Option<MouseButtonPressed>,
+    left_mouse_button_pressed: Option<LeftMouseButtonPressed>,
+    middle_mouse_button_pressed: Option<MiddleMouseButtonPressed>,
     /// Tracked positions of all devices.
     positions: HashMap<DeviceId, PointI>,
     modifiers: Modifiers,
@@ -360,10 +362,15 @@ struct Application {
     rotation: PointI,
 }
 
-struct MouseButtonPressed {
+struct LeftMouseButtonPressed {
     device_id: DeviceId,
     origin: PointI,
     translation_origin: PointI,
+}
+
+struct MiddleMouseButtonPressed {
+    device_id: DeviceId,
+    origin: PointI,
     rotation_origin: PointI,
 }
 
@@ -383,15 +390,15 @@ impl shell::Application for Application {
                 let current = PointI::new(position.x.round() as _, position.y.round() as _);
                 self.positions.insert(device_id, current);
 
-                // Is there an ongoing movement?
+                // Is there an ongoing movement on the left mouse button?
                 if let Some(pressed_state) = &self.left_mouse_button_pressed {
                     let delta = current - pressed_state.origin;
+                    self.translation = pressed_state.translation_origin + delta;
+                }
 
-                    if self.modifiers.state().super_key() {
-                        self.rotation = pressed_state.rotation_origin + delta;
-                    } else {
-                        self.translation = pressed_state.translation_origin + delta;
-                    }
+                if let Some(pressed_state) = &self.middle_mouse_button_pressed {
+                    let delta = current - pressed_state.origin;
+                    self.rotation = pressed_state.rotation_origin + delta;
                 }
             }
             WindowEvent::MouseWheel {
@@ -413,18 +420,33 @@ impl shell::Application for Application {
                 button: MouseButton::Left,
             } if self.positions.contains_key(&device_id) => {
                 if state.is_pressed() {
-                    self.left_mouse_button_pressed = Some(MouseButtonPressed {
+                    self.left_mouse_button_pressed = Some(LeftMouseButtonPressed {
                         device_id,
                         origin: self.positions[&device_id],
                         translation_origin: self.translation,
-                        rotation_origin: self.rotation,
                     });
                 } else {
                     self.left_mouse_button_pressed = None;
                 }
             }
             WindowEvent::MouseInput {
+                device_id,
+                state,
                 button: MouseButton::Middle,
+            } => {
+                if state.is_pressed() {
+                    self.middle_mouse_button_pressed = Some(MiddleMouseButtonPressed {
+                        device_id,
+                        origin: self.positions[&device_id],
+                        rotation_origin: self.rotation,
+                    });
+                } else {
+                    self.middle_mouse_button_pressed = None;
+                }
+            }
+
+            WindowEvent::MouseInput {
+                button: MouseButton::Right,
                 ..
             } => {
                 self.rotation = PointI::default();
@@ -432,11 +454,11 @@ impl shell::Application for Application {
             WindowEvent::ModifiersChanged(modifiers) => {
                 if self.modifiers != modifiers {
                     // If there is an ongoing move and modifiers change, reset origins.
-                    if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
-                        mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
-                        mouse_pressed.translation_origin = self.translation;
-                        mouse_pressed.rotation_origin = self.rotation;
-                    }
+                    // if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
+                    //     mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
+                    //     mouse_pressed.translation_origin = self.translation;
+                    //     mouse_pressed.rotation_origin = self.rotation;
+                    // }
 
                     self.modifiers = modifiers
                 }
