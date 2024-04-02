@@ -367,7 +367,8 @@ struct MouseButtonPressed {
     rotation_origin: PointI,
 }
 
-const MOUSE_WHEEL_SCROLL_TO_Z_PIXELS: i32 = 16;
+const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
+const MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS: i32 = 16;
 
 impl shell::Application for Application {
     fn update(&mut self, window_event: WindowEvent) {
@@ -393,10 +394,18 @@ impl shell::Application for Application {
                 }
             }
             WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::PixelDelta(physical_position),
+                phase: TouchPhase::Moved,
+                ..
+            } => {
+                self.translation_z +=
+                    (physical_position.y * MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS).round() as i32
+            }
+            WindowEvent::MouseWheel {
                 delta: MouseScrollDelta::LineDelta(_, y_delta),
                 phase: TouchPhase::Moved,
                 ..
-            } => self.translation_z += y_delta.round() as i32 * MOUSE_WHEEL_SCROLL_TO_Z_PIXELS,
+            } => self.translation_z += y_delta.round() as i32 * MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS,
             WindowEvent::MouseInput {
                 device_id,
                 state,
