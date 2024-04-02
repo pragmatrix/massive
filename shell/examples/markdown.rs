@@ -17,7 +17,6 @@ use inlyne::{
 };
 use log::info;
 use winit::{
-    dpi::{self, PhysicalSize},
     event::{
         DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
     },
@@ -27,7 +26,7 @@ use winit::{
 };
 
 #[cfg(target_arch = "wasm32")]
-use {winit::platform::web::WindowBuilderExtWebSys, winit::platform::web::WindowExtWebSys};
+use winit::platform::web::WindowBuilderExtWebSys;
 
 use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
@@ -127,9 +126,9 @@ async fn async_main() -> Result<()> {
     // On wasm, the initial size is always, 0,0, so we set one (this is also used for the page
     // layout) and leave it to subsequent resize events to configure the proper size.
     #[cfg(target_arch = "wasm32")]
-    let initial_size = PhysicalSize::new(1280, 800);
+    let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
 
-    let mut shell = Shell::new((&window).into(), initial_size, font_system.clone()).await;
+    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await?;
 
     // TODO: Pass surface format.
     let _surface_format = shell.surface_format();

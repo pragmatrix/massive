@@ -4,7 +4,7 @@ use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
 use log::{error, info};
-use wgpu::{InstanceDescriptor, PresentMode, SurfaceTarget, TextureFormat};
+use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
     dpi::PhysicalSize,
     event::*,
@@ -30,14 +30,14 @@ pub async fn run<A: Application + 'static>(
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new((&window).into(), window.inner_size(), font_system).await;
+    let mut shell = Shell::new((&window).into(), window.inner_size(), font_system).await?;
     shell.run(event_loop, &window, application).await
 }
 
-pub struct Shell<'target> {
+pub struct Shell<'window> {
     pub font_system: Arc<Mutex<text::FontSystem>>,
     shape_renderer: ShapeRenderer,
-    renderer: Renderer<'target>,
+    renderer: Renderer<'window>,
 }
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
@@ -46,35 +46,25 @@ impl<'window> Shell<'window> {
     // Creating some of the wgpu types requires async code
     // TODO: We need the `FontSystem` only while rendering.
     pub async fn new(
-        surface_target: SurfaceTarget<'window>,
+        window: &Window,
         initial_size: PhysicalSize<u32>,
         font_system: Arc<Mutex<FontSystem>>,
-    ) -> Shell {
-        #[cfg(not(target_arch = "wasm32"))]
-        let instance_descriptor = InstanceDescriptor::default();
+    ) -> Result<Shell> {
+        let instance_and_surface =
+            Self::create_instance_and_surface(InstanceDescriptor::default(), window);
+        // On wasm, attempt to fall back to webgl
         #[cfg(target_arch = "wasm32")]
-        let instance_descriptor = InstanceDescriptor {
-            // backends: wgpu::Backends::GL,
-            ..InstanceDescriptor::default()
+        let instance_and_surface = match instance_and_surface {
+            Ok(_) => instance_and_surface,
+            Err(_) => Self::create_instance_and_surface(
+                InstanceDescriptor {
+                    backends: wgpu::Backends::GL,
+                    ..InstanceDescriptor::default()
+                },
+                window,
+            ),
         };
-
-        let instance = wgpu::Instance::new(instance_descriptor);
-
-        let surface = {
-            info!(
-                "Creating surface on a {} target",
-                match surface_target {
-                    SurfaceTarget::Window(_) => "Window",
-                    #[cfg(target_arch = "wasm32")]
-                    SurfaceTarget::Canvas(_) => "Canvas",
-                    #[cfg(target_arch = "wasm32")]
-                    SurfaceTarget::OffscreenCanvas(_) => "OffscreenCanvas",
-                    _ => "(Undefined SurfaceTarget, Internal Error)",
-                }
-            );
-
-            instance.create_surface(surface_target).expect("surface")
-        };
+        let (instance, surface) = instance_and_surface?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -147,11 +137,34 @@ impl<'window> Shell<'window> {
 
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
-        Self {
+        Ok(Shell {
             font_system,
             shape_renderer: ShapeRenderer::default(),
             renderer,
-        }
+        })
+    }
+
+    fn create_instance_and_surface(
+        instance_descriptor: InstanceDescriptor,
+        surface_target: &Window,
+    ) -> Result<(Instance, Surface<'_>)> {
+        let instance = wgpu::Instance::new(instance_descriptor);
+
+        let surface_target: SurfaceTarget = surface_target.into();
+        info!(
+            "Creating surface on a {} target",
+            match surface_target {
+                SurfaceTarget::Window(_) => "Window",
+                #[cfg(target_arch = "wasm32")]
+                SurfaceTarget::Canvas(_) => "Canvas",
+                #[cfg(target_arch = "wasm32")]
+                SurfaceTarget::OffscreenCanvas(_) => "OffscreenCanvas",
+                _ => "(Undefined SurfaceTarget, Internal Error)",
+            }
+        );
+
+        let surface = instance.create_surface(surface_target)?;
+        Ok((instance, surface))
     }
 
     pub async fn run<A: Application>(
