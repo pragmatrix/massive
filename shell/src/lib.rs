@@ -1,9 +1,12 @@
+use std::sync::{Arc, Mutex};
+
 use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
 use log::{error, info};
-use wgpu::{PresentMode, SurfaceTarget, TextureFormat};
+use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
+    dpi::PhysicalSize,
     event::*,
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
@@ -21,16 +24,18 @@ pub trait Application {
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
-pub async fn run<A: Application + 'static>(application: A) -> Result<()> {
+pub async fn run<A: Application + 'static>(
+    application: A,
+    font_system: Arc<Mutex<FontSystem>>,
+) -> Result<()> {
     let event_loop = EventLoop::new()?;
     let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new(&window).await;
-    shell.run(event_loop, application)
+    let mut shell = Shell::new(&window, window.inner_size(), font_system).await?;
+    shell.run(event_loop, &window, application).await
 }
 
 pub struct Shell<'window> {
-    pub window: &'window Window,
-    pub font_system: text::FontSystem,
+    pub font_system: Arc<Mutex<text::FontSystem>>,
     shape_renderer: ShapeRenderer,
     renderer: Renderer<'window>,
 }
@@ -39,22 +44,38 @@ const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
 impl<'window> Shell<'window> {
     // Creating some of the wgpu types requires async code
-    pub async fn new(window: &'window Window) -> Shell {
-        let size = window.inner_size();
-
-        // The instance is a handle to our GPU
-        // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
-        let instance = wgpu::Instance::default();
-
-        let surface = {
-            let surface_target: SurfaceTarget = window.into();
-            instance.create_surface(surface_target).expect("surface")
+    // TODO: We need the `FontSystem` only while rendering.
+    pub async fn new(
+        window: &Window,
+        initial_size: PhysicalSize<u32>,
+        font_system: Arc<Mutex<FontSystem>>,
+    ) -> Result<Shell> {
+        let instance_and_surface = Self::create_instance_and_surface(
+            InstanceDescriptor::default(),
+            // Use this for testing webgl:
+            // InstanceDescriptor {
+            //     backends: wgpu::Backends::GL,
+            //     ..InstanceDescriptor::default()
+            // },
+            window,
+        );
+        // On wasm, attempt to fall back to webgl
+        #[cfg(target_arch = "wasm32")]
+        let instance_and_surface = match instance_and_surface {
+            Ok(_) => instance_and_surface,
+            Err(_) => Self::create_instance_and_surface(
+                InstanceDescriptor {
+                    backends: wgpu::Backends::GL,
+                    ..InstanceDescriptor::default()
+                },
+                window,
+            ),
         };
+        let (instance, surface) = instance_and_surface?;
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
-                // default: LowPower
-                power_preference: wgpu::PowerPreference::LowPower,
+                power_preference: wgpu::PowerPreference::None,
                 // Be sure the adapter can present the surface.
                 compatible_surface: Some(&surface),
                 // software fallback?
@@ -63,17 +84,14 @@ impl<'window> Shell<'window> {
             .await
             .expect("Adapter not found");
 
+        info!("Effective WebGPU backend: {:?}", adapter.get_info().backend);
+
         let (device, queue) = adapter
             .request_device(
                 &wgpu::DeviceDescriptor {
                     required_features: wgpu::Features::empty(),
-                    // WebGL doesn't support all of wgpu's features, so if
-                    // we're building for the web we'll have to disable some.
-                    required_limits: if cfg!(target_arch = "wasm32") {
-                        wgpu::Limits::downlevel_webgl2_defaults()
-                    } else {
-                        wgpu::Limits::default()
-                    },
+                    // May be wrong, see: <https://github.com/gfx-rs/wgpu/blob/1144b065c4784d769d59da2f58f5aa13212627b0/examples/src/hello_triangle/mod.rs#L33-L34>
+                    required_limits: adapter.limits(),
                     label: None,
                 },
                 None, // Trace path
@@ -102,15 +120,15 @@ impl<'window> Shell<'window> {
             .unwrap_or(surface_caps.present_modes[0]);
 
         info!(
-            "Selecting present mode {:?}, size: {:?}",
-            present_mode, size
+            "Selecting present mode {:?}, initial size: {:?}",
+            present_mode, initial_size
         );
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: *surface_format,
-            width: size.width,
-            height: size.height,
+            width: initial_size.width,
+            height: initial_size.height,
             present_mode,
             // TODO: Select this explicitly
             alpha_mode: surface_caps.alpha_modes[0],
@@ -119,26 +137,49 @@ impl<'window> Shell<'window> {
         };
         surface.configure(&device, &surface_config);
 
-        let font_system = FontSystem::new();
-
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
-        Self {
-            window,
+        Ok(Shell {
             font_system,
             shape_renderer: ShapeRenderer::default(),
             renderer,
-        }
+        })
     }
 
-    pub fn run<A: Application>(
+    fn create_instance_and_surface(
+        instance_descriptor: InstanceDescriptor,
+        surface_target: &Window,
+    ) -> Result<(Instance, Surface<'_>)> {
+        let instance = wgpu::Instance::new(instance_descriptor);
+
+        let surface_target: SurfaceTarget = surface_target.into();
+        info!(
+            "Creating surface on a {} target",
+            match surface_target {
+                SurfaceTarget::Window(_) => "Window",
+                #[cfg(target_arch = "wasm32")]
+                SurfaceTarget::Canvas(_) => "Canvas",
+                #[cfg(target_arch = "wasm32")]
+                SurfaceTarget::OffscreenCanvas(_) => "OffscreenCanvas",
+                _ => "(Undefined SurfaceTarget, Internal Error)",
+            }
+        );
+
+        let surface = instance.create_surface(surface_target)?;
+        Ok((instance, surface))
+    }
+
+    pub async fn run<A: Application>(
         &mut self,
         event_loop: EventLoop<()>,
+        window: &Window,
         mut application: A,
     ) -> Result<()> {
+        info!("Entering event loop");
         event_loop.run(|event, window_target| {
             match event {
-                Event::WindowEvent { event, window_id } if window_id == self.window.id() => {
+                Event::WindowEvent { event, window_id } if window_id == window.id() => {
+                    info!("{:?}", event);
                     match event {
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
@@ -151,34 +192,41 @@ impl<'window> Shell<'window> {
                             ..
                         } => window_target.exit(),
                         WindowEvent::Resized(physical_size) => {
+                            info!("{:?}", event);
                             self.resize_surface((physical_size.width, physical_size.height));
-                            self.window.request_redraw()
+                            window.request_redraw()
                         }
                         WindowEvent::ScaleFactorChanged { .. } => {
-                            let new_inner_size = self.window.inner_size();
+                            let new_inner_size = window.inner_size();
                             self.resize_surface((new_inner_size.width, new_inner_size.height));
-                            self.window.request_redraw()
+                            window.request_redraw()
                         }
                         WindowEvent::RedrawRequested => {
                             let (camera, shapes) = application.render(self);
                             let surface_matrix = self.renderer.surface_matrix();
                             let surface_size = self.renderer.surface_size();
-                            // TODO: This is a mess.
-                            let mut shape_renderer_context = ShapeRendererContext {
-                                device: &self.renderer.device,
-                                queue: &self.renderer.queue,
-                                texture_sampler: &self.renderer.texture_sampler,
-                                texture_bind_group_layout: &self.renderer.texture_bind_group_layout,
-                                font_system: &mut self.font_system,
-                            };
                             let view_projection_matrix =
                                 camera.view_projection_matrix(Z_RANGE, surface_size);
-                            let primitives = self.shape_renderer.render(
-                                &mut shape_renderer_context,
-                                &view_projection_matrix,
-                                &surface_matrix,
-                                &shapes,
-                            );
+
+                            let primitives = {
+                                // TODO: This is a mess.
+                                let mut font_system = self.font_system.lock().unwrap();
+                                let mut shape_renderer_context = ShapeRendererContext {
+                                    device: &self.renderer.device,
+                                    queue: &self.renderer.queue,
+                                    texture_sampler: &self.renderer.texture_sampler,
+                                    texture_bind_group_layout: &self
+                                        .renderer
+                                        .texture_bind_group_layout,
+                                    font_system: &mut font_system,
+                                };
+                                self.shape_renderer.render(
+                                    &mut shape_renderer_context,
+                                    &view_projection_matrix,
+                                    &surface_matrix,
+                                    &shapes,
+                                )
+                            };
                             // TODO: pass primitives as value.
                             match self
                                 .renderer
@@ -197,7 +245,7 @@ impl<'window> Shell<'window> {
 
                         event => {
                             application.update(event);
-                            self.window.request_redraw()
+                            window.request_redraw()
                         }
                     }
                 }

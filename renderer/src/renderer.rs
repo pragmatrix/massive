@@ -1,5 +1,6 @@
 use std::{mem, result};
 
+use log::info;
 use massive_geometry::Matrix4;
 use wgpu::{util::DeviceExt, StoreOp};
 
@@ -215,6 +216,7 @@ impl<'window> Renderer<'window> {
     }
 
     pub fn reconfigure_surface(&mut self) {
+        info!("Reconfiguring surface {:?}", self.surface_config);
         self.surface.configure(&self.device, &self.surface_config)
     }
 }

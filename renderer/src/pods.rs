@@ -9,9 +9,9 @@ use std::mem;
 pub struct Matrix4(pub [[f32; 4]; 4]);
 
 #[repr(C)]
-// This is so we can store this in a buffer
+// This is so we can store this in a buffer. Also adds padding for webgl.
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct TextureSize(pub [f32; 2]);
+pub struct TextureSize(pub [f32; 2], pub [u32; 2]);
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]

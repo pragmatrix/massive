@@ -12,6 +12,8 @@ pub fn render_glyph_image(
     cache_key: text::CacheKey,
 ) -> Option<text::SwashImage> {
     // Copied from cosmic_text/swash.rs, because we might need finer control and don't need a cache.
+    // TODO: Find a way to prevent excessive locking of the font system here. Note that it needs to
+    // be mutable for font caching (can we implement our own)
 
     let font = match font_system.get_font(cache_key.font_id) {
         Some(some) => some,

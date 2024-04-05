@@ -25,10 +25,15 @@ fn vs_main(
 
 // Fragment shader
 
+struct TextureSize {
+    value: vec2<f32>,
+    _padding: vec2<f32>,
+}
+
 @group(1) @binding(0)
 var t_texture: texture_2d<f32>;
 @group(1) @binding(1)
-var<uniform> texture_size: vec2<f32>;
+var<uniform> texture_size: TextureSize;
 @group(1) @binding(2)
 var s_sampler: sampler;
 
@@ -68,7 +73,7 @@ fn fs_sdf_glyph(in: VertexOutput) -> @location(0) vec4<f32> {
         dist_grad = dist_grad * inverseSqrt(dg_len2);
     };
 
-    let unorm_text_coords = in.tex_coords * texture_size;
+    let unorm_text_coords = in.tex_coords * texture_size.value;
 
     let jdx = dpdx(unorm_text_coords);
     let jdy = dpdy(unorm_text_coords);
@@ -100,7 +105,7 @@ fn fs_sdf_circle(in: VertexOutput) -> @location(0) vec4<f32> {
 
     // Multiplying by texture_size to correct the aspect ratio of the distance vector, so that
     // ellipses can be rendered with proper anti-aliasing.
-    var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance)) * texture_size;
+    var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance)) * texture_size.value;
 
     // Normalize distance gradient vector.
     let dg_len2 : f32 = dot(dist_grad, dist_grad);
@@ -136,9 +141,9 @@ fn sd_rounded_rect(p: vec2<f32>, size: vec2<f32>, radius: f32) -> f32 {
 fn fs_sdf_rounded_rect(in: VertexOutput) -> @location(0) vec4<f32> {
     let norm_tex_coords = in.tex_coords - vec2<f32>(0.5,0.5);
 
-    let half_texture_size = texture_size * 0.5;
+    let half_texture_size = texture_size.value * 0.5;
 
-    var distance: f32 = sd_rounded_rect(norm_tex_coords * texture_size, half_texture_size * 0.5, 10.0) * -1.0 ;
+    var distance: f32 = sd_rounded_rect(norm_tex_coords * texture_size.value, half_texture_size * 0.5, 10.0) * -1.0 ;
     var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance));
 
     // Normalize distance gradient vector.
@@ -149,7 +154,7 @@ fn fs_sdf_rounded_rect(in: VertexOutput) -> @location(0) vec4<f32> {
         dist_grad = dist_grad * inverseSqrt(dg_len2);
     };
 
-    let unorm_text_coords = in.tex_coords * texture_size;
+    let unorm_text_coords = in.tex_coords * texture_size.value;
 
     let jdx = dpdx(unorm_text_coords);
     let jdy = dpdy(unorm_text_coords);

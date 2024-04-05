@@ -1,43 +1,72 @@
 use std::{
     collections::{HashMap, VecDeque},
-    env, mem,
-    path::PathBuf,
+    mem,
     sync::{Arc, Mutex},
 };
 
 use anyhow::{Context, Result};
-use cosmic_text::{CacheKey, CacheKeyFlags, FontSystem, LayoutGlyph};
+use cosmic_text::{fontdb, CacheKey, CacheKeyFlags, FontSystem, LayoutGlyph};
 use inlyne::{
     color::Theme,
-    interpreter::{HtmlInterpreter, ImageCallback, WindowInteractor},
+    interpreter::HtmlInterpreter,
     opts::ResolvedTheme,
     positioner::{Positioned, Positioner, DEFAULT_MARGIN},
     text::{CachedTextArea, TextCache, TextSystem},
     utils::{markdown_to_html, Rect},
     Element,
 };
+use log::info;
 use winit::{
     event::{
         DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
     },
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::WindowBuilder,
+    window::{Window, WindowBuilder},
 };
+
+#[cfg(target_arch = "wasm32")]
+use winit::platform::web::WindowBuilderExtWebSys;
 
 use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
 use massive_shell::{self as shell, Shell};
 
-#[tokio::main]
-async fn main() -> Result<()> {
+// Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
+#[cfg(target_arch = "wasm32")]
+const CANVAS_ID: &str = "markdown";
+
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> Result<()> {
     env_logger::init();
 
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    // Use the runtime to block on the async function
+    rt.block_on(async_main())
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    console_error_panic_hook::set_once();
+    console_log::init().expect("Could not initialize logger");
+
+    wasm_bindgen_futures::spawn_local(async {
+        match async_main().await {
+            Ok(()) => {}
+            Err(e) => {
+                log::error!("{e}");
+            }
+        }
+    });
+}
+
+async fn async_main() -> Result<()> {
     let markdown = include_str!("replicator.org.md");
-    let current_dir = env::current_dir().expect("Failed to get current directory");
-    let file_path: PathBuf = [current_dir.to_str().unwrap(), "replicator.org.md"]
-        .iter()
-        .collect();
+    // The concepts of a current dir does not exist in wasm I guess.
+    // let current_dir = env::current_dir().expect("Failed to get current directory");
+    // let file_path: PathBuf = [current_dir.to_str().unwrap(), "replicator.org.md"]
+    //     .iter()
+    //     .collect();
 
     let theme = Theme::light_default();
     let html = markdown_to_html(markdown, theme.code_highlighter.clone());
@@ -45,8 +74,62 @@ async fn main() -> Result<()> {
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
     let event_loop = EventLoop::new()?;
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new(&window).await;
+    let window = create_window(&event_loop)?;
+    info!("Initial Window inner size: {:?}", window.inner_size());
+
+    let font_system = {
+        // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
+        const DEFAULT_LOCALE: &str = "en-US";
+
+        // Don't load system fonts for now, this way we get the same result on wasm and local runs.
+        let mut font_db = fontdb::Database::new();
+        let montserrat = include_bytes!("Montserrat-Regular.ttf");
+        let source = fontdb::Source::Binary(Arc::new(montserrat));
+        font_db.load_font_source(source);
+        Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(
+            DEFAULT_LOCALE.into(),
+            font_db,
+        )))
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn create_window(event_loop: &EventLoop<()>) -> Result<Window> {
+        Ok(WindowBuilder::new().build(event_loop)?)
+    }
+
+    // Explicitly query for the canvas, and initialize the window with it.
+    //
+    // If we use the implicit of `data-raw-handle="1"`, no resize event will be sent.
+    #[cfg(target_arch = "wasm32")]
+    fn create_window(event_loop: &EventLoop<()>) -> Result<Window> {
+        use wasm_bindgen::JsCast;
+
+        let canvas = web_sys::window()
+            .expect("No Window")
+            .document()
+            .expect("No document")
+            .query_selector(&format!("#{CANVAS_ID}"))
+            // what a shit-show here, why is the error not compatible with anyhow.
+            .map_err(|err| anyhow::anyhow!(err.as_string().unwrap()))?
+            .expect("No Canvas with a matching id found");
+
+        let canvas: web_sys::HtmlCanvasElement = canvas
+            .dyn_into()
+            .map_err(|_| anyhow::anyhow!("Failed to cast to HtmlCanvasElement"))?;
+
+        Ok(WindowBuilder::new()
+            .with_canvas(Some(canvas))
+            .build(event_loop)?)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let initial_size = window.inner_size();
+    // On wasm, the initial size is always, 0,0, so we set one (this is also used for the page
+    // layout) and leave it to subsequent resize events to configure the proper size.
+    #[cfg(target_arch = "wasm32")]
+    let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
+
+    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await?;
 
     // TODO: Pass surface format.
     let _surface_format = shell.surface_format();
@@ -59,9 +142,8 @@ async fn main() -> Result<()> {
         element_queue.clone(),
         theme,
         hidpi_scale as _,
-        file_path,
+        // file_path,
         image_cache,
-        Box::new(Interactor {}),
         color_scheme,
     );
 
@@ -72,12 +154,11 @@ async fn main() -> Result<()> {
         mem::take(&mut *elements_queue)
     };
 
-    let inner_window_size = window.inner_size();
-    let width = inner_window_size.width;
+    let width = initial_size.width;
     let page_width = width;
 
     let mut positioner = Positioner::new(
-        (width as _, inner_window_size.height as _),
+        (width as _, initial_size.height as _),
         hidpi_scale as _,
         page_width as _,
     );
@@ -88,7 +169,7 @@ async fn main() -> Result<()> {
         elements.into_iter().map(Positioned::new).collect();
 
     let mut text_system = TextSystem {
-        font_system: Arc::new(Mutex::new(FontSystem::new())),
+        font_system,
         text_cache: text_cache.clone(),
     };
 
@@ -165,6 +246,7 @@ async fn main() -> Result<()> {
         glyph_runs,
         page_size: SizeI::new(page_width as _, page_height),
         left_mouse_button_pressed: None,
+        middle_mouse_button_pressed: None,
         positions: HashMap::new(),
         translation: PointI::default(),
         translation_z: 0,
@@ -172,32 +254,31 @@ async fn main() -> Result<()> {
         modifiers: Modifiers::default(),
     };
 
-    shell.run(event_loop, application)
+    shell.run(event_loop, &window, application).await
 }
 
-#[derive(Debug)]
-struct Interactor {}
+// #[derive(Debug)]
+// struct Interactor {}
 
-impl WindowInteractor for Interactor {
-    fn finished_single_doc(&self) {}
+// impl WindowInteractor for Interactor {
+//     fn finished_single_doc(&self) {}
 
-    fn request_redraw(&self) {}
+//     fn request_redraw(&self) {}
 
-    fn image_callback(&self) -> Box<dyn inlyne::interpreter::ImageCallback + Send> {
-        println!("Interactor: Acquiring image callback");
-        Box::new(ImageCallbackImpl {})
-    }
-}
+//     fn image_callback(&self) -> Box<dyn inlyne::interpreter::ImageCallback + Send> {
+//         println!("Interactor: Acquiring image callback");
+//         Box::new(ImageCallbackImpl {})
+//     }
+// }
 
-#[derive(Debug)]
+// #[derive(Debug)]
+// struct ImageCallbackImpl {}
 
-struct ImageCallbackImpl {}
-
-impl ImageCallback for ImageCallbackImpl {
-    fn loaded_image(&self, src: String, _image_data: Arc<Mutex<Option<inlyne::image::ImageData>>>) {
-        println!("Interactor.ImageCallback: Loaded Image {}", src)
-    }
-}
+// impl ImageCallback for ImageCallbackImpl {
+//     fn loaded_image(&self, src: String, _image_data: Arc<Mutex<Option<inlyne::image::ImageData>>>) {
+//         println!("Interactor.ImageCallback: Loaded Image {}", src)
+//     }
+// }
 
 // A stripped down port of the `inlyne::renderer::render_elements` function.
 fn get_text_areas(
@@ -268,7 +349,8 @@ struct Application {
     page_size: SizeI,
 
     /// If pressed, the origin.
-    left_mouse_button_pressed: Option<MouseButtonPressed>,
+    left_mouse_button_pressed: Option<LeftMouseButtonPressed>,
+    middle_mouse_button_pressed: Option<MiddleMouseButtonPressed>,
     /// Tracked positions of all devices.
     positions: HashMap<DeviceId, PointI>,
     modifiers: Modifiers,
@@ -280,14 +362,20 @@ struct Application {
     rotation: PointI,
 }
 
-struct MouseButtonPressed {
+struct LeftMouseButtonPressed {
     device_id: DeviceId,
     origin: PointI,
     translation_origin: PointI,
+}
+
+struct MiddleMouseButtonPressed {
+    device_id: DeviceId,
+    origin: PointI,
     rotation_origin: PointI,
 }
 
-const MOUSE_WHEEL_SCROLL_TO_Z_PIXELS: i32 = 16;
+const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
+const MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS: i32 = 16;
 
 impl shell::Application for Application {
     fn update(&mut self, window_event: WindowEvent) {
@@ -296,45 +384,69 @@ impl shell::Application for Application {
                 device_id,
                 position,
             } => {
-                // track
-                // These positions aren't discrete on macOS, but why?
+                // Track positions.
+                //
+                // These positions aren't discrete / integral on macOS, but why?
                 let current = PointI::new(position.x.round() as _, position.y.round() as _);
                 self.positions.insert(device_id, current);
 
-                // ongoing movement?
+                // Is there an ongoing movement on the left mouse button?
                 if let Some(pressed_state) = &self.left_mouse_button_pressed {
                     let delta = current - pressed_state.origin;
-
-                    if self.modifiers.state().control_key() {
-                        self.rotation = pressed_state.rotation_origin + delta;
-                    } else {
-                        self.translation = pressed_state.translation_origin + delta;
-                    }
+                    self.translation = pressed_state.translation_origin + delta;
                 }
+
+                if let Some(pressed_state) = &self.middle_mouse_button_pressed {
+                    let delta = current - pressed_state.origin;
+                    self.rotation = pressed_state.rotation_origin + delta;
+                }
+            }
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::PixelDelta(physical_position),
+                phase: TouchPhase::Moved,
+                ..
+            } => {
+                self.translation_z +=
+                    (physical_position.y * MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS).round() as i32
             }
             WindowEvent::MouseWheel {
                 delta: MouseScrollDelta::LineDelta(_, y_delta),
                 phase: TouchPhase::Moved,
                 ..
-            } => self.translation_z += y_delta.round() as i32 * MOUSE_WHEEL_SCROLL_TO_Z_PIXELS,
+            } => self.translation_z += y_delta.round() as i32 * MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS,
             WindowEvent::MouseInput {
                 device_id,
                 state,
                 button: MouseButton::Left,
             } if self.positions.contains_key(&device_id) => {
                 if state.is_pressed() {
-                    self.left_mouse_button_pressed = Some(MouseButtonPressed {
+                    self.left_mouse_button_pressed = Some(LeftMouseButtonPressed {
                         device_id,
                         origin: self.positions[&device_id],
                         translation_origin: self.translation,
-                        rotation_origin: self.rotation,
                     });
                 } else {
-                    self.left_mouse_button_pressed = None
+                    self.left_mouse_button_pressed = None;
                 }
             }
             WindowEvent::MouseInput {
+                device_id,
+                state,
                 button: MouseButton::Middle,
+            } => {
+                if state.is_pressed() {
+                    self.middle_mouse_button_pressed = Some(MiddleMouseButtonPressed {
+                        device_id,
+                        origin: self.positions[&device_id],
+                        rotation_origin: self.rotation,
+                    });
+                } else {
+                    self.middle_mouse_button_pressed = None;
+                }
+            }
+
+            WindowEvent::MouseInput {
+                button: MouseButton::Right,
                 ..
             } => {
                 self.rotation = PointI::default();
@@ -342,11 +454,11 @@ impl shell::Application for Application {
             WindowEvent::ModifiersChanged(modifiers) => {
                 if self.modifiers != modifiers {
                     // If there is an ongoing move and modifiers change, reset origins.
-                    if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
-                        mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
-                        mouse_pressed.translation_origin = self.translation;
-                        mouse_pressed.rotation_origin = self.rotation;
-                    }
+                    // if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
+                    //     mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
+                    //     mouse_pressed.translation_origin = self.translation;
+                    //     mouse_pressed.rotation_origin = self.rotation;
+                    // }
 
                     self.modifiers = modifiers
                 }
