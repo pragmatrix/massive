@@ -30,7 +30,7 @@ use massive_geometry::{Camera, Point, SizeI};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph};
 use massive_shell::Shell;
 
-#[path = "shared/application.rs"]
+#[path = "../shared/application.rs"]
 mod application;
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
