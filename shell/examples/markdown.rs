@@ -363,13 +363,11 @@ struct Application {
 }
 
 struct LeftMouseButtonPressed {
-    device_id: DeviceId,
     origin: PointI,
     translation_origin: PointI,
 }
 
 struct MiddleMouseButtonPressed {
-    device_id: DeviceId,
     origin: PointI,
     rotation_origin: PointI,
 }
@@ -421,7 +419,6 @@ impl shell::Application for Application {
             } if self.positions.contains_key(&device_id) => {
                 if state.is_pressed() {
                     self.left_mouse_button_pressed = Some(LeftMouseButtonPressed {
-                        device_id,
                         origin: self.positions[&device_id],
                         translation_origin: self.translation,
                     });
@@ -436,7 +433,6 @@ impl shell::Application for Application {
             } => {
                 if state.is_pressed() {
                     self.middle_mouse_button_pressed = Some(MiddleMouseButtonPressed {
-                        device_id,
                         origin: self.positions[&device_id],
                         rotation_origin: self.rotation,
                     });
