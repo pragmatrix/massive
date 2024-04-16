@@ -33,8 +33,10 @@ use massive_shell::Shell;
 #[path = "../shared/application.rs"]
 mod application;
 
+#[path = "../shared/positioning.rs"]
+mod positioning;
+
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
-#[cfg(target_arch = "wasm32")]
 const CANVAS_ID: &str = "markdown";
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -75,7 +77,7 @@ async fn async_main() -> Result<()> {
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
     let event_loop = EventLoop::new()?;
-    let window = create_window(&event_loop)?;
+    let window = application::create_window(&event_loop, Some(CANVAS_ID))?;
     info!("Initial Window inner size: {:?}", window.inner_size());
 
     let font_system = {
@@ -87,41 +89,8 @@ async fn async_main() -> Result<()> {
         let montserrat = include_bytes!("Montserrat-Regular.ttf");
         let source = fontdb::Source::Binary(Arc::new(montserrat));
         font_db.load_font_source(source);
-        Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(
-            DEFAULT_LOCALE.into(),
-            font_db,
-        )))
+        FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
     };
-
-    #[cfg(not(target_arch = "wasm32"))]
-    fn create_window(event_loop: &EventLoop<()>) -> Result<Window> {
-        Ok(WindowBuilder::new().build(event_loop)?)
-    }
-
-    // Explicitly query for the canvas, and initialize the window with it.
-    //
-    // If we use the implicit of `data-raw-handle="1"`, no resize event will be sent.
-    #[cfg(target_arch = "wasm32")]
-    fn create_window(event_loop: &EventLoop<()>) -> Result<Window> {
-        use wasm_bindgen::JsCast;
-
-        let canvas = web_sys::window()
-            .expect("No Window")
-            .document()
-            .expect("No document")
-            .query_selector(&format!("#{CANVAS_ID}"))
-            // what a shit-show here, why is the error not compatible with anyhow.
-            .map_err(|err| anyhow::anyhow!(err.as_string().unwrap()))?
-            .expect("No Canvas with a matching id found");
-
-        let canvas: web_sys::HtmlCanvasElement = canvas
-            .dyn_into()
-            .map_err(|_| anyhow::anyhow!("Failed to cast to HtmlCanvasElement"))?;
-
-        Ok(WindowBuilder::new()
-            .with_canvas(Some(canvas))
-            .build(event_loop)?)
-    }
 
     #[cfg(not(target_arch = "wasm32"))]
     let initial_size = window.inner_size();
@@ -130,6 +99,7 @@ async fn async_main() -> Result<()> {
     #[cfg(target_arch = "wasm32")]
     let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
 
+    let font_system = Arc::new(Mutex::new(font_system));
     let mut shell = Shell::new(&window, initial_size, font_system.clone()).await?;
 
     // TODO: Pass surface format.
@@ -205,38 +175,17 @@ async fn async_main() -> Result<()> {
         for text_area in text_areas.take(10) {
             let line_height = text_area.buffer.metrics().line_height;
             for run in text_area.buffer.layout_runs() {
-                let max_ascent = run.line_y - run.line_top;
-
-                let glyph_run_metrics = GlyphRunMetrics {
-                    max_ascent: max_ascent.ceil() as _,
-                    max_descent: (line_height - max_ascent).ceil() as _,
-                    width: run.line_w.ceil() as u32,
-                };
-
-                let positioned = position_glyphs(run.glyphs);
+                let glyph_run = positioning::to_glyph_run(&run, line_height);
 
                 let top = text_area.top + run.line_top;
                 let offset = Point::new(text_area.left as _, top as _);
 
-                glyph_runs.push((offset, GlyphRun::new(glyph_run_metrics, positioned)));
+                glyph_runs.push((offset, glyph_run));
 
                 page_height = (top + line_height).ceil() as _;
-
-                // println!("run: {:?}", run);
-                // for glyph in run.glyphs.iter() {
-                //     println!("lt: {}, {}", text_area.left, text_area.top);
-                //     let physical_glyph =
-                //         glyph.physical((text_area.left, text_area.top), text_area.scale);
-                //     println!(
-                //         "ck: {:?} {} {}",
-                //         physical_glyph.cache_key, physical_glyph.x, physical_glyph.y
-                //     );
-                // }
             }
         }
     }
-
-    // println!("text areas: {}", text_areas.len());
 
     let fovy: f64 = 45.0;
     let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();

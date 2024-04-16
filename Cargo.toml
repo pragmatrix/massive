@@ -9,6 +9,10 @@ members = [
     "inlyne",
 ]
 
+exclude = [
+    "rust-analyzer"
+]
+
 [workspace.metadata]
 # For trunk
 root-package = "shell"

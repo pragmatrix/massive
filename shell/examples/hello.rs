@@ -16,6 +16,9 @@ struct Application {
     hello_world: String,
 }
 
+#[path = "shared/positioning.rs"]
+mod positioning;
+
 #[tokio::main]
 async fn main() {
     env_logger::init();
@@ -97,7 +100,7 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         text::Shaping::Advanced,
     );
     let line = &buffer.layout(font_system, font_size, f32::MAX, text::Wrap::None, None)[0];
-    let placed = position_glyphs(&line.glyphs);
+    let placed = positioning::position_glyphs(&line.glyphs);
     let metrics = GlyphRunMetrics {
         max_ascent: line.max_ascent as u32,
         max_descent: line.max_descent as u32,
@@ -105,30 +108,4 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
     };
 
     GlyphRun::new(metrics, placed)
-}
-
-const RENDER_SUBPIXEL: bool = false;
-
-fn position_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PositionedGlyph> {
-    glyphs
-        .iter()
-        .map(|glyph| {
-            let fractional_pos = if RENDER_SUBPIXEL {
-                (glyph.x, glyph.y)
-            } else {
-                (glyph.x.round(), glyph.y.round())
-            };
-
-            let (ck, x, y) = text::CacheKey::new(
-                glyph.font_id,
-                glyph.glyph_id,
-                glyph.font_size,
-                fractional_pos,
-                CacheKeyFlags::empty(),
-            );
-            // Note: hitbox with is fractional, but does not change with / without subpixel
-            // rendering.
-            PositionedGlyph::new(ck, (x, y), glyph.w)
-        })
-        .collect()
 }

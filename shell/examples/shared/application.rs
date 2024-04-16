@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use anyhow::Result;
 use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
 use massive_shapes::{GlyphRun, Shape};
 use shell::Shell;
@@ -7,7 +8,9 @@ use winit::{
     event::{
         DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
     },
+    event_loop::EventLoop,
     keyboard::{Key, NamedKey},
+    window::{Window, WindowBuilder},
 };
 
 use massive_shell as shell;
@@ -222,4 +225,37 @@ impl shell::Application for Application {
 
         (self.camera, shapes)
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn create_window(event_loop: &EventLoop<()>, _canvas_id: Option<&str>) -> Result<Window> {
+    Ok(WindowBuilder::new().build(event_loop)?)
+}
+
+// Explicitly query for the canvas, and initialize the window with it.
+//
+// If we use the implicit of `data-raw-handle="1"`, no resize event will be sent.
+#[cfg(target_arch = "wasm32")]
+pub fn create_window(event_loop: &EventLoop<()>, canvas_id: Option<&str>) -> Result<Window> {
+    use wasm_bindgen::JsCast;
+    use winit::platform::web::WindowBuilderExtWebSys;
+
+    let canvas_id = canvas_id.expect("Canvas Id is needed for wasm targets");
+
+    let canvas = web_sys::window()
+        .expect("No Window")
+        .document()
+        .expect("No document")
+        .query_selector(&format!("#{canvas_id}"))
+        // what a shit-show here, why is the error not compatible with anyhow.
+        .map_err(|err| anyhow::anyhow!(err.as_string().unwrap()))?
+        .expect("No Canvas with a matching id found");
+
+    let canvas: web_sys::HtmlCanvasElement = canvas
+        .dyn_into()
+        .map_err(|_| anyhow::anyhow!("Failed to cast to HtmlCanvasElement"))?;
+
+    Ok(WindowBuilder::new()
+        .with_canvas(Some(canvas))
+        .build(event_loop)?)
 }
