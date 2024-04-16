@@ -187,12 +187,20 @@ async fn async_main() -> Result<()> {
         }
     }
 
-    let fovy: f64 = 45.0;
-    let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-    let camera = Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0));
+    // Camera
+
+    let camera = {
+        let fovy: f64 = 45.0;
+        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
+        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
+    };
+
+    // Application
 
     let application =
         Application::new(camera, glyph_runs, SizeI::new(page_width as _, page_height));
+
+    // Run
 
     shell.run(event_loop, &window, application).await
 }
