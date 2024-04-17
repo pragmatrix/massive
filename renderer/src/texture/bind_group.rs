@@ -12,8 +12,8 @@ impl BindGroupLayout {
         let layout = BindGroupLayoutBuilder::fragment()
             .texture()
             .uniform()
-            .uniform()
             .sampler()
+            .uniform()
             .build("Texture Bind Group Layout", device);
 
         Self(layout)
@@ -23,8 +23,8 @@ impl BindGroupLayout {
         &self,
         device: &wgpu::Device,
         view: &View,
-        color: &ColorBuffer,
         texture_sampler: &wgpu::Sampler,
+        color: &ColorBuffer,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Texture Bind Group"),
@@ -40,11 +40,11 @@ impl BindGroupLayout {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: color.as_binding(),
+                    resource: wgpu::BindingResource::Sampler(texture_sampler),
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: wgpu::BindingResource::Sampler(texture_sampler),
+                    resource: color.as_binding(),
                 },
             ],
         })

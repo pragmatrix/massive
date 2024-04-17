@@ -35,7 +35,7 @@ impl Texture {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let bind_group = bind_group_layout.create_bind_group(device, view, color, texture_sampler);
+        let bind_group = bind_group_layout.create_bind_group(device, view, texture_sampler, color);
 
         Self {
             pipeline,
