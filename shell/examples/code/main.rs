@@ -111,7 +111,14 @@ async fn main() -> Result<()> {
         FontSystem::new_with_locale_and_db("en-US".into(), db)
     };
 
-    // Layout
+    // Colorize ranges
+
+    let colors: Vec<_> = syntax
+        .iter()
+        .map(|range| colorize(range.highlight.tag, range.highlight.mods))
+        .collect();
+
+    // Shape and layout text.
 
     // let font_size = 32.;
     // let line_height = 40.;
