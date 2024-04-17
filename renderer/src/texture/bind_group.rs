@@ -1,8 +1,7 @@
-use crate::tools::BindGroupLayoutBuilder;
+use derive_more::Deref;
 
 use super::View;
-
-use derive_more::Deref;
+use crate::{tools::BindGroupLayoutBuilder, ColorBuffer};
 
 /// The bind group layout of a texture.
 #[derive(Debug, Deref)]
@@ -12,6 +11,7 @@ impl BindGroupLayout {
     pub fn new(device: &wgpu::Device) -> Self {
         let layout = BindGroupLayoutBuilder::fragment()
             .texture()
+            .uniform()
             .uniform()
             .sampler()
             .build("Texture Bind Group Layout", device);
@@ -23,6 +23,7 @@ impl BindGroupLayout {
         &self,
         device: &wgpu::Device,
         view: &View,
+        color: &ColorBuffer,
         texture_sampler: &wgpu::Sampler,
     ) -> wgpu::BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -39,6 +40,10 @@ impl BindGroupLayout {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
+                    resource: color.as_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
                     resource: wgpu::BindingResource::Sampler(texture_sampler),
                 },
             ],

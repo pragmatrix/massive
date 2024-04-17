@@ -1,6 +1,7 @@
 use std::rc::Rc;
 
 use cosmic_text as text;
+use massive_geometry::Color;
 
 use crate::geometry::{Bounds, Matrix4};
 
@@ -12,12 +13,17 @@ pub enum Shape {
 #[derive(Debug, Clone)]
 pub struct GlyphRun {
     pub metrics: GlyphRunMetrics,
+    pub text_color: Color,
     pub glyphs: Vec<PositionedGlyph>,
 }
 
 impl GlyphRun {
-    pub fn new(metrics: GlyphRunMetrics, glyphs: Vec<PositionedGlyph>) -> Self {
-        Self { metrics, glyphs }
+    pub fn new(metrics: GlyphRunMetrics, text_color: Color, glyphs: Vec<PositionedGlyph>) -> Self {
+        Self {
+            metrics,
+            text_color,
+            glyphs,
+        }
     }
 }
 

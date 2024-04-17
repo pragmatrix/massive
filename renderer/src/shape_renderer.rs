@@ -8,9 +8,10 @@ use massive_geometry::{Matrix4, Point};
 use massive_shapes::{GlyphRun, PositionedGlyph, Shape};
 
 use crate::{
-    glyph::{GlyphCache, GlyphClass, GlyphRenderParam},
+    glyph::{self, GlyphCache, GlyphClass, GlyphRenderParam},
     primitives::Primitive,
     texture::{self, Texture},
+    ColorBuffer,
 };
 
 #[derive(Default)]
@@ -94,11 +95,20 @@ impl ShapeRenderer {
         // TODO: cache this.
         let glyph_to_surface = surface_matrix * view_projection_matrix * *model_matrix;
 
+        let text_color_buffer = ColorBuffer::new(context.device, glyph_run.text_color);
+
         glyph_run
             .glyphs
             .iter()
             .filter_map(|glyph| {
-                self.render_glyph(context, model_matrix, glyph_run, &glyph_to_surface, glyph)
+                self.render_glyph(
+                    context,
+                    model_matrix,
+                    glyph_run,
+                    &text_color_buffer,
+                    &glyph_to_surface,
+                    glyph,
+                )
             })
             .collect()
     }
@@ -108,6 +118,7 @@ impl ShapeRenderer {
         context: &mut ShapeRendererContext,
         model_matrix: &Matrix4,
         run: &GlyphRun,
+        color_buffer: &ColorBuffer,
         glyph_to_surface: &Matrix4,
         glyph: &PositionedGlyph,
     ) -> Option<Primitive> {
@@ -179,6 +190,7 @@ impl ShapeRenderer {
             context.texture_bind_group_layout,
             context.texture_sampler,
             &render_glyph.texture_view,
+            color_buffer,
             &transformed,
         );
 

@@ -1,7 +1,7 @@
 use massive_geometry::Point3;
 use wgpu::util::DeviceExt;
 
-use crate::{pods::TextureVertex, primitives::Pipeline, texture};
+use crate::{pods::TextureVertex, primitives::Pipeline, texture, ColorBuffer};
 
 mod bind_group;
 mod view;
@@ -24,6 +24,7 @@ impl Texture {
         bind_group_layout: &BindGroupLayout,
         texture_sampler: &wgpu::Sampler,
         view: &texture::View,
+        color: &ColorBuffer,
         vertices: &[Point3; 4],
     ) -> Self {
         let vertices = points_to_texture_vertices(vertices);
@@ -34,7 +35,7 @@ impl Texture {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let bind_group = bind_group_layout.create_bind_group(device, view, texture_sampler);
+        let bind_group = bind_group_layout.create_bind_group(device, view, color, texture_sampler);
 
         Self {
             pipeline,

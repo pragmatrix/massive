@@ -1,4 +1,5 @@
 use cosmic_text::{CacheKey, CacheKeyFlags, LayoutGlyph, LayoutRun};
+use massive_geometry::Color;
 use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph};
 
 const RENDER_SUBPIXEL: bool = false;
@@ -14,7 +15,7 @@ pub fn to_glyph_run(run: &LayoutRun, line_height: f32) -> GlyphRun {
     };
 
     let positioned = position_glyphs(run.glyphs);
-    GlyphRun::new(glyph_run_metrics, positioned)
+    GlyphRun::new(glyph_run_metrics, Color::BLACK, positioned)
 }
 
 /// Position individual `LayoutGlyph` from a `LayoutRun`.

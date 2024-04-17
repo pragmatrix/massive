@@ -7,7 +7,7 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
-use massive_geometry::{Camera, Matrix4, Vector3};
+use massive_geometry::{Camera, Color, Matrix4, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape};
 use massive_shell::{self as shell, Shell};
 
@@ -107,5 +107,5 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         width: line.w.ceil() as u32,
     };
 
-    GlyphRun::new(metrics, placed)
+    GlyphRun::new(metrics, Color::BLACK, placed)
 }
