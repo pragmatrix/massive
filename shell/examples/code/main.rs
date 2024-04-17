@@ -77,11 +77,14 @@ async fn main() -> Result<()> {
 
     let analysis_host = AnalysisHost::with_database(db);
 
-    println!("analysis");
+    // Analysis
+
+    println!("Analysis");
     let analysis = analysis_host.analysis();
 
-    println!("highlight");
+    // Highlight
 
+    println!("Highlight");
     let highlight_config = HighlightConfig {
         strings: true,
         punctuation: true,
@@ -95,7 +98,7 @@ async fn main() -> Result<()> {
 
     let syntax = analysis.highlight(highlight_config, file_id)?;
 
-    // font_system
+    // FontSystem
 
     let mut font_system = {
         let mut db = fontdb::Database::new();
@@ -108,7 +111,7 @@ async fn main() -> Result<()> {
         FontSystem::new_with_locale_and_db("en-US".into(), db)
     };
 
-    // layout
+    // Layout
 
     // let font_size = 32.;
     // let line_height = 40.;
