@@ -167,8 +167,9 @@ fn shape_text(
     line_height: f32,
 ) -> (Vec<(Point, GlyphRun)>, f64) {
     syntax::assert_covers_all_text(syntax, text.len());
+
     // The text covers everything. But if these attributes are appearing without adjusted metadata,
-    // something is wrong. So we set it to an illegal offset `usize::MAX` for now.
+    // something is wrong. Set it to an illegal offset `usize::MAX` for now.
     let base_attrs = Attrs::new().family(Family::Monospace).metadata(usize::MAX);
     let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
     buffer.set_size(font_system, f32::INFINITY, f32::INFINITY);
@@ -194,8 +195,6 @@ fn shape_text(
 }
 
 fn colorize(tag: HlTag, mods: HlMods) -> Color {
-    const XX: u32 = 100;
-
     if mods.contains(HlMod::Unsafe) {
         return unsafe_red();
     }
