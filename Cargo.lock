@@ -3121,6 +3121,7 @@ dependencies = [
  "log",
  "massive-geometry",
  "massive-shapes",
+ "static_assertions",
  "swash",
  "wgpu",
  "winit",

@@ -1,6 +1,9 @@
-use bytemuck::{Pod, Zeroable};
-use massive_geometry::Point3;
 use std::mem;
+
+use bytemuck::{Pod, Zeroable};
+use static_assertions::const_assert_eq;
+
+use massive_geometry::Point3;
 
 // We need this for Rust to store our data correctly for the shaders
 #[repr(C)]
@@ -8,10 +11,22 @@ use std::mem;
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Matrix4(pub [[f32; 4]; 4]);
 
+// WebGL uniform requirement
+const_assert_eq!(mem::size_of::<Matrix4>() % 16, 0);
+
 #[repr(C)]
-// This is so we can store this in a buffer. Also adds padding for webgl.
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct TextureSize(pub [f32; 2], pub [u32; 2]);
+
+// WebGL uniform requirement
+const_assert_eq!(mem::size_of::<TextureSize>() % 16, 0);
+
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct Color(pub [f32; 4]);
+
+// WebGL uniform requirement
+const_assert_eq!(mem::size_of::<Color>() % 16, 0);
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
