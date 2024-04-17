@@ -302,7 +302,7 @@ fn comment_green() -> Color {
 }
 
 fn rgb(rgb: u32) -> Color {
-    Color::from_rgb_u32(rgb)
+    Color::rgb_u32(rgb)
 }
 
 // Proposed VSCode Style:
