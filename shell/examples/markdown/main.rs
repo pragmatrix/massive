@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use cosmic_text::{fontdb, CacheKey, CacheKeyFlags, FontSystem, LayoutGlyph};
+use cosmic_text::{fontdb, FontSystem};
 use inlyne::{
     color::Theme,
     interpreter::HtmlInterpreter,
@@ -16,10 +16,7 @@ use inlyne::{
     Element,
 };
 use log::info;
-use winit::{
-    event_loop::EventLoop,
-    window::{Window, WindowBuilder},
-};
+use winit::event_loop::EventLoop;
 
 use application::Application;
 

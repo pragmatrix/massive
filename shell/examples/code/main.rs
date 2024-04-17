@@ -13,12 +13,13 @@ use cosmic_text::{
 };
 use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlTag, SymbolKind};
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
-use massive_geometry::{Camera, Color, Point, SizeI};
-use massive_shapes::{GlyphRun, PositionedGlyph};
-use massive_shell::Shell;
 use project_model::CargoConfig;
 use vfs::VfsPath;
 use winit::event_loop::EventLoop;
+
+use massive_geometry::{Camera, Color, Point, SizeI};
+use massive_shapes::GlyphRun;
+use massive_shell::Shell;
 
 #[path = "../shared/application.rs"]
 mod application;

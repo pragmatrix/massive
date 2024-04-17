@@ -1,14 +1,14 @@
 use std::sync::{Arc, Mutex};
 
 use cosmic_text as text;
-use text::{CacheKeyFlags, FontSystem};
+use text::FontSystem;
 use winit::{
     event::{KeyEvent, WindowEvent},
     keyboard::{Key, NamedKey},
 };
 
 use massive_geometry::{Camera, Matrix4, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape};
 use massive_shell::{self as shell, Shell};
 
 struct Application {
