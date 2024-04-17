@@ -264,29 +264,3 @@ fn get_text_areas(
 
     Ok(text_areas)
 }
-
-const RENDER_SUBPIXEL: bool = false;
-
-fn position_glyphs(glyphs: &[LayoutGlyph]) -> Vec<PositionedGlyph> {
-    glyphs
-        .iter()
-        .map(|glyph| {
-            let fractional_pos = if RENDER_SUBPIXEL {
-                (glyph.x, glyph.y)
-            } else {
-                (glyph.x.round(), glyph.y.round())
-            };
-
-            let (ck, x, y) = CacheKey::new(
-                glyph.font_id,
-                glyph.glyph_id,
-                glyph.font_size,
-                fractional_pos,
-                CacheKeyFlags::empty(),
-            );
-            // Note: hitbox with is fractional, but does not change with / without subpixel
-            // rendering.
-            PositionedGlyph::new(ck, (x, y), glyph.w)
-        })
-        .collect()
-}
