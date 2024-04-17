@@ -7,11 +7,8 @@ use std::{
 
 use anyhow::Result;
 use base_db::SourceDatabaseExt;
-use cosmic_text::{
-    fontdb::{self},
-    Attrs, Buffer, Family, FontSystem, Metrics, Shaping,
-};
-use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlTag, SymbolKind};
+use cosmic_text::{fontdb, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
+use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlRange, HlTag, SymbolKind};
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
 use vfs::VfsPath;
@@ -96,7 +93,7 @@ async fn main() -> Result<()> {
         syntactic_name_ref_highlighting: false,
     };
 
-    // let _syntax = analysis.highlight(highlight_config, file_id);
+    let syntax = analysis.highlight(highlight_config, file_id)?;
 
     // font_system
 
@@ -118,7 +115,13 @@ async fn main() -> Result<()> {
     let font_size = 16.;
     let line_height = 20.;
 
-    let (glyph_runs, height) = shape_text(&mut font_system, &file_text, font_size, line_height);
+    let (glyph_runs, height) = shape_text(
+        &mut font_system,
+        &file_text,
+        &syntax,
+        font_size,
+        line_height,
+    );
 
     // Window
 
@@ -149,13 +152,23 @@ async fn main() -> Result<()> {
 fn shape_text(
     font_system: &mut FontSystem,
     text: &str,
+    syntax: &[HlRange],
     font_size: f32,
     line_height: f32,
 ) -> (Vec<(Point, GlyphRun)>, f64) {
-    let attrs = Attrs::new().family(Family::Monospace);
+    syntax::assert_covers_all_text(syntax, text.len());
+    // The text covers everything. But if these attributes are appearing without adjusted metadata,
+    // something is wrong. So we set it to an illegal offset `usize::MAX` for now.
+    let base_attrs = Attrs::new().family(Family::Monospace).metadata(usize::MAX);
     let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
     buffer.set_size(font_system, f32::INFINITY, f32::INFINITY);
-    buffer.set_text(font_system, text, attrs, Shaping::Advanced);
+    // buffer.set_text(font_system, text, attrs, Shaping::Advanced);
+    buffer.set_wrap(font_system, Wrap::None);
+    let text_attr_spans = syntax
+        .iter()
+        .enumerate()
+        .map(|(range_index, hr)| (&text[hr.range], base_attrs.metadata(range_index)));
+    buffer.set_rich_text(font_system, text_attr_spans, base_attrs, Shaping::Advanced);
     buffer.shape_until_scroll(font_system, true);
 
     let mut runs = Vec::new();
@@ -333,3 +346,25 @@ fn rgb(rgb: u32) -> Color {
 // .invalid_escape_sequence { color: #FF0000; text-decoration: wavy underline; }
 // .unresolved_reference    { color: #FF0000; text-decoration: wavy underline; }
 // </style>
+
+mod syntax {
+    use ide::{HlRange, TextSize};
+
+    pub fn assert_covers_all_text(range: &[HlRange], text_len: usize) {
+        if text_len == 0 {
+            return;
+        }
+        assert_eq!(range[0].range.start(), TextSize::default());
+        assert_eq!(
+            range[range.len() - 1].range.end(),
+            TextSize::new(text_len.try_into().unwrap())
+        );
+        assert_contiguous(range);
+    }
+
+    pub fn assert_contiguous(range: &[HlRange]) {
+        for i in range.windows(2) {
+            assert!(i[0].range.end() == i[1].range.start())
+        }
+    }
+}
