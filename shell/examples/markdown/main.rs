@@ -18,14 +18,13 @@ use inlyne::{
 use log::info;
 use winit::event_loop::EventLoop;
 
+use massive_geometry::{Camera, Point, SizeI};
+use massive_shell::Shell;
+
 use application::Application;
 
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowBuilderExtWebSys;
-
-use massive_geometry::{Camera, Point, SizeI};
-use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph};
-use massive_shell::Shell;
 
 #[path = "../shared/application.rs"]
 mod application;

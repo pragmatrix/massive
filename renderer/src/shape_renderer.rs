@@ -4,11 +4,12 @@
 
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
+
 use massive_geometry::{Matrix4, Point};
 use massive_shapes::{GlyphRun, PositionedGlyph, Shape};
 
 use crate::{
-    glyph::{self, GlyphCache, GlyphClass, GlyphRenderParam},
+    glyph::{GlyphCache, GlyphClass, GlyphRenderParam},
     primitives::Primitive,
     texture::{self, Texture},
     ColorBuffer,
