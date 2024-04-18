@@ -57,6 +57,7 @@ async fn main() -> Result<()> {
         .join(Path::new("shell/examples/code"));
 
     let file_to_show = example_dir.join("main.rs");
+    // let file_to_show = example_dir.join("test.rs");
 
     println!("Looking for {}", file_to_show.display());
 
@@ -129,6 +130,7 @@ async fn main() -> Result<()> {
         &mut font_system,
         &file_text,
         &syntax,
+        &colors,
         font_size,
         line_height,
     );
@@ -163,10 +165,12 @@ fn shape_text(
     font_system: &mut FontSystem,
     text: &str,
     syntax: &[HlRange],
+    colors: &[Color],
     font_size: f32,
     line_height: f32,
 ) -> (Vec<(Point, GlyphRun)>, f64) {
     syntax::assert_covers_all_text(syntax, text.len());
+    assert_eq!(colors.len(), syntax.len());
 
     // The text covers everything. But if these attributes are appearing without adjusted metadata,
     // something is wrong. Set it to an illegal offset `usize::MAX` for now.
@@ -187,7 +191,9 @@ fn shape_text(
 
     for run in buffer.layout_runs() {
         let offset = Point::new(0., run.line_top as f64);
-        runs.push((offset, positioning::to_glyph_run(&run, line_height)));
+        for run in positioning::to_colored_glyph_runs(&run, line_height, colors) {
+            runs.push((offset, run));
+        }
         height = height.max(offset.y + line_height as f64);
     }
 

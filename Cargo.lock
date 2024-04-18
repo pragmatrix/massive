@@ -3153,6 +3153,7 @@ dependencies = [
  "hir",
  "ide",
  "inlyne",
+ "itertools 0.12.1",
  "load-cargo",
  "log",
  "massive-geometry",

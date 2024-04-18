@@ -37,16 +37,19 @@ syntax = { path = "../rust-analyzer/crates/syntax" }
 hir = { path = "../rust-analyzer/crates/hir" }
 # Syntax highlighting, AnalysisHost
 ide = { path = "../rust-analyzer/crates/ide" }
-
+itertools = "0.12.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+
 getrandom = { version = "0.2.12", features = ["js"] }
 wgpu = { features = ["webgl"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+
 tokio = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wasm-bindgen-futures = "0.4.42"
