@@ -23,6 +23,9 @@ mod application;
 #[path = "../shared/positioning.rs"]
 mod positioning;
 
+// Simple file for testing less code.
+mod test;
+
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
