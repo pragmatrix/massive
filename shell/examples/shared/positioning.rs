@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use cosmic_text::{CacheKey, CacheKeyFlags, LayoutGlyph, LayoutRun};
 
 use itertools::Itertools;
