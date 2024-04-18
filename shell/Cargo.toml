@@ -16,6 +16,8 @@ cgmath = { workspace = true }
 
 [dev-dependencies]
 
+itertools = { workspace = true }
+
 # markdown
 
 swash = { workspace = true }
@@ -37,12 +39,11 @@ syntax = { path = "../rust-analyzer/crates/syntax" }
 hir = { path = "../rust-analyzer/crates/hir" }
 # Syntax highlighting, AnalysisHost
 ide = { path = "../rust-analyzer/crates/ide" }
-itertools = "0.12.1"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 
 getrandom = { version = "0.2.12", features = ["js"] }
-wgpu = { features = ["webgl"] }
+wgpu = { workspace = true, features = ["webgl"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 

@@ -33,7 +33,7 @@ serde = { version = "1.0.164", features = ["derive"] }
 derive_more = "0.99.17"
 # rt-multi-thread is not supported on wasm.
 tokio = { version = "1.36.0", features = ["rt-multi-thread", "macros"] }
-wgpu = "0.19.3"
+wgpu = "0.19.4"
 anyhow = "1.0.71"
 swash = "0.1.8"
 bytemuck = { version = "1.13.1", features = ["derive"] }
@@ -44,3 +44,4 @@ winit = { version = "0.29.15", features = ["rwh_06"] }
 approx = "0.5.1"
 flo_curves = "0.7.2"
 static_assertions = "1.1.0"
+itertools = "0.12.1"
