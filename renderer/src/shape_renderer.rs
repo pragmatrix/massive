@@ -47,6 +47,7 @@ impl<'a> ShapeRendererContext<'a> {
 }
 
 impl ShapeRenderer {
+    #[tracing::instrument(skip_all)]
     pub fn render(
         &mut self,
         context: &mut ShapeRendererContext,
@@ -114,6 +115,7 @@ impl ShapeRenderer {
             .collect()
     }
 
+    #[tracing::instrument(skip_all)]
     fn render_glyph(
         &mut self,
         context: &mut ShapeRendererContext,

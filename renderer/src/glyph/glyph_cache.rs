@@ -1,4 +1,7 @@
-use std::collections::{hash_map, HashMap, HashSet};
+use std::{
+    collections::{hash_map, HashMap, HashSet},
+    fmt,
+};
 
 use anyhow::Result;
 use cosmic_text as text;
@@ -22,6 +25,7 @@ pub struct GlyphCache {
 
 impl GlyphCache {
     /// Returns a `RenderGlyph` and marks this one as used.
+    #[tracing::instrument(skip_all)]
     pub fn get(
         &mut self,
         device: &wgpu::Device,

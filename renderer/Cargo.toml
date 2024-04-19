@@ -18,3 +18,4 @@ log = { workspace = true }
 approx = { workspace = true }
 bitflags = { workspace = true }
 static_assertions = { workspace = true }
+tracing = { workspace = true }

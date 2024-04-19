@@ -1,4 +1,5 @@
 use massive_geometry::Point3;
+use tracing::{span, Level};
 use wgpu::util::DeviceExt;
 
 use crate::{pods::TextureVertex, primitives::Pipeline, texture, ColorBuffer};
@@ -18,6 +19,7 @@ pub struct Texture {
 }
 
 impl Texture {
+    #[tracing::instrument(skip_all)]
     pub fn new(
         device: &wgpu::Device,
         pipeline: Pipeline,
@@ -29,13 +31,23 @@ impl Texture {
     ) -> Self {
         let vertices = points_to_texture_vertices(vertices);
 
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Texture Vertex Buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vertex_buffer = {
+            let span = span!(Level::INFO, "texture-vertex-buffer-creation");
+            let _span = span.enter();
 
-        let bind_group = bind_group_layout.create_bind_group(device, view, texture_sampler, color);
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Texture Vertex Buffer"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        };
+
+        let bind_group = {
+            let span = span!(Level::INFO, "texture-bind-group-creation");
+            let _span = span.enter();
+
+            bind_group_layout.create_bind_group(device, view, texture_sampler, color)
+        };
 
         Self {
             pipeline,

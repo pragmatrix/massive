@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use cosmic_text as text;
 use cosmic_text::FontSystem;
-use log::{error, info};
+use log::{debug, error, info};
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
     dpi::PhysicalSize,
@@ -209,15 +209,13 @@ impl<'window> Shell<'window> {
                             let primitives = {
                                 // TODO: This is a mess.
                                 let mut font_system = self.font_system.lock().unwrap();
-                                let mut shape_renderer_context = ShapeRendererContext {
-                                    device: &self.renderer.device,
-                                    queue: &self.renderer.queue,
-                                    texture_sampler: &self.renderer.texture_sampler,
-                                    texture_bind_group_layout: &self
-                                        .renderer
-                                        .texture_bind_group_layout,
-                                    font_system: &mut font_system,
-                                };
+                                let mut shape_renderer_context = ShapeRendererContext::new(
+                                    &self.renderer.device,
+                                    &self.renderer.queue,
+                                    &self.renderer.texture_sampler,
+                                    &self.renderer.texture_bind_group_layout,
+                                    &mut font_system,
+                                );
                                 self.shape_renderer.render(
                                     &mut shape_renderer_context,
                                     &view_projection_matrix,

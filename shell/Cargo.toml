@@ -28,6 +28,10 @@ inlyne = { workspace = true }
 
 # code (can't be compiled on wasm32 for now).
 
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-flame = { workspace = true }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 
 load-cargo = { path = "../rust-analyzer/crates/load-cargo" }
