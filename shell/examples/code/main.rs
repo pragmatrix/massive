@@ -140,10 +140,10 @@ async fn main() -> Result<()> {
 
     // Shape and layout text.
 
-    // let font_size = 32.;
-    // let line_height = 40.;
-    let font_size = 16.;
-    let line_height = 20.;
+    let font_size = 32.;
+    let line_height = 40.;
+    // let font_size = 16.;
+    // let line_height = 20.;
 
     let (glyph_runs, height) = shape_text(
         &mut font_system,
