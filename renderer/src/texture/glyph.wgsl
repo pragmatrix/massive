@@ -36,13 +36,15 @@ var t_texture: texture_2d<f32>;
 var<uniform> texture_size: TextureSize;
 @group(1) @binding(2)
 var s_sampler: sampler;
+@group(1) @binding(3)
+var<uniform> color: vec4<f32>;
 
 @fragment
 fn fs_planar(in: VertexOutput) -> @location(0) vec4<f32> {
     let sample = textureSample(t_texture, s_sampler, in.tex_coords);
     let alpha = sample.r;
 
-    return vec4<f32>(0.0, 0.0, 0.0, alpha);
+    return vec4<f32>(color.rgb, alpha);
 }
 
 // For the fragment shader:
@@ -90,7 +92,7 @@ fn fs_sdf_glyph(in: VertexOutput) -> @location(0) vec4<f32> {
     // let val = saturate((distance + afwidth) / (2.0 * afwidth));
     let val = smoothstep(-afwidth, afwidth, distance);
 
-    return vec4<f32>(0.0, 0.0, 0.0, val);
+    return vec4<f32>(color.rgb, val);
 }
 
 fn sd_circle(p : vec2<f32>, r : f32) -> f32 {

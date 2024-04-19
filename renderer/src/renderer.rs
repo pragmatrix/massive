@@ -94,6 +94,7 @@ impl<'window> Renderer<'window> {
 
     // TODO: Can't we handle SurfaceError::Lost here by just reconfiguring the surface and trying
     // again?
+    #[tracing::instrument(skip_all)]
     pub fn render_and_present(
         &mut self,
         view_projection_matrix: &Matrix4,

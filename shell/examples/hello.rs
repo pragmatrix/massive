@@ -1,20 +1,23 @@
 use std::sync::{Arc, Mutex};
 
 use cosmic_text as text;
-use text::{CacheKeyFlags, FontSystem};
+use text::FontSystem;
 use winit::{
     event::{KeyEvent, WindowEvent},
     keyboard::{Key, NamedKey},
 };
 
-use massive_geometry::{Camera, Matrix4, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph, Shape};
+use massive_geometry::{Camera, Color, Matrix4, Vector3};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape};
 use massive_shell::{self as shell, Shell};
 
 struct Application {
     camera: Camera,
     hello_world: String,
 }
+
+#[path = "shared/positioning.rs"]
+mod positioning;
 
 #[tokio::main]
 async fn main() {
@@ -97,38 +100,12 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         text::Shaping::Advanced,
     );
     let line = &buffer.layout(font_system, font_size, f32::MAX, text::Wrap::None, None)[0];
-    let placed = position_glyphs(&line.glyphs);
+    let placed = positioning::position_glyphs(&line.glyphs);
     let metrics = GlyphRunMetrics {
         max_ascent: line.max_ascent as u32,
         max_descent: line.max_descent as u32,
         width: line.w.ceil() as u32,
     };
 
-    GlyphRun::new(metrics, placed)
-}
-
-const RENDER_SUBPIXEL: bool = false;
-
-fn position_glyphs(glyphs: &[text::LayoutGlyph]) -> Vec<PositionedGlyph> {
-    glyphs
-        .iter()
-        .map(|glyph| {
-            let fractional_pos = if RENDER_SUBPIXEL {
-                (glyph.x, glyph.y)
-            } else {
-                (glyph.x.round(), glyph.y.round())
-            };
-
-            let (ck, x, y) = text::CacheKey::new(
-                glyph.font_id,
-                glyph.glyph_id,
-                glyph.font_size,
-                fractional_pos,
-                CacheKeyFlags::empty(),
-            );
-            // Note: hitbox with is fractional, but does not change with / without subpixel
-            // rendering.
-            PositionedGlyph::new(ck, (x, y), glyph.w)
-        })
-        .collect()
+    GlyphRun::new(metrics, Color::BLACK, placed)
 }

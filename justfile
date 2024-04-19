@@ -21,3 +21,6 @@ serve-markdown-release:
 wasm-features:
 	cd shell && cargo tree -f '{p} {f}' --target wasm32-unknown-unknown	
 
+flame:
+	cat tracing.folded | inferno-flamegraph > /tmp/massive-trace.svg
+	open /tmp/massive-trace.svg

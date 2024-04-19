@@ -35,6 +35,7 @@
         "ulps",
         "unclipped",
         "webgl",
+        "wght",
         "wgpu",
         "Wgsl",
         "Zeroable",
