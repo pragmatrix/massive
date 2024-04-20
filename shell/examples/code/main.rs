@@ -12,12 +12,7 @@ use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlRange, HlTag, SymbolKi
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
 use tracing_flame::FlameLayer;
-use tracing_subscriber::prelude::*;
-use tracing_subscriber::{fmt, Registry};
-use tracing_subscriber::{
-    fmt::format::FmtSpan, layer::SubscriberExt, registry::LookupSpan, util::SubscriberInitExt,
-    EnvFilter,
-};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use vfs::VfsPath;
 use winit::event_loop::EventLoop;
 
@@ -36,7 +31,7 @@ mod test;
 #[tokio::main]
 async fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env();
-    let console_formatter = fmt::Layer::new();
+    let console_formatter = tracing_subscriber::fmt::Layer::new();
     let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
 
     Registry::default()

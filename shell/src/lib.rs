@@ -1,9 +1,8 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use cosmic_text as text;
-use cosmic_text::FontSystem;
-use log::{debug, error, info};
+use cosmic_text::{self as text, FontSystem};
+use log::{error, info};
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
     dpi::PhysicalSize,
