@@ -12,7 +12,9 @@ use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlRange, HlTag, SymbolKi
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
 use tracing_flame::FlameLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing_subscriber::{
+    fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry,
+};
 use vfs::VfsPath;
 use winit::event_loop::EventLoop;
 
@@ -32,13 +34,17 @@ mod test;
 async fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env();
     let console_formatter = tracing_subscriber::fmt::Layer::new();
-    let (flame_layer, _guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+    // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+    let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+        .file("/tmp/massive-trace.json")
+        .build();
 
     Registry::default()
         // Filter seems to be applied globally, which is what we want.
         .with(env_filter)
         .with(console_formatter)
-        .with(flame_layer)
+        // .with(flame_layer)
+        .with(chrome_layer)
         .init();
 
     let progress = |p: String| {
