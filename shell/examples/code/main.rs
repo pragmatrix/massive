@@ -7,14 +7,12 @@ use std::{
 
 use anyhow::Result;
 use base_db::SourceDatabaseExt;
+use chrono::{DateTime, Local};
 use cosmic_text::{fontdb, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
 use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlRange, HlTag, SymbolKind};
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
-use tracing_flame::FlameLayer;
-use tracing_subscriber::{
-    fmt::format::FmtSpan, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry,
-};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use vfs::VfsPath;
 use winit::event_loop::EventLoop;
 
@@ -35,8 +33,12 @@ async fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env();
     let console_formatter = tracing_subscriber::fmt::Layer::new();
     // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+
+    let now: DateTime<Local> = Local::now();
+    let time_code = now.format("%Y%m%d%H%M").to_string();
+
     let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
-        .file("/tmp/massive-trace.json")
+        .file(format!("./{time_code}-massive-trace.json"))
         .build();
 
     Registry::default()
