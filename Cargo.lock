@@ -3161,6 +3161,8 @@ dependencies = [
  "cgmath",
  "cosmic-text",
  "derive_more",
+ "etagere",
+ "euclid",
  "log",
  "massive-geometry",
  "massive-shapes",
