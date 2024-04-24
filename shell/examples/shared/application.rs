@@ -221,7 +221,8 @@ impl shell::Application for Application {
 
             let matrix = view_transformation * local_offset_matrix;
 
-            // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep them stored.
+            // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
+            // them stored?
             shapes.push(Shape::GlyphRun(matrix.into(), glyph_run.1.clone()));
         }
 
