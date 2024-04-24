@@ -209,6 +209,8 @@ impl shell::Application for Application {
         let current_transformation =
             current_translation * y_rotation * x_rotation * center_transformation;
 
+        let view_transformation = shell.pixel_matrix() * current_transformation;
+
         for glyph_run in &self.glyph_runs {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
             // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
@@ -217,7 +219,7 @@ impl shell::Application for Application {
             let local_offset_matrix =
                 Matrix4::from_translation((local_offset.0, local_offset.1, 0.0).into());
 
-            let matrix = shell.pixel_matrix() * current_transformation * local_offset_matrix;
+            let matrix = view_transformation * local_offset_matrix;
 
             // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep them stored.
             shapes.push(Shape::GlyphRun(matrix.into(), glyph_run.1.clone()));
