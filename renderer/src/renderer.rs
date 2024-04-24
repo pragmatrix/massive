@@ -2,15 +2,14 @@ use std::{mem, result};
 
 use log::info;
 use massive_geometry::Matrix4;
-use wgpu::{util::DeviceExt, StoreOp, VertexBufferLayout};
+use wgpu::{util::DeviceExt, StoreOp};
 
 use crate::{
     pipelines,
-    pods::{self, InstanceColor, TextureVertex},
+    pods::{self},
     primitives::{Pipeline, Primitive},
     shape, text_layer,
     texture::{self, Texture},
-    tools::BindGroupLayoutBuilder,
 };
 
 pub struct Renderer<'window> {
