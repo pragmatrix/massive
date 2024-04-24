@@ -51,15 +51,12 @@ impl ShapeRenderer {
     pub fn render(
         &mut self,
         context: &mut ShapeRendererContext,
-        view_projection_matrix: &Matrix4,
-        surface_matrix: &Matrix4,
+        surface_view_matrix: &Matrix4,
         shapes: &[Shape],
     ) -> Vec<Primitive> {
         let primitives = shapes
             .iter()
-            .flat_map(|shape| {
-                self.render_shape(context, view_projection_matrix, surface_matrix, shape)
-            })
+            .flat_map(|shape| self.render_shape(context, surface_view_matrix, shape))
             .collect();
 
         self.glyph_cache.flush_unused();
@@ -71,17 +68,19 @@ impl ShapeRenderer {
     fn render_shape(
         &mut self,
         context: &mut ShapeRendererContext,
-        view_projection_matrix: &Matrix4,
-        surface_matrix: &Matrix4,
+        surface_view_matrix: &Matrix4,
         shape: &Shape,
     ) -> Vec<Primitive> {
         match shape {
-            Shape::GlyphRun(model_matrix, glyph_run) => self.render_glyph_run(
-                context,
-                view_projection_matrix,
-                surface_matrix,
+            Shape::GlyphRun {
                 model_matrix,
-                glyph_run,
+                translation,
+                run,
+            } => self.render_glyph_run(
+                context,
+                surface_view_matrix,
+                &(**model_matrix * Matrix4::from_translation(*translation)),
+                run,
             ),
         }
     }
@@ -89,13 +88,12 @@ impl ShapeRenderer {
     fn render_glyph_run(
         &mut self,
         context: &mut ShapeRendererContext,
-        view_projection_matrix: &Matrix4,
-        surface_matrix: &Matrix4,
+        surface_view_matrix: &Matrix4,
         model_matrix: &Matrix4,
         glyph_run: &GlyphRun,
     ) -> Vec<Primitive> {
         // TODO: cache this.
-        let glyph_to_surface = surface_matrix * view_projection_matrix * *model_matrix;
+        let surface_run_matrix = surface_view_matrix * *model_matrix;
 
         let text_color_buffer = ColorBuffer::new(context.device, glyph_run.text_color);
 
@@ -108,7 +106,7 @@ impl ShapeRenderer {
                     model_matrix,
                     glyph_run,
                     &text_color_buffer,
-                    &glyph_to_surface,
+                    &surface_run_matrix,
                     glyph,
                 )
             })

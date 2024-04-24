@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, rc::Rc};
 
 use anyhow::Result;
 use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
@@ -209,21 +209,22 @@ impl shell::Application for Application {
         let current_transformation =
             current_translation * y_rotation * x_rotation * center_transformation;
 
-        let view_transformation = shell.pixel_matrix() * current_transformation;
+        let view_transformation = Rc::new(shell.pixel_matrix() * current_transformation);
 
         for glyph_run in &self.glyph_runs {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
             // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
 
             let local_offset = (glyph_run.0.x.floor(), glyph_run.0.y.floor());
-            let local_offset_matrix =
-                Matrix4::from_translation((local_offset.0, local_offset.1, 0.0).into());
-
-            let matrix = view_transformation * local_offset_matrix;
+            let local_translation = Vector3::new(local_offset.0, local_offset.1, 0.0);
 
             // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
             // them stored?
-            shapes.push(Shape::GlyphRun(matrix.into(), glyph_run.1.clone()));
+            shapes.push(Shape::GlyphRun {
+                model_matrix: view_transformation.clone(),
+                translation: local_translation,
+                run: glyph_run.1.clone(),
+            });
         }
 
         (self.camera, shapes)

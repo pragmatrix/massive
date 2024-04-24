@@ -1,13 +1,22 @@
 use std::rc::Rc;
 
 use cosmic_text as text;
-use massive_geometry::Color;
+use massive_geometry::{Color, Vector3};
 
 use crate::geometry::{Bounds, Matrix4};
 
 #[derive(Debug)]
 pub enum Shape {
-    GlyphRun(Rc<Matrix4>, GlyphRun),
+    /// This shape describes a number of glyphs that should be rendered at
+    GlyphRun {
+        // Model transformation
+        model_matrix: Rc<Matrix4>,
+        // Local translation of the glyph runs.
+        //
+        // This is separated from the view transformation matrix to support instancing of glyphs.
+        translation: Vector3,
+        run: GlyphRun,
+    },
 }
 
 #[derive(Debug, Clone)]

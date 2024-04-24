@@ -207,6 +207,8 @@ impl<'window> Shell<'window> {
                             let view_projection_matrix =
                                 camera.view_projection_matrix(Z_RANGE, surface_size);
 
+                            let surface_view_matrix = surface_matrix * view_projection_matrix;
+
                             let primitives = {
                                 // TODO: This is a mess.
                                 let mut font_system = self.font_system.lock().unwrap();
@@ -219,8 +221,7 @@ impl<'window> Shell<'window> {
                                 );
                                 self.shape_renderer.render(
                                     &mut shape_renderer_context,
-                                    &view_projection_matrix,
-                                    &surface_matrix,
+                                    &surface_view_matrix,
                                     &shapes,
                                 )
                             };
