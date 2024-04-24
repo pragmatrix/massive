@@ -2,12 +2,12 @@ use std::{mem, result};
 
 use log::info;
 use massive_geometry::Matrix4;
-use wgpu::{util::DeviceExt, StoreOp};
+use wgpu::{util::DeviceExt, StoreOp, VertexBufferLayout};
 
 use crate::{
-    pods::{self, TextureVertex},
+    pods::{self, InstanceColor, TextureVertex},
     primitives::{Pipeline, Primitive},
-    shape,
+    shape, text_layer,
     texture::{self, Texture},
     tools::BindGroupLayoutBuilder,
 };
@@ -50,6 +50,8 @@ impl<'window> Renderer<'window> {
 
         let texture_bind_group_layout = texture::BindGroupLayout::new(&device);
 
+        let text_layer_bind_group_layout = text_layer::BindGroupLayout::new(&device);
+
         let shape_bind_group_layout = shape::BindGroupLayout::new(&device);
 
         let quad_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -69,6 +71,7 @@ impl<'window> Renderer<'window> {
                 &device,
                 &view_projection_bind_group_layout,
                 &texture_bind_group_layout,
+                &text_layer_bind_group_layout,
                 &shape_bind_group_layout,
                 &targets,
             )
@@ -155,6 +158,9 @@ impl<'window> Renderer<'window> {
                                     0..1,
                                 );
                             }
+                            Primitive::TextLayer(..) => {
+                                todo!()
+                            }
                         }
                     }
                 }
@@ -226,16 +232,30 @@ fn create_pipelines(
     device: &wgpu::Device,
     view_projection_bind_group_layout: &wgpu::BindGroupLayout,
     texture_bind_group_layout: &wgpu::BindGroupLayout,
+    text_layer_bind_group_layout: &text_layer::BindGroupLayout,
     shape_bind_group_layout: &wgpu::BindGroupLayout,
     targets: &[Option<wgpu::ColorTargetState>],
 ) -> Vec<(Pipeline, wgpu::RenderPipeline)> {
+    let glyph_shader = &device.create_shader_module(wgpu::include_wgsl!("texture/glyph.wgsl"));
+
     let glyph_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Glyph Pipeline Layout"),
         bind_group_layouts: &[view_projection_bind_group_layout, texture_bind_group_layout],
         push_constant_ranges: &[],
     });
 
-    let glyph_shader = &device.create_shader_module(wgpu::include_wgsl!("texture/glyph.wgsl"));
+    let text_layer_shader =
+        &device.create_shader_module(wgpu::include_wgsl!("text_layer/text_layer.wgsl"));
+
+    let text_layer_pipeline_layout =
+        device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Text Layer Pipeline Layout"),
+            bind_group_layouts: &[
+                view_projection_bind_group_layout,
+                text_layer_bind_group_layout,
+            ],
+            push_constant_ranges: &[],
+        });
 
     let shape_shader = &device.create_shader_module(wgpu::include_wgsl!("shape/shape.wgsl"));
 
@@ -245,6 +265,9 @@ fn create_pipelines(
         push_constant_ranges: &[],
     });
 
+    let texture_vertex_layout = [TextureVertex::layout()];
+    let text_layer_vertex_layout = [TextureVertex::layout(), InstanceColor::layout()];
+
     [
         (
             Pipeline::PlanarGlyph,
@@ -253,6 +276,7 @@ fn create_pipelines(
                 device,
                 glyph_shader,
                 "fs_planar",
+                &texture_vertex_layout,
                 &glyph_pipeline_layout,
                 targets,
             ),
@@ -264,7 +288,20 @@ fn create_pipelines(
                 device,
                 glyph_shader,
                 "fs_sdf_glyph",
+                &texture_vertex_layout,
                 &glyph_pipeline_layout,
+                targets,
+            ),
+        ),
+        (
+            Pipeline::TextLayer,
+            create_pipeline(
+                "Text Layer Pipeline",
+                device,
+                text_layer_shader,
+                "fs_sdf_glyph",
+                &text_layer_vertex_layout,
+                &text_layer_pipeline_layout,
                 targets,
             ),
         ),
@@ -275,6 +312,7 @@ fn create_pipelines(
                 device,
                 shape_shader,
                 "fs_sdf_circle",
+                &texture_vertex_layout,
                 &shape_pipeline_layout,
                 targets,
             ),
@@ -286,6 +324,7 @@ fn create_pipelines(
                 device,
                 shape_shader,
                 "fs_sdf_rounded_rect",
+                &texture_vertex_layout,
                 &shape_pipeline_layout,
                 targets,
             ),
@@ -330,6 +369,7 @@ fn create_pipeline(
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
     fragment_shader_entry: &str,
+    vert_layout: &[VertexBufferLayout],
     render_pipeline_layout: &wgpu::PipelineLayout,
     targets: &[Option<wgpu::ColorTargetState>],
 ) -> wgpu::RenderPipeline {
@@ -339,7 +379,7 @@ fn create_pipeline(
         vertex: wgpu::VertexState {
             module: shader,
             entry_point: "vs_main",
-            buffers: &[TextureVertex::desc().clone()],
+            buffers: vert_layout,
         },
         fragment: Some(wgpu::FragmentState {
             module: shader,

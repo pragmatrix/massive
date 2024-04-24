@@ -134,11 +134,13 @@ impl<'window> Shell<'window> {
         };
         surface.configure(&device, &surface_config);
 
+        let shape_renderer = ShapeRenderer::default();
+
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
         Ok(Shell {
             font_system,
-            shape_renderer: ShapeRenderer::default(),
+            shape_renderer,
             renderer,
         })
     }

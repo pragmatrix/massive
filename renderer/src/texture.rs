@@ -1,8 +1,8 @@
-use massive_geometry::Point3;
 use tracing::{span, Level};
 use wgpu::util::DeviceExt;
 
 use crate::{pods::TextureVertex, primitives::Pipeline, texture, ColorBuffer};
+use massive_geometry::Point3;
 
 mod bind_group;
 mod view;

@@ -4,16 +4,16 @@
 
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
-
-use massive_geometry::{Matrix4, Point};
-use massive_shapes::{GlyphRun, PositionedGlyph, Shape};
+use tracing::instrument;
 
 use crate::{
-    glyph::{GlyphCache, GlyphClass, GlyphRenderParam},
+    glyph::{GlyphCache, GlyphClass, GlyphRenderParam, RenderGlyphKey},
     primitives::Primitive,
     texture::{self, Texture},
     ColorBuffer,
 };
+use massive_geometry::{Matrix4, Point};
+use massive_shapes::{GlyphRun, PositionedGlyph, Shape};
 
 #[derive(Default)]
 pub struct ShapeRenderer {
@@ -47,7 +47,7 @@ impl<'a> ShapeRendererContext<'a> {
 }
 
 impl ShapeRenderer {
-    #[tracing::instrument(skip_all)]
+    #[instrument(skip_all)]
     pub fn render(
         &mut self,
         context: &mut ShapeRendererContext,
@@ -153,8 +153,10 @@ impl ShapeRenderer {
             context.device,
             context.queue,
             context.font_system,
-            glyph.key,
-            render_param,
+            RenderGlyphKey {
+                text: glyph.key,
+                param: render_param,
+            },
         )?;
 
         // TODO: Need a i32 and f32 2D Rect here.

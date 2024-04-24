@@ -6,6 +6,7 @@ use cosmic_text::SwashImage;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
 
+use tracing::{info, instrument};
 use wgpu::{
     Device, Extent3d, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, Texture, TextureAspect,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
@@ -14,7 +15,7 @@ use wgpu::{
 
 use super::RenderGlyphKey;
 
-struct GlyphAtlas {
+pub struct GlyphAtlas {
     texture: AtlasTexture,
     allocator: BucketedAtlasAllocator,
     /// Storage of the available and (padded) Images.
@@ -84,6 +85,8 @@ impl GlyphAtlas {
             bail!("Atlas reached its maximum size of {current_dim}x{current_dim}");
         }
 
+        info!("Growing glyph atlas from {current_dim} to {new_dim}");
+
         // TODO: This allocates the new texture alongside the old for a short period of time.
         // If we won't use COPY_SRC, this should be avoided.
         self.texture = AtlasTexture::new(device, new_dim);
@@ -95,6 +98,7 @@ impl GlyphAtlas {
         Ok(())
     }
 
+    #[instrument(skip_all)]
     fn upload_all(&self, queue: &Queue) {
         for (allocation, image) in self.images.values() {
             self.upload(queue, image, allocation.rectangle.min)
@@ -102,6 +106,7 @@ impl GlyphAtlas {
     }
 
     /// Upload the image to the GPU into the atlas texture at the given position.
+    #[instrument(skip_all)]
     fn upload(&self, queue: &Queue, image: &SwashImage, pos: Point) {
         let (x, y) = (pos.x as u32, pos.y as u32);
         let (width, height) = (image.placement.width, image.placement.height);

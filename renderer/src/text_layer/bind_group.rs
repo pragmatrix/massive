@@ -1,21 +1,19 @@
 use derive_more::Deref;
+use wgpu::{BindGroup, BindGroupEntry, BindingResource, Device};
 
-use super::View;
-use crate::{tools::BindGroupLayoutBuilder, ColorBuffer};
+use crate::{texture::View, tools::BindGroupLayoutBuilder};
 
 /// The bind group layout of a texture.
 #[derive(Debug, Deref)]
 pub struct BindGroupLayout(wgpu::BindGroupLayout);
 
 impl BindGroupLayout {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &Device) -> Self {
         let layout = BindGroupLayoutBuilder::fragment()
             .texture()
             // Texture size
             .uniform()
             .sampler()
-            // Color
-            .uniform()
             .build("Texture Bind Group Layout", device);
 
         Self(layout)
@@ -23,16 +21,15 @@ impl BindGroupLayout {
 
     pub fn create_bind_group(
         &self,
-        device: &wgpu::Device,
+        device: &Device,
         view: &View,
         texture_sampler: &wgpu::Sampler,
-        color: &ColorBuffer,
-    ) -> wgpu::BindGroup {
+    ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Texture Bind Group"),
+            label: Some("Text Layer Bind Group"),
             layout: &self.0,
             entries: &[
-                wgpu::BindGroupEntry {
+                BindGroupEntry {
                     binding: 0,
                     resource: view.as_binding(),
                 },
@@ -40,13 +37,9 @@ impl BindGroupLayout {
                     binding: 1,
                     resource: view.size().as_binding(),
                 },
-                wgpu::BindGroupEntry {
+                BindGroupEntry {
                     binding: 2,
-                    resource: wgpu::BindingResource::Sampler(texture_sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: color.as_binding(),
+                    resource: BindingResource::Sampler(texture_sampler),
                 },
             ],
         })

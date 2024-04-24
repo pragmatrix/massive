@@ -4,6 +4,7 @@ use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;
 
 use massive_geometry::Point3;
+use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
 // We need this for Rust to store our data correctly for the shaders
 #[repr(C)]
@@ -74,13 +75,34 @@ pub struct TextureVertex {
 }
 
 impl TextureVertex {
-    pub fn desc() -> &'static wgpu::VertexBufferLayout<'static> {
-        const LAYOUT: wgpu::VertexBufferLayout = wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<TextureVertex>() as wgpu::BufferAddress,
-            step_mode: wgpu::VertexStepMode::Vertex,
-            attributes: &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2],
-        };
+    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRS: [VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
 
-        &LAYOUT
+        VertexBufferLayout {
+            array_stride: mem::size_of::<TextureVertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &ATTRS,
+        }
+    }
+}
+
+/// A color per instance, used in the TextLayer
+/// TODO: this does not belong here. Move these into `text_layer/``
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct InstanceColor {
+    pub color: [f32; 3],
+}
+
+impl InstanceColor {
+    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRS: [VertexAttribute; 1] = wgpu::vertex_attr_array![2 => Float32x3];
+
+        VertexBufferLayout {
+            array_stride: mem::size_of::<InstanceColor>() as BufferAddress,
+            step_mode: VertexStepMode::Instance,
+            attributes: &ATTRS,
+        }
     }
 }

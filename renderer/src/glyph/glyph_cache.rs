@@ -1,4 +1,7 @@
-use std::collections::{hash_map, HashMap, HashSet};
+use std::collections::{
+    hash_map::{self, Entry},
+    HashMap, HashSet,
+};
 
 use anyhow::Result;
 use cosmic_text as text;
@@ -28,20 +31,13 @@ impl GlyphCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         font_system: &mut text::FontSystem,
-        glyph_key: text::CacheKey,
-        glyph_param: GlyphRenderParam,
+        key: RenderGlyphKey,
     ) -> Option<&RenderGlyph> {
-        let key = RenderGlyphKey {
-            glyph_key,
-            glyph_param,
-        };
-
         self.retainer.insert(key.clone());
 
-        use hash_map::Entry::*;
         match self.cache.entry(key) {
-            Occupied(e) => e.into_mut().as_ref(),
-            Vacant(e) => {
+            Entry::Occupied(e) => e.into_mut().as_ref(),
+            Entry::Vacant(e) => {
                 let glyph = render_glyph(device, queue, font_system, &mut self.scaler, e.key());
                 e.insert(glyph).as_ref()
             }
@@ -57,8 +53,8 @@ impl GlyphCache {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RenderGlyphKey {
-    pub glyph_key: text::CacheKey,
-    pub glyph_param: GlyphRenderParam,
+    pub text: text::CacheKey,
+    pub param: GlyphRenderParam,
 }
 
 #[derive(Debug)]
@@ -75,7 +71,7 @@ fn render_glyph(
     scale_context: &mut ScaleContext,
     key: &RenderGlyphKey,
 ) -> Option<RenderGlyph> {
-    let image = render_glyph_image(font_system, scale_context, key.glyph_key)?;
+    let image = render_glyph_image(font_system, scale_context, key.text)?;
     if image.placement.width == 0 || image.placement.height == 0 {
         return None;
     }
@@ -85,11 +81,11 @@ fn render_glyph(
     }
 
     if let Ok((placement, texture_view)) =
-        image_to_gpu_texture(device, queue, &image, &key.glyph_param)
+        image_to_gpu_texture(device, queue, &image, &key.param)
     {
         Some(RenderGlyph {
             placement,
-            pipeline: key.glyph_param.pipeline(),
+            pipeline: key.param.pipeline(),
             texture_view,
         })
     } else {

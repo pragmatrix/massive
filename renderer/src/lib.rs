@@ -6,6 +6,7 @@ mod renderer;
 mod shape;
 mod shape_renderer;
 mod size_buffer;
+mod text_layer;
 mod texture;
 mod tools;
 

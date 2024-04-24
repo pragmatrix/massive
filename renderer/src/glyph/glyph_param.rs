@@ -1,7 +1,7 @@
 use super::GlyphClass;
 use crate::primitives::Pipeline;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GlyphRenderParam {
     // TODO: Add scaling
     pub sdf: bool,
