@@ -51,6 +51,7 @@ impl ShapeRenderer {
     pub fn render(
         &mut self,
         context: &mut ShapeRendererContext,
+        // Needed to compute pixel / planar classification.
         surface_view_matrix: &Matrix4,
         shapes: &[Shape],
     ) -> Vec<Primitive> {
