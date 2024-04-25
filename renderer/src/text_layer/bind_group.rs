@@ -11,7 +11,7 @@ impl BindGroupLayout {
     pub fn new(device: &Device) -> Self {
         let layout = BindGroupLayoutBuilder::fragment()
             .texture()
-            // Texture size
+            // Texture size.
             .uniform()
             .sampler()
             .build("Texture Bind Group Layout", device);

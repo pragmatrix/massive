@@ -134,7 +134,7 @@ impl<'window> Shell<'window> {
         };
         surface.configure(&device, &surface_config);
 
-        let shape_renderer = ShapeRenderer::default();
+        let shape_renderer = ShapeRenderer::new(&device);
 
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
@@ -215,7 +215,6 @@ impl<'window> Shell<'window> {
                                 let mut shape_renderer_context = ShapeRendererContext::new(
                                     &self.renderer.device,
                                     &self.renderer.queue,
-                                    &self.renderer.texture_sampler,
                                     &self.renderer.texture_bind_group_layout,
                                     &mut font_system,
                                 );

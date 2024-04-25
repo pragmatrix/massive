@@ -132,17 +132,6 @@ pub fn create_view_projection_bind_group(
     (layout, bind_group)
 }
 
-pub fn create_texture_sampler(device: &wgpu::Device) -> wgpu::Sampler {
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("Texture Sampler"),
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        ..Default::default()
-    })
-}
-
 fn create_pipeline(
     label: &str,
     device: &wgpu::Device,

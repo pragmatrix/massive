@@ -20,7 +20,9 @@ pub struct Renderer<'window> {
 
     view_projection_buffer: wgpu::Buffer,
     view_projection_bind_group: wgpu::BindGroup,
-    pub texture_sampler: wgpu::Sampler,
+
+    // TODO: this doesn't belong here and is used only for specific pipelines. We need some
+    // per-pipeline information types.
     pub texture_bind_group_layout: texture::BindGroupLayout,
 
     pipelines: Vec<(Pipeline, wgpu::RenderPipeline)>,
@@ -45,8 +47,6 @@ impl<'window> Renderer<'window> {
 
         let (view_projection_bind_group_layout, view_projection_bind_group) =
             pipelines::create_view_projection_bind_group(&device, &view_projection_buffer);
-
-        let texture_sampler = pipelines::create_texture_sampler(&device);
 
         let texture_bind_group_layout = texture::BindGroupLayout::new(&device);
 
@@ -84,7 +84,6 @@ impl<'window> Renderer<'window> {
             surface_config,
             view_projection_buffer,
             view_projection_bind_group,
-            texture_sampler,
             texture_bind_group_layout,
             pipelines,
 

@@ -5,25 +5,26 @@
 use cgmath::{Point2, Transform};
 use cosmic_text as text;
 use tracing::instrument;
+use wgpu::Device;
 
 use crate::{
     glyph::{GlyphCache, GlyphClass, GlyphRenderParam, RenderGlyphKey},
     primitives::Primitive,
     texture::{self, Texture},
+    tools::texture_sampler,
     ColorBuffer,
 };
 use massive_geometry::{Matrix4, Point};
 use massive_shapes::{GlyphRun, PositionedGlyph, Shape};
 
-#[derive(Default)]
 pub struct ShapeRenderer {
+    texture_sampler: wgpu::Sampler,
     glyph_cache: GlyphCache,
 }
 
 pub struct ShapeRendererContext<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
-    pub texture_sampler: &'a wgpu::Sampler,
     pub texture_bind_group_layout: &'a texture::BindGroupLayout,
     pub font_system: &'a mut text::FontSystem,
 }
@@ -32,14 +33,12 @@ impl<'a> ShapeRendererContext<'a> {
     pub fn new(
         device: &'a wgpu::Device,
         queue: &'a wgpu::Queue,
-        texture_sampler: &'a wgpu::Sampler,
         texture_bind_group_layout: &'a texture::BindGroupLayout,
         font_system: &'a mut text::FontSystem,
     ) -> Self {
         Self {
             device,
             queue,
-            texture_sampler,
             texture_bind_group_layout,
             font_system,
         }
@@ -47,6 +46,13 @@ impl<'a> ShapeRendererContext<'a> {
 }
 
 impl ShapeRenderer {
+    pub fn new(device: &Device) -> Self {
+        Self {
+            texture_sampler: texture_sampler::linear_clamping(device),
+            glyph_cache: GlyphCache::default(),
+        }
+    }
+
     #[instrument(skip_all)]
     pub fn render(
         &mut self,
@@ -192,7 +198,7 @@ impl ShapeRenderer {
             context.device,
             pipeline,
             context.texture_bind_group_layout,
-            context.texture_sampler,
+            &self.texture_sampler,
             &render_glyph.texture_view,
             color_buffer,
             &transformed,
