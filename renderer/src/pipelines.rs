@@ -3,14 +3,14 @@ use wgpu::VertexBufferLayout;
 use crate::{
     pods::{InstanceColor, TextureVertex},
     primitives::Pipeline,
-    text_layer,
+    text_layer, texture,
     tools::BindGroupLayoutBuilder,
 };
 
 pub fn create(
     device: &wgpu::Device,
     view_projection_bind_group_layout: &wgpu::BindGroupLayout,
-    texture_bind_group_layout: &wgpu::BindGroupLayout,
+    texture_bind_group_layout: &texture::BindGroupLayout,
     text_layer_bind_group_layout: &text_layer::BindGroupLayout,
     shape_bind_group_layout: &wgpu::BindGroupLayout,
     targets: &[Option<wgpu::ColorTargetState>],

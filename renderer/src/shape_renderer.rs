@@ -17,11 +17,6 @@ use crate::{
 use massive_geometry::{Matrix4, Point};
 use massive_shapes::{GlyphRun, PositionedGlyph, Shape};
 
-pub struct ShapeRenderer {
-    texture_sampler: wgpu::Sampler,
-    glyph_cache: GlyphCache,
-}
-
 pub struct ShapeRendererContext<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
@@ -43,6 +38,11 @@ impl<'a> ShapeRendererContext<'a> {
             font_system,
         }
     }
+}
+
+pub struct ShapeRenderer {
+    texture_sampler: wgpu::Sampler,
+    glyph_cache: GlyphCache,
 }
 
 impl ShapeRenderer {
