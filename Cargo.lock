@@ -3163,6 +3163,7 @@ dependencies = [
  "derive_more",
  "etagere",
  "euclid",
+ "itertools 0.12.1",
  "log",
  "massive-geometry",
  "massive-shapes",

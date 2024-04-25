@@ -8,7 +8,7 @@ use tracing::instrument;
 use wgpu::Device;
 
 use crate::{
-    glyph::{GlyphCache, GlyphClass, GlyphRenderParam, RenderGlyphKey},
+    glyph::{GlyphCache, GlyphClass, GlyphRasterizationParam, RasterizedGlyphKey},
     primitives::Primitive,
     texture::{self, Texture},
     tools::texture_sampler,
@@ -151,14 +151,14 @@ impl ShapeRenderer {
         // Classify
         let class = GlyphClass::from_transformed_pixel(&surface_points);
 
-        let render_param: GlyphRenderParam = class.into();
+        let render_param: GlyphRasterizationParam = class.into();
         let pipeline = render_param.pipeline();
 
         let render_glyph = self.glyph_cache.get(
             context.device,
             context.queue,
             context.font_system,
-            RenderGlyphKey {
+            RasterizedGlyphKey {
                 text: glyph.key,
                 param: render_param,
             },

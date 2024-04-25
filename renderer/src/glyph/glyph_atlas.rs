@@ -13,13 +13,13 @@ use wgpu::{
     TextureViewDescriptor,
 };
 
-use super::RenderGlyphKey;
+use super::RasterizedGlyphKey;
 
 pub struct GlyphAtlas {
     texture: AtlasTexture,
     allocator: BucketedAtlasAllocator,
     /// Storage of the available and (padded) Images.
-    images: HashMap<RenderGlyphKey, (Allocation, SwashImage)>,
+    images: HashMap<RasterizedGlyphKey, (Allocation, SwashImage)>,
 }
 
 impl GlyphAtlas {
@@ -40,7 +40,7 @@ impl GlyphAtlas {
         }
     }
 
-    pub fn exists(&self, key: &RenderGlyphKey) -> bool {
+    pub fn exists(&self, key: &RasterizedGlyphKey) -> bool {
         self.images.contains_key(key)
     }
 
@@ -49,7 +49,7 @@ impl GlyphAtlas {
         &mut self,
         device: &Device,
         queue: &Queue,
-        key: &RenderGlyphKey,
+        key: &RasterizedGlyphKey,
         image: SwashImage,
     ) -> Result<()> {
         debug_assert!(!self.exists(key));

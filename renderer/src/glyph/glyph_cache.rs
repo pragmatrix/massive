@@ -9,9 +9,9 @@ use log::warn;
 use swash::scale::ScaleContext;
 use text::SwashContent;
 
-use super::{glyph_image_renderer::render_sdf, glyph_param::GlyphRenderParam};
+use super::{glyph_param::GlyphRasterizationParam, glyph_rasterization::render_sdf};
 use crate::{
-    glyph::glyph_image_renderer::{pad_image, render_glyph_image},
+    glyph::glyph_rasterization::{pad_image, rasterize_glyph},
     primitives::Pipeline,
     texture,
 };
@@ -19,8 +19,8 @@ use crate::{
 #[derive(Default)]
 pub struct GlyphCache {
     scaler: ScaleContext,
-    cache: HashMap<RenderGlyphKey, Option<RenderGlyph>>,
-    retainer: HashSet<RenderGlyphKey>,
+    cache: HashMap<RasterizedGlyphKey, Option<RenderGlyph>>,
+    retainer: HashSet<RasterizedGlyphKey>,
 }
 
 impl GlyphCache {
@@ -31,7 +31,7 @@ impl GlyphCache {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         font_system: &mut text::FontSystem,
-        key: RenderGlyphKey,
+        key: RasterizedGlyphKey,
     ) -> Option<&RenderGlyph> {
         self.retainer.insert(key.clone());
 
@@ -52,9 +52,9 @@ impl GlyphCache {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct RenderGlyphKey {
+pub struct RasterizedGlyphKey {
     pub text: text::CacheKey,
-    pub param: GlyphRenderParam,
+    pub param: GlyphRasterizationParam,
 }
 
 #[derive(Debug)]
@@ -69,9 +69,10 @@ fn render_glyph(
     queue: &wgpu::Queue,
     font_system: &mut text::FontSystem,
     scale_context: &mut ScaleContext,
-    key: &RenderGlyphKey,
+    key: &RasterizedGlyphKey,
 ) -> Option<RenderGlyph> {
-    let image = render_glyph_image(font_system, scale_context, key.text)?;
+    // TODO: use rasterize_padded_glyph()!
+    let image = rasterize_glyph(font_system, scale_context, key.text, key.param.hinted)?;
     if image.placement.width == 0 || image.placement.height == 0 {
         return None;
     }
@@ -80,26 +81,23 @@ fn render_glyph(
         return None;
     }
 
-    if let Ok((placement, texture_view)) =
-        image_to_gpu_texture(device, queue, &image, &key.param)
-    {
-        Some(RenderGlyph {
-            placement,
-            pipeline: key.param.pipeline(),
-            texture_view,
-        })
-    } else {
-        None
-    }
+    // TODO: propagate errors.
+    let (placement, texture_view) =
+        image_to_gpu_texture(device, queue, &image, key.param.sdf).ok()?;
+    Some(RenderGlyph {
+        placement,
+        pipeline: key.param.pipeline(),
+        texture_view,
+    })
 }
 
 fn image_to_gpu_texture(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     image: &text::SwashImage,
-    param: &GlyphRenderParam,
+    sdf: bool,
 ) -> Result<(text::Placement, texture::View)> {
-    if param.sdf {
+    if sdf {
         return render_sdf(image)
             .map(|sdf_image| {
                 (

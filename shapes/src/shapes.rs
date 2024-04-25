@@ -14,6 +14,7 @@ pub enum Shape {
         // Local translation of the glyph runs.
         //
         // This is separated from the view transformation matrix to support instancing of glyphs.
+        // TODO: May put this into [`GlyphRun`]
         translation: Vector3,
         run: GlyphRun,
     },
@@ -50,6 +51,7 @@ impl GlyphRunMetrics {
     }
 }
 
+/// A glyph positioned inside a [`GlyphRun`].
 #[derive(Debug, Clone)]
 pub struct PositionedGlyph {
     // This is for rendering the image of the glyph.
