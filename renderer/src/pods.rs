@@ -99,6 +99,7 @@ impl TextureVertex {
 pub struct TextureColorVertex {
     pub position: Vertex,
     pub tex_coords: [f32; 2],
+    // OO: Use one byte per color component?
     pub color: Color3,
 }
 
