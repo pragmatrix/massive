@@ -165,7 +165,7 @@ impl<'window> Renderer<'window> {
                                 render_pass.set_bind_group(1, bind_group, &[]);
                                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                                 render_pass.draw_indexed(
-                                    0..Self::QUAD_INDICES.len() as u32,
+                                    0..QuadIndexBuffer::QUAD_INDICES_COUNT as u32,
                                     0,
                                     0..1,
                                 );
@@ -174,8 +174,7 @@ impl<'window> Renderer<'window> {
                                 fragment_shader_bind_group,
                                 model_matrix,
                                 vertex_buffer,
-                                instance_buffer,
-                                instance_count,
+                                quad_count,
                             }) => {
                                 let text_layer_matrix = *view_projection_matrix * model_matrix;
 
@@ -189,12 +188,11 @@ impl<'window> Renderer<'window> {
 
                                 render_pass.set_bind_group(1, fragment_shader_bind_group, &[]);
                                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                                render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
 
                                 render_pass.draw_indexed(
-                                    0..Self::QUAD_INDICES.len() as u32,
+                                    0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
                                     0,
-                                    0..*instance_count as u32,
+                                    0..1,
                                 )
                             }
                         }
@@ -208,8 +206,6 @@ impl<'window> Renderer<'window> {
         surface_texture.present();
         Ok(())
     }
-
-    const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
 
     fn queue_view_projection_matrix(&self, view_projection_matrix: &Matrix4) {
         let view_projection_uniform = {
@@ -303,7 +299,7 @@ impl QuadIndexBuffer {
     }
 
     fn generate_array(&self, quads: usize) -> Vec<u16> {
-        let mut v = Vec::with_capacity(quads * Self::QUAD_INDICES.len());
+        let mut v = Vec::with_capacity(Self::QUAD_INDICES.len() * quads);
 
         (0..quads).for_each(|quad_index| {
             v.extend(
@@ -317,6 +313,7 @@ impl QuadIndexBuffer {
     }
 
     const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
+    const QUAD_INDICES_COUNT: usize = Self::QUAD_INDICES.len();
 
     fn create_buffer(device: &Device, indices: &[u16]) -> wgpu::Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

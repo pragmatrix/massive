@@ -12,6 +12,5 @@ pub struct TextLayer {
     pub model_matrix: Matrix4,
     pub fragment_shader_bind_group: BindGroup,
     pub vertex_buffer: wgpu::Buffer,
-    pub instance_buffer: wgpu::Buffer,
-    pub instance_count: usize,
+    pub quad_count: usize,
 }

@@ -19,7 +19,7 @@ use crate::{
         glyph_atlas, glyph_rasterization::rasterize_padded_glyph, GlyphAtlas,
         GlyphRasterizationParam, RasterizedGlyphKey,
     },
-    pods::{InstanceColor, TextureVertex},
+    pods::{InstanceColor, TextureColorVertex, TextureVertex},
     primitives::Primitive,
     text_layer::{self, TextLayer},
     tools::texture_sampler,
@@ -155,11 +155,12 @@ impl ShapeLayerRenderer {
             let (rbx, rby) = (r.max.x as f32 * to_uv_h, r.max.y as f32 * to_uv_v);
 
             let v = &instance.vertices;
+            let color = instance.color;
             vertices.extend([
-                TextureVertex::new(v[0], (ltx, lty)),
-                TextureVertex::new(v[1], (ltx, rby)),
-                TextureVertex::new(v[2], (rbx, rby)),
-                TextureVertex::new(v[3], (rbx, lty)),
+                TextureColorVertex::new(v[0], (ltx, lty), color),
+                TextureColorVertex::new(v[1], (ltx, rby), color),
+                TextureColorVertex::new(v[2], (rbx, rby), color),
+                TextureColorVertex::new(v[3], (rbx, lty), color),
             ]);
 
             instance_colors.push(InstanceColor::from(instance.color))
@@ -170,12 +171,6 @@ impl ShapeLayerRenderer {
         let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
             label: Some("Text Layer Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
-            usage: BufferUsages::VERTEX,
-        });
-
-        let instance_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Text Layer Instance Color Buffer"),
-            contents: bytemuck::cast_slice(&instance_colors),
             usage: BufferUsages::VERTEX,
         });
 
@@ -193,8 +188,7 @@ impl ShapeLayerRenderer {
             model_matrix: *model_matrix,
             fragment_shader_bind_group: bind_group,
             vertex_buffer,
-            instance_buffer,
-            instance_count: instances.len(),
+            quad_count: instances.len(),
         };
 
         Ok(Some(text_layer))

@@ -6,28 +6,23 @@ var<uniform> view_model: mat4x4<f32>;
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
-}
-
-struct InstanceInput {
     @location(2) color: vec3<f32>,
 }
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) tex_coords: vec2<f32>,
-    // From instance
     @location(1) @interpolate(flat) color: vec3<f32>,
 }
 
 @vertex
 fn vs_main(
     vertex_input: VertexInput,
-    instance_input: InstanceInput
 ) -> VertexOutput {
     var out: VertexOutput;
     out.tex_coords = vertex_input.tex_coords;
     out.clip_position = view_model * vec4<f32>(vertex_input.position, 1.0);
-    out.color = instance_input.color;
+    out.color = vertex_input.color;
     return out;
 }
 

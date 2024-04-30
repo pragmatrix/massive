@@ -19,7 +19,10 @@ impl Primitive {
     pub fn quads(&self) -> usize {
         match self {
             Self::Texture(_) => 1,
-            Self::TextLayer(TextLayer { instance_count, .. }) => *instance_count,
+            Self::TextLayer(TextLayer {
+                quad_count: instance_count,
+                ..
+            }) => *instance_count,
         }
     }
 }
