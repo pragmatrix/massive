@@ -1,8 +1,11 @@
-use std::{mem, result};
+use std::{
+    mem::{self, size_of, size_of_val},
+    result,
+};
 
 use log::info;
 use massive_geometry::Matrix4;
-use wgpu::{util::DeviceExt, StoreOp};
+use wgpu::{util::DeviceExt, Device, StoreOp};
 
 use crate::{
     pipelines, pods,
@@ -28,7 +31,7 @@ pub struct Renderer<'window> {
 
     pipelines: Vec<(Pipeline, wgpu::RenderPipeline)>,
 
-    quad_index_buffer: wgpu::Buffer,
+    index_buffer: QuadIndexBuffer,
 }
 
 impl<'window> Renderer<'window> {
@@ -55,11 +58,7 @@ impl<'window> Renderer<'window> {
 
         let shape_bind_group_layout = shape::BindGroupLayout::new(&device);
 
-        let quad_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Index Buffer"),
-            contents: bytemuck::cast_slice(Self::QUAD_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let index_buffer = QuadIndexBuffer::new(&device);
 
         let pipelines = {
             let targets = [Some(wgpu::ColorTargetState {
@@ -89,7 +88,7 @@ impl<'window> Renderer<'window> {
             text_layer_bind_group_layout,
             pipelines,
 
-            quad_index_buffer,
+            index_buffer,
         };
 
         renderer.reconfigure_surface();
@@ -108,6 +107,17 @@ impl<'window> Renderer<'window> {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Prepare the index buffer.
+
+        self.index_buffer.ensure_quads(
+            &self.device,
+            primitives
+                .iter()
+                .map(|p| p.quads())
+                .max()
+                .unwrap_or_default(),
+        );
 
         self.queue_view_projection_matrix(view_projection_matrix);
 
@@ -140,7 +150,7 @@ impl<'window> Renderer<'window> {
                     render_pass.set_pipeline(pipeline);
                     render_pass.set_bind_group(0, &self.view_projection_bind_group, &[]);
                     render_pass.set_index_buffer(
-                        self.quad_index_buffer.slice(..),
+                        self.index_buffer.buffer.slice(..),
                         wgpu::IndexFormat::Uint16,
                     );
 
@@ -250,5 +260,60 @@ impl<'window> Renderer<'window> {
     pub fn reconfigure_surface(&mut self) {
         info!("Reconfiguring surface {:?}", self.surface_config);
         self.surface.configure(&self.device, &self.surface_config)
+    }
+
+    fn prepare_index_buffer(&mut self, max_quads: usize) {}
+}
+
+struct QuadIndexBuffer {
+    buffer: wgpu::Buffer,
+}
+
+impl QuadIndexBuffer {
+    pub fn new(device: &Device) -> Self {
+        // OO: Provide a good initial size.
+        const NO_INDICES: [u16; 0] = [];
+        Self {
+            buffer: Self::create_buffer(device, &NO_INDICES),
+        }
+    }
+
+    pub fn quads(&self) -> usize {
+        (self.buffer.size() as usize) / size_of_val(Self::QUAD_INDICES)
+    }
+
+    pub fn ensure_quads(&mut self, device: &Device, new_quad_count: usize) {
+        if new_quad_count <= self.quads() {
+            return;
+        }
+
+        let indices = Self::generate_array(self, new_quad_count);
+        let buffer = Self::create_buffer(device, &indices);
+
+        self.buffer = buffer;
+    }
+
+    fn generate_array(&self, quads: usize) -> Vec<u16> {
+        let mut v = Vec::with_capacity(quads * Self::QUAD_INDICES.len());
+
+        (0..quads).for_each(|quad_index| {
+            v.extend(
+                Self::QUAD_INDICES
+                    .iter()
+                    .map(|i| *i + (quad_index * 4) as u16),
+            )
+        });
+
+        v
+    }
+
+    const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
+
+    fn create_buffer(device: &Device, indices: &[u16]) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Quad Index Buffer"),
+            contents: bytemuck::cast_slice(indices),
+            usage: wgpu::BufferUsages::INDEX,
+        })
     }
 }

@@ -14,6 +14,14 @@ impl Primitive {
             Self::TextLayer { .. } => Pipeline::TextLayer,
         }
     }
+
+    /// How many quads are in this primitive?
+    pub fn quads(&self) -> usize {
+        match self {
+            Self::Texture(_) => 1,
+            Self::TextLayer(TextLayer { instance_count, .. }) => *instance_count,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
