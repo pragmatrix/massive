@@ -13,9 +13,7 @@ use winit::{
 };
 
 use massive_geometry::{scalar, Camera, Matrix4};
-use massive_renderer::{
-    Renderer, ShapeLayerRenderer, ShapeLayerRendererContext, ShapeRenderer, ShapeRendererContext,
-};
+use massive_renderer::{Renderer, ShapeLayerRenderer, ShapeLayerRendererContext};
 use massive_shapes::Shape;
 
 pub trait Application {
@@ -37,7 +35,7 @@ pub async fn run<A: Application + 'static>(
 
 pub struct Shell<'window> {
     pub font_system: Arc<Mutex<text::FontSystem>>,
-    shape_renderer: ShapeRenderer,
+    // shape_renderer: ShapeRenderer,
     shape_layer_renderer: ShapeLayerRenderer,
     renderer: Renderer<'window>,
 }
@@ -137,7 +135,7 @@ impl<'window> Shell<'window> {
         };
         surface.configure(&device, &surface_config);
 
-        let shape_renderer = ShapeRenderer::new(&device);
+        // let shape_renderer = ShapeRenderer::new(&device);
 
         let shape_layer_renderer = ShapeLayerRenderer::new(&device);
 
@@ -145,7 +143,7 @@ impl<'window> Shell<'window> {
 
         Ok(Shell {
             font_system,
-            shape_renderer,
+            // shape_renderer,
             shape_layer_renderer,
             renderer,
         })
@@ -208,7 +206,7 @@ impl<'window> Shell<'window> {
                         }
                         WindowEvent::RedrawRequested => {
                             let (camera, shapes) = application.render(self);
-                            let surface_matrix = self.renderer.surface_matrix();
+                            // let surface_matrix = self.renderer.surface_matrix();
                             let surface_size = self.renderer.surface_size();
                             let view_projection_matrix =
                                 camera.view_projection_matrix(Z_RANGE, surface_size);

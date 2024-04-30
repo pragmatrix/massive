@@ -19,7 +19,7 @@ use crate::{
         glyph_atlas, glyph_rasterization::rasterize_padded_glyph, GlyphAtlas,
         GlyphRasterizationParam, RasterizedGlyphKey,
     },
-    pods::{InstanceColor, TextureColorVertex, TextureVertex},
+    pods::TextureColorVertex,
     primitives::Primitive,
     text_layer::{self, TextLayer},
     tools::texture_sampler,

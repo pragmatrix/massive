@@ -10,7 +10,7 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
-use massive_geometry::{Camera, Color, Matrix4, Vector3};
+use massive_geometry::{Camera, Color, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape};
 use massive_shell::{self as shell, Shell};
 

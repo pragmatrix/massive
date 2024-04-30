@@ -75,6 +75,7 @@ pub struct TextureVertex {
 }
 
 impl TextureVertex {
+    #[allow(unused)]
     pub fn new(position: impl Into<Vertex>, uv: (f32, f32)) -> Self {
         Self {
             position: position.into(),
@@ -144,6 +145,7 @@ pub struct InstanceColor {
 }
 
 impl InstanceColor {
+    #[allow(unused)]
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 1] = wgpu::vertex_attr_array![2 => Float32x3];
 

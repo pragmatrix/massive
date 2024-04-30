@@ -1,11 +1,10 @@
 use std::{
-    mem::{self, size_of, size_of_val},
+    mem::{self, size_of_val},
     result,
 };
 
 use log::info;
 use massive_geometry::Matrix4;
-use tracing::debug;
 use wgpu::{util::DeviceExt, Device, StoreOp};
 
 use crate::{

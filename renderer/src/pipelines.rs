@@ -1,7 +1,7 @@
 use wgpu::VertexBufferLayout;
 
 use crate::{
-    pods::{InstanceColor, TextureColorVertex, TextureVertex},
+    pods::{TextureColorVertex, TextureVertex},
     primitives::Pipeline,
     text_layer, texture,
     tools::BindGroupLayoutBuilder,
