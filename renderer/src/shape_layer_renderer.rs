@@ -146,7 +146,6 @@ impl ShapeLayerRenderer {
         };
 
         let mut vertices = Vec::with_capacity(instances.len() * 4);
-        let mut instance_colors = Vec::with_capacity(instances.len());
 
         for instance in &instances {
             let r = instance.atlas_rect;
@@ -162,8 +161,6 @@ impl ShapeLayerRenderer {
                 TextureColorVertex::new(v[2], (rbx, rby), color),
                 TextureColorVertex::new(v[3], (rbx, lty), color),
             ]);
-
-            instance_colors.push(InstanceColor::from(instance.color))
         }
 
         let device = context.device;
