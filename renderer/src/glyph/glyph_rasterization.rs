@@ -17,7 +17,7 @@ use super::{
 pub fn rasterize_padded_glyph(
     font_system: &mut text::FontSystem,
     context: &mut ScaleContext,
-    key: RasterizedGlyphKey,
+    key: &RasterizedGlyphKey,
 ) -> Option<text::SwashImage> {
     let param = key.param;
     let without_padding = rasterize_glyph(font_system, context, key.text, param.hinted)?;

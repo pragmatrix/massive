@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use anyhow::{bail, Result};
 use cosmic_text::SwashImage;
+pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
 
@@ -40,8 +41,17 @@ impl GlyphAtlas {
         }
     }
 
-    pub fn exists(&self, key: &RasterizedGlyphKey) -> bool {
-        self.images.contains_key(key)
+    pub fn size(&self) -> (u32, u32) {
+        let dim = self.texture.dim();
+        (dim, dim)
+    }
+
+    pub fn texture_view(&self) -> &TextureView {
+        self.texture.view()
+    }
+
+    pub fn get(&self, key: &RasterizedGlyphKey) -> Option<(Rectangle, &SwashImage)> {
+        self.images.get(key).map(|(a, image)| (a.rectangle, image))
     }
 
     /// Makes room and stores a SwashImage in the texture atlas. May reallocate / grow it.
@@ -51,8 +61,8 @@ impl GlyphAtlas {
         queue: &Queue,
         key: &RasterizedGlyphKey,
         image: SwashImage,
-    ) -> Result<()> {
-        debug_assert!(!self.exists(key));
+    ) -> Result<Rectangle> {
+        debug_assert!(!self.images.contains_key(key));
 
         let (w, h) = (image.placement.width as i32, image.placement.height as i32);
         let size = size2(w, h);
@@ -60,11 +70,15 @@ impl GlyphAtlas {
         loop {
             let allocation = self.allocator.allocate(size);
             if let Some(allocation) = allocation {
-                debug_assert_eq!(allocation.rectangle.size(), size);
+                // Allocation might be larger.
+                let allocated_size = allocation.rectangle.size();
+
+                debug_assert!(allocated_size.width >= size.width);
+                debug_assert!(allocated_size.height >= size.height);
                 self.upload(queue, &image, allocation.rectangle.min);
                 // commit
                 self.images.insert(key.clone(), (allocation, image));
-                return Ok(());
+                return Ok(allocation.rectangle);
             }
 
             self.grow(device, queue)?
@@ -165,5 +179,9 @@ impl AtlasTexture {
 
     pub fn dim(&self) -> u32 {
         self.texture.width()
+    }
+
+    pub fn view(&self) -> &TextureView {
+        &self.view
     }
 }

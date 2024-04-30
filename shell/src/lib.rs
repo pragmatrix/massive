@@ -13,7 +13,9 @@ use winit::{
 };
 
 use massive_geometry::{scalar, Camera, Matrix4};
-use massive_renderer::{Renderer, ShapeRenderer, ShapeRendererContext};
+use massive_renderer::{
+    Renderer, ShapeLayerRenderer, ShapeLayerRendererContext, ShapeRenderer, ShapeRendererContext,
+};
 use massive_shapes::Shape;
 
 pub trait Application {
@@ -36,6 +38,7 @@ pub async fn run<A: Application + 'static>(
 pub struct Shell<'window> {
     pub font_system: Arc<Mutex<text::FontSystem>>,
     shape_renderer: ShapeRenderer,
+    shape_layer_renderer: ShapeLayerRenderer,
     renderer: Renderer<'window>,
 }
 
@@ -136,11 +139,14 @@ impl<'window> Shell<'window> {
 
         let shape_renderer = ShapeRenderer::new(&device);
 
+        let shape_layer_renderer = ShapeLayerRenderer::new(&device);
+
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
         Ok(Shell {
             font_system,
             shape_renderer,
+            shape_layer_renderer,
             renderer,
         })
     }
@@ -207,22 +213,35 @@ impl<'window> Shell<'window> {
                             let view_projection_matrix =
                                 camera.view_projection_matrix(Z_RANGE, surface_size);
 
-                            let surface_view_matrix = surface_matrix * view_projection_matrix;
+                            // let surface_view_matrix = surface_matrix * view_projection_matrix;
 
                             let primitives = {
                                 // TODO: This is a mess.
                                 let mut font_system = self.font_system.lock().unwrap();
-                                let mut shape_renderer_context = ShapeRendererContext::new(
+                                // let mut shape_renderer_context = ShapeRendererContext::new(
+                                //     &self.renderer.device,
+                                //     &self.renderer.queue,
+                                //     &self.renderer.texture_bind_group_layout,
+                                //     &mut font_system,
+                                // );
+                                // self.shape_renderer.render(
+                                //     &mut shape_renderer_context,
+                                //     &surface_view_matrix,
+                                //     &shapes,
+                                // )
+                                let mut shape_renderer_context = ShapeLayerRendererContext::new(
                                     &self.renderer.device,
                                     &self.renderer.queue,
-                                    &self.renderer.texture_bind_group_layout,
+                                    &self.renderer.text_layer_bind_group_layout,
                                     &mut font_system,
                                 );
-                                self.shape_renderer.render(
-                                    &mut shape_renderer_context,
-                                    &surface_view_matrix,
-                                    &shapes,
-                                )
+                                self.shape_layer_renderer
+                                    .render(
+                                        &mut shape_renderer_context,
+                                        // &surface_view_matrix,
+                                        &shapes,
+                                    )
+                                    .expect("Primitive generation failed")
                             };
                             // TODO: pass primitives as value.
                             match self

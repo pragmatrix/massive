@@ -34,11 +34,11 @@ impl BindGroupLayout {
             entries: &[
                 wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: view.as_binding(),
+                    resource: view.as_binding_resource(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: view.size().as_binding(),
+                    resource: view.size().as_binding_resource(),
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
@@ -46,7 +46,7 @@ impl BindGroupLayout {
                 },
                 wgpu::BindGroupEntry {
                     binding: 3,
-                    resource: color.as_binding(),
+                    resource: color.as_binding_resource(),
                 },
             ],
         })

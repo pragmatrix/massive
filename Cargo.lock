@@ -3178,6 +3178,7 @@ dependencies = [
 name = "massive-shapes"
 version = "0.1.0"
 dependencies = [
+ "cgmath",
  "cosmic-text",
  "derive_more",
  "massive-geometry",

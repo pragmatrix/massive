@@ -23,7 +23,7 @@ impl BindGroupLayout {
             layout: &self.0,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: size.as_binding(),
+                resource: size.as_binding_resource(),
             }],
         })
     }

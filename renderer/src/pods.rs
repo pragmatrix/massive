@@ -75,6 +75,13 @@ pub struct TextureVertex {
 }
 
 impl TextureVertex {
+    pub fn new(position: impl Into<Vertex>, uv: (f32, f32)) -> Self {
+        Self {
+            position: position.into(),
+            tex_coords: [uv.0, uv.1],
+        }
+    }
+
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 2] =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
@@ -103,6 +110,14 @@ impl InstanceColor {
             array_stride: mem::size_of::<InstanceColor>() as BufferAddress,
             step_mode: VertexStepMode::Instance,
             attributes: &ATTRS,
+        }
+    }
+}
+
+impl From<massive_geometry::Color> for InstanceColor {
+    fn from(value: massive_geometry::Color) -> Self {
+        Self {
+            color: [value.red, value.green, value.blue],
         }
     }
 }

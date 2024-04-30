@@ -5,10 +5,10 @@ use massive_geometry::Matrix4;
 use wgpu::{util::DeviceExt, StoreOp};
 
 use crate::{
-    pipelines,
-    pods::{self},
+    pipelines, pods,
     primitives::{Pipeline, Primitive},
-    shape, text_layer,
+    shape,
+    text_layer::{self, TextLayer},
     texture::{self, Texture},
 };
 
@@ -24,6 +24,7 @@ pub struct Renderer<'window> {
     // TODO: this doesn't belong here and is used only for specific pipelines. We need some
     // per-pipeline information types.
     pub texture_bind_group_layout: texture::BindGroupLayout,
+    pub text_layer_bind_group_layout: text_layer::BindGroupLayout,
 
     pipelines: Vec<(Pipeline, wgpu::RenderPipeline)>,
 
@@ -85,6 +86,7 @@ impl<'window> Renderer<'window> {
             view_projection_buffer,
             view_projection_bind_group,
             texture_bind_group_layout,
+            text_layer_bind_group_layout,
             pipelines,
 
             quad_index_buffer,
@@ -157,8 +159,32 @@ impl<'window> Renderer<'window> {
                                     0..1,
                                 );
                             }
-                            Primitive::TextLayer(..) => {
-                                todo!()
+                            Primitive::TextLayer(TextLayer {
+                                fragment_shader_bind_group,
+                                model_matrix,
+                                vertex_buffer,
+                                instance_buffer,
+                                instance_count,
+                            }) => {
+                                let text_layer_matrix = *view_projection_matrix * model_matrix;
+
+                                // OO: Set bind group only once and update the buffer?
+                                self.queue_view_projection_matrix(&text_layer_matrix);
+                                render_pass.set_bind_group(
+                                    0,
+                                    &self.view_projection_bind_group,
+                                    &[],
+                                );
+
+                                render_pass.set_bind_group(1, fragment_shader_bind_group, &[]);
+                                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                                render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
+
+                                render_pass.draw_indexed(
+                                    0..Self::QUAD_INDICES.len() as u32,
+                                    0,
+                                    0..*instance_count as u32,
+                                )
                             }
                         }
                     }
