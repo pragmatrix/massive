@@ -261,8 +261,6 @@ impl<'window> Renderer<'window> {
         info!("Reconfiguring surface {:?}", self.surface_config);
         self.surface.configure(&self.device, &self.surface_config)
     }
-
-    fn prepare_index_buffer(&mut self, max_quads: usize) {}
 }
 
 struct QuadIndexBuffer {
@@ -283,14 +281,22 @@ impl QuadIndexBuffer {
     }
 
     pub fn ensure_quads(&mut self, device: &Device, new_quad_count: usize) {
-        if new_quad_count <= self.quads() {
+        let current = self.quads();
+        if new_quad_count <= current {
             return;
         }
 
-        let indices = Self::generate_array(self, new_quad_count);
-        let buffer = Self::create_buffer(device, &indices);
+        let mut proposed_quad_capacity = current.max(1) << 1;
+        loop {
+            if proposed_quad_capacity >= new_quad_count {
+                break;
+            }
+            proposed_quad_capacity <<= 1;
+            assert!(proposed_quad_capacity != 0);
+        }
 
-        self.buffer = buffer;
+        let indices = Self::generate_array(self, proposed_quad_capacity);
+        self.buffer = Self::create_buffer(device, &indices);
     }
 
     fn generate_array(&self, quads: usize) -> Vec<u16> {
