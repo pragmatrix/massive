@@ -5,6 +5,7 @@ use std::{
 
 use log::info;
 use massive_geometry::Matrix4;
+use tracing::debug;
 use wgpu::{util::DeviceExt, Device, StoreOp};
 
 use crate::{
@@ -280,20 +281,22 @@ impl QuadIndexBuffer {
         (self.buffer.size() as usize) / size_of_val(Self::QUAD_INDICES)
     }
 
-    pub fn ensure_quads(&mut self, device: &Device, new_quad_count: usize) {
+    pub fn ensure_quads(&mut self, device: &Device, required_quad_count: usize) {
         let current = self.quads();
-        if new_quad_count <= current {
+        if required_quad_count <= current {
             return;
         }
 
         let mut proposed_quad_capacity = current.max(1) << 1;
         loop {
-            if proposed_quad_capacity >= new_quad_count {
+            if proposed_quad_capacity >= required_quad_count {
                 break;
             }
             proposed_quad_capacity <<= 1;
             assert!(proposed_quad_capacity != 0);
         }
+
+        log::debug!("Growing index buffer from {current} to {proposed_quad_capacity} quads, required: {required_quad_count}");
 
         let indices = Self::generate_array(self, proposed_quad_capacity);
         self.buffer = Self::create_buffer(device, &indices);
@@ -306,7 +309,7 @@ impl QuadIndexBuffer {
             v.extend(
                 Self::QUAD_INDICES
                     .iter()
-                    .map(|i| *i + (quad_index * 4) as u16),
+                    .map(|i| *i + (quad_index << 2) as u16),
             )
         });
 
