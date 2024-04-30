@@ -51,7 +51,13 @@ impl GlyphAtlas {
     }
 
     pub fn get(&self, key: &RasterizedGlyphKey) -> Option<(Rectangle, &SwashImage)> {
-        self.images.get(key).map(|(a, image)| (a.rectangle, image))
+        self.images.get(key).map(|(a, image)| {
+            let image_size = size2(image.placement.width as i32, image.placement.height as i32);
+            (
+                Rectangle::new(a.rectangle.min, a.rectangle.min + image_size),
+                image,
+            )
+        })
     }
 
     /// Makes room and stores a SwashImage in the texture atlas. May reallocate / grow it.
@@ -64,21 +70,21 @@ impl GlyphAtlas {
     ) -> Result<Rectangle> {
         debug_assert!(!self.images.contains_key(key));
 
-        let (w, h) = (image.placement.width as i32, image.placement.height as i32);
-        let size = size2(w, h);
+        let size = size2(image.placement.width as i32, image.placement.height as i32);
 
         loop {
             let allocation = self.allocator.allocate(size);
             if let Some(allocation) = allocation {
-                // Allocation might be larger.
+                // Allocation might be larger, so we can't return the rectangles directly.
                 let allocated_size = allocation.rectangle.size();
-
                 debug_assert!(allocated_size.width >= size.width);
                 debug_assert!(allocated_size.height >= size.height);
                 self.upload(queue, &image, allocation.rectangle.min);
                 // commit
                 self.images.insert(key.clone(), (allocation, image));
-                return Ok(allocation.rectangle);
+                let final_rect =
+                    Rectangle::new(allocation.rectangle.min, allocation.rectangle.min + size);
+                return Ok(final_rect);
             }
 
             self.grow(device, queue)?
