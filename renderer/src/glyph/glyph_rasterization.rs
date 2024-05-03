@@ -55,10 +55,10 @@ pub fn rasterize_glyph(
         .hint(hint)
         .build();
 
-    // Compute the fractional offset-- you'll likely want to quantize this
+    // Compute the fractional offset -- you'll likely want to quantize this
     // in a real renderer
     //
-    // TODO: is this used, it seems that it's only relevant for subpixel rendering.
+    // TODO: Is this used? It seems that it's only relevant for subpixel rendering.
     let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
 
     // Select our source order
