@@ -3175,6 +3175,7 @@ dependencies = [
  "cosmic-text",
  "derive_more",
  "massive-geometry",
+ "swash",
 ]
 
 [[package]]

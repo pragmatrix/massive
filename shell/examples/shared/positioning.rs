@@ -5,13 +5,18 @@ use cosmic_text::{CacheKey, CacheKeyFlags, LayoutGlyph, LayoutRun};
 use itertools::Itertools;
 use massive_geometry::Color;
 use massive_shapes::{GlyphRun, GlyphRunMetrics, RunGlyph};
+use swash::Weight;
 
 const RENDER_SUBPIXEL: bool = false;
 
 /// Converts a cosmic_text `LayoutRun` into one or more `GlyphRun`s.
 ///
 /// We split `LayoutRun`s if they contain different metadata which points to a color.
-pub fn to_colored_glyph_runs(run: &LayoutRun, line_height: f32, colors: &[Color]) -> Vec<GlyphRun> {
+pub fn to_attributed_glyph_runs(
+    run: &LayoutRun,
+    line_height: f32,
+    attributes: &[(Color, Weight)],
+) -> Vec<GlyphRun> {
     let metrics = metrics(run, line_height);
 
     run.glyphs
@@ -20,7 +25,8 @@ pub fn to_colored_glyph_runs(run: &LayoutRun, line_height: f32, colors: &[Color]
         .into_iter()
         .map(|(metadata, run)| {
             let positioned = run.map(position_glyph);
-            GlyphRun::new(metrics, colors[metadata], positioned.collect())
+            let (color, weight) = attributes[metadata];
+            GlyphRun::new(metrics, color, weight, positioned.collect())
         })
         .collect()
 }
@@ -28,7 +34,7 @@ pub fn to_colored_glyph_runs(run: &LayoutRun, line_height: f32, colors: &[Color]
 pub fn to_glyph_run(run: &LayoutRun, line_height: f32) -> GlyphRun {
     let metrics = metrics(run, line_height);
     let positioned = position_glyphs(run.glyphs);
-    GlyphRun::new(metrics, Color::BLACK, positioned)
+    GlyphRun::new(metrics, Color::BLACK, Weight::NORMAL, positioned)
 }
 
 fn metrics(run: &LayoutRun, line_height: f32) -> GlyphRunMetrics {

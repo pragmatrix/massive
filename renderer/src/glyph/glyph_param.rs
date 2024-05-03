@@ -3,8 +3,15 @@ use crate::primitives::Pipeline;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GlyphRasterizationParam {
-    pub hinted: bool,
     pub sdf: bool,
+    pub swash: SwashRasterizationParam,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct SwashRasterizationParam {
+    pub hinted: bool,
+    // Currently used with variable fonts only, by passing the `wght` tag.
+    pub weight: swash::Weight,
 }
 
 impl GlyphRasterizationParam {
@@ -22,11 +29,17 @@ impl From<GlyphClass> for GlyphRasterizationParam {
         use GlyphClass::*;
         match class {
             Zoomed(_) | PixelPerfect { .. } => GlyphRasterizationParam {
-                hinted: true,
+                swash: SwashRasterizationParam {
+                    hinted: true,
+                    weight: Default::default(),
+                },
                 sdf: false,
             },
             Distorted(_) => GlyphRasterizationParam {
-                hinted: true,
+                swash: SwashRasterizationParam {
+                    hinted: true,
+                    weight: Default::default(),
+                },
                 sdf: true,
             },
         }

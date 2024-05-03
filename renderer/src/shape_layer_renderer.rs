@@ -7,7 +7,7 @@ use cosmic_text as text;
 use itertools::Itertools;
 use massive_geometry::{Color, Matrix4, Point, Point3};
 use massive_shapes::{GlyphRun, RunGlyph, Shape};
-use swash::scale::ScaleContext;
+use swash::{scale::ScaleContext, Weight};
 use tracing::instrument;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -17,7 +17,7 @@ use wgpu::{
 use crate::{
     glyph::{
         glyph_atlas, glyph_rasterization::rasterize_padded_glyph, GlyphAtlas,
-        GlyphRasterizationParam, RasterizedGlyphKey,
+        GlyphRasterizationParam, RasterizedGlyphKey, SwashRasterizationParam,
     },
     pods::TextureColorVertex,
     primitives::Primitive,
@@ -118,7 +118,9 @@ impl ShapeLayerRenderer {
             } = shape;
 
             for glyph in &run.glyphs {
-                if let Some((rect, placement)) = self.rasterized_glyph_atlas_rect(context, glyph)? {
+                if let Some((rect, placement)) =
+                    self.rasterized_glyph_atlas_rect(context, run.text_weight, glyph)?
+                {
                     instances.push(GlyphInstance {
                         atlas_rect: rect,
                         vertices: Self::glyph_vertices(run, glyph, &placement)
@@ -198,13 +200,17 @@ impl ShapeLayerRenderer {
     fn rasterized_glyph_atlas_rect(
         &mut self,
         context: &mut ShapeLayerRendererContext,
+        weight: Weight,
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement)>> {
         let glyph_key = RasterizedGlyphKey {
             text: glyph.key,
             param: GlyphRasterizationParam {
                 sdf: true,
-                hinted: true,
+                swash: SwashRasterizationParam {
+                    hinted: true,
+                    weight,
+                },
             },
         };
 
