@@ -242,13 +242,13 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
             SymbolKind::Derive => keyword_blue(),
             SymbolKind::DeriveHelper => keyword_blue(),
             SymbolKind::Enum => type_green(),
-            SymbolKind::Field => field_black(),
+            SymbolKind::Field => default_text(),
             SymbolKind::Function => function_brown(),
             SymbolKind::Method => function_brown(),
             SymbolKind::Impl => black(),
             SymbolKind::Label => keyword_blue(),
             SymbolKind::LifetimeParam => keyword_blue(),
-            SymbolKind::Local => black(),
+            SymbolKind::Local => default_text(),
             SymbolKind::Macro => keyword_blue(),
             SymbolKind::ProcMacro => keyword_blue(),
             SymbolKind::Module => type_green(),
@@ -262,7 +262,7 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
             SymbolKind::TypeAlias => type_green(),
             SymbolKind::TypeParam => type_light_green(),
             SymbolKind::Union => type_green(),
-            SymbolKind::ValueParam => black(),
+            SymbolKind::ValueParam => default_text(),
             SymbolKind::Variant => const_blue(),
         },
         HlTag::AttributeBracket => keyword_blue(),
@@ -272,7 +272,7 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
         HlTag::CharLiteral => literal_red(),
         HlTag::Comment => comment_green(),
         HlTag::EscapeSequence => keyword_blue(),
-        HlTag::FormatSpecifier => field_black(),
+        HlTag::FormatSpecifier => default_text(),
         HlTag::InvalidEscapeSequence => error_red(),
         HlTag::Keyword => keyword_blue(),
         HlTag::NumericLiteral => literal_green(),
@@ -280,7 +280,7 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
         HlTag::Punctuation(_) => black(),
         HlTag::StringLiteral => literal_red(),
         HlTag::UnresolvedReference => error_red(),
-        HlTag::None => none(),
+        HlTag::None => default_text(),
     };
 
     let weight = if mods.contains(HlMod::Mutable) {
@@ -292,12 +292,13 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
     (color, weight)
 }
 
-fn none() -> Color {
-    black()
-}
-
 fn black() -> Color {
     rgb(0)
+}
+
+#[allow(unused)]
+fn marker() -> Color {
+    rgb(0xff00ff)
 }
 
 fn keyword_blue() -> Color {
@@ -332,7 +333,7 @@ fn type_light_green() -> Color {
     rgb(0x2B91AF)
 }
 
-fn field_black() -> Color {
+fn default_text() -> Color {
     rgb(0x001080)
 }
 
