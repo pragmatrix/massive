@@ -7,7 +7,7 @@ pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
 
-use tracing::{info, instrument};
+use tracing::instrument;
 use wgpu::{
     Device, Extent3d, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, Texture, TextureAspect,
     TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
@@ -25,7 +25,7 @@ pub struct GlyphAtlas {
 
 impl GlyphAtlas {
     // TODO: Measure what we usually need and make this a arg to new.
-    const INITIAL_SIZE: u32 = 1024;
+    const INITIAL_SIZE: u32 = 128;
     const GROWTH_FACTOR: u32 = 2;
 
     pub fn new(device: &Device) -> Self {
@@ -105,7 +105,7 @@ impl GlyphAtlas {
             bail!("Atlas reached its maximum size of {current_dim}x{current_dim}");
         }
 
-        info!("Growing glyph atlas from {current_dim} to {new_dim}");
+        log::info!("Growing glyph atlas from {current_dim} to {new_dim}");
 
         // TODO: This allocates the new texture alongside the old for a short period of time.
         // If we won't use COPY_SRC, this should be avoided.

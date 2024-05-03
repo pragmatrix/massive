@@ -31,22 +31,24 @@ mod test;
 #[tokio::main]
 async fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env();
-    let console_formatter = tracing_subscriber::fmt::Layer::new();
+    let console_formatter = tracing_subscriber::fmt::Layer::default();
     // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
 
     let now: DateTime<Local> = Local::now();
+    #[allow(unused)]
     let time_code = now.format("%Y%m%d%H%M").to_string();
 
-    let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
-        .file(format!("./{time_code}-massive-trace.json"))
-        .build();
+    // let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+    //     .file(format!("./{time_code}-massive-trace.json"))
+    //     .build();
 
     Registry::default()
         // Filter seems to be applied globally, which is what we want.
         .with(env_filter)
+        // Console formatter currently captures only log::xxx! macros for some reason.
         .with(console_formatter)
         // .with(flame_layer)
-        .with(chrome_layer)
+        // .with(chrome_layer)
         .init();
 
     let progress = |p: String| {
