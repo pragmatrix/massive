@@ -8,10 +8,11 @@ use std::{
 use anyhow::Result;
 use base_db::SourceDatabaseExt;
 use chrono::{DateTime, Local};
-use cosmic_text::{fontdb, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
+use cosmic_text::{fontdb, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
 use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlRange, HlTag, SymbolKind};
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
+use swash::Weight;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use vfs::VfsPath;
 use winit::event_loop::EventLoop;
@@ -140,9 +141,9 @@ async fn main() -> Result<()> {
 
     // Colorize ranges
 
-    let colors: Vec<_> = syntax
+    let attributes: Vec<_> = syntax
         .iter()
-        .map(|range| colorize(range.highlight.tag, range.highlight.mods))
+        .map(|range| attribute(range.highlight.tag, range.highlight.mods))
         .collect();
 
     // Shape and layout text.
@@ -156,7 +157,7 @@ async fn main() -> Result<()> {
         &mut font_system,
         &file_text,
         &syntax,
-        &colors,
+        &attributes,
         font_size,
         line_height,
     );
@@ -191,12 +192,12 @@ fn shape_text(
     font_system: &mut FontSystem,
     text: &str,
     syntax: &[HlRange],
-    colors: &[Color],
+    attributes: &[(Color, Weight)],
     font_size: f32,
     line_height: f32,
 ) -> (Vec<(Point, GlyphRun)>, f64) {
     syntax::assert_covers_all_text(syntax, text.len());
-    assert_eq!(colors.len(), syntax.len());
+    assert_eq!(attributes.len(), syntax.len());
 
     // The text covers everything. But if these attributes are appearing without adjusted metadata,
     // something is wrong. Set it to an illegal offset `usize::MAX` for now.
@@ -218,7 +219,7 @@ fn shape_text(
 
     for run in buffer.layout_runs() {
         let offset = Point::new(0., run.line_top as f64);
-        for run in positioning::to_colored_glyph_runs(&run, line_height, colors) {
+        for run in positioning::to_attributed_glyph_runs(&run, line_height, attributes) {
             runs.push((offset, run));
         }
         height = height.max(offset.y + line_height as f64);
@@ -227,11 +228,12 @@ fn shape_text(
     (runs, height)
 }
 
-fn colorize(tag: HlTag, mods: HlMods) -> Color {
+fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
     if mods.contains(HlMod::Unsafe) {
-        return unsafe_red();
+        return (unsafe_red(), Weight::NORMAL);
     }
-    match tag {
+
+    let color = match tag {
         HlTag::Symbol(symbol) => match symbol {
             SymbolKind::Attribute => black(),
             SymbolKind::BuiltinAttr => black(),
@@ -279,7 +281,15 @@ fn colorize(tag: HlTag, mods: HlMods) -> Color {
         HlTag::StringLiteral => literal_red(),
         HlTag::UnresolvedReference => error_red(),
         HlTag::None => none(),
-    }
+    };
+
+    let weight = if mods.contains(HlMod::Mutable) {
+        Weight::BOLD
+    } else {
+        Weight::NORMAL
+    };
+
+    (color, weight)
 }
 
 fn none() -> Color {
