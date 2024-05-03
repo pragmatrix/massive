@@ -145,11 +145,13 @@ fn create_pipeline(
         vertex: wgpu::VertexState {
             module: shader,
             entry_point: "vs_main",
+            compilation_options: Default::default(),
             buffers: vert_layout,
         },
         fragment: Some(wgpu::FragmentState {
             module: shader,
             entry_point: fragment_shader_entry,
+            compilation_options: Default::default(),
             targets,
         }),
         primitive: wgpu::PrimitiveState {
