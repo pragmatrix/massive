@@ -3,6 +3,7 @@ use std::rc::Rc;
 use cgmath::Point2;
 use cosmic_text as text;
 use massive_geometry::{Color, Vector3};
+use swash::Weight;
 
 use crate::geometry::{Bounds, Matrix4};
 
@@ -26,14 +27,21 @@ pub enum Shape {
 pub struct GlyphRun {
     pub metrics: GlyphRunMetrics,
     pub text_color: Color,
+    pub text_weight: Weight,
     pub glyphs: Vec<RunGlyph>,
 }
 
 impl GlyphRun {
-    pub fn new(metrics: GlyphRunMetrics, text_color: Color, glyphs: Vec<RunGlyph>) -> Self {
+    pub fn new(
+        metrics: GlyphRunMetrics,
+        text_color: Color,
+        text_weight: Weight,
+        glyphs: Vec<RunGlyph>,
+    ) -> Self {
         Self {
             metrics,
             text_color,
+            text_weight,
             glyphs,
         }
     }

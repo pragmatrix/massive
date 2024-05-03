@@ -4,6 +4,7 @@ use std::{
 };
 
 use cosmic_text as text;
+use swash::Weight;
 use text::FontSystem;
 use winit::{
     event::{KeyEvent, WindowEvent},
@@ -110,5 +111,5 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         width: line.w.ceil() as u32,
     };
 
-    GlyphRun::new(metrics, Color::BLACK, placed)
+    GlyphRun::new(metrics, Color::BLACK, Weight::NORMAL, placed)
 }

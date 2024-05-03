@@ -6,7 +6,7 @@ use swash::{
 
 use super::{
     distance_field_gen::{generate_distance_field_from_image, DISTANCE_FIELD_PAD},
-    RasterizedGlyphKey,
+    RasterizedGlyphKey, SwashRasterizationParam,
 };
 
 /// Rasterize a glyph into [`SwashImage`] as either normal or sdf, with appropriate padding prepared
@@ -20,7 +20,7 @@ pub fn rasterize_padded_glyph(
     key: &RasterizedGlyphKey,
 ) -> Option<text::SwashImage> {
     let param = key.param;
-    let without_padding = rasterize_glyph(font_system, context, key.text, param.hinted)?;
+    let without_padding = rasterize_glyph(font_system, context, key.text, param.swash)?;
     if param.sdf {
         // Sdf does its own padding.
         return render_sdf(&without_padding);
@@ -34,7 +34,7 @@ pub fn rasterize_glyph(
     font_system: &mut text::FontSystem,
     context: &mut ScaleContext,
     cache_key: text::CacheKey,
-    hint: bool,
+    param: SwashRasterizationParam,
 ) -> Option<text::SwashImage> {
     // Copied from cosmic_text/swash.rs, because we might need finer control and don't need a cache.
     // TODO: Find a way to prevent excessive locking of the font system here. Note that it needs to
@@ -52,7 +52,8 @@ pub fn rasterize_glyph(
     let mut scaler = context
         .builder(font.as_swash())
         .size(f32::from_bits(cache_key.font_size_bits))
-        .hint(hint)
+        .hint(param.hinted)
+        .variations(&[("wght", param.weight.0 as f32)])
         .build();
 
     // Compute the fractional offset -- you'll likely want to quantize this

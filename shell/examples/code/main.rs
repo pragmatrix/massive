@@ -8,7 +8,7 @@ use std::{
 use anyhow::Result;
 use base_db::SourceDatabaseExt;
 use chrono::{DateTime, Local};
-use cosmic_text::{fontdb, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
+use cosmic_text::{fontdb, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
 use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlRange, HlTag, SymbolKind};
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
@@ -63,6 +63,26 @@ async fn main() -> Result<()> {
 
     println!("Root path: {}", root_path.display());
 
+    let example_dir = root_path
+        .parent()
+        .unwrap()
+        .join(Path::new("shell/examples/code"));
+
+    // FontSystem
+
+    let mut font_system = {
+        let mut db = fontdb::Database::new();
+        // let font_dir = example_dir.join("JetBrainsMono-2.304/fonts/ttf");
+        // db.load_fonts_dir(font_dir);
+        let font_file =
+            example_dir.join("JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
+        db.load_font_file(font_file)?;
+        // Use an invariant locale.
+        FontSystem::new_with_locale_and_db("en-US".into(), db)
+    };
+
+    println!("Loaded {} font faces.", font_system.db().faces().count());
+
     let cargo_config = CargoConfig {
         // need to be able to look up examples.
         all_targets: true,
@@ -74,11 +94,6 @@ async fn main() -> Result<()> {
         with_proc_macro_server: ProcMacroServerChoice::None,
         prefill_caches: false,
     };
-
-    let example_dir = root_path
-        .parent()
-        .unwrap()
-        .join(Path::new("shell/examples/code"));
 
     let file_to_show = example_dir.join("main.rs");
     // let file_to_show = example_dir.join("test.rs");
@@ -118,23 +133,10 @@ async fn main() -> Result<()> {
         specialize_operator: true,
         inject_doc_comment: true,
         macro_bang: true,
-        syntactic_name_ref_highlighting: false,
+        syntactic_name_ref_highlighting: true,
     };
 
     let syntax = analysis.highlight(highlight_config, file_id)?;
-
-    // FontSystem
-
-    let mut font_system = {
-        let mut db = fontdb::Database::new();
-        // let font_dir = example_dir.join("JetBrainsMono-2.304/fonts/ttf");
-        // db.load_fonts_dir(font_dir);
-        let font_file =
-            example_dir.join("JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
-        db.load_font_file(font_file)?;
-        // Use an invariant locale.
-        FontSystem::new_with_locale_and_db("en-US".into(), db)
-    };
 
     // Colorize ranges
 
@@ -203,6 +205,7 @@ fn shape_text(
     buffer.set_size(font_system, f32::INFINITY, f32::INFINITY);
     // buffer.set_text(font_system, text, attrs, Shaping::Advanced);
     buffer.set_wrap(font_system, Wrap::None);
+    // Create associated metadata.
     let text_attr_spans = syntax
         .iter()
         .enumerate()

@@ -69,7 +69,7 @@ fn render_glyph(
     key: &RasterizedGlyphKey,
 ) -> Option<RenderGlyph> {
     // TODO: use rasterize_padded_glyph()!
-    let image = rasterize_glyph(font_system, scale_context, key.text, key.param.hinted)?;
+    let image = rasterize_glyph(font_system, scale_context, key.text, key.param.swash)?;
     if image.placement.width == 0 || image.placement.height == 0 {
         return None;
     }
