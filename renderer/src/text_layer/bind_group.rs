@@ -1,7 +1,7 @@
 use derive_more::Deref;
-use wgpu::{BindGroup, BindGroupEntry, BindingResource, Device, TextureView};
+use wgpu::{BindGroup, Device, TextureView};
 
-use crate::{tools::BindGroupLayoutBuilder, SizeBuffer};
+use crate::{bind_group_entries, tools::BindGroupLayoutBuilder, SizeBuffer};
 
 /// The bind group layout of a texture.
 #[derive(Debug, Deref)]
@@ -29,20 +29,7 @@ impl BindGroupLayout {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Text Layer Bind Group"),
             layout: &self.0,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: BindingResource::TextureView(texture_view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: texture_size.as_binding_resource(),
-                },
-                BindGroupEntry {
-                    binding: 2,
-                    resource: BindingResource::Sampler(texture_sampler),
-                },
-            ],
+            entries: bind_group_entries!(0 => texture_view, 1 => texture_size, 2 => texture_sampler),
         })
     }
 }

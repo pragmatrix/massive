@@ -1,4 +1,4 @@
-use crate::SizeBuffer;
+use crate::{tools::AsBindingResource, SizeBuffer};
 
 #[derive(Debug)]
 pub struct View {
@@ -55,8 +55,10 @@ impl View {
     pub fn size(&self) -> &SizeBuffer {
         &self.size
     }
+}
 
-    pub fn as_binding_resource(&self) -> wgpu::BindingResource {
+impl AsBindingResource for View {
+    fn as_binding_resource(&self) -> wgpu::BindingResource {
         wgpu::BindingResource::TextureView(&self.view)
     }
 }
