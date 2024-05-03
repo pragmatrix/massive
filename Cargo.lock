@@ -3161,6 +3161,9 @@ dependencies = [
  "cgmath",
  "cosmic-text",
  "derive_more",
+ "etagere",
+ "euclid",
+ "itertools 0.12.1",
  "log",
  "massive-geometry",
  "massive-shapes",
@@ -3175,6 +3178,7 @@ dependencies = [
 name = "massive-shapes"
 version = "0.1.0"
 dependencies = [
+ "cgmath",
  "cosmic-text",
  "derive_more",
  "massive-geometry",

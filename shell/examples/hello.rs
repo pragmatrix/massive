@@ -1,4 +1,7 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use cosmic_text as text;
 use text::FontSystem;
@@ -7,7 +10,7 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
-use massive_geometry::{Camera, Color, Matrix4, Vector3};
+use massive_geometry::{Camera, Color, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape};
 use massive_shell::{self as shell, Shell};
 
@@ -81,13 +84,13 @@ impl shell::Application for Application {
 
         let center_x: i32 = (glyph_run.metrics.width / 2) as _;
         let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
-        let center_transformation =
-            Matrix4::from_translation((-center_x as f64, -center_y as f64, 0.0).into());
+        let center_translation = Vector3::new(-center_x as f64, -center_y as f64, 0.0);
 
-        let shapes = vec![Shape::GlyphRun(
-            (shell.pixel_matrix() * center_transformation).into(),
-            glyph_run,
-        )];
+        let shapes = vec![Shape::GlyphRun {
+            model_matrix: Rc::new(shell.pixel_matrix()),
+            translation: center_translation,
+            run: glyph_run,
+        }];
 
         (self.camera, shapes)
     }

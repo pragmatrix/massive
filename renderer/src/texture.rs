@@ -1,8 +1,8 @@
-use massive_geometry::Point3;
 use tracing::{span, Level};
 use wgpu::util::DeviceExt;
 
 use crate::{pods::TextureVertex, primitives::Pipeline, texture, ColorBuffer};
+use massive_geometry::Point3;
 
 mod bind_group;
 mod view;
@@ -57,6 +57,8 @@ impl Texture {
     }
 }
 
+// Converts points to texture vertices. u/v coordinates are 0.0 - 1.0 and
+// Points are expected to be specified counter-clockwise beginning from left,top
 fn points_to_texture_vertices(points: &[Point3; 4]) -> [TextureVertex; 4] {
     [
         TextureVertex {

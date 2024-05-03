@@ -10,6 +10,7 @@ impl BindGroupLayout {
     pub fn new(device: &wgpu::Device) -> Self {
         Self(
             BindGroupLayoutBuilder::fragment()
+                // Size of shape.
                 .uniform()
                 .build("Shape Bind Group Layout", device),
         )
@@ -22,7 +23,7 @@ impl BindGroupLayout {
             layout: &self.0,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: size.as_binding(),
+                resource: size.as_binding_resource(),
             }],
         })
     }

@@ -1,15 +1,18 @@
-use std::{mem, result};
+use std::{
+    mem::{self, size_of_val},
+    result,
+};
 
 use log::info;
 use massive_geometry::Matrix4;
-use wgpu::{util::DeviceExt, StoreOp};
+use wgpu::{util::DeviceExt, Device, StoreOp};
 
 use crate::{
-    pods::{self, TextureVertex},
+    pipelines, pods,
     primitives::{Pipeline, Primitive},
     shape,
+    text_layer::{self, TextLayer},
     texture::{self, Texture},
-    tools::BindGroupLayoutBuilder,
 };
 
 pub struct Renderer<'window> {
@@ -20,12 +23,15 @@ pub struct Renderer<'window> {
 
     view_projection_buffer: wgpu::Buffer,
     view_projection_bind_group: wgpu::BindGroup,
-    pub texture_sampler: wgpu::Sampler,
+
+    // TODO: this doesn't belong here and is used only for specific pipelines. We need some
+    // per-pipeline information types.
     pub texture_bind_group_layout: texture::BindGroupLayout,
+    pub text_layer_bind_group_layout: text_layer::BindGroupLayout,
 
     pipelines: Vec<(Pipeline, wgpu::RenderPipeline)>,
 
-    quad_index_buffer: wgpu::Buffer,
+    index_buffer: QuadIndexBuffer,
 }
 
 impl<'window> Renderer<'window> {
@@ -44,19 +50,15 @@ impl<'window> Renderer<'window> {
         });
 
         let (view_projection_bind_group_layout, view_projection_bind_group) =
-            create_view_projection_bind_group(&device, &view_projection_buffer);
-
-        let texture_sampler = create_texture_sampler(&device);
+            pipelines::create_view_projection_bind_group(&device, &view_projection_buffer);
 
         let texture_bind_group_layout = texture::BindGroupLayout::new(&device);
 
+        let text_layer_bind_group_layout = text_layer::BindGroupLayout::new(&device);
+
         let shape_bind_group_layout = shape::BindGroupLayout::new(&device);
 
-        let quad_index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Index Buffer"),
-            contents: bytemuck::cast_slice(Self::QUAD_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
-        });
+        let index_buffer = QuadIndexBuffer::new(&device);
 
         let pipelines = {
             let targets = [Some(wgpu::ColorTargetState {
@@ -65,10 +67,11 @@ impl<'window> Renderer<'window> {
                 write_mask: wgpu::ColorWrites::ALL,
             })];
 
-            create_pipelines(
+            pipelines::create(
                 &device,
                 &view_projection_bind_group_layout,
                 &texture_bind_group_layout,
+                &text_layer_bind_group_layout,
                 &shape_bind_group_layout,
                 &targets,
             )
@@ -81,11 +84,11 @@ impl<'window> Renderer<'window> {
             surface_config,
             view_projection_buffer,
             view_projection_bind_group,
-            texture_sampler,
             texture_bind_group_layout,
+            text_layer_bind_group_layout,
             pipelines,
 
-            quad_index_buffer,
+            index_buffer,
         };
 
         renderer.reconfigure_surface();
@@ -104,6 +107,17 @@ impl<'window> Renderer<'window> {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        // Prepare the index buffer.
+
+        self.index_buffer.ensure_quads(
+            &self.device,
+            primitives
+                .iter()
+                .map(|p| p.quads())
+                .max()
+                .unwrap_or_default(),
+        );
 
         self.queue_view_projection_matrix(view_projection_matrix);
 
@@ -136,7 +150,7 @@ impl<'window> Renderer<'window> {
                     render_pass.set_pipeline(pipeline);
                     render_pass.set_bind_group(0, &self.view_projection_bind_group, &[]);
                     render_pass.set_index_buffer(
-                        self.quad_index_buffer.slice(..),
+                        self.index_buffer.buffer.slice(..),
                         wgpu::IndexFormat::Uint16,
                     );
 
@@ -150,10 +164,35 @@ impl<'window> Renderer<'window> {
                                 render_pass.set_bind_group(1, bind_group, &[]);
                                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
                                 render_pass.draw_indexed(
-                                    0..Self::QUAD_INDICES.len() as u32,
+                                    0..QuadIndexBuffer::QUAD_INDICES_COUNT as u32,
                                     0,
                                     0..1,
                                 );
+                            }
+                            Primitive::TextLayer(TextLayer {
+                                fragment_shader_bind_group,
+                                model_matrix,
+                                vertex_buffer,
+                                quad_count,
+                            }) => {
+                                let text_layer_matrix = *view_projection_matrix * model_matrix;
+
+                                // OO: Set bind group only once and update the buffer?
+                                self.queue_view_projection_matrix(&text_layer_matrix);
+                                render_pass.set_bind_group(
+                                    0,
+                                    &self.view_projection_bind_group,
+                                    &[],
+                                );
+
+                                render_pass.set_bind_group(1, fragment_shader_bind_group, &[]);
+                                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+
+                                render_pass.draw_indexed(
+                                    0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
+                                    0,
+                                    0..1,
+                                )
                             }
                         }
                     }
@@ -166,8 +205,6 @@ impl<'window> Renderer<'window> {
         surface_texture.present();
         Ok(())
     }
-
-    const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
 
     fn queue_view_projection_matrix(&self, view_projection_matrix: &Matrix4) {
         let view_projection_uniform = {
@@ -222,147 +259,66 @@ impl<'window> Renderer<'window> {
     }
 }
 
-fn create_pipelines(
-    device: &wgpu::Device,
-    view_projection_bind_group_layout: &wgpu::BindGroupLayout,
-    texture_bind_group_layout: &wgpu::BindGroupLayout,
-    shape_bind_group_layout: &wgpu::BindGroupLayout,
-    targets: &[Option<wgpu::ColorTargetState>],
-) -> Vec<(Pipeline, wgpu::RenderPipeline)> {
-    let glyph_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Glyph Pipeline Layout"),
-        bind_group_layouts: &[view_projection_bind_group_layout, texture_bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
-    let glyph_shader = &device.create_shader_module(wgpu::include_wgsl!("texture/glyph.wgsl"));
-
-    let shape_shader = &device.create_shader_module(wgpu::include_wgsl!("shape/shape.wgsl"));
-
-    let shape_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-        label: Some("Shape Pipeline Layout"),
-        bind_group_layouts: &[view_projection_bind_group_layout, shape_bind_group_layout],
-        push_constant_ranges: &[],
-    });
-
-    [
-        (
-            Pipeline::PlanarGlyph,
-            create_pipeline(
-                "Planar Glyph Pipeline",
-                device,
-                glyph_shader,
-                "fs_planar",
-                &glyph_pipeline_layout,
-                targets,
-            ),
-        ),
-        (
-            Pipeline::SdfGlyph,
-            create_pipeline(
-                "SDF Glyph Pipeline",
-                device,
-                glyph_shader,
-                "fs_sdf_glyph",
-                &glyph_pipeline_layout,
-                targets,
-            ),
-        ),
-        (
-            Pipeline::Circle,
-            create_pipeline(
-                "Circle Pipeline",
-                device,
-                shape_shader,
-                "fs_sdf_circle",
-                &shape_pipeline_layout,
-                targets,
-            ),
-        ),
-        (
-            Pipeline::RoundedRect,
-            create_pipeline(
-                "Rounded Rect Pipeline",
-                device,
-                shape_shader,
-                "fs_sdf_rounded_rect",
-                &shape_pipeline_layout,
-                targets,
-            ),
-        ),
-    ]
-    .into()
+struct QuadIndexBuffer {
+    buffer: wgpu::Buffer,
 }
 
-fn create_view_projection_bind_group(
-    device: &wgpu::Device,
-    view_projection_buffer: &wgpu::Buffer,
-) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
-    let layout = BindGroupLayoutBuilder::vertex()
-        .uniform()
-        .build("Camera Bind Group Layout", device);
+impl QuadIndexBuffer {
+    pub fn new(device: &Device) -> Self {
+        // OO: Provide a good initial size.
+        const NO_INDICES: [u16; 0] = [];
+        Self {
+            buffer: Self::create_buffer(device, &NO_INDICES),
+        }
+    }
 
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: view_projection_buffer.as_entire_binding(),
-        }],
-        label: Some("Camera Bind Group"),
-    });
+    pub fn quads(&self) -> usize {
+        (self.buffer.size() as usize) / size_of_val(Self::QUAD_INDICES)
+    }
 
-    (layout, bind_group)
-}
+    pub fn ensure_quads(&mut self, device: &Device, required_quad_count: usize) {
+        let current = self.quads();
+        if required_quad_count <= current {
+            return;
+        }
 
-fn create_texture_sampler(device: &wgpu::Device) -> wgpu::Sampler {
-    device.create_sampler(&wgpu::SamplerDescriptor {
-        label: Some("Texture Sampler"),
-        address_mode_u: wgpu::AddressMode::ClampToEdge,
-        address_mode_v: wgpu::AddressMode::ClampToEdge,
-        mag_filter: wgpu::FilterMode::Linear,
-        min_filter: wgpu::FilterMode::Linear,
-        ..Default::default()
-    })
-}
+        let mut proposed_quad_capacity = current.max(1) << 1;
+        loop {
+            if proposed_quad_capacity >= required_quad_count {
+                break;
+            }
+            proposed_quad_capacity <<= 1;
+            assert!(proposed_quad_capacity != 0);
+        }
 
-fn create_pipeline(
-    label: &str,
-    device: &wgpu::Device,
-    shader: &wgpu::ShaderModule,
-    fragment_shader_entry: &str,
-    render_pipeline_layout: &wgpu::PipelineLayout,
-    targets: &[Option<wgpu::ColorTargetState>],
-) -> wgpu::RenderPipeline {
-    let pipeline = wgpu::RenderPipelineDescriptor {
-        label: Some(label),
-        layout: Some(render_pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: shader,
-            entry_point: "vs_main",
-            buffers: &[TextureVertex::desc().clone()],
-        },
-        fragment: Some(wgpu::FragmentState {
-            module: shader,
-            entry_point: fragment_shader_entry,
-            targets,
-        }),
-        primitive: wgpu::PrimitiveState {
-            topology: wgpu::PrimitiveTopology::TriangleList,
-            strip_index_format: None,
-            front_face: wgpu::FrontFace::Ccw,
-            cull_mode: Some(wgpu::Face::Back),
-            polygon_mode: wgpu::PolygonMode::Fill,
-            unclipped_depth: false,
-            conservative: false,
-        },
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState {
-            count: 1,
-            mask: !0,
-            alpha_to_coverage_enabled: false,
-        },
-        multiview: None,
-    };
+        log::debug!("Growing index buffer from {current} to {proposed_quad_capacity} quads, required: {required_quad_count}");
 
-    device.create_render_pipeline(&pipeline)
+        let indices = Self::generate_array(self, proposed_quad_capacity);
+        self.buffer = Self::create_buffer(device, &indices);
+    }
+
+    fn generate_array(&self, quads: usize) -> Vec<u16> {
+        let mut v = Vec::with_capacity(Self::QUAD_INDICES.len() * quads);
+
+        (0..quads).for_each(|quad_index| {
+            v.extend(
+                Self::QUAD_INDICES
+                    .iter()
+                    .map(|i| *i + (quad_index << 2) as u16),
+            )
+        });
+
+        v
+    }
+
+    const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
+    const QUAD_INDICES_COUNT: usize = Self::QUAD_INDICES.len();
+
+    fn create_buffer(device: &Device, indices: &[u16]) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Quad Index Buffer"),
+            contents: bytemuck::cast_slice(indices),
+            usage: wgpu::BufferUsages::INDEX,
+        })
+    }
 }

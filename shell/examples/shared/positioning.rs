@@ -4,7 +4,7 @@ use cosmic_text::{CacheKey, CacheKeyFlags, LayoutGlyph, LayoutRun};
 
 use itertools::Itertools;
 use massive_geometry::Color;
-use massive_shapes::{GlyphRun, GlyphRunMetrics, PositionedGlyph};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, RunGlyph};
 
 const RENDER_SUBPIXEL: bool = false;
 
@@ -42,11 +42,11 @@ fn metrics(run: &LayoutRun, line_height: f32) -> GlyphRunMetrics {
 }
 
 /// Position individual `LayoutGlyph` from a `LayoutRun`.
-pub fn position_glyphs(glyphs: &[LayoutGlyph]) -> Vec<PositionedGlyph> {
+pub fn position_glyphs(glyphs: &[LayoutGlyph]) -> Vec<RunGlyph> {
     glyphs.iter().map(position_glyph).collect()
 }
 
-fn position_glyph(glyph: &LayoutGlyph) -> PositionedGlyph {
+fn position_glyph(glyph: &LayoutGlyph) -> RunGlyph {
     let fractional_pos = if RENDER_SUBPIXEL {
         (glyph.x, glyph.y)
     } else {
@@ -62,5 +62,5 @@ fn position_glyph(glyph: &LayoutGlyph) -> PositionedGlyph {
     );
     // Note: hitbox with is fractional, but does not change with / without subpixel
     // rendering.
-    PositionedGlyph::new(ck, (x, y), glyph.w)
+    RunGlyph::new(ck, (x, y), glyph.w)
 }

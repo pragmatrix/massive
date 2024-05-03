@@ -1,13 +1,13 @@
 use super::GlyphClass;
 use crate::primitives::Pipeline;
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct GlyphRenderParam {
-    // TODO: Add scaling
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct GlyphRasterizationParam {
+    pub hinted: bool,
     pub sdf: bool,
 }
 
-impl GlyphRenderParam {
+impl GlyphRasterizationParam {
     pub fn pipeline(&self) -> Pipeline {
         if self.sdf {
             Pipeline::SdfGlyph
@@ -17,12 +17,18 @@ impl GlyphRenderParam {
     }
 }
 
-impl From<GlyphClass> for GlyphRenderParam {
+impl From<GlyphClass> for GlyphRasterizationParam {
     fn from(class: GlyphClass) -> Self {
         use GlyphClass::*;
         match class {
-            Zoomed(_) | PixelPerfect { .. } => GlyphRenderParam { sdf: false },
-            Distorted(_) => GlyphRenderParam { sdf: true },
+            Zoomed(_) | PixelPerfect { .. } => GlyphRasterizationParam {
+                hinted: true,
+                sdf: false,
+            },
+            Distorted(_) => GlyphRasterizationParam {
+                hinted: true,
+                sdf: true,
+            },
         }
     }
 }

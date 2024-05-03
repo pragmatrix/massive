@@ -20,7 +20,7 @@ impl BindGroupLayoutBuilder {
     }
 
     pub fn uniform(self) -> Self {
-        self.add_ty(wgpu::BindingType::Buffer {
+        self.add_type(wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Uniform,
             has_dynamic_offset: false,
             min_binding_size: None,
@@ -28,7 +28,7 @@ impl BindGroupLayoutBuilder {
     }
 
     pub fn texture(self) -> Self {
-        self.add_ty(wgpu::BindingType::Texture {
+        self.add_type(wgpu::BindingType::Texture {
             multisampled: false,
             view_dimension: wgpu::TextureViewDimension::D2,
             sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -36,12 +36,12 @@ impl BindGroupLayoutBuilder {
     }
 
     pub fn sampler(self) -> Self {
-        self.add_ty(wgpu::BindingType::Sampler(
+        self.add_type(wgpu::BindingType::Sampler(
             wgpu::SamplerBindingType::Filtering,
         ))
     }
 
-    fn add_ty(mut self, ty: wgpu::BindingType) -> Self {
+    fn add_type(mut self, ty: wgpu::BindingType) -> Self {
         self.entries.push(wgpu::BindGroupLayoutEntry {
             binding: self.entries.len() as _,
             visibility: self.shader_stages,

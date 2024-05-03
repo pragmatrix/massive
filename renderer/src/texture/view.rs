@@ -21,13 +21,13 @@ impl View {
         };
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Texture"),
             size,
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: wgpu::TextureFormat::R8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            label: Some("Texture"),
             view_formats: &[],
         });
 
@@ -56,7 +56,7 @@ impl View {
         &self.size
     }
 
-    pub fn as_binding(&self) -> wgpu::BindingResource {
+    pub fn as_binding_resource(&self) -> wgpu::BindingResource {
         wgpu::BindingResource::TextureView(&self.view)
     }
 }

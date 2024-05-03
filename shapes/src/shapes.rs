@@ -1,29 +1,58 @@
 use std::rc::Rc;
 
+use cgmath::Point2;
 use cosmic_text as text;
-use massive_geometry::Color;
+use massive_geometry::{Color, Vector3};
 
 use crate::geometry::{Bounds, Matrix4};
 
 #[derive(Debug)]
 pub enum Shape {
-    GlyphRun(Rc<Matrix4>, GlyphRun),
+    /// This shape describes a number of glyphs to be rendered with dame model matrix and an additional
+    /// translation.
+    GlyphRun {
+        // Model transformation
+        model_matrix: Rc<Matrix4>,
+        // Local translation of the glyph runs.
+        //
+        // This is separated from the view transformation matrix to support instancing of glyphs.
+        // TODO: May put this into [`GlyphRun`]
+        translation: Vector3,
+        run: GlyphRun,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct GlyphRun {
     pub metrics: GlyphRunMetrics,
     pub text_color: Color,
-    pub glyphs: Vec<PositionedGlyph>,
+    pub glyphs: Vec<RunGlyph>,
 }
 
 impl GlyphRun {
-    pub fn new(metrics: GlyphRunMetrics, text_color: Color, glyphs: Vec<PositionedGlyph>) -> Self {
+    pub fn new(metrics: GlyphRunMetrics, text_color: Color, glyphs: Vec<RunGlyph>) -> Self {
         Self {
             metrics,
             text_color,
             glyphs,
         }
+    }
+
+    /// Translate a rasterized glyph's position to the coordinate system of the run.
+    pub fn place_glyph(
+        &self,
+        glyph: &RunGlyph,
+        placement: &text::Placement,
+    ) -> (Point2<i32>, Point2<i32>) {
+        let max_ascent = self.metrics.max_ascent;
+        let hitbox_pos = glyph.hitbox_pos;
+
+        let left = hitbox_pos.0 + placement.left;
+        let top = hitbox_pos.1 + (max_ascent as i32) - placement.top;
+        let right = left + placement.width as i32;
+        let bottom = top + placement.height as i32;
+
+        ((left, top).into(), (right, bottom).into())
     }
 }
 
@@ -41,15 +70,16 @@ impl GlyphRunMetrics {
     }
 }
 
+/// A glyph inside a [`GlyphRun`].
 #[derive(Debug, Clone)]
-pub struct PositionedGlyph {
+pub struct RunGlyph {
     // This is for rendering the image of the glyph.
     pub key: text::CacheKey,
     pub hitbox_pos: (i32, i32),
     pub hitbox_width: f32,
 }
 
-impl PositionedGlyph {
+impl RunGlyph {
     pub fn new(key: text::CacheKey, hitbox_pos: (i32, i32), hitbox_width: f32) -> Self {
         Self {
             key,
