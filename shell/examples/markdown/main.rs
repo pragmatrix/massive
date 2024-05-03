@@ -168,7 +168,7 @@ async fn async_main() -> Result<()> {
         };
 
         // Note: text_area.bounds are not set (for some reason?).
-        for text_area in text_areas.take(10) {
+        for text_area in text_areas {
             let line_height = text_area.buffer.metrics().line_height;
             for run in text_area.buffer.layout_runs() {
                 let glyph_run = positioning::to_glyph_run(&run, line_height);
