@@ -257,7 +257,7 @@ fn colorize(tag: HlTag, mods: HlMods) -> Color {
             SymbolKind::TypeAlias => type_green(),
             SymbolKind::TypeParam => type_light_green(),
             SymbolKind::Union => type_green(),
-            SymbolKind::ValueParam => keyword_blue(),
+            SymbolKind::ValueParam => black(),
             SymbolKind::Variant => const_blue(),
         },
         HlTag::AttributeBracket => keyword_blue(),
@@ -280,7 +280,7 @@ fn colorize(tag: HlTag, mods: HlMods) -> Color {
 }
 
 fn none() -> Color {
-    rgb(0xfffffff)
+    black()
 }
 
 fn black() -> Color {
