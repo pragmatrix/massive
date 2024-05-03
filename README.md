@@ -14,7 +14,7 @@ Text:
 
 ### Code
 
-A 3D visualizing of the `main.rs` of the code example. Syntax highlighted with [Rust Analyzer](https://github.com/rust-lang/rust-analyzer). May take a while to start up even with `--release`.
+A 3D visualization of the `main.rs` of the code example. Syntax highlighted with [Rust Analyzer](https://github.com/rust-lang/rust-analyzer). May take a while to start up.
 
 ```
 cargo run --release --example code
@@ -22,7 +22,7 @@ cargo run --release --example code
 
 ### Markdown
 
-A 3D visualization of a markdown file (basically my CV). Uses [inlyne](https://github.com/Inlyne-Project/inlyne).
+A 3D visualization of a markdown file (basically my CV). Layouted using [inlyne](https://github.com/Inlyne-Project/inlyne).
 
 ```
 cargo run --release --example markdown
