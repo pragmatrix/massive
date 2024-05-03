@@ -1,6 +1,7 @@
 use wgpu::VertexBufferLayout;
 
 use crate::{
+    bind_group_entries,
     pods::{TextureColorVertex, TextureVertex},
     primitives::Pipeline,
     text_layer, texture,
@@ -122,10 +123,7 @@ pub fn create_view_projection_bind_group(
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: view_projection_buffer.as_entire_binding(),
-        }],
+        entries: bind_group_entries!(0 => view_projection_buffer),
         label: Some("Camera Bind Group"),
     });
 

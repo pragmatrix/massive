@@ -1,6 +1,6 @@
 use derive_more::Deref;
 
-use crate::{tools::BindGroupLayoutBuilder, SizeBuffer};
+use crate::{bind_group_entries, tools::BindGroupLayoutBuilder, SizeBuffer};
 
 /// The bind group layout of a texture.
 #[derive(Debug, Deref)]
@@ -21,10 +21,7 @@ impl BindGroupLayout {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("Shape Bind Group"),
             layout: &self.0,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: size.as_binding_resource(),
-            }],
+            entries: bind_group_entries!(0 => size),
         })
     }
 }

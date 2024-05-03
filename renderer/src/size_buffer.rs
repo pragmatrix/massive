@@ -1,6 +1,6 @@
 use wgpu::util::DeviceExt;
 
-use crate::pods;
+use crate::{pods, tools::AsBindingResource};
 
 #[derive(Debug)]
 pub struct SizeBuffer(wgpu::Buffer);
@@ -17,8 +17,10 @@ impl SizeBuffer {
 
         Self(buffer)
     }
+}
 
-    pub fn as_binding_resource(&self) -> wgpu::BindingResource {
+impl AsBindingResource for SizeBuffer {
+    fn as_binding_resource(&self) -> wgpu::BindingResource {
         self.0.as_entire_binding()
     }
 }
