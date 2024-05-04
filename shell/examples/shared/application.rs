@@ -15,14 +15,18 @@ use winit::{
 
 use massive_shell as shell;
 
+enum ActiveGesture {
+    Movement(MovementGesture),
+    Rotation(RotationGesture),
+}
+
 pub struct Application {
     camera: Camera,
     glyph_runs: Vec<(Point, GlyphRun)>,
     page_size: SizeI,
 
-    /// If pressed, the origin.
-    left_mouse_button_pressed: Option<LeftMouseButtonPressed>,
-    middle_mouse_button_pressed: Option<MiddleMouseButtonPressed>,
+    gesture: Option<ActiveGesture>,
+
     /// Tracked positions of all devices.
     positions: HashMap<DeviceId, PointI>,
     modifiers: Modifiers,
@@ -45,8 +49,7 @@ impl Application {
             glyph_runs,
             page_size: page_size.into(),
 
-            left_mouse_button_pressed: None,
-            middle_mouse_button_pressed: None,
+            gesture: None,
             positions: HashMap::new(),
             modifiers: Modifiers::default(),
             translation: PointI::default(),
@@ -56,12 +59,12 @@ impl Application {
     }
 }
 
-struct LeftMouseButtonPressed {
+struct MovementGesture {
     origin: PointI,
     translation_origin: PointI,
 }
 
-struct MiddleMouseButtonPressed {
+struct RotationGesture {
     origin: PointI,
     rotation_origin: PointI,
 }
@@ -83,14 +86,17 @@ impl shell::Application for Application {
                 self.positions.insert(device_id, current);
 
                 // Is there an ongoing movement on the left mouse button?
-                if let Some(pressed_state) = &self.left_mouse_button_pressed {
-                    let delta = current - pressed_state.origin;
-                    self.translation = pressed_state.translation_origin + delta;
-                }
-
-                if let Some(pressed_state) = &self.middle_mouse_button_pressed {
-                    let delta = current - pressed_state.origin;
-                    self.rotation = pressed_state.rotation_origin + delta;
+                if let Some(gesture) = &self.gesture {
+                    match gesture {
+                        ActiveGesture::Movement(movement) => {
+                            let delta = current - movement.origin;
+                            self.translation = movement.translation_origin + delta;
+                        }
+                        ActiveGesture::Rotation(rotation) => {
+                            let delta = current - rotation.origin;
+                            self.rotation = rotation.rotation_origin + delta;
+                        }
+                    }
                 }
             }
             WindowEvent::MouseWheel {
@@ -112,12 +118,19 @@ impl shell::Application for Application {
                 button: MouseButton::Left,
             } if self.positions.contains_key(&device_id) => {
                 if state.is_pressed() {
-                    self.left_mouse_button_pressed = Some(LeftMouseButtonPressed {
-                        origin: self.positions[&device_id],
-                        translation_origin: self.translation,
-                    });
+                    if self.modifiers.state().super_key() {
+                        self.gesture = Some(ActiveGesture::Rotation(RotationGesture {
+                            origin: self.positions[&device_id],
+                            rotation_origin: self.rotation,
+                        }));
+                    } else {
+                        self.gesture = Some(ActiveGesture::Movement(MovementGesture {
+                            origin: self.positions[&device_id],
+                            translation_origin: self.translation,
+                        }));
+                    }
                 } else {
-                    self.left_mouse_button_pressed = None;
+                    self.gesture = None;
                 }
             }
             WindowEvent::MouseInput {
@@ -126,12 +139,12 @@ impl shell::Application for Application {
                 button: MouseButton::Middle,
             } => {
                 if state.is_pressed() {
-                    self.middle_mouse_button_pressed = Some(MiddleMouseButtonPressed {
+                    self.gesture = Some(ActiveGesture::Rotation(RotationGesture {
                         origin: self.positions[&device_id],
                         rotation_origin: self.rotation,
-                    });
+                    }));
                 } else {
-                    self.middle_mouse_button_pressed = None;
+                    self.gesture = None;
                 }
             }
 
