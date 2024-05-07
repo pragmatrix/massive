@@ -3,7 +3,7 @@ use std::rc::Rc;
 use cgmath::Point2;
 use cosmic_text as text;
 use massive_geometry::{Color, Vector3};
-use swash::Weight;
+use serde::{Deserialize, Serialize};
 
 use crate::geometry::{Bounds, Matrix4};
 
@@ -27,7 +27,7 @@ pub enum Shape {
 pub struct GlyphRun {
     pub metrics: GlyphRunMetrics,
     pub text_color: Color,
-    pub text_weight: Weight,
+    pub text_weight: TextWeight,
     pub glyphs: Vec<RunGlyph>,
 }
 
@@ -35,7 +35,7 @@ impl GlyphRun {
     pub fn new(
         metrics: GlyphRunMetrics,
         text_color: Color,
-        text_weight: Weight,
+        text_weight: TextWeight,
         glyphs: Vec<RunGlyph>,
     ) -> Self {
         Self {
@@ -76,6 +76,21 @@ impl GlyphRunMetrics {
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.max_ascent + self.max_descent)
     }
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub struct TextWeight(pub u16);
+
+impl TextWeight {
+    pub const THIN: Self = Self(100);
+    pub const EXTRA_LIGHT: Self = Self(200);
+    pub const LIGHT: Self = Self(300);
+    pub const NORMAL: Self = Self(400);
+    pub const MEDIUM: Self = Self(500);
+    pub const SEMI_BOLD: Self = Self(600);
+    pub const BOLD: Self = Self(700);
+    pub const EXTRA_BOLD: Self = Self(800);
+    pub const BLACK: Self = Self(900);
 }
 
 /// A glyph inside a [`GlyphRun`].

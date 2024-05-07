@@ -14,8 +14,9 @@ anyhow = { workspace = true }
 cosmic-text = { workspace = true }
 cgmath = { workspace = true }
 
-[dev-dependencies]
 
+[dev-dependencies]
+shared = { path = "shared" }
 itertools = { workspace = true }
 
 # markdown
@@ -34,6 +35,10 @@ tracing-flame = { workspace = true }
 tracing-chrome = { workspace = true }
 
 chrono = { workspace = true }
+serde = { workspace = true }
+serde_tuple = { workspace = true }
+serde_json = { workspace = true }
+postcard = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 

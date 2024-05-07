@@ -6,7 +6,7 @@ use anyhow::Result;
 use cosmic_text as text;
 use itertools::Itertools;
 use massive_geometry::{Color, Matrix4, Point, Point3};
-use massive_shapes::{GlyphRun, RunGlyph, Shape};
+use massive_shapes::{GlyphRun, RunGlyph, Shape, TextWeight};
 use swash::{scale::ScaleContext, Weight};
 use tracing::instrument;
 use wgpu::{
@@ -200,7 +200,7 @@ impl ShapeLayerRenderer {
     fn rasterized_glyph_atlas_rect(
         &mut self,
         context: &mut ShapeLayerRendererContext,
-        weight: Weight,
+        weight: TextWeight,
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement)>> {
         let glyph_key = RasterizedGlyphKey {
@@ -209,7 +209,7 @@ impl ShapeLayerRenderer {
                 sdf: true,
                 swash: SwashRasterizationParam {
                     hinted: true,
-                    weight,
+                    weight: Weight(weight.0),
                 },
             },
         };

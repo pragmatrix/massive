@@ -21,16 +21,13 @@ use winit::event_loop::EventLoop;
 use massive_geometry::{Camera, Point, SizeI};
 use massive_shell::Shell;
 
-use application::Application;
+use shared::{
+    application::{self, Application},
+    positioning,
+};
 
 #[cfg(target_arch = "wasm32")]
 use winit::platform::web::WindowBuilderExtWebSys;
-
-#[path = "../shared/application.rs"]
-mod application;
-
-#[path = "../shared/positioning.rs"]
-mod positioning;
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "markdown";

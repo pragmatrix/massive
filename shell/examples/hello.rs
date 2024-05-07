@@ -4,7 +4,7 @@ use std::{
 };
 
 use cosmic_text as text;
-use swash::Weight;
+use shared::positioning;
 use text::FontSystem;
 use winit::{
     event::{KeyEvent, WindowEvent},
@@ -12,16 +12,13 @@ use winit::{
 };
 
 use massive_geometry::{Camera, Color, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape, TextWeight};
 use massive_shell::{self as shell, Shell};
 
 struct Application {
     camera: Camera,
     hello_world: String,
 }
-
-#[path = "shared/positioning.rs"]
-mod positioning;
 
 #[tokio::main]
 async fn main() {
@@ -111,5 +108,5 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         width: line.w.ceil() as u32,
     };
 
-    GlyphRun::new(metrics, Color::BLACK, Weight::NORMAL, placed)
+    GlyphRun::new(metrics, Color::BLACK, TextWeight::NORMAL, placed)
 }

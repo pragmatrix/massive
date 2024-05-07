@@ -8,23 +8,21 @@ use std::{
 use anyhow::Result;
 use base_db::SourceDatabaseExt;
 use chrono::{DateTime, Local};
-use cosmic_text::{fontdb, Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
-use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlRange, HlTag, SymbolKind};
+use cosmic_text::{fontdb, FontSystem};
+// use hir::db::DefDatabase;
+use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlTag, SymbolKind};
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
-use swash::Weight;
+use shared::{application, code_viewer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use vfs::VfsPath;
 use winit::event_loop::EventLoop;
 
-use massive_geometry::{Camera, Color, Point, SizeI};
-use massive_shapes::GlyphRun;
+use massive_geometry::{Camera, Color, SizeI};
+use massive_shapes::TextWeight;
 use massive_shell::Shell;
 
-#[path = "../shared/application.rs"]
-mod application;
-#[path = "../shared/positioning.rs"]
-mod positioning;
+use crate::code_viewer::TextAttribute;
 
 // Simple file for testing less code.
 mod test;
@@ -75,9 +73,8 @@ async fn main() -> Result<()> {
         let mut db = fontdb::Database::new();
         // let font_dir = example_dir.join("JetBrainsMono-2.304/fonts/ttf");
         // db.load_fonts_dir(font_dir);
-        let font_file =
-            example_dir.join("JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
-        db.load_font_file(font_file)?;
+
+        db.load_font_data(shared::fonts::jetbrains_mono().to_vec());
         // Use an invariant locale.
         FontSystem::new_with_locale_and_db("en-US".into(), db)
     };
@@ -118,10 +115,21 @@ async fn main() -> Result<()> {
 
     let analysis_host = AnalysisHost::with_database(db);
 
+    // Item tree
+
+    // let db = analysis_host.raw_database();
+    // let item_tree = db.file_item_tree(file_id.into());
+    // println!("Item Tree: {:#?}", item_tree);
+
     // Analysis
 
     println!("Analysis");
     let analysis = analysis_host.analysis();
+
+    // File Structure
+
+    // let file_structure = analysis.file_structure(file_id);
+    // println!("File structure: {:#?}", file_structure);
 
     // Highlight
 
@@ -143,8 +151,34 @@ async fn main() -> Result<()> {
 
     let attributes: Vec<_> = syntax
         .iter()
-        .map(|range| attribute(range.highlight.tag, range.highlight.mods))
+        .map(|range| {
+            let (color, weight) = attribute(range.highlight.tag, range.highlight.mods);
+            TextAttribute {
+                range: range.range.into(),
+                color,
+                weight,
+            }
+        })
         .collect();
+
+    // Store for the web viewer.
+
+    let attributed_code = code_viewer::AttributedCode {
+        text: file_text.to_string(),
+        attributes: attributes.clone(),
+    };
+
+    std::fs::write(
+        "/tmp/code.json",
+        serde_json::to_string(&attributed_code).unwrap(),
+    )
+    .unwrap();
+
+    std::fs::write(
+        "/tmp/code.postcard",
+        postcard::to_stdvec(&attributed_code).unwrap(),
+    )
+    .unwrap();
 
     // Shape and layout text.
 
@@ -153,10 +187,9 @@ async fn main() -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = shape_text(
+    let (glyph_runs, height) = code_viewer::shape_text(
         &mut font_system,
         &file_text,
-        &syntax,
         &attributes,
         font_size,
         line_height,
@@ -188,49 +221,9 @@ async fn main() -> Result<()> {
     shell.run(event_loop, &window, application).await
 }
 
-fn shape_text(
-    font_system: &mut FontSystem,
-    text: &str,
-    syntax: &[HlRange],
-    attributes: &[(Color, Weight)],
-    font_size: f32,
-    line_height: f32,
-) -> (Vec<(Point, GlyphRun)>, f64) {
-    syntax::assert_covers_all_text(syntax, text.len());
-    assert_eq!(attributes.len(), syntax.len());
-
-    // The text covers everything. But if these attributes are appearing without adjusted metadata,
-    // something is wrong. Set it to an illegal offset `usize::MAX` for now.
-    let base_attrs = Attrs::new().family(Family::Monospace).metadata(usize::MAX);
-    let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
-    buffer.set_size(font_system, f32::INFINITY, f32::INFINITY);
-    // buffer.set_text(font_system, text, attrs, Shaping::Advanced);
-    buffer.set_wrap(font_system, Wrap::None);
-    // Create associated metadata.
-    let text_attr_spans = syntax
-        .iter()
-        .enumerate()
-        .map(|(range_index, hr)| (&text[hr.range], base_attrs.metadata(range_index)));
-    buffer.set_rich_text(font_system, text_attr_spans, base_attrs, Shaping::Advanced);
-    buffer.shape_until_scroll(font_system, true);
-
-    let mut runs = Vec::new();
-    let mut height: f64 = 0.;
-
-    for run in buffer.layout_runs() {
-        let offset = Point::new(0., run.line_top as f64);
-        for run in positioning::to_attributed_glyph_runs(&run, line_height, attributes) {
-            runs.push((offset, run));
-        }
-        height = height.max(offset.y + line_height as f64);
-    }
-
-    (runs, height)
-}
-
-fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
+fn attribute(tag: HlTag, mods: HlMods) -> (Color, TextWeight) {
     if mods.contains(HlMod::Unsafe) {
-        return (unsafe_red(), Weight::NORMAL);
+        return (unsafe_red(), TextWeight::NORMAL);
     }
 
     let color = match tag {
@@ -284,9 +277,9 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, Weight) {
     };
 
     let weight = if mods.contains(HlMod::Mutable) {
-        Weight::BOLD
+        TextWeight::BOLD
     } else {
-        Weight::NORMAL
+        TextWeight::NORMAL
     };
 
     (color, weight)
@@ -399,25 +392,3 @@ fn rgb(rgb: u32) -> Color {
 // .invalid_escape_sequence { color: #FF0000; text-decoration: wavy underline; }
 // .unresolved_reference    { color: #FF0000; text-decoration: wavy underline; }
 // </style>
-
-mod syntax {
-    use ide::{HlRange, TextSize};
-
-    pub fn assert_covers_all_text(range: &[HlRange], text_len: usize) {
-        if text_len == 0 {
-            return;
-        }
-        assert_eq!(range[0].range.start(), TextSize::default());
-        assert_eq!(
-            range[range.len() - 1].range.end(),
-            TextSize::new(text_len.try_into().unwrap())
-        );
-        assert_contiguous(range);
-    }
-
-    pub fn assert_contiguous(range: &[HlRange]) {
-        for i in range.windows(2) {
-            assert!(i[0].range.end() == i[1].range.start())
-        }
-    }
-}
