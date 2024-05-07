@@ -1,41 +1,63 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use chrono::{DateTime, Local};
 use cosmic_text::{fontdb, FontSystem};
 // use hir::db::DefDatabase;
 use shared::{
     application,
     code_viewer::{self, AttributedCode},
 };
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use winit::event_loop::EventLoop;
 
 use massive_geometry::{Camera, SizeI};
 use massive_shell::Shell;
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let env_filter = EnvFilter::from_default_env();
-    let console_formatter = tracing_subscriber::fmt::Layer::default();
-    // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+const CANVAS_ID: &str = "massive-code";
 
-    let now: DateTime<Local> = Local::now();
-    #[allow(unused)]
-    let time_code = now.format("%Y%m%d%H%M").to_string();
+#[cfg(not(target_arch = "wasm32"))]
+fn main() -> Result<()> {
+    env_logger::init();
 
-    // let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
-    //     .file(format!("./{time_code}-massive-trace.json"))
-    //     .build();
+    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
+    // Use the runtime to block on the async function
+    rt.block_on(async_main())
+}
 
-    Registry::default()
-        // Filter seems to be applied globally, which is what we want.
-        .with(env_filter)
-        // Console formatter currently captures only log::xxx! macros for some reason.
-        .with(console_formatter)
-        // .with(flame_layer)
-        // .with(chrome_layer)
-        .init();
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    console_error_panic_hook::set_once();
+    console_log::init().expect("Could not initialize logger");
+
+    wasm_bindgen_futures::spawn_local(async {
+        match async_main().await {
+            Ok(()) => {}
+            Err(e) => {
+                log::error!("{e}");
+            }
+        }
+    });
+}
+async fn async_main() -> Result<()> {
+    // let env_filter = EnvFilter::from_default_env();
+    // let console_formatter = tracing_subscriber::fmt::Layer::default();
+    // // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+
+    // let now: DateTime<Local> = Local::now();
+    // #[allow(unused)]
+    // let time_code = now.format("%Y%m%d%H%M").to_string();
+
+    // // let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+    // //     .file(format!("./{time_code}-massive-trace.json"))
+    // //     .build();
+
+    // Registry::default()
+    //     // Filter seems to be applied globally, which is what we want.
+    //     .with(env_filter)
+    //     // Console formatter currently captures only log::xxx! macros for some reason.
+    //     .with(console_formatter)
+    //     // .with(flame_layer)
+    //     // .with(chrome_layer)
+    //     .init();
 
     // FontSystem
 
@@ -72,7 +94,7 @@ async fn main() -> Result<()> {
     // Window
 
     let event_loop = EventLoop::new()?;
-    let window = application::create_window(&event_loop, None)?;
+    let window = application::create_window(&event_loop, Some(CANVAS_ID))?;
     let initial_size = window.inner_size();
 
     // Camera

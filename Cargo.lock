@@ -4812,6 +4812,8 @@ dependencies = [
  "massive-shell",
  "serde",
  "serde_tuple",
+ "wasm-bindgen",
+ "web-sys",
  "winit",
 ]
 

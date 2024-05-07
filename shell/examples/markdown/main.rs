@@ -30,7 +30,7 @@ use shared::{
 use winit::platform::web::WindowBuilderExtWebSys;
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
-const CANVAS_ID: &str = "markdown";
+const CANVAS_ID: &str = "massive-markdown";
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<()> {
