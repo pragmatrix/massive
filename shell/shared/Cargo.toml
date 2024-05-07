@@ -1,0 +1,21 @@
+[package]
+name = "shared"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+massive-geometry = { workspace = true }
+massive-shapes = { workspace = true }
+massive-shell = { workspace = true }
+winit = { workspace = true }
+cgmath = { workspace = true }
+serde = { workspace = true }
+serde_tuple = { workspace = true }
+cosmic-text = { workspace = true }
+itertools = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+
+web-sys = "0.3.69"
+wasm-bindgen = "0.2.92"

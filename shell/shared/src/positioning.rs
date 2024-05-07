@@ -4,8 +4,7 @@ use cosmic_text::{CacheKey, CacheKeyFlags, LayoutGlyph, LayoutRun};
 
 use itertools::Itertools;
 use massive_geometry::Color;
-use massive_shapes::{GlyphRun, GlyphRunMetrics, RunGlyph};
-use swash::Weight;
+use massive_shapes::{GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 const RENDER_SUBPIXEL: bool = false;
 
@@ -15,7 +14,7 @@ const RENDER_SUBPIXEL: bool = false;
 pub fn to_attributed_glyph_runs(
     run: &LayoutRun,
     line_height: f32,
-    attributes: &[(Color, Weight)],
+    attributes: &[(Color, TextWeight)],
 ) -> Vec<GlyphRun> {
     let metrics = metrics(run, line_height);
 
@@ -34,7 +33,7 @@ pub fn to_attributed_glyph_runs(
 pub fn to_glyph_run(run: &LayoutRun, line_height: f32) -> GlyphRun {
     let metrics = metrics(run, line_height);
     let positioned = position_glyphs(run.glyphs);
-    GlyphRun::new(metrics, Color::BLACK, Weight::NORMAL, positioned)
+    GlyphRun::new(metrics, Color::BLACK, TextWeight::NORMAL, positioned)
 }
 
 fn metrics(run: &LayoutRun, line_height: f32) -> GlyphRunMetrics {

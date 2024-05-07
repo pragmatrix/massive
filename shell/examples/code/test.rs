@@ -1,3 +1,6 @@
 //! Small test file.
 #[allow(unused)]
-fn test() {}
+fn test() {
+    let x = 10;
+    let y = x;
+}

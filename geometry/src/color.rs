@@ -1,7 +1,9 @@
 use std::ops::{Add, Div, Mul};
 
+use serde_tuple::{Deserialize_tuple, Serialize_tuple};
+
 // TODO: WGPU uses f64 for colors, should we do the same?
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, Serialize_tuple, Deserialize_tuple)]
 pub struct Color {
     pub red: f32,
     pub green: f32,
