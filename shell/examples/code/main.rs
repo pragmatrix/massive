@@ -6,14 +6,18 @@ use std::{
 };
 
 use anyhow::Result;
-use base_db::SourceDatabaseExt;
+use base_db::{SourceDatabase, SourceDatabaseExt};
 use chrono::{DateTime, Local};
 use cosmic_text::{fontdb, FontSystem};
 // use hir::db::DefDatabase;
-use ide::{AnalysisHost, HighlightConfig, HlMod, HlMods, HlTag, SymbolKind};
+use ide::{
+    AnalysisHost, FilePosition, HighlightConfig, HighlightRelatedConfig, HlMod, HlMods, HlTag,
+    SymbolKind,
+};
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
 use shared::{application, code_viewer};
+use syntax::{AstNode, SyntaxKind, WalkEvent};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use vfs::VfsPath;
 use winit::event_loop::EventLoop;
@@ -115,6 +119,30 @@ async fn main() -> Result<()> {
 
     let analysis_host = AnalysisHost::with_database(db);
 
+    // Get all names
+
+    let names = {
+        let mut names = Vec::new();
+        let db = analysis_host.raw_database();
+        let tree = db.parse(file_id).tree();
+        let syntax = tree.syntax().preorder();
+        for event in syntax {
+            match event {
+                WalkEvent::Enter(node) if node.kind() == SyntaxKind::NAME => {
+                    names.push(node.text_range());
+                }
+
+                _ => {}
+            }
+        }
+        names
+    };
+
+    for name in &names {
+        // let x : TextRange
+        println!("name: {}", &file_text[*name])
+    }
+
     // Item tree
 
     // let db = analysis_host.raw_database();
@@ -125,6 +153,30 @@ async fn main() -> Result<()> {
 
     println!("Analysis");
     let analysis = analysis_host.analysis();
+
+    {
+        println!("Highlight Related");
+        let config = HighlightRelatedConfig {
+            references: true,
+            ..HighlightRelatedConfig::default()
+        };
+
+        for name in names {
+            let position = FilePosition {
+                file_id,
+                offset: name.start(),
+            };
+
+            if let Some(related) = analysis
+                .highlight_related(config.clone(), position)
+                .unwrap()
+            {
+                let related: Vec<_> = related.iter().map(|hr| &file_text[hr.range]).collect();
+
+                println!("related: {:?}", related)
+            }
+        }
+    }
 
     // File Structure
 
