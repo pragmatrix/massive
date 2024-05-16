@@ -1,4 +1,5 @@
 mod color_buffer;
+mod simple;
 mod glyph;
 mod pipelines;
 mod pods;
