@@ -1,19 +1,40 @@
 use std::{
-    mem::{self, size_of_val},
+    mem::{self},
     result,
 };
 
+use anyhow::Result;
 use log::info;
 use massive_geometry::Matrix4;
-use wgpu::{util::DeviceExt, Device, StoreOp};
+use massive_shapes::Shape;
+use wgpu::StoreOp;
 
 use crate::{
-    pipelines, pods,
-    primitives::{Pipeline, Primitive},
-    shape,
-    text_layer::{self, TextLayer},
-    texture::{self, Texture},
+    pipelines, pods, text,
+    text_layer::{self, TextLayerRenderer},
+    texture,
 };
+
+/// The context provided to `prepare()` middleware functions.
+pub struct PreparationContext<'a> {
+    pub device: &'a wgpu::Device,
+    pub queue: &'a wgpu::Queue,
+    pub font_system: &'a mut text::FontSystem,
+}
+
+pub struct RenderContext<'a, 'rpass> {
+    queue: &'a wgpu::Queue,
+    view_projection_buffer: &'a wgpu::Buffer,
+    pub view_projection_matrix: Matrix4,
+    pub view_projection_bind_group: &'rpass wgpu::BindGroup,
+    pub pass: &'a mut wgpu::RenderPass<'rpass>,
+}
+
+impl RenderContext<'_, '_> {
+    pub fn queue_view_projection_matrix(&self, matrix: &Matrix4) {
+        Renderer::queue_view_projection_matrix(self.queue, self.view_projection_buffer, matrix);
+    }
+}
 
 pub struct Renderer<'window> {
     surface: wgpu::Surface<'window>,
@@ -21,7 +42,9 @@ pub struct Renderer<'window> {
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
 
+    // DI: Type this.
     view_projection_buffer: wgpu::Buffer,
+    // DI: Type this.
     view_projection_bind_group: wgpu::BindGroup,
 
     // TODO: this doesn't belong here and is used only for specific pipelines. We need some
@@ -29,9 +52,7 @@ pub struct Renderer<'window> {
     pub texture_bind_group_layout: texture::BindGroupLayout,
     pub text_layer_bind_group_layout: text_layer::BindGroupLayout,
 
-    pipelines: Vec<(Pipeline, wgpu::RenderPipeline)>,
-
-    index_buffer: QuadIndexBuffer,
+    text_layer_renderer: TextLayerRenderer,
 }
 
 impl<'window> Renderer<'window> {
@@ -56,26 +77,12 @@ impl<'window> Renderer<'window> {
 
         let text_layer_bind_group_layout = text_layer::BindGroupLayout::new(&device);
 
-        let shape_bind_group_layout = shape::BindGroupLayout::new(&device);
+        // let shape_bind_group_layout = shape::BindGroupLayout::new(&device);
 
-        let index_buffer = QuadIndexBuffer::new(&device);
+        let format = surface_config.format;
 
-        let pipelines = {
-            let targets = [Some(wgpu::ColorTargetState {
-                format: surface_config.format,
-                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            })];
-
-            pipelines::create(
-                &device,
-                &view_projection_bind_group_layout,
-                &texture_bind_group_layout,
-                &text_layer_bind_group_layout,
-                &shape_bind_group_layout,
-                &targets,
-            )
-        };
+        let text_layer_renderer =
+            TextLayerRenderer::new(&device, format, &view_projection_bind_group_layout);
 
         let mut renderer = Self {
             device,
@@ -86,13 +93,22 @@ impl<'window> Renderer<'window> {
             view_projection_bind_group,
             texture_bind_group_layout,
             text_layer_bind_group_layout,
-            pipelines,
-
-            index_buffer,
+            text_layer_renderer,
         };
 
         renderer.reconfigure_surface();
         renderer
+    }
+
+    #[tracing::instrument(skip_all)]
+    pub fn prepare(&mut self, font_system: &mut text::FontSystem, shapes: &[Shape]) -> Result<()> {
+        let mut context = PreparationContext {
+            device: &self.device,
+            queue: &self.queue,
+            font_system,
+        };
+
+        self.text_layer_renderer.prepare(&mut context, shapes)
     }
 
     // TODO: Can't we handle SurfaceError::Lost here by just reconfiguring the surface and trying
@@ -101,7 +117,6 @@ impl<'window> Renderer<'window> {
     pub fn render_and_present(
         &mut self,
         view_projection_matrix: &Matrix4,
-        primitives: &[Primitive],
     ) -> result::Result<(), wgpu::SurfaceError> {
         let surface_texture = self.surface.get_current_texture()?;
         let surface_view = surface_texture
@@ -110,16 +125,22 @@ impl<'window> Renderer<'window> {
 
         // Prepare the index buffer.
 
-        self.index_buffer.ensure_quads(
-            &self.device,
-            primitives
-                .iter()
-                .map(|p| p.quads())
-                .max()
-                .unwrap_or_default(),
-        );
+        // self.index_buffer.ensure_quad_capacity(
+        //     &self.device,
+        //     primitives
+        //         .iter()
+        //         .map(|p| p.quads())
+        //         .max()
+        //         .unwrap_or_default(),
+        // );
 
-        self.queue_view_projection_matrix(view_projection_matrix);
+        // OO: This should not be needed anymore, because every renderer is now responsible for
+        // setting up the view projection.
+        Self::queue_view_projection_matrix(
+            &self.queue,
+            &self.view_projection_buffer,
+            view_projection_matrix,
+        );
 
         let command_buffer = {
             let mut encoder = self
@@ -144,59 +165,68 @@ impl<'window> Renderer<'window> {
                     occlusion_query_set: None,
                 });
 
-                for pipeline in &self.pipelines {
-                    let kind = pipeline.0;
-                    let pipeline = &pipeline.1;
-                    render_pass.set_pipeline(pipeline);
-                    render_pass.set_bind_group(0, &self.view_projection_bind_group, &[]);
-                    render_pass.set_index_buffer(
-                        self.index_buffer.buffer.slice(..),
-                        wgpu::IndexFormat::Uint16,
-                    );
+                // DI: There is a lot of view_projection stuff going on.
+                let mut render_context = RenderContext {
+                    queue: &self.queue,
+                    view_projection_buffer: &self.view_projection_buffer,
+                    pass: &mut render_pass,
+                    view_projection_matrix: *view_projection_matrix,
+                    view_projection_bind_group: &self.view_projection_bind_group,
+                };
 
-                    for primitive in primitives.iter().filter(|p| p.pipeline() == kind) {
-                        match primitive {
-                            Primitive::Texture(Texture {
-                                bind_group,
-                                vertex_buffer,
-                                ..
-                            }) => {
-                                render_pass.set_bind_group(1, bind_group, &[]);
-                                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                                render_pass.draw_indexed(
-                                    0..QuadIndexBuffer::QUAD_INDICES_COUNT as u32,
-                                    0,
-                                    0..1,
-                                );
-                            }
-                            Primitive::TextLayer(TextLayer {
-                                fragment_shader_bind_group,
-                                model_matrix,
-                                vertex_buffer,
-                                quad_count,
-                            }) => {
-                                let text_layer_matrix = *view_projection_matrix * model_matrix;
+                self.text_layer_renderer.render(&mut render_context);
 
-                                // OO: Set bind group only once and update the buffer?
-                                self.queue_view_projection_matrix(&text_layer_matrix);
-                                render_pass.set_bind_group(
-                                    0,
-                                    &self.view_projection_bind_group,
-                                    &[],
-                                );
+                // for pipeline in &self.pipelines {
+                //     let kind = pipeline.0;
+                //     let pipeline = &pipeline.1;
+                //     render_pass.set_pipeline(pipeline);
+                //     render_pass.set_bind_group(0, &self.view_projection_bind_group, &[]);
+                //     render_pass
+                //         .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
 
-                                render_pass.set_bind_group(1, fragment_shader_bind_group, &[]);
-                                render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                //     for primitive in primitives.iter().filter(|p| p.pipeline() == kind) {
+                //         match primitive {
+                //             Primitive::Texture(Texture {
+                //                 bind_group,
+                //                 vertex_buffer,
+                //                 ..
+                //             }) => {
+                //                 render_pass.set_bind_group(1, bind_group, &[]);
+                //                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                //                 render_pass.draw_indexed(
+                //                     0..QuadIndexBuffer::QUAD_INDICES_COUNT as u32,
+                //                     0,
+                //                     0..1,
+                //                 );
+                //             }
+                //             Primitive::TextLayer(TextLayer {
+                //                 fragment_shader_bind_group,
+                //                 model_matrix,
+                //                 vertex_buffer,
+                //                 quad_count,
+                //             }) => {
+                //                 let text_layer_matrix = *view_projection_matrix * model_matrix;
 
-                                render_pass.draw_indexed(
-                                    0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
-                                    0,
-                                    0..1,
-                                )
-                            }
-                        }
-                    }
-                }
+                //                 // OO: Set bind group only once and update the buffer?
+                //                 self.queue_view_projection_matrix(&text_layer_matrix);
+                //                 render_pass.set_bind_group(
+                //                     0,
+                //                     &self.view_projection_bind_group,
+                //                     &[],
+                //                 );
+
+                //                 render_pass.set_bind_group(1, fragment_shader_bind_group, &[]);
+                //                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+
+                //                 render_pass.draw_indexed(
+                //                     0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
+                //                     0,
+                //                     0..1,
+                //                 )
+                //             }
+                //         }
+                //     }
+                // }
             }
             encoder.finish()
         };
@@ -206,7 +236,11 @@ impl<'window> Renderer<'window> {
         Ok(())
     }
 
-    fn queue_view_projection_matrix(&self, view_projection_matrix: &Matrix4) {
+    fn queue_view_projection_matrix(
+        queue: &wgpu::Queue,
+        view_projection_buffer: &wgpu::Buffer,
+        view_projection_matrix: &Matrix4,
+    ) {
         let view_projection_uniform = {
             let m: cgmath::Matrix4<f32> = view_projection_matrix
                 .cast()
@@ -214,8 +248,8 @@ impl<'window> Renderer<'window> {
             pods::Matrix4(m.into())
         };
 
-        self.queue.write_buffer(
-            &self.view_projection_buffer,
+        queue.write_buffer(
+            view_projection_buffer,
             0,
             bytemuck::cast_slice(&[view_projection_uniform]),
         )
@@ -256,69 +290,5 @@ impl<'window> Renderer<'window> {
     pub fn reconfigure_surface(&mut self) {
         info!("Reconfiguring surface {:?}", self.surface_config);
         self.surface.configure(&self.device, &self.surface_config)
-    }
-}
-
-struct QuadIndexBuffer {
-    buffer: wgpu::Buffer,
-}
-
-impl QuadIndexBuffer {
-    pub fn new(device: &Device) -> Self {
-        // OO: Provide a good initial size.
-        const NO_INDICES: [u16; 0] = [];
-        Self {
-            buffer: Self::create_buffer(device, &NO_INDICES),
-        }
-    }
-
-    pub fn quads(&self) -> usize {
-        (self.buffer.size() as usize) / size_of_val(Self::QUAD_INDICES)
-    }
-
-    pub fn ensure_quads(&mut self, device: &Device, required_quad_count: usize) {
-        let current = self.quads();
-        if required_quad_count <= current {
-            return;
-        }
-
-        let mut proposed_quad_capacity = current.max(1) << 1;
-        loop {
-            if proposed_quad_capacity >= required_quad_count {
-                break;
-            }
-            proposed_quad_capacity <<= 1;
-            assert!(proposed_quad_capacity != 0);
-        }
-
-        log::debug!("Growing index buffer from {current} to {proposed_quad_capacity} quads, required: {required_quad_count}");
-
-        let indices = Self::generate_array(self, proposed_quad_capacity);
-        self.buffer = Self::create_buffer(device, &indices);
-    }
-
-    fn generate_array(&self, quads: usize) -> Vec<u16> {
-        let mut v = Vec::with_capacity(Self::QUAD_INDICES.len() * quads);
-
-        (0..quads).for_each(|quad_index| {
-            v.extend(
-                Self::QUAD_INDICES
-                    .iter()
-                    .map(|i| *i + (quad_index << 2) as u16),
-            )
-        });
-
-        v
-    }
-
-    const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
-    const QUAD_INDICES_COUNT: usize = Self::QUAD_INDICES.len();
-
-    fn create_buffer(device: &Device, indices: &[u16]) -> wgpu::Buffer {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Index Buffer"),
-            contents: bytemuck::cast_slice(indices),
-            usage: wgpu::BufferUsages::INDEX,
-        })
     }
 }
