@@ -15,7 +15,7 @@ use crate::{
     ColorBuffer,
 };
 use massive_geometry::{Matrix4, Point};
-use massive_shapes::{GlyphRun, RunGlyph, Shape};
+use massive_shapes::{GlyphRun, GlyphRunShape, RunGlyph, Shape};
 
 pub struct ShapeRendererContext<'a> {
     pub device: &'a wgpu::Device,
@@ -79,16 +79,17 @@ impl ShapeRenderer {
         shape: &Shape,
     ) -> Vec<Primitive> {
         match shape {
-            Shape::GlyphRun {
+            Shape::GlyphRun(GlyphRunShape {
                 model_matrix,
                 translation,
                 run,
-            } => self.render_glyph_run(
+            }) => self.render_glyph_run(
                 context,
                 surface_view_matrix,
                 &(**model_matrix * Matrix4::from_translation(*translation)),
                 run,
             ),
+            _ => Vec::new(),
         }
     }
 

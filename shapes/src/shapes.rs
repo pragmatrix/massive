@@ -7,20 +7,23 @@ use serde::{Deserialize, Serialize};
 
 use crate::geometry::{Bounds, Matrix4};
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Shape {
-    /// This shape describes a number of glyphs to be rendered with dame model matrix and an additional
-    /// translation.
-    GlyphRun {
-        // Model transformation
-        model_matrix: Rc<Matrix4>,
-        // Local translation of the glyph runs.
-        //
-        // This is separated from the view transformation matrix to support instancing of glyphs.
-        // TODO: May put this into [`GlyphRun`]
-        translation: Vector3,
-        run: GlyphRun,
-    },
+    GlyphRun(GlyphRunShape),
+    Quads(QuadsShape),
+}
+
+/// A number of glyphs to be rendered with dame model matrix and an additional translation.
+#[derive(Debug)]
+pub struct GlyphRunShape {
+    // Model transformation
+    pub model_matrix: Rc<Matrix4>,
+    // Local translation of the glyph runs.
+    //
+    // This is separated from the view transformation matrix, because matrix changes are expensive.
+    // TODO: May put this into [`GlyphRun`]
+    pub translation: Vector3,
+    pub run: GlyphRun,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +65,19 @@ impl GlyphRun {
 
         ((left, top).into(), (right, bottom).into())
     }
+}
+
+#[derive(Debug)]
+pub struct QuadsShape {
+    pub model_matrix: Rc<Matrix4>,
+    pub quads: Vec<Quad>,
+}
+
+#[derive(Debug)]
+pub struct Quad {
+    /// A three vertices. Visible from both sides.
+    pub vertices: [Vector3; 4],
+    pub color: Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

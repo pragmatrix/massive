@@ -5,7 +5,7 @@ var<uniform> model_view: mat4x4<f32>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
-    @location(2) color: vec3<f32>,
+    @location(1) color: vec4<f32>,
 }
 
 struct VertexOutput {
@@ -26,6 +26,6 @@ fn vs_main(
 // Fragment shader
 
 @fragment
-fn fs_simple(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_quad(in: VertexOutput) -> @location(0) vec4<f32> {
     return in.color;
 }

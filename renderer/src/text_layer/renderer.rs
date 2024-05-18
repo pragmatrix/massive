@@ -3,7 +3,7 @@ use std::{collections::HashSet, rc::Rc};
 use anyhow::Result;
 use itertools::Itertools;
 use massive_geometry::{Color, Matrix4, Point, Point3};
-use massive_shapes::{GlyphRun, RunGlyph, Shape, TextWeight};
+use massive_shapes::{GlyphRun, GlyphRunShape, RunGlyph, Shape, TextWeight};
 use swash::{scale::ScaleContext, Weight};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
@@ -58,15 +58,13 @@ impl TextLayerRenderer {
     ) -> Self {
         let fs_bind_group_layout = BindGroupLayout::new(device);
 
-        let text_layer_shader =
-            &device.create_shader_module(wgpu::include_wgsl!("text_layer.wgsl"));
+        let shader = &device.create_shader_module(wgpu::include_wgsl!("text_layer.wgsl"));
 
-        let text_layer_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Text Layer Pipeline Layout"),
-                bind_group_layouts: &[view_projection_bind_group_layout, &fs_bind_group_layout],
-                push_constant_ranges: &[],
-            });
+        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Text Layer Pipeline Layout"),
+            bind_group_layouts: &[view_projection_bind_group_layout, &fs_bind_group_layout],
+            push_constant_ranges: &[],
+        });
 
         let targets = [Some(wgpu::ColorTargetState {
             format: target_format,
@@ -74,15 +72,15 @@ impl TextLayerRenderer {
             write_mask: wgpu::ColorWrites::ALL,
         })];
 
-        let text_layer_vertex_layout = [TextureColorVertex::layout()];
+        let vertex_layout = [TextureColorVertex::layout()];
 
         let pipeline = create_pipeline(
             "Text Layer Pipeline",
             device,
-            text_layer_shader,
+            shader,
             "fs_sdf_glyph",
-            &text_layer_vertex_layout,
-            &text_layer_pipeline_layout,
+            &vertex_layout,
+            &pipeline_layout,
             &targets,
         );
 
@@ -100,10 +98,13 @@ impl TextLayerRenderer {
 
     pub fn prepare(&mut self, context: &mut PreparationContext, shapes: &[Shape]) -> Result<()> {
         // Group all glyph runs bei their matrix pointer.
-        let grouped = shapes.iter().into_group_map_by(|shape| {
-            let Shape::GlyphRun { model_matrix, .. } = shape;
-            Rc::as_ptr(model_matrix)
-        });
+        let grouped = shapes
+            .iter()
+            .filter_map(|shape| match shape {
+                Shape::GlyphRun(shape) => Some(shape),
+                _ => None,
+            })
+            .into_group_map_by(|shape| Rc::as_ptr(&shape.model_matrix));
 
         self.layers.clear();
         if grouped.len() > self.layers.len() {
@@ -114,10 +115,7 @@ impl TextLayerRenderer {
 
         for (_, shapes) in grouped {
             // NB: could deref the pointer here using unsafe.
-            let matrix = {
-                let Shape::GlyphRun { model_matrix, .. } = shapes[0];
-                model_matrix
-            };
+            let matrix = &shapes[0].model_matrix;
             if let Some(text_layer) = self.prepare_runs(context, matrix, &shapes)? {
                 max_quads = max_quads.max(text_layer.quad_count);
                 self.layers.push(text_layer)
@@ -172,20 +170,17 @@ impl TextLayerRenderer {
         context: &mut PreparationContext,
         model_matrix: &Matrix4,
         // TODO: this double reference is quite unusual here
-        shapes: &[&Shape],
+        shapes: &[&GlyphRunShape],
     ) -> Result<Option<TextLayer>> {
         // Step 1: Get all instance data.
         // OO: Compute a conservative capacity?
         // OO: We throw this away in this function further down below.
         let mut instances = Vec::new();
 
-        for shape in shapes {
-            let Shape::GlyphRun {
-                translation: run_translation,
-                run,
-                ..
-            } = shape;
-
+        for GlyphRunShape {
+            translation, run, ..
+        } in shapes
+        {
             for glyph in &run.glyphs {
                 if let Some((rect, placement)) =
                     self.rasterized_glyph_atlas_rect(context, run.text_weight, glyph)?
@@ -194,7 +189,7 @@ impl TextLayerRenderer {
                         atlas_rect: rect,
                         vertices: Self::glyph_vertices(run, glyph, &placement)
                             // OO: translation might be applied to two points only (lt, rb)
-                            .map(|p| p + run_translation),
+                            .map(|p| p + translation),
                         // OO: Text color is changing per run only.
                         color: run.text_color,
                     })

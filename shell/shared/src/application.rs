@@ -2,7 +2,7 @@ use std::{collections::HashMap, rc::Rc};
 
 use anyhow::Result;
 use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
-use massive_shapes::{GlyphRun, Shape};
+use massive_shapes::{GlyphRun, GlyphRunShape, Shape};
 use shell::Shell;
 use winit::{
     event::{
@@ -233,11 +233,11 @@ impl shell::Application for Application {
 
             // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
             // them stored?
-            shapes.push(Shape::GlyphRun {
+            shapes.push(GlyphRunShape {
                 model_matrix: view_transformation.clone(),
                 translation: local_translation,
                 run: glyph_run.1.clone(),
-            });
+            }.into());
         }
 
         (self.camera, shapes)

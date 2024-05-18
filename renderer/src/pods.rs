@@ -1,9 +1,9 @@
-use std::mem::{self, size_of};
+use std::mem::size_of;
 
 use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;
 
-use massive_geometry::Point3;
+use massive_geometry::{Point3, Vector3};
 use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
 // We need this for Rust to store our data correctly for the shaders
@@ -22,12 +22,19 @@ pub struct TextureSize(pub [f32; 2], pub [u32; 2]);
 // WebGL uniform requirement
 const_assert_eq!(size_of::<TextureSize>() % 16, 0);
 
+/// RGBA color
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Color(pub [f32; 4]);
 
 // WebGL uniform requirement
 const_assert_eq!(size_of::<Color>() % 16, 0);
+
+impl From<massive_geometry::Color> for Color {
+    fn from(value: massive_geometry::Color) -> Self {
+        Self([value.red, value.green, value.blue, value.alpha])
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -62,6 +69,13 @@ impl From<(f32, f32, f32)> for Vertex {
 
 impl From<Point3> for Vertex {
     fn from(v: Point3) -> Self {
+        let v = v.cast::<f32>().expect("Failed to cast Point3 to f32");
+        Self::new(v.x, v.y, v.z)
+    }
+}
+
+impl From<Vector3> for Vertex {
+    fn from(v: Vector3) -> Self {
         let v = v.cast::<f32>().expect("Failed to cast Point3 to f32");
         Self::new(v.x, v.y, v.z)
     }

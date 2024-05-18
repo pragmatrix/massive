@@ -12,7 +12,7 @@ use winit::{
 };
 
 use massive_geometry::{Camera, Color, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape, TextWeight};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
 use massive_shell::{self as shell, Shell};
 
 struct Application {
@@ -84,11 +84,12 @@ impl shell::Application for Application {
         let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
         let center_translation = Vector3::new(-center_x as f64, -center_y as f64, 0.0);
 
-        let shapes = vec![Shape::GlyphRun {
+        let shapes = vec![GlyphRunShape {
             model_matrix: Rc::new(shell.pixel_matrix()),
             translation: center_translation,
             run: glyph_run,
-        }];
+        }
+        .into()];
 
         (self.camera, shapes)
     }

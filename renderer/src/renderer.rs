@@ -10,7 +10,9 @@ use massive_shapes::Shape;
 use wgpu::StoreOp;
 
 use crate::{
-    pipelines, pods, text,
+    pipelines, pods,
+    quads::QuadsRenderer,
+    text,
     text_layer::{self, TextLayerRenderer},
     texture,
 };
@@ -53,6 +55,7 @@ pub struct Renderer<'window> {
     pub text_layer_bind_group_layout: text_layer::BindGroupLayout,
 
     text_layer_renderer: TextLayerRenderer,
+    quads_renderer: QuadsRenderer,
 }
 
 impl<'window> Renderer<'window> {
@@ -84,6 +87,9 @@ impl<'window> Renderer<'window> {
         let text_layer_renderer =
             TextLayerRenderer::new(&device, format, &view_projection_bind_group_layout);
 
+        let quads_renderer =
+            QuadsRenderer::new(&device, format, &view_projection_bind_group_layout);
+
         let mut renderer = Self {
             device,
             queue,
@@ -94,6 +100,7 @@ impl<'window> Renderer<'window> {
             texture_bind_group_layout,
             text_layer_bind_group_layout,
             text_layer_renderer,
+            quads_renderer,
         };
 
         renderer.reconfigure_surface();
@@ -108,7 +115,10 @@ impl<'window> Renderer<'window> {
             font_system,
         };
 
-        self.text_layer_renderer.prepare(&mut context, shapes)
+        // OO: parallelize?
+        self.text_layer_renderer.prepare(&mut context, shapes)?;
+        self.quads_renderer.prepare(&mut context, shapes)?;
+        Ok(())
     }
 
     // TODO: Can't we handle SurfaceError::Lost here by just reconfiguring the surface and trying
@@ -164,6 +174,7 @@ impl<'window> Renderer<'window> {
                 };
 
                 self.text_layer_renderer.render(&mut render_context);
+                self.quads_renderer.render(&mut render_context);
 
                 // for pipeline in &self.pipelines {
                 //     let kind = pipeline.0;
