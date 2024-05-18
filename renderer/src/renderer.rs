@@ -123,17 +123,6 @@ impl<'window> Renderer<'window> {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        // Prepare the index buffer.
-
-        // self.index_buffer.ensure_quad_capacity(
-        //     &self.device,
-        //     primitives
-        //         .iter()
-        //         .map(|p| p.quads())
-        //         .max()
-        //         .unwrap_or_default(),
-        // );
-
         // OO: This should not be needed anymore, because every renderer is now responsible for
         // setting up the view projection.
         Self::queue_view_projection_matrix(
@@ -198,31 +187,6 @@ impl<'window> Renderer<'window> {
                 //                     0,
                 //                     0..1,
                 //                 );
-                //             }
-                //             Primitive::TextLayer(TextLayer {
-                //                 fragment_shader_bind_group,
-                //                 model_matrix,
-                //                 vertex_buffer,
-                //                 quad_count,
-                //             }) => {
-                //                 let text_layer_matrix = *view_projection_matrix * model_matrix;
-
-                //                 // OO: Set bind group only once and update the buffer?
-                //                 self.queue_view_projection_matrix(&text_layer_matrix);
-                //                 render_pass.set_bind_group(
-                //                     0,
-                //                     &self.view_projection_bind_group,
-                //                     &[],
-                //                 );
-
-                //                 render_pass.set_bind_group(1, fragment_shader_bind_group, &[]);
-                //                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-
-                //                 render_pass.draw_indexed(
-                //                     0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
-                //                     0,
-                //                     0..1,
-                //                 )
                 //             }
                 //         }
                 //     }
