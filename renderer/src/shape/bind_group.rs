@@ -7,6 +7,7 @@ use crate::{bind_group_entries, tools::BindGroupLayoutBuilder, SizeBuffer};
 pub struct BindGroupLayout(wgpu::BindGroupLayout);
 
 impl BindGroupLayout {
+    #[allow(unused)]
     pub fn new(device: &wgpu::Device) -> Self {
         Self(
             BindGroupLayoutBuilder::fragment()

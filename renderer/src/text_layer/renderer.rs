@@ -1,55 +1,29 @@
-//! A shape to primitive renderer that produces text layers.
-
 use std::{collections::HashSet, rc::Rc};
 
 use anyhow::Result;
-use cosmic_text as text;
 use itertools::Itertools;
 use massive_geometry::{Color, Matrix4, Point, Point3};
 use massive_shapes::{GlyphRun, RunGlyph, Shape, TextWeight};
 use swash::{scale::ScaleContext, Weight};
-use tracing::instrument;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BufferUsages, Device,
 };
 
+use super::BindGroupLayout;
 use crate::{
     glyph::{
         glyph_atlas, glyph_rasterization::rasterize_padded_glyph, GlyphAtlas,
         GlyphRasterizationParam, RasterizedGlyphKey, SwashRasterizationParam,
     },
     pods::TextureColorVertex,
-    primitives::Primitive,
-    text_layer::{self, TextLayer},
-    tools::texture_sampler,
+    renderer::{PreparationContext, RenderContext},
+    text,
+    tools::{create_pipeline, texture_sampler, QuadIndexBuffer},
     SizeBuffer,
 };
 
-pub struct ShapeLayerRendererContext<'a> {
-    pub device: &'a wgpu::Device,
-    pub queue: &'a wgpu::Queue,
-    pub bind_group_layout: &'a text_layer::BindGroupLayout,
-    pub font_system: &'a mut text::FontSystem,
-}
-
-impl<'a> ShapeLayerRendererContext<'a> {
-    pub fn new(
-        device: &'a wgpu::Device,
-        queue: &'a wgpu::Queue,
-        text_layer_bind_group_layout: &'a text_layer::BindGroupLayout,
-        font_system: &'a mut text::FontSystem,
-    ) -> Self {
-        Self {
-            device,
-            queue,
-            bind_group_layout: text_layer_bind_group_layout,
-            font_system,
-        }
-    }
-}
-
-pub struct ShapeLayerRenderer {
+pub struct TextLayerRenderer {
     // Font cache and scratch buffers for the rasterizer.
     //
     // TODO: May make the Rasterizer a thing and put it in there alongside with its functions. This
@@ -57,50 +31,145 @@ pub struct ShapeLayerRenderer {
     scale_context: ScaleContext,
     atlas: GlyphAtlas,
     texture_sampler: wgpu::Sampler,
+    pipeline: wgpu::RenderPipeline,
+    fs_bind_group_layout: BindGroupLayout,
+    index_buffer: QuadIndexBuffer,
+
     empty_glyphs: HashSet<RasterizedGlyphKey>,
+
+    layers: Vec<TextLayer>,
 }
 
-impl ShapeLayerRenderer {
-    pub fn new(device: &Device) -> Self {
+/// A layer of 3D text backed by a texture atlas.
+struct TextLayer {
+    // Matrix is not supplied as a buffer, because it is combined with the camera matrix before
+    // uploading to the shader.
+    model_matrix: Matrix4,
+    fs_bind_group: wgpu::BindGroup,
+    vertex_buffer: wgpu::Buffer,
+    quad_count: usize,
+}
+
+impl TextLayerRenderer {
+    pub fn new(
+        device: &Device,
+        target_format: wgpu::TextureFormat,
+        view_projection_bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> Self {
+        let fs_bind_group_layout = BindGroupLayout::new(device);
+
+        let text_layer_shader =
+            &device.create_shader_module(wgpu::include_wgsl!("text_layer.wgsl"));
+
+        let text_layer_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("Text Layer Pipeline Layout"),
+                bind_group_layouts: &[view_projection_bind_group_layout, &fs_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+        let targets = [Some(wgpu::ColorTargetState {
+            format: target_format,
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            write_mask: wgpu::ColorWrites::ALL,
+        })];
+
+        let text_layer_vertex_layout = [TextureColorVertex::layout()];
+
+        let pipeline = create_pipeline(
+            "Text Layer Pipeline",
+            device,
+            text_layer_shader,
+            "fs_sdf_glyph",
+            &text_layer_vertex_layout,
+            &text_layer_pipeline_layout,
+            &targets,
+        );
+
         Self {
             scale_context: ScaleContext::default(),
             atlas: GlyphAtlas::new(device),
             texture_sampler: texture_sampler::linear_clamping(device),
+            fs_bind_group_layout,
+            pipeline,
+            index_buffer: QuadIndexBuffer::new(device),
             empty_glyphs: HashSet::default(),
+            layers: Vec::new(),
         }
     }
 
-    #[instrument(skip_all)]
-    pub fn render(
-        &mut self,
-        context: &mut ShapeLayerRendererContext,
-        shapes: &[Shape],
-    ) -> Result<Vec<Primitive>> {
+    pub fn prepare(&mut self, context: &mut PreparationContext, shapes: &[Shape]) -> Result<()> {
         // Group all glyph runs bei their matrix pointer.
         let grouped = shapes.iter().into_group_map_by(|shape| {
             let Shape::GlyphRun { model_matrix, .. } = shape;
             Rc::as_ptr(model_matrix)
         });
 
-        let mut primitives = Vec::with_capacity(grouped.len());
+        self.layers.clear();
+        if grouped.len() > self.layers.len() {
+            self.layers.reserve(grouped.len() - self.layers.len())
+        }
+
+        let mut max_quads = 0;
+
         for (_, shapes) in grouped {
             // NB: could deref the pointer here using unsafe.
             let matrix = {
                 let Shape::GlyphRun { model_matrix, .. } = shapes[0];
                 model_matrix
             };
-            if let Some(text_layer) = self.render_runs(context, matrix, &shapes)? {
-                primitives.push(Primitive::TextLayer(text_layer))
+            if let Some(text_layer) = self.prepare_runs(context, matrix, &shapes)? {
+                max_quads = max_quads.max(text_layer.quad_count);
+                self.layers.push(text_layer)
             }
         }
-        Ok(primitives)
+
+        self.index_buffer
+            .ensure_can_index_num_quads(context.device, max_quads);
+
+        Ok(())
     }
 
-    /// Render a number of glyph runs into one TextLayer.
+    pub fn render<'rpass>(&'rpass self, context: &mut RenderContext<'_, 'rpass>) {
+        let pass = &mut context.pass;
+        pass.set_pipeline(&self.pipeline);
+        // DI: May do this inside this renderer and pass a Matrix to prepare?.
+        pass.set_bind_group(0, context.view_projection_bind_group, &[]);
+        // DI: May share index buffers between renderers?
+        pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+        for TextLayer {
+            model_matrix,
+            fs_bind_group,
+            vertex_buffer,
+            quad_count,
+        } in &self.layers
+        {
+            let text_layer_matrix = context.view_projection_matrix * model_matrix;
+
+            // OO: Set bind group only once and update the buffer?
+            context.queue_view_projection_matrix(&text_layer_matrix);
+
+            let pass = &mut context.pass;
+            pass.set_bind_group(0, context.view_projection_bind_group, &[]);
+
+            pass.set_bind_group(1, fs_bind_group, &[]);
+            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+
+            pass.draw_indexed(
+                0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
+                0,
+                0..1,
+            )
+        }
+    }
+
+    /// Prepare a number of glyph runs and produce a TextLayer.
+    ///
     /// All of the runs use the same model matrix.
-    pub fn render_runs(
+    fn prepare_runs(
         &mut self,
-        context: &mut ShapeLayerRendererContext,
+        context: &mut PreparationContext,
         model_matrix: &Matrix4,
         // TODO: this double reference is quite unusual here
         shapes: &[&Shape],
@@ -176,7 +245,7 @@ impl ShapeLayerRenderer {
         // OO: Let atlas maintain this one, so that's only regenerated when it grows?
         let texture_size = SizeBuffer::new(device, atlas_texture_size);
 
-        let bind_group = context.bind_group_layout.create_bind_group(
+        let bind_group = self.fs_bind_group_layout.create_bind_group(
             context.device,
             self.atlas.texture_view(),
             &texture_size,
@@ -185,7 +254,7 @@ impl ShapeLayerRenderer {
 
         let text_layer = TextLayer {
             model_matrix: *model_matrix,
-            fragment_shader_bind_group: bind_group,
+            fs_bind_group: bind_group,
             vertex_buffer,
             quad_count: instances.len(),
         };
@@ -199,7 +268,7 @@ impl ShapeLayerRenderer {
     // TODO: could compute them in the shader, we do have the size of the atlas there.
     fn rasterized_glyph_atlas_rect(
         &mut self,
-        context: &mut ShapeLayerRendererContext,
+        context: &mut PreparationContext,
         weight: TextWeight,
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement)>> {

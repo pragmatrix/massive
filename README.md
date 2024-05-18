@@ -32,4 +32,4 @@ cargo run --release --example markdown
 
 - OO: Optimization Opportunity
 - NI: Naming Issue
-
+- DI: Design Issue (e.g. something does not seem to belong here)

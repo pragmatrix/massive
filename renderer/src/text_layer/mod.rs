@@ -1,4 +1,5 @@
 mod bind_group;
+mod renderer;
 
-#[allow(unused)]
 pub use bind_group::*;
+pub use renderer::*;
