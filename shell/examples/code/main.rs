@@ -1,5 +1,6 @@
 use std::{
-    env,
+    collections::HashMap,
+    env, fs,
     io::{self, Write},
     path::Path,
     sync::{Arc, Mutex},
@@ -154,6 +155,9 @@ async fn main() -> Result<()> {
     println!("Analysis");
     let analysis = analysis_host.analysis();
 
+    // A table from a name (definition) to its references.
+    let mut relation_table = HashMap::new();
+
     {
         println!("Highlight Related");
         let config = HighlightRelatedConfig {
@@ -171,6 +175,7 @@ async fn main() -> Result<()> {
                 .highlight_related(config.clone(), position)
                 .unwrap()
             {
+                relation_table.insert(name, related.iter().map(|hr| hr.range).collect::<Vec<_>>());
                 let related: Vec<_> = related.iter().map(|hr| &file_text[hr.range]).collect();
 
                 println!("related: {:?}", related)
@@ -220,13 +225,13 @@ async fn main() -> Result<()> {
         attributes: attributes.clone(),
     };
 
-    std::fs::write(
+    fs::write(
         "/tmp/code.json",
         serde_json::to_string(&attributed_code).unwrap(),
     )
     .unwrap();
 
-    std::fs::write(
+    fs::write(
         "/tmp/code.postcard",
         postcard::to_stdvec(&attributed_code).unwrap(),
     )
@@ -246,6 +251,8 @@ async fn main() -> Result<()> {
         font_size,
         line_height,
     );
+
+    
 
     // Window
 

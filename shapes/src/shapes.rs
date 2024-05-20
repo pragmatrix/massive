@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use cgmath::Point2;
 use cosmic_text as text;
-use massive_geometry::{Color, Vector3};
+use massive_geometry::{Color, Point, Vector3};
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::{Bounds, Matrix4};
@@ -18,34 +18,38 @@ pub enum Shape {
 pub struct GlyphRunShape {
     // Model transformation
     pub model_matrix: Rc<Matrix4>,
-    // Local translation of the glyph runs.
-    //
-    // This is separated from the view transformation matrix, because matrix changes are expensive.
-    // TODO: May put this into [`GlyphRun`]
-    pub translation: Vector3,
     pub run: GlyphRun,
 }
 
 #[derive(Debug, Clone)]
 pub struct GlyphRun {
+    // Local translation This is separated from the view transformation because full matrix changes
+    // are expensive.
+    pub translation: Vector3,
     pub metrics: GlyphRunMetrics,
     pub text_color: Color,
     pub text_weight: TextWeight,
     pub glyphs: Vec<RunGlyph>,
+    /// The original metadata index if set (otherwise 0).
+    pub metadata: usize,
 }
 
 impl GlyphRun {
     pub fn new(
+        translation: impl Into<Vector3>,
         metrics: GlyphRunMetrics,
         text_color: Color,
         text_weight: TextWeight,
         glyphs: Vec<RunGlyph>,
+        metadata: usize,
     ) -> Self {
         Self {
+            translation: translation.into(),
             metrics,
             text_color,
             text_weight,
             glyphs,
+            metadata,
         }
     }
 

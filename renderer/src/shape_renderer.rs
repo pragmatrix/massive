@@ -79,14 +79,10 @@ impl ShapeRenderer {
         shape: &Shape,
     ) -> Vec<Primitive> {
         match shape {
-            Shape::GlyphRun(GlyphRunShape {
-                model_matrix,
-                translation,
-                run,
-            }) => self.render_glyph_run(
+            Shape::GlyphRun(GlyphRunShape { model_matrix, run }) => self.render_glyph_run(
                 context,
                 surface_view_matrix,
-                &(**model_matrix * Matrix4::from_translation(*translation)),
+                &(**model_matrix * Matrix4::from_translation(run.translation)),
                 run,
             ),
             _ => Vec::new(),

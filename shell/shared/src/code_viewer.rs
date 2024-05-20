@@ -1,7 +1,7 @@
 use std::ops::Range;
 
 use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
-use massive_geometry::{Color, Point};
+use massive_geometry::{Color, Point, Vector3};
 use massive_shapes::{GlyphRun, TextWeight};
 use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
@@ -28,7 +28,7 @@ pub fn shape_text(
     attributes: &[TextAttribute],
     font_size: f32,
     line_height: f32,
-) -> (Vec<(Point, GlyphRun)>, f64) {
+) -> (Vec<GlyphRun>, f64) {
     syntax::assert_covers_all_text(
         &attributes
             .iter()
@@ -45,10 +45,10 @@ pub fn shape_text(
     // buffer.set_text(font_system, text, attrs, Shaping::Advanced);
     buffer.set_wrap(font_system, Wrap::None);
     // Create associated metadata.
-    let text_attr_spans = attributes.iter().enumerate().map(|(range_index, ta)| {
+    let text_attr_spans = attributes.iter().enumerate().map(|(attribute_index, ta)| {
         (
             text.get(ta.range.clone()).unwrap(),
-            base_attrs.metadata(range_index),
+            base_attrs.metadata(attribute_index),
         )
     });
     buffer.set_rich_text(font_system, text_attr_spans, base_attrs, Shaping::Advanced);
@@ -60,11 +60,14 @@ pub fn shape_text(
     let attributes: Vec<_> = attributes.iter().map(|ta| (ta.color, ta.weight)).collect();
 
     for run in buffer.layout_runs() {
-        let offset = Point::new(0., run.line_top as f64);
-        for run in positioning::to_attributed_glyph_runs(&run, line_height, &attributes) {
-            runs.push((offset, run));
+        // Lines are positioned on line_height.
+        let translation = Vector3::new(0., run.line_top as f64, 0.);
+        for run in
+            positioning::to_attributed_glyph_runs(translation, &run, line_height, &attributes)
+        {
+            runs.push(run);
         }
-        height = height.max(offset.y + line_height as f64);
+        height = height.max(translation.y + line_height as f64);
     }
 
     (runs, height)

@@ -22,7 +22,7 @@ enum ActiveGesture {
 
 pub struct Application {
     camera: Camera,
-    glyph_runs: Vec<(Point, GlyphRun)>,
+    glyph_runs: Vec<GlyphRun>,
     page_size: SizeI,
 
     gesture: Option<ActiveGesture>,
@@ -39,11 +39,7 @@ pub struct Application {
 }
 
 impl Application {
-    pub fn new(
-        camera: Camera,
-        glyph_runs: Vec<(Point, GlyphRun)>,
-        page_size: impl Into<SizeI>,
-    ) -> Self {
+    pub fn new(camera: Camera, glyph_runs: Vec<GlyphRun>, page_size: impl Into<SizeI>) -> Self {
         Self {
             camera,
             glyph_runs,
@@ -228,16 +224,19 @@ impl shell::Application for Application {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
             // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
 
-            let local_offset = (glyph_run.0.x.floor(), glyph_run.0.y.floor());
-            let local_translation = Vector3::new(local_offset.0, local_offset.1, 0.0);
+            // This snaps to pixels, but shouldn't it already be in the glyph run? Which requirement
+            // is it?
+            // let local_translation = Vector3::new(glyph_run.0.x.floor(), glyph_run.0.y.floor(), 0.0);
 
             // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
             // them stored?
-            shapes.push(GlyphRunShape {
-                model_matrix: view_transformation.clone(),
-                translation: local_translation,
-                run: glyph_run.1.clone(),
-            }.into());
+            shapes.push(
+                GlyphRunShape {
+                    model_matrix: view_transformation.clone(),
+                    run: glyph_run.clone(),
+                }
+                .into(),
+            );
         }
 
         (self.camera, shapes)

@@ -177,10 +177,8 @@ impl TextLayerRenderer {
         // OO: We throw this away in this function further down below.
         let mut instances = Vec::new();
 
-        for GlyphRunShape {
-            translation, run, ..
-        } in shapes
-        {
+        for GlyphRunShape { run, .. } in shapes {
+            let translation = run.translation;
             for glyph in &run.glyphs {
                 if let Some((rect, placement)) =
                     self.rasterized_glyph_atlas_rect(context, run.text_weight, glyph)?

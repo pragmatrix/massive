@@ -18,7 +18,7 @@ use inlyne::{
 use log::info;
 use winit::event_loop::EventLoop;
 
-use massive_geometry::{Camera, Point, SizeI};
+use massive_geometry::{Camera, Point, SizeI, Vector3};
 use massive_shell::Shell;
 
 use shared::{
@@ -168,12 +168,11 @@ async fn async_main() -> Result<()> {
         for text_area in text_areas {
             let line_height = text_area.buffer.metrics().line_height;
             for run in text_area.buffer.layout_runs() {
-                let glyph_run = positioning::to_glyph_run(&run, line_height);
-
                 let top = text_area.top + run.line_top;
-                let offset = Point::new(text_area.left as _, top as _);
+                let translation = Vector3::new(text_area.left as _, top as _, 0.0);
+                let glyph_run = positioning::to_glyph_run(translation, &run, line_height);
 
-                glyph_runs.push((offset, glyph_run));
+                glyph_runs.push(glyph_run);
 
                 page_height = (top + line_height).ceil() as _;
             }
