@@ -2,7 +2,7 @@ use std::rc::Rc;
 
 use cgmath::Point2;
 use cosmic_text as text;
-use massive_geometry::{Color, Point, Vector3};
+use massive_geometry::{Color, Vector3};
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::{Bounds, Matrix4};

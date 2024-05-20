@@ -3,7 +3,7 @@
 use cosmic_text::{CacheKey, CacheKeyFlags, LayoutGlyph, LayoutRun};
 
 use itertools::Itertools;
-use massive_geometry::{Color, Point, Vector3};
+use massive_geometry::{Color, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 const RENDER_SUBPIXEL: bool = false;

@@ -252,8 +252,6 @@ async fn main() -> Result<()> {
         line_height,
     );
 
-    
-
     // Window
 
     let event_loop = EventLoop::new()?;

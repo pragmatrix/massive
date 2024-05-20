@@ -18,7 +18,7 @@ use inlyne::{
 use log::info;
 use winit::event_loop::EventLoop;
 
-use massive_geometry::{Camera, Point, SizeI, Vector3};
+use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::Shell;
 
 use shared::{

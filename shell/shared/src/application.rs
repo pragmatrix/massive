@@ -1,7 +1,7 @@
 use std::{collections::HashMap, rc::Rc};
 
 use anyhow::Result;
-use massive_geometry::{Camera, Matrix4, Point, PointI, SizeI, Vector3};
+use massive_geometry::{Camera, Matrix4, PointI, SizeI, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunShape, Shape};
 use shell::Shell;
 use winit::{
