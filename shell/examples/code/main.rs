@@ -79,7 +79,7 @@ async fn main() -> Result<()> {
         // let font_dir = example_dir.join("JetBrainsMono-2.304/fonts/ttf");
         // db.load_fonts_dir(font_dir);
 
-        db.load_font_data(shared::fonts::jetbrains_mono().to_vec());
+        db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
         // Use an invariant locale.
         FontSystem::new_with_locale_and_db("en-US".into(), db)
     };

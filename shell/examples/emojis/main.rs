@@ -57,7 +57,7 @@ fn main() {
 }
 
 async fn async_main() -> Result<()> {
-    let markdown = include_str!("replicator.org.md");
+    let markdown = include_str!("emojis.md");
     // The concepts of a current dir does not exist in wasm I guess.
     // let current_dir = env::current_dir().expect("Failed to get current directory");
     // let file_path: PathBuf = [current_dir.to_str().unwrap(), "replicator.org.md"]
