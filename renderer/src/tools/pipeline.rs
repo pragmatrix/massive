@@ -4,12 +4,12 @@ pub fn create_pipeline(
     shader: &wgpu::ShaderModule,
     fragment_shader_entry: &str,
     vert_layout: &[wgpu::VertexBufferLayout],
-    render_pipeline_layout: &wgpu::PipelineLayout,
+    pipeline_layout: &wgpu::PipelineLayout,
     targets: &[Option<wgpu::ColorTargetState>],
 ) -> wgpu::RenderPipeline {
     let pipeline = wgpu::RenderPipelineDescriptor {
         label: Some(label),
-        layout: Some(render_pipeline_layout),
+        layout: Some(pipeline_layout),
         vertex: wgpu::VertexState {
             module: shader,
             entry_point: "vs_main",

@@ -7,42 +7,49 @@ use serde::{Deserialize, Serialize};
 
 use crate::geometry::{Bounds, Matrix4};
 
-#[derive(Debug)]
+#[derive(Debug, derive_more::From)]
 pub enum Shape {
-    /// This shape describes a number of glyphs to be rendered with dame model matrix and an additional
-    /// translation.
-    GlyphRun {
-        // Model transformation
-        model_matrix: Rc<Matrix4>,
-        // Local translation of the glyph runs.
-        //
-        // This is separated from the view transformation matrix to support instancing of glyphs.
-        // TODO: May put this into [`GlyphRun`]
-        translation: Vector3,
-        run: GlyphRun,
-    },
+    GlyphRun(GlyphRunShape),
+    Quads(QuadsShape),
+}
+
+/// A number of glyphs to be rendered with dame model matrix and an additional translation.
+#[derive(Debug)]
+pub struct GlyphRunShape {
+    // Model transformation
+    pub model_matrix: Rc<Matrix4>,
+    pub run: GlyphRun,
 }
 
 #[derive(Debug, Clone)]
 pub struct GlyphRun {
+    // Local translation This is separated from the view transformation because full matrix changes
+    // are expensive.
+    pub translation: Vector3,
     pub metrics: GlyphRunMetrics,
     pub text_color: Color,
     pub text_weight: TextWeight,
     pub glyphs: Vec<RunGlyph>,
+    /// The original metadata index if set (otherwise 0).
+    pub metadata: usize,
 }
 
 impl GlyphRun {
     pub fn new(
+        translation: impl Into<Vector3>,
         metrics: GlyphRunMetrics,
         text_color: Color,
         text_weight: TextWeight,
         glyphs: Vec<RunGlyph>,
+        metadata: usize,
     ) -> Self {
         Self {
+            translation: translation.into(),
             metrics,
             text_color,
             text_weight,
             glyphs,
+            metadata,
         }
     }
 
@@ -62,6 +69,19 @@ impl GlyphRun {
 
         ((left, top).into(), (right, bottom).into())
     }
+}
+
+#[derive(Debug)]
+pub struct QuadsShape {
+    pub model_matrix: Rc<Matrix4>,
+    pub quads: Vec<Quad>,
+}
+
+#[derive(Debug)]
+pub struct Quad {
+    /// A three vertices. Visible from both sides.
+    pub vertices: [Vector3; 4],
+    pub color: Color,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

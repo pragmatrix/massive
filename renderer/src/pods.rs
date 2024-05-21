@@ -1,9 +1,9 @@
-use std::mem;
+use std::mem::size_of;
 
 use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;
 
-use massive_geometry::Point3;
+use massive_geometry::{Point3, Vector3};
 use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
 // We need this for Rust to store our data correctly for the shaders
@@ -13,21 +13,28 @@ use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 pub struct Matrix4(pub [[f32; 4]; 4]);
 
 // WebGL uniform requirement
-const_assert_eq!(mem::size_of::<Matrix4>() % 16, 0);
+const_assert_eq!(size_of::<Matrix4>() % 16, 0);
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct TextureSize(pub [f32; 2], pub [u32; 2]);
 
 // WebGL uniform requirement
-const_assert_eq!(mem::size_of::<TextureSize>() % 16, 0);
+const_assert_eq!(size_of::<TextureSize>() % 16, 0);
 
+/// RGBA color
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct Color(pub [f32; 4]);
 
 // WebGL uniform requirement
-const_assert_eq!(mem::size_of::<Color>() % 16, 0);
+const_assert_eq!(size_of::<Color>() % 16, 0);
+
+impl From<massive_geometry::Color> for Color {
+    fn from(value: massive_geometry::Color) -> Self {
+        Self([value.red, value.green, value.blue, value.alpha])
+    }
+}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -45,7 +52,7 @@ impl Vertex {
     #[allow(unused)]
     fn desc() -> &'static wgpu::VertexBufferLayout<'static> {
         const LAYOUT: wgpu::VertexBufferLayout = wgpu::VertexBufferLayout {
-            array_stride: mem::size_of::<Vertex>() as wgpu::BufferAddress,
+            array_stride: size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Float32x3],
         };
@@ -62,6 +69,13 @@ impl From<(f32, f32, f32)> for Vertex {
 
 impl From<Point3> for Vertex {
     fn from(v: Point3) -> Self {
+        let v = v.cast::<f32>().expect("Failed to cast Point3 to f32");
+        Self::new(v.x, v.y, v.z)
+    }
+}
+
+impl From<Vector3> for Vertex {
+    fn from(v: Vector3) -> Self {
         let v = v.cast::<f32>().expect("Failed to cast Point3 to f32");
         Self::new(v.x, v.y, v.z)
     }
@@ -88,7 +102,34 @@ impl TextureVertex {
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
 
         VertexBufferLayout {
-            array_stride: mem::size_of::<TextureVertex>() as BufferAddress,
+            array_stride: size_of::<TextureVertex>() as BufferAddress,
+            step_mode: VertexStepMode::Vertex,
+            attributes: &ATTRS,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Copy, Clone, Debug, Pod, Zeroable)]
+pub struct ColorVertex {
+    pub position: Vertex,
+    pub color: Color,
+}
+
+impl ColorVertex {
+    pub fn new(position: impl Into<Vertex>, color: impl Into<Color>) -> Self {
+        Self {
+            position: position.into(),
+            color: color.into(),
+        }
+    }
+
+    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+        const ATTRS: [VertexAttribute; 2] =
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
+
+        VertexBufferLayout {
+            array_stride: size_of::<ColorVertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &ATTRS,
         }
@@ -118,7 +159,7 @@ impl TextureColorVertex {
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x3];
 
         VertexBufferLayout {
-            array_stride: mem::size_of::<TextureColorVertex>() as BufferAddress,
+            array_stride: size_of::<TextureColorVertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &ATTRS,
         }
@@ -150,7 +191,7 @@ impl InstanceColor {
         const ATTRS: [VertexAttribute; 1] = wgpu::vertex_attr_array![2 => Float32x3];
 
         VertexBufferLayout {
-            array_stride: mem::size_of::<InstanceColor>() as BufferAddress,
+            array_stride: size_of::<InstanceColor>() as BufferAddress,
             step_mode: VertexStepMode::Instance,
             attributes: &ATTRS,
         }

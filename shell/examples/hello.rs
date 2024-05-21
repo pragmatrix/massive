@@ -12,7 +12,7 @@ use winit::{
 };
 
 use massive_geometry::{Camera, Color, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunMetrics, Shape, TextWeight};
+use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
 use massive_shell::{self as shell, Shell};
 
 struct Application {
@@ -78,17 +78,19 @@ impl shell::Application for Application {
 
         let mut font_system = shell.font_system.lock().unwrap();
 
-        let glyph_run = shape_text(&mut font_system, &self.hello_world, FONT_SIZE);
+        let mut glyph_run = shape_text(&mut font_system, &self.hello_world, FONT_SIZE);
 
         let center_x: i32 = (glyph_run.metrics.width / 2) as _;
         let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
         let center_translation = Vector3::new(-center_x as f64, -center_y as f64, 0.0);
 
-        let shapes = vec![Shape::GlyphRun {
+        glyph_run.translation = center_translation;
+
+        let shapes = vec![GlyphRunShape {
             model_matrix: Rc::new(shell.pixel_matrix()),
-            translation: center_translation,
             run: glyph_run,
-        }];
+        }
+        .into()];
 
         (self.camera, shapes)
     }
@@ -108,5 +110,12 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         width: line.w.ceil() as u32,
     };
 
-    GlyphRun::new(metrics, Color::BLACK, TextWeight::NORMAL, placed)
+    GlyphRun::new(
+        (0.0, 0.0, 0.0),
+        metrics,
+        Color::BLACK,
+        TextWeight::NORMAL,
+        placed,
+        0,
+    )
 }
