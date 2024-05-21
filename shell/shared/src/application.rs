@@ -224,10 +224,6 @@ impl shell::Application for Application {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
             // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
 
-            // This snaps to pixels, but shouldn't it already be in the glyph run? Which requirement
-            // is it?
-            // let local_translation = Vector3::new(glyph_run.0.x.floor(), glyph_run.0.y.floor(), 0.0);
-
             // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
             // them stored?
             shapes.push(
