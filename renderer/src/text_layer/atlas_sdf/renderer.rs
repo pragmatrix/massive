@@ -48,7 +48,7 @@ impl AtlasSdfRenderer {
         let shader = &device.create_shader_module(wgpu::include_wgsl!("atlas_sdf.wgsl"));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Text Layer Pipeline Layout"),
+            label: Some("Atlas SDF Pipeline Layout"),
             bind_group_layouts: &[view_projection_bind_group_layout, &fs_bind_group_layout],
             push_constant_ranges: &[],
         });
@@ -62,7 +62,7 @@ impl AtlasSdfRenderer {
         let vertex_layout = [TextureColorVertex::layout()];
 
         let pipeline = create_pipeline(
-            "Text Layer Pipeline",
+            "Atlas SDF Pipeline",
             device,
             shader,
             "fs_sdf",
@@ -87,23 +87,12 @@ impl AtlasSdfRenderer {
         model_matrix: &Matrix4,
         instances: &[QuadInstance],
     ) -> QuadBatch {
-        let atlas_texture_size = self.atlas.size();
-
         let mut vertices = Vec::with_capacity(instances.len() * 4);
 
         for instance in instances {
             let r = instance.atlas_rect;
-            // OO: We could do u/v normalization in the shader, the atlas texture size is known.
-            // This also would prevent us here from a second loop and storing the vertices (because
-            // atlas size is known after all glyphs are rasterized)
-            // TODO: There is even a bug here: the atlas may grow further with each batch.
-
             // ADR: u/v normalization is dont in the shader, for once, its probably free, and scondly
             // we don't have to care about the atlas texture growing as long the rects stay the same.
-
-            // let (ltx, lty) = (r.min.x as f32 * to_uv_h, r.min.y as f32 * to_uv_v);
-            // let (rbx, rby) = (r.max.x as f32 * to_uv_h, r.max.y as f32 * to_uv_v);
-
             let (ltx, lty) = (r.min.x as f32, r.min.y as f32);
             let (rbx, rby) = (r.max.x as f32, r.max.y as f32);
 
@@ -126,7 +115,7 @@ impl AtlasSdfRenderer {
         });
 
         // OO: Let atlas maintain this one, so that's only regenerated when it grows?
-        let texture_size = SizeBuffer::new(device, atlas_texture_size);
+        let texture_size = SizeBuffer::new(device, self.atlas.size());
 
         let bind_group = self.fs_bind_group_layout.create_bind_group(
             context.device,
