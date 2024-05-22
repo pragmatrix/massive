@@ -11,6 +11,7 @@ struct VertexInput {
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
+    // Unnormalized texture pixel coordinates.
     @location(0) tex_coords: vec2<f32>,
     @location(1) @interpolate(flat) color: vec3<f32>,
 }
@@ -55,7 +56,8 @@ const df_epsilon = 0.0001;
 @fragment
 fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     // fetch the SDF value from the texture
-    let distance = (textureSample(t_texture, s_sampler, in.tex_coords).r - df_threshold) * df_multiplier;
+    // OO: Use 1 / texture_size and multiply.
+    let distance = (textureSample(t_texture, s_sampler, in.tex_coords / texture_size.value).r - df_threshold) * df_multiplier;
 
     // apply anti-aliasing
     var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance));
@@ -68,7 +70,7 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
         dist_grad = dist_grad * inverseSqrt(dg_len2);
     };
 
-    let unorm_text_coords = in.tex_coords * texture_size.value;
+    let unorm_text_coords = in.tex_coords;
 
     let jdx = dpdx(unorm_text_coords);
     let jdy = dpdy(unorm_text_coords);

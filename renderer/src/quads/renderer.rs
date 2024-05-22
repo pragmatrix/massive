@@ -123,7 +123,7 @@ impl QuadsRenderer {
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
 
             pass.draw_indexed(
-                0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
+                0..(QuadIndexBuffer::INDICES_PER_QUAD * quad_count) as u32,
                 0,
                 0..1,
             )

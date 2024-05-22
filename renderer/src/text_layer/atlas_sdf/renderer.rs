@@ -1,3 +1,5 @@
+use std::mem;
+
 use massive_geometry::{Color, Matrix4, Point3};
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
@@ -87,12 +89,6 @@ impl AtlasSdfRenderer {
     ) -> QuadBatch {
         let atlas_texture_size = self.atlas.size();
 
-        // Prepare u/v normalization.
-        let (to_uv_h, to_uv_v) = {
-            let (width, height) = atlas_texture_size;
-            ((1.0 / width as f32), (1.0 / height as f32))
-        };
-
         let mut vertices = Vec::with_capacity(instances.len() * 4);
 
         for instance in instances {
@@ -101,8 +97,15 @@ impl AtlasSdfRenderer {
             // This also would prevent us here from a second loop and storing the vertices (because
             // atlas size is known after all glyphs are rasterized)
             // TODO: There is even a bug here: the atlas may grow further with each batch.
-            let (ltx, lty) = (r.min.x as f32 * to_uv_h, r.min.y as f32 * to_uv_v);
-            let (rbx, rby) = (r.max.x as f32 * to_uv_h, r.max.y as f32 * to_uv_v);
+
+            // ADR: u/v normalization is dont in the shader, for once, its probably free, and scondly
+            // we don't have to care about the atlas texture growing as long the rects stay the same.
+
+            // let (ltx, lty) = (r.min.x as f32 * to_uv_h, r.min.y as f32 * to_uv_v);
+            // let (rbx, rby) = (r.max.x as f32 * to_uv_h, r.max.y as f32 * to_uv_v);
+
+            let (ltx, lty) = (r.min.x as f32, r.min.y as f32);
+            let (rbx, rby) = (r.max.x as f32, r.max.y as f32);
 
             let v = &instance.vertices;
             let color = instance.color;
@@ -159,7 +162,19 @@ impl AtlasSdfRenderer {
         //
         // OO: Don't pass the full index buffer here, only what's actully needed (it is growing
         // only)
-        pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+
+        let max_quads = batches
+            .iter()
+            .map(|b| b.quad_count)
+            .max()
+            .unwrap_or_default();
+
+        pass.set_index_buffer(
+            self.index_buffer.slice(
+                ..(max_quads * QuadIndexBuffer::INDICES_PER_QUAD * mem::size_of::<u16>()) as u64,
+            ),
+            wgpu::IndexFormat::Uint16,
+        );
 
         for QuadBatch {
             model_matrix,
@@ -180,7 +195,7 @@ impl AtlasSdfRenderer {
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
 
             pass.draw_indexed(
-                0..(quad_count * QuadIndexBuffer::QUAD_INDICES_COUNT) as u32,
+                0..(quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
                 0,
                 0..1,
             )
