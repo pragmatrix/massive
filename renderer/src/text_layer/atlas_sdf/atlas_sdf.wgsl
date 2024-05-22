@@ -53,7 +53,7 @@ const half_sqrt2 = 0.70710678118654757;
 const df_epsilon = 0.0001;
 
 @fragment
-fn fs_sdf_glyph(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     // fetch the SDF value from the texture
     let distance = (textureSample(t_texture, s_sampler, in.tex_coords).r - df_threshold) * df_multiplier;
 

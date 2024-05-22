@@ -14,7 +14,7 @@ impl BindGroupLayout {
             // Texture size.
             .uniform()
             .sampler()
-            .build("Texture Bind Group Layout", device);
+            .build("Atlas SDF Bind Group Layout", device);
 
         Self(layout)
     }
@@ -27,7 +27,7 @@ impl BindGroupLayout {
         texture_sampler: &wgpu::Sampler,
     ) -> BindGroup {
         device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Text Layer Bind Group"),
+            label: Some("Atlas SDF Bind Group"),
             layout: &self.0,
             entries: bind_group_entries!(0 => texture_view, 1 => texture_size, 2 => texture_sampler),
         })
