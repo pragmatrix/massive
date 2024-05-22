@@ -82,7 +82,9 @@ async fn async_main() -> Result<()> {
         let montserrat = fonts::MONTSERRAT_REGULAR;
         let source = fontdb::Source::Binary(Arc::new(montserrat));
         font_db.load_font_source(source);
-        FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
+
+        // FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
+        FontSystem::new()
     };
 
     #[cfg(not(target_arch = "wasm32"))]
