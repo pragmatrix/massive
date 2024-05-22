@@ -155,7 +155,7 @@ impl TextLayerRenderer {
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
 
             pass.draw_indexed(
-                0..(QuadIndexBuffer::QUAD_INDICES_COUNT * quad_count) as u32,
+                0..(quad_count * QuadIndexBuffer::QUAD_INDICES_COUNT) as u32,
                 0,
                 0..1,
             )
@@ -214,6 +214,8 @@ impl TextLayerRenderer {
         for instance in &instances {
             let r = instance.atlas_rect;
             // OO: We could do u/v normalization in the shader, the atlas texture size is known.
+            // This also would prevent us here from a second loop and storing the vertices (because
+            // atlas size is known after all glyphs are rasterized)
             let (ltx, lty) = (r.min.x as f32 * to_uv_h, r.min.y as f32 * to_uv_v);
             let (rbx, rby) = (r.max.x as f32 * to_uv_h, r.max.y as f32 * to_uv_v);
 
