@@ -9,13 +9,7 @@ use massive_geometry::Matrix4;
 use massive_shapes::Shape;
 use wgpu::StoreOp;
 
-use crate::{
-    pipelines, pods,
-    quads::QuadsRenderer,
-    text,
-    text_layer::{self, TextLayerRenderer},
-    texture,
-};
+use crate::{pipelines, pods, quads::QuadsRenderer, text, text_layer::TextLayerRenderer, texture};
 
 /// The context provided to `prepare()` middleware functions.
 pub struct PreparationContext<'a> {
@@ -52,7 +46,6 @@ pub struct Renderer<'window> {
     // TODO: this doesn't belong here and is used only for specific pipelines. We need some
     // per-pipeline information types.
     pub texture_bind_group_layout: texture::BindGroupLayout,
-    pub text_layer_bind_group_layout: text_layer::BindGroupLayout,
 
     text_layer_renderer: TextLayerRenderer,
     quads_renderer: QuadsRenderer,
@@ -78,10 +71,6 @@ impl<'window> Renderer<'window> {
 
         let texture_bind_group_layout = texture::BindGroupLayout::new(&device);
 
-        let text_layer_bind_group_layout = text_layer::BindGroupLayout::new(&device);
-
-        // let shape_bind_group_layout = shape::BindGroupLayout::new(&device);
-
         let format = surface_config.format;
 
         let text_layer_renderer =
@@ -98,7 +87,6 @@ impl<'window> Renderer<'window> {
             view_projection_buffer,
             view_projection_bind_group,
             texture_bind_group_layout,
-            text_layer_bind_group_layout,
             text_layer_renderer,
             quads_renderer,
         };

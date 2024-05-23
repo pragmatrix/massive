@@ -80,7 +80,7 @@ fn render_glyph(
 
     // TODO: propagate errors.
     let (placement, texture_view) =
-        image_to_gpu_texture(device, queue, &image, key.param.sdf).ok()?;
+        image_to_gpu_texture(device, queue, &image, key.param.prefer_sdf).ok()?;
     Some(RenderGlyph {
         placement,
         pipeline: key.param.pipeline(),

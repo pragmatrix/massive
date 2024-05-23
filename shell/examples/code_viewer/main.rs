@@ -63,7 +63,7 @@ async fn async_main() -> Result<()> {
 
     let mut font_system = {
         let mut db = fontdb::Database::new();
-        db.load_font_data(shared::fonts::jetbrains_mono().to_vec());
+        db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
         // Use an invariant locale.
         FontSystem::new_with_locale_and_db("en-US".into(), db)
     };

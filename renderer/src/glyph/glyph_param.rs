@@ -3,7 +3,8 @@ use crate::primitives::Pipeline;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GlyphRasterizationParam {
-    pub sdf: bool,
+    // Prefer SDF rasterization if the glyph is monochrome.
+    pub prefer_sdf: bool,
     pub swash: SwashRasterizationParam,
 }
 
@@ -16,7 +17,7 @@ pub struct SwashRasterizationParam {
 
 impl GlyphRasterizationParam {
     pub fn pipeline(&self) -> Pipeline {
-        if self.sdf {
+        if self.prefer_sdf {
             Pipeline::SdfGlyph
         } else {
             Pipeline::PlanarGlyph
@@ -33,14 +34,14 @@ impl From<GlyphClass> for GlyphRasterizationParam {
                     hinted: true,
                     weight: Default::default(),
                 },
-                sdf: false,
+                prefer_sdf: false,
             },
             Distorted(_) => GlyphRasterizationParam {
                 swash: SwashRasterizationParam {
                     hinted: true,
                     weight: Default::default(),
                 },
-                sdf: true,
+                prefer_sdf: true,
             },
         }
     }

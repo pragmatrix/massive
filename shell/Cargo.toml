@@ -40,6 +40,8 @@ serde_tuple = { workspace = true }
 serde_json = { workspace = true }
 postcard = { workspace = true }
 
+image = "0.25.1" 
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 
 load-cargo = { path = "../rust-analyzer/crates/load-cargo" }

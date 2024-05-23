@@ -1,5 +1,5 @@
-mod bind_group;
+mod atlas_sdf;
+mod color_atlas;
 mod renderer;
 
-pub use bind_group::*;
 pub use renderer::*;

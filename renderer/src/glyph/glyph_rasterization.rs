@@ -3,30 +3,31 @@ use swash::{
     scale::{Render, ScaleContext, Source, StrikeWith},
     zeno::{Format, Vector},
 };
+use text::SwashContent;
 
 use super::{
     distance_field_gen::{generate_distance_field_from_image, DISTANCE_FIELD_PAD},
     RasterizedGlyphKey, SwashRasterizationParam,
 };
 
-/// Rasterize a glyph into [`SwashImage`] as either normal or sdf, with appropriate padding prepared
-/// to be used as a texture.
+/// Rasterize a glyph into [`SwashImage`] as either monochrome, colored, or SDF, with appropriate
+/// padding prepared to be used as a texture.
 ///
 /// TODO: Using this for SDF and non-SDF glyphs may duplicate rasterization of the non-sdf
 /// [`SwashImage`]s that  are the basis for the SDF generation.
-pub fn rasterize_padded_glyph(
+pub fn rasterize_glyph_with_padding(
     font_system: &mut text::FontSystem,
     context: &mut ScaleContext,
     key: &RasterizedGlyphKey,
 ) -> Option<text::SwashImage> {
     let param = key.param;
     let without_padding = rasterize_glyph(font_system, context, key.text, param.swash)?;
-    if param.sdf {
-        // Sdf does its own padding.
+    if without_padding.content == SwashContent::Mask && param.prefer_sdf {
+        // SDF rendering adds its own padding.
         return render_sdf(&without_padding);
     }
 
-    // Make this compatible with texture mapping by adding a 1 pixel border.
+    // Add a one pixel padding to make this compatible with texture mapping.
     Some(pad_image(&without_padding))
 }
 
@@ -119,11 +120,17 @@ pub fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
 
 /// Pad an image by one pixel.
 pub fn pad_image(image: &text::SwashImage) -> text::SwashImage {
-    debug_assert!(image.content == text::SwashContent::Mask);
+    let pixel_size = match image.content {
+        SwashContent::Mask => 1,
+        SwashContent::SubpixelMask => 4,
+        SwashContent::Color => 4,
+    };
+
     let padded_data = pad_image_data(
         &image.data,
         image.placement.width as usize,
         image.placement.height as usize,
+        pixel_size,
     );
 
     text::SwashImage {
@@ -138,14 +145,15 @@ pub fn pad_image(image: &text::SwashImage) -> text::SwashImage {
     }
 }
 
-fn pad_image_data(image: &[u8], width: usize, height: usize) -> Vec<u8> {
-    let mut padded_image = vec![0u8; (width + 2) * (height + 2)];
-    let row_offset = width + 2;
+fn pad_image_data(image: &[u8], width: usize, height: usize, pixel_size: usize) -> Vec<u8> {
+    let mut padded_image = vec![0u8; (width + 2) * (height + 2) * pixel_size];
+    let src_line_size = width * pixel_size;
+    let dst_line_size = (width + 2) * pixel_size;
     for line in 0..height {
-        let dest_offset = (line + 1) * row_offset + 1;
-        let src_offset = line * width;
-        padded_image[dest_offset..dest_offset + width]
-            .copy_from_slice(&image[src_offset..src_offset + width]);
+        let dest_offset = (line + 1) * dst_line_size + pixel_size;
+        let src_offset = line * src_line_size;
+        padded_image[dest_offset..dest_offset + src_line_size]
+            .copy_from_slice(&image[src_offset..src_offset + src_line_size]);
     }
     padded_image
 }

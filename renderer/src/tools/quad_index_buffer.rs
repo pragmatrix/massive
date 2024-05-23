@@ -56,7 +56,7 @@ impl QuadIndexBuffer {
     }
 
     pub const QUAD_INDICES: &'static [u16] = &[0, 1, 2, 0, 2, 3];
-    pub const QUAD_INDICES_COUNT: usize = Self::QUAD_INDICES.len();
+    pub const INDICES_PER_QUAD: usize = Self::QUAD_INDICES.len();
 
     fn create_buffer(device: &wgpu::Device, indices: &[u16]) -> wgpu::Buffer {
         device.create_buffer_init(&wgpu::util::BufferInitDescriptor {

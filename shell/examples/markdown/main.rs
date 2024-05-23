@@ -23,7 +23,7 @@ use massive_shell::Shell;
 
 use shared::{
     application::{self, Application},
-    positioning,
+    fonts, positioning,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -79,7 +79,7 @@ async fn async_main() -> Result<()> {
 
         // Don't load system fonts for now, this way we get the same result on wasm and local runs.
         let mut font_db = fontdb::Database::new();
-        let montserrat = include_bytes!("Montserrat-Regular.ttf");
+        let montserrat = fonts::MONTSERRAT_REGULAR;
         let source = fontdb::Source::Binary(Arc::new(montserrat));
         font_db.load_font_source(source);
         FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
