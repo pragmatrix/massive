@@ -1,5 +1,3 @@
-👋
-
 # From https://emojipedia.org/people
 
 ## Hands & Body Parts

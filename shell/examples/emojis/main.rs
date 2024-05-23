@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use cosmic_text::{fontdb, FontSystem};
+use cosmic_text::{FontSystem};
 use inlyne::{
     color::Theme,
     interpreter::HtmlInterpreter,
@@ -22,8 +22,7 @@ use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::Shell;
 
 use shared::{
-    application::{self, Application},
-    fonts, positioning,
+    application::{self, Application}, positioning,
 };
 
 #[cfg(target_arch = "wasm32")]
@@ -75,15 +74,17 @@ async fn async_main() -> Result<()> {
 
     let font_system = {
         // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
-        const DEFAULT_LOCALE: &str = "en-US";
 
-        // Don't load system fonts for now, this way we get the same result on wasm and local runs.
-        let mut font_db = fontdb::Database::new();
-        let montserrat = fonts::MONTSERRAT_REGULAR;
-        let source = fontdb::Source::Binary(Arc::new(montserrat));
-        font_db.load_font_source(source);
+        // Load system fonts for now. NotoColorEmoji does not render, see the test case below.
+        
+        // const DEFAULT_LOCALE: &str = "en-US";
+        // 
+        // let mut font_db = fontdb::Database::new();
+        // let noto_color_emoji = include_bytes!("fonts/NotoColorEmoji-Regular.ttf");
+        // let source = fontdb::Source::Binary(Arc::new(noto_color_emoji));
+        // font_db.load_font_source(source);
+        // FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db);
 
-        // FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
         FontSystem::new()
     };
 
@@ -257,4 +258,47 @@ fn get_text_areas(
     }
 
     Ok(text_areas)
+}
+
+#[cfg(test)]
+mod tests {
+    // Somehow swash can't render NotoColorEmoji
+    // Placement {
+    //     left: -1,
+    //     top: 0,
+    //     width: 2,
+    //     height: 0,
+    // }
+
+    #[test]
+    fn test_color_emoji_font() {
+        use swash::scale::ScaleContext;
+        use swash::scale::*;
+        use swash::zeno;
+        use swash::FontRef;
+        use zeno::Vector;
+
+        let font_data = include_bytes!("fonts/NotoColorEmoji-Regular.ttf");
+        let font = FontRef::from_index(font_data, 0).unwrap();
+
+        let mut context = ScaleContext::new();
+        let mut scaler = context.builder(font).hint(true).size(100.0).build();
+        let glyph_id = font.charmap().map('😀');
+        let image = Render::new(&[
+            // Source::ColorBitmap(StrikeWith::BestFit),
+            // Source::ColorOutline(0),
+            Source::Outline,
+        ])
+        .format(zeno::Format::Alpha)
+        .offset(Vector::new(0.0, 0.0))
+        .render(&mut scaler, glyph_id)
+        .unwrap();
+
+        dbg!(image.placement);
+
+        // let img =
+        //     ::image::RgbaImage::from_raw(image.placement.width, image.placement.height, image.data)
+        //         .unwrap();
+        // _ = img.save_with_format("/tmp/stuff.png", ::image::ImageFormat::Png);
+    }
 }

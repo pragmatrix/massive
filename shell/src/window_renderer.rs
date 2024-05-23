@@ -67,6 +67,7 @@ async fn new(window: &Window) -> Renderer {
         "Selecting present mode {:?}, size: {:?}",
         present_mode, size
     );
+
     let config = wgpu::SurfaceConfiguration {
         usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
         format: *surface_format,

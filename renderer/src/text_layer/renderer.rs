@@ -6,17 +6,20 @@ use itertools::Itertools;
 use massive_geometry::{Matrix4, Point, Point3};
 use massive_shapes::{GlyphRun, GlyphRunShape, RunGlyph, Shape, TextWeight};
 use swash::{scale::ScaleContext, Weight};
+use text::SwashContent;
 use wgpu::Device;
 
+use super::{
+    atlas_sdf::{self, AtlasSdfRenderer},
+    color_atlas::{self, ColorAtlasRenderer},
+};
 use crate::{
     glyph::{
-        glyph_atlas, glyph_rasterization::rasterize_padded_glyph, GlyphRasterizationParam,
+        glyph_atlas, glyph_rasterization::rasterize_glyph_with_padding, GlyphRasterizationParam,
         RasterizedGlyphKey, SwashRasterizationParam,
     },
     renderer::{PreparationContext, RenderContext},
 };
-
-use super::atlas_sdf::{AtlasSdfRenderer, QuadBatch, QuadInstance};
 
 pub struct TextLayerRenderer {
     // Font cache and scratch buffers for the rasterizer.
@@ -27,7 +30,16 @@ pub struct TextLayerRenderer {
     empty_glyphs: HashSet<RasterizedGlyphKey>,
 
     sdf_renderer: AtlasSdfRenderer,
-    sdf_batches: Vec<QuadBatch>,
+    sdf_batches: Vec<atlas_sdf::QuadBatch>,
+
+    color_renderer: ColorAtlasRenderer,
+    color_batches: Vec<color_atlas::QuadBatch>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+enum AtlasKind {
+    Sdf,
+    Color,
 }
 
 impl TextLayerRenderer {
@@ -39,12 +51,20 @@ impl TextLayerRenderer {
         Self {
             scale_context: ScaleContext::default(),
             empty_glyphs: HashSet::new(),
+
             sdf_renderer: AtlasSdfRenderer::new(
                 device,
                 target_format,
                 view_projection_bind_group_layout,
             ),
             sdf_batches: Vec::new(),
+
+            color_renderer: ColorAtlasRenderer::new(
+                device,
+                target_format,
+                view_projection_bind_group_layout,
+            ),
+            color_batches: Vec::new(),
         }
     }
 
@@ -63,9 +83,9 @@ impl TextLayerRenderer {
         for (_, shapes) in grouped {
             // NB: could deref the pointer here using unsafe.
             let matrix = &shapes[0].model_matrix;
-            if let Some(quad_batch) = self.prepare_runs(context, matrix, &shapes)? {
-                self.sdf_batches.push(quad_batch);
-            }
+            let (sdf_batch, color_batch) = self.prepare_runs(context, matrix, &shapes)?;
+            self.sdf_batches.extend(sdf_batch.into_iter());
+            self.color_batches.extend(color_batch.into_iter());
         }
 
         Ok(())
@@ -73,6 +93,7 @@ impl TextLayerRenderer {
 
     pub fn render<'rpass>(&'rpass self, context: &mut RenderContext<'_, 'rpass>) {
         self.sdf_renderer.render(context, &self.sdf_batches);
+        self.color_renderer.render(context, &self.color_batches);
     }
 
     /// Prepare a number of glyph runs and produce a TextLayer.
@@ -84,51 +105,61 @@ impl TextLayerRenderer {
         model_matrix: &Matrix4,
         // TODO: this double reference is quite unusual here
         shapes: &[&GlyphRunShape],
-    ) -> Result<Option<QuadBatch>> {
+    ) -> Result<(Option<atlas_sdf::QuadBatch>, Option<color_atlas::QuadBatch>)> {
         // Step 1: Get all instance data.
         // OO: Compute a conservative capacity?
-        // OO: We throw this away in this function further down below.
-        let mut instances = Vec::new();
+        let mut sdf_glyphs = Vec::new();
+        let mut color_glyphs = Vec::new();
 
         for GlyphRunShape { run, .. } in shapes {
             let translation = run.translation;
             for glyph in &run.glyphs {
-                if let Some((rect, placement)) =
+                if let Some((rect, placement, kind)) =
                     self.rasterized_glyph_atlas_rect(context, run.text_weight, glyph)?
                 {
-                    instances.push(QuadInstance {
-                        atlas_rect: rect,
-                        vertices: Self::glyph_vertices(run, glyph, &placement)
-                            // OO: translation might be applied to two points only (lt, rb)
-                            .map(|p| p + translation),
-                        // OO: Text color is changing per run only.
-                        color: run.text_color,
-                    })
+                    let vertices =
+                        Self::glyph_vertices(run, glyph, &placement).map(|p| p + translation);
+
+                    match kind {
+                        AtlasKind::Sdf => {
+                            sdf_glyphs.push(atlas_sdf::QuadInstance {
+                                atlas_rect: rect,
+                                vertices,
+                                // OO: Text color is changing per run only.
+                                color: run.text_color,
+                            })
+                        }
+                        AtlasKind::Color => color_glyphs.push(color_atlas::QuadInstance {
+                            atlas_rect: rect,
+                            vertices: Self::glyph_vertices(run, glyph, &placement)
+                                // OO: translation might be applied to two points only (lt, rb)
+                                .map(|p| p + translation),
+                        }),
+                    }
                 } // else: Glyph is empty: Not rendered.
             }
         }
 
-        Ok(if instances.is_empty() {
-            None
-        } else {
-            Some(self.sdf_renderer.batch(context, model_matrix, &instances))
-        })
+        let sdf_batch = self.sdf_renderer.batch(context, model_matrix, &sdf_glyphs);
+
+        let color_batch = self
+            .color_renderer
+            .batch(context, model_matrix, &color_glyphs);
+
+        Ok((sdf_batch, color_batch))
     }
 
     // This makes sure that there is a rasterized glyph in the atlas and returns the rectangle.
-    //
-    // u/v Coordinates are generated later, at a time we know how large the bitmap actually is.
-    // TODO: could compute them in the shader, we do have the size of the atlas there.
     fn rasterized_glyph_atlas_rect(
         &mut self,
         context: &mut PreparationContext,
         weight: TextWeight,
         glyph: &RunGlyph,
-    ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement)>> {
+    ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement, AtlasKind)>> {
         let glyph_key = RasterizedGlyphKey {
             text: glyph.key,
             param: GlyphRasterizationParam {
-                sdf: true,
+                prefer_sdf: true,
                 swash: SwashRasterizationParam {
                     hinted: true,
                     weight: Weight(weight.0),
@@ -137,32 +168,51 @@ impl TextLayerRenderer {
         };
 
         if let Some((rect, image)) = self.sdf_renderer.atlas.get(&glyph_key) {
-            // atlas hit.
-            return Ok(Some((rect, image.placement)));
+            return Ok(Some((rect, image.placement, AtlasKind::Sdf)));
         }
 
-        // atlas / cache miss.
+        if let Some((rect, image)) = self.color_renderer.atlas.get(&glyph_key) {
+            return Ok(Some((rect, image.placement, AtlasKind::Color)));
+        }
 
+        // Atlas / cache miss, empty cached glyph?.
         if self.empty_glyphs.contains(&glyph_key) {
             return Ok(None);
         }
 
-        // not yet in an atlas and not empty.
-
+        // Not yet in an atlas and not empty. Now rasterize.
         let Some(image) =
-            rasterize_padded_glyph(context.font_system, &mut self.scale_context, &glyph_key)
+            rasterize_glyph_with_padding(context.font_system, &mut self.scale_context, &glyph_key)
         else {
             self.empty_glyphs.insert(glyph_key);
             return Ok(None);
         };
 
         let image_placement = image.placement;
-        let rect_in_atlas =
-            self.sdf_renderer
-                .atlas
-                .store(context.device, context.queue, &glyph_key, image)?;
 
-        Ok(Some((rect_in_atlas, image_placement)))
+        match image.content {
+            SwashContent::Mask => {
+                let rect_in_atlas = self.sdf_renderer.atlas.store(
+                    context.device,
+                    context.queue,
+                    &glyph_key,
+                    image,
+                )?;
+
+                Ok(Some((rect_in_atlas, image_placement, AtlasKind::Sdf)))
+            }
+            SwashContent::Color => {
+                let rect_in_atlas = self.color_renderer.atlas.store(
+                    context.device,
+                    context.queue,
+                    &glyph_key,
+                    image,
+                )?;
+
+                Ok(Some((rect_in_atlas, image_placement, AtlasKind::Color)))
+            }
+            SwashContent::SubpixelMask => panic!("Unsupported Subpixel Mask"),
+        }
     }
 
     fn glyph_vertices(

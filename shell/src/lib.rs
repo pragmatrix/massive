@@ -115,9 +115,11 @@ impl<'window> Shell<'window> {
             .find(|f| *f == PresentMode::Immediate)
             .unwrap_or(surface_caps.present_modes[0]);
 
+        let alpha_mode = surface_caps.alpha_modes[0];
+
         info!(
-            "Selecting present mode {:?}, initial size: {:?}",
-            present_mode, initial_size
+            "Selecting present mode {:?}, alpha mode: {:?}, initial size: {:?}",
+            present_mode, alpha_mode, initial_size
         );
 
         let surface_config = wgpu::SurfaceConfiguration {
@@ -127,13 +129,11 @@ impl<'window> Shell<'window> {
             height: initial_size.height,
             present_mode,
             // TODO: Select this explicitly
-            alpha_mode: surface_caps.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
         };
         surface.configure(&device, &surface_config);
-
-        // let shape_renderer = ShapeRenderer::new(&device);
 
         let renderer = Renderer::new(device, queue, surface, surface_config);
 

@@ -1,11 +1,14 @@
 use std::mem;
 
-use massive_geometry::{Color, Matrix4, Point3};
-use wgpu::util::{BufferInitDescriptor, DeviceExt};
+use massive_geometry::Matrix4;
+use wgpu::{
+    util::{BufferInitDescriptor, DeviceExt},
+    TextureFormat,
+};
 
-use super::BindGroupLayout;
+use super::{BindGroupLayout, QuadBatch, QuadInstance};
 use crate::{
-    glyph::{glyph_atlas, GlyphAtlas},
+    glyph::GlyphAtlas,
     pods::TextureColorVertex,
     renderer::{PreparationContext, RenderContext},
     tools::{create_pipeline, texture_sampler, QuadIndexBuffer},
@@ -19,22 +22,6 @@ pub struct AtlasSdfRenderer {
     fs_bind_group_layout: BindGroupLayout,
     // OO: Share this sucker.
     index_buffer: QuadIndexBuffer,
-}
-
-pub struct QuadBatch {
-    // Matrix is not prepared as a buffer, because it is combined with the camera matrix before
-    // uploading to the shader.
-    model_matrix: Matrix4,
-    fs_bind_group: wgpu::BindGroup,
-    vertex_buffer: wgpu::Buffer,
-    quad_count: usize,
-}
-
-#[derive(Debug)]
-pub struct QuadInstance {
-    pub atlas_rect: glyph_atlas::Rectangle,
-    pub vertices: [Point3; 4],
-    pub color: Color,
 }
 
 impl AtlasSdfRenderer {
@@ -72,7 +59,7 @@ impl AtlasSdfRenderer {
         );
 
         Self {
-            atlas: GlyphAtlas::new(device),
+            atlas: GlyphAtlas::new(device, TextureFormat::R8Unorm),
             texture_sampler: texture_sampler::linear_clamping(device),
             fs_bind_group_layout,
             pipeline,
@@ -86,7 +73,11 @@ impl AtlasSdfRenderer {
         context: &PreparationContext,
         model_matrix: &Matrix4,
         instances: &[QuadInstance],
-    ) -> QuadBatch {
+    ) -> Option<QuadBatch> {
+        if instances.is_empty() {
+            return None;
+        }
+
         let mut vertices = Vec::with_capacity(instances.len() * 4);
 
         for instance in instances {
@@ -130,12 +121,12 @@ impl AtlasSdfRenderer {
         self.index_buffer
             .ensure_can_index_num_quads(context.device, quad_count);
 
-        QuadBatch {
+        Some(QuadBatch {
             model_matrix: *model_matrix,
             fs_bind_group: bind_group,
             vertex_buffer,
             quad_count,
-        }
+        })
     }
 
     pub fn render<'rpass>(
@@ -143,6 +134,11 @@ impl AtlasSdfRenderer {
         context: &mut RenderContext<'_, 'rpass>,
         batches: &'rpass [QuadBatch],
     ) {
+        // `set_index_buffer` will fail with empty buffers, so exit early if there is nothing to do.
+        if batches.is_empty() {
+            return;
+        }
+
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
         // DI: May do this inside this renderer and pass a Matrix to prepare?.

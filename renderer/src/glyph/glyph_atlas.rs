@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 use anyhow::{bail, Result};
-use cosmic_text::SwashImage;
+use cosmic_text::{SwashContent, SwashImage};
 pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
@@ -28,11 +28,15 @@ impl GlyphAtlas {
     const INITIAL_SIZE: u32 = 128;
     const GROWTH_FACTOR: u32 = 2;
 
-    pub fn new(device: &Device) -> Self {
+    pub fn new(device: &Device, texture_format: TextureFormat) -> Self {
+        assert!(
+            texture_format == TextureFormat::R8Unorm || texture_format == TextureFormat::Rgba8Unorm
+        );
+
         let max_texture_dimension_2d = device.limits().max_texture_dimension_2d;
         let dim = Self::INITIAL_SIZE.min(max_texture_dimension_2d);
         let allocator = BucketedAtlasAllocator::new(size2(dim as i32, dim as i32));
-        let texture = AtlasTexture::new(device, dim);
+        let texture = AtlasTexture::new(device, texture_format, dim);
 
         Self {
             texture,
@@ -109,7 +113,7 @@ impl GlyphAtlas {
 
         // TODO: This allocates the new texture alongside the old for a short period of time.
         // If we won't use COPY_SRC, this should be avoided.
-        self.texture = AtlasTexture::new(device, new_dim);
+        self.texture = AtlasTexture::new(device, self.texture.format(), new_dim);
         // After growing, the allocated rectangles retain their position.
         self.allocator.grow(size2(new_dim as i32, new_dim as i32));
 
@@ -131,6 +135,12 @@ impl GlyphAtlas {
         let (x, y) = (pos.x as u32, pos.y as u32);
         let (width, height) = (image.placement.width, image.placement.height);
 
+        let bytes_per_pixel = match image.content {
+            SwashContent::Mask => 1,
+            SwashContent::SubpixelMask => panic!("Unsupported Subpixel Mask Image"),
+            SwashContent::Color => 4,
+        };
+
         queue.write_texture(
             ImageCopyTexture {
                 texture: &self.texture.texture,
@@ -141,7 +151,7 @@ impl GlyphAtlas {
             &image.data,
             ImageDataLayout {
                 offset: 0,
-                bytes_per_row: Some(width),
+                bytes_per_row: Some(width * bytes_per_pixel),
                 rows_per_image: None,
             },
             Extent3d {
@@ -160,11 +170,9 @@ struct AtlasTexture {
 }
 
 impl AtlasTexture {
-    const FORMAT: TextureFormat = TextureFormat::R8Unorm;
-
-    pub fn new(device: &Device, dim: u32) -> Self {
+    pub fn new(device: &Device, texture_format: TextureFormat, dim: u32) -> Self {
         let texture = device.create_texture(&TextureDescriptor {
-            label: Some("Glyph atlas"),
+            label: Some("Glyph Atlas"),
             size: Extent3d {
                 width: dim,
                 height: dim,
@@ -173,7 +181,7 @@ impl AtlasTexture {
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: Self::FORMAT,
+            format: texture_format,
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -181,6 +189,10 @@ impl AtlasTexture {
         let view = texture.create_view(&TextureViewDescriptor::default());
 
         Self { texture, view }
+    }
+
+    pub fn format(&self) -> TextureFormat {
+        self.texture.format()
     }
 
     pub fn dim(&self) -> u32 {
