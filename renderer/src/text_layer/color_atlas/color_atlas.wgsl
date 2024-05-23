@@ -34,12 +34,10 @@ struct TextureSize {
 @group(1) @binding(0)
 var t_texture: texture_2d<f32>;
 @group(1) @binding(1)
-var<uniform> texture_size: TextureSize;
-@group(1) @binding(2)
 var s_sampler: sampler;
 
 @fragment
 fn fs_color(in: VertexOutput) -> @location(0) vec4<f32> {
-    // OO: Use 1 / texture_size and multiply.
-    return textureSample(t_texture, s_sampler, in.tex_coords / texture_size.value);
+    let texture_size = vec2<f32>(textureDimensions(t_texture));
+    return textureSample(t_texture, s_sampler, in.tex_coords / texture_size);
 }

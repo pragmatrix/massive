@@ -45,6 +45,7 @@ impl GlyphAtlas {
         }
     }
 
+    #[allow(unused)]
     pub fn size(&self) -> (u32, u32) {
         let dim = self.texture.dim();
         (dim, dim)

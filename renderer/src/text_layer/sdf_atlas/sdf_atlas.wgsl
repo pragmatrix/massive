@@ -37,8 +37,6 @@ struct TextureSize {
 @group(1) @binding(0)
 var t_texture: texture_2d<f32>;
 @group(1) @binding(1)
-var<uniform> texture_size: TextureSize;
-@group(1) @binding(2)
 var s_sampler: sampler;
 
 // For the fragment shader:
@@ -57,7 +55,8 @@ const df_epsilon = 0.0001;
 fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     // fetch the SDF value from the texture
     // OO: Use 1 / texture_size and multiply.
-    let distance = (textureSample(t_texture, s_sampler, in.tex_coords / texture_size.value).r - df_threshold) * df_multiplier;
+    let texture_size = vec2<f32>(textureDimensions(t_texture));
+    let distance = (textureSample(t_texture, s_sampler, in.tex_coords / texture_size).r - df_threshold) * df_multiplier;
 
     // apply anti-aliasing
     var dist_grad: vec2<f32> = vec2(dpdx(distance), dpdy(distance));

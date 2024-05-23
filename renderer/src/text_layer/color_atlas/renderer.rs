@@ -1,19 +1,20 @@
 use std::mem;
 
-use massive_geometry::Matrix4;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     TextureFormat,
 };
 
-use super::{BindGroupLayout, QuadBatch, QuadInstance};
+use massive_geometry::Matrix4;
+
 use crate::{
     glyph::GlyphAtlas,
     pods::TextureVertex,
     renderer::{PreparationContext, RenderContext},
     tools::{create_pipeline, texture_sampler, QuadIndexBuffer},
-    SizeBuffer,
 };
+
+use super::{BindGroupLayout, QuadBatch, QuadInstance};
 
 pub struct ColorAtlasRenderer {
     pub atlas: GlyphAtlas,
@@ -27,7 +28,7 @@ pub struct ColorAtlasRenderer {
 impl ColorAtlasRenderer {
     pub fn new(
         device: &wgpu::Device,
-        target_format: wgpu::TextureFormat,
+        target_format: TextureFormat,
         view_projection_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         let fs_bind_group_layout = BindGroupLayout::new(device);
@@ -103,13 +104,9 @@ impl ColorAtlasRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        // OO: Let atlas maintain this one, so that's only regenerated when it grows?
-        let texture_size = SizeBuffer::new(device, self.atlas.size());
-
         let bind_group = self.fs_bind_group_layout.create_bind_group(
             context.device,
             self.atlas.texture_view(),
-            &texture_size,
             &self.texture_sampler,
         );
 
