@@ -15,7 +15,7 @@ use crate::{
     SizeBuffer,
 };
 
-pub struct AtlasSdfRenderer {
+pub struct SdfAtlasRenderer {
     pub atlas: GlyphAtlas,
     texture_sampler: wgpu::Sampler,
     pipeline: wgpu::RenderPipeline,
@@ -24,7 +24,7 @@ pub struct AtlasSdfRenderer {
     index_buffer: QuadIndexBuffer,
 }
 
-impl AtlasSdfRenderer {
+impl SdfAtlasRenderer {
     pub fn new(
         device: &wgpu::Device,
         target_format: wgpu::TextureFormat,
@@ -32,7 +32,7 @@ impl AtlasSdfRenderer {
     ) -> Self {
         let fs_bind_group_layout = BindGroupLayout::new(device);
 
-        let shader = &device.create_shader_module(wgpu::include_wgsl!("atlas_sdf.wgsl"));
+        let shader = &device.create_shader_module(wgpu::include_wgsl!("sdf_atlas.wgsl"));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Atlas SDF Pipeline Layout"),

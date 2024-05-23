@@ -10,8 +10,8 @@ use text::SwashContent;
 use wgpu::Device;
 
 use super::{
-    atlas_sdf::{self, AtlasSdfRenderer},
     color_atlas::{self, ColorAtlasRenderer},
+    sdf_atlas::{self, SdfAtlasRenderer},
 };
 use crate::{
     glyph::{
@@ -29,8 +29,8 @@ pub struct TextLayerRenderer {
     scale_context: ScaleContext,
     empty_glyphs: HashSet<RasterizedGlyphKey>,
 
-    sdf_renderer: AtlasSdfRenderer,
-    sdf_batches: Vec<atlas_sdf::QuadBatch>,
+    sdf_renderer: SdfAtlasRenderer,
+    sdf_batches: Vec<sdf_atlas::QuadBatch>,
 
     color_renderer: ColorAtlasRenderer,
     color_batches: Vec<color_atlas::QuadBatch>,
@@ -52,7 +52,7 @@ impl TextLayerRenderer {
             scale_context: ScaleContext::default(),
             empty_glyphs: HashSet::new(),
 
-            sdf_renderer: AtlasSdfRenderer::new(
+            sdf_renderer: SdfAtlasRenderer::new(
                 device,
                 target_format,
                 view_projection_bind_group_layout,
@@ -105,7 +105,7 @@ impl TextLayerRenderer {
         model_matrix: &Matrix4,
         // TODO: this double reference is quite unusual here
         shapes: &[&GlyphRunShape],
-    ) -> Result<(Option<atlas_sdf::QuadBatch>, Option<color_atlas::QuadBatch>)> {
+    ) -> Result<(Option<sdf_atlas::QuadBatch>, Option<color_atlas::QuadBatch>)> {
         // Step 1: Get all instance data.
         // OO: Compute a conservative capacity?
         let mut sdf_glyphs = Vec::new();
@@ -122,7 +122,7 @@ impl TextLayerRenderer {
 
                     match kind {
                         AtlasKind::Sdf => {
-                            sdf_glyphs.push(atlas_sdf::QuadInstance {
+                            sdf_glyphs.push(sdf_atlas::QuadInstance {
                                 atlas_rect: rect,
                                 vertices,
                                 // OO: Text color is changing per run only.

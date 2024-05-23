@@ -1,4 +1,4 @@
-mod atlas_sdf;
+mod sdf_atlas;
 mod color_atlas;
 mod renderer;
 
