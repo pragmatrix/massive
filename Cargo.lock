@@ -3292,6 +3292,7 @@ dependencies = [
  "shared",
  "swash",
  "syntax",
+ "syntect",
  "tokio",
  "tracing",
  "tracing-chrome",

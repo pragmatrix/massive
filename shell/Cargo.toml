@@ -42,6 +42,10 @@ postcard = { workspace = true }
 
 image = "0.25.1" 
 
+# syntax
+
+syntect = "5.2.0"
+
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 
 load-cargo = { path = "../rust-analyzer/crates/load-cargo" }
