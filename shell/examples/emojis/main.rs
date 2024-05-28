@@ -5,7 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use cosmic_text::{FontSystem};
+use cosmic_text::FontSystem;
 use inlyne::{
     color::Theme,
     interpreter::HtmlInterpreter,
@@ -22,37 +22,15 @@ use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::Shell;
 
 use shared::{
-    application::{self, Application}, positioning,
+    application::{self, Application},
+    positioning,
 };
-
-#[cfg(target_arch = "wasm32")]
-use winit::platform::web::WindowBuilderExtWebSys;
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "massive-markdown";
 
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<()> {
-    env_logger::init();
-
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-    // Use the runtime to block on the async function
-    rt.block_on(async_main())
-}
-
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    console_error_panic_hook::set_once();
-    console_log::init().expect("Could not initialize logger");
-
-    wasm_bindgen_futures::spawn_local(async {
-        match async_main().await {
-            Ok(()) => {}
-            Err(e) => {
-                log::error!("{e}");
-            }
-        }
-    });
+    shared::main(async_main)
 }
 
 async fn async_main() -> Result<()> {
@@ -76,9 +54,9 @@ async fn async_main() -> Result<()> {
         // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
 
         // Load system fonts for now. NotoColorEmoji does not render, see the test case below.
-        
+
         // const DEFAULT_LOCALE: &str = "en-US";
-        // 
+        //
         // let mut font_db = fontdb::Database::new();
         // let noto_color_emoji = include_bytes!("fonts/NotoColorEmoji-Regular.ttf");
         // let source = fontdb::Source::Binary(Arc::new(noto_color_emoji));

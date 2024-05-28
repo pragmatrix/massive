@@ -14,29 +14,10 @@ use massive_shell::Shell;
 
 const CANVAS_ID: &str = "massive-code";
 
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<()> {
-    env_logger::init();
-
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-    // Use the runtime to block on the async function
-    rt.block_on(async_main())
+    shared::main(async_main)
 }
 
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    console_error_panic_hook::set_once();
-    console_log::init().expect("Could not initialize logger");
-
-    wasm_bindgen_futures::spawn_local(async {
-        match async_main().await {
-            Ok(()) => {}
-            Err(e) => {
-                log::error!("{e}");
-            }
-        }
-    });
-}
 async fn async_main() -> Result<()> {
     // let env_filter = EnvFilter::from_default_env();
     // let console_formatter = tracing_subscriber::fmt::Layer::default();

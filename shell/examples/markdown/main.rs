@@ -26,37 +26,14 @@ use shared::{
     fonts, positioning,
 };
 
-#[cfg(target_arch = "wasm32")]
-use winit::platform::web::WindowBuilderExtWebSys;
-
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "massive-markdown";
 
-#[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<()> {
-    env_logger::init();
-
-    let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
-    // Use the runtime to block on the async function
-    rt.block_on(async_main())
+    shared::main(markdown)
 }
 
-#[cfg(target_arch = "wasm32")]
-fn main() {
-    console_error_panic_hook::set_once();
-    console_log::init().expect("Could not initialize logger");
-
-    wasm_bindgen_futures::spawn_local(async {
-        match async_main().await {
-            Ok(()) => {}
-            Err(e) => {
-                log::error!("{e}");
-            }
-        }
-    });
-}
-
-async fn async_main() -> Result<()> {
+async fn markdown() -> Result<()> {
     let markdown = include_str!("replicator.org.md");
     // The concepts of a current dir does not exist in wasm I guess.
     // let current_dir = env::current_dir().expect("Failed to get current directory");
