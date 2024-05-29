@@ -2,16 +2,21 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
+use shared::{
+    application,
+    code_viewer::{self, TextAttribute},
+};
+use syntect::{
+    easy::HighlightLines,
+    highlighting::{FontStyle, Style, ThemeSet},
+    parsing::SyntaxSet,
+    util::LinesWithEndings,
+};
+use winit::event_loop::EventLoop;
+
 use massive_geometry::{Camera, Color};
 use massive_shapes::TextWeight;
 use massive_shell::Shell;
-use shared::application;
-use shared::code_viewer::{self, TextAttribute};
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{FontStyle, Style, ThemeSet};
-use syntect::parsing::SyntaxSet;
-use syntect::util::LinesWithEndings;
-use winit::event_loop::EventLoop;
 
 const CANVAS_ID: &str = "massive-syntax";
 
