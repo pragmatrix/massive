@@ -79,6 +79,7 @@ impl TextLayerRenderer {
             .into_group_map_by(|shape| Rc::as_ptr(&shape.model_matrix));
 
         self.sdf_batches.clear();
+        self.color_batches.clear();
 
         for (_, shapes) in grouped {
             // NB: could deref the pointer here using unsafe.
