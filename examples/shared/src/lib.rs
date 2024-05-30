@@ -2,6 +2,7 @@ pub mod application;
 pub mod code_viewer;
 pub mod fonts;
 pub mod positioning;
+pub mod terminal;
 
 use std::future::Future;
 
@@ -13,7 +14,8 @@ where
 {
     #[cfg(not(target_arch = "wasm32"))]
     {
-        env_logger::init();
+        // Don't force initialization of the env logger (calling main may already initialized it)
+        let _ = env_logger::try_init();
 
         let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
         // Use the runtime to block on the async function
