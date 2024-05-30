@@ -116,6 +116,5 @@ fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) ->
         Color::BLACK,
         TextWeight::NORMAL,
         placed,
-        0,
     )
 }

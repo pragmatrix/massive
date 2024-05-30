@@ -30,8 +30,6 @@ pub struct GlyphRun {
     pub text_color: Color,
     pub text_weight: TextWeight,
     pub glyphs: Vec<RunGlyph>,
-    /// The original metadata index if set (otherwise 0).
-    pub metadata: usize,
 }
 
 impl GlyphRun {
@@ -41,7 +39,6 @@ impl GlyphRun {
         text_color: Color,
         text_weight: TextWeight,
         glyphs: Vec<RunGlyph>,
-        metadata: usize,
     ) -> Self {
         Self {
             translation: translation.into(),
@@ -49,7 +46,6 @@ impl GlyphRun {
             text_color,
             text_weight,
             glyphs,
-            metadata,
         }
     }
 

@@ -32,7 +32,6 @@ pub fn to_attributed_glyph_runs(
                 color,
                 weight,
                 positioned_glyphs.collect(),
-                metadata,
             )
         })
         .collect()
@@ -47,7 +46,6 @@ pub fn to_glyph_run(translation: Vector3, run: &LayoutRun, line_height: f32) -> 
         Color::BLACK,
         TextWeight::NORMAL,
         positioned,
-        0,
     )
 }
 
