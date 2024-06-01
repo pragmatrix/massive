@@ -6,9 +6,9 @@ pub trait Object: Sized {
     fn promote_change(change: Change<Self>) -> SceneChange;
 }
 
-
+#[derive(Debug, Clone)]
 pub struct Handle<T: Object> {
-    obj: Rc<InternalHandle<T>>,
+    inner: Rc<InnerHandle<T>>,
 }
 
 impl<T: Object> Handle<T> {
@@ -16,7 +16,7 @@ impl<T: Object> Handle<T> {
         change_tracker.borrow_mut().push(Change::Create(id, value));
 
         Self {
-            obj: InternalHandle {
+            inner: InnerHandle {
                 id,
                 change_tracker,
                 pd: PhantomData,
@@ -26,18 +26,19 @@ impl<T: Object> Handle<T> {
     }
 
     pub fn update(&self, update: T) {
-        self.obj.update(update)
+        self.inner.update(update)
     }
 }
 
 /// Internal representation of the object handle.
-struct InternalHandle<T: Object> {
+#[derive(Debug)]
+struct InnerHandle<T: Object> {
     id: Id,
     change_tracker: Rc<RefCell<ChangeTracker>>,
     pd: PhantomData<T>,
 }
 
-impl<T: Object> InternalHandle<T> {
+impl<T: Object> InnerHandle<T> {
     pub fn update(&self, update: T) {
         self.change_tracker
             .borrow_mut()
@@ -45,7 +46,7 @@ impl<T: Object> InternalHandle<T> {
     }
 }
 
-impl<T: Object> Drop for InternalHandle<T> {
+impl<T: Object> Drop for InnerHandle<T> {
     fn drop(&mut self) {
         self.change_tracker
             .borrow_mut()
