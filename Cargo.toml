@@ -6,7 +6,8 @@ members = [
     "shapes",
     "renderer",
     "shell",
-    "inlyne",
+    "scene",
+    "inlyne", 
 ]
 
 exclude = [

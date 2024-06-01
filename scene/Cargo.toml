@@ -1,0 +1,8 @@
+[package]
+name = "massive-scene"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+massive-shapes = { workspace = true }
+massive-geometry = { workspace = true }
