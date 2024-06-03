@@ -1,11 +1,14 @@
+use derive_more::Deref;
 
-#[derive(Debug, Copy, Clone)]
-pub struct Id(u64);
+/// An identifier that can be used to index into rows to allow fast id associative storage and
+/// retrieval of objects.
+#[derive(Debug, Copy, Clone, Deref)]
+pub struct Id(usize);
 
 #[derive(Debug, Default)]
 pub struct IdGen {
-    next_id: u64,
-    free_list: Vec<u64>,
+    next_id: usize,
+    free_list: Vec<usize>,
 }
 
 impl IdGen {

@@ -1,10 +1,11 @@
 mod color_buffer;
-mod quads;
 mod glyph;
 mod pipelines;
 mod pods;
 mod primitives;
+mod quads;
 mod renderer;
+mod scene;
 mod shape;
 mod shape_renderer;
 mod size_buffer;
