@@ -3,6 +3,8 @@ use std::{cell::RefCell, marker::PhantomData, rc::Rc};
 use crate::{Change, ChangeTracker, Id, SceneChange};
 
 pub trait Object: Sized {
+    // TODO: It's possible to use a const here.
+    // const INTO_SCENE_CHANGE: fn(Change<Self>) -> SceneChange;
     fn promote_change(change: Change<Self>) -> SceneChange;
 }
 

@@ -25,17 +25,18 @@
 //!   footprint and allocations.
 use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
 
+use derive_more::From;
 use massive_geometry as geometry;
-
-use id::*;
+use massive_shapes::{GlyphRun, Quads};
 
 mod change_tracker;
 mod handle;
 mod id;
 
-use change_tracker::*;
+pub use change_tracker::*;
 pub use handle::*;
 pub use id::Id;
+use id::*;
 
 #[derive(Debug, Default)]
 pub struct Director {
@@ -58,3 +59,36 @@ impl Director {
 }
 
 pub type Matrix4 = Handle<geometry::Matrix4>;
+
+impl Object for geometry::Matrix4 {
+    fn promote_change(change: Change<Self>) -> SceneChange {
+        SceneChange::Matrix(change)
+    }
+}
+
+#[derive(Debug)]
+pub struct PositionedShape {
+    pub matrix: Matrix4,
+    pub shape: Shape,
+}
+
+impl Object for PositionedShape {
+    fn promote_change(change: Change<Self>) -> SceneChange {
+        SceneChange::PositionedShape(change)
+    }
+}
+
+impl PositionedShape {
+    pub fn new(matrix: Matrix4, shape: impl Into<Shape>) -> Self {
+        Self {
+            matrix,
+            shape: shape.into(),
+        }
+    }
+}
+
+#[derive(Debug, From)]
+pub enum Shape {
+    GlyphRun(GlyphRun),
+    Quads(Quads),
+}

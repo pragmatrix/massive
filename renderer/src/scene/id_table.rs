@@ -1,14 +1,30 @@
 //! An id associated table of objects.
 
-use massive_scene::Id;
-use std::mem;
+use massive_scene::{Change, Id};
+use std::{mem, ops::Index};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct IdTable<T> {
     rows: Vec<Option<T>>,
 }
 
+impl<T> Default for IdTable<T> {
+    fn default() -> Self {
+        Self {
+            rows: Default::default(),
+        }
+    }
+}
+
 impl<T> IdTable<T> {
+    pub fn apply(&mut self, change: Change<T>) {
+        match change {
+            Change::Create(id, value) => self.put(id, value),
+            Change::Delete(id) => self.remove(id),
+            Change::Update(id, value) => self.rows[*id] = Some(value),
+        }
+    }
+
     pub fn put(&mut self, id: Id, value: T) {
         let index = *id;
         if index >= self.rows.len() {
@@ -18,7 +34,7 @@ impl<T> IdTable<T> {
     }
 
     pub fn remove(&mut self, id: Id) {
-        _ = self.take(id);
+        self.rows[*id] = None;
     }
 
     #[must_use]
@@ -33,5 +49,14 @@ impl<T> IdTable<T> {
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.rows.iter().filter_map(|v| v.as_ref())
+    }
+}
+
+/// Indexing into a table is only possible with a valid id.
+impl<T> Index<Id> for IdTable<T> {
+    type Output = T;
+
+    fn index(&self, index: Id) -> &Self::Output {
+        self.rows[*index].as_ref().unwrap()
     }
 }

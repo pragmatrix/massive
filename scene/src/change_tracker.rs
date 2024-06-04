@@ -1,6 +1,6 @@
 use massive_geometry as geometry;
 
-use crate::{Id, Object};
+use crate::{Id, Object, PositionedShape};
 
 #[derive(Debug)]
 pub enum Change<T> {
@@ -12,6 +12,7 @@ pub enum Change<T> {
 #[derive(Debug)]
 pub enum SceneChange {
     Matrix(Change<geometry::Matrix4>),
+    PositionedShape(Change<PositionedShape>),
 }
 
 #[derive(Debug, Default)]
