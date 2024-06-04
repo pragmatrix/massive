@@ -1,13 +1,15 @@
+use std::collections::HashMap;
+
 use id_table::IdTable;
 use massive_geometry::Matrix4;
-use massive_scene::{PositionedShape, SceneChange};
+use massive_scene::{Id, PositionedRenderShape, SceneChange, Shape};
 
 mod id_table;
 
 #[derive(Debug, Default)]
 struct Scene {
     matrices: IdTable<Matrix4>,
-    shapes: IdTable<PositionedShape>,
+    shapes: IdTable<PositionedRenderShape>,
 }
 
 impl Scene {
@@ -18,6 +20,18 @@ impl Scene {
         }
     }
 
+    pub fn grouped_shapes(&self) -> impl Iterator<Item = (&Matrix4, impl Iterator<Item = &Shape>)> {
+        let mut map: HashMap<Id, Vec<&Shape>> = HashMap::new();
 
+        for positioned in self.shapes.iter() {
+            let matrix_id = positioned.matrix;
+            map.entry(matrix_id).or_default().push(&positioned.shape);
+        }
 
+        map.into_iter().map(|(matrix_id, shapes)| {
+            let matrix = &self.matrices[matrix_id];
+            let shape_iter = shapes.into_iter();
+            (matrix, shape_iter)
+        })
+    }
 }

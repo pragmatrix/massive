@@ -7,4 +7,5 @@ edition = "2021"
 massive-shapes = { workspace = true }
 massive-geometry = { workspace = true }
 derive_more = { workspace = true }
+anyhow = { worksapce = true }
 

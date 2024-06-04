@@ -2,7 +2,7 @@ use derive_more::Deref;
 
 /// An identifier that can be used to index into rows to allow fast id associative storage and
 /// retrieval of objects.
-#[derive(Debug, Copy, Clone, Deref)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref)]
 pub struct Id(usize);
 
 #[derive(Debug, Default)]

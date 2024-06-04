@@ -1,7 +1,8 @@
 //! An id associated table of objects.
 
-use massive_scene::{Change, Id};
 use std::{mem, ops::Index};
+
+use massive_scene::{Change, Id};
 
 #[derive(Debug)]
 pub struct IdTable<T> {
