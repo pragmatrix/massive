@@ -52,11 +52,11 @@ pub struct Director {
 }
 
 impl Director {
-    pub(crate) fn new(commit_channel: Sender<Vec<SceneChange>>) -> Self {
+    pub(crate) fn new(upload_channel: Sender<Vec<SceneChange>>) -> Self {
         Self {
             id_generators: Default::default(),
             change_tracker: Default::default(),
-            upload_channel: commit_channel,
+            upload_channel,
         }
     }
 
