@@ -6,10 +6,34 @@ use std::{
 use anyhow::Result;
 use log::info;
 use massive_geometry::Matrix4;
-use massive_shapes::Shape;
+use massive_scene::SceneChange;
 use wgpu::StoreOp;
 
-use crate::{pipelines, pods, quads::QuadsRenderer, text, text_layer::TextLayerRenderer, texture};
+use crate::{
+    pipelines, pods, quads::QuadsRenderer, scene::Scene, text, text_layer::TextLayerRenderer,
+    texture,
+};
+
+pub struct Renderer<'window> {
+    surface: wgpu::Surface<'window>,
+    pub device: wgpu::Device,
+    pub queue: wgpu::Queue,
+    pub surface_config: wgpu::SurfaceConfiguration,
+
+    scene: Scene,
+
+    // DI: Type this.
+    view_projection_buffer: wgpu::Buffer,
+    // DI: Type this.
+    view_projection_bind_group: wgpu::BindGroup,
+
+    // TODO: this doesn't belong here and is used only for specific pipelines. We need some
+    // per-pipeline information types.
+    pub texture_bind_group_layout: texture::BindGroupLayout,
+
+    text_layer_renderer: TextLayerRenderer,
+    quads_renderer: QuadsRenderer,
+}
 
 /// The context provided to `prepare()` middleware functions.
 pub struct PreparationContext<'a> {
@@ -24,31 +48,6 @@ pub struct RenderContext<'a, 'rpass> {
     pub view_projection_matrix: Matrix4,
     pub view_projection_bind_group: &'rpass wgpu::BindGroup,
     pub pass: &'a mut wgpu::RenderPass<'rpass>,
-}
-
-impl RenderContext<'_, '_> {
-    pub fn queue_view_projection_matrix(&self, matrix: &Matrix4) {
-        Renderer::queue_view_projection_matrix(self.queue, self.view_projection_buffer, matrix);
-    }
-}
-
-pub struct Renderer<'window> {
-    surface: wgpu::Surface<'window>,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    pub surface_config: wgpu::SurfaceConfiguration,
-
-    // DI: Type this.
-    view_projection_buffer: wgpu::Buffer,
-    // DI: Type this.
-    view_projection_bind_group: wgpu::BindGroup,
-
-    // TODO: this doesn't belong here and is used only for specific pipelines. We need some
-    // per-pipeline information types.
-    pub texture_bind_group_layout: texture::BindGroupLayout,
-
-    text_layer_renderer: TextLayerRenderer,
-    quads_renderer: QuadsRenderer,
 }
 
 impl<'window> Renderer<'window> {
@@ -84,6 +83,7 @@ impl<'window> Renderer<'window> {
             queue,
             surface,
             surface_config,
+            scene: Scene::default(),
             view_projection_buffer,
             view_projection_bind_group,
             texture_bind_group_layout,
@@ -96,16 +96,35 @@ impl<'window> Renderer<'window> {
     }
 
     #[tracing::instrument(skip_all)]
-    pub fn prepare(&mut self, font_system: &mut text::FontSystem, shapes: &[Shape]) -> Result<()> {
+    pub fn apply_changes(
+        &mut self,
+        font_system: &mut text::FontSystem,
+        changes: impl IntoIterator<Item = SceneChange>,
+    ) -> Result<()> {
+        for change in changes {
+            self.scene.apply(change);
+        }
+
         let mut context = PreparationContext {
             device: &self.device,
             queue: &self.queue,
             font_system,
         };
 
+        // OO: Lot's of allocations here.
+        let grouped_shapes: Vec<_> = self.scene.grouped_shapes().collect();
+
+        // OO: Lot's of allocations here.
+        let grouped_by_matrix: Vec<_> = grouped_shapes
+            .iter()
+            .map(|(m, v)| (*m, v.as_slice()))
+            .collect();
+
         // OO: parallelize?
-        self.text_layer_renderer.prepare(&mut context, shapes)?;
-        self.quads_renderer.prepare(&mut context, shapes)?;
+        self.text_layer_renderer
+            .prepare(&mut context, &grouped_by_matrix)?;
+        self.quads_renderer
+            .prepare(&mut context, &grouped_by_matrix)?;
         Ok(())
     }
 
@@ -243,6 +262,9 @@ impl<'window> Renderer<'window> {
         self.reconfigure_surface();
     }
 
+    
+
+
     /// Returns the current surface size.
     /// It may not match the window's size, for example if the window's size is 0,0.
     pub fn surface_size(&self) -> (u32, u32) {
@@ -253,5 +275,11 @@ impl<'window> Renderer<'window> {
     pub fn reconfigure_surface(&mut self) {
         info!("Reconfiguring surface {:?}", self.surface_config);
         self.surface.configure(&self.device, &self.surface_config)
+    }
+}
+
+impl RenderContext<'_, '_> {
+    pub fn queue_view_projection_matrix(&self, matrix: &Matrix4) {
+        Renderer::queue_view_projection_matrix(self.queue, self.view_projection_buffer, matrix);
     }
 }

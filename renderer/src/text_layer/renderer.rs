@@ -1,10 +1,10 @@
-use std::{collections::HashSet, rc::Rc};
+use std::collections::HashSet;
 
 use anyhow::Result;
 use cosmic_text as text;
-use itertools::Itertools;
 use massive_geometry::{Matrix4, Point, Point3};
-use massive_shapes::{GlyphRun, GlyphRunShape, RunGlyph, Shape, TextWeight};
+use massive_scene::Shape;
+use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 use swash::{scale::ScaleContext, Weight};
 use text::SwashContent;
 use wgpu::Device;
@@ -68,23 +68,27 @@ impl TextLayerRenderer {
         }
     }
 
-    pub fn prepare(&mut self, context: &mut PreparationContext, shapes: &[Shape]) -> Result<()> {
+    pub fn prepare(
+        &mut self,
+        context: &mut PreparationContext,
+        shapes: &[(&Matrix4, &[&Shape])],
+    ) -> Result<()> {
         // Group all glyph runs bei their matrix pointer.
-        let grouped = shapes
-            .iter()
-            .filter_map(|shape| match shape {
-                Shape::GlyphRun(shape) => Some(shape),
-                _ => None,
-            })
-            .into_group_map_by(|shape| Rc::as_ptr(&shape.model_matrix));
 
         self.sdf_batches.clear();
         self.color_batches.clear();
 
-        for (_, shapes) in grouped {
+        for (matrix, shapes) in shapes {
             // NB: could deref the pointer here using unsafe.
-            let matrix = &shapes[0].model_matrix;
-            let (sdf_batch, color_batch) = self.prepare_runs(context, matrix, &shapes)?;
+            let (sdf_batch, color_batch) = self.prepare_runs(
+                context,
+                matrix,
+                // DI: Move this filter up (callers should just pass here what's needed).
+                shapes.iter().filter_map(|s| match s {
+                    Shape::GlyphRun(run) => Some(run),
+                    Shape::Quads(_) => None,
+                }),
+            )?;
             self.sdf_batches.extend(sdf_batch.into_iter());
             self.color_batches.extend(color_batch.into_iter());
         }
@@ -100,19 +104,19 @@ impl TextLayerRenderer {
     /// Prepare a number of glyph runs and produce a TextLayer.
     ///
     /// All of the runs use the same model matrix.
-    fn prepare_runs(
+    fn prepare_runs<'a>(
         &mut self,
         context: &mut PreparationContext,
         model_matrix: &Matrix4,
         // TODO: this double reference is quite unusual here
-        shapes: &[&GlyphRunShape],
+        runs: impl Iterator<Item = &'a GlyphRun>,
     ) -> Result<(Option<sdf_atlas::QuadBatch>, Option<color_atlas::QuadBatch>)> {
         // Step 1: Get all instance data.
         // OO: Compute a conservative capacity?
         let mut sdf_glyphs = Vec::new();
         let mut color_glyphs = Vec::new();
 
-        for GlyphRunShape { run, .. } in shapes {
+        for run in runs {
             let translation = run.translation;
             for glyph in &run.glyphs {
                 if let Some((rect, placement, kind)) =

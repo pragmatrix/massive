@@ -23,7 +23,7 @@
 //!   the renderer minimizes allocations and can trivially associate arbitrary additional data like
 //!   buffers or caches that are needed to render the objects fast and with a low memory
 //!   footprint and allocations.
-use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc, sync::mpsc::Sender};
+use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
 
 use anyhow::Result;
 use derive_more::From;
@@ -39,6 +39,7 @@ pub use change_tracker::*;
 pub use handle::*;
 pub use id::Id;
 use id::*;
+use tokio::sync::mpsc;
 
 /// A director is the only direct connection to the renderer. It tracks all the changes to scene
 /// graph and uploads it on demand.
@@ -48,11 +49,11 @@ pub struct Director {
     // within that type.
     id_generators: HashMap<TypeId, IdGen>,
     change_tracker: Rc<RefCell<ChangeTracker>>,
-    upload_channel: Sender<Vec<SceneChange>>,
+    upload_channel: mpsc::Sender<Vec<SceneChange>>,
 }
 
 impl Director {
-    pub(crate) fn new(upload_channel: Sender<Vec<SceneChange>>) -> Self {
+    pub fn new(upload_channel: mpsc::Sender<Vec<SceneChange>>) -> Self {
         Self {
             id_generators: Default::default(),
             change_tracker: Default::default(),
@@ -60,14 +61,14 @@ impl Director {
         }
     }
 
-    pub fn create<T: Object + 'static>(&mut self, value: T) -> Handle<T> {
+    pub fn cast<T: Object + 'static>(&mut self, value: T) -> Handle<T> {
         let ti = TypeId::of::<T>();
         let id = self.id_generators.entry(ti).or_default().allocate();
         Handle::new(id, value, self.change_tracker.clone())
     }
 
     /// Send changes to the renderer.
-    pub fn upload_changes(&mut self) -> Result<()> {
+    pub fn action(&mut self) -> Result<()> {
         let changes = self.change_tracker.borrow_mut().take_all();
 
         // Free up all deleted ids (this is done immediately for now, but may be later done in the
@@ -81,7 +82,7 @@ impl Director {
                 .free(id)
         }
 
-        Ok(self.upload_channel.send(changes)?)
+        Ok(self.upload_channel.try_send(changes)?)
     }
 }
 

@@ -7,6 +7,7 @@ edition = "2021"
 massive-geometry = { workspace = true }
 massive-renderer = { workspace = true }
 massive-shapes = { workspace = true }
+massive-scene = { workspace = true }
 winit = { workspace = true }
 log = { workspace = true }
 wgpu = { workspace = true }

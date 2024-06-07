@@ -20,9 +20,7 @@ enum ActiveGesture {
     Rotation(RotationGesture),
 }
 
-pub struct Application {
-    camera: Camera,
-    glyph_runs: Vec<GlyphRun>,
+pub struct Application2 {
     page_size: SizeI,
 
     gesture: Option<ActiveGesture>,
@@ -38,13 +36,10 @@ pub struct Application {
     rotation: PointI,
 }
 
-impl Application {
-    pub fn new(camera: Camera, glyph_runs: Vec<GlyphRun>, page_size: impl Into<SizeI>) -> Self {
+impl Application2 {
+    pub fn new(page_size: impl Into<SizeI>) -> Self {
         Self {
-            camera,
-            glyph_runs,
             page_size: page_size.into(),
-
             gesture: None,
             positions: HashMap::new(),
             modifiers: Modifiers::default(),
@@ -68,8 +63,8 @@ struct RotationGesture {
 const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
 const MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS: i32 = 16;
 
-impl shell::Application for Application {
-    fn update(&mut self, window_event: WindowEvent) {
+impl Application2 {
+    pub fn update(&mut self, window_event: WindowEvent) {
         match window_event {
             WindowEvent::CursorMoved {
                 device_id,
@@ -168,32 +163,32 @@ impl shell::Application for Application {
                 },
                 ..
             } => {
-                if state == winit::event::ElementState::Pressed {
-                    match logical_key {
-                        Key::Named(NamedKey::ArrowLeft) => {
-                            self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
-                        }
-                        Key::Named(NamedKey::ArrowRight) => {
-                            self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
-                        }
-                        Key::Named(NamedKey::ArrowUp) => {
-                            self.camera.eye += Vector3::new(0.0, 0.0, 0.1)
-                        }
-                        Key::Named(NamedKey::ArrowDown) => {
-                            self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
-                        }
-                        _ => {}
-                    }
-                } else {
-                    {}
-                }
+                // if state == winit::event::ElementState::Pressed {
+                //     match logical_key {
+                //         Key::Named(NamedKey::ArrowLeft) => {
+                //             self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
+                //         }
+                //         Key::Named(NamedKey::ArrowRight) => {
+                //             self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
+                //         }
+                //         Key::Named(NamedKey::ArrowUp) => {
+                //             self.camera.eye += Vector3::new(0.0, 0.0, 0.1)
+                //         }
+                //         Key::Named(NamedKey::ArrowDown) => {
+                //             self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
+                //         }
+                //         _ => {}
+                //     }
+                // } else {
+                //     {}
+                // }
             }
             _ => (),
         }
     }
 
-    fn render(&self, shell: &mut Shell) -> (Camera, Vec<Shape>) {
-        let mut shapes = Vec::new();
+    pub fn matrix(&self) -> Matrix4 {
+        // let mut shapes = Vec::new();
 
         let page_x_center: f64 = -((self.page_size.width / 2) as f64);
         let page_y_center: f64 = -((self.page_size.height / 2) as f64);
@@ -216,24 +211,27 @@ impl shell::Application for Application {
         let current_transformation =
             current_translation * y_rotation * x_rotation * center_transformation;
 
-        let view_transformation = Rc::new(shell.pixel_matrix() * current_transformation);
+        // TODO: Move pixel matrix into the renderer and multiply all scene matrices with it.
+        // let view_transformation = Rc::new(shell.pixel_matrix() * current_transformation);
 
-        for glyph_run in &self.glyph_runs {
-            // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
-            // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
+        current_transformation
 
-            // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
-            // them stored?
-            shapes.push(
-                GlyphRunShape {
-                    model_matrix: view_transformation.clone(),
-                    run: glyph_run.clone(),
-                }
-                .into(),
-            );
-        }
+        // for glyph_run in &self.glyph_runs {
+        //     // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
+        //     // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
 
-        (self.camera, shapes)
+        //     // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
+        //     // them stored?
+        //     shapes.push(
+        //         GlyphRunShape {
+        //             model_matrix: view_transformation.clone(),
+        //             run: glyph_run.clone(),
+        //         }
+        //         .into(),
+        //     );
+        // }
+
+//        shapes
     }
 }
 

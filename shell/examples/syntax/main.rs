@@ -1,8 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex},
-    thread,
-};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};

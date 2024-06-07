@@ -7,7 +7,7 @@ use massive_scene::{Id, PositionedRenderShape, SceneChange, Shape};
 mod id_table;
 
 #[derive(Debug, Default)]
-struct Scene {
+pub struct Scene {
     matrices: IdTable<Matrix4>,
     shapes: IdTable<PositionedRenderShape>,
 }
@@ -20,7 +20,7 @@ impl Scene {
         }
     }
 
-    pub fn grouped_shapes(&self) -> impl Iterator<Item = (&Matrix4, impl Iterator<Item = &Shape>)> {
+    pub fn grouped_shapes(&self) -> impl Iterator<Item = (&Matrix4, Vec<&Shape>)> {
         let mut map: HashMap<Id, Vec<&Shape>> = HashMap::new();
 
         for positioned in self.shapes.iter() {
@@ -30,8 +30,7 @@ impl Scene {
 
         map.into_iter().map(|(matrix_id, shapes)| {
             let matrix = &self.matrices[matrix_id];
-            let shape_iter = shapes.into_iter();
-            (matrix, shape_iter)
+            (matrix, shapes)
         })
     }
 }

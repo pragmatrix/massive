@@ -1,4 +1,4 @@
-use std::{cell::RefCell, fmt, marker::PhantomData, rc::Rc};
+use std::{cell::RefCell, fmt, rc::Rc};
 
 use crate::{Change, ChangeTracker, Id, SceneChange};
 

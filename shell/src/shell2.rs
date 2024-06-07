@@ -1,57 +1,47 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    future::Future,
+    rc::Rc,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use log::{error, info};
+use massive_scene::{Director, SceneChange};
+use tokio::sync::mpsc::{self, channel, Receiver};
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
     dpi::PhysicalSize,
-    event::*,
+    event::{ElementState, Event, KeyEvent, WindowEvent},
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::{Window, WindowBuilder},
+    window::Window,
 };
 
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
-use massive_shapes::Shape;
 
-mod shell2;
-
-pub use shell2::*;
-
-pub trait Application {
-    fn update(&mut self, window_event: WindowEvent);
-    fn render(&self, shell: &mut Shell) -> (Camera, Vec<Shape>);
-}
+use crate::Application;
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
-pub async fn run<A: Application + 'static>(
-    application: A,
-    font_system: Arc<Mutex<FontSystem>>,
-) -> Result<()> {
-    let event_loop = EventLoop::new()?;
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
-    let mut shell = Shell::new(&window, window.inner_size(), font_system).await?;
-    shell.run(event_loop, &window, application).await
-}
-
-pub struct Shell<'window> {
+pub struct Shell2<'window> {
     pub font_system: Arc<Mutex<text::FontSystem>>,
     renderer: Renderer<'window>,
+    initial_size: PhysicalSize<u32>,
 }
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
-impl<'window> Shell<'window> {
+impl<'window> Shell2<'window> {
     // Creating some of the wgpu types requires async code
     // TODO: We need the `FontSystem` only while rendering.
     pub async fn new(
         window: &Window,
         initial_size: PhysicalSize<u32>,
         font_system: Arc<Mutex<FontSystem>>,
-    ) -> Result<Shell> {
+    ) -> Result<Shell2> {
         let instance_and_surface = Self::create_instance_and_surface(
             InstanceDescriptor::default(),
             // Use this for testing webgl:
@@ -141,9 +131,10 @@ impl<'window> Shell<'window> {
 
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
-        Ok(Shell {
+        Ok(Shell2 {
             font_system,
             renderer,
+            initial_size,
         })
     }
 
@@ -170,18 +161,63 @@ impl<'window> Shell<'window> {
         Ok((instance, surface))
     }
 
-    pub async fn run<A: Application>(
+    pub async fn run<R: Future<Output = Result<()>> + 'static>(
         &mut self,
         event_loop: EventLoop<()>,
         window: &Window,
-        mut application: A,
+        // TODO: Move Camera into the application
+        camera: Camera,
+        application: impl FnOnce(ApplicationContext) -> R,
     ) -> Result<()> {
+        // Spawn application.
+
+        // TODO: may use unbounded channels.
+        let (scene_sender, mut scene_receiver) = channel::<Vec<SceneChange>>(256);
+        let (event_sender, event_receiver) = channel(256);
+        // let proxy = event_loop.create_proxy();
+
+        let scene_changes: Arc<Mutex<Vec<SceneChange>>> = Arc::new(Mutex::new(Vec::new()));
+
+        let proxy = event_loop.create_proxy();
+
+        let sc2 = scene_changes.clone();
+        let event_dispatcher_task = tokio::spawn(async move {
+            loop {
+                if let Some(new_scene_changes) = scene_receiver.recv().await {
+                    sc2.lock().unwrap().extend(new_scene_changes);
+                    proxy.send_event(())?;
+                } else {
+                    info!("Scene change -> Event dispatcher ended, no more senders.");
+                    return Result::<()>::Ok(());
+                }
+            }
+        });
+
+        let application_context = ApplicationContext {
+            upload_channel: Some(scene_sender),
+            window_events: event_receiver,
+            initial_window_size: self.initial_size,
+            window_scale_factor: window.scale_factor(),
+            font_system: self.font_system.clone(),
+            camera,
+        };
+        let application_task = tokio::spawn(async {
+            let x = Rc::new(10);
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            drop(x);
+            Ok(())
+        });
+
+        // Event loop
+
         info!("Entering event loop");
+
         event_loop.run(|event, window_target| {
             match event {
                 Event::WindowEvent { event, window_id } if window_id == window.id() => {
                     info!("{:?}", event);
                     match event {
+                        // Forward to application for more control?
                         WindowEvent::CloseRequested
                         | WindowEvent::KeyboardInput {
                             event:
@@ -203,7 +239,10 @@ impl<'window> Shell<'window> {
                             window.request_redraw()
                         }
                         WindowEvent::RedrawRequested => {
-                            let (camera, shapes) = application.render(self);
+                            let new_changes: Vec<_> =
+                                scene_changes.lock().unwrap().drain(..).collect();
+
+                            // let surface_matrix = self.renderer.surface_matrix();
                             let surface_size = self.renderer.surface_size();
                             let view_projection_matrix =
                                 camera.view_projection_matrix(Z_RANGE, surface_size);
@@ -212,9 +251,9 @@ impl<'window> Shell<'window> {
 
                             {
                                 let mut font_system = self.font_system.lock().unwrap();
-                                // self.renderer
-                                //     .prepare(&mut font_system, &shapes)
-                                //     .expect("Render preparations failed");
+                                self.renderer
+                                    .apply_changes(&mut font_system, new_changes)
+                                    .expect("Render preparations failed");
                             }
 
                             // TODO: pass primitives as value.
@@ -231,15 +270,25 @@ impl<'window> Shell<'window> {
                         }
 
                         event => {
-                            application.update(event);
-                            window.request_redraw()
+                            if let Err(_e) = event_sender.try_send(event) {
+                                info!("Receiver for events dropped, exiting");
+                                window_target.exit();
+                            }
                         }
                     }
                 }
                 _ => {}
             }
         })?;
-        Ok(())
+
+        // Abort the application, and wait for it to end.
+        application_task.abort();
+        let application_result = application_task.await?;
+
+        // Event dispatcher should end now without an error.
+        event_dispatcher_task.await??;
+
+        application_result
     }
 
     /// The format chosen for the swapchain.
@@ -276,4 +325,25 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let r = f();
     println!("{name}: {:?}", start.elapsed());
     r
+}
+
+// Rationale: We can't pre-create a `Director`, because it contains `Rc`, which is not send.
+#[derive(Debug)]
+pub struct ApplicationContext {
+    upload_channel: Option<mpsc::Sender<Vec<SceneChange>>>,
+    pub window_events: mpsc::Receiver<WindowEvent>,
+    pub initial_window_size: PhysicalSize<u32>,
+    pub window_scale_factor: f64,
+    pub font_system: Arc<Mutex<FontSystem>>,
+    pub camera: Camera,
+}
+
+impl ApplicationContext {
+    pub fn director(&mut self) -> Director {
+        Director::new(
+            self.upload_channel
+                .take()
+                .expect("Only one director can be created"),
+        )
+    }
 }
