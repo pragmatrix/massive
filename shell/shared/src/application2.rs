@@ -1,19 +1,14 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use anyhow::Result;
-use massive_geometry::{Camera, Matrix4, PointI, SizeI, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunShape, Shape};
-use shell::Shell;
+use massive_geometry::{Matrix4, PointI, SizeI};
 use winit::{
     event::{
         DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
     },
     event_loop::EventLoop,
-    keyboard::{Key, NamedKey},
-    window::{Window, WindowBuilder},
+    window::Window,
 };
-
-use massive_shell as shell;
 
 enum ActiveGesture {
     Movement(MovementGesture),
@@ -231,13 +226,15 @@ impl Application2 {
         //     );
         // }
 
-//        shapes
+        //        shapes
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub fn create_window(event_loop: &EventLoop<()>, _canvas_id: Option<&str>) -> Result<Window> {
-    Ok(WindowBuilder::new().build(event_loop)?)
+    use winit::window::WindowAttributes;
+
+    Ok(event_loop.create_window(WindowAttributes::default())?)
 }
 
 // Explicitly query for the canvas, and initialize the window with it.

@@ -10,7 +10,7 @@ use winit::{
     },
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::{Window, WindowBuilder},
+    window::Window,
 };
 
 use massive_shell as shell;
@@ -238,15 +238,17 @@ impl shell::Application for Application {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_window(event_loop: &EventLoop<()>, _canvas_id: Option<&str>) -> Result<Window> {
-    Ok(WindowBuilder::new().build(event_loop)?)
+pub fn create_window<T>(event_loop: &EventLoop<T>, _canvas_id: Option<&str>) -> Result<Window> {
+    use winit::window::WindowAttributes;
+
+    Ok(event_loop.create_window(WindowAttributes::default())?)
 }
 
 // Explicitly query for the canvas, and initialize the window with it.
 //
 // If we use the implicit of `data-raw-handle="1"`, no resize event will be sent.
 #[cfg(target_arch = "wasm32")]
-pub fn create_window(event_loop: &EventLoop<()>, canvas_id: Option<&str>) -> Result<Window> {
+pub fn create_window<T>(event_loop: &EventLoop<T>, canvas_id: Option<&str>) -> Result<Window> {
     use wasm_bindgen::JsCast;
     use winit::platform::web::WindowBuilderExtWebSys;
 

@@ -1,28 +1,34 @@
 use std::{
     future::Future,
-    rc::Rc,
+    mem,
     sync::{Arc, Mutex},
-    time::Duration,
+    task::{self, Waker},
 };
 
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
+use futures::{task::ArcWake, FutureExt};
 use log::{error, info};
 use massive_scene::{Director, SceneChange};
-use tokio::sync::mpsc::{self, channel, Receiver};
+use tokio::{
+    sync::{
+        mpsc::{self, channel, Sender},
+        oneshot,
+    },
+    task::LocalSet,
+};
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
+    application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::{ElementState, Event, KeyEvent, WindowEvent},
-    event_loop::EventLoop,
+    event::{ElementState, KeyEvent, WindowEvent},
+    event_loop::{EventLoop, EventLoopProxy},
     keyboard::{Key, NamedKey},
     window::Window,
 };
 
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
-
-use crate::Application;
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
@@ -35,6 +41,10 @@ pub struct Shell2<'window> {
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
 impl<'window> Shell2<'window> {
+    pub fn event_loop() -> Result<EventLoop<ShellEvent>> {
+        Ok(EventLoop::with_user_event().build()?)
+    }
+
     // Creating some of the wgpu types requires async code
     // TODO: We need the `FontSystem` only while rendering.
     pub async fn new(
@@ -163,11 +173,11 @@ impl<'window> Shell2<'window> {
 
     pub async fn run<R: Future<Output = Result<()>> + 'static>(
         &mut self,
-        event_loop: EventLoop<()>,
-        window: &Window,
+        event_loop: EventLoop<ShellEvent>,
+        window: &'window Window,
         // TODO: Move Camera into the application
         camera: Camera,
-        application: impl FnOnce(ApplicationContext) -> R,
+        application: impl FnOnce(ApplicationContext) -> R + 'static,
     ) -> Result<()> {
         // Spawn application.
 
@@ -176,16 +186,13 @@ impl<'window> Shell2<'window> {
         let (event_sender, event_receiver) = channel(256);
         // let proxy = event_loop.create_proxy();
 
-        let scene_changes: Arc<Mutex<Vec<SceneChange>>> = Arc::new(Mutex::new(Vec::new()));
-
         let proxy = event_loop.create_proxy();
+        let scene_proxy = proxy.clone();
 
-        let sc2 = scene_changes.clone();
         let event_dispatcher_task = tokio::spawn(async move {
             loop {
                 if let Some(new_scene_changes) = scene_receiver.recv().await {
-                    sc2.lock().unwrap().extend(new_scene_changes);
-                    proxy.send_event(())?;
+                    scene_proxy.send_event(ShellEvent::SceneChanges(new_scene_changes))?;
                 } else {
                     info!("Scene change -> Event dispatcher ended, no more senders.");
                     return Result::<()>::Ok(());
@@ -201,94 +208,55 @@ impl<'window> Shell2<'window> {
             font_system: self.font_system.clone(),
             camera,
         };
-        let application_task = tokio::spawn(async {
-            let x = Rc::new(10);
-            tokio::time::sleep(Duration::from_secs(10)).await;
-            drop(x);
-            Ok(())
+
+        let local_set = LocalSet::new();
+        let (result_tx, mut result_rx) = oneshot::channel();
+        let _application_task = local_set.spawn_local(async move {
+            let r = application(application_context).await;
+            // Found no way to retrieve the result via JoinHandle, so this must do.
+            result_tx
+                .send(Some(r))
+                .expect("Internal Error: Failed to set the application result");
         });
 
         // Event loop
 
-        info!("Entering event loop");
+        {
+            // Shared state to wake the event loop
+            let waker = Arc::new(EventLoopWaker {
+                proxy: proxy.clone(),
+                waker: Mutex::new(None),
+            });
 
-        event_loop.run(|event, window_target| {
-            match event {
-                Event::WindowEvent { event, window_id } if window_id == window.id() => {
-                    info!("{:?}", event);
-                    match event {
-                        // Forward to application for more control?
-                        WindowEvent::CloseRequested
-                        | WindowEvent::KeyboardInput {
-                            event:
-                                KeyEvent {
-                                    state: ElementState::Pressed,
-                                    logical_key: Key::Named(NamedKey::Escape),
-                                    ..
-                                },
-                            ..
-                        } => window_target.exit(),
-                        WindowEvent::Resized(physical_size) => {
-                            info!("{:?}", event);
-                            self.resize_surface((physical_size.width, physical_size.height));
-                            window.request_redraw()
-                        }
-                        WindowEvent::ScaleFactorChanged { .. } => {
-                            let new_inner_size = window.inner_size();
-                            self.resize_surface((new_inner_size.width, new_inner_size.height));
-                            window.request_redraw()
-                        }
-                        WindowEvent::RedrawRequested => {
-                            let new_changes: Vec<_> =
-                                scene_changes.lock().unwrap().drain(..).collect();
+            let mut winit_context = WinitApplicationHandler::<'_, 'window> {
+                shell: self,
+                window,
+                camera,
+                event_sender,
+                scene_changes: Default::default(),
+                local_set,
+                waker,
+            };
 
-                            // let surface_matrix = self.renderer.surface_matrix();
-                            let surface_size = self.renderer.surface_size();
-                            let view_projection_matrix =
-                                camera.view_projection_matrix(Z_RANGE, surface_size);
+            info!("Entering event loop");
+            event_loop.run_app(&mut winit_context)?;
+            info!("Exiting event loop");
+        }
 
-                            // let surface_view_matrix = surface_matrix * view_projection_matrix;
-
-                            {
-                                let mut font_system = self.font_system.lock().unwrap();
-                                self.renderer
-                                    .apply_changes(&mut font_system, new_changes)
-                                    .expect("Render preparations failed");
-                            }
-
-                            // TODO: pass primitives as value.
-                            match self.renderer.render_and_present(&view_projection_matrix) {
-                                Ok(_) => {}
-                                // Reconfigure the surface if lost
-                                // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
-                                Err(wgpu::SurfaceError::Lost) => self.reconfigure_surface(),
-                                // The system is out of memory, we should probably quit
-                                Err(wgpu::SurfaceError::OutOfMemory) => window_target.exit(),
-                                // All other errors (Outdated, Timeout) should be resolved by the next frame
-                                Err(e) => error!("{:?}", e),
-                            }
-                        }
-
-                        event => {
-                            if let Err(_e) = event_sender.try_send(event) {
-                                info!("Receiver for events dropped, exiting");
-                                window_target.exit();
-                            }
-                        }
-                    }
-                }
-                _ => {}
-            }
-        })?;
-
-        // Abort the application, and wait for it to end.
-        application_task.abort();
-        let application_result = application_task.await?;
-
-        // Event dispatcher should end now without an error.
+        // LocalSet is dropped. Event dispatcher should end now without an error.
         event_dispatcher_task.await??;
 
-        application_result
+        // Check application's result
+        if let Ok(Some(r)) = result_rx.try_recv() {
+            info!("Application ended with {:?}", r);
+            r?;
+        } else {
+            // TODO: This should probably be an error, we want to the application to have full
+            // control over the lifetime of the winit event loop.
+            info!("Application did not end");
+        }
+
+        Ok(())
     }
 
     /// The format chosen for the swapchain.
@@ -345,5 +313,144 @@ impl ApplicationContext {
                 .take()
                 .expect("Only one director can be created"),
         )
+    }
+}
+
+struct WinitApplicationHandler<'shell, 'window> {
+    shell: &'shell mut Shell2<'window>,
+    window: &'window Window,
+    camera: Camera,
+    event_sender: Sender<WindowEvent>,
+    scene_changes: Vec<SceneChange>,
+    local_set: LocalSet,
+    waker: Arc<EventLoopWaker>,
+}
+
+impl ApplicationHandler<ShellEvent> for WinitApplicationHandler<'_, '_> {
+    fn resumed(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
+        // TODO: create the window here.
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &winit::event_loop::ActiveEventLoop,
+        _window_id: winit::window::WindowId,
+        event: WindowEvent,
+    ) {
+        info!("{:?}", event);
+        match event {
+            // Forward to application for more control?
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        logical_key: Key::Named(NamedKey::Escape),
+                        ..
+                    },
+                ..
+            } => event_loop.exit(),
+            WindowEvent::Resized(physical_size) => {
+                info!("{:?}", event);
+                self.shell
+                    .resize_surface((physical_size.width, physical_size.height));
+                self.window.request_redraw()
+            }
+            WindowEvent::ScaleFactorChanged { .. } => {
+                let new_inner_size = self.window.inner_size();
+                self.shell
+                    .resize_surface((new_inner_size.width, new_inner_size.height));
+                self.window.request_redraw()
+            }
+            WindowEvent::RedrawRequested => {
+                let new_changes: Vec<_> = mem::take(&mut self.scene_changes);
+
+                // let surface_matrix = self.renderer.surface_matrix();
+                let surface_size = self.shell.renderer.surface_size();
+                let view_projection_matrix =
+                    self.camera.view_projection_matrix(Z_RANGE, surface_size);
+
+                // let surface_view_matrix = surface_matrix * view_projection_matrix;
+
+                {
+                    let mut font_system = self.shell.font_system.lock().unwrap();
+                    self.shell
+                        .renderer
+                        .apply_changes(&mut font_system, new_changes)
+                        .expect("Render preparations failed");
+                }
+
+                // TODO: pass primitives as value.
+                match self
+                    .shell
+                    .renderer
+                    .render_and_present(&view_projection_matrix)
+                {
+                    Ok(_) => {}
+                    // Reconfigure the surface if lost
+                    // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
+                    Err(wgpu::SurfaceError::Lost) => self.shell.reconfigure_surface(),
+                    // The system is out of memory, we should probably quit
+                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+                    // All other errors (Outdated, Timeout) should be resolved by the next frame
+                    Err(e) => error!("{:?}", e),
+                }
+            }
+
+            event => {
+                if let Err(_e) = self.event_sender.try_send(event) {
+                    info!("Receiver for events dropped, exiting");
+                    event_loop.exit();
+                }
+            }
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: ShellEvent) {
+        match event {
+            ShellEvent::WakeUpApplication => {
+                self.drive_application(event_loop);
+            }
+            ShellEvent::SceneChanges(new_changes) => {
+                self.scene_changes.extend(new_changes);
+                self.window.request_redraw();
+            }
+        }
+    }
+
+    fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        self.drive_application(event_loop);
+    }
+}
+
+impl WinitApplicationHandler<'_, '_> {
+    fn drive_application(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let waker_ref = futures::task::waker_ref(&self.waker);
+        let mut context = task::Context::from_waker(&waker_ref);
+        if self.local_set.poll_unpin(&mut context).is_ready() {
+            event_loop.exit();
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum ShellEvent {
+    WakeUpApplication,
+    SceneChanges(Vec<SceneChange>),
+}
+
+struct EventLoopWaker {
+    proxy: EventLoopProxy<ShellEvent>,
+    waker: Mutex<Option<Waker>>,
+}
+
+impl ArcWake for EventLoopWaker {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        if let Ok(mut waker_guard) = arc_self.waker.lock() {
+            if let Some(waker) = waker_guard.take() {
+                waker.wake();
+            }
+        }
+        let _ = arc_self.proxy.send_event(ShellEvent::WakeUpApplication);
     }
 }

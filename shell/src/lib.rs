@@ -9,7 +9,7 @@ use winit::{
     event::*,
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::{Window, WindowBuilder},
+    window::{Window, WindowAttributes},
 };
 
 use massive_geometry::{scalar, Camera, Matrix4};
@@ -32,7 +32,9 @@ pub async fn run<A: Application + 'static>(
     font_system: Arc<Mutex<FontSystem>>,
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let window = event_loop
+        .create_window(WindowAttributes::default())
+        .unwrap();
     let mut shell = Shell::new(&window, window.inner_size(), font_system).await?;
     shell.run(event_loop, &window, application).await
 }

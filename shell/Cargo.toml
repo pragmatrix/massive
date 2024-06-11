@@ -14,7 +14,7 @@ wgpu = { workspace = true }
 anyhow = { workspace = true }
 cosmic-text = { workspace = true }
 cgmath = { workspace = true }
-
+futures = { workspace = true }
 
 [dev-dependencies]
 shared = { path = "shared" }

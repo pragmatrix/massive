@@ -16,20 +16,13 @@ use inlyne::{
     Element,
 };
 use log::info;
-use massive_scene::{Director, Matrix4, PositionedShape, Shape};
+use massive_scene::PositionedShape;
 use massive_shapes::GlyphRun;
-use swash::scale;
-use tokio::sync::mpsc::Receiver;
-use winit::{event::WindowEvent, event_loop::EventLoop};
 
-use massive_geometry::{Camera, Identity, SizeI, Vector3};
-use massive_shell::{ApplicationContext, Shell, Shell2};
+use massive_geometry::{Camera, SizeI, Vector3};
+use massive_shell::{ApplicationContext, Shell2};
 
-use shared::{
-    application::{self, Application},
-    application2::Application2,
-    fonts, positioning,
-};
+use shared::{application, application2::Application2, fonts, positioning};
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "massive-markdown";
@@ -39,7 +32,7 @@ fn main() -> Result<()> {
 }
 
 async fn markdown() -> Result<()> {
-    let event_loop = EventLoop::new()?;
+    let event_loop = Shell2::event_loop()?;
     let window = application::create_window(&event_loop, Some(CANVAS_ID))?;
     info!("Initial Window inner size: {:?}", window.inner_size());
 
@@ -83,7 +76,7 @@ async fn markdown() -> Result<()> {
 
     // Run
 
-    shell.run(event_loop, &window, camera, |ctx| application(ctx)).await
+    shell.run(event_loop, &window, camera, application).await
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
@@ -102,20 +95,19 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
         .collect();
 
-    director.action();
+    director.action()?;
 
     loop {
         if let Some(event) = ctx.window_events.recv().await {
+            info!("Application Event: {event:?}");
             application.update(event);
 
-            director.action();
+            director.action()?;
         } else {
             // TODO: clarify when this happens. When the window is closed?
             bail!("No more window events .. ???")
         }
     }
-
-    Ok(())
 }
 
 fn markdown_to_glyph_runs(
