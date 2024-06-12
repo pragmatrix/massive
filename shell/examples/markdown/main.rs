@@ -102,6 +102,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             info!("Application Event: {event:?}");
             application.update(event);
 
+            matrix.update(application.matrix());
+
             director.action()?;
         } else {
             // TODO: clarify when this happens. When the window is closed?
