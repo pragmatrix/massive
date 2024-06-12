@@ -329,6 +329,18 @@ impl ApplicationHandler<ShellEvent> for WinitApplicationHandler<'_, '_> {
         // TODO: create the window here.
     }
 
+    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: ShellEvent) {
+        match event {
+            ShellEvent::WakeUpApplication => {
+                self.drive_application(event_loop);
+            }
+            ShellEvent::SceneChanges(new_changes) => {
+                self.scene_changes.extend(new_changes);
+                self.window.request_redraw();
+            }
+        }
+    }
+
     fn window_event(
         &mut self,
         event_loop: &winit::event_loop::ActiveEventLoop,
@@ -400,18 +412,6 @@ impl ApplicationHandler<ShellEvent> for WinitApplicationHandler<'_, '_> {
                     info!("Receiver for events dropped, exiting");
                     event_loop.exit();
                 }
-            }
-        }
-    }
-
-    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: ShellEvent) {
-        match event {
-            ShellEvent::WakeUpApplication => {
-                self.drive_application(event_loop);
-            }
-            ShellEvent::SceneChanges(new_changes) => {
-                self.scene_changes.extend(new_changes);
-                self.window.request_redraw();
             }
         }
     }
