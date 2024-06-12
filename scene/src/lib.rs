@@ -70,6 +70,10 @@ impl Director {
     /// Send changes to the renderer.
     pub fn action(&mut self) -> Result<()> {
         let changes = self.change_tracker.borrow_mut().take_all();
+        // Short circuit.
+        if changes.is_empty() {
+            return Ok(());
+        }
 
         // Free up all deleted ids (this is done immediately for now, but may be later done in the
         // renderer, for example to keep ids alive until animations are finished or cached resources

@@ -373,38 +373,7 @@ impl ApplicationHandler<ShellEvent> for WinitApplicationHandler<'_, '_> {
                 self.window.request_redraw()
             }
             WindowEvent::RedrawRequested => {
-                let new_changes: Vec<_> = mem::take(&mut self.scene_changes);
-
-                // let surface_matrix = self.renderer.surface_matrix();
-                let surface_size = self.shell.renderer.surface_size();
-                let view_projection_matrix =
-                    self.camera.view_projection_matrix(Z_RANGE, surface_size);
-
-                // let surface_view_matrix = surface_matrix * view_projection_matrix;
-
-                {
-                    let mut font_system = self.shell.font_system.lock().unwrap();
-                    self.shell
-                        .renderer
-                        .apply_changes(&mut font_system, new_changes)
-                        .expect("Render preparations failed");
-                }
-
-                // TODO: pass primitives as value.
-                match self
-                    .shell
-                    .renderer
-                    .render_and_present(&view_projection_matrix)
-                {
-                    Ok(_) => {}
-                    // Reconfigure the surface if lost
-                    // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
-                    Err(wgpu::SurfaceError::Lost) => self.shell.reconfigure_surface(),
-                    // The system is out of memory, we should probably quit
-                    Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
-                    // All other errors (Outdated, Timeout) should be resolved by the next frame
-                    Err(e) => error!("{:?}", e),
-                }
+                self.redraw(event_loop);
             }
 
             event => {
@@ -422,6 +391,40 @@ impl ApplicationHandler<ShellEvent> for WinitApplicationHandler<'_, '_> {
 }
 
 impl WinitApplicationHandler<'_, '_> {
+    fn redraw(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+        let new_changes: Vec<_> = mem::take(&mut self.scene_changes);
+
+        // let surface_matrix = self.renderer.surface_matrix();
+        let surface_size = self.shell.renderer.surface_size();
+        let view_projection_matrix = self.camera.view_projection_matrix(Z_RANGE, surface_size);
+
+        // let surface_view_matrix = surface_matrix * view_projection_matrix;
+
+        {
+            let mut font_system = self.shell.font_system.lock().unwrap();
+            self.shell
+                .renderer
+                .apply_changes(&mut font_system, new_changes)
+                .expect("Render preparations failed");
+        }
+
+        // TODO: pass primitives as value.
+        match self
+            .shell
+            .renderer
+            .render_and_present(&view_projection_matrix)
+        {
+            Ok(_) => {}
+            // Reconfigure the surface if lost
+            // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
+            Err(wgpu::SurfaceError::Lost) => self.shell.reconfigure_surface(),
+            // The system is out of memory, we should probably quit
+            Err(wgpu::SurfaceError::OutOfMemory) => event_loop.exit(),
+            // All other errors (Outdated, Timeout) should be resolved by the next frame
+            Err(e) => error!("{:?}", e),
+        }
+    }
+
     fn drive_application(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let waker_ref = futures::task::waker_ref(&self.waker);
         let mut context = task::Context::from_waker(&waker_ref);
