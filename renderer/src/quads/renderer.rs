@@ -68,7 +68,7 @@ impl QuadsRenderer {
     pub fn prepare(
         &mut self,
         context: &mut PreparationContext,
-        shapes: &[(&Matrix4, &[&Shape])],
+        shapes: &[(Matrix4, &[&Shape])],
     ) -> Result<()> {
         self.layers.clear();
 

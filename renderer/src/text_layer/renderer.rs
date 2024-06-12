@@ -71,7 +71,7 @@ impl TextLayerRenderer {
     pub fn prepare(
         &mut self,
         context: &mut PreparationContext,
-        shapes: &[(&Matrix4, &[&Shape])],
+        shapes: &[(Matrix4, &[&Shape])],
     ) -> Result<()> {
         // Group all glyph runs bei their matrix pointer.
 

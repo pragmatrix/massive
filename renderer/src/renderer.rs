@@ -114,10 +114,13 @@ impl<'window> Renderer<'window> {
         // OO: Lot's of allocations here.
         let grouped_shapes: Vec<_> = self.scene.grouped_shapes().collect();
 
+        let pixel_matrix = self.pixel_matrix();
+
         // OO: Lot's of allocations here.
+        // Group by matrix and apply the pixel matrix.
         let grouped_by_matrix: Vec<_> = grouped_shapes
             .iter()
-            .map(|(m, v)| (*m, v.as_slice()))
+            .map(|(m, v)| (pixel_matrix * *m, v.as_slice()))
             .collect();
 
         // OO: parallelize?
@@ -237,6 +240,14 @@ impl<'window> Renderer<'window> {
         )
     }
 
+    /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
+    /// 1.0 in each axis. Also flips y.
+    pub fn pixel_matrix(&self) -> Matrix4 {
+        let (_, surface_height) = self.surface_size();
+        Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
+            * Matrix4::from_scale(1.0 / surface_height as f64 * 2.0)
+    }
+
     // A Matrix that projects from normalized view coordinates -1.0 to 1.0 (3D, all axis, Z from 0.1
     // to 100) to 2D coordinates.
 
@@ -261,9 +272,6 @@ impl<'window> Renderer<'window> {
 
         self.reconfigure_surface();
     }
-
-    
-
 
     /// Returns the current surface size.
     /// It may not match the window's size, for example if the window's size is 0,0.

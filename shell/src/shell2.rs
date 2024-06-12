@@ -267,9 +267,7 @@ impl<'window> Shell2<'window> {
     /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
     /// 1.0 in each axis. Also flips y.
     pub fn pixel_matrix(&self) -> Matrix4 {
-        let (_, surface_height) = self.renderer.surface_size();
-        Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
-            * Matrix4::from_scale(1.0 / surface_height as f64 * 2.0)
+        self.renderer.pixel_matrix()
     }
 
     fn resize_surface(&mut self, new_size: (u32, u32)) {
@@ -298,7 +296,7 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 // Rationale: We can't pre-create a `Director`, because it contains `Rc`, which is not send.
 #[derive(Debug)]
 pub struct ApplicationContext {
-    upload_channel: Option<mpsc::Sender<Vec<SceneChange>>>,
+    upload_channel: Option<Sender<Vec<SceneChange>>>,
     pub window_events: mpsc::Receiver<WindowEvent>,
     pub initial_window_size: PhysicalSize<u32>,
     pub window_scale_factor: f64,
