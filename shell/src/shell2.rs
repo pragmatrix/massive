@@ -184,7 +184,6 @@ impl<'window> Shell2<'window> {
         // TODO: may use unbounded channels.
         let (scene_sender, mut scene_receiver) = channel::<Vec<SceneChange>>(256);
         let (event_sender, event_receiver) = channel(256);
-        // let proxy = event_loop.create_proxy();
 
         let proxy = event_loop.create_proxy();
         let scene_proxy = proxy.clone();
