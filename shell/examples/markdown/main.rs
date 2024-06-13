@@ -62,9 +62,6 @@ async fn markdown() -> Result<()> {
     let font_system = Arc::new(Mutex::new(font_system));
     let mut shell = Shell2::new(&window, initial_size, font_system.clone()).await?;
 
-    // TODO: Pass surface format.
-    let _surface_format = shell.surface_format();
-
     // Camera
 
     let camera = {
@@ -72,11 +69,6 @@ async fn markdown() -> Result<()> {
         let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
-
-    // Application
-
-    // let application =
-    //     Application::new(camera, glyph_runs, SizeI::new(page_width as _, page_height));
 
     // Run
 
