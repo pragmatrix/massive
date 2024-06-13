@@ -103,7 +103,7 @@ impl<'window> Renderer<'window> {
         font_system: &mut text::FontSystem,
         changes: impl IntoIterator<Item = SceneChange>,
     ) -> Result<()> {
-        self.scene = Scene::default();
+        self.scene.reset();
         self.apply_changes(font_system, changes)
     }
 
