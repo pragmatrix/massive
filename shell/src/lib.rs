@@ -34,7 +34,6 @@ pub async fn run<A: Application + 'static>(
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
     // TODO: Use Application2
-    #[allow(deprecated)]
     let window = event_loop
         .create_window(WindowAttributes::default())
         .unwrap();

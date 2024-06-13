@@ -286,6 +286,7 @@ impl<'window> Shell2<'window> {
     }
 }
 
+#[allow(unused)]
 pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let start = std::time::Instant::now();
     let r = f();

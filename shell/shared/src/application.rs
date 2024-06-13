@@ -192,7 +192,7 @@ impl shell::Application for Application {
         }
     }
 
-    fn render(&self, shell: &mut Shell) -> (Camera, Vec<Shape>) {
+    fn render(&self, _shell: &mut Shell) -> (Camera, Vec<Shape>) {
         let mut shapes = Vec::new();
 
         let page_x_center: f64 = -((self.page_size.width / 2) as f64);
