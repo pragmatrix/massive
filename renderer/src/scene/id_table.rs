@@ -38,6 +38,7 @@ impl<T> IdTable<T> {
         self.rows[*id] = None;
     }
 
+    #[allow(unused)]
     #[must_use]
     pub fn take(&mut self, id: Id) -> Option<T> {
         let index = *id;
@@ -50,6 +51,10 @@ impl<T> IdTable<T> {
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.rows.iter().filter_map(|v| v.as_ref())
+    }
+
+    pub fn reset(&mut self) {
+        self.rows.clear();
     }
 }
 

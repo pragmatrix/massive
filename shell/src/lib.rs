@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use log::{error, info};
+use massive_scene::legacy;
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
     dpi::PhysicalSize,
@@ -32,6 +33,8 @@ pub async fn run<A: Application + 'static>(
     font_system: Arc<Mutex<FontSystem>>,
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
+    // TODO: Use Application2
+    #[allow(deprecated)]
     let window = event_loop
         .create_window(WindowAttributes::default())
         .unwrap();
@@ -172,6 +175,7 @@ impl<'window> Shell<'window> {
         Ok((instance, surface))
     }
 
+    #[deprecated(note = "Use Application2")]
     pub async fn run<A: Application>(
         &mut self,
         event_loop: EventLoop<()>,
@@ -179,6 +183,7 @@ impl<'window> Shell<'window> {
         mut application: A,
     ) -> Result<()> {
         info!("Entering event loop");
+        #[allow(deprecated)]
         event_loop.run(|event, window_target| {
             match event {
                 Event::WindowEvent { event, window_id } if window_id == window.id() => {
@@ -214,9 +219,11 @@ impl<'window> Shell<'window> {
 
                             {
                                 let mut font_system = self.font_system.lock().unwrap();
-                                // self.renderer
-                                //     .prepare(&mut font_system, &shapes)
-                                //     .expect("Render preparations failed");
+                                let changes = legacy::bootstrap_scene_changes(shapes)
+                                    .expect("Bootstrapping scene changes failed");
+                                self.renderer
+                                    .bootstrap_changes(&mut font_system, changes)
+                                    .expect("Bootstrapping changes failed");
                             }
 
                             // TODO: pass primitives as value.

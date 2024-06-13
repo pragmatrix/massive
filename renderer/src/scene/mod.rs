@@ -33,4 +33,9 @@ impl Scene {
             (matrix, shapes)
         })
     }
+
+    pub fn reset(&mut self) {
+        self.matrices.reset();
+        self.shapes.reset();
+    }
 }

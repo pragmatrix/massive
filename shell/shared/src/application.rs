@@ -216,7 +216,8 @@ impl shell::Application for Application {
         let current_transformation =
             current_translation * y_rotation * x_rotation * center_transformation;
 
-        let view_transformation = Rc::new(shell.pixel_matrix() * current_transformation);
+        // let view_transformation = Rc::new(shell.pixel_matrix() * current_transformation);
+        let view_transformation = Rc::new(current_transformation);
 
         for glyph_run in &self.glyph_runs {
             // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
@@ -241,6 +242,8 @@ impl shell::Application for Application {
 pub fn create_window<T>(event_loop: &EventLoop<T>, _canvas_id: Option<&str>) -> Result<Window> {
     use winit::window::WindowAttributes;
 
+    // application.rs will be replaced by application2.rs, so deprecated is ok at this point.
+    #[allow(deprecated)]
     Ok(event_loop.create_window(WindowAttributes::default())?)
 }
 

@@ -11,7 +11,7 @@ use winit::{
     keyboard::{Key, NamedKey},
 };
 
-use massive_geometry::{Camera, Color, Vector3};
+use massive_geometry::{Camera, Color, Identity, Matrix4, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
 use massive_shell::{self as shell, Shell};
 
@@ -87,7 +87,7 @@ impl shell::Application for Application {
         glyph_run.translation = center_translation;
 
         let shapes = vec![GlyphRunShape {
-            model_matrix: Rc::new(shell.pixel_matrix()),
+            model_matrix: Rc::new(Matrix4::identity()),
             run: glyph_run,
         }
         .into()];

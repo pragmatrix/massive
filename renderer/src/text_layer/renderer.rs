@@ -73,8 +73,6 @@ impl TextLayerRenderer {
         context: &mut PreparationContext,
         shapes: &[(Matrix4, &[&Shape])],
     ) -> Result<()> {
-        // Group all glyph runs bei their matrix pointer.
-
         self.sdf_batches.clear();
         self.color_batches.clear();
 

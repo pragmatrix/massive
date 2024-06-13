@@ -118,7 +118,7 @@ pub struct PositionedRenderShape {
 }
 
 impl Object for PositionedShape {
-    // We keep the matrix here.
+    // We keep the matrix handle here.
     type Pinned = Matrix4;
     // And upload the render shape.
     type Uploaded = PositionedRenderShape;
@@ -150,4 +150,49 @@ impl PositionedShape {
 pub enum Shape {
     GlyphRun(GlyphRun),
     Quads(Quads),
+}
+
+pub mod legacy {
+    use super::Matrix4 as MatrixHandle;
+    use crate::{Director, PositionedShape, SceneChange};
+    use anyhow::Result;
+    use massive_geometry::Matrix4;
+    use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
+    use std::{collections::HashMap, ops::Deref, rc::Rc};
+    use tokio::sync::mpsc;
+
+    pub fn bootstrap_scene_changes(shapes: Vec<Shape>) -> Result<Vec<SceneChange>> {
+        let (channel_tx, mut channel_rx) = mpsc::channel(1);
+
+        let mut director = Director::new(channel_tx);
+
+        let mut matrix_handles: HashMap<*const Matrix4, MatrixHandle> = HashMap::new();
+        let mut positioned_shapes = Vec::new();
+
+        for shape in shapes {
+            let matrix = match &shape {
+                Shape::GlyphRun(GlyphRunShape { model_matrix, .. }) => model_matrix,
+                Shape::Quads(QuadsShape { model_matrix, .. }) => model_matrix,
+            };
+
+            let matrix = matrix_handles
+                .entry(Rc::as_ptr(matrix))
+                .or_insert_with(|| director.cast(*matrix.deref()));
+
+            let positioned = match shape {
+                Shape::GlyphRun(GlyphRunShape { run, .. }) => {
+                    PositionedShape::new(matrix.clone(), run)
+                }
+                Shape::Quads(QuadsShape { quads, .. }) => {
+                    PositionedShape::new(matrix.clone(), quads)
+                }
+            };
+
+            positioned_shapes.push(director.cast(positioned));
+        }
+
+        director.action()?;
+
+        Ok(channel_rx.try_recv().unwrap_or_default())
+    }
 }

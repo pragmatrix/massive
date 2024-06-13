@@ -95,6 +95,18 @@ impl<'window> Renderer<'window> {
         renderer
     }
 
+    /// Forget everything known and bootstrap a new set of initial changes.
+    ///
+    /// This is for legacy support an should be removed.
+    pub fn bootstrap_changes(
+        &mut self,
+        font_system: &mut text::FontSystem,
+        changes: impl IntoIterator<Item = SceneChange>,
+    ) -> Result<()> {
+        self.scene = Scene::default();
+        self.apply_changes(font_system, changes)
+    }
+
     #[tracing::instrument(skip_all)]
     pub fn apply_changes(
         &mut self,

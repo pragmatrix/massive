@@ -153,9 +153,12 @@ impl Application2 {
                 }
             }
             WindowEvent::KeyboardInput {
-                event: KeyEvent {
-                    logical_key, state, ..
-                },
+                event:
+                    KeyEvent {
+                        logical_key: _,
+                        state: _,
+                        ..
+                    },
                 ..
             } => {
                 // if state == winit::event::ElementState::Pressed {
@@ -203,30 +206,7 @@ impl Application2 {
         let x_rotation = Matrix4::from_angle_y(angle_x);
         let y_rotation = Matrix4::from_angle_x(angle_y);
 
-        let current_transformation =
-            current_translation * y_rotation * x_rotation * center_transformation;
-
-        // TODO: Move pixel matrix into the renderer and multiply all scene matrices with it.
-        // let view_transformation = Rc::new(shell.pixel_matrix() * current_transformation);
-
-        current_transformation
-
-        // for glyph_run in &self.glyph_runs {
-        //     // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
-        //     // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
-
-        //     // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
-        //     // them stored?
-        //     shapes.push(
-        //         GlyphRunShape {
-        //             model_matrix: view_transformation.clone(),
-        //             run: glyph_run.clone(),
-        //         }
-        //         .into(),
-        //     );
-        // }
-
-        //        shapes
+        current_translation * y_rotation * x_rotation * center_transformation
     }
 }
 
