@@ -22,7 +22,11 @@ use massive_shapes::GlyphRun;
 use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::{ApplicationContext, Shell2};
 
-use shared::{application, application2::Application2, fonts, positioning};
+use shared::{
+    application,
+    application2::{Application2, UpdateResponse},
+    fonts, positioning,
+};
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "massive-markdown";
@@ -100,7 +104,10 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     loop {
         if let Some(event) = ctx.window_events.recv().await {
             info!("Application Event: {event:?}");
-            application.update(event);
+            match application.update(event) {
+                UpdateResponse::Continue => {}
+                UpdateResponse::Exit => return Ok(()),
+            }
 
             matrix.update(application.matrix());
 

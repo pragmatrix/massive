@@ -349,17 +349,6 @@ impl ApplicationHandler<ShellEvent> for WinitApplicationHandler<'_, '_> {
     ) {
         info!("{:?}", event);
         match event {
-            // Forward to application for more control?
-            WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        logical_key: Key::Named(NamedKey::Escape),
-                        ..
-                    },
-                ..
-            } => event_loop.exit(),
             WindowEvent::Resized(physical_size) => {
                 info!("{:?}", event);
                 self.shell

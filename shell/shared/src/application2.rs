@@ -4,9 +4,11 @@ use anyhow::Result;
 use massive_geometry::{Matrix4, PointI, SizeI};
 use winit::{
     event::{
-        DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
+        DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
+        WindowEvent,
     },
     event_loop::EventLoop,
+    keyboard::{Key, NamedKey},
     window::Window,
 };
 
@@ -58,9 +60,27 @@ struct RotationGesture {
 const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
 const MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS: i32 = 16;
 
+#[derive(Debug)]
+pub enum UpdateResponse {
+    Continue,
+    Exit,
+}
+
 impl Application2 {
-    pub fn update(&mut self, window_event: WindowEvent) {
+    #[must_use]
+    pub fn update(&mut self, window_event: WindowEvent) -> UpdateResponse {
         match window_event {
+            // Forward to application for more control?
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        logical_key: Key::Named(NamedKey::Escape),
+                        ..
+                    },
+                ..
+            } => return UpdateResponse::Exit,
             WindowEvent::CursorMoved {
                 device_id,
                 position,
@@ -183,6 +203,8 @@ impl Application2 {
             }
             _ => (),
         }
+
+        UpdateResponse::Continue
     }
 
     pub fn matrix(&self) -> Matrix4 {
