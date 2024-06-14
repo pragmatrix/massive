@@ -1,4 +1,3 @@
+dist/
 /target/
-/*-massive-trace.json
 /Cargo.lock
-

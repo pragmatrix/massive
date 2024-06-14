@@ -1,0 +1,14 @@
+[package]
+name = "markdown"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = { workspace = true }
+cosmic-text = { workspace = true }
+inlyne = { path = "inlyne" }
+log = { workspace = true }
+winit = { workspace = true }
+massive-geometry = {workspace = true }
+massive-shell = {workspace = true }
+shared = { path = "../../shell/shared" }

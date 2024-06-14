@@ -7,10 +7,11 @@ members = [
     "renderer",
     "shell",
     "scene",
-    "inlyne", 
+    "examples/*", 
 ]
 
 exclude = [
+    "examples/dist",
     "rust-analyzer"
 ]
 

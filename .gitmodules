@@ -1,12 +1,12 @@
-[submodule "glyphon"]
-	path = glyphon
-	url = ../glyphon
-	branch = massive-text
-[submodule "inlyne"]
-	path = inlyne
-	url = ../inlyne
-	branch = massive-text
 [submodule "rust-analyzer"]
 	path = rust-analyzer
 	branch = "2024-04-08"
 	url = https://github.com/rust-lang/rust-analyzer.git
+[submodule "examples/markdown/glyphon"]
+	path = examples/markdown/glyphon
+	url = ../glyphon.git
+	branch = massive-text
+[submodule "examples/markdown/inlyne"]
+	path = examples/markdown/inlyne
+	url = ../inlyne.git
+	branch = massive-text
