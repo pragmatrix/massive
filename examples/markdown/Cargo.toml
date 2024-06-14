@@ -11,4 +11,6 @@ log = { workspace = true }
 winit = { workspace = true }
 massive-geometry = {workspace = true }
 massive-shell = {workspace = true }
+massive-scene = {workspace = true }
+massive-shapes = {workspace = true }
 shared = { path = "../../shell/shared" }

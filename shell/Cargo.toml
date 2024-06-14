@@ -20,6 +20,10 @@ futures = { workspace = true }
 shared = { path = "shared" }
 itertools = { workspace = true }
 
+# hello
+
+env_logger = { workspace = true }
+
 # code (can't be compiled on wasm32 for now).
 
 tracing = { workspace = true }

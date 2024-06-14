@@ -27,7 +27,6 @@ massive-shell = { path = "shell" }
 massive-renderer = { path = "renderer" }
 massive-shapes = { path = "shapes" }
 massive-scene = { path = "scene" }
-inlyne = { path = "inlyne" }
 
 log = "0.4.19"
 env_logger = "0.11.3"
