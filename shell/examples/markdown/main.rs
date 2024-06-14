@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use cosmic_text::{fontdb, FontSystem};
 use inlyne::{
     color::Theme,
@@ -16,13 +16,15 @@ use inlyne::{
     Element,
 };
 use log::info;
-use winit::event_loop::EventLoop;
+use massive_scene::PositionedShape;
+use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::Shell;
+use massive_shell::{ApplicationContext, Shell2};
 
 use shared::{
-    application::{self, Application},
+    application,
+    application2::{Application2, UpdateResponse},
     fonts, positioning,
 };
 
@@ -34,19 +36,7 @@ fn main() -> Result<()> {
 }
 
 async fn markdown() -> Result<()> {
-    let markdown = include_str!("replicator.org.md");
-    // The concepts of a current dir does not exist in wasm I guess.
-    // let current_dir = env::current_dir().expect("Failed to get current directory");
-    // let file_path: PathBuf = [current_dir.to_str().unwrap(), "replicator.org.md"]
-    //     .iter()
-    //     .collect();
-
-    let theme = Theme::light_default();
-    let html = markdown_to_html(markdown, theme.code_highlighter.clone());
-
-    let element_queue = Arc::new(Mutex::new(VecDeque::new()));
-
-    let event_loop = EventLoop::new()?;
+    let event_loop = Shell2::event_loop()?;
     let window = application::create_window(&event_loop, Some(CANVAS_ID))?;
     info!("Initial Window inner size: {:?}", window.inner_size());
 
@@ -70,19 +60,74 @@ async fn markdown() -> Result<()> {
     let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
 
     let font_system = Arc::new(Mutex::new(font_system));
-    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await?;
+    let mut shell = Shell2::new(&window, initial_size, font_system.clone()).await?;
 
-    // TODO: Pass surface format.
-    let _surface_format = shell.surface_format();
-    let hidpi_scale = window.scale_factor();
+    // Camera
+
+    let camera = {
+        let fovy: f64 = 45.0;
+        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
+        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
+    };
+
+    // Run
+
+    shell.run(event_loop, &window, camera, application).await
+}
+
+async fn application(mut ctx: ApplicationContext) -> Result<()> {
+    let markdown = include_str!("replicator.org.md");
+
+    let (glyph_runs, page_size) = markdown_to_glyph_runs(&ctx, markdown)?;
+
+    let mut director = ctx.director();
+
+    let mut application = Application2::new(page_size);
+    let matrix = director.cast(application.matrix());
+
+    // Hold the positioned shapes in this context, otherwise they will disappear.
+    let _positioned_shapes: Vec<_> = glyph_runs
+        .into_iter()
+        .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
+        .collect();
+
+    director.action()?;
+
+    loop {
+        if let Some(event) = ctx.window_events.recv().await {
+            info!("Application Event: {event:?}");
+            match application.update(event) {
+                UpdateResponse::Continue => {}
+                UpdateResponse::Exit => return Ok(()),
+            }
+
+            matrix.update(application.matrix());
+
+            director.action()?;
+        } else {
+            // TODO: clarify when this happens. When the window is closed?
+            bail!("No more window events .. ???")
+        }
+    }
+}
+
+fn markdown_to_glyph_runs(
+    ctx: &ApplicationContext,
+    markdown: &str,
+) -> Result<(Vec<GlyphRun>, SizeI)> {
+    let theme = Theme::light_default();
+    let html = markdown_to_html(markdown, theme.code_highlighter.clone());
+
+    let element_queue = Arc::new(Mutex::new(VecDeque::new()));
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
-
     let color_scheme = Some(ResolvedTheme::Light);
+
+    let window_scale_factor = ctx.window_scale_factor;
 
     let interpreter = HtmlInterpreter::new_with_interactor_granularity(
         element_queue.clone(),
         theme,
-        hidpi_scale as _,
+        window_scale_factor as _,
         // file_path,
         image_cache,
         color_scheme,
@@ -95,12 +140,13 @@ async fn markdown() -> Result<()> {
         mem::take(&mut *elements_queue)
     };
 
+    let initial_size = ctx.initial_window_size;
     let width = initial_size.width;
     let page_width = width;
 
     let mut positioner = Positioner::new(
         (width as _, initial_size.height as _),
-        hidpi_scale as _,
+        window_scale_factor as _,
         page_width as _,
     );
 
@@ -110,7 +156,7 @@ async fn markdown() -> Result<()> {
         elements.into_iter().map(Positioned::new).collect();
 
     let mut text_system = TextSystem {
-        font_system,
+        font_system: ctx.font_system.clone(),
         text_cache: text_cache.clone(),
     };
 
@@ -156,22 +202,7 @@ async fn markdown() -> Result<()> {
         }
     }
 
-    // Camera
-
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
-
-    // Application
-
-    let application =
-        Application::new(camera, glyph_runs, SizeI::new(page_width as _, page_height));
-
-    // Run
-
-    shell.run(event_loop, &window, application).await
+    Ok((glyph_runs, (page_width, page_height).into()))
 }
 
 // #[derive(Debug)]

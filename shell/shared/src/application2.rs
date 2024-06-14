@@ -1,28 +1,23 @@
-use std::{collections::HashMap, rc::Rc};
+use std::collections::HashMap;
 
 use anyhow::Result;
-use massive_geometry::{Camera, Matrix4, PointI, SizeI, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunShape, Shape};
-use shell::Shell;
+use massive_geometry::{Matrix4, PointI, SizeI};
 use winit::{
     event::{
-        DeviceId, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent,
+        DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
+        WindowEvent,
     },
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
     window::Window,
 };
 
-use massive_shell as shell;
-
 enum ActiveGesture {
     Movement(MovementGesture),
     Rotation(RotationGesture),
 }
 
-pub struct Application {
-    camera: Camera,
-    glyph_runs: Vec<GlyphRun>,
+pub struct Application2 {
     page_size: SizeI,
 
     gesture: Option<ActiveGesture>,
@@ -38,13 +33,10 @@ pub struct Application {
     rotation: PointI,
 }
 
-impl Application {
-    pub fn new(camera: Camera, glyph_runs: Vec<GlyphRun>, page_size: impl Into<SizeI>) -> Self {
+impl Application2 {
+    pub fn new(page_size: impl Into<SizeI>) -> Self {
         Self {
-            camera,
-            glyph_runs,
             page_size: page_size.into(),
-
             gesture: None,
             positions: HashMap::new(),
             modifiers: Modifiers::default(),
@@ -68,9 +60,27 @@ struct RotationGesture {
 const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
 const MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS: i32 = 16;
 
-impl shell::Application for Application {
-    fn update(&mut self, window_event: WindowEvent) {
+#[derive(Debug)]
+pub enum UpdateResponse {
+    Continue,
+    Exit,
+}
+
+impl Application2 {
+    #[must_use]
+    pub fn update(&mut self, window_event: WindowEvent) -> UpdateResponse {
         match window_event {
+            // Forward to application for more control?
+            WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        logical_key: Key::Named(NamedKey::Escape),
+                        ..
+                    },
+                ..
+            } => return UpdateResponse::Exit,
             WindowEvent::CursorMoved {
                 device_id,
                 position,
@@ -163,37 +173,42 @@ impl shell::Application for Application {
                 }
             }
             WindowEvent::KeyboardInput {
-                event: KeyEvent {
-                    logical_key, state, ..
-                },
+                event:
+                    KeyEvent {
+                        logical_key: _,
+                        state: _,
+                        ..
+                    },
                 ..
             } => {
-                if state == winit::event::ElementState::Pressed {
-                    match logical_key {
-                        Key::Named(NamedKey::ArrowLeft) => {
-                            self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
-                        }
-                        Key::Named(NamedKey::ArrowRight) => {
-                            self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
-                        }
-                        Key::Named(NamedKey::ArrowUp) => {
-                            self.camera.eye += Vector3::new(0.0, 0.0, 0.1)
-                        }
-                        Key::Named(NamedKey::ArrowDown) => {
-                            self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
-                        }
-                        _ => {}
-                    }
-                } else {
-                    {}
-                }
+                // if state == winit::event::ElementState::Pressed {
+                //     match logical_key {
+                //         Key::Named(NamedKey::ArrowLeft) => {
+                //             self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
+                //         }
+                //         Key::Named(NamedKey::ArrowRight) => {
+                //             self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
+                //         }
+                //         Key::Named(NamedKey::ArrowUp) => {
+                //             self.camera.eye += Vector3::new(0.0, 0.0, 0.1)
+                //         }
+                //         Key::Named(NamedKey::ArrowDown) => {
+                //             self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
+                //         }
+                //         _ => {}
+                //     }
+                // } else {
+                //     {}
+                // }
             }
             _ => (),
         }
+
+        UpdateResponse::Continue
     }
 
-    fn render(&self, _shell: &mut Shell) -> (Camera, Vec<Shape>) {
-        let mut shapes = Vec::new();
+    pub fn matrix(&self) -> Matrix4 {
+        // let mut shapes = Vec::new();
 
         let page_x_center: f64 = -((self.page_size.width / 2) as f64);
         let page_y_center: f64 = -((self.page_size.height / 2) as f64);
@@ -213,37 +228,14 @@ impl shell::Application for Application {
         let x_rotation = Matrix4::from_angle_y(angle_x);
         let y_rotation = Matrix4::from_angle_x(angle_y);
 
-        let current_transformation =
-            current_translation * y_rotation * x_rotation * center_transformation;
-
-        // let view_transformation = Rc::new(shell.pixel_matrix() * current_transformation);
-        let view_transformation = Rc::new(current_transformation);
-
-        for glyph_run in &self.glyph_runs {
-            // let center_x: i32 = (glyph_run.metrics.width / 2) as _;
-            // let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
-
-            // TODO: Should we use `Rc` for GlyphRuns, too, so that that the application can keep
-            // them stored?
-            shapes.push(
-                GlyphRunShape {
-                    model_matrix: view_transformation.clone(),
-                    run: glyph_run.clone(),
-                }
-                .into(),
-            );
-        }
-
-        (self.camera, shapes)
+        current_translation * y_rotation * x_rotation * center_transformation
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn create_window<T>(event_loop: &EventLoop<T>, _canvas_id: Option<&str>) -> Result<Window> {
+pub fn create_window(event_loop: &EventLoop<()>, _canvas_id: Option<&str>) -> Result<Window> {
     use winit::window::WindowAttributes;
 
-    // application.rs will be replaced by application2.rs, so deprecated is ok at this point.
-    #[allow(deprecated)]
     Ok(event_loop.create_window(WindowAttributes::default())?)
 }
 
@@ -251,7 +243,7 @@ pub fn create_window<T>(event_loop: &EventLoop<T>, _canvas_id: Option<&str>) -> 
 //
 // If we use the implicit of `data-raw-handle="1"`, no resize event will be sent.
 #[cfg(target_arch = "wasm32")]
-pub fn create_window<T>(event_loop: &EventLoop<T>, canvas_id: Option<&str>) -> Result<Window> {
+pub fn create_window(event_loop: &EventLoop<()>, canvas_id: Option<&str>) -> Result<Window> {
     use wasm_bindgen::JsCast;
     use winit::platform::web::WindowBuilderExtWebSys;
 

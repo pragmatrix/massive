@@ -1,9 +1,7 @@
-use std::rc::Rc;
-
 use anyhow::Result;
-use itertools::Itertools;
 use massive_geometry::Matrix4;
-use massive_shapes::{Quad, QuadsShape, Shape};
+use massive_scene::Shape;
+use massive_shapes::{Quad, Quads};
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     BufferUsages,
@@ -67,26 +65,24 @@ impl QuadsRenderer {
         }
     }
 
-    pub fn prepare(&mut self, context: &mut PreparationContext, shapes: &[Shape]) -> Result<()> {
-        let grouped = shapes
-            .iter()
-            .filter_map(|quads| match quads {
-                Shape::Quads(shape) => Some(shape),
-                _ => None,
-            })
-            .into_group_map_by(|shape| Rc::as_ptr(&shape.model_matrix));
-
+    pub fn prepare(
+        &mut self,
+        context: &mut PreparationContext,
+        shapes: &[(Matrix4, &[&Shape])],
+    ) -> Result<()> {
         self.layers.clear();
-        if grouped.len() > self.layers.len() {
-            self.layers.reserve(grouped.len() - self.layers.len())
-        }
 
         let mut max_quads = 0;
 
-        for (_, shapes) in grouped {
-            // NB: could deref the pointer here using unsafe.
-            let matrix = &shapes[0].model_matrix;
-            if let Some(quads_layer) = self.prepare_quads(context, matrix, &shapes)? {
+        for (matrix, shapes) in shapes {
+            if let Some(quads_layer) = self.prepare_quads(
+                context,
+                matrix,
+                shapes.iter().filter_map(|s| match s {
+                    Shape::GlyphRun(_) => None,
+                    Shape::Quads(quads) => Some(quads),
+                }),
+            )? {
                 max_quads = max_quads.max(quads_layer.quad_count);
                 self.layers.push(quads_layer)
             }
@@ -130,13 +126,13 @@ impl QuadsRenderer {
         }
     }
 
-    fn prepare_quads(
+    fn prepare_quads<'a>(
         &mut self,
         context: &mut PreparationContext,
         model_matrix: &Matrix4,
         // TODO: this double reference is quite unusual here
         // TODO: flatten!
-        shapes: &[&QuadsShape],
+        shapes: impl Iterator<Item = &'a Quads>,
     ) -> Result<Option<QuadsLayer>> {
         // Step 1: Get all instance data.
         // OO: Compute a conservative capacity?
@@ -144,7 +140,7 @@ impl QuadsRenderer {
         // OO: We throw this away in this function further down below.
         let mut vertices = Vec::new();
 
-        for QuadsShape { quads, .. } in shapes {
+        for quads in shapes {
             for Quad {
                 vertices: qv,
                 color,

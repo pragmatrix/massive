@@ -3,18 +3,23 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use log::{error, info};
+use massive_scene::legacy;
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
     dpi::PhysicalSize,
     event::*,
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::{Window, WindowBuilder},
+    window::{Window, WindowAttributes},
 };
 
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
 use massive_shapes::Shape;
+
+mod shell2;
+
+pub use shell2::*;
 
 pub trait Application {
     fn update(&mut self, window_event: WindowEvent);
@@ -28,7 +33,10 @@ pub async fn run<A: Application + 'static>(
     font_system: Arc<Mutex<FontSystem>>,
 ) -> Result<()> {
     let event_loop = EventLoop::new()?;
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    // TODO: Use Application2
+    let window = event_loop
+        .create_window(WindowAttributes::default())
+        .unwrap();
     let mut shell = Shell::new(&window, window.inner_size(), font_system).await?;
     shell.run(event_loop, &window, application).await
 }
@@ -166,6 +174,7 @@ impl<'window> Shell<'window> {
         Ok((instance, surface))
     }
 
+    #[deprecated(note = "Use Application2")]
     pub async fn run<A: Application>(
         &mut self,
         event_loop: EventLoop<()>,
@@ -173,6 +182,7 @@ impl<'window> Shell<'window> {
         mut application: A,
     ) -> Result<()> {
         info!("Entering event loop");
+        #[allow(deprecated)]
         event_loop.run(|event, window_target| {
             match event {
                 Event::WindowEvent { event, window_id } if window_id == window.id() => {
@@ -200,7 +210,6 @@ impl<'window> Shell<'window> {
                         }
                         WindowEvent::RedrawRequested => {
                             let (camera, shapes) = application.render(self);
-                            // let surface_matrix = self.renderer.surface_matrix();
                             let surface_size = self.renderer.surface_size();
                             let view_projection_matrix =
                                 camera.view_projection_matrix(Z_RANGE, surface_size);
@@ -209,9 +218,11 @@ impl<'window> Shell<'window> {
 
                             {
                                 let mut font_system = self.font_system.lock().unwrap();
+                                let changes = legacy::bootstrap_scene_changes(shapes)
+                                    .expect("Bootstrapping scene changes failed");
                                 self.renderer
-                                    .prepare(&mut font_system, &shapes)
-                                    .expect("Render preparations failed");
+                                    .bootstrap_changes(&mut font_system, changes)
+                                    .expect("Bootstrapping changes failed");
                             }
 
                             // TODO: pass primitives as value.

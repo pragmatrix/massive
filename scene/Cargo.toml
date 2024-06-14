@@ -1,0 +1,11 @@
+[package]
+name = "massive-scene"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+massive-shapes = { workspace = true }
+massive-geometry = { workspace = true }
+derive_more = { workspace = true }
+anyhow = { workspace = true }
+tokio = { workspace = true }
