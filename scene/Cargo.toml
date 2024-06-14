@@ -8,4 +8,6 @@ massive-shapes = { workspace = true }
 massive-geometry = { workspace = true }
 derive_more = { workspace = true }
 anyhow = { workspace = true }
+
+# For channels only
 tokio = { workspace = true }
