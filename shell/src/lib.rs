@@ -18,8 +18,10 @@ use massive_renderer::Renderer;
 use massive_shapes::Shape;
 
 mod shell2;
+mod shell3;
 
 pub use shell2::*;
+pub use shell3::*;
 
 pub trait Application {
     fn update(&mut self, window_event: WindowEvent);

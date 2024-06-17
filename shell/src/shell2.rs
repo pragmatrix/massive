@@ -22,7 +22,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
     event::{ElementState, KeyEvent, WindowEvent},
-    event_loop::{EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     keyboard::{Key, NamedKey},
     window::Window,
 };
@@ -306,7 +306,7 @@ pub struct ApplicationContext {
 
 impl ApplicationContext {
     pub fn director(&mut self) -> Director {
-        Director::new(
+        Director::from_sender(
             self.upload_channel
                 .take()
                 .expect("Only one director can be created"),
