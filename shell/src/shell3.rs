@@ -39,26 +39,36 @@ pub struct Shell3 {
 
 // TODO: if window gets closed, remove it from active_windows in the Shell3.
 pub struct ShellWindow {
+    font_system: Arc<Mutex<FontSystem>>,
+    event_loop_proxy: EventLoopProxy<Event>,
     window: Window,
 }
 
 impl ShellWindow {
-    fn id(&self) -> WindowId {
-        self.window.id()
-    }
-
-    fn request_redraw(&self) {
-        self.window.request_redraw()
-    }
-
-    fn inner_size(&self) -> PhysicalSize<u32> {
-        self.window.inner_size()
+    // DI: Use SizeI to represent initial_size.
+    pub async fn new_renderer(
+        &self,
+        camera: Camera,
+        // Use a rect here to place the renderer on the window.
+        // (But what about resizes then?)
+        initial_size: PhysicalSize<u32>,
+    ) -> Result<(WindowRenderer, Director)> {
+        // DI: If we can access the ShellWindow, we don't need a clone of font_system or
+        // event_loop_proxy here.
+        WindowRenderer::new(
+            &self.window,
+            self.font_system.clone(),
+            self.event_loop_proxy.clone(),
+            camera,
+            initial_size,
+        )
+        .await
     }
 }
 
 pub struct WindowRenderer<'window> {
     font_system: Arc<Mutex<FontSystem>>,
-    window: &'window ShellWindow,
+    window: &'window Window,
     camera: Camera,
     scene_changes: Receiver<Vec<SceneChange>>,
     renderer: Renderer<'window>,
@@ -72,6 +82,127 @@ pub enum ControlFlow {
 }
 
 impl<'window> WindowRenderer<'window> {
+    async fn new(
+        window: &'window Window,
+        font_system: Arc<Mutex<FontSystem>>,
+        event_loop_proxy: EventLoopProxy<Event>,
+        camera: Camera,
+        // TODO: use a rect here to be able to position the renderer!
+        initial_size: PhysicalSize<u32>,
+    ) -> Result<(WindowRenderer, Director)> {
+        let instance_and_surface = WindowRenderer::create_instance_and_surface(
+            InstanceDescriptor::default(),
+            // Use this for testing webgl:
+            // InstanceDescriptor {
+            //     backends: wgpu::Backends::GL,
+            //     ..InstanceDescriptor::default()
+            // },
+            window,
+        );
+        // On wasm, attempt to fall back to webgl
+        #[cfg(target_arch = "wasm32")]
+        let instance_and_surface = match instance_and_surface {
+            Ok(_) => instance_and_surface,
+            Err(_) => Self::create_instance_and_surface(
+                InstanceDescriptor {
+                    backends: wgpu::Backends::GL,
+                    ..InstanceDescriptor::default()
+                },
+                window,
+            ),
+        };
+        let (instance, surface) = instance_and_surface?;
+
+        let adapter = instance
+            .request_adapter(&wgpu::RequestAdapterOptions {
+                power_preference: wgpu::PowerPreference::None,
+                // Be sure the adapter can present the surface.
+                compatible_surface: Some(&surface),
+                // software fallback?
+                force_fallback_adapter: false,
+            })
+            .await
+            .expect("Adapter not found");
+
+        info!("Effective WebGPU backend: {:?}", adapter.get_info().backend);
+
+        let (device, queue) = adapter
+            .request_device(
+                &wgpu::DeviceDescriptor {
+                    required_features: wgpu::Features::empty(),
+                    // May be wrong, see: <https://github.com/gfx-rs/wgpu/blob/1144b065c4784d769d59da2f58f5aa13212627b0/examples/src/hello_triangle/mod.rs#L33-L34>
+                    required_limits: adapter.limits(),
+                    label: None,
+                },
+                None, // Trace path
+            )
+            .await
+            .unwrap();
+
+        let surface_caps = surface.get_capabilities(&adapter);
+
+        // Don't use srgb now, colors are specified in linear rgb space.
+        let surface_format = surface_caps
+            .formats
+            .iter()
+            .find(|f| !f.is_srgb())
+            .unwrap_or(&surface_caps.formats[0]);
+
+        info!("Surface format: {:?}", surface_format);
+
+        let present_mode = surface_caps
+            .present_modes
+            .iter()
+            .copied()
+            .find(|f| *f == PresentMode::Immediate)
+            .unwrap_or(surface_caps.present_modes[0]);
+
+        let alpha_mode = surface_caps.alpha_modes[0];
+
+        info!(
+            "Selecting present mode {:?}, alpha mode: {:?}, initial size: {:?}",
+            present_mode, alpha_mode, initial_size,
+        );
+
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: *surface_format,
+            width: initial_size.width,
+            height: initial_size.height,
+            present_mode,
+            // TODO: Select this explicitly
+            alpha_mode,
+            view_formats: vec![],
+            desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
+        };
+        surface.configure(&device, &surface_config);
+        let renderer = Renderer::new(device, queue, surface, surface_config);
+
+        // TODO: may use unbounded channels.
+        let (scene_sender, scene_receiver) = channel::<Vec<SceneChange>>(256);
+
+        let window_renderer = WindowRenderer {
+            font_system,
+            window,
+            camera,
+            scene_changes: scene_receiver,
+            renderer,
+        };
+
+        let window_id = window.id();
+
+        let director = Director::new(move |changes| {
+            // Push the changes to the renderer.
+            // OO: Don't use a channel, directly extend a `Arc<Mutex<Vec>>`, or event an Rc<> ?
+            scene_sender.try_send(changes)?;
+            // Notify a the event loop about a pending redraw.
+            event_loop_proxy.send_event(Event::RequestRedraw(window_id))?;
+            Ok(())
+        });
+
+        Ok((window_renderer, director))
+    }
+
     pub fn handle_event(&mut self, event: ShellEvent) -> ControlFlow {
         let this_window_id = self.window.id();
         match event {
@@ -306,7 +437,13 @@ impl ApplicationContext3 {
         self.with_active_event_loop(|event_loop| {
             let window = event_loop
                 .create_window(WindowAttributes::default().with_inner_size(inner_size))?;
-            Ok(ShellWindow { window })
+            let font_system = self.font_system.clone();
+            let event_loop_proxy = self.event_loop_proxy.clone();
+            Ok(ShellWindow {
+                font_system,
+                event_loop_proxy,
+                window,
+            })
         })
     }
 
@@ -321,129 +458,6 @@ impl ApplicationContext3 {
         }
         let active_event_loop = unsafe { &*ptr };
         f(active_event_loop)
-    }
-
-    // DI: we need FontSystem and EventLoopProxy from self, place these into Window. This way we can
-    // create a renderer from a window directly without using the application context.
-    pub async fn create_renderer<'window>(
-        &self,
-        window: &'window ShellWindow,
-        camera: Camera,
-        // TODO: use a rect here to be able to position the renderer!
-        initial_size: PhysicalSize<u32>,
-    ) -> Result<(WindowRenderer<'window>, Director)> {
-        let instance_and_surface = WindowRenderer::create_instance_and_surface(
-            InstanceDescriptor::default(),
-            // Use this for testing webgl:
-            // InstanceDescriptor {
-            //     backends: wgpu::Backends::GL,
-            //     ..InstanceDescriptor::default()
-            // },
-            &window.window,
-        );
-        // On wasm, attempt to fall back to webgl
-        #[cfg(target_arch = "wasm32")]
-        let instance_and_surface = match instance_and_surface {
-            Ok(_) => instance_and_surface,
-            Err(_) => Self::create_instance_and_surface(
-                InstanceDescriptor {
-                    backends: wgpu::Backends::GL,
-                    ..InstanceDescriptor::default()
-                },
-                window,
-            ),
-        };
-        let (instance, surface) = instance_and_surface?;
-
-        let adapter = instance
-            .request_adapter(&wgpu::RequestAdapterOptions {
-                power_preference: wgpu::PowerPreference::None,
-                // Be sure the adapter can present the surface.
-                compatible_surface: Some(&surface),
-                // software fallback?
-                force_fallback_adapter: false,
-            })
-            .await
-            .expect("Adapter not found");
-
-        info!("Effective WebGPU backend: {:?}", adapter.get_info().backend);
-
-        let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    required_features: wgpu::Features::empty(),
-                    // May be wrong, see: <https://github.com/gfx-rs/wgpu/blob/1144b065c4784d769d59da2f58f5aa13212627b0/examples/src/hello_triangle/mod.rs#L33-L34>
-                    required_limits: adapter.limits(),
-                    label: None,
-                },
-                None, // Trace path
-            )
-            .await
-            .unwrap();
-
-        let surface_caps = surface.get_capabilities(&adapter);
-
-        // Don't use srgb now, colors are specified in linear rgb space.
-        let surface_format = surface_caps
-            .formats
-            .iter()
-            .find(|f| !f.is_srgb())
-            .unwrap_or(&surface_caps.formats[0]);
-
-        info!("Surface format: {:?}", surface_format);
-
-        let present_mode = surface_caps
-            .present_modes
-            .iter()
-            .copied()
-            .find(|f| *f == PresentMode::Immediate)
-            .unwrap_or(surface_caps.present_modes[0]);
-
-        let alpha_mode = surface_caps.alpha_modes[0];
-
-        info!(
-            "Selecting present mode {:?}, alpha mode: {:?}, initial size: {:?}",
-            present_mode, alpha_mode, initial_size,
-        );
-
-        let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            format: *surface_format,
-            width: initial_size.width,
-            height: initial_size.height,
-            present_mode,
-            // TODO: Select this explicitly
-            alpha_mode,
-            view_formats: vec![],
-            desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
-        };
-        surface.configure(&device, &surface_config);
-        let renderer = Renderer::new(device, queue, surface, surface_config);
-
-        // TODO: may use unbounded channels.
-        let (scene_sender, scene_receiver) = channel::<Vec<SceneChange>>(256);
-
-        let window_renderer = WindowRenderer {
-            font_system: self.font_system.clone(),
-            window,
-            camera,
-            scene_changes: scene_receiver,
-            renderer,
-        };
-
-        let window_id = window.id();
-        let event_loop_proxy = self.event_loop_proxy.clone();
-
-        let director = Director::new(move |changes| {
-            // Push the changes to the renderer.
-            // OO: Don't use a channel, directly extend a `Arc<Mutex<Vec>>`, or event an Rc<> ?
-            scene_sender.try_send(changes)?;
-            // Notify a the event loop about a pending redraw.
-            event_loop_proxy.send_event(Event::RequestRedraw(window_id))?;
-            Ok(())
-        });
-
-        Ok((window_renderer, director))
     }
 
     /// Retrieve the next shell event.
