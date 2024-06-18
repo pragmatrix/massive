@@ -4,7 +4,6 @@ use std::{
     ptr,
     rc::Rc,
     sync::{Arc, Mutex},
-    task::{self, Waker},
 };
 
 use anyhow::{bail, Result};
@@ -14,7 +13,7 @@ use log::{error, info};
 use massive_scene::{Director, SceneChange};
 use tokio::{
     sync::{
-        mpsc::{channel, error::TryRecvError, Receiver, Sender},
+        mpsc::{channel, Receiver, Sender},
         oneshot,
     },
     task::LocalSet,
@@ -33,15 +32,96 @@ use massive_renderer::Renderer;
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
+pub async fn run<R: Future<Output = Result<()>> + 'static>(
+    font_system: FontSystem,
+    application: impl FnOnce(ApplicationContext3) -> R + 'static,
+) -> Result<()> {
+    let mut shell = Shell3::new(Arc::new(Mutex::new(font_system)));
+    shell.run(application).await
+}
+
 pub struct Shell3 {
-    pub font_system: Arc<Mutex<text::FontSystem>>,
+    font_system: Arc<Mutex<text::FontSystem>>,
+}
+
+impl Shell3 {
+    pub fn new(font_system: Arc<Mutex<FontSystem>>) -> Self {
+        Self { font_system }
+    }
+
+    pub async fn run<R: Future<Output = Result<()>> + 'static>(
+        &mut self,
+        application: impl FnOnce(ApplicationContext3) -> R + 'static,
+    ) -> Result<()> {
+        let event_loop = EventLoop::with_user_event().build()?;
+
+        // Spawn application.
+
+        // TODO: may use unbounded channels.
+        let (event_sender, event_receiver) = channel(256);
+
+        let proxy = event_loop.create_proxy();
+
+        let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> =
+            Rc::new(RefCell::new(ptr::null()));
+
+        let application_context = ApplicationContext3 {
+            font_system: self.font_system.clone(),
+            event_receiver,
+            active_event_loop: active_event_loop.clone(),
+        };
+
+        let local_set = LocalSet::new();
+        let (result_tx, mut result_rx) = oneshot::channel();
+        let _application_task = local_set.spawn_local(async move {
+            let r = application(application_context).await;
+            // Found no way to retrieve the result via JoinHandle, so this must do.
+            result_tx
+                .send(Some(r))
+                .expect("Internal Error: Failed to set the application result");
+        });
+
+        // Event loop
+
+        {
+            // Shared state to wake the event loop
+            let waker = Arc::new(EventLoopWaker {
+                proxy: proxy.clone(),
+                waker: Mutex::new(None),
+            });
+
+            let mut winit_context = WinitApplicationHandler {
+                shell: self,
+                event_sender,
+                active_event_loop,
+                local_set,
+                waker,
+            };
+
+            info!("Entering event loop");
+            event_loop.run_app(&mut winit_context)?;
+            info!("Exiting event loop");
+        }
+
+        // Check application's result
+        if let Ok(Some(r)) = result_rx.try_recv() {
+            info!("Application ended with {:?}", r);
+            r?;
+        } else {
+            // TODO: This should probably be an error, we want to the application to have full
+            // control over the lifetime of the winit event loop.
+            info!("Application did not end");
+        }
+
+        Ok(())
+    }
 }
 
 // TODO: if window gets closed, remove it from active_windows in the Shell3.
 pub struct ShellWindow {
     font_system: Arc<Mutex<FontSystem>>,
-    event_loop_proxy: EventLoopProxy<Event>,
-    window: Window,
+    // Rc because the renderer needs to invoke request_redraw()
+    window: Rc<Window>,
 }
 
 impl ShellWindow {
@@ -55,22 +135,30 @@ impl ShellWindow {
     ) -> Result<(WindowRenderer, Director)> {
         // DI: If we can access the ShellWindow, we don't need a clone of font_system or
         // event_loop_proxy here.
-        WindowRenderer::new(
-            &self.window,
-            self.font_system.clone(),
-            self.event_loop_proxy.clone(),
-            camera,
-            initial_size,
-        )
-        .await
+        WindowRenderer::new(self, camera, initial_size).await
+    }
+
+    pub fn scale_factor(&self) -> f64 {
+        self.window.scale_factor()
+    }
+
+    pub fn id(&self) -> WindowId {
+        self.window.id()
+    }
+
+    pub fn request_redraw(&self) {
+        self.window.request_redraw()
+    }
+
+    pub fn inner_size(&self) -> PhysicalSize<u32> {
+        self.window.inner_size()
     }
 }
 
 pub struct WindowRenderer<'window> {
-    font_system: Arc<Mutex<FontSystem>>,
-    window: &'window Window,
+    window: &'window ShellWindow,
     camera: Camera,
-    scene_changes: Receiver<Vec<SceneChange>>,
+    scene_changes: Rc<RefCell<Vec<SceneChange>>>,
     renderer: Renderer<'window>,
 }
 
@@ -82,10 +170,12 @@ pub enum ControlFlow {
 }
 
 impl<'window> WindowRenderer<'window> {
+    pub fn font_system(&self) -> &Arc<Mutex<FontSystem>> {
+        &self.window.font_system
+    }
+
     async fn new(
-        window: &'window Window,
-        font_system: Arc<Mutex<FontSystem>>,
-        event_loop_proxy: EventLoopProxy<Event>,
+        window: &ShellWindow,
         camera: Camera,
         // TODO: use a rect here to be able to position the renderer!
         initial_size: PhysicalSize<u32>,
@@ -97,7 +187,7 @@ impl<'window> WindowRenderer<'window> {
             //     backends: wgpu::Backends::GL,
             //     ..InstanceDescriptor::default()
             // },
-            window,
+            &window.window,
         );
         // On wasm, attempt to fall back to webgl
         #[cfg(target_arch = "wasm32")]
@@ -178,25 +268,29 @@ impl<'window> WindowRenderer<'window> {
         surface.configure(&device, &surface_config);
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
-        // TODO: may use unbounded channels.
-        let (scene_sender, scene_receiver) = channel::<Vec<SceneChange>>(256);
+        let scene_changes = Rc::new(RefCell::new(Vec::new()));
 
         let window_renderer = WindowRenderer {
-            font_system,
             window,
             camera,
-            scene_changes: scene_receiver,
+            scene_changes: scene_changes.clone(),
             renderer,
         };
 
-        let window_id = window.id();
+        let window = window.window.clone();
 
         let director = Director::new(move |changes| {
-            // Push the changes to the renderer.
-            // OO: Don't use a channel, directly extend a `Arc<Mutex<Vec>>`, or event an Rc<> ?
-            scene_sender.try_send(changes)?;
-            // Notify a the event loop about a pending redraw.
-            event_loop_proxy.send_event(Event::RequestRedraw(window_id))?;
+            // Since we are the only one pushing to the renderer, we can invoke a request redraw
+            // only once as soon `scene_changes` switch from empty to non-empty.
+            let request_redraw = {
+                let mut scene_changes = scene_changes.borrow_mut();
+                let was_empty = scene_changes.is_empty();
+                scene_changes.extend(changes);
+                was_empty && !scene_changes.is_empty()
+            };
+            if request_redraw {
+                window.request_redraw();
+            }
             Ok(())
         });
 
@@ -208,9 +302,6 @@ impl<'window> WindowRenderer<'window> {
         match event {
             ShellEvent::WindowEvent(window_id, window_event) if window_id == this_window_id => {
                 return self.handle_window_event(window_event);
-            }
-            ShellEvent::RequestRedraw(window_id) if this_window_id == window_id => {
-                self.window.request_redraw()
             }
             _ => {}
         }
@@ -240,24 +331,7 @@ impl<'window> WindowRenderer<'window> {
     }
 
     fn redraw(&mut self) -> ControlFlow {
-        let mut changes = Vec::new();
-
-        // Pull all scene changes out of the channel.
-        loop {
-            match self.scene_changes.try_recv() {
-                Ok(new_changes) => {
-                    changes.extend(new_changes);
-                    continue;
-                }
-                Err(TryRecvError::Empty) => {
-                    break;
-                }
-                Err(TryRecvError::Disconnected) => {
-                    info!("Scene Changes channel disconnected, recommending exit control flow to the caller");
-                    return ControlFlow::Exit;
-                }
-            }
-        }
+        let changes = self.scene_changes.take();
 
         // let surface_matrix = self.renderer.surface_matrix();
         let surface_size = self.renderer.surface_size();
@@ -266,7 +340,7 @@ impl<'window> WindowRenderer<'window> {
         // let surface_view_matrix = surface_matrix * view_projection_matrix;
 
         {
-            let mut font_system = self.font_system.lock().unwrap();
+            let mut font_system = self.window.font_system.lock().unwrap();
             self.renderer
                 .apply_changes(&mut font_system, changes)
                 .expect("Render preparations failed");
@@ -292,88 +366,12 @@ impl<'window> WindowRenderer<'window> {
     }
 }
 
+#[derive(Debug)]
 pub enum ShellEvent {
     WindowEvent(WindowId, WindowEvent),
-    RequestRedraw(WindowId),
 }
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
-
-impl Shell3 {
-    // Creating some of the wgpu types requires async code
-    // TODO: We need the `FontSystem` only while rendering.
-    pub async fn new(font_system: Arc<Mutex<FontSystem>>) -> Result<Shell3> {
-        Ok(Self { font_system })
-    }
-
-    pub async fn run<R: Future<Output = Result<()>> + 'static>(
-        &mut self,
-        application: impl FnOnce(ApplicationContext3) -> R + 'static,
-    ) -> Result<()> {
-        let event_loop = EventLoop::with_user_event().build()?;
-
-        // Spawn application.
-
-        // TODO: may use unbounded channels.
-        let (event_sender, event_receiver) = channel(256);
-
-        let proxy = event_loop.create_proxy();
-
-        let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> =
-            Rc::new(RefCell::new(ptr::null()));
-
-        let application_context = ApplicationContext3 {
-            font_system: self.font_system.clone(),
-            event_loop_proxy: proxy.clone(),
-            event_receiver,
-            active_event_loop: active_event_loop.clone(),
-        };
-
-        let local_set = LocalSet::new();
-        let (result_tx, mut result_rx) = oneshot::channel();
-        let _application_task = local_set.spawn_local(async move {
-            let r = application(application_context).await;
-            // Found no way to retrieve the result via JoinHandle, so this must do.
-            result_tx
-                .send(Some(r))
-                .expect("Internal Error: Failed to set the application result");
-        });
-
-        // Event loop
-
-        {
-            // Shared state to wake the event loop
-            let waker = Arc::new(EventLoopWaker {
-                proxy: proxy.clone(),
-                waker: Mutex::new(None),
-            });
-
-            let mut winit_context = WinitApplicationHandler {
-                shell: self,
-                event_sender,
-                active_event_loop,
-                local_set,
-                waker,
-            };
-
-            info!("Entering event loop");
-            event_loop.run_app(&mut winit_context)?;
-            info!("Exiting event loop");
-        }
-
-        // Check application's result
-        if let Ok(Some(r)) = result_rx.try_recv() {
-            info!("Application ended with {:?}", r);
-            r?;
-        } else {
-            // TODO: This should probably be an error, we want to the application to have full
-            // control over the lifetime of the winit event loop.
-            info!("Application did not end");
-        }
-
-        Ok(())
-    }
-}
 
 impl<'window> WindowRenderer<'window> {
     fn create_instance_and_surface(
@@ -427,7 +425,6 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 
 pub struct ApplicationContext3 {
     font_system: Arc<Mutex<FontSystem>>,
-    event_loop_proxy: EventLoopProxy<Event>,
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
 }
@@ -438,11 +435,9 @@ impl ApplicationContext3 {
             let window = event_loop
                 .create_window(WindowAttributes::default().with_inner_size(inner_size))?;
             let font_system = self.font_system.clone();
-            let event_loop_proxy = self.event_loop_proxy.clone();
             Ok(ShellWindow {
                 font_system,
-                event_loop_proxy,
-                window,
+                window: Rc::new(window),
             })
         })
     }
@@ -488,20 +483,10 @@ impl ApplicationHandler<Event> for WinitApplicationHandler<'_> {
 
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: Event) {
         match event {
-            Event::RequestRedraw(window_id) => {
-                if self
-                    .event_sender
-                    .try_send(ShellEvent::RequestRedraw(window_id))
-                    .is_err()
-                {
-                    info!("Receiver for events dropped, exiting event loop");
-                    event_loop.exit();
-                    return;
-                };
+            Event::WakeUpApplication => {
+                self.drive_application(event_loop);
             }
-            Event::WakeUpApplication => {}
         }
-        self.drive_application(event_loop);
     }
 
     fn window_event(
@@ -532,7 +517,7 @@ impl ApplicationHandler<Event> for WinitApplicationHandler<'_> {
 impl WinitApplicationHandler<'_> {
     fn drive_application(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let waker_ref = futures::task::waker_ref(&self.waker);
-        let mut context = task::Context::from_waker(&waker_ref);
+        let mut context = std::task::Context::from_waker(&waker_ref);
 
         *self.active_event_loop.borrow_mut() = event_loop;
 
@@ -547,12 +532,11 @@ impl WinitApplicationHandler<'_> {
 #[derive(Debug)]
 enum Event {
     WakeUpApplication,
-    RequestRedraw(WindowId),
 }
 
 struct EventLoopWaker {
     proxy: EventLoopProxy<Event>,
-    waker: Mutex<Option<Waker>>,
+    waker: Mutex<Option<std::task::Waker>>,
 }
 
 impl ArcWake for EventLoopWaker {
