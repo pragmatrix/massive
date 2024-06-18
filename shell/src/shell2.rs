@@ -21,9 +21,8 @@ use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, Te
 use winit::{
     application::ApplicationHandler,
     dpi::PhysicalSize,
-    event::{ElementState, KeyEvent, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
-    keyboard::{Key, NamedKey},
+    event::WindowEvent,
+    event_loop::{EventLoop, EventLoopProxy},
     window::Window,
 };
 

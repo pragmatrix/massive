@@ -89,7 +89,7 @@ impl Director {
                 .free(id)
         }
 
-        Ok((self.notify_changes)(changes)?)
+        (self.notify_changes)(changes)
     }
 }
 

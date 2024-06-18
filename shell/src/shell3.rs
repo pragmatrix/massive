@@ -7,7 +7,7 @@ use std::{
     task::{self, Waker},
 };
 
-use anyhow::Result;
+use anyhow::{bail, Result};
 use cosmic_text::{self as text, FontSystem};
 use futures::{task::ArcWake, FutureExt};
 use log::{error, info};
@@ -43,6 +43,10 @@ pub struct ShellWindow {
 }
 
 impl ShellWindow {
+    fn id(&self) -> WindowId {
+        self.window.id()
+    }
+
     fn request_redraw(&self) {
         self.window.request_redraw()
     }
@@ -69,13 +73,15 @@ pub enum ControlFlow {
 
 impl<'window> WindowRenderer<'window> {
     pub fn handle_event(&mut self, event: ShellEvent) -> ControlFlow {
+        let this_window_id = self.window.id();
         match event {
-            ShellEvent::WindowEvent(window_id, window_event) => {
-                if self.window.window.id() == window_id {
-                    return self.handle_window_event(window_event);
-                }
+            ShellEvent::WindowEvent(window_id, window_event) if window_id == this_window_id => {
+                return self.handle_window_event(window_event);
             }
-            ShellEvent::RequestRedraw(_) => {}
+            ShellEvent::RequestRedraw(window_id) if this_window_id == window_id => {
+                self.window.request_redraw()
+            }
+            _ => {}
         }
         ControlFlow::Continue
     }
@@ -102,7 +108,7 @@ impl<'window> WindowRenderer<'window> {
         ControlFlow::Continue
     }
 
-    pub fn redraw(&mut self) -> ControlFlow {
+    fn redraw(&mut self) -> ControlFlow {
         let mut changes = Vec::new();
 
         // Pull all scene changes out of the channel.
@@ -155,7 +161,7 @@ impl<'window> WindowRenderer<'window> {
     }
 }
 
-enum ShellEvent {
+pub enum ShellEvent {
     WindowEvent(WindowId, WindowEvent),
     RequestRedraw(WindowId),
 }
@@ -163,10 +169,6 @@ enum ShellEvent {
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
 impl Shell3 {
-    pub fn event_loop() -> Result<EventLoop<ShellEvent3>> {
-        Ok(EventLoop::with_user_event().build()?)
-    }
-
     // Creating some of the wgpu types requires async code
     // TODO: We need the `FontSystem` only while rendering.
     pub async fn new(font_system: Arc<Mutex<FontSystem>>) -> Result<Shell3> {
@@ -175,9 +177,10 @@ impl Shell3 {
 
     pub async fn run<R: Future<Output = Result<()>> + 'static>(
         &mut self,
-        event_loop: EventLoop<ShellEvent3>,
         application: impl FnOnce(ApplicationContext3) -> R + 'static,
     ) -> Result<()> {
+        let event_loop = EventLoop::with_user_event().build()?;
+
         // Spawn application.
 
         // TODO: may use unbounded channels.
@@ -190,6 +193,7 @@ impl Shell3 {
 
         let application_context = ApplicationContext3 {
             font_system: self.font_system.clone(),
+            event_loop_proxy: proxy.clone(),
             event_receiver,
             active_event_loop: active_event_loop.clone(),
         };
@@ -292,6 +296,7 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 
 pub struct ApplicationContext3 {
     font_system: Arc<Mutex<FontSystem>>,
+    event_loop_proxy: EventLoopProxy<Event>,
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
 }
@@ -318,12 +323,14 @@ impl ApplicationContext3 {
         f(active_event_loop)
     }
 
+    // DI: we need FontSystem and EventLoopProxy from self, place these into Window. This way we can
+    // create a renderer from a window directly without using the application context.
     pub async fn create_renderer<'window>(
         &self,
         window: &'window ShellWindow,
+        camera: Camera,
         // TODO: use a rect here to be able to position the renderer!
         initial_size: PhysicalSize<u32>,
-        camera: Camera,
     ) -> Result<(WindowRenderer<'window>, Director)> {
         let instance_and_surface = WindowRenderer::create_instance_and_surface(
             InstanceDescriptor::default(),
@@ -424,10 +431,33 @@ impl ApplicationContext3 {
             renderer,
         };
 
-        // TODO: cause a redraw on the window.
-        let director = Director::new(move |changes| Ok(scene_sender.try_send(changes)?));
+        let window_id = window.id();
+        let event_loop_proxy = self.event_loop_proxy.clone();
+
+        let director = Director::new(move |changes| {
+            // Push the changes to the renderer.
+            // OO: Don't use a channel, directly extend a `Arc<Mutex<Vec>>`, or event an Rc<> ?
+            scene_sender.try_send(changes)?;
+            // Notify a the event loop about a pending redraw.
+            event_loop_proxy.send_event(Event::RequestRedraw(window_id))?;
+            Ok(())
+        });
 
         Ok((window_renderer, director))
+    }
+
+    /// Retrieve the next shell event.
+    ///
+    /// Process the event and then forward it to the renderer.
+    pub async fn wait_for_event(&mut self) -> Result<ShellEvent> {
+        let event = self.event_receiver.recv().await;
+        if let Some(event) = event {
+            return Ok(event);
+        }
+
+        // This means that the shell stopped before the application ended, this should not happen in
+        // normal situations.
+        bail!("Internal Error: Shell shut down, no more events")
     }
 }
 
@@ -439,12 +469,12 @@ struct WinitApplicationHandler<'shell> {
     waker: Arc<EventLoopWaker>,
 }
 
-impl ApplicationHandler<ShellEvent3> for WinitApplicationHandler<'_> {
+impl ApplicationHandler<Event> for WinitApplicationHandler<'_> {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
-    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: ShellEvent3) {
+    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: Event) {
         match event {
-            ShellEvent3::RequestRedraw(window_id) => {
+            Event::RequestRedraw(window_id) => {
                 if self
                     .event_sender
                     .try_send(ShellEvent::RequestRedraw(window_id))
@@ -455,7 +485,7 @@ impl ApplicationHandler<ShellEvent3> for WinitApplicationHandler<'_> {
                     return;
                 };
             }
-            ShellEvent3::WakeUpApplication => {}
+            Event::WakeUpApplication => {}
         }
         self.drive_application(event_loop);
     }
@@ -501,13 +531,13 @@ impl WinitApplicationHandler<'_> {
 }
 
 #[derive(Debug)]
-pub enum ShellEvent3 {
+enum Event {
     WakeUpApplication,
     RequestRedraw(WindowId),
 }
 
 struct EventLoopWaker {
-    proxy: EventLoopProxy<ShellEvent3>,
+    proxy: EventLoopProxy<Event>,
     waker: Mutex<Option<Waker>>,
 }
 
@@ -518,6 +548,6 @@ impl ArcWake for EventLoopWaker {
                 waker.wake();
             }
         }
-        let _ = arc_self.proxy.send_event(ShellEvent3::WakeUpApplication);
+        let _ = arc_self.proxy.send_event(Event::WakeUpApplication);
     }
 }
