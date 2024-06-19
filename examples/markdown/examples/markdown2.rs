@@ -20,10 +20,7 @@ use massive_scene::PositionedShape;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{
-    shell3::{self, ControlFlow, ShellEvent},
-    ApplicationContext3,
-};
+use massive_shell::{shell3, ApplicationContext3};
 
 use shared::{
     application2::{Application2, UpdateResponse},
@@ -57,7 +54,13 @@ async fn markdown() -> Result<()> {
 }
 
 async fn application(mut ctx: ApplicationContext3) -> Result<()> {
-    let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
+    let scale_factor = ctx
+        .primary_monitor()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0);
+    let initial_size = winit::dpi::LogicalSize::new(960, 800);
+
+    let physical_size = initial_size.to_physical(scale_factor);
 
     // Camera
 
@@ -68,19 +71,22 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     };
 
     let window = ctx.create_window(initial_size)?;
-    let (mut renderer, mut director) = window.new_renderer(camera, initial_size).await?;
+    let (mut renderer, mut director) = window
+        .new_renderer(camera, initial_size.to_physical(scale_factor))
+        .await?;
 
     let markdown = include_str!("replicator.org.md");
 
     let (glyph_runs, page_size) = markdown_to_glyph_runs(
         window.scale_factor(),
-        initial_size,
+        physical_size,
         renderer.font_system().clone(),
         markdown,
     )?;
 
     let mut application = Application2::new(page_size);
-    let matrix = director.cast(application.matrix());
+    let mut current_matrix = application.matrix();
+    let matrix = director.cast(current_matrix);
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
     let _positioned_shapes: Vec<_> = glyph_runs
@@ -91,28 +97,23 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     director.action()?;
 
     loop {
-        let event = ctx.wait_for_event().await?;
+        let window_event = ctx.wait_for_event(&mut renderer).await?;
 
-        info!("Application Event: {event:?}");
+        info!("Window Event: {window_event:?}");
 
-        match event {
-            ShellEvent::WindowEvent(window_id, ref window_event) if window_id == window.id() => {
-                match application.update(window_event.clone()) {
-                    UpdateResponse::Exit => return Ok(()),
-                    UpdateResponse::Continue => {}
-                }
-            }
-            _ => {}
+        match application.update(window_event) {
+            UpdateResponse::Exit => return Ok(()),
+            UpdateResponse::Continue => {}
         }
 
-        match renderer.handle_event(event) {
-            ControlFlow::Continue => {}
-            ControlFlow::Exit => return Ok(()),
+        // DI: This check has to be done in the renderer and the renderer has to decide when it
+        // needs to redraw.
+        let new_matrix = application.matrix();
+        if new_matrix != current_matrix {
+            matrix.update(new_matrix);
+            current_matrix = new_matrix;
+            director.action()?;
         }
-
-        matrix.update(application.matrix());
-
-        director.action()?;
     }
 }
 
