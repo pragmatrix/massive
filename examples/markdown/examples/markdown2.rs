@@ -78,7 +78,7 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     let markdown = include_str!("replicator.org.md");
 
     let (glyph_runs, page_size) = markdown_to_glyph_runs(
-        window.scale_factor(),
+        scale_factor,
         physical_size,
         renderer.font_system().clone(),
         markdown,
