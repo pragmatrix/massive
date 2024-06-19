@@ -21,12 +21,11 @@ use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::{
-    shell3::{self, ControlFlow},
-    ApplicationContext, ApplicationContext3, Shell2, Shell3,
+    shell3::{self, ControlFlow, ShellEvent},
+    ApplicationContext3,
 };
 
 use shared::{
-    application,
     application2::{Application2, UpdateResponse},
     fonts, positioning,
 };
@@ -95,6 +94,17 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
         let event = ctx.wait_for_event().await?;
 
         info!("Application Event: {event:?}");
+
+        match event {
+            ShellEvent::WindowEvent(window_id, ref window_event) if window_id == window.id() => {
+                match application.update(window_event.clone()) {
+                    UpdateResponse::Exit => return Ok(()),
+                    UpdateResponse::Continue => {}
+                }
+            }
+            _ => {}
+        }
+
         match renderer.handle_event(event) {
             ControlFlow::Continue => {}
             ControlFlow::Exit => return Ok(()),
