@@ -20,13 +20,9 @@ futures = { workspace = true }
 shared = { path = "shared" }
 itertools = { workspace = true }
 
-# markdown
+# hello
 
-swash = { workspace = true }
-bytemuck = { workspace = true }
 env_logger = { workspace = true }
-derive_more = { workspace = true }
-inlyne = { workspace = true }
 
 # code (can't be compiled on wasm32 for now).
 
@@ -63,6 +59,7 @@ ide = { path = "../rust-analyzer/crates/ide" }
 
 getrandom = { version = "0.2.12", features = ["js"] }
 wgpu = { workspace = true, features = ["webgl"] }
+tokio = { workspace = true, features = ["rt"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 

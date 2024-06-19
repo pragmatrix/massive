@@ -27,7 +27,9 @@ use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
 
 use anyhow::Result;
 use derive_more::From;
+use tokio::sync::mpsc;
 
+use id::*;
 use massive_geometry as geometry;
 use massive_shapes::{GlyphRun, Quads};
 
@@ -38,26 +40,27 @@ mod id;
 pub use change_tracker::*;
 pub use handle::*;
 pub use id::Id;
-use id::*;
-use tokio::sync::mpsc;
 
 /// A director is the only direct connection to the renderer. It tracks all the changes to scene
 /// graph and uploads it on demand.
-#[derive(Debug)]
 pub struct Director {
     // Each type requires its own id generator to ensure that the generated ids are contiguous
     // within that type.
     id_generators: HashMap<TypeId, IdGen>,
     change_tracker: Rc<RefCell<ChangeTracker>>,
-    upload_channel: mpsc::Sender<Vec<SceneChange>>,
+    notify_changes: Box<dyn FnMut(Vec<SceneChange>) -> Result<()> + 'static>,
 }
 
 impl Director {
-    pub fn new(upload_channel: mpsc::Sender<Vec<SceneChange>>) -> Self {
+    pub fn from_sender(sender: mpsc::Sender<Vec<SceneChange>>) -> Self {
+        Self::new(move |changes| Ok(sender.try_send(changes)?))
+    }
+
+    pub fn new(f: impl FnMut(Vec<SceneChange>) -> Result<()> + 'static) -> Self {
         Self {
             id_generators: Default::default(),
             change_tracker: Default::default(),
-            upload_channel,
+            notify_changes: Box::new(f),
         }
     }
 
@@ -86,7 +89,7 @@ impl Director {
                 .free(id)
         }
 
-        Ok(self.upload_channel.try_send(changes)?)
+        (self.notify_changes)(changes)
     }
 }
 
@@ -164,7 +167,7 @@ pub mod legacy {
     pub fn bootstrap_scene_changes(shapes: Vec<Shape>) -> Result<Vec<SceneChange>> {
         let (channel_tx, mut channel_rx) = mpsc::channel(1);
 
-        let mut director = Director::new(channel_tx);
+        let mut director = Director::from_sender(channel_tx);
 
         let mut matrix_handles: HashMap<*const Matrix4, MatrixHandle> = HashMap::new();
         let mut positioned_shapes = Vec::new();

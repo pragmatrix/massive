@@ -31,7 +31,7 @@ use shared::{
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "massive-markdown";
 
-fn main() -> Result<()> {
+pub fn main() -> Result<()> {
     shared::main(markdown)
 }
 
