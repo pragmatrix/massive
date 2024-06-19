@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use cosmic_text::{fontdb, FontSystem};
 use inlyne::{
     color::Theme,

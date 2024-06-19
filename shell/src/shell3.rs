@@ -91,7 +91,6 @@ impl Shell3 {
             });
 
             let mut winit_context = WinitApplicationHandler {
-                shell: self,
                 event_sender,
                 active_event_loop,
                 local_set,
@@ -470,15 +469,14 @@ impl ApplicationContext3 {
     }
 }
 
-struct WinitApplicationHandler<'shell> {
-    shell: &'shell mut Shell3,
+struct WinitApplicationHandler {
     event_sender: Sender<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
     local_set: LocalSet,
     waker: Arc<EventLoopWaker>,
 }
 
-impl ApplicationHandler<Event> for WinitApplicationHandler<'_> {
+impl ApplicationHandler<Event> for WinitApplicationHandler {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
     fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: Event) {
@@ -514,7 +512,7 @@ impl ApplicationHandler<Event> for WinitApplicationHandler<'_> {
     }
 }
 
-impl WinitApplicationHandler<'_> {
+impl WinitApplicationHandler {
     fn drive_application(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
         let waker_ref = futures::task::waker_ref(&self.waker);
         let mut context = std::task::Context::from_waker(&waker_ref);
