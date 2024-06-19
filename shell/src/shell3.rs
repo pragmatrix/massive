@@ -23,7 +23,7 @@ use winit::{
     application::ApplicationHandler,
     dpi::{self, PhysicalSize},
     event::WindowEvent,
-    event_loop::{self, ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     monitor::MonitorHandle,
     window::{Window, WindowAttributes, WindowId},
 };
