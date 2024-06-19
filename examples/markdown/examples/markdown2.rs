@@ -77,7 +77,8 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     )?;
 
     let mut application = Application2::new(page_size);
-    let matrix = director.cast(application.matrix());
+    let mut current_matrix = application.matrix();
+    let matrix = director.cast(current_matrix);
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
     let _positioned_shapes: Vec<_> = glyph_runs
@@ -97,9 +98,14 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
             UpdateResponse::Continue => {}
         }
 
-        matrix.update(application.matrix());
-
-        director.action()?;
+        // DI: This check has to be done in the renderer and the renderer has to decide when it
+        // needs to redraw.
+        let new_matrix = application.matrix();
+        if new_matrix != current_matrix {
+            matrix.update(new_matrix);
+            current_matrix = new_matrix;
+            director.action()?;
+        }
     }
 }
 
