@@ -54,7 +54,13 @@ async fn markdown() -> Result<()> {
 }
 
 async fn application(mut ctx: ApplicationContext3) -> Result<()> {
-    let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
+    let scale_factor = ctx
+        .primary_monitor()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0);
+    let initial_size = winit::dpi::LogicalSize::new(960, 800);
+
+    let physical_size = initial_size.to_physical(scale_factor);
 
     // Camera
 
@@ -65,13 +71,15 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     };
 
     let window = ctx.create_window(initial_size)?;
-    let (mut renderer, mut director) = window.new_renderer(camera, initial_size).await?;
+    let (mut renderer, mut director) = window
+        .new_renderer(camera, initial_size.to_physical(scale_factor))
+        .await?;
 
     let markdown = include_str!("replicator.org.md");
 
     let (glyph_runs, page_size) = markdown_to_glyph_runs(
         window.scale_factor(),
-        initial_size,
+        physical_size,
         renderer.font_system().clone(),
         markdown,
     )?;

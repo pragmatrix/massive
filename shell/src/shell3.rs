@@ -21,9 +21,10 @@ use tokio::{
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
 use winit::{
     application::ApplicationHandler,
-    dpi::PhysicalSize,
+    dpi::{self, PhysicalSize},
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{self, ActiveEventLoop, EventLoop, EventLoopProxy},
+    monitor::MonitorHandle,
     window::{Window, WindowAttributes, WindowId},
 };
 
@@ -417,7 +418,7 @@ pub struct ApplicationContext3 {
 }
 
 impl ApplicationContext3 {
-    pub fn create_window(&self, inner_size: PhysicalSize<u32>) -> Result<ShellWindow> {
+    pub fn create_window(&self, inner_size: impl Into<dpi::Size>) -> Result<ShellWindow> {
         self.with_active_event_loop(|event_loop| {
             let window = event_loop
                 .create_window(WindowAttributes::default().with_inner_size(inner_size))?;
@@ -429,10 +430,11 @@ impl ApplicationContext3 {
         })
     }
 
-    fn with_active_event_loop<R>(
-        &self,
-        f: impl FnOnce(&ActiveEventLoop) -> Result<R>,
-    ) -> Result<R> {
+    pub fn primary_monitor(&self) -> Option<MonitorHandle> {
+        self.with_active_event_loop(|event_loop| event_loop.primary_monitor())
+    }
+
+    fn with_active_event_loop<R>(&self, f: impl FnOnce(&ActiveEventLoop) -> R) -> R {
         let ptr = self.active_event_loop.borrow();
         let ptr = *ptr;
         if ptr.is_null() {
