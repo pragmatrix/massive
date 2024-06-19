@@ -20,10 +20,7 @@ use massive_scene::PositionedShape;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{
-    shell3::{self, ControlFlow, ShellEvent},
-    ApplicationContext3,
-};
+use massive_shell::{shell3, ApplicationContext3};
 
 use shared::{
     application2::{Application2, UpdateResponse},
@@ -91,23 +88,13 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     director.action()?;
 
     loop {
-        let event = ctx.wait_for_event().await?;
+        let window_event = ctx.wait_for_event(&mut renderer).await?;
 
-        info!("Application Event: {event:?}");
+        info!("Window Event: {window_event:?}");
 
-        match event {
-            ShellEvent::WindowEvent(window_id, ref window_event) if window_id == window.id() => {
-                match application.update(window_event.clone()) {
-                    UpdateResponse::Exit => return Ok(()),
-                    UpdateResponse::Continue => {}
-                }
-            }
-            _ => {}
-        }
-
-        match renderer.handle_event(event) {
-            ControlFlow::Continue => {}
-            ControlFlow::Exit => return Ok(()),
+        match application.update(window_event) {
+            UpdateResponse::Exit => return Ok(()),
+            UpdateResponse::Continue => {}
         }
 
         matrix.update(application.matrix());

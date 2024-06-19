@@ -296,18 +296,7 @@ impl<'window> WindowRenderer<'window> {
         Ok((window_renderer, director))
     }
 
-    pub fn handle_event(&mut self, event: ShellEvent) -> ControlFlow {
-        let this_window_id = self.window.id();
-        match event {
-            ShellEvent::WindowEvent(window_id, window_event) if window_id == this_window_id => {
-                return self.handle_window_event(window_event);
-            }
-            _ => {}
-        }
-        ControlFlow::Continue
-    }
-
-    fn handle_window_event(&mut self, window_event: WindowEvent) -> ControlFlow {
+    fn handle_window_event(&mut self, window_event: &WindowEvent) -> Result<()> {
         match window_event {
             WindowEvent::Resized(physical_size) => {
                 info!("{:?}", window_event);
@@ -322,14 +311,15 @@ impl<'window> WindowRenderer<'window> {
                 self.window.request_redraw()
             }
             WindowEvent::RedrawRequested => {
-                return self.redraw();
+                self.redraw()?;
             }
             _ => {}
         }
-        ControlFlow::Continue
+
+        Ok(())
     }
 
-    fn redraw(&mut self) -> ControlFlow {
+    fn redraw(&mut self) -> Result<()> {
         let changes = self.scene_changes.take();
 
         // let surface_matrix = self.renderer.surface_matrix();
@@ -340,9 +330,7 @@ impl<'window> WindowRenderer<'window> {
 
         {
             let mut font_system = self.window.font_system.lock().unwrap();
-            self.renderer
-                .apply_changes(&mut font_system, changes)
-                .expect("Render preparations failed");
+            self.renderer.apply_changes(&mut font_system, changes)?;
         }
 
         // TODO: pass primitives as value.
@@ -354,19 +342,19 @@ impl<'window> WindowRenderer<'window> {
                 self.renderer.reconfigure_surface();
             }
             // The system is out of memory, we should probably quit
-            Err(wgpu::SurfaceError::OutOfMemory) => return ControlFlow::Exit,
+            Err(wgpu::SurfaceError::OutOfMemory) => bail!("Renderer is out of Memory"),
             // All other errors (Outdated, Timeout) should be resolved by the next frame
             Err(e) => {
                 error!("{:?}", e);
             }
         }
 
-        ControlFlow::Continue
+        Ok(())
     }
 }
 
 #[derive(Debug)]
-pub enum ShellEvent {
+enum ShellEvent {
     WindowEvent(WindowId, WindowEvent),
 }
 
@@ -454,18 +442,33 @@ impl ApplicationContext3 {
         f(active_event_loop)
     }
 
-    /// Retrieve the next shell event.
+    /// Drive the renderer and retrieve the next window event.
     ///
     /// Process the event and then forward it to the renderer.
-    pub async fn wait_for_event(&mut self) -> Result<ShellEvent> {
+    pub async fn wait_for_event(
+        &mut self,
+        renderer: &mut WindowRenderer<'_>,
+    ) -> Result<WindowEvent> {
         let event = self.event_receiver.recv().await;
-        if let Some(event) = event {
-            return Ok(event);
-        }
+        let Some(event) = event else {
+            // This means that the shell stopped before the application ended, this should not
+            // happen in normal situations.
+            bail!("Internal Error: Shell shut down, no more events")
+        };
 
-        // This means that the shell stopped before the application ended, this should not happen in
-        // normal situations.
-        bail!("Internal Error: Shell shut down, no more events")
+        match event {
+            ShellEvent::WindowEvent(window_id, window_event)
+                if window_id == renderer.window.id() =>
+            {
+                renderer.handle_window_event(&window_event)?;
+                // We forward _all_ window events to the application (for now)
+                Ok(window_event)
+            }
+            _ => {
+                // TODO: Support this somehow.
+                panic!("Received event from another window")
+            }
+        }
     }
 }
 
@@ -500,8 +503,11 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
             .try_send(ShellEvent::WindowEvent(window_id, event))
         {
             Err(_e) => {
-                info!("Receiver for events dropped, exiting event loop");
-                event_loop.exit();
+                // Don't log when we are already exiting.
+                if !event_loop.exiting() {
+                    info!("Receiver for events dropped, exiting event loop");
+                    event_loop.exit();
+                }
             }
             Ok(()) => self.drive_application(event_loop),
         }
