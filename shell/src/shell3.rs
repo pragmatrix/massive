@@ -448,15 +448,31 @@ impl ApplicationContext3 {
     fn create_window_ev(
         &self,
         event_loop: &ActiveEventLoop,
-        inner_size: impl Into<dpi::Size>,
+        // We don't set inner size, the canvas defines how large we render.
+        _inner_size: impl Into<dpi::Size>,
         canvas_id: Option<&str>,
     ) -> Result<ShellWindow> {
         use wasm_bindgen::JsCast;
+        use winit::platform::web::WindowAttributesExtWebSys;
 
-        let canvas_id = canvas_id.expect("Canvas Id is needed for wasm targets");
+        let canvas_id = canvas_id.expect("Canvas id is needed for wasm targets");
+
+        let canvas = web_sys::window()
+            .expect("No Window")
+            .document()
+            .expect("No document")
+            .query_selector(&format!("#{canvas_id}"))
+            // what a shit-show here, why is the error not compatible with anyhow.
+            .map_err(|err| anyhow::anyhow!(err.as_string().unwrap()))?
+            .expect("No Canvas with a matching id found");
+
+        let canvas: web_sys::HtmlCanvasElement = canvas
+            .dyn_into()
+            .map_err(|_| anyhow::anyhow!("Failed to cast to HtmlCanvasElement"))?;
 
         let window =
-            event_loop.create_window(WindowAttributes::default().with_inner_size(inner_size))?;
+            event_loop.create_window(WindowAttributes::default().with_canvas(Some(canvas)))?;
+
         let font_system = self.font_system.clone();
         Ok(ShellWindow {
             font_system,

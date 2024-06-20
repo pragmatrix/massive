@@ -22,7 +22,7 @@ build-code-viewer-release:
 	sed -i '' 's/massive-shell_bg.wasm/massive-code_bg.wasm/g' {{dist-out}}/massive-code.js
 
 serve-markdown:
-	cd examples/markdown && trunk serve --example markdown --port 8888 --no-minification
+	cd examples/markdown && trunk serve --example markdown2 --port 8888 --no-minification
 
 serve-markdown-release:
 	cd examples/markdown && trunk serve --example markdown --port 8888 --no-minification --release
