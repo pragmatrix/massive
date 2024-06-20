@@ -1,0 +1,22 @@
+name: 'qa'
+on: [push, pull_request]
+
+jobs:
+  tests:
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+
+    - name: 'Install toolchain'
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: wasm32-unknown-unknown
+
+    - name: 'Markdown WASM Example'
+      run: cargo build --target wasm32-unknown-unknown --example markdown2
+
+    - name: 'Code Viewer WASM Example'
+      run: cargo build --target wasm32-unknown-unknown --example code_viewer
