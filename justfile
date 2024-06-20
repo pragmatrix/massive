@@ -1,11 +1,11 @@
 build-markdown:
-	cd examples/markdown && trunk build --example markdown
+	cd examples/markdown && trunk build --example markdown2
 
 dist-out := "/tmp/massive-shell-dist"
 
 build-markdown-release:
 	rm -f shell/dist/*
-	cd examples/markdown && trunk build --example markdown --release
+	cd examples/markdown && trunk build --example markdown2 --release
 	mkdir -p {{dist-out}}
 	rm -f {{dist-out}}/*
 	cp examples/markdown/dist/massive-shell-*.js {{dist-out}}/massive-markdown.js

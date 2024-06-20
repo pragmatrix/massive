@@ -198,7 +198,7 @@ impl<'window> WindowRenderer<'window> {
                     backends: wgpu::Backends::GL,
                     ..InstanceDescriptor::default()
                 },
-                window,
+                &window.window,
             ),
         };
         let (instance, surface) = instance_and_surface?;
@@ -343,7 +343,7 @@ impl<'window> WindowRenderer<'window> {
                 self.renderer.reconfigure_surface();
             }
             // The system is out of memory, we should probably quit
-            Err(wgpu::SurfaceError::OutOfMemory) => bail!("Renderer is out of Memory"),
+            Err(wgpu::SurfaceError::OutOfMemory) => bail!("Out of memory"),
             // All other errors (Outdated, Timeout) should be resolved by the next frame
             Err(e) => {
                 error!("{:?}", e);
@@ -418,15 +418,49 @@ pub struct ApplicationContext3 {
 }
 
 impl ApplicationContext3 {
-    pub fn create_window(&self, inner_size: impl Into<dpi::Size>) -> Result<ShellWindow> {
+    pub fn create_window(
+        &self,
+        inner_size: impl Into<dpi::Size>,
+        canvas_id: Option<&str>,
+    ) -> Result<ShellWindow> {
         self.with_active_event_loop(|event_loop| {
-            let window = event_loop
-                .create_window(WindowAttributes::default().with_inner_size(inner_size))?;
-            let font_system = self.font_system.clone();
-            Ok(ShellWindow {
-                font_system,
-                window: Rc::new(window),
-            })
+            self.create_window_ev(event_loop, inner_size, canvas_id)
+        })
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn create_window_ev(
+        &self,
+        event_loop: &ActiveEventLoop,
+        inner_size: impl Into<dpi::Size>,
+        _canvas_id: Option<&str>,
+    ) -> Result<ShellWindow> {
+        let window =
+            event_loop.create_window(WindowAttributes::default().with_inner_size(inner_size))?;
+        let font_system = self.font_system.clone();
+        Ok(ShellWindow {
+            font_system,
+            window: Rc::new(window),
+        })
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn create_window_ev(
+        &self,
+        event_loop: &ActiveEventLoop,
+        inner_size: impl Into<dpi::Size>,
+        canvas_id: Option<&str>,
+    ) -> Result<ShellWindow> {
+        use wasm_bindgen::JsCast;
+
+        let canvas_id = canvas_id.expect("Canvas Id is needed for wasm targets");
+
+        let window =
+            event_loop.create_window(WindowAttributes::default().with_inner_size(inner_size))?;
+        let font_system = self.font_system.clone();
+        Ok(ShellWindow {
+            font_system,
+            window: Rc::new(window),
         })
     }
 
