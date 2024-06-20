@@ -231,38 +231,3 @@ impl Application2 {
         current_translation * y_rotation * x_rotation * center_transformation
     }
 }
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn create_window(event_loop: &EventLoop<()>, _canvas_id: Option<&str>) -> Result<Window> {
-    use winit::window::WindowAttributes;
-
-    Ok(event_loop.create_window(WindowAttributes::default())?)
-}
-
-// Explicitly query for the canvas, and initialize the window with it.
-//
-// If we use the implicit of `data-raw-handle="1"`, no resize event will be sent.
-#[cfg(target_arch = "wasm32")]
-pub fn create_window(event_loop: &EventLoop<()>, canvas_id: Option<&str>) -> Result<Window> {
-    use wasm_bindgen::JsCast;
-    use winit::platform::web::WindowBuilderExtWebSys;
-
-    let canvas_id = canvas_id.expect("Canvas Id is needed for wasm targets");
-
-    let canvas = web_sys::window()
-        .expect("No Window")
-        .document()
-        .expect("No document")
-        .query_selector(&format!("#{canvas_id}"))
-        // what a shit-show here, why is the error not compatible with anyhow.
-        .map_err(|err| anyhow::anyhow!(err.as_string().unwrap()))?
-        .expect("No Canvas with a matching id found");
-
-    let canvas: web_sys::HtmlCanvasElement = canvas
-        .dyn_into()
-        .map_err(|_| anyhow::anyhow!("Failed to cast to HtmlCanvasElement"))?;
-
-    Ok(WindowBuilder::new()
-        .with_canvas(Some(canvas))
-        .build(event_loop)?)
-}

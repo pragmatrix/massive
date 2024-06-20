@@ -41,7 +41,7 @@ image = "0.25.1"
 
 # syntax
 
-syntect = "5.2.0"
+syntect = { version = "5.2.0", default-features = false, features = ["default-fancy"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 
@@ -60,6 +60,8 @@ ide = { path = "../rust-analyzer/crates/ide" }
 getrandom = { version = "0.2.12", features = ["js"] }
 wgpu = { workspace = true, features = ["webgl"] }
 tokio = { workspace = true, features = ["rt"] }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 
@@ -70,5 +72,3 @@ tokio = { workspace = true }
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wasm-bindgen-futures = "0.4.42"
-web-sys = "0.3.69"
-wasm-bindgen = "0.2.92"
