@@ -237,3 +237,12 @@ impl shell::Application for Application {
         (self.camera, shapes)
     }
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn create_window<T>(event_loop: &EventLoop<T>, _canvas_id: Option<&str>) -> Result<Window> {
+    use winit::window::WindowAttributes;
+
+    // application.rs will be replaced by application2.rs, so deprecated is ok at this point.
+    #[allow(deprecated)]
+    Ok(event_loop.create_window(WindowAttributes::default())?)
+}
