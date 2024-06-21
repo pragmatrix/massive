@@ -12,7 +12,7 @@ members = [
 
 exclude = [
     "examples/dist",
-    "rust-analyzer"
+    "examples/code/rust-analyzer"
 ]
 
 [workspace.metadata]

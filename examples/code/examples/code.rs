@@ -29,9 +29,6 @@ use massive_shell::Shell;
 
 use crate::code_viewer::TextAttribute;
 
-// Simple file for testing less code.
-mod test;
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let env_filter = EnvFilter::from_default_env();
@@ -99,7 +96,7 @@ async fn main() -> Result<()> {
     };
 
     let file_to_show = example_dir.join("main.rs");
-    // let file_to_show = example_dir.join("test.rs");
+    // let file_to_show = example_dir.join("test.rs.demo");
 
     println!("Looking for {}", file_to_show.display());
 

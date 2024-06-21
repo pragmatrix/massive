@@ -1,0 +1,44 @@
+[package]
+name = "code"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+
+shared = { path = "../shared" }
+
+massive-geometry = { workspace = true }
+massive-shell = { workspace = true }
+massive-scene = { workspace = true }
+massive-shapes = { workspace = true }
+
+postcard = { workspace = true }
+anyhow = { workspace = true }
+cosmic-text = { workspace = true }
+winit = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+tracing-flame = { workspace = true }
+tracing-chrome = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+
+load-cargo = { path = "rust-analyzer/crates/load-cargo" }
+project-model = { path = "rust-analyzer/crates/project-model" }
+vfs = { path = "rust-analyzer/crates/vfs" }
+base-db = { path = "rust-analyzer/crates/base-db" }
+syntax = { path = "rust-analyzer/crates/syntax" }
+# Semantics
+hir = { path = "rust-analyzer/crates/hir" }
+# Syntax highlighting, AnalysisHost
+ide = { path = "rust-analyzer/crates/ide" }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+
+console_error_panic_hook = "0.1.7"
+console_log = "1.0.0"
+wasm-bindgen-futures = "0.4.42"

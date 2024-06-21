@@ -16,59 +16,14 @@ cosmic-text = { workspace = true }
 cgmath = { workspace = true }
 futures = { workspace = true }
 
-[dev-dependencies]
-shared = { path = "shared" }
-itertools = { workspace = true }
-
-# hello
-
-env_logger = { workspace = true }
-
-# code (can't be compiled on wasm32 for now).
-
-tracing = { workspace = true }
-tracing-subscriber = { workspace = true }
-tracing-flame = { workspace = true }
-tracing-chrome = { workspace = true }
-
-chrono = { workspace = true }
-serde = { workspace = true }
-serde_tuple = { workspace = true }
-serde_json = { workspace = true }
-postcard = { workspace = true }
-
-image = "0.25.1" 
-
-# syntax
-
-syntect = { version = "5.2.0", default-features = false, features = ["default-fancy"] }
-
-[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-
-load-cargo = { path = "../rust-analyzer/crates/load-cargo" }
-project-model = { path = "../rust-analyzer/crates/project-model" }
-vfs = { path = "../rust-analyzer/crates/vfs" }
-base-db = { path = "../rust-analyzer/crates/base-db" }
-syntax = { path = "../rust-analyzer/crates/syntax" }
-# Semantics
-hir = { path = "../rust-analyzer/crates/hir" }
-# Syntax highlighting, AnalysisHost
-ide = { path = "../rust-analyzer/crates/ide" }
-
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-
-getrandom = { version = "0.2.12", features = ["js"] }
-wgpu = { workspace = true, features = ["webgl"] }
-tokio = { workspace = true, features = ["rt"] }
-wasm-bindgen = { workspace = true }
-web-sys = { workspace = true }
-
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 
 tokio = { workspace = true }
 
-[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+[target.'cfg(target_arch = "wasm32")'.dependencies]
 
-console_error_panic_hook = "0.1.7"
-console_log = "1.0.0"
-wasm-bindgen-futures = "0.4.42"
+tokio = { workspace = true, features = ["rt"] }
+getrandom = { version = "0.2.12", features = ["js"] }
+wgpu = { workspace = true, features = ["webgl"] }
+wasm-bindgen = { workspace = true }
+web-sys = { workspace = true }

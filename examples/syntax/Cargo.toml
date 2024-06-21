@@ -3,8 +3,8 @@ name = "syntax"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-shared = { path = "../../shell/shared" }
+[dev-dependencies]
+shared = { path = "../shared" }
 
 massive-geometry = {workspace = true }
 massive-shell = {workspace = true }
