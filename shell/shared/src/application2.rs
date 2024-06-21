@@ -1,15 +1,12 @@
 use std::collections::HashMap;
 
-use anyhow::Result;
 use massive_geometry::{Matrix4, PointI, SizeI};
 use winit::{
     event::{
         DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
         WindowEvent,
     },
-    event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::Window,
 };
 
 enum ActiveGesture {

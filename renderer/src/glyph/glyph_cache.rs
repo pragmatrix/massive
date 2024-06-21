@@ -9,7 +9,6 @@ use text::SwashContent;
 use super::{glyph_param::GlyphRasterizationParam, glyph_rasterization::render_sdf};
 use crate::{
     glyph::glyph_rasterization::{pad_image, rasterize_glyph},
-    primitives::Pipeline,
     texture,
 };
 
@@ -57,7 +56,6 @@ pub struct RasterizedGlyphKey {
 #[derive(Debug)]
 pub struct RenderGlyph {
     pub placement: text::Placement,
-    pub pipeline: Pipeline,
     pub texture_view: texture::View,
 }
 
@@ -83,7 +81,6 @@ fn render_glyph(
         image_to_gpu_texture(device, queue, &image, key.param.prefer_sdf).ok()?;
     Some(RenderGlyph {
         placement,
-        pipeline: key.param.pipeline(),
         texture_view,
     })
 }

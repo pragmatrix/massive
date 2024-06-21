@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result};
 use cosmic_text::{fontdb, FontSystem};
 use inlyne::{
     color::Theme,
@@ -20,13 +20,13 @@ use massive_scene::PositionedShape;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{ApplicationContext, Shell2};
+use massive_shell::{shell3, ApplicationContext3};
 
 use shared::{
-    application,
     application2::{Application2, UpdateResponse},
     fonts, positioning,
 };
+use winit::dpi::PhysicalSize;
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "massive-markdown";
@@ -36,10 +36,6 @@ pub fn main() -> Result<()> {
 }
 
 async fn markdown() -> Result<()> {
-    let event_loop = Shell2::event_loop()?;
-    let window = application::create_window(&event_loop, Some(CANVAS_ID))?;
-    info!("Initial Window inner size: {:?}", window.inner_size());
-
     let font_system = {
         // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
         const DEFAULT_LOCALE: &str = "en-US";
@@ -52,15 +48,19 @@ async fn markdown() -> Result<()> {
         FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    let initial_size = window.inner_size();
-    // On wasm, the initial size is always, 0,0, so we set one (this is also used for the page
-    // layout) and leave it to subsequent resize events to configure the proper size.
-    #[cfg(target_arch = "wasm32")]
-    let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
+    // Run
 
-    let font_system = Arc::new(Mutex::new(font_system));
-    let mut shell = Shell2::new(&window, initial_size, font_system.clone()).await?;
+    shell3::run(font_system, application).await
+}
+
+async fn application(mut ctx: ApplicationContext3) -> Result<()> {
+    let scale_factor = ctx
+        .primary_monitor()
+        .map(|m| m.scale_factor())
+        .unwrap_or(1.0);
+    let initial_size = winit::dpi::LogicalSize::new(960, 800);
+
+    let physical_size = initial_size.to_physical(scale_factor);
 
     // Camera
 
@@ -70,20 +70,23 @@ async fn markdown() -> Result<()> {
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
-    // Run
+    let window = ctx.create_window(initial_size, Some(CANVAS_ID))?;
+    let (mut renderer, mut director) = window
+        .new_renderer(camera, initial_size.to_physical(scale_factor))
+        .await?;
 
-    shell.run(event_loop, &window, camera, application).await
-}
-
-async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let markdown = include_str!("replicator.org.md");
 
-    let (glyph_runs, page_size) = markdown_to_glyph_runs(&ctx, markdown)?;
-
-    let mut director = ctx.director();
+    let (glyph_runs, page_size) = markdown_to_glyph_runs(
+        scale_factor,
+        physical_size,
+        renderer.font_system().clone(),
+        markdown,
+    )?;
 
     let mut application = Application2::new(page_size);
-    let matrix = director.cast(application.matrix());
+    let mut current_matrix = application.matrix();
+    let matrix = director.cast(current_matrix);
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
     let _positioned_shapes: Vec<_> = glyph_runs
@@ -94,25 +97,30 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        if let Some(event) = ctx.window_events.recv().await {
-            info!("Application Event: {event:?}");
-            match application.update(event) {
-                UpdateResponse::Continue => {}
-                UpdateResponse::Exit => return Ok(()),
-            }
+        let window_event = ctx.wait_for_event(&mut renderer).await?;
 
-            matrix.update(application.matrix());
+        info!("Window Event: {window_event:?}");
 
+        match application.update(window_event) {
+            UpdateResponse::Exit => return Ok(()),
+            UpdateResponse::Continue => {}
+        }
+
+        // DI: This check has to be done in the renderer and the renderer has to decide when it
+        // needs to redraw.
+        let new_matrix = application.matrix();
+        if new_matrix != current_matrix {
+            matrix.update(new_matrix);
+            current_matrix = new_matrix;
             director.action()?;
-        } else {
-            // TODO: clarify when this happens. When the window is closed?
-            bail!("No more window events .. ???")
         }
     }
 }
 
 fn markdown_to_glyph_runs(
-    ctx: &ApplicationContext,
+    window_scale_factor: f64,
+    page_size: PhysicalSize<u32>,
+    font_system: Arc<Mutex<FontSystem>>,
     markdown: &str,
 ) -> Result<(Vec<GlyphRun>, SizeI)> {
     let theme = Theme::light_default();
@@ -121,8 +129,6 @@ fn markdown_to_glyph_runs(
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
     let color_scheme = Some(ResolvedTheme::Light);
-
-    let window_scale_factor = ctx.window_scale_factor;
 
     let interpreter = HtmlInterpreter::new_with_interactor_granularity(
         element_queue.clone(),
@@ -140,7 +146,7 @@ fn markdown_to_glyph_runs(
         mem::take(&mut *elements_queue)
     };
 
-    let initial_size = ctx.initial_window_size;
+    let initial_size = page_size;
     let width = initial_size.width;
     let page_width = width;
 
@@ -156,7 +162,7 @@ fn markdown_to_glyph_runs(
         elements.into_iter().map(Positioned::new).collect();
 
     let mut text_system = TextSystem {
-        font_system: ctx.font_system.clone(),
+        font_system,
         text_cache: text_cache.clone(),
     };
 

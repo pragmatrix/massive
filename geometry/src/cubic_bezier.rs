@@ -137,12 +137,7 @@ impl CubicBezier {
         // this way users get finer grained control over the angles at the ends.
         let mut distribution_factor = (t - (1.0 / 3.0)) * 3.0;
 
-        if distribution_factor < 0.0 {
-            distribution_factor = 0.0;
-        }
-        if distribution_factor > 1.0 {
-            distribution_factor = 1.0;
-        }
+        distribution_factor = distribution_factor.clamp(0.0, 1.0);
 
         let influence_factor1 = 1.0 - distribution_factor;
         let influence_factor2 = distribution_factor;
