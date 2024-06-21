@@ -46,10 +46,13 @@ pub struct Shell3 {
 }
 
 impl Shell3 {
+    #[deprecated(note = "use shell3::run")]
     pub fn new(font_system: Arc<Mutex<FontSystem>>) -> Self {
         Self { font_system }
     }
 
+    #[deprecated(note = "use shell3::run")]
+    // DI: Thread through the result of the application.
     pub async fn run<R: Future<Output = Result<()>> + 'static>(
         &mut self,
         application: impl FnOnce(ApplicationContext3) -> R + 'static,
@@ -418,18 +421,22 @@ pub struct ApplicationContext3 {
 }
 
 impl ApplicationContext3 {
-    pub fn create_window(
+    pub fn new_window(
         &self,
         inner_size: impl Into<dpi::Size>,
         canvas_id: Option<&str>,
     ) -> Result<ShellWindow> {
         self.with_active_event_loop(|event_loop| {
-            self.create_window_ev(event_loop, inner_size, canvas_id)
+            self.new_window_ev(event_loop, inner_size, canvas_id)
         })
     }
 
+    pub fn font_system(&self) -> &Arc<Mutex<FontSystem>> {
+        &self.font_system
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
-    fn create_window_ev(
+    fn new_window_ev(
         &self,
         event_loop: &ActiveEventLoop,
         inner_size: impl Into<dpi::Size>,
@@ -445,7 +452,7 @@ impl ApplicationContext3 {
     }
 
     #[cfg(target_arch = "wasm32")]
-    fn create_window_ev(
+    fn new_window_ev(
         &self,
         event_loop: &ActiveEventLoop,
         // We don't set inner size, the canvas defines how large we render.

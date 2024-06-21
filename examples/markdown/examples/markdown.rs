@@ -70,7 +70,7 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
-    let window = ctx.create_window(initial_size, Some(CANVAS_ID))?;
+    let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
     let (mut renderer, mut director) = window
         .new_renderer(camera, initial_size.to_physical(scale_factor))
         .await?;

@@ -1,99 +1,93 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::rc::Rc;
 
+use anyhow::Result;
 use cosmic_text as text;
+use massive_scene::legacy;
 use shared::positioning;
 use text::FontSystem;
 use winit::{
+    dpi::LogicalSize,
     event::{KeyEvent, WindowEvent},
     keyboard::{Key, NamedKey},
 };
 
 use massive_geometry::{Camera, Color, Identity, Matrix4, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
-use massive_shell::{self as shell, Shell};
-
-struct Application {
-    camera: Camera,
-    hello_world: String,
-}
+use massive_shell::{shell3, ApplicationContext3};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<()> {
     env_logger::init();
 
+    let font_system = FontSystem::new();
+
+    shell3::run(font_system, application).await
+}
+
+async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     let fovy: f64 = 45.0;
     let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-    let camera = Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0));
+    let mut camera = Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0));
 
     // camera.eye = Point3::new(0.8999999999999992, 0.0, 0.11421356237309382);
 
     let hello_world = "Hello, world!";
+    let shapes = render(&mut ctx.font_system().lock().unwrap(), hello_world);
 
-    let application = Application {
-        camera,
-        hello_world: hello_world.to_string(),
-    };
+    let window = ctx.new_window(LogicalSize::new(1280, 800), None)?;
 
-    let font_system = Arc::new(Mutex::new(FontSystem::new()));
+    let (mut renderer, mut director) = window.new_renderer(camera, window.inner_size()).await?;
 
-    let _ = shell::run(application, font_system).await;
-}
+    let _positioned_shapes = legacy::into_positioned_shapes(&mut director, shapes);
+    director.action()?;
 
-impl shell::Application for Application {
-    fn update(&mut self, window_event: WindowEvent) {
-        if let WindowEvent::KeyboardInput {
-            event: KeyEvent {
-                logical_key, state, ..
-            },
-            ..
-        } = window_event
-        {
-            if state == winit::event::ElementState::Pressed {
+    loop {
+        match ctx.wait_for_event(&mut renderer).await? {
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key,
+                        state: winit::event::ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
                 match logical_key {
-                    Key::Named(NamedKey::ArrowLeft) => {
-                        self.camera.eye += Vector3::new(0.1, 0.0, 0.0)
-                    }
-                    Key::Named(NamedKey::ArrowRight) => {
-                        self.camera.eye -= Vector3::new(0.1, 0.0, 0.0)
-                    }
-                    Key::Named(NamedKey::ArrowUp) => self.camera.eye += Vector3::new(0.0, 0.0, 0.1),
-                    Key::Named(NamedKey::ArrowDown) => {
-                        self.camera.eye -= Vector3::new(0.0, 0.0, 0.1)
-                    }
+                    Key::Named(NamedKey::ArrowLeft) => camera.eye += Vector3::new(0.1, 0.0, 0.0),
+                    Key::Named(NamedKey::ArrowRight) => camera.eye -= Vector3::new(0.1, 0.0, 0.0),
+                    Key::Named(NamedKey::ArrowUp) => camera.eye += Vector3::new(0.0, 0.0, 0.1),
+                    Key::Named(NamedKey::ArrowDown) => camera.eye -= Vector3::new(0.0, 0.0, 0.1),
                     _ => {}
                 }
-            } else {
-                {}
+
+                println!("eye: {:?}", camera.eye)
             }
-
-            println!("eye: {:?}", self.camera.eye)
+            WindowEvent::CloseRequested => {
+                return Ok(());
+            }
+            _ => (),
         }
     }
+}
 
-    fn render(&self, shell: &mut Shell) -> (Camera, Vec<Shape>) {
-        const FONT_SIZE: f32 = 100.0;
+fn render(font_system: &mut FontSystem, str: &str) -> Vec<Shape> {
+    const FONT_SIZE: f32 = 100.0;
 
-        let mut font_system = shell.font_system.lock().unwrap();
+    let mut glyph_run = shape_text(font_system, str, FONT_SIZE);
 
-        let mut glyph_run = shape_text(&mut font_system, &self.hello_world, FONT_SIZE);
+    let center_x: i32 = (glyph_run.metrics.width / 2) as _;
+    let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
+    let center_translation = Vector3::new(-center_x as f64, -center_y as f64, 0.0);
 
-        let center_x: i32 = (glyph_run.metrics.width / 2) as _;
-        let center_y: i32 = ((glyph_run.metrics.size()).1 / 2) as _;
-        let center_translation = Vector3::new(-center_x as f64, -center_y as f64, 0.0);
+    glyph_run.translation = center_translation;
 
-        glyph_run.translation = center_translation;
-
-        let shapes = vec![GlyphRunShape {
-            model_matrix: Rc::new(Matrix4::identity()),
-            run: glyph_run,
-        }
-        .into()];
-
-        (self.camera, shapes)
+    let shapes = vec![GlyphRunShape {
+        model_matrix: Rc::new(Matrix4::identity()),
+        run: glyph_run,
     }
+    .into()];
+
+    shapes
 }
 
 fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) -> GlyphRun {
