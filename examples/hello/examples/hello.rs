@@ -60,6 +60,7 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
                     _ => {}
                 }
 
+                renderer.update_camera(camera);
                 println!("eye: {:?}", camera.eye)
             }
             WindowEvent::CloseRequested => {

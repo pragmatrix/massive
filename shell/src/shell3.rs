@@ -300,6 +300,13 @@ impl<'window> WindowRenderer<'window> {
         Ok((window_renderer, director))
     }
 
+    // DI: If the renderer does culling, we need to move the camera (or at least the view matrix) into the renderer, and
+    // perhaps schedule updates using the director.
+    pub fn update_camera(&mut self, camera: Camera) {
+        self.camera = camera;
+        self.window.request_redraw();
+    }
+
     fn handle_window_event(&mut self, window_event: &WindowEvent) -> Result<()> {
         match window_event {
             WindowEvent::Resized(physical_size) => {
@@ -326,11 +333,8 @@ impl<'window> WindowRenderer<'window> {
     fn redraw(&mut self) -> Result<()> {
         let changes = self.scene_changes.take();
 
-        // let surface_matrix = self.renderer.surface_matrix();
         let surface_size = self.renderer.surface_size();
         let view_projection_matrix = self.camera.view_projection_matrix(Z_RANGE, surface_size);
-
-        // let surface_view_matrix = surface_matrix * view_projection_matrix;
 
         {
             let mut font_system = self.window.font_system.lock().unwrap();
