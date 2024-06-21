@@ -10,7 +10,7 @@ use winit::{
     event::*,
     event_loop::EventLoop,
     keyboard::{Key, NamedKey},
-    window::{Window, WindowAttributes},
+    window::Window,
 };
 
 use massive_geometry::{scalar, Camera, Matrix4};
@@ -27,19 +27,6 @@ pub trait Application {
 }
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
-
-pub async fn run<A: Application + 'static>(
-    application: A,
-    font_system: Arc<Mutex<FontSystem>>,
-) -> Result<()> {
-    let event_loop = EventLoop::new()?;
-    // TODO: Use Application2
-    let window = event_loop
-        .create_window(WindowAttributes::default())
-        .unwrap();
-    let mut shell = Shell::new(&window, window.inner_size(), font_system).await?;
-    shell.run(event_loop, &window, application).await
-}
 
 pub struct Shell<'window> {
     pub font_system: Arc<Mutex<text::FontSystem>>,
