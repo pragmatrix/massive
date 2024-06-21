@@ -2,7 +2,7 @@ name: 'qa'
 on: [push, pull_request]
 
 jobs:
-  tests:
+  wasm:
     runs-on: ubuntu-22.04
 
     steps:

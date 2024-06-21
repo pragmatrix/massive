@@ -2,7 +2,7 @@ name: 'qa'
 on: [push, pull_request]
 
 jobs:
-  tests:
+  qa:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
