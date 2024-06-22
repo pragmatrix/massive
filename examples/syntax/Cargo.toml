@@ -1,0 +1,18 @@
+[package]
+name = "syntax"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+shared = { path = "../shared" }
+
+massive-geometry = {workspace = true }
+massive-shell = {workspace = true }
+massive-scene = {workspace = true }
+massive-shapes = {workspace = true }
+
+winit = { workspace = true }
+anyhow = { workspace = true }
+cosmic-text = { workspace = true }
+
+syntect = { version = "5.2.0", default-features = false, features = ["default-fancy"] }

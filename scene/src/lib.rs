@@ -156,7 +156,7 @@ pub enum Shape {
 }
 
 pub mod legacy {
-    use super::Matrix4 as MatrixHandle;
+    use super::{Handle, Matrix4 as MatrixHandle};
     use crate::{Director, PositionedShape, SceneChange};
     use anyhow::Result;
     use massive_geometry::Matrix4;
@@ -169,8 +169,23 @@ pub mod legacy {
 
         let mut director = Director::from_sender(channel_tx);
 
+        // The shapes must be alive
+
+        {
+            // Keep the positioned shapes until the director ran through.
+            let _positioned = into_positioned_shapes(&mut director, shapes);
+            director.action()?;
+        }
+
+        Ok(channel_rx.try_recv().unwrap_or_default())
+    }
+
+    pub fn into_positioned_shapes(
+        director: &mut Director,
+        shapes: Vec<Shape>,
+    ) -> Vec<Handle<PositionedShape>> {
         let mut matrix_handles: HashMap<*const Matrix4, MatrixHandle> = HashMap::new();
-        let mut positioned_shapes = Vec::new();
+        let mut positioned_shapes = Vec::with_capacity(shapes.len());
 
         for shape in shapes {
             let matrix = match &shape {
@@ -194,8 +209,6 @@ pub mod legacy {
             positioned_shapes.push(director.cast(positioned));
         }
 
-        director.action()?;
-
-        Ok(channel_rx.try_recv().unwrap_or_default())
+        positioned_shapes
     }
 }

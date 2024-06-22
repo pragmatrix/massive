@@ -1,5 +1,5 @@
 [submodule "rust-analyzer"]
-	path = rust-analyzer
+	path = examples/code/rust-analyzer
 	branch = "2024-04-08"
 	url = https://github.com/rust-lang/rust-analyzer.git
 [submodule "examples/markdown/glyphon"]

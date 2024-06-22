@@ -17,20 +17,21 @@ use ide::{
 };
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
-use shared::{application, code_viewer};
+use shared::{
+    application::{Application, UpdateResponse},
+    code_viewer,
+};
 use syntax::{AstNode, SyntaxKind, WalkEvent};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use vfs::VfsPath;
-use winit::event_loop::EventLoop;
-
-use massive_geometry::{Camera, Color, SizeI};
-use massive_shapes::TextWeight;
-use massive_shell::Shell;
+use winit::dpi::LogicalSize;
 
 use crate::code_viewer::TextAttribute;
-
-// Simple file for testing less code.
-mod test;
+use massive_geometry::{Camera, Color, SizeI};
+use massive_scene::PositionedShape;
+use massive_shapes::TextWeight;
+use massive_shell::{shell, ApplicationContext};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -55,11 +56,10 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    let progress = |p: String| {
-        let mut handle = io::stdout().lock();
-        let _ = writeln!(handle, "{}", p.as_str());
-    };
+    shell::run(application).await
+}
 
+async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
     let root_path = env::current_dir()
         .unwrap()
@@ -70,7 +70,7 @@ async fn main() -> Result<()> {
     let example_dir = root_path
         .parent()
         .unwrap()
-        .join(Path::new("shell/examples/code"));
+        .join(Path::new("examples/code/examples"));
 
     // FontSystem
 
@@ -98,13 +98,18 @@ async fn main() -> Result<()> {
         prefill_caches: false,
     };
 
-    let file_to_show = example_dir.join("main.rs");
-    // let file_to_show = example_dir.join("test.rs");
+    let file_to_show = example_dir.join("code.rs");
+    // let file_to_show = example_dir.join("test.rs.demo");
 
     println!("Looking for {}", file_to_show.display());
 
+    let progress_writer = |p: String| {
+        let mut handle = io::stdout().lock();
+        let _ = writeln!(handle, "{}", p.as_str());
+    };
+
     let (db, vfs, _proc_macro_server) =
-        load_cargo::load_workspace_at(&root_path, &cargo_config, &load_config, &progress)?;
+        load_cargo::load_workspace_at(&root_path, &cargo_config, &load_config, &progress_writer)?;
 
     println!("db: {db:?}");
     println!("vfs: {vfs:?}");
@@ -254,8 +259,7 @@ async fn main() -> Result<()> {
 
     // Window
 
-    let event_loop = EventLoop::new()?;
-    let window = application::create_window(&event_loop, None)?;
+    let window = ctx.new_window(LogicalSize::new(1024, 800), None)?;
     let initial_size = window.inner_size();
 
     // Camera
@@ -268,14 +272,43 @@ async fn main() -> Result<()> {
 
     // Application
 
-    let application =
-        application::Application::new(camera, glyph_runs, SizeI::new(1280, height as u64));
-
-    // Shell
+    let mut application = Application::new(SizeI::new(1280, height as u64));
 
     let font_system = Arc::new(Mutex::new(font_system));
-    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await?;
-    shell.run(event_loop, &window, application).await
+
+    let (mut renderer, mut director) = window
+        .new_renderer(font_system, camera, initial_size)
+        .await?;
+
+    let mut current_matrix = application.matrix();
+    let matrix = director.cast(current_matrix);
+
+    let _positioned_shapes: Vec<_> = glyph_runs
+        .into_iter()
+        .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
+        .collect();
+
+    director.action()?;
+
+    loop {
+        let window_event = ctx.wait_for_event(&mut renderer).await?;
+
+        info!("Window Event: {window_event:?}");
+
+        match application.update(window_event) {
+            UpdateResponse::Exit => return Ok(()),
+            UpdateResponse::Continue => {}
+        }
+
+        // DI: This check has to be done in the renderer and the renderer has to decide when it
+        // needs to redraw.
+        let new_matrix = application.matrix();
+        if new_matrix != current_matrix {
+            matrix.update(new_matrix);
+            current_matrix = new_matrix;
+            director.action()?;
+        }
+    }
 }
 
 fn attribute(tag: HlTag, mods: HlMods) -> (Color, TextWeight) {

@@ -1,8 +1,8 @@
 use std::mem;
 
 use wgpu::{
-    TextureFormat,
     util::{BufferInitDescriptor, DeviceExt},
+    TextureFormat,
 };
 
 use massive_geometry::Matrix4;
@@ -11,8 +11,7 @@ use crate::{
     glyph::GlyphAtlas,
     pods::TextureColorVertex,
     renderer::{PreparationContext, RenderContext},
-    tools::{create_pipeline, QuadIndexBuffer, texture_sampler}
-    ,
+    tools::{create_pipeline, texture_sampler, QuadIndexBuffer},
 };
 
 use super::{BindGroupLayout, QuadBatch, QuadInstance};
@@ -106,7 +105,7 @@ impl SdfAtlasRenderer {
             contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
-        
+
         let bind_group = self.fs_bind_group_layout.create_bind_group(
             context.device,
             self.atlas.texture_view(),

@@ -2,15 +2,16 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
-// use hir::db::DefDatabase;
-use shared::{
-    application,
-    code_viewer::{self, AttributedCode},
-};
-use winit::event_loop::EventLoop;
+use massive_scene::PositionedShape;
+use tracing::info;
+use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
-use massive_shell::Shell;
+use massive_shell::{shell, ApplicationContext};
+use shared::{
+    application::{Application, UpdateResponse},
+    code_viewer::{self, AttributedCode},
+};
 
 const CANVAS_ID: &str = "massive-code";
 
@@ -19,6 +20,10 @@ fn main() -> Result<()> {
 }
 
 async fn async_main() -> Result<()> {
+    shell::run(code_viewer).await
+}
+
+async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let env_filter = EnvFilter::from_default_env();
     // let console_formatter = tracing_subscriber::fmt::Layer::default();
     // // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
@@ -72,12 +77,6 @@ async fn async_main() -> Result<()> {
         line_height,
     );
 
-    // Window
-
-    let event_loop = EventLoop::new()?;
-    let window = application::create_window(&event_loop, Some(CANVAS_ID))?;
-    let initial_size = window.inner_size();
-
     // Camera
 
     let camera = {
@@ -88,12 +87,46 @@ async fn async_main() -> Result<()> {
 
     // Application
 
-    let application =
-        application::Application::new(camera, glyph_runs, SizeI::new(1280, height as u64));
+    let initial_size = LogicalSize::new(800., 800.);
 
-    // Shell
+    let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+    let (mut renderer, mut director) = window
+        .new_renderer(
+            Arc::new(Mutex::new(font_system)),
+            camera,
+            window.inner_size(),
+        )
+        .await?;
 
-    let font_system = Arc::new(Mutex::new(font_system));
-    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await?;
-    shell.run(event_loop, &window, application).await
+    let mut application = Application::new(SizeI::new(1280, height as u64));
+    let mut current_matrix = application.matrix();
+    let matrix = director.cast(current_matrix);
+
+    // Hold the positioned shapes in this context, otherwise they will disappear.
+    let _positioned_shapes: Vec<_> = glyph_runs
+        .into_iter()
+        .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
+        .collect();
+
+    director.action()?;
+
+    loop {
+        let window_event = ctx.wait_for_event(&mut renderer).await?;
+
+        info!("Window Event: {window_event:?}");
+
+        match application.update(window_event) {
+            UpdateResponse::Exit => return Ok(()),
+            UpdateResponse::Continue => {}
+        }
+
+        // DI: This check has to be done in the renderer and the renderer has to decide when it
+        // needs to redraw.
+        let new_matrix = application.matrix();
+        if new_matrix != current_matrix {
+            matrix.update(new_matrix);
+            current_matrix = new_matrix;
+            director.action()?;
+        }
+    }
 }

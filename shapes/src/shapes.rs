@@ -13,8 +13,6 @@ pub enum Shape {
     Quads(QuadsShape),
 }
 
-
-
 /// A number of glyphs to be rendered with dame model matrix and an additional translation.
 #[derive(Debug)]
 pub struct GlyphRunShape {
