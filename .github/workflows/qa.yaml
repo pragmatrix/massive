@@ -13,8 +13,11 @@ jobs:
       with:
         submodules: true
 
-    - name: 'Install toolchain'
+    - name: 'Toolchain'
       uses: dtolnay/rust-toolchain@stable
+
+    - name: 'Clippy'
+      run: cargo clippy --all-targets -- -D warnings
 
     - name: 'Test'
       run: cargo test --all-targets
