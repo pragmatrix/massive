@@ -16,3 +16,4 @@ cosmic-text = { workspace = true }
 inlyne = { path = "inlyne" }
 log = { workspace = true }
 winit = { workspace = true }
+swash = { workspace = true }
