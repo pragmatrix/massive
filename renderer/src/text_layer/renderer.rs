@@ -120,6 +120,7 @@ impl TextLayerRenderer {
                 if let Some((rect, placement, kind)) =
                     self.rasterized_glyph_atlas_rect(context, run.text_weight, glyph)?
                 {
+                    // OO: translation might be applied to two points only (lt, rb)
                     let vertices =
                         Self::glyph_vertices(run, glyph, &placement).map(|p| p + translation);
 
@@ -134,9 +135,7 @@ impl TextLayerRenderer {
                         }
                         AtlasKind::Color => color_glyphs.push(color_atlas::QuadInstance {
                             atlas_rect: rect,
-                            vertices: Self::glyph_vertices(run, glyph, &placement)
-                                // OO: translation might be applied to two points only (lt, rb)
-                                .map(|p| p + translation),
+                            vertices,
                         }),
                     }
                 } // else: Glyph is empty: Not rendered.
