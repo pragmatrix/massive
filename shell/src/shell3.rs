@@ -34,7 +34,7 @@ use massive_renderer::Renderer;
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
 pub async fn run<R: Future<Output = Result<()>> + 'static>(
-    application: impl FnOnce(ApplicationContext3) -> R + 'static,
+    application: impl FnOnce(ApplicationContext) -> R + 'static,
 ) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
 
@@ -47,7 +47,7 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
 
     let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> = Rc::new(RefCell::new(ptr::null()));
 
-    let application_context = ApplicationContext3 {
+    let application_context = ApplicationContext {
         event_receiver,
         active_event_loop: active_event_loop.clone(),
     };
@@ -397,12 +397,12 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
-pub struct ApplicationContext3 {
+pub struct ApplicationContext {
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
 }
 
-impl ApplicationContext3 {
+impl ApplicationContext {
     pub fn new_window(
         &self,
         inner_size: impl Into<dpi::Size>,

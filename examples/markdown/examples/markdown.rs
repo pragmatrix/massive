@@ -20,7 +20,7 @@ use massive_scene::PositionedShape;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{shell3, ApplicationContext3};
+use massive_shell::{shell3, ApplicationContext};
 
 use shared::{
     application::{Application, UpdateResponse},
@@ -39,7 +39,7 @@ async fn markdown() -> Result<()> {
     shell3::run(application).await
 }
 
-async fn application(mut ctx: ApplicationContext3) -> Result<()> {
+async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let font_system = {
         // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
         const DEFAULT_LOCALE: &str = "en-US";

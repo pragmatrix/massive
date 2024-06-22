@@ -7,7 +7,7 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
-use massive_shell::{shell3, ApplicationContext3};
+use massive_shell::{shell3, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
     code_viewer::{self, AttributedCode},
@@ -23,7 +23,7 @@ async fn async_main() -> Result<()> {
     shell3::run(code_viewer).await
 }
 
-async fn code_viewer(mut ctx: ApplicationContext3) -> Result<()> {
+async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let env_filter = EnvFilter::from_default_env();
     // let console_formatter = tracing_subscriber::fmt::Layer::default();
     // // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();

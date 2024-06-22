@@ -13,7 +13,7 @@ use winit::dpi::LogicalSize;
 use massive_geometry::{Camera, Color};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
-use massive_shell::{shell3, ApplicationContext3};
+use massive_shell::{shell3, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
     code_viewer::{self, TextAttribute},
@@ -29,7 +29,7 @@ async fn async_main() -> Result<()> {
     shell3::run(syntax).await
 }
 
-async fn syntax(mut ctx: ApplicationContext3) -> Result<()> {
+async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     // let data = include_str!("rick-and-morty.json");
     let data = include_str!("books.xml");
 

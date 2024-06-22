@@ -31,7 +31,7 @@ use crate::code_viewer::TextAttribute;
 use massive_geometry::{Camera, Color, SizeI};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
-use massive_shell::{shell3, ApplicationContext3};
+use massive_shell::{shell3, ApplicationContext};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -59,7 +59,7 @@ async fn main() -> Result<()> {
     shell3::run(application).await
 }
 
-async fn application(mut ctx: ApplicationContext3) -> Result<()> {
+async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
     let root_path = env::current_dir()
         .unwrap()

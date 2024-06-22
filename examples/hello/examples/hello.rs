@@ -16,7 +16,7 @@ use winit::{
 
 use massive_geometry::{Camera, Color, Identity, Matrix4, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
-use massive_shell::{shell3, ApplicationContext3};
+use massive_shell::{shell3, ApplicationContext};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -25,7 +25,7 @@ async fn main() -> Result<()> {
     shell3::run(application).await
 }
 
-async fn application(mut ctx: ApplicationContext3) -> Result<()> {
+async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let font_system = Arc::new(Mutex::new(FontSystem::new()));
 
     let fovy: f64 = 45.0;
