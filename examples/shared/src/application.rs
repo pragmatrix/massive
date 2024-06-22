@@ -14,7 +14,7 @@ enum ActiveGesture {
     Rotation(RotationGesture),
 }
 
-pub struct Application2 {
+pub struct Application {
     page_size: SizeI,
 
     gesture: Option<ActiveGesture>,
@@ -30,7 +30,7 @@ pub struct Application2 {
     rotation: PointI,
 }
 
-impl Application2 {
+impl Application {
     pub fn new(page_size: impl Into<SizeI>) -> Self {
         Self {
             page_size: page_size.into(),
@@ -63,7 +63,7 @@ pub enum UpdateResponse {
     Exit,
 }
 
-impl Application2 {
+impl Application {
     #[must_use]
     pub fn update(&mut self, window_event: WindowEvent) -> UpdateResponse {
         match window_event {

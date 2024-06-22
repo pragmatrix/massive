@@ -15,7 +15,7 @@ use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
 use massive_shell::{shell3, ApplicationContext3};
 use shared::{
-    application2::{Application2, UpdateResponse},
+    application::{Application, UpdateResponse},
     code_viewer::{self, TextAttribute},
 };
 
@@ -103,7 +103,7 @@ async fn syntax(mut ctx: ApplicationContext3) -> Result<()> {
 
     // Application
 
-    let mut application = Application2::new((1280, height as u64));
+    let mut application = Application::new((1280, height as u64));
     let mut current_matrix = application.matrix();
     let matrix = director.cast(current_matrix);
 

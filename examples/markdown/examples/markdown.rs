@@ -23,7 +23,7 @@ use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::{shell3, ApplicationContext3};
 
 use shared::{
-    application2::{Application2, UpdateResponse},
+    application::{Application, UpdateResponse},
     fonts, positioning,
 };
 use winit::dpi::PhysicalSize;
@@ -86,7 +86,7 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
         markdown,
     )?;
 
-    let mut application = Application2::new(page_size);
+    let mut application = Application::new(page_size);
     let mut current_matrix = application.matrix();
     let matrix = director.cast(current_matrix);
 

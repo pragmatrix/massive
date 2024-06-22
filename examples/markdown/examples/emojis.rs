@@ -23,7 +23,7 @@ use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::{shell3, ApplicationContext3};
 
 use shared::{
-    application2::{Application2, UpdateResponse},
+    application::{Application, UpdateResponse},
     positioning,
 };
 
@@ -168,7 +168,7 @@ async fn emojis(mut ctx: ApplicationContext3) -> Result<()> {
 
     // Application
 
-    let mut application = Application2::new(SizeI::new(page_width as _, page_height));
+    let mut application = Application::new(SizeI::new(page_width as _, page_height));
     let mut current_matrix = application.matrix();
     let matrix = director.cast(current_matrix);
 

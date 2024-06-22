@@ -1,4 +1,4 @@
-pub mod application2;
+pub mod application;
 pub mod code_viewer;
 pub mod fonts;
 pub mod positioning;

@@ -9,7 +9,7 @@ use winit::dpi::LogicalSize;
 use massive_geometry::{Camera, SizeI};
 use massive_shell::{shell3, ApplicationContext3};
 use shared::{
-    application2::{Application2, UpdateResponse},
+    application::{Application, UpdateResponse},
     code_viewer::{self, AttributedCode},
 };
 
@@ -98,7 +98,7 @@ async fn code_viewer(mut ctx: ApplicationContext3) -> Result<()> {
         )
         .await?;
 
-    let mut application = Application2::new(SizeI::new(1280, height as u64));
+    let mut application = Application::new(SizeI::new(1280, height as u64));
     let mut current_matrix = application.matrix();
     let matrix = director.cast(current_matrix);
 

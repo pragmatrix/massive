@@ -18,7 +18,7 @@ use ide::{
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
 use shared::{
-    application2::{Application2, UpdateResponse},
+    application::{Application, UpdateResponse},
     code_viewer,
 };
 use syntax::{AstNode, SyntaxKind, WalkEvent};
@@ -272,7 +272,7 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
 
     // Application
 
-    let mut application = Application2::new(SizeI::new(1280, height as u64));
+    let mut application = Application::new(SizeI::new(1280, height as u64));
 
     let font_system = Arc::new(Mutex::new(font_system));
 
