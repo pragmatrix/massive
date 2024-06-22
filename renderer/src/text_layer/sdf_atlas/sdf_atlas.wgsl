@@ -29,11 +29,6 @@ fn vs_main(
 
 // Fragment shader
 
-struct TextureSize {
-    value: vec2<f32>,
-    _padding: vec2<f32>,
-}
-
 @group(1) @binding(0)
 var t_texture: texture_2d<f32>;
 @group(1) @binding(1)
