@@ -31,7 +31,7 @@ use crate::code_viewer::TextAttribute;
 use massive_geometry::{Camera, Color, SizeI};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
-use massive_shell::{shell3, ApplicationContext};
+use massive_shell::{shell, ApplicationContext};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -56,7 +56,7 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell3::run(application).await
+    shell::run(application).await
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {

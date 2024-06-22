@@ -13,7 +13,7 @@ use winit::dpi::LogicalSize;
 use massive_geometry::{Camera, Color};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
-use massive_shell::{shell3, ApplicationContext};
+use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
     code_viewer::{self, TextAttribute},
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
 }
 
 async fn async_main() -> Result<()> {
-    shell3::run(syntax).await
+    shell::run(syntax).await
 }
 
 async fn syntax(mut ctx: ApplicationContext) -> Result<()> {

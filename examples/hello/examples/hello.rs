@@ -16,13 +16,13 @@ use winit::{
 
 use massive_geometry::{Camera, Color, Identity, Matrix4, Vector3};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
-use massive_shell::{shell3, ApplicationContext};
+use massive_shell::{shell, ApplicationContext};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     env_logger::init();
 
-    shell3::run(application).await
+    shell::run(application).await
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {

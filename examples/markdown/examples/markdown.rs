@@ -20,7 +20,7 @@ use massive_scene::PositionedShape;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{shell3, ApplicationContext};
+use massive_shell::{shell, ApplicationContext};
 
 use shared::{
     application::{Application, UpdateResponse},
@@ -36,7 +36,7 @@ pub fn main() -> Result<()> {
 }
 
 async fn markdown() -> Result<()> {
-    shell3::run(application).await
+    shell::run(application).await
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {

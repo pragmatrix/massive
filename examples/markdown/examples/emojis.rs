@@ -20,7 +20,7 @@ use massive_scene::PositionedShape;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{shell3, ApplicationContext};
+use massive_shell::{shell, ApplicationContext};
 
 use shared::{
     application::{Application, UpdateResponse},
@@ -34,7 +34,7 @@ fn main() -> Result<()> {
 }
 
 async fn async_main() -> Result<()> {
-    shell3::run(emojis).await
+    shell::run(emojis).await
 }
 
 async fn emojis(mut ctx: ApplicationContext) -> Result<()> {

@@ -7,7 +7,7 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
-use massive_shell::{shell3, ApplicationContext};
+use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
     code_viewer::{self, AttributedCode},
@@ -20,7 +20,7 @@ fn main() -> Result<()> {
 }
 
 async fn async_main() -> Result<()> {
-    shell3::run(code_viewer).await
+    shell::run(code_viewer).await
 }
 
 async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
