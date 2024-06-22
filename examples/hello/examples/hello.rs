@@ -1,4 +1,7 @@
-use std::rc::Rc;
+use std::{
+    rc::Rc,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::Result;
 use cosmic_text as text;
@@ -19,12 +22,12 @@ use massive_shell::{shell3, ApplicationContext3};
 async fn main() -> Result<()> {
     env_logger::init();
 
-    let font_system = FontSystem::new();
-
-    shell3::run(font_system, application).await
+    shell3::run(application).await
 }
 
 async fn application(mut ctx: ApplicationContext3) -> Result<()> {
+    let font_system = Arc::new(Mutex::new(FontSystem::new()));
+
     let fovy: f64 = 45.0;
     let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
     let mut camera = Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0));
@@ -32,11 +35,13 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     // camera.eye = Point3::new(0.8999999999999992, 0.0, 0.11421356237309382);
 
     let hello_world = "Hello, world!";
-    let shapes = render(&mut ctx.font_system().lock().unwrap(), hello_world);
+    let shapes = render(&mut font_system.lock().unwrap(), hello_world);
 
     let window = ctx.new_window(LogicalSize::new(1280, 800), None)?;
 
-    let (mut renderer, mut director) = window.new_renderer(camera, window.inner_size()).await?;
+    let (mut renderer, mut director) = window
+        .new_renderer(font_system, camera, window.inner_size())
+        .await?;
 
     let _positioned_shapes = legacy::into_positioned_shapes(&mut director, shapes);
     director.action()?;

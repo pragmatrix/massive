@@ -19,7 +19,7 @@ use massive_shapes::Shape;
 
 pub mod shell3;
 
-pub use shell3::{ApplicationContext3, Shell3, ShellWindow, WindowRenderer};
+pub use shell3::{ApplicationContext3, ShellWindow, WindowRenderer};
 
 pub trait Application {
     fn update(&mut self, window_event: WindowEvent);

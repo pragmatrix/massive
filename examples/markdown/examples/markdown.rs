@@ -36,6 +36,10 @@ pub fn main() -> Result<()> {
 }
 
 async fn markdown() -> Result<()> {
+    shell3::run(application).await
+}
+
+async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     let font_system = {
         // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
         const DEFAULT_LOCALE: &str = "en-US";
@@ -48,12 +52,6 @@ async fn markdown() -> Result<()> {
         FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
     };
 
-    // Run
-
-    shell3::run(font_system, application).await
-}
-
-async fn application(mut ctx: ApplicationContext3) -> Result<()> {
     let scale_factor = ctx
         .primary_monitor()
         .map(|m| m.scale_factor())
@@ -72,7 +70,11 @@ async fn application(mut ctx: ApplicationContext3) -> Result<()> {
 
     let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
     let (mut renderer, mut director) = window
-        .new_renderer(camera, initial_size.to_physical(scale_factor))
+        .new_renderer(
+            Arc::new(Mutex::new(font_system)),
+            camera,
+            initial_size.to_physical(scale_factor),
+        )
         .await?;
 
     let markdown = include_str!("replicator.org.md");

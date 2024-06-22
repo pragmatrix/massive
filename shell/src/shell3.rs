@@ -7,7 +7,7 @@ use std::{
 };
 
 use anyhow::{bail, Result};
-use cosmic_text::{self as text, FontSystem};
+use cosmic_text::FontSystem;
 use futures::{task::ArcWake, FutureExt};
 use log::{error, info};
 use massive_scene::{Director, SceneChange};
@@ -34,95 +34,70 @@ use massive_renderer::Renderer;
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 
 pub async fn run<R: Future<Output = Result<()>> + 'static>(
-    font_system: FontSystem,
     application: impl FnOnce(ApplicationContext3) -> R + 'static,
 ) -> Result<()> {
-    let mut shell = Shell3::new(Arc::new(Mutex::new(font_system)));
-    shell.run(application).await
-}
+    let event_loop = EventLoop::with_user_event().build()?;
 
-pub struct Shell3 {
-    font_system: Arc<Mutex<text::FontSystem>>,
-}
+    // Spawn application.
 
-impl Shell3 {
-    #[deprecated(note = "use shell3::run")]
-    pub fn new(font_system: Arc<Mutex<FontSystem>>) -> Self {
-        Self { font_system }
-    }
+    // TODO: may use unbounded channels.
+    let (event_sender, event_receiver) = channel(256);
 
-    #[deprecated(note = "use shell3::run")]
-    // DI: Thread through the result of the application.
-    pub async fn run<R: Future<Output = Result<()>> + 'static>(
-        &mut self,
-        application: impl FnOnce(ApplicationContext3) -> R + 'static,
-    ) -> Result<()> {
-        let event_loop = EventLoop::with_user_event().build()?;
+    let proxy = event_loop.create_proxy();
 
-        // Spawn application.
+    let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> = Rc::new(RefCell::new(ptr::null()));
 
-        // TODO: may use unbounded channels.
-        let (event_sender, event_receiver) = channel(256);
+    let application_context = ApplicationContext3 {
+        event_receiver,
+        active_event_loop: active_event_loop.clone(),
+    };
 
-        let proxy = event_loop.create_proxy();
+    let local_set = LocalSet::new();
+    let (result_tx, mut result_rx) = oneshot::channel();
+    let _application_task = local_set.spawn_local(async move {
+        let r = application(application_context).await;
+        // Found no way to retrieve the result via JoinHandle, so this must do.
+        result_tx
+            .send(Some(r))
+            .expect("Internal Error: Failed to set the application result");
+    });
 
-        let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> =
-            Rc::new(RefCell::new(ptr::null()));
+    // Event loop
 
-        let application_context = ApplicationContext3 {
-            font_system: self.font_system.clone(),
-            event_receiver,
-            active_event_loop: active_event_loop.clone(),
-        };
-
-        let local_set = LocalSet::new();
-        let (result_tx, mut result_rx) = oneshot::channel();
-        let _application_task = local_set.spawn_local(async move {
-            let r = application(application_context).await;
-            // Found no way to retrieve the result via JoinHandle, so this must do.
-            result_tx
-                .send(Some(r))
-                .expect("Internal Error: Failed to set the application result");
+    {
+        // Shared state to wake the event loop
+        let waker = Arc::new(EventLoopWaker {
+            proxy: proxy.clone(),
+            waker: Mutex::new(None),
         });
 
-        // Event loop
+        let mut winit_context = WinitApplicationHandler {
+            event_sender,
+            active_event_loop,
+            local_set,
+            waker,
+        };
 
-        {
-            // Shared state to wake the event loop
-            let waker = Arc::new(EventLoopWaker {
-                proxy: proxy.clone(),
-                waker: Mutex::new(None),
-            });
-
-            let mut winit_context = WinitApplicationHandler {
-                event_sender,
-                active_event_loop,
-                local_set,
-                waker,
-            };
-
-            info!("Entering event loop");
-            event_loop.run_app(&mut winit_context)?;
-            info!("Exiting event loop");
-        }
-
-        // Check application's result
-        if let Ok(Some(r)) = result_rx.try_recv() {
-            info!("Application ended with {:?}", r);
-            r?;
-        } else {
-            // TODO: This should probably be an error, we want to the application to have full
-            // control over the lifetime of the winit event loop.
-            info!("Application did not end");
-        }
-
-        Ok(())
+        info!("Entering event loop");
+        event_loop.run_app(&mut winit_context)?;
+        info!("Exiting event loop");
     }
+
+    // Check application's result
+    if let Ok(Some(r)) = result_rx.try_recv() {
+        info!("Application ended with {:?}", r);
+        r?;
+    } else {
+        // TODO: This should probably be an error, we want to the application to have full
+        // control over the lifetime of the winit event loop.
+        info!("Application did not end");
+    }
+
+    Ok(())
 }
 
 // TODO: if window gets closed, remove it from active_windows in the Shell3.
 pub struct ShellWindow {
-    font_system: Arc<Mutex<FontSystem>>,
     // Rc because the renderer needs to invoke request_redraw()
     window: Rc<Window>,
 }
@@ -131,6 +106,7 @@ impl ShellWindow {
     // DI: Use SizeI to represent initial_size.
     pub async fn new_renderer(
         &self,
+        font_system: Arc<Mutex<FontSystem>>,
         camera: Camera,
         // Use a rect here to place the renderer on the window.
         // (But what about resizes then?)
@@ -138,7 +114,7 @@ impl ShellWindow {
     ) -> Result<(WindowRenderer, Director)> {
         // DI: If we can access the ShellWindow, we don't need a clone of font_system or
         // event_loop_proxy here.
-        WindowRenderer::new(self, camera, initial_size).await
+        WindowRenderer::new(self, font_system, camera, initial_size).await
     }
 
     pub fn scale_factor(&self) -> f64 {
@@ -160,6 +136,7 @@ impl ShellWindow {
 
 pub struct WindowRenderer<'window> {
     window: &'window ShellWindow,
+    font_system: Arc<Mutex<FontSystem>>,
     camera: Camera,
     scene_changes: Rc<RefCell<Vec<SceneChange>>>,
     renderer: Renderer<'window>,
@@ -174,11 +151,12 @@ pub enum ControlFlow {
 
 impl<'window> WindowRenderer<'window> {
     pub fn font_system(&self) -> &Arc<Mutex<FontSystem>> {
-        &self.window.font_system
+        &self.font_system
     }
 
     async fn new(
         window: &ShellWindow,
+        font_system: Arc<Mutex<FontSystem>>,
         camera: Camera,
         // TODO: use a rect here to be able to position the renderer!
         initial_size: PhysicalSize<u32>,
@@ -275,6 +253,7 @@ impl<'window> WindowRenderer<'window> {
 
         let window_renderer = WindowRenderer {
             window,
+            font_system,
             camera,
             scene_changes: scene_changes.clone(),
             renderer,
@@ -337,7 +316,7 @@ impl<'window> WindowRenderer<'window> {
         let view_projection_matrix = self.camera.view_projection_matrix(Z_RANGE, surface_size);
 
         {
-            let mut font_system = self.window.font_system.lock().unwrap();
+            let mut font_system = self.font_system.lock().unwrap();
             self.renderer.apply_changes(&mut font_system, changes)?;
         }
 
@@ -419,7 +398,6 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 }
 
 pub struct ApplicationContext3 {
-    font_system: Arc<Mutex<FontSystem>>,
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
 }
@@ -435,10 +413,6 @@ impl ApplicationContext3 {
         })
     }
 
-    pub fn font_system(&self) -> &Arc<Mutex<FontSystem>> {
-        &self.font_system
-    }
-
     #[cfg(not(target_arch = "wasm32"))]
     fn new_window_ev(
         &self,
@@ -448,9 +422,7 @@ impl ApplicationContext3 {
     ) -> Result<ShellWindow> {
         let window =
             event_loop.create_window(WindowAttributes::default().with_inner_size(inner_size))?;
-        let font_system = self.font_system.clone();
         Ok(ShellWindow {
-            font_system,
             window: Rc::new(window),
         })
     }
@@ -484,9 +456,7 @@ impl ApplicationContext3 {
         let window =
             event_loop.create_window(WindowAttributes::default().with_canvas(Some(canvas)))?;
 
-        let font_system = self.font_system.clone();
         Ok(ShellWindow {
-            font_system,
             window: Rc::new(window),
         })
     }
