@@ -16,24 +16,28 @@ use inlyne::{
     Element,
 };
 use log::info;
-use winit::event_loop::EventLoop;
+use massive_scene::PositionedShape;
+use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::Shell;
+use massive_shell::{shell3, ApplicationContext3};
 
 use shared::{
-    application::{self, Application},
+    application2::{Application2, UpdateResponse},
     positioning,
 };
 
-// Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
-const CANVAS_ID: &str = "massive-markdown";
+const CANVAS_ID: &str = "massive-emojis";
 
 fn main() -> Result<()> {
     shared::main(async_main)
 }
 
 async fn async_main() -> Result<()> {
+    shell3::run(emojis).await
+}
+
+async fn emojis(mut ctx: ApplicationContext3) -> Result<()> {
     let markdown = include_str!("emojis.md");
     // The concepts of a current dir does not exist in wasm I guess.
     // let current_dir = env::current_dir().expect("Failed to get current directory");
@@ -45,10 +49,6 @@ async fn async_main() -> Result<()> {
     let html = markdown_to_html(markdown, theme.code_highlighter.clone());
 
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
-
-    let event_loop = EventLoop::new()?;
-    let window = application::create_window(&event_loop, Some(CANVAS_ID))?;
-    info!("Initial Window inner size: {:?}", window.inner_size());
 
     let font_system = {
         // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
@@ -66,18 +66,24 @@ async fn async_main() -> Result<()> {
         FontSystem::new()
     };
 
-    #[cfg(not(target_arch = "wasm32"))]
-    let initial_size = window.inner_size();
-    // On wasm, the initial size is always, 0,0, so we set one (this is also used for the page
-    // layout) and leave it to subsequent resize events to configure the proper size.
-    #[cfg(target_arch = "wasm32")]
-    let initial_size = winit::dpi::PhysicalSize::new(1280, 800);
+    let initial_size = LogicalSize::new(1280., 800.);
 
     let font_system = Arc::new(Mutex::new(font_system));
-    let mut shell = Shell::new(&window, initial_size, font_system.clone()).await?;
+
+    let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+
+    let camera = {
+        let fovy: f64 = 45.0;
+        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
+        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
+    };
+
+    let (mut renderer, mut director) = window
+        .new_renderer(font_system.clone(), camera, window.inner_size())
+        .await?;
 
     // TODO: Pass surface format.
-    let _surface_format = shell.surface_format();
+    let _surface_format = renderer.surface_format();
     let hidpi_scale = window.scale_factor();
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
 
@@ -160,22 +166,39 @@ async fn async_main() -> Result<()> {
         }
     }
 
-    // Camera
-
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
-
     // Application
 
-    let application =
-        Application::new(camera, glyph_runs, SizeI::new(page_width as _, page_height));
+    let mut application = Application2::new(SizeI::new(page_width as _, page_height));
+    let mut current_matrix = application.matrix();
+    let matrix = director.cast(current_matrix);
 
-    // Run
+    // Hold the positioned shapes in this context, otherwise they will disappear.
+    let _positioned_shapes: Vec<_> = glyph_runs
+        .into_iter()
+        .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
+        .collect();
 
-    shell.run(event_loop, &window, application).await
+    director.action()?;
+
+    loop {
+        let window_event = ctx.wait_for_event(&mut renderer).await?;
+
+        info!("Window Event: {window_event:?}");
+
+        match application.update(window_event) {
+            UpdateResponse::Exit => return Ok(()),
+            UpdateResponse::Continue => {}
+        }
+
+        // DI: This check has to be done in the renderer and the renderer has to decide when it
+        // needs to redraw.
+        let new_matrix = application.matrix();
+        if new_matrix != current_matrix {
+            matrix.update(new_matrix);
+            current_matrix = new_matrix;
+            director.action()?;
+        }
+    }
 }
 
 // #[derive(Debug)]
