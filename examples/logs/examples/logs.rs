@@ -7,7 +7,7 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
 use env_logger::{Builder, Target, WriteStyle};
-use log::{error, info};
+use log::error;
 use termwiz::{
     cell::Intensity,
     color::ColorSpec,
@@ -106,7 +106,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         select! {
             Some(bytes) = receiver
             .recv() => {
-                let (new_runs, height) = {
+                let (new_runs, _height) = {
                     let mut font_system = font_system.lock().unwrap();
                     shape_log_line(&bytes, &mut font_system)
                 };
