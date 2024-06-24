@@ -1,21 +1,19 @@
-use std::fmt;
-use std::ops::{Index, IndexMut, Mul};
-use std::str::FromStr;
+use std::{ops::Mul, str::FromStr};
 
-use super::NamedColor;
+// use super::NamedColor;
 
-pub const COUNT: usize = 269;
+// pub const COUNT: usize = 269;
 
-pub const RED: Rgb = Rgb {
-    r: 0xff,
-    g: 0x0,
-    b: 0x0,
-};
-pub const YELLOW: Rgb = Rgb {
-    r: 0xff,
-    g: 0xff,
-    b: 0x0,
-};
+// pub const RED: Rgb = Rgb {
+//     r: 0xff,
+//     g: 0x0,
+//     b: 0x0,
+// };
+// pub const YELLOW: Rgb = Rgb {
+//     r: 0xff,
+//     g: 0xff,
+//     b: 0x0,
+// };
 
 #[derive(Debug, Eq, PartialEq, Copy, Clone, Default)]
 pub struct Rgb {
@@ -29,13 +27,11 @@ impl Mul<f32> for Rgb {
     type Output = Rgb;
 
     fn mul(self, rhs: f32) -> Rgb {
-        let result = Rgb {
-            r: (f32::from(self.r) * rhs).max(0.0).min(255.0) as u8,
-            g: (f32::from(self.g) * rhs).max(0.0).min(255.0) as u8,
-            b: (f32::from(self.b) * rhs).max(0.0).min(255.0) as u8,
-        };
-
-        result
+        Rgb {
+            r: (f32::from(self.r) * rhs).clamp(0.0, 255.0) as u8,
+            g: (f32::from(self.g) * rhs).clamp(0.0, 255.0) as u8,
+            b: (f32::from(self.b) * rhs).clamp(0.0, 255.0) as u8,
+        }
     }
 }
 

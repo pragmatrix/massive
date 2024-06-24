@@ -13,15 +13,15 @@ pub struct Colors {
     pub indexed_colors: Vec<IndexedColor>,
 }
 
-impl Colors {
-    pub fn normal(&self) -> &AnsiColors {
-        &self.normal.0
-    }
+// impl Colors {
+//     pub fn normal(&self) -> &AnsiColors {
+//         &self.normal.0
+//     }
 
-    pub fn bright(&self) -> &AnsiColors {
-        &self.bright.0
-    }
-}
+//     pub fn bright(&self) -> &AnsiColors {
+//         &self.bright.0
+//     }
+// }
 
 #[derive(Default, Debug, PartialEq, Eq)]
 pub struct IndexedColor {
