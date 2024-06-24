@@ -2,7 +2,6 @@ pub mod application;
 pub mod code_viewer;
 pub mod fonts;
 pub mod positioning;
-pub mod terminal;
 
 use std::future::Future;
 

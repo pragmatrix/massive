@@ -16,6 +16,7 @@ use termwiz::{
 use tokio::sync::mpsc::{self, UnboundedReceiver};
 use winit::dpi::LogicalSize;
 
+use logs::terminal::{color_schemes, Rgb};
 use massive_geometry::{Camera, Color};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
@@ -23,7 +24,6 @@ use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
     code_viewer::{self, TextAttribute},
-    terminal::{color_schemes, Rgb},
 };
 
 const CANVAS_ID: &str = "massive-logs";
