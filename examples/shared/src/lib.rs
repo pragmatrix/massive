@@ -1,5 +1,5 @@
 pub mod application;
-pub mod code_viewer;
+pub mod attributed_text;
 pub mod fonts;
 pub mod positioning;
 

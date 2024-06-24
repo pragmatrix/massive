@@ -10,7 +10,7 @@ use massive_scene::PositionedShape;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
-    code_viewer::{self, AttributedCode},
+    attributed_text::{self, AttributedText},
 };
 
 const CANVAS_ID: &str = "massive-code";
@@ -60,7 +60,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     // let code: AttributedCode =
     //     serde_json::from_str(&fs::read_to_string("/tmp/code.json").unwrap()).unwrap();
-    let code: AttributedCode = postcard::from_bytes(include_bytes!("code.postcard")).unwrap();
+    let code: AttributedText = postcard::from_bytes(include_bytes!("code.postcard")).unwrap();
 
     // Shape and layout text.
 
@@ -69,7 +69,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = code_viewer::shape_text(
+    let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
         &code.text,
         &code.attributes,

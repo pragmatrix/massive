@@ -16,7 +16,7 @@ use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
-    code_viewer::{self, TextAttribute},
+    attributed_text::{self, TextAttribute},
 };
 
 const CANVAS_ID: &str = "massive-syntax";
@@ -83,7 +83,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
-    let (glyph_runs, height) = code_viewer::shape_text(
+    let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
         &final_text,
         &text_attributes,

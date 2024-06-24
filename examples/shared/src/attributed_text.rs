@@ -10,7 +10,7 @@ use crate::positioning;
 
 /// A serializable representation of highlighted code.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct AttributedCode {
+pub struct AttributedText {
     pub text: String,
     pub attributes: Vec<TextAttribute>,
 }

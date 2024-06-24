@@ -26,7 +26,7 @@ use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
-    code_viewer::{self, TextAttribute},
+    attributed_text::{self, TextAttribute},
 };
 
 const CANVAS_ID: &str = "massive-logs";
@@ -157,7 +157,7 @@ fn shape_log_line(
     let line_height = 40.;
 
     let (runs, height) =
-        code_viewer::shape_text(font_system, &text, &attributes, font_size, line_height);
+        attributed_text::shape_text(font_system, &text, &attributes, font_size, line_height);
     (runs, height)
 }
 

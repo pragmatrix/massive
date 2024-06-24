@@ -19,7 +19,7 @@ use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
 use shared::{
     application::{Application, UpdateResponse},
-    code_viewer,
+    attributed_text,
 };
 use syntax::{AstNode, SyntaxKind, WalkEvent};
 use tracing::info;
@@ -27,7 +27,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use vfs::VfsPath;
 use winit::dpi::LogicalSize;
 
-use crate::code_viewer::TextAttribute;
+use crate::attributed_text::TextAttribute;
 use massive_geometry::{Camera, Color, SizeI};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
@@ -225,7 +225,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     // Store for the web viewer.
 
-    let attributed_code = code_viewer::AttributedCode {
+    let attributed_code = attributed_text::AttributedText {
         text: file_text.to_string(),
         attributes: attributes.clone(),
     };
@@ -249,7 +249,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = code_viewer::shape_text(
+    let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
         &file_text,
         &attributes,
