@@ -65,31 +65,12 @@ async fn async_main(receiver: UnboundedReceiver<Vec<u8>>) -> Result<()> {
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
     error!("TEST");
 
-    let bytes = receiver.recv().await.unwrap();
-    let mut parser = escape::parser::Parser::new();
-    let parsed = parser.parse_as_vec(&bytes);
-
-    let mut processor = Processor::new(color_schemes::light::PAPER);
-    for action in parsed {
-        processor.process(action)
-    }
-
-    let (text, attributes) = processor.into_text_and_attribute_ranges();
-
-    // boilerplate
-
-    let mut font_system = {
+    let font_system = {
         let mut db = fontdb::Database::new();
         db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
         // Use an invariant locale.
         FontSystem::new_with_locale_and_db("en-US".into(), db)
     };
-
-    let font_size = 32.;
-    let line_height = 40.;
-
-    let (runs, height) =
-        code_viewer::shape_text(&mut font_system, &text, &attributes, font_size, line_height);
 
     // Window
 
@@ -105,48 +86,79 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
-    // Shell
-
     let font_system = Arc::new(Mutex::new(font_system));
 
     let (mut renderer, mut director) = window
-        .new_renderer(font_system, camera, window.inner_size())
+        .new_renderer(font_system.clone(), camera, window.inner_size())
         .await?;
 
     // Application
 
-    let page_size = (1280, height as u64);
+    let page_size = (1280u32, 800);
     let mut application = Application::new(page_size);
     let mut current_matrix = application.matrix();
-    let matrix = director.cast(current_matrix);
+    let matrix_handle = director.cast(current_matrix);
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
-    let _positioned_shapes: Vec<_> = runs
-        .into_iter()
-        .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
-        .collect();
-
-    director.action()?;
+    let mut positioned_shapes = Vec::new();
 
     loop {
-        let window_event = ctx.wait_for_event(&mut renderer).await?;
+        select! {
+            Some(bytes) = receiver
+            .recv() => {
+                let (new_runs, height) = {
+                    let mut font_system = font_system.lock().unwrap();
+                    shape_log_line(&bytes, &mut font_system)
+                };
 
-        info!("Window Event: {window_event:?}");
+                positioned_shapes.extend(
+                    new_runs.into_iter().map(|run| director.cast(PositionedShape::new(matrix_handle.clone(), run)))
+                );
+                director.action()?;
 
-        match application.update(window_event) {
-            UpdateResponse::Exit => return Ok(()),
-            UpdateResponse::Continue => {}
-        }
+            },
 
-        // DI: This check has to be done in the renderer and the renderer has to decide when it
-        // needs to redraw.
-        let new_matrix = application.matrix();
-        if new_matrix != current_matrix {
-            matrix.update(new_matrix);
-            current_matrix = new_matrix;
-            director.action()?;
+            Ok(window_event) = ctx.wait_for_event(&mut renderer) => {
+                match application.update(window_event) {
+                    UpdateResponse::Exit => return Ok(()),
+                    UpdateResponse::Continue => {}
+                }
+
+                // DI: This check has to be done in the renderer and the renderer has to decide when it
+                // needs to redraw.
+                let new_matrix = application.matrix();
+                if new_matrix != current_matrix {
+                    matrix_handle.update(new_matrix);
+                    current_matrix = new_matrix;
+                    director.action()?;
+                }
+            }
         }
     }
+}
+
+fn shape_log_line(
+    bytes: &[u8],
+    font_system: &mut FontSystem,
+) -> (Vec<massive_shapes::GlyphRun>, f64) {
+    // OO: Share Parser between runs.
+    let mut parser = escape::parser::Parser::new();
+    let parsed = parser.parse_as_vec(bytes);
+
+    // OO: Share Processor between runs.
+    let mut processor = Processor::new(color_schemes::light::PAPER);
+    for action in parsed {
+        processor.process(action)
+    }
+
+    let (text, attributes) = processor.into_text_and_attribute_ranges();
+
+    let font_size = 32.;
+    let line_height = 40.;
+
+    let (runs, height) =
+        code_viewer::shape_text(font_system, &text, &attributes, font_size, line_height);
+    (runs, height)
 }
 
 #[derive(Debug)]
