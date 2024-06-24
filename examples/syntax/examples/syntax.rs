@@ -89,6 +89,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         &text_attributes,
         font_size,
         line_height,
+        None,
     );
 
     let font_system = Arc::new(Mutex::new(font_system));

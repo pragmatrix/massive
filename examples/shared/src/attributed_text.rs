@@ -28,6 +28,7 @@ pub fn shape_text(
     attributes: &[TextAttribute],
     font_size: f32,
     line_height: f32,
+    translation: impl Into<Option<Vector3>>,
 ) -> (Vec<GlyphRun>, f64) {
     syntax::assert_covers_all_text(
         &attributes
@@ -59,15 +60,17 @@ pub fn shape_text(
 
     let attributes: Vec<_> = attributes.iter().map(|ta| (ta.color, ta.weight)).collect();
 
+    let translation = translation.into().unwrap_or(Vector3::new(0., 0., 0.));
+
     for run in buffer.layout_runs() {
         // Lines are positioned on line_height.
-        let translation = Vector3::new(0., run.line_top as f64, 0.);
+        let translation = translation + Vector3::new(0., run.line_top as f64, 0.);
         for run in
             positioning::to_attributed_glyph_runs(translation, &run, line_height, &attributes)
         {
             runs.push(run);
         }
-        height = height.max(translation.y + line_height as f64);
+        height = height.max(run.line_top as f64 + line_height as f64);
     }
 
     (runs, height)

@@ -75,6 +75,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         &code.attributes,
         font_size,
         line_height,
+        None,
     );
 
     // Camera

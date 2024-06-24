@@ -255,6 +255,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         &attributes,
         font_size,
         line_height,
+        None,
     );
 
     // Window

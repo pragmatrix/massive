@@ -20,7 +20,7 @@ use tokio::{
 use winit::dpi::LogicalSize;
 
 use logs::terminal::{color_schemes, Rgb};
-use massive_geometry::{Camera, Color};
+use massive_geometry::{Camera, Color, Vector3};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
@@ -99,6 +99,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let mut current_matrix = application.matrix();
     let matrix_handle = director.cast(current_matrix);
 
+    let mut y = 0.;
+
     // Hold the positioned shapes in this context, otherwise they will disappear.
     let mut positioned_shapes = Vec::new();
 
@@ -106,16 +108,16 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         select! {
             Some(bytes) = receiver
             .recv() => {
-                let (new_runs, _height) = {
+                let (new_runs, height) = {
                     let mut font_system = font_system.lock().unwrap();
-                    shape_log_line(&bytes, &mut font_system)
+                    shape_log_line(&bytes, y, &mut font_system)
                 };
 
                 positioned_shapes.extend(
                     new_runs.into_iter().map(|run| director.cast(PositionedShape::new(matrix_handle.clone(), run)))
                 );
                 director.action()?;
-
+                y += height;
             },
 
             Ok(window_event) = ctx.wait_for_event(&mut renderer) => {
@@ -139,6 +141,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
 fn shape_log_line(
     bytes: &[u8],
+    y: f64,
     font_system: &mut FontSystem,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
     // OO: Share Parser between runs.
@@ -156,8 +159,14 @@ fn shape_log_line(
     let font_size = 32.;
     let line_height = 40.;
 
-    let (runs, height) =
-        attributed_text::shape_text(font_system, &text, &attributes, font_size, line_height);
+    let (runs, height) = attributed_text::shape_text(
+        font_system,
+        &text,
+        &attributes,
+        font_size,
+        line_height,
+        Vector3::new(0., y, 0.),
+    );
     (runs, height)
 }
 
