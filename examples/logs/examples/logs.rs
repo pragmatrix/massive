@@ -13,7 +13,10 @@ use termwiz::{
     color::ColorSpec,
     escape::{self, csi::Sgr, Action, ControlCode, CSI},
 };
-use tokio::sync::mpsc::{self, UnboundedReceiver};
+use tokio::{
+    select,
+    sync::mpsc::{self, UnboundedReceiver},
+};
 use winit::dpi::LogicalSize;
 
 use logs::terminal::{color_schemes, Rgb};
@@ -30,8 +33,9 @@ const CANVAS_ID: &str = "massive-logs";
 
 fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
-    Builder::from_default_env()
-        // Colors please!
+
+    Builder::default()
+        .filter(Some("massive_shell"), log::LevelFilter::Info)
         .write_style(WriteStyle::Always)
         .target(Target::Pipe(Box::new(Sender(sender))))
         .init();
