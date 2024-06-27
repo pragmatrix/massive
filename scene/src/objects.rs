@@ -54,11 +54,11 @@ impl PositionedShape {
 #[derive(Debug, Clone)]
 pub struct Position {
     pub parent: Option<Handle<Position>>,
-    pub matrix: Matrix,
+    pub matrix: Handle<Matrix>,
 }
 
-impl From<Matrix> for Position {
-    fn from(matrix: Matrix) -> Self {
+impl From<Handle<Matrix>> for Position {
+    fn from(matrix: Handle<Matrix>) -> Self {
         Position {
             parent: None,
             matrix,
@@ -87,9 +87,9 @@ pub struct PositionRenderObj {
     pub matrix: Id,
 }
 
-pub type Matrix = Handle<geometry::Matrix4>;
+pub type Matrix = geometry::Matrix4;
 
-impl Object for geometry::Matrix4 {
+impl Object for Matrix {
     type Keep = ();
     type Change = Self;
 
