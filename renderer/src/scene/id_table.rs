@@ -1,15 +1,12 @@
 //! An id associated table of objects.
 
-use std::{
-    mem,
-    ops::{Index, IndexMut},
-};
+use std::ops::{Index, IndexMut};
 
 use massive_scene::Id;
 
 #[derive(Debug)]
 pub struct IdTable<T> {
-    // Don't dare to make this pub, use `rows_mut()` instead.
+    // Don't dare to make this pub! Use `rows_mut()` instead.
     rows: Vec<T>,
 }
 
@@ -33,21 +30,7 @@ impl<T> IdTable<T> {
         self.rows[index] = value;
     }
 
-    #[allow(unused)]
-    #[must_use]
-    pub fn take(&mut self, id: Id) -> Option<T>
-    where
-        T: Default,
-    {
-        let index = *id;
-        if index < self.rows.len() {
-            Some(mem::take(&mut self.rows[index]))
-        } else {
-            None
-        }
-    }
-
-    /// Returns a reference to a value at `id``.
+    /// Returns a reference to a value at `id`.
     ///
     /// May resize and create defaults.
     pub fn get_or_default(&mut self, id: Id) -> &T
