@@ -96,7 +96,7 @@ impl Scene {
             return;
         }
 
-        let position = &self.positions[position_id].as_ref().unwrap();
+        let position = self.positions.unwrapped(position_id);
         let (parent_id, matrix) = (position.parent, position.matrix);
 
         // Find out the max version of all the immeidate and (indirect / computed) dependencies.
@@ -107,7 +107,7 @@ impl Scene {
         // c) The computed matrix of the parent (representing all its dependencies).
         let max_deps_version = position
             .updated_at
-            .max(self.matrices[matrix].as_ref().unwrap().updated_at);
+            .max(self.matrices.unwrapped(matrix).updated_at);
 
         // Combine with the optional parent.
         let max_deps_version = {
@@ -134,7 +134,7 @@ impl Scene {
 
         // Compute a new value.
 
-        let local_matrix = &**self.matrices[matrix].as_ref().unwrap();
+        let local_matrix = &**self.matrices.unwrapped(matrix);
         let new_value = parent_id.map_or_else(
             || *local_matrix,
             |parent_id| *caches.positions_matrix[parent_id] * local_matrix,
@@ -149,6 +149,7 @@ impl Scene {
 }
 
 impl<T> IdTable<Option<T>> {
+    /// Iterate through all existing (non-`None`) values.
     pub fn iter_some(&self) -> impl Iterator<Item = &T> {
         self.iter().filter_map(|v| v.as_ref())
     }
@@ -162,6 +163,13 @@ impl<T> IdTable<Option<T>> {
                 self.rows_mut()[*id] = Some(value)
             }
         }
+    }
+
+    /// Returns a reference to the object at `id`.
+    ///
+    /// Panics if it does not exist.
+    pub fn unwrapped(&self, id: Id) -> &T {
+        self[id].as_ref().unwrap()
     }
 }
 
