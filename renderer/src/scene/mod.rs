@@ -180,8 +180,10 @@ impl<T> IdTable<Option<Versioned<T>>> {
 impl Default for Computed<Matrix4> {
     fn default() -> Self {
         Self {
-            validated_at: Default::default(),
-            max_deps_version: Default::default(),
+            validated_at: 0,
+            max_deps_version: 0,
+            // OO: is there a wait to use `::ZERO` / the trait `ConstZero` from num_traits for
+            // example?
             value: Matrix4::zero(),
         }
     }
