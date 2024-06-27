@@ -103,7 +103,8 @@ impl<'window> Renderer<'window> {
         font_system: &mut text::FontSystem,
         changes: impl IntoIterator<Item = SceneChange>,
     ) -> Result<()> {
-        self.scene.reset();
+        // Reset the scene.
+        self.scene = Scene::default();
         self.apply_changes(font_system, changes)
     }
 
@@ -113,9 +114,7 @@ impl<'window> Renderer<'window> {
         font_system: &mut text::FontSystem,
         changes: impl IntoIterator<Item = SceneChange>,
     ) -> Result<()> {
-        for change in changes {
-            self.scene.apply(change);
-        }
+        self.scene.transact(changes);
 
         let mut context = PreparationContext {
             device: &self.device,

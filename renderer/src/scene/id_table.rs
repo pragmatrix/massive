@@ -1,6 +1,9 @@
 //! An id associated table of objects.
 
-use std::{mem, ops::Index};
+use std::{
+    mem,
+    ops::{Index, IndexMut},
+};
 
 use massive_scene::{Change, Id};
 
@@ -53,8 +56,8 @@ impl<T> IdTable<T> {
         self.rows.iter().filter_map(|v| v.as_ref())
     }
 
-    pub fn reset(&mut self) {
-        self.rows.clear();
+    pub(crate) fn rows(&mut self) -> &mut [Option<T>] {
+        &mut self.rows
     }
 }
 
@@ -64,5 +67,11 @@ impl<T> Index<Id> for IdTable<T> {
 
     fn index(&self, index: Id) -> &Self::Output {
         self.rows[*index].as_ref().unwrap()
+    }
+}
+
+impl<T> IndexMut<Id> for IdTable<T> {
+    fn index_mut(&mut self, index: Id) -> &mut Self::Output {
+        self.rows[*index].as_mut().unwrap()
     }
 }

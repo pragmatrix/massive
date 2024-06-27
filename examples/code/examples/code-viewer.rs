@@ -2,11 +2,11 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
-use massive_scene::PositionedShape;
 use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
+use massive_scene::PositionedShape;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
@@ -101,11 +101,12 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     let mut application = Application::new(SizeI::new(1280, height as u64));
     let mut current_matrix = application.matrix();
     let matrix = director.cast(current_matrix);
+    let position = director.cast(matrix.clone().into());
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
     let _positioned_shapes: Vec<_> = glyph_runs
         .into_iter()
-        .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
+        .map(|run| director.cast(PositionedShape::new(position.clone(), run)))
         .collect();
 
     director.action()?;
