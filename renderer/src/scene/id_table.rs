@@ -47,6 +47,21 @@ impl<T> IdTable<T> {
         }
     }
 
+    /// Returns a reference to a value at `id``.
+    ///
+    /// May resize and create defaults.
+    pub fn get_or_default(&mut self, id: Id) -> &T
+    where
+        T: Default,
+    {
+        let index = *id;
+        if index >= self.rows.len() {
+            self.rows.resize_with(index + 1, || T::default())
+        }
+
+        &self.rows[index]
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.rows.iter()
     }

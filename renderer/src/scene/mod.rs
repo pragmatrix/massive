@@ -1,5 +1,6 @@
 use std::{cell::RefCell, collections::HashMap};
 
+use euclid::num::Zero;
 use id_table::IdTable;
 use massive_geometry::Matrix4;
 use massive_scene::{Change, Id, PositionRenderObj, PositionedRenderShape, SceneChange, Shape};
@@ -83,7 +84,15 @@ impl Scene {
     fn resolve_positioned_matrix(&self, position_id: Id, caches: &mut SceneCaches) {
         let current_version = self.current_version;
         // Already validated at the latest version? Done.
-        if caches.positions_matrix[position_id].validated_at == current_version {
+        //
+        // `get_or_default` must be used here. This is the only situation in which the cache may
+        // need to be resized.
+        if caches
+            .positions_matrix
+            .get_or_default(position_id)
+            .validated_at
+            == current_version
+        {
             return;
         }
 
@@ -164,6 +173,16 @@ impl<T> IdTable<Option<Versioned<T>>> {
             Change::Update(id, value) => {
                 self.rows_mut()[*id] = Some(Versioned::new(value, version))
             }
+        }
+    }
+}
+
+impl Default for Computed<Matrix4> {
+    fn default() -> Self {
+        Self {
+            validated_at: Default::default(),
+            max_deps_version: Default::default(),
+            value: Matrix4::zero(),
         }
     }
 }
