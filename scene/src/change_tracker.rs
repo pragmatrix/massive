@@ -2,7 +2,7 @@ use std::{any::TypeId, mem};
 
 use massive_geometry as geometry;
 
-use crate::{Id, Object, PositionedRenderShape, PositionedShape};
+use crate::{Id, Object, PositionRenderObj, PositionedRenderShape, PositionedShape};
 
 #[derive(Debug)]
 pub enum Change<T> {
@@ -14,6 +14,7 @@ pub enum Change<T> {
 #[derive(Debug)]
 pub enum SceneChange {
     Matrix(Change<geometry::Matrix4>),
+    Position(Change<PositionRenderObj>),
     PositionedShape(Change<PositionedRenderShape>),
 }
 
@@ -35,11 +36,11 @@ impl SceneChange {
 pub struct ChangeTracker(Vec<SceneChange>);
 
 impl ChangeTracker {
-    pub fn create<T: Object>(&mut self, id: Id, value: T::Uploaded) {
+    pub fn create<T: Object>(&mut self, id: Id, value: T::Change) {
         self.push::<T>(Change::Create(id, value))
     }
 
-    pub fn update<T: Object>(&mut self, id: Id, value: T::Uploaded) {
+    pub fn update<T: Object>(&mut self, id: Id, value: T::Change) {
         self.push::<T>(Change::Update(id, value))
     }
 
@@ -47,7 +48,7 @@ impl ChangeTracker {
         self.push::<T>(Change::Delete(id))
     }
 
-    fn push<T: Object>(&mut self, change: Change<T::Uploaded>) {
+    fn push<T: Object>(&mut self, change: Change<T::Change>) {
         self.0.push(T::promote_change(change));
     }
 

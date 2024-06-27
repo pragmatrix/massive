@@ -1,12 +1,13 @@
 //! An id associated table of objects.
 
-use std::{mem, ops::Index};
+use std::ops::{Index, IndexMut};
 
-use massive_scene::{Change, Id};
+use massive_scene::Id;
 
 #[derive(Debug)]
 pub struct IdTable<T> {
-    rows: Vec<Option<T>>,
+    // Don't dare to make this pub! Use `rows_mut()` instead.
+    rows: Vec<T>,
 }
 
 impl<T> Default for IdTable<T> {
@@ -18,43 +19,38 @@ impl<T> Default for IdTable<T> {
 }
 
 impl<T> IdTable<T> {
-    pub fn apply(&mut self, change: Change<T>) {
-        match change {
-            Change::Create(id, value) => self.put(id, value),
-            Change::Delete(id) => self.remove(id),
-            Change::Update(id, value) => self.rows[*id] = Some(value),
-        }
-    }
-
-    pub fn put(&mut self, id: Id, value: T) {
+    pub fn put(&mut self, id: Id, value: T)
+    where
+        T: Default,
+    {
         let index = *id;
         if index >= self.rows.len() {
-            self.rows.resize_with(index + 1, || None);
+            self.rows.resize_with(index + 1, || T::default());
         }
-        self.rows[index] = Some(value);
+        self.rows[index] = value;
     }
 
-    pub fn remove(&mut self, id: Id) {
-        self.rows[*id] = None;
-    }
-
-    #[allow(unused)]
-    #[must_use]
-    pub fn take(&mut self, id: Id) -> Option<T> {
+    /// Returns a reference to a value at `id`.
+    ///
+    /// May resize and create defaults.
+    pub fn get_or_default(&mut self, id: Id) -> &T
+    where
+        T: Default,
+    {
         let index = *id;
-        if index < self.rows.len() {
-            mem::take(&mut self.rows[index])
-        } else {
-            None
+        if index >= self.rows.len() {
+            self.rows.resize_with(index + 1, || T::default())
         }
+
+        &self.rows[index]
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.rows.iter().filter_map(|v| v.as_ref())
+        self.rows.iter()
     }
 
-    pub fn reset(&mut self) {
-        self.rows.clear();
+    pub(crate) fn rows_mut(&mut self) -> &mut [T] {
+        &mut self.rows
     }
 }
 
@@ -63,6 +59,12 @@ impl<T> Index<Id> for IdTable<T> {
     type Output = T;
 
     fn index(&self, index: Id) -> &Self::Output {
-        self.rows[*index].as_ref().unwrap()
+        &self.rows[*index]
+    }
+}
+
+impl<T> IndexMut<Id> for IdTable<T> {
+    fn index_mut(&mut self, index: Id) -> &mut Self::Output {
+        &mut self.rows[*index]
     }
 }

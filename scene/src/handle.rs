@@ -5,16 +5,16 @@ use crate::{Change, ChangeTracker, Id, SceneChange};
 pub trait Object: Sized {
     /// The stuff from Self that needs to be stored locally to keep the referential integrity. These
     /// are the handles this instance refers to and which need to be kept alive.
-    type Pinned: fmt::Debug;
+    type Keep: fmt::Debug;
     /// The type Uploaded type to the renderer.
-    type Uploaded;
+    type Change;
 
     // TODO: It's possible to use a const here.
     // const INTO_SCENE_CHANGE: fn(Change<Self>) -> SceneChange;
-    fn promote_change(change: Change<Self::Uploaded>) -> SceneChange;
+    fn promote_change(change: Change<Self::Change>) -> SceneChange;
 
     /// Separate the part we need to keep from the part to be uploaded.
-    fn split(self) -> (Self::Pinned, Self::Uploaded);
+    fn split(self) -> (Self::Keep, Self::Change);
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +41,7 @@ impl<T: Object> Handle<T> {
         self.inner.id
     }
 
+    /// Update the value of the handle.
     pub fn update(&self, update: T) {
         self.inner.update(update)
     }
@@ -55,8 +56,8 @@ struct InnerHandle<T: Object> {
     // T::Pinned is also Rc, we could put this directly in Handle, as we could the Id, it would make
     // the handle quite fat though, but is this a problem assuming that the number of handles are
     // usually only one on average ... but not inside of shapes?!
-    // Also: how often do we update?
-    pinned: RefCell<T::Pinned>,
+    // Also: how frequent is update being called?
+    pinned: RefCell<T::Keep>,
 }
 
 impl<T: Object> InnerHandle<T> {

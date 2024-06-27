@@ -26,20 +26,19 @@
 use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
 
 use anyhow::Result;
-use derive_more::From;
 use tokio::sync::mpsc;
 
 use id::*;
-use massive_geometry as geometry;
-use massive_shapes::{GlyphRun, Quads};
 
 mod change_tracker;
 mod handle;
 mod id;
+mod objects;
 
 pub use change_tracker::*;
 pub use handle::*;
 pub use id::Id;
+pub use objects::*;
 
 /// A director is the only direct connection to the renderer. It tracks all the changes to scene
 /// graph and uploads it on demand.
@@ -90,125 +89,5 @@ impl Director {
         }
 
         (self.notify_changes)(changes)
-    }
-}
-
-pub type Matrix4 = Handle<geometry::Matrix4>;
-
-impl Object for geometry::Matrix4 {
-    type Pinned = ();
-    type Uploaded = Self;
-
-    fn split(self) -> (Self::Pinned, Self::Uploaded) {
-        ((), self)
-    }
-
-    fn promote_change(change: Change<Self::Uploaded>) -> SceneChange {
-        SceneChange::Matrix(change)
-    }
-}
-
-#[derive(Debug)]
-pub struct PositionedShape {
-    pub matrix: Matrix4,
-    pub shape: Shape,
-}
-
-#[derive(Debug)]
-pub struct PositionedRenderShape {
-    pub matrix: Id,
-    pub shape: Shape,
-}
-
-impl Object for PositionedShape {
-    // We keep the matrix handle here.
-    type Pinned = Matrix4;
-    // And upload the render shape.
-    type Uploaded = PositionedRenderShape;
-
-    fn split(self) -> (Self::Pinned, Self::Uploaded) {
-        let PositionedShape { matrix, shape } = self;
-        let shape = PositionedRenderShape {
-            matrix: matrix.id(),
-            shape,
-        };
-        (matrix, shape)
-    }
-
-    fn promote_change(change: Change<Self::Uploaded>) -> SceneChange {
-        SceneChange::PositionedShape(change)
-    }
-}
-
-impl PositionedShape {
-    pub fn new(matrix: Matrix4, shape: impl Into<Shape>) -> Self {
-        Self {
-            matrix,
-            shape: shape.into(),
-        }
-    }
-}
-
-#[derive(Debug, From)]
-pub enum Shape {
-    GlyphRun(GlyphRun),
-    Quads(Quads),
-}
-
-pub mod legacy {
-    use super::{Handle, Matrix4 as MatrixHandle};
-    use crate::{Director, PositionedShape, SceneChange};
-    use anyhow::Result;
-    use massive_geometry::Matrix4;
-    use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
-    use std::{collections::HashMap, ops::Deref, rc::Rc};
-    use tokio::sync::mpsc;
-
-    pub fn bootstrap_scene_changes(shapes: Vec<Shape>) -> Result<Vec<SceneChange>> {
-        let (channel_tx, mut channel_rx) = mpsc::channel(1);
-
-        let mut director = Director::from_sender(channel_tx);
-
-        // The shapes must be alive
-
-        {
-            // Keep the positioned shapes until the director ran through.
-            let _positioned = into_positioned_shapes(&mut director, shapes);
-            director.action()?;
-        }
-
-        Ok(channel_rx.try_recv().unwrap_or_default())
-    }
-
-    pub fn into_positioned_shapes(
-        director: &mut Director,
-        shapes: Vec<Shape>,
-    ) -> Vec<Handle<PositionedShape>> {
-        let mut matrix_handles: HashMap<*const Matrix4, MatrixHandle> = HashMap::new();
-        let mut positioned_shapes = Vec::with_capacity(shapes.len());
-
-        for shape in shapes {
-            let matrix = match &shape {
-                Shape::GlyphRun(GlyphRunShape { model_matrix, .. }) => model_matrix,
-                Shape::Quads(QuadsShape { model_matrix, .. }) => model_matrix,
-            };
-
-            let matrix = matrix_handles
-                .entry(Rc::as_ptr(matrix))
-                .or_insert_with(|| director.cast(*matrix.deref()));
-
-            let positioned = match shape {
-                Shape::GlyphRun(GlyphRunShape { run, .. }) => {
-                    PositionedShape::new(matrix.clone(), run)
-                }
-                Shape::Quads(QuadsShape { quads, .. }) => {
-                    PositionedShape::new(matrix.clone(), quads)
-                }
-            };
-
-            positioned_shapes.push(director.cast(positioned));
-        }
-
-        positioned_shapes
     }
 }

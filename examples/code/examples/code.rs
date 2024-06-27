@@ -282,10 +282,11 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut current_matrix = application.matrix();
     let matrix = director.cast(current_matrix);
+    let position = director.cast(matrix.clone().into());
 
     let _positioned_shapes: Vec<_> = glyph_runs
         .into_iter()
-        .map(|run| director.cast(PositionedShape::new(matrix.clone(), run)))
+        .map(|run| director.cast(PositionedShape::new(position.clone(), run)))
         .collect();
 
     director.action()?;
