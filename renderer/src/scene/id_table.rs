@@ -5,11 +5,12 @@ use std::{
     ops::{Index, IndexMut},
 };
 
-use massive_scene::{Change, Id};
+use massive_scene::Id;
 
 #[derive(Debug)]
 pub struct IdTable<T> {
-    rows: Vec<Option<T>>,
+    // Don't dare to make this pub, use `rows_mut()` instead.
+    rows: Vec<T>,
 }
 
 impl<T> Default for IdTable<T> {
@@ -21,42 +22,36 @@ impl<T> Default for IdTable<T> {
 }
 
 impl<T> IdTable<T> {
-    pub fn apply(&mut self, change: Change<T>) {
-        match change {
-            Change::Create(id, value) => self.put(id, value),
-            Change::Delete(id) => self.remove(id),
-            Change::Update(id, value) => self.rows[*id] = Some(value),
-        }
-    }
-
-    pub fn put(&mut self, id: Id, value: T) {
+    pub fn put(&mut self, id: Id, value: T)
+    where
+        T: Default,
+    {
         let index = *id;
         if index >= self.rows.len() {
-            self.rows.resize_with(index + 1, || None);
+            self.rows.resize_with(index + 1, || T::default());
         }
-        self.rows[index] = Some(value);
-    }
-
-    pub fn remove(&mut self, id: Id) {
-        self.rows[*id] = None;
+        self.rows[index] = value;
     }
 
     #[allow(unused)]
     #[must_use]
-    pub fn take(&mut self, id: Id) -> Option<T> {
+    pub fn take(&mut self, id: Id) -> Option<T>
+    where
+        T: Default,
+    {
         let index = *id;
         if index < self.rows.len() {
-            mem::take(&mut self.rows[index])
+            Some(mem::take(&mut self.rows[index]))
         } else {
             None
         }
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &T> {
-        self.rows.iter().filter_map(|v| v.as_ref())
+        self.rows.iter()
     }
 
-    pub(crate) fn rows(&mut self) -> &mut [Option<T>] {
+    pub(crate) fn rows_mut(&mut self) -> &mut [T] {
         &mut self.rows
     }
 }
@@ -66,12 +61,12 @@ impl<T> Index<Id> for IdTable<T> {
     type Output = T;
 
     fn index(&self, index: Id) -> &Self::Output {
-        self.rows[*index].as_ref().unwrap()
+        &self.rows[*index]
     }
 }
 
 impl<T> IndexMut<Id> for IdTable<T> {
     fn index_mut(&mut self, index: Id) -> &mut Self::Output {
-        self.rows[*index].as_mut().unwrap()
+        &mut self.rows[*index]
     }
 }

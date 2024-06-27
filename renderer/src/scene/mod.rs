@@ -13,9 +13,9 @@ pub struct Scene {
     /// The version of newest values in the tables.
     current_version: Version,
 
-    matrices: IdTable<Versioned<Matrix4>>,
-    positions: IdTable<Versioned<PositionRenderObj>>,
-    shapes: IdTable<PositionedRenderShape>,
+    matrices: IdTable<Option<Versioned<Matrix4>>>,
+    positions: IdTable<Option<Versioned<PositionRenderObj>>>,
+    shapes: IdTable<Option<PositionedRenderShape>>,
 
     caches: RefCell<SceneCaches>,
 }
@@ -46,7 +46,7 @@ impl Scene {
     pub fn grouped_shapes(&self) -> impl Iterator<Item = (Matrix4, Vec<&Shape>)> {
         let mut map: HashMap<Id, Vec<&Shape>> = HashMap::new();
 
-        for positioned in self.shapes.iter() {
+        for positioned in self.shapes.iter_some() {
             let position_id = positioned.position;
             map.entry(position_id).or_default().push(&positioned.shape);
         }
@@ -87,7 +87,7 @@ impl Scene {
             return;
         }
 
-        let position = &self.positions[position_id];
+        let position = &self.positions[position_id].as_ref().unwrap();
         let (parent_id, matrix) = (position.parent, position.matrix);
 
         // Find out the max version of all the immeidate and (indirect / computed) dependencies.
@@ -96,7 +96,9 @@ impl Scene {
         // a) The self position's version.
         // b) The local matrix's version.
         // c) The computed matrix of the parent (representing all its dependencies).
-        let max_deps_version = position.updated_at.max(self.matrices[matrix].updated_at);
+        let max_deps_version = position
+            .updated_at
+            .max(self.matrices[matrix].as_ref().unwrap().updated_at);
 
         // Combine with the optional parent.
         let max_deps_version = {
@@ -123,7 +125,7 @@ impl Scene {
 
         // Compute a new value.
 
-        let local_matrix = &*self.matrices[matrix];
+        let local_matrix = &**self.matrices[matrix].as_ref().unwrap();
         let new_value = parent_id.map_or_else(
             || *local_matrix,
             |parent_id| *caches.positions_matrix[parent_id] * local_matrix,
@@ -137,12 +139,31 @@ impl Scene {
     }
 }
 
-impl<T> IdTable<Versioned<T>> {
+impl<T> IdTable<Option<T>> {
+    pub fn iter_some(&self) -> impl Iterator<Item = &T> {
+        self.iter().filter_map(|v| v.as_ref())
+    }
+
+    pub fn apply(&mut self, change: Change<T>) {
+        match change {
+            Change::Create(id, value) => self.put(id, Some(value)),
+            Change::Delete(id) => self.put(id, None),
+            Change::Update(id, value) => {
+                // Already know that this index must exist, so use rows() here.
+                self.rows_mut()[*id] = Some(value)
+            }
+        }
+    }
+}
+
+impl<T> IdTable<Option<Versioned<T>>> {
     pub fn apply_versioned(&mut self, change: Change<T>, version: Version) {
         match change {
-            Change::Create(id, value) => self.put(id, Versioned::new(value, version)),
-            Change::Delete(id) => self.remove(id),
-            Change::Update(id, value) => self.rows()[*id] = Some(Versioned::new(value, version)),
+            Change::Create(id, value) => self.put(id, Some(Versioned::new(value, version))),
+            Change::Delete(id) => self.put(id, None),
+            Change::Update(id, value) => {
+                self.rows_mut()[*id] = Some(Versioned::new(value, version))
+            }
         }
     }
 }
