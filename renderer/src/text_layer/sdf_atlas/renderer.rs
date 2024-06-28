@@ -150,7 +150,7 @@ impl SdfAtlasRenderer {
             .max()
             .unwrap_or_default();
 
-        self.index_buffer.set(pass, Some(max_quads));
+        self.index_buffer.set(pass, max_quads);
 
         for QuadBatch {
             model_matrix,

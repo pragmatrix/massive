@@ -22,18 +22,11 @@ impl QuadIndexBuffer {
         (self.0.size() as usize) / size_of_val(Self::QUAD_INDICES)
     }
 
-    pub fn set<'a, 'rpass>(&'a self, pass: &mut RenderPass<'rpass>, max_quads: Option<usize>)
+    pub fn set<'a, 'rpass>(&'a self, pass: &mut RenderPass<'rpass>, max_quads: usize)
     where
         'a: 'rpass,
     {
-        let slice = {
-            match max_quads {
-                Some(max_quads) => self.slice(max_quads),
-                None => self.0.slice(..),
-            }
-        };
-
-        pass.set_index_buffer(slice, Self::INDEX_FORMAT)
+        pass.set_index_buffer(self.slice(max_quads), Self::INDEX_FORMAT)
     }
 
     fn slice(&self, max_quads: usize) -> BufferSlice {

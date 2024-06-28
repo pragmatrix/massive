@@ -95,13 +95,23 @@ impl QuadsRenderer {
     }
 
     pub fn render<'rpass>(&'rpass self, context: &mut RenderContext<'_, 'rpass>) {
+        let max_quads = self
+            .layers
+            .iter()
+            .map(|QuadsLayer { quad_count, .. }| *quad_count)
+            .max()
+            .unwrap_or_default();
+
+        if max_quads == 0 {
+            return;
+        }
+
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
         // DI: May do this inside this renderer and pass a Matrix to prepare?.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
         // DI: May share index buffers between renderers?
-        // OO: This uploads to complete index buffer, is this needed?
-        self.index_buffer.set(pass, None);
+        self.index_buffer.set(pass, max_quads);
 
         for QuadsLayer {
             model_matrix,
