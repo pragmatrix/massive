@@ -100,7 +100,8 @@ impl QuadsRenderer {
         // DI: May do this inside this renderer and pass a Matrix to prepare?.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
         // DI: May share index buffers between renderers?
-        pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        // OO: This uploads to complete index buffer, is this needed?
+        self.index_buffer.set(pass, None);
 
         for QuadsLayer {
             model_matrix,

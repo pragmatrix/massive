@@ -1,5 +1,3 @@
-use std::mem;
-
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     TextureFormat,
@@ -136,6 +134,7 @@ impl SdfAtlasRenderer {
             return;
         }
 
+        // OO: This resolves to a &mut &mut, is this really needed?
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
         // DI: May do this inside this renderer and pass a Matrix to prepare?.
@@ -151,12 +150,7 @@ impl SdfAtlasRenderer {
             .max()
             .unwrap_or_default();
 
-        pass.set_index_buffer(
-            self.index_buffer.slice(
-                ..(max_quads * QuadIndexBuffer::INDICES_PER_QUAD * mem::size_of::<u16>()) as u64,
-            ),
-            wgpu::IndexFormat::Uint16,
-        );
+        self.index_buffer.set(pass, Some(max_quads));
 
         for QuadBatch {
             model_matrix,

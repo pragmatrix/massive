@@ -1,5 +1,3 @@
-use std::mem;
-
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     TextureFormat,
@@ -149,12 +147,7 @@ impl ColorAtlasRenderer {
             .max()
             .unwrap_or_default();
 
-        pass.set_index_buffer(
-            self.index_buffer.slice(
-                ..(max_quads * QuadIndexBuffer::INDICES_PER_QUAD * mem::size_of::<u16>()) as u64,
-            ),
-            wgpu::IndexFormat::Uint16,
-        );
+        self.index_buffer.set(pass, Some(max_quads));
 
         for QuadBatch {
             model_matrix,
