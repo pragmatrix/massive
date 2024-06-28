@@ -98,6 +98,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let mut application = Application::new(page_size);
     let mut current_matrix = application.matrix();
     let matrix_handle = director.cast(current_matrix);
+    let position_handle = director.cast(matrix_handle.clone().into());
 
     let mut y = 0.;
 
@@ -110,11 +111,12 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             .recv() => {
                 let (new_runs, height) = {
                     let mut font_system = font_system.lock().unwrap();
+
                     shape_log_line(&bytes, y, &mut font_system)
                 };
 
                 positioned_shapes.extend(
-                    new_runs.into_iter().map(|run| director.cast(PositionedShape::new(matrix_handle.clone(), run)))
+                    new_runs.into_iter().map(|run| director.cast(PositionedShape::new(position_handle.clone(), run)))
                 );
                 director.action()?;
                 y += height;
