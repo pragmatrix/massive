@@ -65,10 +65,10 @@ impl QuadsRenderer {
         }
     }
 
-    pub fn prepare(
+    pub fn prepare<'a>(
         &mut self,
         context: &mut PreparationContext,
-        shapes: &[(Matrix4, &[&Shape])],
+        shapes: &[(Matrix4, impl Iterator<Item = &'a Shape> + Clone)],
     ) -> Result<()> {
         self.layers.clear();
 
@@ -78,7 +78,7 @@ impl QuadsRenderer {
             if let Some(quads_layer) = self.prepare_quads(
                 context,
                 matrix,
-                shapes.iter().filter_map(|s| match s {
+                shapes.clone().filter_map(|s| match s {
                     Shape::GlyphRun(_) => None,
                     Shape::Quads(quads) => Some(quads),
                 }),

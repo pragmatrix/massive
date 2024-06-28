@@ -13,13 +13,20 @@ pub enum Shape {
 #[derive(Debug)]
 pub struct PositionedShape {
     pub position: Handle<Position>,
-    pub shape: Shape,
+    /// DR: Clients should be able to use [`PositionedShape`] directly as a an abstract thing. Like
+    /// for example a line which contains multiple Shapes (runs, quads, etc.). Therefore
+    /// `Vec<Shape>` and not just `Shape`.
+    ///
+    /// GI: Another idea is to add `Shape::Combined(Vec<Shape>)`, but this makes extraction per
+    /// renderer a bit more complex. This would also point to sharing Shapes as handles ... which
+    /// could go in direction of layout?
+    pub shapes: Vec<Shape>,
 }
 
 #[derive(Debug)]
 pub struct PositionedRenderShape {
     pub position: Id,
-    pub shape: Shape,
+    pub shapes: Vec<Shape>,
 }
 
 impl Object for PositionedShape {
@@ -29,10 +36,10 @@ impl Object for PositionedShape {
     type Change = PositionedRenderShape;
 
     fn split(self) -> (Self::Keep, Self::Change) {
-        let PositionedShape { position, shape } = self;
+        let PositionedShape { position, shapes } = self;
         let shape = PositionedRenderShape {
             position: position.id(),
-            shape,
+            shapes,
         };
         (position, shape)
     }
@@ -43,11 +50,17 @@ impl Object for PositionedShape {
 }
 
 impl PositionedShape {
-    pub fn new(position: Handle<Position>, shape: impl Into<Shape>) -> Self {
+    pub fn new(position: Handle<Position>, shapes: impl Into<Vec<Shape>>) -> Self {
         Self {
             position,
-            shape: shape.into(),
+            shapes: shapes.into(),
         }
+    }
+}
+
+impl From<Shape> for Vec<Shape> {
+    fn from(value: Shape) -> Self {
+        vec![value]
     }
 }
 
@@ -149,10 +162,10 @@ pub mod legacy {
 
             let positioned = match shape {
                 Shape::GlyphRun(GlyphRunShape { run, .. }) => {
-                    PositionedShape::new(position.clone(), run)
+                    PositionedShape::new(position.clone(), super::Shape::from(run))
                 }
                 Shape::Quads(QuadsShape { quads, .. }) => {
-                    PositionedShape::new(position.clone(), quads)
+                    PositionedShape::new(position.clone(), super::Shape::from(quads))
                 }
             };
 

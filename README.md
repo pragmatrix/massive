@@ -30,6 +30,7 @@ cargo run --release --example markdown
 
 ## Acronyms used in the code.
 
+- DR: Decision Record.
 - OO: Optimization Opportunity
 - NI: Naming Issue
 - DI: Design Issue (e.g. something does not seem to belong here)

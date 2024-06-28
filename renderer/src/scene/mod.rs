@@ -42,14 +42,14 @@ impl Scene {
     }
 
     /// Returns a set of grouped shape by matrix.
-    ///
-    /// TODO: This should not be &mut self, because it updates computed values only.
-    pub fn grouped_shapes(&self) -> impl Iterator<Item = (Matrix4, Vec<&Shape>)> {
-        let mut map: HashMap<Id, Vec<&Shape>> = HashMap::new();
+    pub fn grouped_shapes(
+        &self,
+    ) -> impl Iterator<Item = (Matrix4, impl Iterator<Item = &Shape> + Clone)> {
+        let mut map: HashMap<Id, Vec<&[Shape]>> = HashMap::new();
 
         for positioned in self.shapes.iter_some() {
             let position_id = positioned.position;
-            map.entry(position_id).or_default().push(&positioned.shape);
+            map.entry(position_id).or_default().push(&positioned.shapes);
         }
 
         // Update all matrices that are in use.
@@ -66,9 +66,9 @@ impl Scene {
 
         map.into_iter().map(move |(position_id, shapes)| {
             // Ensure the matrix is up2date.
-            // We can't return a reference to matrix, because this would also borrow `caches``.
+            // We can't return a reference to matrix, because this would also borrow `caches`.
             let matrix = *caches.positions_matrix[position_id];
-            (matrix, shapes)
+            (matrix, shapes.into_iter().flatten())
         })
     }
 
