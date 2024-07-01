@@ -37,7 +37,7 @@ pub struct Computed<V> {
     /// This is last the time the `max_deps_version` and computed value was validated to be
     /// consistent with its dependencies.
     ///
-    /// If `validated_at` is less than the curreent tick, `max_deps_version` and `value` may be
+    /// If `validated_at` is less than the current tick, `max_deps_version` and `value` may be
     /// outdated.
     pub validated_at: Version,
     /// The maximum version of all its dependencies. May be outdated if `checked_at` does not equals

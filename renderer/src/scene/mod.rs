@@ -65,7 +65,6 @@ impl Scene {
         let caches = self.caches.borrow();
 
         map.into_iter().map(move |(position_id, shapes)| {
-            // Ensure the matrix is up2date.
             // We can't return a reference to matrix, because this would also borrow `caches`.
             let matrix = *caches.positions_matrix[position_id];
             (matrix, shapes.into_iter().flatten())
@@ -78,7 +77,7 @@ impl Scene {
     /// version and can be used for rendering.
     ///
     /// We don't return a reference to the result here, because the borrow checker would make this
-    /// recursive function invocation uncessarily more complex.
+    /// recursive function invocation unnecessarily more complex.
     ///
     /// TODO: Unrecurse this. There might be degenerate cases of large dependency chains.
     fn resolve_positioned_matrix(&self, position_id: Id, caches: &mut SceneCaches) {
@@ -99,7 +98,7 @@ impl Scene {
         let position = self.positions.unwrapped(position_id);
         let (parent_id, matrix) = (position.parent, position.matrix);
 
-        // Find out the max version of all the immeidate and (indirect / computed) dependencies.
+        // Find out the max version of all the immediate and (indirect / computed) dependencies.
 
         // Get the _three_ versions of the elements this one is computed on.
         // a) The self position's version.
