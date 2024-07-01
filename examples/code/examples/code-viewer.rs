@@ -105,10 +105,10 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     let position = director.cast(matrix.clone().into());
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
-    let _positioned_shapes: Vec<_> = glyph_runs
-        .into_iter()
-        .map(|run| director.cast(PositionedShape::new(position.clone(), run)))
-        .collect();
+    let _positioned_shape = director.cast(PositionedShape::new(
+        position.clone(),
+        glyph_runs.into_iter().map(|m| m.into()).collect::<Vec<_>>(),
+    ));
 
     director.action()?;
 

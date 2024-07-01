@@ -115,8 +115,9 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                     shape_log_line(&bytes, y, &mut font_system)
                 };
 
-                positioned_shapes.extend(
-                    new_runs.into_iter().map(|run| director.cast(PositionedShape::new(position_handle.clone(), run)))
+                positioned_shapes.push(
+                    director.cast(PositionedShape::new(position_handle.clone(), new_runs.into_iter().map(
+                        |run| run.into()).collect::<Vec<_>>()))
                 );
                 director.action()?;
                 y += height;
