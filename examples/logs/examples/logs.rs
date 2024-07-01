@@ -21,8 +21,8 @@ use tokio::{
 use winit::dpi::LogicalSize;
 
 use logs::terminal::{color_schemes, Rgb};
-use massive_geometry::{Camera, Color, Vector3};
-use massive_scene::PositionedShape;
+use massive_geometry::{Camera, Color, Identity, Vector3};
+use massive_scene::{Matrix, Position, PositionedShape};
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
@@ -95,11 +95,19 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     // Application
 
-    let page_size = (1280u32, 800);
+    let mut page_size = (1280u32, 1);
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
-    let matrix_handle = director.cast(current_matrix);
-    let position_handle = director.cast(matrix_handle.clone().into());
+    let page_matrix = director.cast(current_matrix);
+    let page_position = director.cast(Position::from(page_matrix.clone()));
+    // We move up the lines by their top position.
+    let move_up_matrix = director.cast(Matrix::identity());
+
+    // Final position for all lines (runs are y-translated, but only increasing).
+    let position = director.cast(Position {
+        parent: Some(page_position),
+        matrix: move_up_matrix.clone(),
+    });
 
     let mut y = 0.;
 
@@ -118,14 +126,21 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                     shape_log_line(&bytes, y, &mut font_system)
                 };
 
-                let line = director.cast(PositionedShape::new(position_handle.clone(), new_runs.into_iter().map(
+                let line = director.cast(PositionedShape::new(position.clone(), new_runs.into_iter().map(
                     |run| run.into()).collect::<Vec<_>>()));
 
-                positioned_lines.push_back(line);
+                positioned_lines.push_back((y, height, line));
 
                 while positioned_lines.len() > max_lines {
                     positioned_lines.pop_front();
-                }
+                };
+
+                // Update page size.
+
+                let top_line = positioned_lines.front().unwrap();
+                move_up_matrix.update(Matrix::from_translation((0., -top_line.0, 0.).into()));
+                let last_line = positioned_lines.back().unwrap();
+                page_size.1 = (last_line.0 + last_line.1 - top_line.0) as u32;
 
                 director.action()?;
 
@@ -142,7 +157,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                 // needs to redraw.
                 let new_matrix = application.matrix(page_size);
                 if new_matrix != current_matrix {
-                    matrix_handle.update(new_matrix);
+                    page_matrix.update(new_matrix);
                     current_matrix = new_matrix;
                     director.action()?;
                 }
