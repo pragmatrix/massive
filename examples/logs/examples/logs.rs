@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     io, iter,
     ops::Range,
     sync::{Arc, Mutex},
@@ -95,15 +96,17 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     // Application
 
     let page_size = (1280u32, 800);
-    let mut application = Application::new(page_size);
-    let mut current_matrix = application.matrix();
+    let mut application = Application::default();
+    let mut current_matrix = application.matrix(page_size);
     let matrix_handle = director.cast(current_matrix);
     let position_handle = director.cast(matrix_handle.clone().into());
 
     let mut y = 0.;
 
-    // Hold the positioned shapes in this context, otherwise they will disappear.
-    let mut positioned_shapes = Vec::new();
+    let max_lines = 100;
+
+    // Hold the positioned lines, otherwise they will disappear.
+    let mut positioned_lines = VecDeque::new();
 
     loop {
         select! {
@@ -115,11 +118,17 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                     shape_log_line(&bytes, y, &mut font_system)
                 };
 
-                positioned_shapes.push(
-                    director.cast(PositionedShape::new(position_handle.clone(), new_runs.into_iter().map(
-                        |run| run.into()).collect::<Vec<_>>()))
-                );
+                let line = director.cast(PositionedShape::new(position_handle.clone(), new_runs.into_iter().map(
+                    |run| run.into()).collect::<Vec<_>>()));
+
+                positioned_lines.push_back(line);
+
+                while positioned_lines.len() > max_lines {
+                    positioned_lines.pop_front();
+                }
+
                 director.action()?;
+
                 y += height;
             },
 
@@ -131,7 +140,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
                 // DI: This check has to be done in the renderer and the renderer has to decide when it
                 // needs to redraw.
-                let new_matrix = application.matrix();
+                let new_matrix = application.matrix(page_size);
                 if new_matrix != current_matrix {
                     matrix_handle.update(new_matrix);
                     current_matrix = new_matrix;

@@ -14,9 +14,8 @@ enum ActiveGesture {
     Rotation(RotationGesture),
 }
 
+#[derive(Default)]
 pub struct Application {
-    page_size: SizeI,
-
     gesture: Option<ActiveGesture>,
 
     /// Tracked positions of all devices.
@@ -28,20 +27,6 @@ pub struct Application {
     translation_z: i32,
     /// Rotation in discrete degrees.
     rotation: PointI,
-}
-
-impl Application {
-    pub fn new(page_size: impl Into<SizeI>) -> Self {
-        Self {
-            page_size: page_size.into(),
-            gesture: None,
-            positions: HashMap::new(),
-            modifiers: Modifiers::default(),
-            translation: PointI::default(),
-            translation_z: 0,
-            rotation: PointI::default(),
-        }
-    }
 }
 
 struct MovementGesture {
@@ -204,11 +189,13 @@ impl Application {
         UpdateResponse::Continue
     }
 
-    pub fn matrix(&self) -> Matrix4 {
+    pub fn matrix(&self, page_size: impl Into<SizeI>) -> Matrix4 {
         // let mut shapes = Vec::new();
 
-        let page_x_center: f64 = -((self.page_size.width / 2) as f64);
-        let page_y_center: f64 = -((self.page_size.height / 2) as f64);
+        let page_size = page_size.into();
+
+        let page_x_center: f64 = -((page_size.width / 2) as f64);
+        let page_y_center: f64 = -((page_size.height / 2) as f64);
         let center_transformation =
             Matrix4::from_translation((page_x_center, page_y_center, 0.0).into());
         let current_translation = Matrix4::from_translation(

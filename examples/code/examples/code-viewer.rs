@@ -99,8 +99,9 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         )
         .await?;
 
-    let mut application = Application::new(SizeI::new(1280, height as u64));
-    let mut current_matrix = application.matrix();
+    let page_size = SizeI::new(1280, height as u64);
+    let mut application = Application::default();
+    let mut current_matrix = application.matrix(page_size);
     let matrix = director.cast(current_matrix);
     let position = director.cast(matrix.clone().into());
 
@@ -124,7 +125,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        let new_matrix = application.matrix();
+        let new_matrix = application.matrix(page_size);
         if new_matrix != current_matrix {
             matrix.update(new_matrix);
             current_matrix = new_matrix;
