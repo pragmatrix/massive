@@ -157,7 +157,7 @@ trait DependencyResolver {
 
     fn compute(
         shared: &Self::SharedStorage,
-        computed: &mut Self::ComputedStorage,
+        computed: &Self::ComputedStorage,
         source: &Self::Source,
     ) -> Self::Computed;
 
@@ -213,7 +213,7 @@ impl DependencyResolver for PositionedMatrix {
         caches.positions_matrix.mut_or_default(id)
     }
 
-    fn compute(scene: &Scene, caches: &mut SceneCaches, source: &Self::Source) -> Self::Computed {
+    fn compute(scene: &Scene, caches: &SceneCaches, source: &Self::Source) -> Self::Computed {
         let (parent_id, matrix_id) = (source.parent, source.matrix);
         let local_matrix = &**scene.matrices.get_unwrapped(matrix_id);
         parent_id.map_or_else(
