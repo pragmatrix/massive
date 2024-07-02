@@ -117,7 +117,7 @@ fn resolve<Resolver: DependencyResolver>(
         Resolver::resolve_dependencies(head_version, source, shared_storage, caches);
 
     // If the max_deps_version is smaller or equal to the current one, the value is ok and can
-    // be marked as validated for this round.
+    // be marked as validated at `head_version`.
     if max_deps_version <= computed_max_deps {
         Resolver::computed_mut(caches, id).validated_at = head_version;
         return;
@@ -135,7 +135,6 @@ fn resolve<Resolver: DependencyResolver>(
 trait DependencyResolver {
     /// Type of the shared table storage.
     type SharedStorage;
-
     /// Type of the computed table storage.
     type ComputedStorage;
 
