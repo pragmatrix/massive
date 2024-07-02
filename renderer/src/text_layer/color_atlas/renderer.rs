@@ -1,5 +1,3 @@
-use std::mem;
-
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     TextureFormat,
@@ -82,8 +80,9 @@ impl ColorAtlasRenderer {
 
         for instance in instances {
             let r = instance.atlas_rect;
-            // ADR: u/v normalization is dont in the shader, for once, its probably free, and scondly
-            // we don't have to care about the atlas texture growing as long the rects stay the same.
+            // ADR: u/v normalization is dont in the shader, for once, its probably free, and
+            // secondly we don't have to care about the atlas texture growing as long the rects stay
+            // the same.
             let (ltx, lty) = (r.min.x as f32, r.min.y as f32);
             let (rbx, rby) = (r.max.x as f32, r.max.y as f32);
 
@@ -140,7 +139,7 @@ impl ColorAtlasRenderer {
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
         // DI: May share index buffers between renderers?
         //
-        // OO: Don't pass the full index buffer here, only what's actully needed (it is growing
+        // OO: Don't pass the full index buffer here, only what's actually needed (it is growing
         // only)
 
         let max_quads = batches
@@ -149,12 +148,7 @@ impl ColorAtlasRenderer {
             .max()
             .unwrap_or_default();
 
-        pass.set_index_buffer(
-            self.index_buffer.slice(
-                ..(max_quads * QuadIndexBuffer::INDICES_PER_QUAD * mem::size_of::<u16>()) as u64,
-            ),
-            wgpu::IndexFormat::Uint16,
-        );
+        self.index_buffer.set(pass, max_quads);
 
         for QuadBatch {
             model_matrix,

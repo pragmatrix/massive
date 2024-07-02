@@ -42,14 +42,14 @@ impl Scene {
     }
 
     /// Returns a set of grouped shape by matrix.
-    ///
-    /// TODO: This should not be &mut self, because it updates computed values only.
-    pub fn grouped_shapes(&self) -> impl Iterator<Item = (Matrix4, Vec<&Shape>)> {
-        let mut map: HashMap<Id, Vec<&Shape>> = HashMap::new();
+    pub fn grouped_shapes(
+        &self,
+    ) -> impl Iterator<Item = (Matrix4, impl Iterator<Item = &Shape> + Clone)> {
+        let mut map: HashMap<Id, Vec<&[Shape]>> = HashMap::new();
 
         for positioned in self.shapes.iter_some() {
             let position_id = positioned.position;
-            map.entry(position_id).or_default().push(&positioned.shape);
+            map.entry(position_id).or_default().push(&positioned.shapes);
         }
 
         // Update all matrices that are in use.
@@ -65,10 +65,9 @@ impl Scene {
         let caches = self.caches.borrow();
 
         map.into_iter().map(move |(position_id, shapes)| {
-            // Ensure the matrix is up2date.
-            // We can't return a reference to matrix, because this would also borrow `caches``.
+            // We can't return a reference to matrix, because this would also borrow `caches`.
             let matrix = *caches.positions_matrix[position_id];
-            (matrix, shapes)
+            (matrix, shapes.into_iter().flatten())
         })
     }
 
@@ -78,7 +77,7 @@ impl Scene {
     /// version and can be used for rendering.
     ///
     /// We don't return a reference to the result here, because the borrow checker would make this
-    /// recursive function invocation uncessarily more complex.
+    /// recursive function invocation unnecessarily more complex.
     ///
     /// TODO: Unrecurse this. There might be degenerate cases of large dependency chains.
     fn resolve_positioned_matrix(&self, position_id: Id, caches: &mut SceneCaches) {
@@ -99,7 +98,7 @@ impl Scene {
         let position = self.positions.unwrapped(position_id);
         let (parent_id, matrix) = (position.parent, position.matrix);
 
-        // Find out the max version of all the immeidate and (indirect / computed) dependencies.
+        // Find out the max version of all the immediate and (indirect / computed) dependencies.
 
         // Get the _three_ versions of the elements this one is computed on.
         // a) The self position's version.

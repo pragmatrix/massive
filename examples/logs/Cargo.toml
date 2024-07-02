@@ -1,0 +1,21 @@
+[package]
+name = "logs"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+termwiz = "0.22.0"
+
+shared = { path = "../shared" }
+
+massive-geometry = { workspace = true }
+massive-shell = { workspace = true }
+massive-scene = { workspace = true }
+massive-shapes = { workspace = true }
+
+anyhow = { workspace = true }
+cosmic-text = { workspace = true }
+log = { workspace = true }
+winit = { workspace = true }
+env_logger = { workspace = true }
+tokio = { workspace = true }

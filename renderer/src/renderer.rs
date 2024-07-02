@@ -122,16 +122,16 @@ impl<'window> Renderer<'window> {
             font_system,
         };
 
-        // OO: Lot's of allocations here.
+        // OO: Avoid allocations.
         let grouped_shapes: Vec<_> = self.scene.grouped_shapes().collect();
 
         let pixel_matrix = self.pixel_matrix();
 
-        // OO: Lot's of allocations here.
         // Group by matrix and apply the pixel matrix.
+        // OO: Lot's of allocations here. Modify Matrix in-place?
         let grouped_by_matrix: Vec<_> = grouped_shapes
-            .iter()
-            .map(|(m, v)| (pixel_matrix * *m, v.as_slice()))
+            .into_iter()
+            .map(|(m, v)| (pixel_matrix * m, v))
             .collect();
 
         // OO: parallelize?

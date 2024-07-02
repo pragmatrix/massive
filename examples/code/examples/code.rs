@@ -19,7 +19,7 @@ use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
 use shared::{
     application::{Application, UpdateResponse},
-    code_viewer,
+    attributed_text,
 };
 use syntax::{AstNode, SyntaxKind, WalkEvent};
 use tracing::info;
@@ -27,7 +27,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 use vfs::VfsPath;
 use winit::dpi::LogicalSize;
 
-use crate::code_viewer::TextAttribute;
+use crate::attributed_text::TextAttribute;
 use massive_geometry::{Camera, Color, SizeI};
 use massive_scene::PositionedShape;
 use massive_shapes::TextWeight;
@@ -225,7 +225,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     // Store for the web viewer.
 
-    let attributed_code = code_viewer::AttributedCode {
+    let attributed_code = attributed_text::AttributedText {
         text: file_text.to_string(),
         attributes: attributes.clone(),
     };
@@ -249,12 +249,13 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = code_viewer::shape_text(
+    let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
         &file_text,
         &attributes,
         font_size,
         line_height,
+        None,
     );
 
     // Window
@@ -272,7 +273,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     // Application
 
-    let mut application = Application::new(SizeI::new(1280, height as u64));
+    let page_size = SizeI::new(1280, height as u64);
+    let mut application = Application::default();
 
     let font_system = Arc::new(Mutex::new(font_system));
 
@@ -280,14 +282,17 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .new_renderer(font_system, camera, initial_size)
         .await?;
 
-    let mut current_matrix = application.matrix();
+    let mut current_matrix = application.matrix(page_size);
     let matrix = director.cast(current_matrix);
     let position = director.cast(matrix.clone().into());
 
-    let _positioned_shapes: Vec<_> = glyph_runs
-        .into_iter()
-        .map(|run| director.cast(PositionedShape::new(position.clone(), run)))
-        .collect();
+    let _positioned_shape = director.cast(PositionedShape::new(
+        position.clone(),
+        glyph_runs
+            .into_iter()
+            .map(|run| run.into())
+            .collect::<Vec<_>>(),
+    ));
 
     director.action()?;
 
@@ -303,7 +308,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        let new_matrix = application.matrix();
+        let new_matrix = application.matrix(page_size);
         if new_matrix != current_matrix {
             matrix.update(new_matrix);
             current_matrix = new_matrix;

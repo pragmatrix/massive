@@ -68,21 +68,22 @@ impl TextLayerRenderer {
         }
     }
 
-    pub fn prepare(
+    pub fn prepare<'a>(
         &mut self,
         context: &mut PreparationContext,
-        shapes: &[(Matrix4, &[&Shape])],
+        shapes: &[(Matrix4, impl Iterator<Item = &'a Shape> + Clone)],
     ) -> Result<()> {
         self.sdf_batches.clear();
         self.color_batches.clear();
 
-        for (matrix, shapes) in shapes {
+        for (matrix, ref shapes) in shapes {
             // NB: could deref the pointer here using unsafe.
             let (sdf_batch, color_batch) = self.prepare_runs(
                 context,
                 matrix,
                 // DI: Move this filter up (callers should just pass here what's needed).
-                shapes.iter().filter_map(|s| match s {
+                // OO: clone() will clone the backing Vec.
+                shapes.clone().filter_map(|s| match s {
                     Shape::GlyphRun(run) => Some(run),
                     Shape::Quads(_) => None,
                 }),

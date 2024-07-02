@@ -65,10 +65,10 @@ impl QuadsRenderer {
         }
     }
 
-    pub fn prepare(
+    pub fn prepare<'a>(
         &mut self,
         context: &mut PreparationContext,
-        shapes: &[(Matrix4, &[&Shape])],
+        shapes: &[(Matrix4, impl Iterator<Item = &'a Shape> + Clone)],
     ) -> Result<()> {
         self.layers.clear();
 
@@ -78,7 +78,7 @@ impl QuadsRenderer {
             if let Some(quads_layer) = self.prepare_quads(
                 context,
                 matrix,
-                shapes.iter().filter_map(|s| match s {
+                shapes.clone().filter_map(|s| match s {
                     Shape::GlyphRun(_) => None,
                     Shape::Quads(quads) => Some(quads),
                 }),
@@ -95,12 +95,23 @@ impl QuadsRenderer {
     }
 
     pub fn render<'rpass>(&'rpass self, context: &mut RenderContext<'_, 'rpass>) {
+        let max_quads = self
+            .layers
+            .iter()
+            .map(|QuadsLayer { quad_count, .. }| *quad_count)
+            .max()
+            .unwrap_or_default();
+
+        if max_quads == 0 {
+            return;
+        }
+
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
         // DI: May do this inside this renderer and pass a Matrix to prepare?.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
         // DI: May share index buffers between renderers?
-        pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+        self.index_buffer.set(pass, max_quads);
 
         for QuadsLayer {
             model_matrix,

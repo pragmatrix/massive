@@ -86,16 +86,19 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         markdown,
     )?;
 
-    let mut application = Application::new(page_size);
-    let mut current_matrix = application.matrix();
+    let mut application = Application::default();
+    let mut current_matrix = application.matrix(page_size);
     let matrix = director.cast(current_matrix);
     let position = director.cast(matrix.clone().into());
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
-    let _positioned_shapes: Vec<_> = glyph_runs
-        .into_iter()
-        .map(|run| director.cast(PositionedShape::new(position.clone(), run)))
-        .collect();
+    let _positioned_shape = director.cast(PositionedShape::new(
+        position.clone(),
+        glyph_runs
+            .into_iter()
+            .map(|run| run.into())
+            .collect::<Vec<_>>(),
+    ));
 
     director.action()?;
 
@@ -111,7 +114,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        let new_matrix = application.matrix();
+        let new_matrix = application.matrix(page_size);
         if new_matrix != current_matrix {
             matrix.update(new_matrix);
             current_matrix = new_matrix;

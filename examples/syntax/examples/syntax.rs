@@ -16,7 +16,7 @@ use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
-    code_viewer::{self, TextAttribute},
+    attributed_text::{self, TextAttribute},
 };
 
 const CANVAS_ID: &str = "massive-syntax";
@@ -83,12 +83,13 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
-    let (glyph_runs, height) = code_viewer::shape_text(
+    let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
         &final_text,
         &text_attributes,
         font_size,
         line_height,
+        None,
     );
 
     let font_system = Arc::new(Mutex::new(font_system));
@@ -103,16 +104,20 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
     // Application
 
-    let mut application = Application::new((1280, height as u64));
-    let mut current_matrix = application.matrix();
+    let page_size = (1280, height as u64);
+    let mut application = Application::default();
+    let mut current_matrix = application.matrix(page_size);
     let matrix = director.cast(current_matrix);
     let position = director.cast(matrix.clone().into());
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
-    let _positioned_shapes: Vec<_> = glyph_runs
-        .into_iter()
-        .map(|run| director.cast(PositionedShape::new(position.clone(), run)))
-        .collect();
+    let _positioned_shape = director.cast(PositionedShape::new(
+        position.clone(),
+        glyph_runs
+            .into_iter()
+            .map(|run| run.into())
+            .collect::<Vec<_>>(),
+    ));
 
     director.action()?;
 
@@ -126,7 +131,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        let new_matrix = application.matrix();
+        let new_matrix = application.matrix(page_size);
         if new_matrix != current_matrix {
             matrix.update(new_matrix);
             current_matrix = new_matrix;

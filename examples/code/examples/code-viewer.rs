@@ -10,7 +10,7 @@ use massive_scene::PositionedShape;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
-    code_viewer::{self, AttributedCode},
+    attributed_text::{self, AttributedText},
 };
 
 const CANVAS_ID: &str = "massive-code";
@@ -60,7 +60,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     // let code: AttributedCode =
     //     serde_json::from_str(&fs::read_to_string("/tmp/code.json").unwrap()).unwrap();
-    let code: AttributedCode = postcard::from_bytes(include_bytes!("code.postcard")).unwrap();
+    let code: AttributedText = postcard::from_bytes(include_bytes!("code.postcard")).unwrap();
 
     // Shape and layout text.
 
@@ -69,12 +69,13 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = code_viewer::shape_text(
+    let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
         &code.text,
         &code.attributes,
         font_size,
         line_height,
+        None,
     );
 
     // Camera
@@ -98,16 +99,17 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         )
         .await?;
 
-    let mut application = Application::new(SizeI::new(1280, height as u64));
-    let mut current_matrix = application.matrix();
+    let page_size = SizeI::new(1280, height as u64);
+    let mut application = Application::default();
+    let mut current_matrix = application.matrix(page_size);
     let matrix = director.cast(current_matrix);
     let position = director.cast(matrix.clone().into());
 
     // Hold the positioned shapes in this context, otherwise they will disappear.
-    let _positioned_shapes: Vec<_> = glyph_runs
-        .into_iter()
-        .map(|run| director.cast(PositionedShape::new(position.clone(), run)))
-        .collect();
+    let _positioned_shape = director.cast(PositionedShape::new(
+        position.clone(),
+        glyph_runs.into_iter().map(|m| m.into()).collect::<Vec<_>>(),
+    ));
 
     director.action()?;
 
@@ -123,7 +125,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        let new_matrix = application.matrix();
+        let new_matrix = application.matrix(page_size);
         if new_matrix != current_matrix {
             matrix.update(new_matrix);
             current_matrix = new_matrix;
