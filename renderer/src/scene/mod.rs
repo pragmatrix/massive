@@ -88,15 +88,15 @@ impl Scene {
         // need to be resized.
         if caches
             .positions_matrix
-            .get_or_default(position_id)
+            .mut_or_default(position_id)
             .validated_at
             == current_version
         {
             return;
         }
 
-        let position = self.positions.unwrapped(position_id);
-        let (parent_id, matrix) = (position.parent, position.matrix);
+        let position = self.positions.get_unwrapped(position_id);
+        let (parent_id, matrix_id) = (position.parent, position.matrix);
 
         // Find out the max version of all the immediate and (indirect / computed) dependencies.
 
@@ -106,12 +106,12 @@ impl Scene {
         // c) The computed matrix of the parent (representing all its dependencies).
         let max_deps_version = position
             .updated_at
-            .max(self.matrices.unwrapped(matrix).updated_at);
+            .max(self.matrices.get_unwrapped(matrix_id).updated_at);
 
         // Combine with the optional parent.
         let max_deps_version = {
             if let Some(parent_id) = parent_id {
-                // Be sure the parent is up to date.
+                // Make sure the parent is up to date.
                 self.resolve_positioned_matrix(parent_id, caches);
                 caches.positions_matrix[parent_id]
                     .max_deps_version
@@ -133,7 +133,7 @@ impl Scene {
 
         // Compute a new value.
 
-        let local_matrix = &**self.matrices.unwrapped(matrix);
+        let local_matrix = &**self.matrices.get_unwrapped(matrix_id);
         let new_value = parent_id.map_or_else(
             || *local_matrix,
             |parent_id| *caches.positions_matrix[parent_id] * local_matrix,
@@ -144,6 +144,118 @@ impl Scene {
             max_deps_version,
             value: new_value,
         };
+    }
+}
+
+fn resolve<Resolver: DependencyResolver>(scene: &Scene, caches: &mut SceneCaches, id: Id)
+where
+    Computed<Resolver::Computed>: Default,
+{
+    let current_version = scene.current_version;
+
+    // Already validated at the latest version? Done.
+    //
+    // `get_or_default` must be used here. This is the only situation in which the cache may
+    // need to be resized.
+    let computed = Resolver::computed_mut(caches, id);
+    if computed.validated_at == current_version {
+        return;
+    }
+    // Save for later.
+    let computed_max_deps = computed.max_deps_version;
+
+    let source = Resolver::source(scene, id);
+    let max_deps_version = Resolver::resolve_dependencies(scene, caches, source);
+
+    // If the max_deps_version is smaller or equal to the current one, the value is ok and can
+    // be marked as validated for this round.
+    if max_deps_version <= computed_max_deps {
+        Resolver::computed_mut(caches, id).validated_at = current_version;
+        return;
+    }
+
+    // Compute a new value and store it.
+    let new_value = Resolver::compute(scene, caches, source);
+    *Resolver::computed_mut(caches, id) = Computed {
+        validated_at: current_version,
+        max_deps_version,
+        value: new_value,
+    };
+}
+
+trait DependencyResolver {
+    /// Currently, this is used in the resolve algorithm for caching only.
+    type Source;
+    /// The computed value type (must implement Default for now, use Option<> otherwise)
+    type Computed;
+
+    fn source(scene: &Scene, id: Id) -> &Versioned<Self::Source>;
+
+    /// Make sure that all dependencies are up to date and return their maximum version.
+    fn resolve_dependencies(
+        scene: &Scene,
+        caches: &mut SceneCaches,
+        source: &Versioned<Self::Source>,
+    ) -> Version;
+
+    fn compute(scene: &Scene, caches: &mut SceneCaches, source: &Self::Source) -> Self::Computed;
+
+    fn computed_mut(caches: &mut SceneCaches, id: Id) -> &mut Computed<Self::Computed>
+    where
+        Computed<Self::Computed>: Default;
+}
+
+struct FinalMatrix;
+
+impl DependencyResolver for FinalMatrix {
+    type Source = PositionRenderObj;
+    type Computed = Matrix4;
+
+    #[inline]
+    fn source(scene: &Scene, id: Id) -> &Versioned<Self::Source> {
+        scene.positions.get_unwrapped(id)
+    }
+
+    fn resolve_dependencies(
+        scene: &Scene,
+        caches: &mut SceneCaches,
+        source: &Versioned<Self::Source>,
+    ) -> Version {
+        let (parent_id, matrix_id) = (source.parent, source.matrix);
+
+        // Find out the max version of all the immediate and (indirect / computed) dependencies.
+
+        // Get the _three_ versions of the elements this one is computed on.
+        // a) The self position's version.
+        // b) The local matrix's version.
+        // c) The computed matrix of the parent (representing all its dependencies).
+        let max_deps_version = source
+            .updated_at
+            .max(scene.matrices.get_unwrapped(matrix_id).updated_at);
+
+        // Combine with the optional parent.
+        if let Some(parent_id) = parent_id {
+            // Make sure the parent is up to date.
+            resolve::<Self>(scene, caches, parent_id);
+            caches.positions_matrix[parent_id]
+                .max_deps_version
+                .max(max_deps_version)
+        } else {
+            max_deps_version
+        }
+    }
+
+    fn computed_mut(caches: &mut SceneCaches, id: Id) -> &mut Computed<Self::Computed> {
+        caches.positions_matrix.mut_or_default(id)
+    }
+
+    fn compute(scene: &Scene, caches: &mut SceneCaches, source: &Self::Source) -> Self::Computed {
+        let (parent_id, matrix_id) = (source.parent, source.matrix);
+        let local_matrix = &**scene.matrices.get_unwrapped(matrix_id);
+        parent_id.map_or_else(
+            || *local_matrix,
+            |parent_id| *caches.positions_matrix[parent_id] * local_matrix,
+        )
     }
 }
 
@@ -158,7 +270,7 @@ impl<T> IdTable<Option<T>> {
             Change::Create(id, value) => self.put(id, Some(value)),
             Change::Delete(id) => self.put(id, None),
             Change::Update(id, value) => {
-                // Already know that this index must exist, so use rows() here.
+                // A value at this index must exist, so use `rows_mut()` here.
                 self.rows_mut()[*id] = Some(value)
             }
         }
@@ -167,7 +279,7 @@ impl<T> IdTable<Option<T>> {
     /// Returns a reference to the object at `id`.
     ///
     /// Panics if it does not exist.
-    pub fn unwrapped(&self, id: Id) -> &T {
+    pub fn get_unwrapped(&self, id: Id) -> &T {
         self[id].as_ref().unwrap()
     }
 }
