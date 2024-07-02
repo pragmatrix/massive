@@ -5,7 +5,7 @@ use euclid::num::Zero;
 use dependency_resolver::{resolve, DependencyResolver};
 use id_table::IdTable;
 use massive_geometry::Matrix4;
-use massive_scene::{Change, Id, PositionRenderObj, PositionedRenderShape, SceneChange, Shape};
+use massive_scene::{Change, Id, LocationRenderObj, SceneChange, Shape, VisualRenderObj};
 use versioning::{Computed, Version, Versioned};
 
 mod dependency_resolver;
@@ -18,8 +18,8 @@ pub struct Scene {
     current_version: Version,
 
     matrices: IdTable<Option<Versioned<Matrix4>>>,
-    positions: IdTable<Option<Versioned<PositionRenderObj>>>,
-    shapes: IdTable<Option<PositionedRenderShape>>,
+    locations: IdTable<Option<Versioned<LocationRenderObj>>>,
+    visuals: IdTable<Option<VisualRenderObj>>,
 
     caches: RefCell<SceneCaches>,
 }
@@ -39,8 +39,8 @@ impl Scene {
     fn apply(&mut self, change: SceneChange, version: Version) {
         match change {
             SceneChange::Matrix(change) => self.matrices.apply_versioned(change, version),
-            SceneChange::Position(change) => self.positions.apply_versioned(change, version),
-            SceneChange::PositionedShape(change) => self.shapes.apply(change),
+            SceneChange::Location(change) => self.locations.apply_versioned(change, version),
+            SceneChange::Visual(change) => self.visuals.apply(change),
         }
     }
 
@@ -50,16 +50,16 @@ impl Scene {
     ) -> impl Iterator<Item = (Matrix4, impl Iterator<Item = &Shape> + Clone)> {
         let mut map: HashMap<Id, Vec<&[Shape]>> = HashMap::new();
 
-        for positioned in self.shapes.iter_some() {
-            let position_id = positioned.position;
-            map.entry(position_id).or_default().push(&positioned.shapes);
+        for visual in self.visuals.iter_some() {
+            let visual_id = visual.position;
+            map.entry(visual_id).or_default().push(&visual.shapes);
         }
 
         // Update all matrices that are in use.
         {
             let mut caches = self.caches.borrow_mut();
-            for position_id in map.keys() {
-                self.resolve_positioned_matrix(*position_id, &mut caches);
+            for visual_id in map.keys() {
+                self.resolve_visual_matrix(*visual_id, &mut caches);
             }
         }
 
@@ -67,34 +67,33 @@ impl Scene {
 
         let caches = self.caches.borrow();
 
-        map.into_iter().map(move |(position_id, shapes)| {
+        map.into_iter().map(move |(visual_id, shapes)| {
             // We can't return a reference to matrix, because this would also borrow `caches`.
-            let matrix = *caches.positions_matrix[position_id];
+            let matrix = *caches.location_matrix[visual_id];
             (matrix, shapes.into_iter().flatten())
         })
     }
 
-    /// Compute - if needed - the matrix of a position.
+    /// Compute - if needed - the matrix of a location.
     ///
-    /// When this function returns the matrix at `position_id` is up to date with the current
+    /// When this function returns the matrix at `location_id` is up to date with the current
     /// version and can be used for rendering.
-    ///
-    fn resolve_positioned_matrix(&self, position_id: Id, caches: &mut SceneCaches) {
-        resolve::<PositionedMatrix>(self.current_version, self, caches, position_id);
+    fn resolve_visual_matrix(&self, location_id: Id, caches: &mut SceneCaches) {
+        resolve::<VisualMatrix>(self.current_version, self, caches, location_id);
     }
 }
 
-/// The dependency resolver for finally positioned matrix.
-struct PositionedMatrix;
+/// The dependency resolver for final matrix of a [`Visual`].
+struct VisualMatrix;
 
-impl DependencyResolver for PositionedMatrix {
+impl DependencyResolver for VisualMatrix {
     type SharedStorage = Scene;
     type ComputedStorage = SceneCaches;
-    type Source = PositionRenderObj;
+    type Source = LocationRenderObj;
     type Computed = Matrix4;
 
     fn source(scene: &Scene, id: Id) -> &Versioned<Self::Source> {
-        scene.positions.get_unwrapped(id)
+        scene.locations.get_unwrapped(id)
     }
 
     fn resolve_dependencies(
@@ -108,7 +107,7 @@ impl DependencyResolver for PositionedMatrix {
         // Find out the max version of all the immediate and (indirect / computed) dependencies.
 
         // Get the _three_ versions of the elements this one is computed on.
-        // a) The self position's version.
+        // a) The self location's version.
         // b) The local matrix's version.
         // c) The computed matrix of the parent (representing all its dependencies).
         let max_deps_version = source
@@ -119,7 +118,7 @@ impl DependencyResolver for PositionedMatrix {
         if let Some(parent_id) = parent_id {
             // Make sure the parent is up to date.
             resolve::<Self>(current_version, scene, caches, parent_id);
-            caches.positions_matrix[parent_id]
+            caches.location_matrix[parent_id]
                 .max_deps_version
                 .max(max_deps_version)
         } else {
@@ -128,7 +127,7 @@ impl DependencyResolver for PositionedMatrix {
     }
 
     fn computed_mut(caches: &mut SceneCaches, id: Id) -> &mut Computed<Self::Computed> {
-        caches.positions_matrix.mut_or_default(id)
+        caches.location_matrix.mut_or_default(id)
     }
 
     fn compute(scene: &Scene, caches: &SceneCaches, source: &Self::Source) -> Self::Computed {
@@ -136,7 +135,7 @@ impl DependencyResolver for PositionedMatrix {
         let local_matrix = &**scene.matrices.get_unwrapped(matrix_id);
         parent_id.map_or_else(
             || *local_matrix,
-            |parent_id| *caches.positions_matrix[parent_id] * local_matrix,
+            |parent_id| *caches.location_matrix[parent_id] * local_matrix,
         )
     }
 }
@@ -183,7 +182,7 @@ impl Default for Computed<Matrix4> {
         Self {
             validated_at: 0,
             max_deps_version: 0,
-            // OO: is there a wait to use `::ZERO` / the trait `ConstZero` from num_traits for
+            // OO: is there a way to use `::ZERO` / the trait `ConstZero` from num_traits for
             // example?
             value: Matrix4::zero(),
         }
@@ -192,6 +191,6 @@ impl Default for Computed<Matrix4> {
 
 #[derive(Debug, Default)]
 struct SceneCaches {
-    // The result of a positioned computation.
-    positions_matrix: IdTable<Computed<Matrix4>>,
+    // The result of a location matrix computation.
+    location_matrix: IdTable<Computed<Matrix4>>,
 }

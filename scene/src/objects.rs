@@ -11,33 +11,36 @@ pub enum Shape {
 }
 
 #[derive(Debug)]
-pub struct PositionedShape {
-    pub position: Handle<Position>,
-    /// DR: Clients should be able to use [`PositionedShape`] directly as a an abstract thing. Like
-    /// for example a line which contains multiple Shapes (runs, quads, etc.). Therefore
-    /// `Vec<Shape>` and not just `Shape`.
+pub struct Visual {
+    pub location: Handle<Location>,
+    /// DR: Clients should be able to use [`Visual`] directly as a an abstract thing. Like for
+    /// example a line which contains multiple Shapes (runs, quads, etc.). Therefore `Vec<Shape>`
+    /// and not just `Shape`.
     ///
-    /// GI: Another idea is to add `Shape::Combined(Vec<Shape>)`, but this makes extraction per
+    /// DI: Another idea is to add `Shape::Combined(Vec<Shape>)`, but this makes extraction per
     /// renderer a bit more complex. This would also point to sharing Shapes as handles ... which
     /// could go in direction of layout?
     pub shapes: Vec<Shape>,
 }
 
 #[derive(Debug)]
-pub struct PositionedRenderShape {
+pub struct VisualRenderObj {
     pub position: Id,
     pub shapes: Vec<Shape>,
 }
 
-impl Object for PositionedShape {
+impl Object for Visual {
     // We keep the position handle here.
-    type Keep = Handle<Position>;
+    type Keep = Handle<Location>;
     // And upload the render shape.
-    type Change = PositionedRenderShape;
+    type Change = VisualRenderObj;
 
     fn split(self) -> (Self::Keep, Self::Change) {
-        let PositionedShape { position, shapes } = self;
-        let shape = PositionedRenderShape {
+        let Visual {
+            location: position,
+            shapes,
+        } = self;
+        let shape = VisualRenderObj {
             position: position.id(),
             shapes,
         };
@@ -45,14 +48,14 @@ impl Object for PositionedShape {
     }
 
     fn promote_change(change: Change<Self::Change>) -> SceneChange {
-        SceneChange::PositionedShape(change)
+        SceneChange::Visual(change)
     }
 }
 
-impl PositionedShape {
-    pub fn new(position: Handle<Position>, shapes: impl Into<Vec<Shape>>) -> Self {
+impl Visual {
+    pub fn new(location: Handle<Location>, shapes: impl Into<Vec<Shape>>) -> Self {
         Self {
-            position,
+            location,
             shapes: shapes.into(),
         }
     }
@@ -65,37 +68,37 @@ impl From<Shape> for Vec<Shape> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Position {
-    pub parent: Option<Handle<Position>>,
+pub struct Location {
+    pub parent: Option<Handle<Location>>,
     pub matrix: Handle<Matrix>,
 }
 
-impl From<Handle<Matrix>> for Position {
+impl From<Handle<Matrix>> for Location {
     fn from(matrix: Handle<Matrix>) -> Self {
-        Position {
+        Location {
             parent: None,
             matrix,
         }
     }
 }
 
-impl Object for Position {
+impl Object for Location {
     type Keep = Self;
-    type Change = PositionRenderObj;
+    type Change = LocationRenderObj;
 
     fn promote_change(change: Change<Self::Change>) -> SceneChange {
-        SceneChange::Position(change)
+        SceneChange::Location(change)
     }
 
     fn split(self) -> (Self::Keep, Self::Change) {
         let parent = self.parent.as_ref().map(|p| p.id());
         let matrix = self.matrix.id();
-        (self, PositionRenderObj { parent, matrix })
+        (self, LocationRenderObj { parent, matrix })
     }
 }
 
 #[derive(Debug)]
-pub struct PositionRenderObj {
+pub struct LocationRenderObj {
     pub parent: Option<Id>,
     pub matrix: Id,
 }
@@ -117,7 +120,7 @@ impl Object for Matrix {
 
 pub mod legacy {
     use super::Handle;
-    use crate::{Director, Position, PositionedShape, SceneChange};
+    use crate::{Director, Location, SceneChange, Visual};
     use anyhow::Result;
     use massive_geometry::Matrix4;
     use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
@@ -132,20 +135,17 @@ pub mod legacy {
         // The shapes must be alive
 
         {
-            // Keep the positioned shapes until the director ran through.
-            let _positioned = into_positioned_shapes(&mut director, shapes);
+            // Keep the visuals until the director ran through.
+            let _visuals = into_visuals(&mut director, shapes);
             director.action()?;
         }
 
         Ok(channel_rx.try_recv().unwrap_or_default())
     }
 
-    pub fn into_positioned_shapes(
-        director: &mut Director,
-        shapes: Vec<Shape>,
-    ) -> Vec<Handle<PositionedShape>> {
-        let mut position_handles: HashMap<*const Matrix4, Handle<Position>> = HashMap::new();
-        let mut positioned_shapes = Vec::with_capacity(shapes.len());
+    pub fn into_visuals(director: &mut Director, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
+        let mut location_handles: HashMap<*const Matrix4, Handle<Location>> = HashMap::new();
+        let mut visuals = Vec::with_capacity(shapes.len());
 
         for shape in shapes {
             let matrix = match &shape {
@@ -153,25 +153,25 @@ pub mod legacy {
                 Shape::Quads(QuadsShape { model_matrix, .. }) => model_matrix,
             };
 
-            let position = position_handles.entry(Rc::as_ptr(matrix)).or_insert_with(
-                || -> Handle<Position> {
-                    let matrix = director.cast(**matrix);
-                    director.cast(matrix.into())
+            let position = location_handles.entry(Rc::as_ptr(matrix)).or_insert_with(
+                || -> Handle<Location> {
+                    let matrix = director.stage(**matrix);
+                    director.stage(matrix.into())
                 },
             );
 
-            let positioned = match shape {
+            let visual = match shape {
                 Shape::GlyphRun(GlyphRunShape { run, .. }) => {
-                    PositionedShape::new(position.clone(), super::Shape::from(run))
+                    Visual::new(position.clone(), super::Shape::from(run))
                 }
                 Shape::Quads(QuadsShape { quads, .. }) => {
-                    PositionedShape::new(position.clone(), super::Shape::from(quads))
+                    Visual::new(position.clone(), super::Shape::from(quads))
                 }
             };
 
-            positioned_shapes.push(director.cast(positioned));
+            visuals.push(director.stage(visual));
         }
 
-        positioned_shapes
+        visuals
     }
 }

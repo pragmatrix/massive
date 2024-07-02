@@ -29,7 +29,7 @@ use winit::dpi::LogicalSize;
 
 use crate::attributed_text::TextAttribute;
 use massive_geometry::{Camera, Color, SizeI};
-use massive_scene::PositionedShape;
+use massive_scene::Visual;
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 
@@ -283,11 +283,11 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
 
     let mut current_matrix = application.matrix(page_size);
-    let matrix = director.cast(current_matrix);
-    let position = director.cast(matrix.clone().into());
+    let matrix = director.stage(current_matrix);
+    let location = director.stage(matrix.clone().into());
 
-    let _positioned_shape = director.cast(PositionedShape::new(
-        position.clone(),
+    let _visual = director.stage(Visual::new(
+        location.clone(),
         glyph_runs
             .into_iter()
             .map(|run| run.into())
