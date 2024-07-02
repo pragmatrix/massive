@@ -76,150 +76,115 @@ impl Scene {
     /// When this function returns the matrix at `position_id` is up to date with the current
     /// version and can be used for rendering.
     ///
-    /// We don't return a reference to the result here, because the borrow checker would make this
-    /// recursive function invocation unnecessarily more complex.
-    ///
-    /// TODO: Unrecurse this. There might be degenerate cases of large dependency chains.
     fn resolve_positioned_matrix(&self, position_id: Id, caches: &mut SceneCaches) {
-        let current_version = self.current_version;
-        // Already validated at the latest version? Done.
-        //
-        // `get_or_default` must be used here. This is the only situation in which the cache may
-        // need to be resized.
-        if caches
-            .positions_matrix
-            .mut_or_default(position_id)
-            .validated_at
-            == current_version
-        {
-            return;
-        }
-
-        let position = self.positions.get_unwrapped(position_id);
-        let (parent_id, matrix_id) = (position.parent, position.matrix);
-
-        // Find out the max version of all the immediate and (indirect / computed) dependencies.
-
-        // Get the _three_ versions of the elements this one is computed on.
-        // a) The self position's version.
-        // b) The local matrix's version.
-        // c) The computed matrix of the parent (representing all its dependencies).
-        let max_deps_version = position
-            .updated_at
-            .max(self.matrices.get_unwrapped(matrix_id).updated_at);
-
-        // Combine with the optional parent.
-        let max_deps_version = {
-            if let Some(parent_id) = parent_id {
-                // Make sure the parent is up to date.
-                self.resolve_positioned_matrix(parent_id, caches);
-                caches.positions_matrix[parent_id]
-                    .max_deps_version
-                    .max(max_deps_version)
-            } else {
-                max_deps_version
-            }
-        };
-
-        // If the max_deps_version is smaller or equal to the current one, the value is ok and can
-        // be marked as validated for this round.
-        {
-            let positioned_matrix = &mut caches.positions_matrix[position_id];
-            if max_deps_version <= positioned_matrix.max_deps_version {
-                positioned_matrix.validated_at = current_version;
-                return;
-            }
-        }
-
-        // Compute a new value.
-
-        let local_matrix = &**self.matrices.get_unwrapped(matrix_id);
-        let new_value = parent_id.map_or_else(
-            || *local_matrix,
-            |parent_id| *caches.positions_matrix[parent_id] * local_matrix,
-        );
-
-        caches.positions_matrix[position_id] = Computed {
-            validated_at: current_version,
-            max_deps_version,
-            value: new_value,
-        };
+        resolve::<PositionedMatrix>(self.current_version, self, caches, position_id);
     }
 }
 
-fn resolve<Resolver: DependencyResolver>(scene: &Scene, caches: &mut SceneCaches, id: Id)
-where
+/// Resolve a computed value.
+///
+/// Invoking this function ensures that the computed value `id` is up to date with its dependencies
+/// at `head_version`.
+///
+/// We don't return a reference to the result here, because the borrow checker would make this
+/// recursive function invocation unnecessarily more complex.
+///
+/// TODO: Unrecurse this. There might be degenerate cases of large dependency chains.
+fn resolve<Resolver: DependencyResolver>(
+    head_version: Version,
+    shared_storage: &Resolver::SharedStorage,
+    caches: &mut Resolver::ComputedStorage,
+    id: Id,
+) where
     Computed<Resolver::Computed>: Default,
 {
-    let current_version = scene.current_version;
-
     // Already validated at the latest version? Done.
     //
     // `get_or_default` must be used here. This is the only situation in which the cache may
     // need to be resized.
     let computed = Resolver::computed_mut(caches, id);
-    if computed.validated_at == current_version {
+    if computed.validated_at == head_version {
         return;
     }
-    // Save for later.
+    // Save the current max dependencies version for later.
+    //
+    // In theory this could be overwritten if there are cycles in the dependency graph, but in
+    // practice they are not (and everything may blow up anyway).
     let computed_max_deps = computed.max_deps_version;
 
-    let source = Resolver::source(scene, id);
-    let max_deps_version = Resolver::resolve_dependencies(scene, caches, source);
+    let source = Resolver::source(shared_storage, id);
+    let max_deps_version =
+        Resolver::resolve_dependencies(head_version, source, shared_storage, caches);
 
     // If the max_deps_version is smaller or equal to the current one, the value is ok and can
     // be marked as validated for this round.
     if max_deps_version <= computed_max_deps {
-        Resolver::computed_mut(caches, id).validated_at = current_version;
+        Resolver::computed_mut(caches, id).validated_at = head_version;
         return;
     }
 
     // Compute a new value and store it.
-    let new_value = Resolver::compute(scene, caches, source);
+    let new_value = Resolver::compute(shared_storage, caches, source);
     *Resolver::computed_mut(caches, id) = Computed {
-        validated_at: current_version,
+        validated_at: head_version,
         max_deps_version,
         value: new_value,
     };
 }
 
 trait DependencyResolver {
-    /// Currently, this is used in the resolve algorithm for caching only.
+    /// Type of the shared table storage.
+    type SharedStorage;
+
+    /// Type of the computed table storage.
+    type ComputedStorage;
+
+    /// The symmetric _versioned_ source value type. There must be a source value for every computed
+    /// value with the same id.
     type Source;
     /// The computed value type (must implement Default for now, use Option<> otherwise)
     type Computed;
 
-    fn source(scene: &Scene, id: Id) -> &Versioned<Self::Source>;
+    /// Retrieve a reference to the versioned source value.
+    fn source(scene: &Self::SharedStorage, id: Id) -> &Versioned<Self::Source>;
 
     /// Make sure that all dependencies are up to date and return their maximum version.
     fn resolve_dependencies(
-        scene: &Scene,
-        caches: &mut SceneCaches,
+        head_version: Version,
         source: &Versioned<Self::Source>,
+        shared: &Self::SharedStorage,
+        computed: &mut Self::ComputedStorage,
     ) -> Version;
 
-    fn compute(scene: &Scene, caches: &mut SceneCaches, source: &Self::Source) -> Self::Computed;
+    fn compute(
+        shared: &Self::SharedStorage,
+        computed: &mut Self::ComputedStorage,
+        source: &Self::Source,
+    ) -> Self::Computed;
 
-    fn computed_mut(caches: &mut SceneCaches, id: Id) -> &mut Computed<Self::Computed>
+    fn computed_mut(computed: &mut Self::ComputedStorage, id: Id) -> &mut Computed<Self::Computed>
     where
         Computed<Self::Computed>: Default;
 }
 
-struct FinalMatrix;
+/// The dependency resolver for finally positioned matrix.
+struct PositionedMatrix;
 
-impl DependencyResolver for FinalMatrix {
+impl DependencyResolver for PositionedMatrix {
+    type SharedStorage = Scene;
+    type ComputedStorage = SceneCaches;
     type Source = PositionRenderObj;
     type Computed = Matrix4;
 
-    #[inline]
     fn source(scene: &Scene, id: Id) -> &Versioned<Self::Source> {
         scene.positions.get_unwrapped(id)
     }
 
     fn resolve_dependencies(
+        current_version: Version,
+        source: &Versioned<Self::Source>,
         scene: &Scene,
         caches: &mut SceneCaches,
-        source: &Versioned<Self::Source>,
     ) -> Version {
         let (parent_id, matrix_id) = (source.parent, source.matrix);
 
@@ -236,7 +201,7 @@ impl DependencyResolver for FinalMatrix {
         // Combine with the optional parent.
         if let Some(parent_id) = parent_id {
             // Make sure the parent is up to date.
-            resolve::<Self>(scene, caches, parent_id);
+            resolve::<Self>(current_version, scene, caches, parent_id);
             caches.positions_matrix[parent_id]
                 .max_deps_version
                 .max(max_deps_version)
