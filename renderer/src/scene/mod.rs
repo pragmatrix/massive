@@ -1,11 +1,14 @@
 use std::{cell::RefCell, collections::HashMap};
 
 use euclid::num::Zero;
+
+use dependency_resolver::{resolve, DependencyResolver};
 use id_table::IdTable;
 use massive_geometry::Matrix4;
 use massive_scene::{Change, Id, PositionRenderObj, PositionedRenderShape, SceneChange, Shape};
 use versioning::{Computed, Version, Versioned};
 
+mod dependency_resolver;
 mod id_table;
 mod versioning;
 
@@ -76,27 +79,31 @@ impl Scene {
     /// When this function returns the matrix at `position_id` is up to date with the current
     /// version and can be used for rendering.
     ///
-    /// We don't return a reference to the result here, because the borrow checker would make this
-    /// recursive function invocation unnecessarily more complex.
-    ///
-    /// TODO: Unrecurse this. There might be degenerate cases of large dependency chains.
     fn resolve_positioned_matrix(&self, position_id: Id, caches: &mut SceneCaches) {
-        let current_version = self.current_version;
-        // Already validated at the latest version? Done.
-        //
-        // `get_or_default` must be used here. This is the only situation in which the cache may
-        // need to be resized.
-        if caches
-            .positions_matrix
-            .get_or_default(position_id)
-            .validated_at
-            == current_version
-        {
-            return;
-        }
+        resolve::<PositionedMatrix>(self.current_version, self, caches, position_id);
+    }
+}
 
-        let position = self.positions.unwrapped(position_id);
-        let (parent_id, matrix) = (position.parent, position.matrix);
+/// The dependency resolver for finally positioned matrix.
+struct PositionedMatrix;
+
+impl DependencyResolver for PositionedMatrix {
+    type SharedStorage = Scene;
+    type ComputedStorage = SceneCaches;
+    type Source = PositionRenderObj;
+    type Computed = Matrix4;
+
+    fn source(scene: &Scene, id: Id) -> &Versioned<Self::Source> {
+        scene.positions.get_unwrapped(id)
+    }
+
+    fn resolve_dependencies(
+        current_version: Version,
+        source: &Versioned<Self::Source>,
+        scene: &Scene,
+        caches: &mut SceneCaches,
+    ) -> Version {
+        let (parent_id, matrix_id) = (source.parent, source.matrix);
 
         // Find out the max version of all the immediate and (indirect / computed) dependencies.
 
@@ -104,46 +111,33 @@ impl Scene {
         // a) The self position's version.
         // b) The local matrix's version.
         // c) The computed matrix of the parent (representing all its dependencies).
-        let max_deps_version = position
+        let max_deps_version = source
             .updated_at
-            .max(self.matrices.unwrapped(matrix).updated_at);
+            .max(scene.matrices.get_unwrapped(matrix_id).updated_at);
 
         // Combine with the optional parent.
-        let max_deps_version = {
-            if let Some(parent_id) = parent_id {
-                // Be sure the parent is up to date.
-                self.resolve_positioned_matrix(parent_id, caches);
-                caches.positions_matrix[parent_id]
-                    .max_deps_version
-                    .max(max_deps_version)
-            } else {
-                max_deps_version
-            }
-        };
-
-        // If the max_deps_version is smaller or equal to the current one, the value is ok and can
-        // be marked as validated for this round.
-        {
-            let positioned_matrix = &mut caches.positions_matrix[position_id];
-            if max_deps_version <= positioned_matrix.max_deps_version {
-                positioned_matrix.validated_at = current_version;
-                return;
-            }
+        if let Some(parent_id) = parent_id {
+            // Make sure the parent is up to date.
+            resolve::<Self>(current_version, scene, caches, parent_id);
+            caches.positions_matrix[parent_id]
+                .max_deps_version
+                .max(max_deps_version)
+        } else {
+            max_deps_version
         }
+    }
 
-        // Compute a new value.
+    fn computed_mut(caches: &mut SceneCaches, id: Id) -> &mut Computed<Self::Computed> {
+        caches.positions_matrix.mut_or_default(id)
+    }
 
-        let local_matrix = &**self.matrices.unwrapped(matrix);
-        let new_value = parent_id.map_or_else(
+    fn compute(scene: &Scene, caches: &SceneCaches, source: &Self::Source) -> Self::Computed {
+        let (parent_id, matrix_id) = (source.parent, source.matrix);
+        let local_matrix = &**scene.matrices.get_unwrapped(matrix_id);
+        parent_id.map_or_else(
             || *local_matrix,
             |parent_id| *caches.positions_matrix[parent_id] * local_matrix,
-        );
-
-        caches.positions_matrix[position_id] = Computed {
-            validated_at: current_version,
-            max_deps_version,
-            value: new_value,
-        };
+        )
     }
 }
 
@@ -158,7 +152,7 @@ impl<T> IdTable<Option<T>> {
             Change::Create(id, value) => self.put(id, Some(value)),
             Change::Delete(id) => self.put(id, None),
             Change::Update(id, value) => {
-                // Already know that this index must exist, so use rows() here.
+                // A value at this index must exist, so use `rows_mut()` here.
                 self.rows_mut()[*id] = Some(value)
             }
         }
@@ -167,7 +161,7 @@ impl<T> IdTable<Option<T>> {
     /// Returns a reference to the object at `id`.
     ///
     /// Panics if it does not exist.
-    pub fn unwrapped(&self, id: Id) -> &T {
+    pub fn get_unwrapped(&self, id: Id) -> &T {
         self[id].as_ref().unwrap()
     }
 }
