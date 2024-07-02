@@ -2,7 +2,7 @@ use std::{any::TypeId, mem};
 
 use massive_geometry as geometry;
 
-use crate::{Id, Object, PositionRenderObj, PositionedRenderShape, PositionedShape};
+use crate::{Id, LocationRenderObj, Object, Visual, VisualRenderObj};
 
 #[derive(Debug)]
 pub enum Change<T> {
@@ -14,8 +14,8 @@ pub enum Change<T> {
 #[derive(Debug)]
 pub enum SceneChange {
     Matrix(Change<geometry::Matrix4>),
-    Position(Change<PositionRenderObj>),
-    PositionedShape(Change<PositionedRenderShape>),
+    Location(Change<LocationRenderObj>),
+    Visual(Change<VisualRenderObj>),
 }
 
 impl SceneChange {
@@ -24,9 +24,7 @@ impl SceneChange {
             SceneChange::Matrix(Change::Delete(id)) => {
                 Some((TypeId::of::<geometry::Matrix4>(), *id))
             }
-            SceneChange::PositionedShape(Change::Delete(id)) => {
-                Some((TypeId::of::<PositionedShape>(), *id))
-            }
+            SceneChange::Visual(Change::Delete(id)) => Some((TypeId::of::<Visual>(), *id)),
             _ => None,
         }
     }

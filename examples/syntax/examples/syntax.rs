@@ -11,7 +11,7 @@ use syntect::{
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, Color};
-use massive_scene::PositionedShape;
+use massive_scene::Visual;
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
@@ -107,11 +107,11 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     let page_size = (1280, height as u64);
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
-    let matrix = director.cast(current_matrix);
-    let position = director.cast(matrix.clone().into());
+    let matrix = director.stage(current_matrix);
+    let position = director.stage(matrix.clone().into());
 
-    // Hold the positioned shapes in this context, otherwise they will disappear.
-    let _positioned_shape = director.cast(PositionedShape::new(
+    // Hold the staged visual, otherwise it will disappear.
+    let _visual = director.stage(Visual::new(
         position.clone(),
         glyph_runs
             .into_iter()

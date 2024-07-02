@@ -43,7 +43,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .new_renderer(font_system, camera, window.inner_size())
         .await?;
 
-    let _positioned_shapes = legacy::into_positioned_shapes(&mut director, shapes);
+    let _visuals = legacy::into_visuals(&mut director, shapes);
     director.action()?;
 
     loop {

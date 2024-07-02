@@ -16,7 +16,7 @@ use inlyne::{
     Element,
 };
 use log::info;
-use massive_scene::PositionedShape;
+use massive_scene::Visual;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
@@ -88,12 +88,12 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
-    let matrix = director.cast(current_matrix);
-    let position = director.cast(matrix.clone().into());
+    let matrix = director.stage(current_matrix);
+    let location = director.stage(matrix.clone().into());
 
-    // Hold the positioned shapes in this context, otherwise they will disappear.
-    let _positioned_shape = director.cast(PositionedShape::new(
-        position.clone(),
+    // Hold the staged visual, otherwise it will disappear.
+    let _visual = director.stage(Visual::new(
+        location.clone(),
         glyph_runs
             .into_iter()
             .map(|run| run.into())

@@ -22,7 +22,7 @@ use winit::dpi::LogicalSize;
 
 use logs::terminal::{color_schemes, Rgb};
 use massive_geometry::{Camera, Color, Identity, Vector3};
-use massive_scene::{Matrix, Position, PositionedShape};
+use massive_scene::{Location, Matrix, Visual};
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
@@ -98,14 +98,14 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let mut page_size = (1280u32, 1);
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
-    let page_matrix = director.cast(current_matrix);
-    let page_position = director.cast(Position::from(page_matrix.clone()));
+    let page_matrix = director.stage(current_matrix);
+    let page_location = director.stage(Location::from(page_matrix.clone()));
     // We move up the lines by their top position.
-    let move_up_matrix = director.cast(Matrix::identity());
+    let move_up_matrix = director.stage(Matrix::identity());
 
     // Final position for all lines (runs are y-translated, but only increasing).
-    let position = director.cast(Position {
-        parent: Some(page_position),
+    let location = director.stage(Location {
+        parent: Some(page_location),
         matrix: move_up_matrix.clone(),
     });
 
@@ -113,8 +113,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let max_lines = 100;
 
-    // Hold the positioned lines, otherwise they will disappear.
-    let mut positioned_lines = VecDeque::new();
+    let mut lines = VecDeque::new();
 
     loop {
         select! {
@@ -126,20 +125,20 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                     shape_log_line(&bytes, y, &mut font_system)
                 };
 
-                let line = director.cast(PositionedShape::new(position.clone(), new_runs.into_iter().map(
+                let line = director.stage(Visual::new(location.clone(), new_runs.into_iter().map(
                     |run| run.into()).collect::<Vec<_>>()));
 
-                positioned_lines.push_back((y, height, line));
+                lines.push_back((y, height, line));
 
-                while positioned_lines.len() > max_lines {
-                    positioned_lines.pop_front();
+                while lines.len() > max_lines {
+                    lines.pop_front();
                 };
 
                 // Update page size.
 
-                let top_line = positioned_lines.front().unwrap();
+                let top_line = lines.front().unwrap();
                 move_up_matrix.update(Matrix::from_translation((0., -top_line.0, 0.).into()));
-                let last_line = positioned_lines.back().unwrap();
+                let last_line = lines.back().unwrap();
                 page_size.1 = (last_line.0 + last_line.1 - top_line.0) as u32;
 
                 director.action()?;
