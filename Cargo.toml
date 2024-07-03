@@ -2,12 +2,14 @@
 resolver = "2"
 
 members = [
+    "animator",
     "geometry",
     "shapes",
     "renderer",
     "shell",
     "scene",
     "examples/*", 
+    
 ]
 
 exclude = [
@@ -22,6 +24,7 @@ root-package = "shell"
 # exclude = [ "inlyne" ]
 
 [workspace.dependencies]
+massive-animator = { path = "animator" }
 massive-geometry = { path = "geometry" }
 massive-shell = { path = "shell" }
 massive-renderer = { path = "renderer" }
