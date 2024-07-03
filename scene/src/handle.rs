@@ -17,9 +17,17 @@ pub trait Object: Sized {
     fn split(self) -> (Self::Keep, Self::Change);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Handle<T: Object> {
     inner: Rc<InnerHandle<T>>,
+}
+
+impl<T: Object> Clone for Handle<T> {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
 }
 
 impl<T: Object> Handle<T> {

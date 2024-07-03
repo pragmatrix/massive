@@ -51,7 +51,7 @@ impl Scene {
         let mut map: HashMap<Id, Vec<&[Shape]>> = HashMap::new();
 
         for visual in self.visuals.iter_some() {
-            let visual_id = visual.position;
+            let visual_id = visual.location;
             map.entry(visual_id).or_default().push(&visual.shapes);
         }
 

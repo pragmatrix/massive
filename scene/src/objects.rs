@@ -25,26 +25,23 @@ pub struct Visual {
 
 #[derive(Debug)]
 pub struct VisualRenderObj {
-    pub position: Id,
+    pub location: Id,
     pub shapes: Vec<Shape>,
 }
 
 impl Object for Visual {
-    // We keep the position handle here.
+    // We keep the location handle here.
     type Keep = Handle<Location>;
     // And upload the render shape.
     type Change = VisualRenderObj;
 
     fn split(self) -> (Self::Keep, Self::Change) {
-        let Visual {
-            location: position,
-            shapes,
-        } = self;
+        let Visual { location, shapes } = self;
         let shape = VisualRenderObj {
-            position: position.id(),
+            location: location.id(),
             shapes,
         };
-        (position, shape)
+        (location, shape)
     }
 
     fn promote_change(change: Change<Self::Change>) -> SceneChange {

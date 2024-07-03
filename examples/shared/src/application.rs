@@ -190,8 +190,6 @@ impl Application {
     }
 
     pub fn matrix(&self, page_size: impl Into<SizeI>) -> Matrix4 {
-        // let mut shapes = Vec::new();
-
         let page_size = page_size.into();
 
         let page_x_center: f64 = -((page_size.width / 2) as f64);
