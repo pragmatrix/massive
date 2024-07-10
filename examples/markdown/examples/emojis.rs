@@ -170,11 +170,11 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     let page_size = SizeI::new(page_width as _, page_height);
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
-    let matrix = director.stage(current_matrix);
-    let location = director.stage(matrix.clone().into());
+    let matrix = director.put(current_matrix);
+    let location = director.put(matrix.clone().into());
 
     // Hold the staged visual, otherwise it will disappear.
-    let _visual = director.stage(Visual::new(
+    let _visual = director.put(Visual::new(
         location.clone(),
         glyph_runs
             .into_iter()

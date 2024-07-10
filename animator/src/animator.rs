@@ -150,7 +150,7 @@ mod tests {
     use super::{interpolate, Animation, AnimationResult};
 
     #[test]
-    pub fn zero_duration_sets_to_value() {
+    pub fn zero_duration_sets_final_value() {
         let value = Rc::new(RefCell::new(0.));
         let v2 = value.clone();
 

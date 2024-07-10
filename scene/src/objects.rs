@@ -152,8 +152,8 @@ pub mod legacy {
 
             let position = location_handles.entry(Rc::as_ptr(matrix)).or_insert_with(
                 || -> Handle<Location> {
-                    let matrix = director.stage(**matrix);
-                    director.stage(matrix.into())
+                    let matrix = director.put(**matrix);
+                    director.put(matrix.into())
                 },
             );
 
@@ -166,7 +166,7 @@ pub mod legacy {
                 }
             };
 
-            visuals.push(director.stage(visual));
+            visuals.push(director.put(visual));
         }
 
         visuals

@@ -107,11 +107,11 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     let page_size = (1280, height as u64);
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
-    let matrix = director.stage(current_matrix);
-    let position = director.stage(matrix.clone().into());
+    let matrix = director.put(current_matrix);
+    let position = director.put(matrix.clone().into());
 
     // Hold the staged visual, otherwise it will disappear.
-    let _visual = director.stage(Visual::new(
+    let _visual = director.put(Visual::new(
         position.clone(),
         glyph_runs
             .into_iter()

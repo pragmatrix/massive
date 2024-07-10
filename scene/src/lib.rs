@@ -26,6 +26,7 @@
 use std::{any::TypeId, cell::RefCell, collections::HashMap, rc::Rc};
 
 use anyhow::Result;
+use timeline::Timeline;
 use tokio::sync::mpsc;
 
 use id::*;
@@ -34,6 +35,7 @@ mod change_tracker;
 mod handle;
 mod id;
 mod objects;
+mod timeline;
 
 pub use change_tracker::*;
 pub use handle::*;
@@ -64,10 +66,19 @@ impl Director {
     }
 
     /// Put an object on the stage.
-    pub fn stage<T: Object + 'static>(&mut self, value: T) -> Handle<T> {
+    pub fn put<T: Object + 'static>(&mut self, value: T) -> Handle<T> {
         let ti = TypeId::of::<T>();
         let id = self.id_generators.entry(ti).or_default().allocate();
         Handle::new(id, value, self.change_tracker.clone())
+    }
+
+    /// Put an object on the stage and retain its value, so that it can be animated.
+    ///
+    /// This requires the object to implement `Clone`.
+    pub fn stage<T: Object + Clone + 'static>(&mut self, value: T) -> Timeline<T> {
+        let ti = TypeId::of::<T>();
+        let id = self.id_generators.entry(ti).or_default().allocate();
+        Timeline::new(id, value, self.change_tracker.clone())
     }
 
     /// Send changes to the renderer.

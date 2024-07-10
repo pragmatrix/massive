@@ -98,13 +98,13 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let mut page_size = (1280u32, 1);
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
-    let page_matrix = director.stage(current_matrix);
-    let page_location = director.stage(Location::from(page_matrix.clone()));
+    let page_matrix = director.put(current_matrix);
+    let page_location = director.put(Location::from(page_matrix.clone()));
     // We move up the lines by their top position.
-    let move_up_matrix = director.stage(Matrix::identity());
+    let move_up_matrix = director.put(Matrix::identity());
 
     // Final position for all lines (runs are y-translated, but only increasing).
-    let location = director.stage(Location {
+    let location = director.put(Location {
         parent: Some(page_location),
         matrix: move_up_matrix.clone(),
     });
@@ -125,7 +125,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                     shape_log_line(&bytes, y, &mut font_system)
                 };
 
-                let line = director.stage(Visual::new(location.clone(), new_runs.into_iter().map(
+                let line = director.put(Visual::new(location.clone(), new_runs.into_iter().map(
                     |run| run.into()).collect::<Vec<_>>()));
 
                 lines.push_back((y, height, line));
