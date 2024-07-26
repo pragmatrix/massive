@@ -42,6 +42,11 @@ impl<T> BlendedAnimation<T> {
         });
     }
 
+    /// Any animation active?
+    pub fn is_active(&self) -> bool {
+        !self.animations.is_empty()
+    }
+
     /// Proceed with the animation.
     ///
     /// Returns a computed current value at the instant, or None if there is no animation active.
