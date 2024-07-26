@@ -56,7 +56,8 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
     let (result_tx, mut result_rx) = oneshot::channel();
     let _application_task = local_set.spawn_local(async move {
         let r = application(application_context).await;
-        // Found no way to retrieve the result via JoinHandle, so this must do.
+        // Found no way to retrieve the result via JoinHandle, so a return via a onceshot channel
+        // must do.
         result_tx
             .send(Some(r))
             .expect("Internal Error: Failed to set the application result");
@@ -397,6 +398,12 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
+/// The [`ApplicationContext`] is the connection to the window. It allows the application to poll
+/// for events while also forwarding events to the renderer.
+///
+/// In addition to that it provides an animator that is updated with each event (mostly ticks)
+/// coming from the shell.
+
 pub struct ApplicationContext {
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
@@ -465,6 +472,10 @@ impl ApplicationContext {
         self.with_active_event_loop(|event_loop| event_loop.primary_monitor())
     }
 
+    /// Executes a lambda when a [`ActiveEventLoop`] reference is available. I.e. the code currently
+    /// running is run inside the winit event loop.
+    ///
+    /// Panics if the current code does not execute inside the winit event loop.
     fn with_active_event_loop<R>(&self, f: impl FnOnce(&ActiveEventLoop) -> R) -> R {
         let ptr = self.active_event_loop.borrow();
         let ptr = *ptr;
@@ -475,9 +486,7 @@ impl ApplicationContext {
         f(active_event_loop)
     }
 
-    /// Drive the renderer and retrieve the next window event.
-    ///
-    /// Process the event and then forward it to the renderer.
+    /// Retrieve the next window evetn and drive the renderer if needed.
     pub async fn wait_for_event(
         &mut self,
         renderer: &mut WindowRenderer<'_>,
