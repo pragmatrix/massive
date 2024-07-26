@@ -1,10 +1,11 @@
+use std::fmt;
 use std::time::{Duration, Instant};
 
 use interpolation::Interpolation;
 
 use crate::{interpolation, Ease};
 
-struct Animator {
+pub struct Animator {
     /// Animations that will start in the next tick.
     starting_animations: Vec<Box<dyn Animation>>,
 
@@ -12,9 +13,26 @@ struct Animator {
     active_animations: Vec<ActiveAnimation>,
 }
 
+impl fmt::Debug for Animator {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Animator")
+            .field("starting_animations", &self.starting_animations.len())
+            .field("active_animations", &self.active_animations)
+            .finish()
+    }
+}
+
 struct ActiveAnimation {
     start_time: Instant,
     animation: Box<dyn Animation>,
+}
+
+impl fmt::Debug for ActiveAnimation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActiveAnimation")
+            .field("start_time", &self.start_time)
+            .finish()
+    }
 }
 
 impl Animator {}
@@ -42,6 +60,7 @@ impl<V> InterpolateFrom<V> {
     }
 }
 
+#[derive(Debug)]
 struct InterpolateFromTo<V> {
     from: V,
     to: V,
@@ -70,7 +89,7 @@ struct InterpolationApplication<V, F> {
     apply: F,
 }
 
-impl<V: Interpolatable, F: Fn(V)> InterpolationApplication<V, F> {
+impl<V: Interpolatable + fmt::Debug, F: Fn(V)> InterpolationApplication<V, F> {
     pub fn start(self, animator: &mut Animator)
     where
         F: 'static,
@@ -150,7 +169,7 @@ mod tests {
     use super::{interpolate, Animation, AnimationResult};
 
     #[test]
-    pub fn zero_duration_sets_to_value() {
+    pub fn zero_duration_sets_final_value() {
         let value = Rc::new(RefCell::new(0.));
         let v2 = value.clone();
 

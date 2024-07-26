@@ -152,8 +152,11 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                     UpdateResponse::Continue => {}
                 }
 
-                // DI: This check has to be done in the renderer and the renderer has to decide when it
-                // needs to redraw.
+                // DI: This check has to be done in the renderer and the renderer has to decide when
+                // it needs to redraw.
+                //
+                // OO: Or, we introduce another handle type that stores the matrix locally and
+                // compares it _before_ uploading.
                 let new_matrix = application.matrix(page_size);
                 if new_matrix != current_matrix {
                     page_matrix.update(new_matrix);
