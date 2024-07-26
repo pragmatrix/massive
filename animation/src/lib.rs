@@ -1,9 +1,9 @@
 mod animation;
-mod animator;
+mod interpolatable;
 mod interpolation;
 mod timeline;
 
 pub use animation::*;
-pub use animator::*;
+pub use interpolatable::*;
 pub use interpolation::*;
 pub use timeline::*;
