@@ -4,7 +4,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{Animator, BlendedAnimation, Ease, Interpolatable, Interpolation};
+use crate::{BlendedAnimation, Interpolatable, Interpolation};
 
 /// A timeline represents a value over time.
 ///
@@ -15,14 +15,12 @@ pub struct Timeline<T> {
 }
 
 impl<T: Interpolatable> Timeline<T> {
-    pub(crate) fn new(value: T, instant: Instant) -> Self {
+    pub(crate) fn new(value: T) -> Self {
         let shared = Rc::new(RefCell::new(TimelineInner {
             value,
             pending_animations: Vec::new(),
             animations: Default::default(),
         }));
-
-        let x = shared.clone() as Rc<dyn ReceivesTicks>;
 
         Self { shared }
     }
