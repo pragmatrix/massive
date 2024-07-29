@@ -28,6 +28,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
+use massive_animation::{Interpolatable, Tickery, Timeline};
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
 
@@ -50,6 +51,7 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
     let application_context = ApplicationContext {
         event_receiver,
         active_event_loop: active_event_loop.clone(),
+        tickery: Rc::new(Tickery::default()),
     };
 
     let local_set = LocalSet::new();
@@ -407,6 +409,7 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 pub struct ApplicationContext {
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
+    tickery: Rc<Tickery>,
 }
 
 impl ApplicationContext {
@@ -470,6 +473,10 @@ impl ApplicationContext {
 
     pub fn primary_monitor(&self) -> Option<MonitorHandle> {
         self.with_active_event_loop(|event_loop| event_loop.primary_monitor())
+    }
+
+    pub fn timeline<T: Interpolatable>(&self, value: T) -> Timeline<T> {
+        self.tickery.timeline(value)
     }
 
     /// Executes a lambda when a [`ActiveEventLoop`] reference is available. I.e. the code currently
