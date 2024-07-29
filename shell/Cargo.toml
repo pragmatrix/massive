@@ -8,6 +8,9 @@ massive-geometry = { workspace = true }
 massive-renderer = { workspace = true }
 massive-shapes = { workspace = true }
 massive-scene = { workspace = true }
+massive-animation = { workspace = true }
+
+
 winit = { workspace = true }
 log = { workspace = true }
 wgpu = { workspace = true }

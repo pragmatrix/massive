@@ -1,14 +1,29 @@
-use std::{cell::RefCell, collections::HashMap, rc::Weak, time::Instant};
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    rc::{Rc, Weak},
+    time::Instant,
+};
 
-#[derive(Debug)]
+use crate::{Interpolatable, Timeline};
+
+#[derive(Debug, Default)]
 pub struct Tickery {
     receivers: RefCell<HashMap<*const dyn ReceivesTicks, Weak<dyn ReceivesTicks>>>,
 }
 
 impl Tickery {
+    pub fn timeline<T: Interpolatable>(self: &Rc<Self>, value: T) -> Timeline<T> {
+        Timeline::new(self.clone(), value)
+    }
+
     pub fn start_sending(&self, receiver: Weak<dyn ReceivesTicks>) {
         let ptr = receiver.as_ptr();
         assert!(self.receivers.borrow_mut().insert(ptr, receiver).is_none());
+    }
+
+    pub fn any_receivers(&self) -> bool {
+        !self.receivers.borrow().is_empty()
     }
 }
 
