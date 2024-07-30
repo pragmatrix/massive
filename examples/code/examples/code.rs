@@ -299,7 +299,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_event(&mut renderer).await?;
+        let window_event = ctx.wait_for_event(&window).await?;
+        renderer.handle_window_event(&window_event)?;
 
         info!("Window Event: {window_event:?}");
 
