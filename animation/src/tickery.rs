@@ -17,33 +17,7 @@ impl Tickery {
         Timeline::new(self.clone(), value)
     }
 
-    pub fn start_sending(&self, receiver: Weak<dyn ReceivesTicks>) {
-        let ptr = receiver.as_ptr();
-        assert!(self.receivers.borrow_mut().insert(ptr, receiver).is_none());
-    }
-
-    pub fn any_receivers(&self) -> bool {
-        !self.receivers.borrow().is_empty()
-    }
-}
-
-#[derive(Debug)]
-pub enum TickResponse {
-    Continue,
-    Stop,
-}
-
-pub trait ReceivesTicks {
-    #[must_use]
-    fn tick(&self, instant: Instant) -> TickResponse;
-}
-
-pub trait TickProvider {
-    fn start_sending(&self);
-}
-
-impl ReceivesTicks for Tickery {
-    fn tick(&self, instant: Instant) -> TickResponse {
+    pub fn tick(&self, instant: Instant) {
         let mut receivers = self.receivers.borrow_mut();
 
         let mut removal_queue = Vec::new();
@@ -65,11 +39,29 @@ impl ReceivesTicks for Tickery {
         removal_queue
             .into_iter()
             .for_each(|ptr| assert!(receivers.remove(&ptr).is_some()));
-
-        if receivers.is_empty() {
-            TickResponse::Stop
-        } else {
-            TickResponse::Continue
-        }
     }
+
+    pub fn wants_ticks(&self) -> bool {
+        !self.receivers.borrow().is_empty()
+    }
+
+    pub(crate) fn start_sending(&self, receiver: Weak<dyn ReceivesTicks>) {
+        let ptr = receiver.as_ptr();
+        assert!(self.receivers.borrow_mut().insert(ptr, receiver).is_none());
+    }
+}
+
+#[derive(Debug)]
+pub enum TickResponse {
+    Continue,
+    Stop,
+}
+
+pub trait ReceivesTicks {
+    #[must_use]
+    fn tick(&self, instant: Instant) -> TickResponse;
+}
+
+pub trait TickProvider {
+    fn start_sending(&self);
 }
