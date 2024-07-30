@@ -224,18 +224,13 @@ impl<'window> WindowRenderer<'window> {
 
         info!("Surface format: {:?}", surface_format);
 
-        let present_mode = surface_caps
-            .present_modes
-            .iter()
-            .copied()
-            .find(|f| *f == PresentMode::Immediate)
-            .unwrap_or(surface_caps.present_modes[0]);
+        info!("Available present modes: {:?}", surface_caps.present_modes);
 
         let alpha_mode = surface_caps.alpha_modes[0];
 
         info!(
-            "Selecting present mode {:?}, alpha mode: {:?}, initial size: {:?}",
-            present_mode, alpha_mode, initial_size,
+            "Selecting alpha mode: {:?}, initial size: {:?}",
+            alpha_mode, initial_size,
         );
 
         let surface_config = wgpu::SurfaceConfiguration {
@@ -243,8 +238,8 @@ impl<'window> WindowRenderer<'window> {
             format: *surface_format,
             width: initial_size.width,
             height: initial_size.height,
-            present_mode,
-            // TODO: Select this explicitly
+            present_mode: PresentMode::AutoNoVsync,
+            // TODO: Select explicitly
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
@@ -323,7 +318,6 @@ impl<'window> WindowRenderer<'window> {
             self.renderer.apply_changes(&mut font_system, changes)?;
         }
 
-        // TODO: pass primitives as value.
         match self.renderer.render_and_present(&view_projection_matrix) {
             Ok(_) => {}
             // Reconfigure the surface if lost
@@ -493,7 +487,7 @@ impl ApplicationContext {
         f(active_event_loop)
     }
 
-    /// Retrieve the next window evetn and drive the renderer if needed.
+    /// Retrieve the next window event and forward it to the renderer if needed.
     pub async fn wait_for_event(
         &mut self,
         renderer: &mut WindowRenderer<'_>,
