@@ -4,6 +4,7 @@ use std::{
     ptr,
     rc::Rc,
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 
 use anyhow::{bail, Result};
@@ -22,8 +23,8 @@ use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, Te
 use winit::{
     application::ApplicationHandler,
     dpi::{self, PhysicalSize},
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event::{StartCause, WindowEvent},
+    event_loop::{self, ActiveEventLoop, EventLoop, EventLoopProxy},
     monitor::MonitorHandle,
     window::{Window, WindowAttributes, WindowId},
 };
@@ -48,10 +49,12 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
 
     let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> = Rc::new(RefCell::new(ptr::null()));
 
+    let tickery = Rc::new(Tickery::default());
+
     let application_context = ApplicationContext {
         event_receiver,
         active_event_loop: active_event_loop.clone(),
-        tickery: Rc::new(Tickery::default()),
+        tickery: tickery.clone(),
     };
 
     let local_set = LocalSet::new();
@@ -79,6 +82,8 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
             active_event_loop,
             local_set,
             waker,
+
+            tickery,
         };
 
         info!("Entering event loop");
@@ -520,12 +525,42 @@ struct WinitApplicationHandler {
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
     local_set: LocalSet,
     waker: Arc<EventLoopWaker>,
+
+    tickery: Rc<Tickery>,
 }
+
+const ANIMATION_FRAME_DURATION: Duration = Duration::from_nanos(16_666_667);
 
 impl ApplicationHandler<Event> for WinitApplicationHandler {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
-    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: Event) {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        match cause {
+            StartCause::ResumeTimeReached {
+                requested_resume, ..
+            } => {
+                self.tickery.tick(requested_resume);
+                if self.tickery.wants_ticks() {
+                    event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
+                        requested_resume + ANIMATION_FRAME_DURATION,
+                    ));
+                }
+            }
+            StartCause::WaitCancelled {
+                requested_resume: Some(requested_resume),
+                ..
+            } => {
+                // Re-set a new wakeup time when the tickery has registrations.
+                if self.tickery.wants_ticks() {
+                    event_loop
+                        .set_control_flow(event_loop::ControlFlow::WaitUntil(requested_resume));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Event) {
         match event {
             Event::WakeUpApplication => {
                 self.drive_application(event_loop);
@@ -535,8 +570,8 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
 
     fn window_event(
         &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        window_id: winit::window::WindowId,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
         info!("{:?}", event);
@@ -545,6 +580,11 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
             .event_sender
             .try_send(ShellEvent::WindowEvent(window_id, event))
         {
+            Ok(()) => {
+                // OO: Can't we wait until the event loop is about to wait and then drive the
+                // application which pulls all new events? Effectively collecting all the events?
+                self.drive_application(event_loop)
+            }
             Err(_e) => {
                 // Don't log when we are already exiting.
                 if !event_loop.exiting() {
@@ -552,27 +592,38 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                     event_loop.exit();
                 }
             }
-            Ok(()) => self.drive_application(event_loop),
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.drive_application(event_loop);
     }
 }
 
 impl WinitApplicationHandler {
-    fn drive_application(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let waker_ref = futures::task::waker_ref(&self.waker);
-        let mut context = std::task::Context::from_waker(&waker_ref);
+    fn drive_application(&mut self, event_loop: &ActiveEventLoop) {
+        let wanted_ticks = self.tickery.wants_ticks();
 
-        *self.active_event_loop.borrow_mut() = event_loop;
+        {
+            let waker_ref = futures::task::waker_ref(&self.waker);
+            let mut context = std::task::Context::from_waker(&waker_ref);
 
-        if self.local_set.poll_unpin(&mut context).is_ready() {
-            event_loop.exit();
+            *self.active_event_loop.borrow_mut() = event_loop;
+
+            if self.local_set.poll_unpin(&mut context).is_ready() {
+                event_loop.exit();
+            }
+
+            *self.active_event_loop.borrow_mut() = ptr::null();
         }
 
-        *self.active_event_loop.borrow_mut() = ptr::null();
+        // Transitioning into an animation state?
+        if !wanted_ticks && self.tickery.wants_ticks() {
+            let now = Instant::now();
+            event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
+                now + ANIMATION_FRAME_DURATION,
+            ));
+        }
     }
 }
 
