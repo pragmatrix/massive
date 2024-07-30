@@ -47,7 +47,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        match ctx.wait_for_event(&mut renderer).await? {
+        let window_event = ctx.wait_for_event(&window).await?;
+        renderer.handle_window_event(&window_event)?;
+        match window_event {
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
@@ -71,7 +73,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             WindowEvent::CloseRequested => {
                 return Ok(());
             }
-            _ => (),
+            _ => {}
         }
     }
 }

@@ -117,8 +117,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     loop {
         select! {
-            Some(bytes) = receiver
-            .recv() => {
+            Some(bytes) = receiver.recv() => {
                 let (new_runs, height) = {
                     let mut font_system = font_system.lock().unwrap();
 
@@ -146,7 +145,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                 y += height;
             },
 
-            Ok(window_event) = ctx.wait_for_event(&mut renderer) => {
+            Ok(window_event) = ctx.wait_for_event(&window) => {
+                renderer.handle_window_event(&window_event)?;
                 match application.update(window_event) {
                     UpdateResponse::Exit => return Ok(()),
                     UpdateResponse::Continue => {}

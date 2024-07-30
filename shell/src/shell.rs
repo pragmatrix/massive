@@ -289,7 +289,7 @@ impl<'window> WindowRenderer<'window> {
         self.window.request_redraw();
     }
 
-    fn handle_window_event(&mut self, window_event: &WindowEvent) -> Result<()> {
+    pub fn handle_window_event(&mut self, window_event: &WindowEvent) -> Result<()> {
         match window_event {
             WindowEvent::Resized(physical_size) => {
                 info!("{:?}", window_event);
@@ -493,10 +493,7 @@ impl ApplicationContext {
     }
 
     /// Retrieve the next window event and forward it to the renderer if needed.
-    pub async fn wait_for_event(
-        &mut self,
-        renderer: &mut WindowRenderer<'_>,
-    ) -> Result<WindowEvent> {
+    pub async fn wait_for_event(&mut self, window: &ShellWindow) -> Result<WindowEvent> {
         let event = self.event_receiver.recv().await;
         let Some(event) = event else {
             // This means that the shell stopped before the application ended, this should not
@@ -505,11 +502,7 @@ impl ApplicationContext {
         };
 
         match event {
-            ShellEvent::WindowEvent(window_id, window_event)
-                if window_id == renderer.window.id() =>
-            {
-                renderer.handle_window_event(&window_event)?;
-                // We forward _all_ window events to the application (for now)
+            ShellEvent::WindowEvent(window_id, window_event) if window_id == window.id() => {
                 Ok(window_event)
             }
             _ => {
