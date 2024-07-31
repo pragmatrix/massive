@@ -49,7 +49,7 @@ impl<T: Interpolatable> Timeline<T> {
     }
 }
 
-/// Shared by the timeline value and the animator.
+/// Shared by the timeline value and the tickery.
 #[derive(Debug)]
 struct TimelineInner<T> {
     /// The current value.
