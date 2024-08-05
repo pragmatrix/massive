@@ -42,7 +42,7 @@ struct RotationGesture {
 const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
 const MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS: i32 = 16;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateResponse {
     Continue,
     Exit,

@@ -18,11 +18,11 @@ use tokio::{
     select,
     sync::mpsc::{self, UnboundedReceiver},
 };
-use winit::dpi::LogicalSize;
+use winit::{dpi::LogicalSize, event::WindowEvent};
 
 use logs::terminal::{color_schemes, Rgb};
 use massive_geometry::{Camera, Color, Identity, Vector3};
-use massive_scene::{Location, Matrix, Visual};
+use massive_scene::{Director, Handle, Location, Matrix, Visual};
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
@@ -95,11 +95,12 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     // Application
 
-    let mut page_size = (1280u32, 1);
-    let mut application = Application::default();
-    let mut current_matrix = application.matrix(page_size);
+    let page_size = (1280u32, 1);
+    let application = Application::default();
+    let current_matrix = application.matrix(page_size);
     let page_matrix = director.stage(current_matrix);
     let page_location = director.stage(Location::from(page_matrix.clone()));
+
     // We move up the lines by their top position.
     let move_up_matrix = director.stage(Matrix::identity());
 
@@ -109,62 +110,112 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         matrix: move_up_matrix.clone(),
     });
 
-    let mut y = 0.;
-
-    let max_lines = 100;
-
-    let mut lines = VecDeque::new();
+    let mut logs = Logs {
+        font_system,
+        application,
+        current_matrix,
+        page_matrix,
+        page_size,
+        move_up_matrix,
+        location,
+        director,
+        lines: VecDeque::new(),
+        y: 0.,
+    };
 
     loop {
         select! {
             Some(bytes) = receiver.recv() => {
-                let (new_runs, height) = {
-                    let mut font_system = font_system.lock().unwrap();
-
-                    shape_log_line(&bytes, y, &mut font_system)
-                };
-
-                let line = director.stage(Visual::new(location.clone(), new_runs.into_iter().map(
-                    |run| run.into()).collect::<Vec<_>>()));
-
-                lines.push_back((y, height, line));
-
-                while lines.len() > max_lines {
-                    lines.pop_front();
-                };
-
-                // Update page size.
-
-                let top_line = lines.front().unwrap();
-                move_up_matrix.update(Matrix::from_translation((0., -top_line.0, 0.).into()));
-                let last_line = lines.back().unwrap();
-                page_size.1 = (last_line.0 + last_line.1 - top_line.0) as u32;
-
-                director.action()?;
-
-                y += height;
+                logs.add(&bytes)?;
             },
 
             Ok(window_event) = ctx.wait_for_event(&window) => {
                 renderer.handle_window_event(&window_event)?;
-                match application.update(window_event) {
-                    UpdateResponse::Exit => return Ok(()),
-                    UpdateResponse::Continue => {}
-                }
 
-                // DI: This check has to be done in the renderer and the renderer has to decide when
-                // it needs to redraw.
-                //
-                // OO: Or, we introduce another handle type that stores the matrix locally and
-                // compares it _before_ uploading.
-                let new_matrix = application.matrix(page_size);
-                if new_matrix != current_matrix {
-                    page_matrix.update(new_matrix);
-                    current_matrix = new_matrix;
-                    director.action()?;
+                let r = logs.handle_window_event(window_event)?;
+                if r == UpdateResponse::Exit {
+                    return Ok(());
                 }
             }
         }
+    }
+}
+
+const MAX_LINES: usize = 100;
+
+struct Logs {
+    font_system: Arc<Mutex<FontSystem>>,
+
+    application: Application,
+
+    current_matrix: Matrix,
+    page_matrix: Handle<Matrix>,
+
+    page_size: (u32, u32),
+    move_up_matrix: Handle<Matrix>,
+    location: Handle<Location>,
+    director: Director,
+    lines: VecDeque<(f64, f64, Handle<Visual>)>,
+    y: f64,
+}
+
+impl Logs {
+    fn add(&mut self, bytes: &[u8]) -> Result<()> {
+        let (new_runs, height) = {
+            let mut font_system = self.font_system.lock().unwrap();
+
+            shape_log_line(bytes, self.y, &mut font_system)
+        };
+
+        let line = self.director.stage(Visual::new(
+            self.location.clone(),
+            new_runs
+                .into_iter()
+                .map(|run| run.into())
+                .collect::<Vec<_>>(),
+        ));
+
+        self.lines.push_back((self.y, height, line));
+
+        while self.lines.len() > MAX_LINES {
+            self.lines.pop_front();
+        }
+
+        // Update page size.
+
+        let top_line = self.lines.front().unwrap();
+        self.move_up_matrix
+            .update(Matrix::from_translation((0., -top_line.0, 0.).into()));
+
+        let last_line = self.lines.back().unwrap();
+        self.page_size.1 = (last_line.0 + last_line.1 - top_line.0) as u32;
+
+        self.director.action()?;
+
+        self.y += height;
+
+        Ok(())
+    }
+
+    fn handle_window_event(&mut self, window_event: WindowEvent) -> Result<UpdateResponse> {
+        match self.application.update(window_event) {
+            UpdateResponse::Exit => return Ok(UpdateResponse::Exit),
+            UpdateResponse::Continue => {}
+        }
+
+        // DI: This check has to be done in the renderer and the renderer has to decide when
+        // it needs to redraw.
+        //
+        // OO: Or, we introduce another handle type that stores the matrix locally and
+        // compares it _before_ uploading.
+        let new_matrix = self.application.matrix(self.page_size);
+        if new_matrix != self.current_matrix {
+            self.page_matrix.update(new_matrix);
+            self.current_matrix = new_matrix;
+            self.director.action()?;
+        }
+
+        Ok(UpdateResponse::Continue)
     }
 }
 
