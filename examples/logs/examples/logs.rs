@@ -32,6 +32,8 @@ use shared::{
 
 const CANVAS_ID: &str = "massive-logs";
 
+const MAX_LINES: usize = 100;
+
 fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
 
@@ -89,44 +91,18 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let (mut renderer, mut director) = window
+    let (mut renderer, director) = window
         .new_renderer(font_system.clone(), camera, window.inner_size())
         .await?;
 
+    let mut logs = Logs::new(font_system, director);
+
     // Application
-
-    let page_size = (1280u32, 1);
-    let application = Application::default();
-    let current_matrix = application.matrix(page_size);
-    let page_matrix = director.stage(current_matrix);
-    let page_location = director.stage(Location::from(page_matrix.clone()));
-
-    // We move up the lines by their top position.
-    let move_up_matrix = director.stage(Matrix::identity());
-
-    // Final position for all lines (runs are y-translated, but only increasing).
-    let location = director.stage(Location {
-        parent: Some(page_location),
-        matrix: move_up_matrix.clone(),
-    });
-
-    let mut logs = Logs {
-        font_system,
-        application,
-        current_matrix,
-        page_matrix,
-        page_size,
-        move_up_matrix,
-        location,
-        director,
-        lines: VecDeque::new(),
-        y: 0.,
-    };
 
     loop {
         select! {
             Some(bytes) = receiver.recv() => {
-                logs.add(&bytes)?;
+                logs.add_line(&bytes)?;
             },
 
             Ok(window_event) = ctx.wait_for_event(&window) => {
@@ -141,8 +117,6 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     }
 }
 
-const MAX_LINES: usize = 100;
-
 struct Logs {
     font_system: Arc<Mutex<FontSystem>>,
 
@@ -152,15 +126,45 @@ struct Logs {
     page_matrix: Handle<Matrix>,
 
     page_size: (u32, u32),
-    move_up_matrix: Handle<Matrix>,
+    vertical_center_matrix: Handle<Matrix>,
     location: Handle<Location>,
     director: Director,
-    lines: VecDeque<(f64, f64, Handle<Visual>)>,
+    lines: VecDeque<LogLine>,
     y: f64,
 }
 
 impl Logs {
-    fn add(&mut self, bytes: &[u8]) -> Result<()> {
+    fn new(font_system: Arc<Mutex<FontSystem>>, mut director: Director) -> Self {
+        let page_size = (1280u32, 1);
+        let application = Application::default();
+        let current_matrix = application.matrix(page_size);
+        let page_matrix = director.stage(current_matrix);
+        let page_location = director.stage(Location::from(page_matrix.clone()));
+
+        // We move up the lines by their top position.
+        let move_up_matrix = director.stage(Matrix::identity());
+
+        // Final position for all lines (runs are y-translated, but only increasing).
+        let location = director.stage(Location {
+            parent: Some(page_location),
+            matrix: move_up_matrix.clone(),
+        });
+
+        Self {
+            font_system,
+            application,
+            current_matrix,
+            page_matrix,
+            page_size,
+            vertical_center_matrix: move_up_matrix,
+            location,
+            director,
+            lines: VecDeque::new(),
+            y: 0.,
+        }
+    }
+
+    fn add_line(&mut self, bytes: &[u8]) -> Result<()> {
         let (new_runs, height) = {
             let mut font_system = self.font_system.lock().unwrap();
 
@@ -175,7 +179,11 @@ impl Logs {
                 .collect::<Vec<_>>(),
         ));
 
-        self.lines.push_back((self.y, height, line));
+        self.lines.push_back(LogLine {
+            y: self.y,
+            height,
+            _visual: line,
+        });
 
         while self.lines.len() > MAX_LINES {
             self.lines.pop_front();
@@ -184,11 +192,11 @@ impl Logs {
         // Update page size.
 
         let top_line = self.lines.front().unwrap();
-        self.move_up_matrix
-            .update(Matrix::from_translation((0., -top_line.0, 0.).into()));
+        self.vertical_center_matrix
+            .update(Matrix::from_translation((0., -top_line.y, 0.).into()));
 
         let last_line = self.lines.back().unwrap();
-        self.page_size.1 = (last_line.0 + last_line.1 - top_line.0) as u32;
+        self.page_size.1 = (last_line.y + last_line.height - top_line.y) as u32;
 
         self.director.action()?;
 
@@ -249,6 +257,13 @@ fn shape_log_line(
     );
     (runs, height)
 }
+
+struct LogLine {
+    y: f64,
+    height: f64,
+    _visual: Handle<Visual>,
+}
+
 
 #[derive(Debug)]
 struct Processor {
