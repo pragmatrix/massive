@@ -567,7 +567,10 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        info!("{:?}", event);
+        // This was added for the logs example.
+        if event != WindowEvent::RedrawRequested {
+            info!("{:?}", event);
+        }
 
         match self
             .event_sender
