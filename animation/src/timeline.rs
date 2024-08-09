@@ -1,5 +1,6 @@
 use std::{
-    cell::RefCell,
+    cell::{Ref, RefCell},
+    ops::Deref,
     rc::{Rc, Weak},
     time::{Duration, Instant},
 };
@@ -46,6 +47,18 @@ impl<T: Interpolatable> Timeline<T> {
             let tick_receiver = Rc::downgrade(&self.shared) as Weak<dyn ReceivesTicks>;
             self.tickery.start_sending(tick_receiver)
         }
+    }
+
+    pub fn value(&self) -> T
+    where
+        T: Clone,
+    {
+        self.shared.borrow().value.clone()
+    }
+
+    pub fn value_ref(&self) -> Ref<T> {
+        let r = self.shared.borrow();
+        Ref::map(r, |i| &i.value)
     }
 }
 
