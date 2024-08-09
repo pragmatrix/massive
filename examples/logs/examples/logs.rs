@@ -3,12 +3,14 @@ use std::{
     io, iter,
     ops::Range,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
 use env_logger::{Builder, Target, WriteStyle};
-use log::error;
+use log::{debug, error, warn};
+use massive_animation::{Interpolation, Timeline};
 use termwiz::{
     cell::Intensity,
     color::ColorSpec,
@@ -18,7 +20,17 @@ use tokio::{
     select,
     sync::mpsc::{self, UnboundedReceiver},
 };
-use winit::{dpi::LogicalSize, event::WindowEvent};
+use tracing_subscriber::{
+    filter, fmt,
+    layer::{self, SubscriberExt},
+    util::SubscriberInitExt,
+    EnvFilter, Layer, Registry,
+};
+use winit::{
+    dpi::LogicalSize,
+    event::{ElementState, KeyEvent, WindowEvent},
+    window,
+};
 
 use logs::terminal::{color_schemes, Rgb};
 use massive_geometry::{Camera, Color, Identity, Vector3};
@@ -37,10 +49,17 @@ const MAX_LINES: usize = 100;
 fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
 
-    Builder::default()
-        .filter(Some("massive_shell"), log::LevelFilter::Info)
-        .write_style(WriteStyle::Always)
-        .target(Target::Pipe(Box::new(Sender(sender))))
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_filter(EnvFilter::from_default_env());
+
+    let info_only_layer = fmt::layer()
+        .with_writer(move || -> Box<dyn io::Write> { Box::new(Sender(sender.clone())) })
+        .with_filter(filter::LevelFilter::WARN);
+
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(info_only_layer)
         .init();
 
     shared::main(|| async_main(receiver))
@@ -66,8 +85,6 @@ async fn async_main(receiver: UnboundedReceiver<Vec<u8>>) -> Result<()> {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    error!("TEST");
-
     let font_system = {
         let mut db = fontdb::Database::new();
         db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
