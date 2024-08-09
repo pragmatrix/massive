@@ -228,7 +228,7 @@ impl Logs {
         self.vertical_center.animate_to(
             -top_line.y,
             Duration::from_secs(2),
-            Interpolation::CubicIn,
+            Interpolation::CubicOut,
         );
 
         // self.vertical_center_matrix
@@ -237,7 +237,7 @@ impl Logs {
         let last_line = self.lines.back().unwrap();
         let new_height = last_line.y + last_line.height - top_line.y;
         self.page_height
-            .animate_to(new_height, Duration::from_secs(1), Interpolation::CubicIn);
+            .animate_to(new_height, Duration::from_secs(1), Interpolation::CubicOut);
 
         self.director.action()?;
 
