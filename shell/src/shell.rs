@@ -10,7 +10,7 @@ use std::{
 use anyhow::{bail, Result};
 use cosmic_text::FontSystem;
 use futures::{task::ArcWake, FutureExt};
-use log::{error, info};
+use log::{debug, error, info};
 use massive_scene::{Director, SceneChange};
 use tokio::{
     sync::{
@@ -537,6 +537,11 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                     event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
                         requested_resume + ANIMATION_FRAME_DURATION,
                     ));
+                } else {
+                    debug!("Animation stopped");
+                    // Winit does not stop sending ResumeTimeReached until the control flow gets
+                    // changed.
+                    event_loop.set_control_flow(event_loop::ControlFlow::Wait);
                 }
             }
             StartCause::WaitCancelled {
@@ -547,6 +552,8 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                 if self.tickery.wants_ticks() {
                     event_loop
                         .set_control_flow(event_loop::ControlFlow::WaitUntil(requested_resume));
+                } else {
+                    debug!("Animation stopped");
                 }
             }
             _ => {}
@@ -619,6 +626,7 @@ impl WinitApplicationHandler {
             event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
                 now + ANIMATION_FRAME_DURATION,
             ));
+            debug!("Animation started");
         }
     }
 }
