@@ -112,7 +112,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         .new_renderer(font_system.clone(), camera, window.inner_size())
         .await?;
 
-    let mut logs = Logs::new(font_system, director);
+    let mut logs = Logs::new(&mut ctx, font_system, director);
 
     // Application
 
@@ -142,7 +142,9 @@ struct Logs {
     current_matrix: Matrix,
     page_matrix: Handle<Matrix>,
 
-    page_size: (u32, u32),
+    page_width: u32,
+    page_height: Timeline<f64>,
+    vertical_center: Timeline<f64>,
     vertical_center_matrix: Handle<Matrix>,
     location: Handle<Location>,
     director: Director,
@@ -151,29 +153,40 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(font_system: Arc<Mutex<FontSystem>>, mut director: Director) -> Self {
-        let page_size = (1280u32, 1);
+    fn new(
+        ctx: &mut ApplicationContext,
+        font_system: Arc<Mutex<FontSystem>>,
+        mut director: Director,
+    ) -> Self {
+        let page_height = 1;
+        let page_width = 1280u32;
         let application = Application::default();
-        let current_matrix = application.matrix(page_size);
+        let current_matrix = application.matrix((page_width, page_width));
         let page_matrix = director.stage(current_matrix);
         let page_location = director.stage(Location::from(page_matrix.clone()));
 
+        let vertical_center = ctx.timeline(0.0);
+
         // We move up the lines by their top position.
-        let move_up_matrix = director.stage(Matrix::identity());
+        let vertical_center_matrix = director.stage(Matrix::identity());
 
         // Final position for all lines (runs are y-translated, but only increasing).
         let location = director.stage(Location {
             parent: Some(page_location),
-            matrix: move_up_matrix.clone(),
+            matrix: vertical_center_matrix.clone(),
         });
+
+        let page_height = ctx.timeline(page_height as f64);
 
         Self {
             font_system,
             application,
             current_matrix,
             page_matrix,
-            page_size,
-            vertical_center_matrix: move_up_matrix,
+            page_width,
+            page_height,
+            vertical_center,
+            vertical_center_matrix,
             location,
             director,
             lines: VecDeque::new(),
@@ -209,11 +222,22 @@ impl Logs {
         // Update page size.
 
         let top_line = self.lines.front().unwrap();
-        self.vertical_center_matrix
-            .update(Matrix::from_translation((0., -top_line.y, 0.).into()));
+
+        println!("Animating to: {}", -top_line.y);
+
+        self.vertical_center.animate_to(
+            -top_line.y,
+            Duration::from_secs(2),
+            Interpolation::CubicIn,
+        );
+
+        // self.vertical_center_matrix
+        //     .update(Matrix::from_translation((0., -top_line.y, 0.).into()));
 
         let last_line = self.lines.back().unwrap();
-        self.page_size.1 = (last_line.y + last_line.height - top_line.y) as u32;
+        let new_height = last_line.y + last_line.height - top_line.y;
+        self.page_height
+            .animate_to(new_height, Duration::from_secs(1), Interpolation::CubicIn);
 
         self.director.action()?;
 
@@ -223,6 +247,18 @@ impl Logs {
     }
 
     fn handle_window_event(&mut self, window_event: WindowEvent) -> Result<UpdateResponse> {
+        if let WindowEvent::KeyboardInput {
+            event:
+                KeyEvent {
+                    state: ElementState::Pressed,
+                    ..
+                },
+            ..
+        } = window_event
+        {
+            warn!("{:?}", window_event);
+        }
+
         match self.application.update(window_event) {
             UpdateResponse::Exit => return Ok(UpdateResponse::Exit),
             UpdateResponse::Continue => {}
@@ -233,7 +269,9 @@ impl Logs {
         //
         // OO: Or, we introduce another handle type that stores the matrix locally and
         // compares it _before_ uploading.
-        let new_matrix = self.application.matrix(self.page_size);
+        let new_matrix = self
+            .application
+            .matrix((self.page_width, self.page_height.value() as u32));
         if new_matrix != self.current_matrix {
             self.page_matrix.update(new_matrix);
             self.current_matrix = new_matrix;
@@ -280,7 +318,6 @@ struct LogLine {
     height: f64,
     _visual: Handle<Visual>,
 }
-
 
 #[derive(Debug)]
 struct Processor {
