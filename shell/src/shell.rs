@@ -349,11 +349,17 @@ pub enum ShellEvent {
 }
 
 impl ShellEvent {
+    #[must_use]
     pub fn window_event_for(&self, window: &ShellWindow) -> Option<&WindowEvent> {
         match self {
             ShellEvent::WindowEvent(id, window_event) if *id == window.id() => Some(window_event),
             _ => None,
         }
+    }
+
+    #[must_use]
+    pub fn apply_animations(&self) -> bool {
+        matches!(self, ShellEvent::ApplyAnimations)
     }
 }
 

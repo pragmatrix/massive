@@ -237,9 +237,6 @@ impl Logs {
             Interpolation::CubicOut,
         );
 
-        // self.vertical_center_matrix
-        //     .update(Matrix::from_translation((0., -top_line.y, 0.).into()));
-
         let last_line = self.lines.back().unwrap();
         let new_height = last_line.y + last_line.height - top_line.y;
         self.page_height
@@ -257,6 +254,11 @@ impl Logs {
         shell_event: ShellEvent,
         window: &ShellWindow,
     ) -> Result<UpdateResponse> {
+        if shell_event.apply_animations() {
+            self.apply_animations()?;
+            return Ok(UpdateResponse::Continue);
+        }
+
         if let Some(window_event) = shell_event.window_event_for(window) {
             if let WindowEvent::KeyboardInput {
                 event:
@@ -275,22 +277,38 @@ impl Logs {
                 UpdateResponse::Continue => {}
             }
 
-            // DI: This check has to be done in the renderer and the renderer has to decide when
-            // it needs to redraw.
-            //
-            // OO: Or, we introduce another handle type that stores the matrix locally and
-            // compares it _before_ uploading.
-            let new_matrix = self
-                .application
-                .matrix((self.page_width, self.page_height.value() as u32));
-            if new_matrix != self.current_matrix {
-                self.page_matrix.update(new_matrix);
-                self.current_matrix = new_matrix;
-                self.director.action()?;
-            }
+            self.update_page_matrix()?;
         }
 
         Ok(UpdateResponse::Continue)
+    }
+
+    fn apply_animations(&mut self) -> Result<()> {
+        self.vertical_center_matrix.update(Matrix::from_translation(
+            (0., self.vertical_center.value(), 0.).into(),
+        ));
+
+        // DI: there is a director.action in update_page_matrix().
+        self.update_page_matrix()?;
+
+        self.director.action()
+    }
+
+    fn update_page_matrix(&mut self) -> Result<()> {
+        // DI: This check has to be done in the renderer and the renderer has to decide when
+        // it needs to redraw.
+        //
+        // OO: Or, we introduce another handle type that stores the matrix locally and
+        // compares it _before_ uploading.
+        let new_matrix = self
+            .application
+            .matrix((self.page_width, self.page_height.value() as u32));
+        if new_matrix != self.current_matrix {
+            self.page_matrix.update(new_matrix);
+            self.current_matrix = new_matrix;
+            self.director.action()?;
+        }
+        Ok(())
     }
 }
 
