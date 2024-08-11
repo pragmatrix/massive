@@ -233,14 +233,17 @@ impl Logs {
 
         self.vertical_center.animate_to(
             -top_line.y,
-            Duration::from_secs(1),
+            Duration::from_millis(200),
             Interpolation::CubicOut,
         );
 
         let last_line = self.lines.back().unwrap();
         let new_height = last_line.y + last_line.height - top_line.y;
-        self.page_height
-            .animate_to(new_height, Duration::from_secs(1), Interpolation::CubicOut);
+        self.page_height.animate_to(
+            new_height,
+            Duration::from_millis(200),
+            Interpolation::CubicOut,
+        );
 
         self.director.action()?;
 

@@ -553,6 +553,7 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                 requested_resume, ..
             } => {
                 self.tickery.tick(requested_resume);
+                self.send_event(event_loop, ShellEvent::ApplyAnimations);
                 if self.tickery.wants_ticks() {
                     event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
                         requested_resume + ANIMATION_FRAME_DURATION,
@@ -599,10 +600,17 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
             info!("{:?}", event);
         }
 
-        match self
-            .event_sender
-            .try_send(ShellEvent::WindowEvent(window_id, event))
-        {
+        self.send_event(event_loop, ShellEvent::WindowEvent(window_id, event))
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.drive_application(event_loop);
+    }
+}
+
+impl WinitApplicationHandler {
+    fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
+        match self.event_sender.try_send(shell_event) {
             Ok(()) => {
                 // OO: Can't we wait until the event loop is about to wait and then drive the
                 // application which pulls all new events? Effectively collecting all the events?
@@ -618,12 +626,6 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        self.drive_application(event_loop);
-    }
-}
-
-impl WinitApplicationHandler {
     fn drive_application(&mut self, event_loop: &ActiveEventLoop) {
         let wanted_ticks = self.tickery.wants_ticks();
 
