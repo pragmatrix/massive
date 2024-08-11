@@ -343,8 +343,18 @@ impl<'window> WindowRenderer<'window> {
 }
 
 #[derive(Debug)]
-enum ShellEvent {
+pub enum ShellEvent {
     WindowEvent(WindowId, WindowEvent),
+    ApplyAnimations,
+}
+
+impl ShellEvent {
+    pub fn window_event_for(&self, window: &ShellWindow) -> Option<&WindowEvent> {
+        match self {
+            ShellEvent::WindowEvent(id, window_event) if *id == window.id() => Some(window_event),
+            _ => None,
+        }
+    }
 }
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
@@ -492,8 +502,7 @@ impl ApplicationContext {
         f(active_event_loop)
     }
 
-    /// Retrieve the next window event and forward it to the renderer if needed.
-    pub async fn wait_for_event(&mut self, window: &ShellWindow) -> Result<WindowEvent> {
+    pub async fn wait_for_event(&mut self) -> Result<ShellEvent> {
         let event = self.event_receiver.recv().await;
         let Some(event) = event else {
             // This means that the shell stopped before the application ended, this should not
@@ -501,7 +510,12 @@ impl ApplicationContext {
             bail!("Internal Error: Shell shut down, no more events")
         };
 
-        match event {
+        Ok(event)
+    }
+
+    /// Retrieve the next window event and forward it to the renderer if needed.
+    pub async fn wait_for_window_event(&mut self, window: &ShellWindow) -> Result<WindowEvent> {
+        match self.wait_for_event().await? {
             ShellEvent::WindowEvent(window_id, window_event) if window_id == window.id() => {
                 Ok(window_event)
             }

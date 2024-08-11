@@ -114,12 +114,12 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_event(&window).await?;
+        let window_event = ctx.wait_for_window_event(&window).await?;
         renderer.handle_window_event(&window_event)?;
 
         info!("Window Event: {window_event:?}");
 
-        match application.update(window_event) {
+        match application.update(&window_event) {
             UpdateResponse::Exit => return Ok(()),
             UpdateResponse::Continue => {}
         }

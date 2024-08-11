@@ -47,7 +47,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_event(&window).await?;
+        let window_event = ctx.wait_for_window_event(&window).await?;
         renderer.handle_window_event(&window_event)?;
         match window_event {
             WindowEvent::KeyboardInput {

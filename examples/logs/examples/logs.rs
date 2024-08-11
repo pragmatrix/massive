@@ -36,7 +36,10 @@ use logs::terminal::{color_schemes, Rgb};
 use massive_geometry::{Camera, Color, Identity, Vector3};
 use massive_scene::{Director, Handle, Location, Matrix, Visual};
 use massive_shapes::TextWeight;
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{
+    shell::{self, ShellEvent},
+    ApplicationContext, ShellWindow,
+};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},
@@ -122,10 +125,13 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                 logs.add_line(&bytes)?;
             },
 
-            Ok(window_event) = ctx.wait_for_event(&window) => {
-                renderer.handle_window_event(&window_event)?;
+            Ok(event) = ctx.wait_for_event() => {
+                if let Some(window_event) = event.window_event_for(&window) {
+                    renderer.handle_window_event(&window_event)?;
+                }
 
-                let r = logs.handle_window_event(window_event)?;
+
+                let r = logs.handle_event(event, &window)?;
                 if r == UpdateResponse::Exit {
                     return Ok(());
                 }
@@ -246,36 +252,42 @@ impl Logs {
         Ok(())
     }
 
-    fn handle_window_event(&mut self, window_event: WindowEvent) -> Result<UpdateResponse> {
-        if let WindowEvent::KeyboardInput {
-            event:
-                KeyEvent {
-                    state: ElementState::Pressed,
-                    ..
-                },
-            ..
-        } = window_event
-        {
-            warn!("{:?}", window_event);
-        }
+    fn handle_event(
+        &mut self,
+        shell_event: ShellEvent,
+        window: &ShellWindow,
+    ) -> Result<UpdateResponse> {
+        if let Some(window_event) = shell_event.window_event_for(window) {
+            if let WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } = window_event
+            {
+                warn!("{:?}", window_event);
+            }
 
-        match self.application.update(window_event) {
-            UpdateResponse::Exit => return Ok(UpdateResponse::Exit),
-            UpdateResponse::Continue => {}
-        }
+            match self.application.update(window_event) {
+                UpdateResponse::Exit => return Ok(UpdateResponse::Exit),
+                UpdateResponse::Continue => {}
+            }
 
-        // DI: This check has to be done in the renderer and the renderer has to decide when
-        // it needs to redraw.
-        //
-        // OO: Or, we introduce another handle type that stores the matrix locally and
-        // compares it _before_ uploading.
-        let new_matrix = self
-            .application
-            .matrix((self.page_width, self.page_height.value() as u32));
-        if new_matrix != self.current_matrix {
-            self.page_matrix.update(new_matrix);
-            self.current_matrix = new_matrix;
-            self.director.action()?;
+            // DI: This check has to be done in the renderer and the renderer has to decide when
+            // it needs to redraw.
+            //
+            // OO: Or, we introduce another handle type that stores the matrix locally and
+            // compares it _before_ uploading.
+            let new_matrix = self
+                .application
+                .matrix((self.page_width, self.page_height.value() as u32));
+            if new_matrix != self.current_matrix {
+                self.page_matrix.update(new_matrix);
+                self.current_matrix = new_matrix;
+                self.director.action()?;
+            }
         }
 
         Ok(UpdateResponse::Continue)
