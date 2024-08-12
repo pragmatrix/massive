@@ -1,6 +1,5 @@
 use std::{
     cell::{Ref, RefCell},
-    ops::Deref,
     rc::{Rc, Weak},
     time::{Duration, Instant},
 };

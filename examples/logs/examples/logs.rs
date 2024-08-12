@@ -8,8 +8,7 @@ use std::{
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
-use env_logger::{Builder, Target, WriteStyle};
-use log::{debug, error, warn};
+use log::warn;
 use massive_animation::{Interpolation, Timeline};
 use termwiz::{
     cell::Intensity,
@@ -21,15 +20,11 @@ use tokio::{
     sync::mpsc::{self, UnboundedReceiver},
 };
 use tracing_subscriber::{
-    filter, fmt,
-    layer::{self, SubscriberExt},
-    util::SubscriberInitExt,
-    EnvFilter, Layer, Registry,
+    filter, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
 use winit::{
     dpi::LogicalSize,
     event::{ElementState, KeyEvent, WindowEvent},
-    window,
 };
 
 use logs::terminal::{color_schemes, Rgb};
@@ -127,7 +122,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
             Ok(event) = ctx.wait_for_event() => {
                 if let Some(window_event) = event.window_event_for(&window) {
-                    renderer.handle_window_event(&window_event)?;
+                    renderer.handle_window_event(window_event)?;
                 }
 
 
