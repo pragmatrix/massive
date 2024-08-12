@@ -78,7 +78,7 @@ struct TimelineInner<T> {
 
 impl<T: Interpolatable> TimelineInner<T> {
     pub fn is_animating(&self) -> bool {
-        !self.pending_animations.is_empty() || self.animations.is_active()
+        self.animations.is_active() || !self.pending_animations.is_empty()
     }
 
     pub fn tick(&mut self, instant: Instant) -> TickResponse {
