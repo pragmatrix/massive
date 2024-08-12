@@ -345,7 +345,7 @@ impl<'window> WindowRenderer<'window> {
 #[derive(Debug)]
 pub enum ShellEvent {
     WindowEvent(WindowId, WindowEvent),
-    ApplyAnimations,
+    ApplyAnimations(Instant),
 }
 
 impl ShellEvent {
@@ -359,7 +359,7 @@ impl ShellEvent {
 
     #[must_use]
     pub fn apply_animations(&self) -> bool {
-        matches!(self, ShellEvent::ApplyAnimations)
+        matches!(self, ShellEvent::ApplyAnimations(_))
     }
 }
 
@@ -508,6 +508,8 @@ impl ApplicationContext {
         f(active_event_loop)
     }
 
+    /// Waits for a shell event and updates all timelines if a [`ShellEvent::ApplyAnimations`] is
+    /// received.
     pub async fn wait_for_event(&mut self) -> Result<ShellEvent> {
         let event = self.event_receiver.recv().await;
         let Some(event) = event else {
@@ -515,6 +517,13 @@ impl ApplicationContext {
             // happen in normal situations.
             bail!("Internal Error: Shell shut down, no more events")
         };
+
+        if let ShellEvent::ApplyAnimations(tick) = event {
+            // Animations could be removed in the meantime, so we check for wants_ticks()...
+            self.tickery.tick(tick);
+            // Even if nothing happened, the event _must_ be forwarded to the application, because
+            // it may need to apply final values now.
+        }
 
         Ok(event)
     }
@@ -552,9 +561,8 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
             StartCause::ResumeTimeReached {
                 requested_resume, ..
             } => {
-                self.tickery.tick(requested_resume);
-                self.send_event(event_loop, ShellEvent::ApplyAnimations);
                 if self.tickery.wants_ticks() {
+                    self.send_event(event_loop, ShellEvent::ApplyAnimations(requested_resume));
                     event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
                         requested_resume + ANIMATION_FRAME_DURATION,
                     ));
@@ -574,6 +582,8 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                     event_loop
                         .set_control_flow(event_loop::ControlFlow::WaitUntil(requested_resume));
                 } else {
+                    // This happens when animation completed before a Wait ended and another event
+                    // interfered.
                     debug!("Animation stopped");
                 }
             }
