@@ -29,7 +29,7 @@ use winit::{
 
 use logs::terminal::{color_schemes, Rgb};
 use massive_geometry::{Camera, Color, Identity, Vector3};
-use massive_scene::{Director, Handle, Location, Matrix, Visual};
+use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
 use massive_shapes::TextWeight;
 use massive_shell::{
     shell::{self, ShellEvent},
@@ -117,7 +117,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     loop {
         select! {
             Some(bytes) = receiver.recv() => {
-                logs.add_line(&bytes)?;
+                logs.add_line(&mut ctx, &bytes)?;
             },
 
             Ok(event) = ctx.wait_for_event() => {
@@ -195,25 +195,27 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, bytes: &[u8]) -> Result<()> {
+    fn add_line(&mut self, ctx: &mut ApplicationContext, bytes: &[u8]) -> Result<()> {
         let (new_runs, height) = {
             let mut font_system = self.font_system.lock().unwrap();
 
             shape_log_line(bytes, self.y, &mut font_system)
         };
 
-        let line = self.director.stage(Visual::new(
-            self.location.clone(),
-            new_runs
-                .into_iter()
-                .map(|run| run.into())
-                .collect::<Vec<_>>(),
-        ));
+        let glyph_runs: Vec<Shape> = new_runs.into_iter().map(|run| run.into()).collect();
+
+        let glyph_runs_visual = glyph_runs.clone();
+
+        let visual = Visual::new(self.location.clone(), glyph_runs_visual);
+
+        let line = self.director.stage(visual);
 
         self.lines.push_back(LogLine {
             y: self.y,
             height,
-            _visual: line,
+            opacity: ctx.animation(0., 1., Duration::from_millis(2000), Interpolation::CubicOut),
+            glyph_runs,
+            visual_handle: line,
         });
 
         while self.lines.len() > MAX_LINES {
@@ -289,6 +291,10 @@ impl Logs {
         // DI: there is a director.action in update_page_matrix().
         self.update_page_matrix()?;
 
+        for line in &mut self.lines {
+            line.apply_animations(&self.location)
+        }
+
         self.director.action()
     }
 
@@ -344,7 +350,33 @@ fn shape_log_line(
 struct LogLine {
     y: f64,
     height: f64,
-    _visual: Handle<Visual>,
+    // Stored here, because we need to change opacity.
+    //
+    // OO: Just provide opacity somehow as a property, or at least introduce a Handle<T> that stores
+    // a local backup?
+    glyph_runs: Vec<Shape>,
+    visual_handle: Handle<Visual>,
+    opacity: Timeline<f64>,
+}
+
+impl LogLine {
+    pub fn apply_animations(&mut self, location: &Handle<Location>) {
+        if !self.opacity.is_animating() {
+            return;
+        }
+
+        let opacity = self.opacity.value();
+
+        for shape in &mut self.glyph_runs {
+            if let Shape::GlyphRun(glyph_run) = shape {
+                glyph_run.text_color.alpha = opacity as f32;
+            }
+        }
+
+        // OO: Avoid excessive cloning.
+        self.visual_handle
+            .update(Visual::new(location.clone(), self.glyph_runs.clone()));
+    }
 }
 
 #[derive(Debug)]

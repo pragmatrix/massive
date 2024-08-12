@@ -29,7 +29,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use massive_animation::{Interpolatable, Tickery, Timeline};
+use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
 
@@ -490,8 +490,22 @@ impl ApplicationContext {
         self.with_active_event_loop(|event_loop| event_loop.primary_monitor())
     }
 
+    /// Create a timeline with a starting value.
     pub fn timeline<T: Interpolatable>(&self, value: T) -> Timeline<T> {
         self.tickery.timeline(value)
+    }
+
+    /// Create a timeline that is animating from a starting value to a target value.
+    pub fn animation<T: Interpolatable + 'static>(
+        &self,
+        value: T,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) -> Timeline<T> {
+        let mut timeline = self.tickery.timeline(value);
+        timeline.animate_to(target_value, duration, interpolation);
+        timeline
     }
 
     /// Executes a lambda when a [`ActiveEventLoop`] reference is available. I.e. the code currently

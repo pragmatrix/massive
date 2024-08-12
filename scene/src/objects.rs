@@ -4,12 +4,13 @@ use crate::{Change, Handle, Id, Object, SceneChange};
 use massive_geometry as geometry;
 use massive_shapes::{GlyphRun, Quads};
 
-#[derive(Debug, From)]
+#[derive(Debug, Clone, From)]
 pub enum Shape {
     GlyphRun(GlyphRun),
     Quads(Quads),
 }
 
+/// A visual reprsents a set of shapes that have a common position / location in the space.
 #[derive(Debug)]
 pub struct Visual {
     pub location: Handle<Location>,
