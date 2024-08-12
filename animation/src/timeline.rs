@@ -59,6 +59,10 @@ impl<T: Interpolatable> Timeline<T> {
         let r = self.shared.borrow();
         Ref::map(r, |i| &i.value)
     }
+
+    pub fn is_animating(&self) -> bool {
+        self.shared.borrow().is_animating()
+    }
 }
 
 /// Shared by the timeline value and the tickery.
