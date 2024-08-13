@@ -42,7 +42,7 @@ use shared::{
 
 const CANVAS_ID: &str = "massive-logs";
 
-const MAX_LINES: usize = 100;
+const MAX_LINES: usize = 64;
 
 fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -216,10 +216,35 @@ impl Logs {
             fader: ctx.animation(0., 1., Duration::from_millis(400), Interpolation::CubicOut),
             glyph_runs,
             visual_handle: line,
+            fading_out: false,
         });
 
-        while self.lines.len() > MAX_LINES {
-            self.lines.pop_front();
+        // See if some lines need to be faded out.
+
+        {
+            let overhead_lines = if self.lines.len() > MAX_LINES {
+                self.lines.len() - MAX_LINES
+            } else {
+                0
+            };
+
+            for line in self.lines.iter_mut().take(overhead_lines) {
+                if !line.fading_out {
+                    line.fader
+                        .animate_to(0., Duration::from_millis(400), Interpolation::CubicIn);
+                    line.fading_out = true;
+                }
+            }
+        }
+
+        // Remove all lines that finished fading out from top to bottom.
+
+        while let Some(line) = self.lines.front() {
+            if line.fading_out && !line.fader.is_animating() {
+                self.lines.pop_front();
+            } else {
+                break;
+            }
         }
 
         // Update page size.
@@ -357,6 +382,7 @@ struct LogLine {
     glyph_runs: Vec<Shape>,
     visual_handle: Handle<Visual>,
     fader: Timeline<f64>,
+    fading_out: bool,
 }
 
 impl LogLine {
