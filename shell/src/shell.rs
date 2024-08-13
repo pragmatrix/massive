@@ -581,7 +581,7 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                         requested_resume + ANIMATION_FRAME_DURATION,
                     ));
                 } else {
-                    debug!("Animation stopped");
+                    debug!("Animation stopped (resume time reached)");
                     // Winit does not stop sending ResumeTimeReached until the control flow gets
                     // changed.
                     event_loop.set_control_flow(event_loop::ControlFlow::Wait);
@@ -593,12 +593,16 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
             } => {
                 // Re-set a new wakeup time when the tickery has registrations.
                 if self.tickery.wants_ticks() {
-                    event_loop
-                        .set_control_flow(event_loop::ControlFlow::WaitUntil(requested_resume));
+                    // Control flow should stay where it was.
+                    debug_assert_eq!(
+                        event_loop.control_flow(),
+                        event_loop::ControlFlow::WaitUntil(requested_resume)
+                    );
                 } else {
                     // This happens when animation completed before a Wait ended and another event
                     // interfered.
-                    debug!("Animation stopped");
+                    debug!("Animation stopped (wait cancelled)");
+                    event_loop.set_control_flow(event_loop::ControlFlow::Wait);
                 }
             }
             _ => {}
