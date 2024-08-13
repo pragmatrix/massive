@@ -156,7 +156,7 @@ impl TextureColorVertex {
 
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 3] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x3];
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4];
 
         VertexBufferLayout {
             array_stride: size_of::<TextureColorVertex>() as BufferAddress,
