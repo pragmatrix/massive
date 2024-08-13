@@ -213,7 +213,7 @@ impl Logs {
         self.lines.push_back(LogLine {
             y: self.y,
             height,
-            opacity: ctx.animation(0., 1., Duration::from_millis(2000), Interpolation::CubicOut),
+            fader: ctx.animation(0., 1., Duration::from_millis(400), Interpolation::CubicOut),
             glyph_runs,
             visual_handle: line,
         });
@@ -356,20 +356,23 @@ struct LogLine {
     // a local backup?
     glyph_runs: Vec<Shape>,
     visual_handle: Handle<Visual>,
-    opacity: Timeline<f64>,
+    fader: Timeline<f64>,
 }
 
 impl LogLine {
+    const FADE_TRANSLATION: f64 = 256.0;
+
     pub fn apply_animations(&mut self, location: &Handle<Location>) {
-        if !self.opacity.is_animating() {
+        if !self.fader.is_animating() {
             return;
         }
 
-        let opacity = self.opacity.value();
+        let fading = self.fader.value();
 
         for shape in &mut self.glyph_runs {
             if let Shape::GlyphRun(glyph_run) = shape {
-                glyph_run.text_color.alpha = opacity as f32;
+                glyph_run.text_color.alpha = fading as f32;
+                glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
             }
         }
 
