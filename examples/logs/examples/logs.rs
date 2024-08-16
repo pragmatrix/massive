@@ -42,7 +42,9 @@ use shared::{
 
 const CANVAS_ID: &str = "massive-logs";
 
-const MAX_LINES: usize = 64;
+const FADE_DURATION: Duration = Duration::from_millis(400);
+
+const MAX_LINES: usize = 32;
 
 fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
@@ -213,7 +215,7 @@ impl Logs {
         self.lines.push_back(LogLine {
             y: self.y,
             height,
-            fader: ctx.animation(0., 1., Duration::from_millis(400), Interpolation::CubicOut),
+            fader: ctx.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
             glyph_runs,
             visual_handle: line,
             fading_out: false,
@@ -231,19 +233,9 @@ impl Logs {
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
                     line.fader
-                        .animate_to(0., Duration::from_millis(400), Interpolation::CubicIn);
+                        .animate_to(0., FADE_DURATION, Interpolation::CubicIn);
                     line.fading_out = true;
                 }
-            }
-        }
-
-        // Remove all lines that finished fading out from top to bottom.
-
-        while let Some(line) = self.lines.front() {
-            if line.fading_out && !line.fader.is_animating() {
-                self.lines.pop_front();
-            } else {
-                break;
             }
         }
 
@@ -312,6 +304,16 @@ impl Logs {
         self.vertical_center_matrix.update(Matrix::from_translation(
             (0., self.vertical_center.value(), 0.).into(),
         ));
+
+        // Remove all lines that finished fading out from top to bottom.
+
+        while let Some(line) = self.lines.front() {
+            if line.fading_out && !line.fader.is_animating() {
+                self.lines.pop_front();
+            } else {
+                break;
+            }
+        }
 
         // DI: there is a director.action in update_page_matrix().
         self.update_page_matrix()?;
