@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
-use log::warn;
+use log::{debug, warn};
 use massive_animation::{Interpolation, Timeline};
 use termwiz::{
     cell::Intensity,
@@ -43,6 +43,7 @@ use shared::{
 const CANVAS_ID: &str = "massive-logs";
 
 const FADE_DURATION: Duration = Duration::from_millis(400);
+const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
 
 const MAX_LINES: usize = 32;
 
@@ -126,7 +127,6 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                 if let Some(window_event) = event.window_event_for(&window) {
                     renderer.handle_window_event(window_event)?;
                 }
-
 
                 let r = logs.handle_event(event, &window)?;
                 if r == UpdateResponse::Exit {
@@ -241,23 +241,7 @@ impl Logs {
 
         // Update page size.
 
-        let top_line = self.lines.front().unwrap();
-
-        println!("Animating to: {}", -top_line.y);
-
-        self.vertical_center.animate_to(
-            -top_line.y,
-            Duration::from_millis(200),
-            Interpolation::CubicOut,
-        );
-
-        let last_line = self.lines.back().unwrap();
-        let new_height = last_line.y + last_line.height - top_line.y;
-        self.page_height.animate_to(
-            new_height,
-            Duration::from_millis(200),
-            Interpolation::CubicOut,
-        );
+        self.update_vertical_alignment();
 
         self.director.action()?;
 
@@ -307,12 +291,20 @@ impl Logs {
 
         // Remove all lines that finished fading out from top to bottom.
 
+        let mut update_v_alignment = false;
+
         while let Some(line) = self.lines.front() {
             if line.fading_out && !line.fader.is_animating() {
+                debug!("faded out at: {}", line.fader.value());
                 self.lines.pop_front();
+                update_v_alignment = true;
             } else {
                 break;
             }
+        }
+
+        if update_v_alignment {
+            self.update_vertical_alignment();
         }
 
         // DI: there is a director.action in update_page_matrix().
@@ -323,6 +315,24 @@ impl Logs {
         }
 
         self.director.action()
+    }
+
+    fn update_vertical_alignment(&mut self) {
+        let top_line = self.lines.front().unwrap();
+
+        self.vertical_center.animate_to(
+            -top_line.y,
+            VERTICAL_ALIGNMENT_DURATION,
+            Interpolation::CubicOut,
+        );
+
+        let last_line = self.lines.back().unwrap();
+        let new_height = last_line.y + last_line.height - top_line.y;
+        self.page_height.animate_to(
+            new_height,
+            VERTICAL_ALIGNMENT_DURATION,
+            Interpolation::CubicOut,
+        );
     }
 
     fn update_page_matrix(&mut self) -> Result<()> {
