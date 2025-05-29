@@ -10,7 +10,7 @@ pub enum Shape {
     Quads(Quads),
 }
 
-/// A visual reprsents a set of shapes that have a common position / location in the space.
+/// A visual represents a set of shapes that have a common position / location in the space.
 #[derive(Debug)]
 pub struct Visual {
     pub location: Handle<Location>,
