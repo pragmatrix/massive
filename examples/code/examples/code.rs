@@ -7,10 +7,10 @@ use std::{
 };
 
 use anyhow::Result;
-use base_db::{SourceDatabase, SourceDatabaseExt};
+use base_db::{RootQueryDb, SourceDatabase};
 use chrono::{DateTime, Local};
 use cosmic_text::{fontdb, FontSystem};
-// use hir::db::DefDatabase;
+use hir::EditionedFileId;
 use ide::{
     AnalysisHost, FilePosition, HighlightConfig, HighlightRelatedConfig, HlMod, HlMods, HlTag,
     SymbolKind,
@@ -120,16 +120,17 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     //     println!("file: {}", path)
     // }
 
-    let file_id = vfs.file_id(&path).expect("File not found");
+    let (file_id, _) = vfs.file_id(&path).expect("File not found");
     let file_text = db.file_text(file_id);
 
     let analysis_host = AnalysisHost::with_database(db);
+    let db = analysis_host.raw_database();
 
     // Get all names
 
     let names = {
         let mut names = Vec::new();
-        let db = analysis_host.raw_database();
+        let file_id = EditionedFileId::current_edition(db, file_id);
         let tree = db.parse(file_id).tree();
         let syntax = tree.syntax().preorder();
         for event in syntax {
@@ -144,9 +145,10 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         names
     };
 
+    let text = file_text.text(db);
     for name in &names {
         // let x : TextRange
-        println!("name: {}", &file_text[*name])
+        println!("name: {}", &text[*name])
     }
 
     // Item tree
@@ -181,7 +183,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                 .unwrap()
             {
                 relation_table.insert(name, related.iter().map(|hr| hr.range).collect::<Vec<_>>());
-                let related: Vec<_> = related.iter().map(|hr| &file_text[hr.range]).collect();
+                let related: Vec<_> = related.iter().map(|hr| &text[hr.range]).collect();
 
                 println!("related: {:?}", related)
             }
@@ -226,7 +228,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // Store for the web viewer.
 
     let attributed_code = attributed_text::AttributedText {
-        text: file_text.to_string(),
+        text: text.to_string(),
         attributes: attributes.clone(),
     };
 
@@ -251,7 +253,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
-        &file_text,
+        &text,
         &attributes,
         font_size,
         line_height,
@@ -353,6 +355,8 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, TextWeight) {
             SymbolKind::Union => type_green(),
             SymbolKind::ValueParam => default_text(),
             SymbolKind::Variant => const_blue(),
+            // Details: This needs to be mapped to a proper color.
+            SymbolKind::InlineAsmRegOrRegClass => black(),
         },
         HlTag::AttributeBracket => keyword_blue(),
         HlTag::BoolLiteral => keyword_blue(),
