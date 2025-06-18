@@ -501,7 +501,7 @@ pub(crate) unsafe fn generate_distance_field_from_image(
     let mut df_ptr = distance_field.as_mut_ptr();
     for _j in 1..data_height - 1 {
         for _i in 1..data_width - 1 {
-            #[cfg(target_feature = "dump_edge")]
+            #[cfg(feature = "dump_edge")]
             {
                 let alpha = curr_data.fAlpha;
                 let edge = if *curr_edge != 0 { 0.25 } else { 0.0 };
@@ -511,7 +511,7 @@ pub(crate) unsafe fn generate_distance_field_from_image(
                 unsafe { *df_ptr = val };
                 df_ptr = unsafe { df_ptr.add(1) };
             }
-            #[cfg(not(target_feature = "dump_edge"))]
+            #[cfg(not(feature = "dump_edge"))]
             {
                 let dist = if (*curr_data).alpha > 0.5 {
                     -(*curr_data).dist_sq.sqrt()

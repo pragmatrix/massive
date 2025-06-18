@@ -3,6 +3,9 @@ name = "massive-renderer"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+dump_edge = []
+
 [dependencies]
 massive-geometry = { workspace = true }
 massive-shapes = { workspace = true }
