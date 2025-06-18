@@ -277,7 +277,7 @@ impl Processor {
             Action::PrintString(string) => {
                 self.text.push_str(&string);
                 self.text_attributes
-                    .extend(iter::repeat(self.current).take(string.len()))
+                    .extend(iter::repeat_n(self.current, string.len()))
             }
             Action::Control(control) => match control {
                 ControlCode::Null => {}
