@@ -1,6 +1,5 @@
 use std::time::Instant;
 
-
 /// For now we have to support `Clone`.
 ///
 /// Other options: We pass 1.0 here and expect Self to return a clone for `to`, but can then never
