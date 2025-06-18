@@ -420,7 +420,6 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 ///
 /// In addition to that it provides an animator that is updated with each event (mostly ticks)
 /// coming from the shell.
-
 pub struct ApplicationContext {
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
