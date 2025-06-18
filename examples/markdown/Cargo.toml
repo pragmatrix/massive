@@ -17,3 +17,7 @@ inlyne = { path = "inlyne" }
 log = { workspace = true }
 winit = { workspace = true }
 swash = { workspace = true }
+
+# Specify a random generator to use for wasm targets
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+uuid = { version = "1.17.0", features = ["js"] }
