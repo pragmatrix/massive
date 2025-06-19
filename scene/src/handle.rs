@@ -60,11 +60,11 @@ impl<T: Object> Handle<T> {
 struct InnerHandle<T: Object> {
     id: Id,
     change_tracker: Rc<RefCell<ChangeTracker>>,
-    // As long the inner handle is referred to by a bare Rc<>, we need a RefCell here. TODO: Since
-    // T::Pinned is also Rc, we could put this directly in Handle, as we could the Id, it would make
-    // the handle quite fat though, but is this a problem assuming that the number of handles are
-    // usually only one on average ... but not inside of shapes?!
-    // Also: how frequent is update being called?
+    // As long as the inner handle is referred to by a bare Rc<>, we need a RefCell here. TODO:
+    // Since T::Pinned is also Rc, we could put this directly in Handle, as we could the Id, it
+    // would make the handle quite fat though, but is this a problem assuming that the number of
+    // handles are usually only one on average ... but not inside of shapes?! Also: how frequent is
+    // update being called?
     pinned: RefCell<T::Keep>,
 }
 
