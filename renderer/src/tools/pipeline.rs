@@ -12,13 +12,13 @@ pub fn create_pipeline(
         layout: Some(pipeline_layout),
         vertex: wgpu::VertexState {
             module: shader,
-            entry_point: "vs_main",
+            entry_point: Some("vs_main"),
             compilation_options: Default::default(),
             buffers: vert_layout,
         },
         fragment: Some(wgpu::FragmentState {
             module: shader,
-            entry_point: fragment_shader_entry,
+            entry_point: Some(fragment_shader_entry),
             compilation_options: Default::default(),
             targets,
         }),
@@ -38,6 +38,7 @@ pub fn create_pipeline(
             alpha_to_coverage_enabled: false,
         },
         multiview: None,
+        cache: None,
     };
 
     device.create_render_pipeline(&pipeline)
