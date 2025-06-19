@@ -81,9 +81,8 @@ impl SdfAtlasRenderer {
 
         for instance in instances {
             let r = instance.atlas_rect;
-            // ADR: u/v normalization is dont in the shader, for once, its probably free, and
-            // secondly we don't have to care about the atlas texture growing as long the rects stay
-            // the same.
+            // ADR: u/v normalization is done in the shader, because its probably free and we don't
+            // have to care about the atlas texture growing as long the rects stay the same.
             let (ltx, lty) = (r.min.x as f32, r.min.y as f32);
             let (rbx, rby) = (r.max.x as f32, r.max.y as f32);
 

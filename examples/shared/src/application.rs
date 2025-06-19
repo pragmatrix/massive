@@ -42,7 +42,7 @@ struct RotationGesture {
 const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
 const MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS: i32 = 16;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpdateResponse {
     Continue,
     Exit,
@@ -50,7 +50,7 @@ pub enum UpdateResponse {
 
 impl Application {
     #[must_use]
-    pub fn update(&mut self, window_event: WindowEvent) -> UpdateResponse {
+    pub fn update(&mut self, window_event: &WindowEvent) -> UpdateResponse {
         match window_event {
             // Forward to application for more control?
             WindowEvent::CloseRequested
@@ -71,7 +71,7 @@ impl Application {
                 //
                 // These positions aren't discrete / integral on macOS, but why?
                 let current = PointI::new(position.x.round() as _, position.y.round() as _);
-                self.positions.insert(device_id, current);
+                self.positions.insert(*device_id, current);
 
                 // Is there an ongoing movement on the left mouse button?
                 if let Some(gesture) = &self.gesture {
@@ -104,16 +104,16 @@ impl Application {
                 device_id,
                 state,
                 button: MouseButton::Left,
-            } if self.positions.contains_key(&device_id) => {
+            } if self.positions.contains_key(device_id) => {
                 if state.is_pressed() {
                     if self.modifiers.state().super_key() {
                         self.gesture = Some(ActiveGesture::Rotation(RotationGesture {
-                            origin: self.positions[&device_id],
+                            origin: self.positions[device_id],
                             rotation_origin: self.rotation,
                         }));
                     } else {
                         self.gesture = Some(ActiveGesture::Movement(MovementGesture {
-                            origin: self.positions[&device_id],
+                            origin: self.positions[device_id],
                             translation_origin: self.translation,
                         }));
                     }
@@ -128,7 +128,7 @@ impl Application {
             } => {
                 if state.is_pressed() {
                     self.gesture = Some(ActiveGesture::Rotation(RotationGesture {
-                        origin: self.positions[&device_id],
+                        origin: self.positions[device_id],
                         rotation_origin: self.rotation,
                     }));
                 } else {
@@ -143,7 +143,7 @@ impl Application {
                 self.rotation = PointI::default();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
-                if self.modifiers != modifiers {
+                if self.modifiers != *modifiers {
                     // If there is an ongoing move and modifiers change, reset origins.
                     // if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
                     //     mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
@@ -151,7 +151,7 @@ impl Application {
                     //     mouse_pressed.rotation_origin = self.rotation;
                     // }
 
-                    self.modifiers = modifiers
+                    self.modifiers = *modifiers
                 }
             }
             WindowEvent::KeyboardInput {

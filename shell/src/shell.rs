@@ -4,12 +4,18 @@ use std::{
     ptr,
     rc::Rc,
     sync::{Arc, Mutex},
+    time::Duration,
 };
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
 use anyhow::{bail, Result};
 use cosmic_text::FontSystem;
 use futures::{task::ArcWake, FutureExt};
-use log::{error, info};
+use log::{debug, error, info};
 use massive_scene::{Director, SceneChange};
 use tokio::{
     sync::{
@@ -22,12 +28,13 @@ use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, Te
 use winit::{
     application::ApplicationHandler,
     dpi::{self, PhysicalSize},
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event::{StartCause, WindowEvent},
+    event_loop::{self, ActiveEventLoop, EventLoop, EventLoopProxy},
     monitor::MonitorHandle,
     window::{Window, WindowAttributes, WindowId},
 };
 
+use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
 
@@ -47,16 +54,20 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
 
     let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> = Rc::new(RefCell::new(ptr::null()));
 
+    let tickery = Rc::new(Tickery::default());
+
     let application_context = ApplicationContext {
         event_receiver,
         active_event_loop: active_event_loop.clone(),
+        tickery: tickery.clone(),
     };
 
     let local_set = LocalSet::new();
     let (result_tx, mut result_rx) = oneshot::channel();
     let _application_task = local_set.spawn_local(async move {
         let r = application(application_context).await;
-        // Found no way to retrieve the result via JoinHandle, so this must do.
+        // Found no way to retrieve the result via JoinHandle, so a return via a onceshot channel
+        // must do.
         result_tx
             .send(Some(r))
             .expect("Internal Error: Failed to set the application result");
@@ -76,6 +87,8 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
             active_event_loop,
             local_set,
             waker,
+
+            tickery,
         };
 
         info!("Entering event loop");
@@ -221,18 +234,13 @@ impl<'window> WindowRenderer<'window> {
 
         info!("Surface format: {:?}", surface_format);
 
-        let present_mode = surface_caps
-            .present_modes
-            .iter()
-            .copied()
-            .find(|f| *f == PresentMode::Immediate)
-            .unwrap_or(surface_caps.present_modes[0]);
+        info!("Available present modes: {:?}", surface_caps.present_modes);
 
         let alpha_mode = surface_caps.alpha_modes[0];
 
         info!(
-            "Selecting present mode {:?}, alpha mode: {:?}, initial size: {:?}",
-            present_mode, alpha_mode, initial_size,
+            "Selecting alpha mode: {:?}, initial size: {:?}",
+            alpha_mode, initial_size,
         );
 
         let surface_config = wgpu::SurfaceConfiguration {
@@ -240,8 +248,8 @@ impl<'window> WindowRenderer<'window> {
             format: *surface_format,
             width: initial_size.width,
             height: initial_size.height,
-            present_mode,
-            // TODO: Select this explicitly
+            present_mode: PresentMode::AutoNoVsync,
+            // TODO: Select explicitly
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
@@ -286,7 +294,7 @@ impl<'window> WindowRenderer<'window> {
         self.window.request_redraw();
     }
 
-    fn handle_window_event(&mut self, window_event: &WindowEvent) -> Result<()> {
+    pub fn handle_window_event(&mut self, window_event: &WindowEvent) -> Result<()> {
         match window_event {
             WindowEvent::Resized(physical_size) => {
                 info!("{:?}", window_event);
@@ -320,7 +328,6 @@ impl<'window> WindowRenderer<'window> {
             self.renderer.apply_changes(&mut font_system, changes)?;
         }
 
-        // TODO: pass primitives as value.
         match self.renderer.render_and_present(&view_projection_matrix) {
             Ok(_) => {}
             // Reconfigure the surface if lost
@@ -341,8 +348,24 @@ impl<'window> WindowRenderer<'window> {
 }
 
 #[derive(Debug)]
-enum ShellEvent {
+pub enum ShellEvent {
     WindowEvent(WindowId, WindowEvent),
+    ApplyAnimations(Instant),
+}
+
+impl ShellEvent {
+    #[must_use]
+    pub fn window_event_for(&self, window: &ShellWindow) -> Option<&WindowEvent> {
+        match self {
+            ShellEvent::WindowEvent(id, window_event) if *id == window.id() => Some(window_event),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn apply_animations(&self) -> bool {
+        matches!(self, ShellEvent::ApplyAnimations(_))
+    }
 }
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
@@ -397,9 +420,15 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
+/// The [`ApplicationContext`] is the connection to the window. It allows the application to poll
+/// for events while also forwarding events to the renderer.
+///
+/// In addition to that it provides an animator that is updated with each event (mostly ticks)
+/// coming from the shell.
 pub struct ApplicationContext {
     event_receiver: Receiver<ShellEvent>,
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
+    tickery: Rc<Tickery>,
 }
 
 impl ApplicationContext {
@@ -465,6 +494,28 @@ impl ApplicationContext {
         self.with_active_event_loop(|event_loop| event_loop.primary_monitor())
     }
 
+    /// Create a timeline with a starting value.
+    pub fn timeline<T: Interpolatable>(&self, value: T) -> Timeline<T> {
+        self.tickery.timeline(value)
+    }
+
+    /// Create a timeline that is animating from a starting value to a target value.
+    pub fn animation<T: Interpolatable + 'static>(
+        &self,
+        value: T,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) -> Timeline<T> {
+        let mut timeline = self.tickery.timeline(value);
+        timeline.animate_to(target_value, duration, interpolation);
+        timeline
+    }
+
+    /// Executes a lambda when a [`ActiveEventLoop`] reference is available. I.e. the code currently
+    /// running is run inside the winit event loop.
+    ///
+    /// Panics if the current code does not execute inside the winit event loop.
     fn with_active_event_loop<R>(&self, f: impl FnOnce(&ActiveEventLoop) -> R) -> R {
         let ptr = self.active_event_loop.borrow();
         let ptr = *ptr;
@@ -475,13 +526,9 @@ impl ApplicationContext {
         f(active_event_loop)
     }
 
-    /// Drive the renderer and retrieve the next window event.
-    ///
-    /// Process the event and then forward it to the renderer.
-    pub async fn wait_for_event(
-        &mut self,
-        renderer: &mut WindowRenderer<'_>,
-    ) -> Result<WindowEvent> {
+    /// Waits for a shell event and updates all timelines if a [`ShellEvent::ApplyAnimations`] is
+    /// received.
+    pub async fn wait_for_event(&mut self) -> Result<ShellEvent> {
         let event = self.event_receiver.recv().await;
         let Some(event) = event else {
             // This means that the shell stopped before the application ended, this should not
@@ -489,12 +536,20 @@ impl ApplicationContext {
             bail!("Internal Error: Shell shut down, no more events")
         };
 
-        match event {
-            ShellEvent::WindowEvent(window_id, window_event)
-                if window_id == renderer.window.id() =>
-            {
-                renderer.handle_window_event(&window_event)?;
-                // We forward _all_ window events to the application (for now)
+        if let ShellEvent::ApplyAnimations(tick) = event {
+            // Animations could be removed in the meantime, so we check for wants_ticks()...
+            self.tickery.tick(tick);
+            // Even if nothing happened, the event _must_ be forwarded to the application, because
+            // it may need to apply final values now.
+        }
+
+        Ok(event)
+    }
+
+    /// Retrieve the next window event and forward it to the renderer if needed.
+    pub async fn wait_for_window_event(&mut self, window: &ShellWindow) -> Result<WindowEvent> {
+        match self.wait_for_event().await? {
+            ShellEvent::WindowEvent(window_id, window_event) if window_id == window.id() => {
                 Ok(window_event)
             }
             _ => {
@@ -510,12 +565,55 @@ struct WinitApplicationHandler {
     active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
     local_set: LocalSet,
     waker: Arc<EventLoopWaker>,
+
+    tickery: Rc<Tickery>,
 }
+
+const ANIMATION_FRAME_DURATION: Duration = Duration::from_nanos(16_666_667);
 
 impl ApplicationHandler<Event> for WinitApplicationHandler {
     fn resumed(&mut self, _event_loop: &ActiveEventLoop) {}
 
-    fn user_event(&mut self, event_loop: &winit::event_loop::ActiveEventLoop, event: Event) {
+    fn new_events(&mut self, event_loop: &ActiveEventLoop, cause: StartCause) {
+        match cause {
+            StartCause::ResumeTimeReached {
+                requested_resume, ..
+            } => {
+                if self.tickery.wants_ticks() {
+                    self.send_event(event_loop, ShellEvent::ApplyAnimations(requested_resume));
+                    event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
+                        requested_resume + ANIMATION_FRAME_DURATION,
+                    ));
+                } else {
+                    debug!("Animation stopped (resume time reached)");
+                    // Winit does not stop sending ResumeTimeReached until the control flow gets
+                    // changed.
+                    event_loop.set_control_flow(event_loop::ControlFlow::Wait);
+                }
+            }
+            StartCause::WaitCancelled {
+                requested_resume: Some(requested_resume),
+                ..
+            } => {
+                // Re-set a new wakeup time when the tickery has registrations.
+                if self.tickery.wants_ticks() {
+                    // Control flow should stay where it was.
+                    debug_assert_eq!(
+                        event_loop.control_flow(),
+                        event_loop::ControlFlow::WaitUntil(requested_resume)
+                    );
+                } else {
+                    // This happens when animation completed before a Wait ended and another event
+                    // interfered.
+                    debug!("Animation stopped (wait cancelled)");
+                    event_loop.set_control_flow(event_loop::ControlFlow::Wait);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Event) {
         match event {
             Event::WakeUpApplication => {
                 self.drive_application(event_loop);
@@ -525,16 +623,31 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
 
     fn window_event(
         &mut self,
-        event_loop: &winit::event_loop::ActiveEventLoop,
-        window_id: winit::window::WindowId,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
         event: WindowEvent,
     ) {
-        info!("{:?}", event);
+        // This was added for the logs example.
+        if event != WindowEvent::RedrawRequested {
+            info!("{:?}", event);
+        }
 
-        match self
-            .event_sender
-            .try_send(ShellEvent::WindowEvent(window_id, event))
-        {
+        self.send_event(event_loop, ShellEvent::WindowEvent(window_id, event))
+    }
+
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.drive_application(event_loop);
+    }
+}
+
+impl WinitApplicationHandler {
+    fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
+        match self.event_sender.try_send(shell_event) {
+            Ok(()) => {
+                // OO: Can't we wait until the event loop is about to wait and then drive the
+                // application which pulls all new events? Effectively collecting all the events?
+                self.drive_application(event_loop)
+            }
             Err(_e) => {
                 // Don't log when we are already exiting.
                 if !event_loop.exiting() {
@@ -542,27 +655,33 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                     event_loop.exit();
                 }
             }
-            Ok(()) => self.drive_application(event_loop),
         }
     }
 
-    fn about_to_wait(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        self.drive_application(event_loop);
-    }
-}
+    fn drive_application(&mut self, event_loop: &ActiveEventLoop) {
+        let wanted_ticks = self.tickery.wants_ticks();
 
-impl WinitApplicationHandler {
-    fn drive_application(&mut self, event_loop: &winit::event_loop::ActiveEventLoop) {
-        let waker_ref = futures::task::waker_ref(&self.waker);
-        let mut context = std::task::Context::from_waker(&waker_ref);
+        {
+            let waker_ref = futures::task::waker_ref(&self.waker);
+            let mut context = std::task::Context::from_waker(&waker_ref);
 
-        *self.active_event_loop.borrow_mut() = event_loop;
+            *self.active_event_loop.borrow_mut() = event_loop;
 
-        if self.local_set.poll_unpin(&mut context).is_ready() {
-            event_loop.exit();
+            if self.local_set.poll_unpin(&mut context).is_ready() {
+                event_loop.exit();
+            }
+
+            *self.active_event_loop.borrow_mut() = ptr::null();
         }
 
-        *self.active_event_loop.borrow_mut() = ptr::null();
+        // Transitioning into an animation state?
+        if !wanted_ticks && self.tickery.wants_ticks() {
+            let now = Instant::now();
+            event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
+                now + ANIMATION_FRAME_DURATION,
+            ));
+            debug!("Animation started");
+        }
     }
 }
 

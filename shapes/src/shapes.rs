@@ -75,7 +75,7 @@ pub struct QuadsShape {
 
 pub type Quads = Vec<Quad>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Quad {
     /// A three vertices. Visible from both sides.
     pub vertices: [Vector3; 4],

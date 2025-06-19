@@ -6,14 +6,14 @@ var<uniform> view_model: mat4x4<f32>;
 struct VertexInput {
     @location(0) position: vec3<f32>,
     @location(1) tex_coords: vec2<f32>,
-    @location(2) color: vec3<f32>,
+    @location(2) color: vec4<f32>,
 }
 
 struct VertexOutput {
     @builtin(position) clip_position: vec4<f32>,
     // Unnormalized texture pixel coordinates.
     @location(0) tex_coords: vec2<f32>,
-    @location(1) @interpolate(flat) color: vec3<f32>,
+    @location(1) @interpolate(flat) color: vec4<f32>,
 }
 
 @vertex
@@ -81,5 +81,5 @@ fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
     // let val = saturate((distance + afwidth) / (2.0 * afwidth));
     let val = smoothstep(-afwidth, afwidth, distance);
 
-    return vec4<f32>(in.color, val);
+    return vec4<f32>(in.color.rgb, in.color.a * val);
 }

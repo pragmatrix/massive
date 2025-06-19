@@ -8,6 +8,9 @@ massive-geometry = { workspace = true }
 massive-renderer = { workspace = true }
 massive-shapes = { workspace = true }
 massive-scene = { workspace = true }
+massive-animation = { workspace = true }
+
+
 winit = { workspace = true }
 log = { workspace = true }
 wgpu = { workspace = true }
@@ -27,3 +30,4 @@ getrandom = { version = "0.2.12", features = ["js"] }
 wgpu = { workspace = true, features = ["webgl"] }
 wasm-bindgen = { workspace = true }
 web-sys = { workspace = true }
+web-time = { version = "1.1.0" }

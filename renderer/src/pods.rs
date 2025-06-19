@@ -141,12 +141,12 @@ impl ColorVertex {
 pub struct TextureColorVertex {
     pub position: Vertex,
     pub tex_coords: [f32; 2],
-    // OO: Use one byte per color component?
-    pub color: Color3,
+    /// OO: Use one byte per color component?
+    pub color: Color,
 }
 
 impl TextureColorVertex {
-    pub fn new(position: impl Into<Vertex>, uv: (f32, f32), color: impl Into<Color3>) -> Self {
+    pub fn new(position: impl Into<Vertex>, uv: (f32, f32), color: impl Into<Color>) -> Self {
         Self {
             position: position.into(),
             tex_coords: [uv.0, uv.1],
@@ -156,7 +156,7 @@ impl TextureColorVertex {
 
     pub fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 3] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x3];
+            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4];
 
         VertexBufferLayout {
             array_stride: size_of::<TextureColorVertex>() as BufferAddress,

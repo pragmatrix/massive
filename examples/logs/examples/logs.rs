@@ -3,12 +3,13 @@ use std::{
     io, iter,
     ops::Range,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
-use env_logger::{Builder, Target, WriteStyle};
-use log::error;
+use log::{debug, warn};
+use massive_animation::{Interpolation, Timeline};
 use termwiz::{
     cell::Intensity,
     color::ColorSpec,
@@ -18,13 +19,22 @@ use tokio::{
     select,
     sync::mpsc::{self, UnboundedReceiver},
 };
-use winit::dpi::LogicalSize;
+use tracing_subscriber::{
+    filter, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+};
+use winit::{
+    dpi::LogicalSize,
+    event::{ElementState, KeyEvent, WindowEvent},
+};
 
 use logs::terminal::{color_schemes, Rgb};
 use massive_geometry::{Camera, Color, Identity, Vector3};
-use massive_scene::{Location, Matrix, Visual};
+use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
 use massive_shapes::TextWeight;
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{
+    shell::{self, ShellEvent},
+    ApplicationContext, ShellWindow,
+};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},
@@ -32,13 +42,25 @@ use shared::{
 
 const CANVAS_ID: &str = "massive-logs";
 
+const FADE_DURATION: Duration = Duration::from_millis(400);
+const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
+
+const MAX_LINES: usize = 32;
+
 fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
 
-    Builder::default()
-        .filter(Some("massive_shell"), log::LevelFilter::Info)
-        .write_style(WriteStyle::Always)
-        .target(Target::Pipe(Box::new(Sender(sender))))
+    let stdout_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .with_filter(EnvFilter::from_default_env());
+
+    let info_only_layer = fmt::layer()
+        .with_writer(move || -> Box<dyn io::Write> { Box::new(Sender(sender.clone())) })
+        .with_filter(filter::LevelFilter::WARN);
+
+    tracing_subscriber::registry()
+        .with(stdout_layer)
+        .with(info_only_layer)
         .init();
 
     shared::main(|| async_main(receiver))
@@ -64,8 +86,6 @@ async fn async_main(receiver: UnboundedReceiver<Vec<u8>>) -> Result<()> {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    error!("TEST");
-
     let font_system = {
         let mut db = fontdb::Database::new();
         db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
@@ -89,79 +109,247 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let (mut renderer, mut director) = window
+    let (mut renderer, director) = window
         .new_renderer(font_system.clone(), camera, window.inner_size())
         .await?;
 
+    let mut logs = Logs::new(&mut ctx, font_system, director);
+
     // Application
-
-    let mut page_size = (1280u32, 1);
-    let mut application = Application::default();
-    let mut current_matrix = application.matrix(page_size);
-    let page_matrix = director.stage(current_matrix);
-    let page_location = director.stage(Location::from(page_matrix.clone()));
-    // We move up the lines by their top position.
-    let move_up_matrix = director.stage(Matrix::identity());
-
-    // Final position for all lines (runs are y-translated, but only increasing).
-    let location = director.stage(Location {
-        parent: Some(page_location),
-        matrix: move_up_matrix.clone(),
-    });
-
-    let mut y = 0.;
-
-    let max_lines = 100;
-
-    let mut lines = VecDeque::new();
 
     loop {
         select! {
-            Some(bytes) = receiver
-            .recv() => {
-                let (new_runs, height) = {
-                    let mut font_system = font_system.lock().unwrap();
-
-                    shape_log_line(&bytes, y, &mut font_system)
-                };
-
-                let line = director.stage(Visual::new(location.clone(), new_runs.into_iter().map(
-                    |run| run.into()).collect::<Vec<_>>()));
-
-                lines.push_back((y, height, line));
-
-                while lines.len() > max_lines {
-                    lines.pop_front();
-                };
-
-                // Update page size.
-
-                let top_line = lines.front().unwrap();
-                move_up_matrix.update(Matrix::from_translation((0., -top_line.0, 0.).into()));
-                let last_line = lines.back().unwrap();
-                page_size.1 = (last_line.0 + last_line.1 - top_line.0) as u32;
-
-                director.action()?;
-
-                y += height;
+            Some(bytes) = receiver.recv() => {
+                logs.add_line(&mut ctx, &bytes)?;
             },
 
-            Ok(window_event) = ctx.wait_for_event(&mut renderer) => {
-                match application.update(window_event) {
-                    UpdateResponse::Exit => return Ok(()),
-                    UpdateResponse::Continue => {}
+            Ok(event) = ctx.wait_for_event() => {
+                if let Some(window_event) = event.window_event_for(&window) {
+                    renderer.handle_window_event(window_event)?;
                 }
 
-                // DI: This check has to be done in the renderer and the renderer has to decide when it
-                // needs to redraw.
-                let new_matrix = application.matrix(page_size);
-                if new_matrix != current_matrix {
-                    page_matrix.update(new_matrix);
-                    current_matrix = new_matrix;
-                    director.action()?;
+                let r = logs.handle_event(event, &window)?;
+                if r == UpdateResponse::Exit {
+                    return Ok(());
                 }
             }
         }
+    }
+}
+
+struct Logs {
+    font_system: Arc<Mutex<FontSystem>>,
+
+    application: Application,
+
+    current_matrix: Matrix,
+    page_matrix: Handle<Matrix>,
+
+    page_width: u32,
+    page_height: Timeline<f64>,
+    vertical_center: Timeline<f64>,
+    vertical_center_matrix: Handle<Matrix>,
+    location: Handle<Location>,
+    director: Director,
+    lines: VecDeque<LogLine>,
+    y: f64,
+}
+
+impl Logs {
+    fn new(
+        ctx: &mut ApplicationContext,
+        font_system: Arc<Mutex<FontSystem>>,
+        mut director: Director,
+    ) -> Self {
+        let page_height = 1;
+        let page_width = 1280u32;
+        let application = Application::default();
+        let current_matrix = application.matrix((page_width, page_width));
+        let page_matrix = director.stage(current_matrix);
+        let page_location = director.stage(Location::from(page_matrix.clone()));
+
+        let vertical_center = ctx.timeline(0.0);
+
+        // We move up the lines by their top position.
+        let vertical_center_matrix = director.stage(Matrix::identity());
+
+        // Final position for all lines (runs are y-translated, but only increasing).
+        let location = director.stage(Location {
+            parent: Some(page_location),
+            matrix: vertical_center_matrix.clone(),
+        });
+
+        let page_height = ctx.timeline(page_height as f64);
+
+        Self {
+            font_system,
+            application,
+            current_matrix,
+            page_matrix,
+            page_width,
+            page_height,
+            vertical_center,
+            vertical_center_matrix,
+            location,
+            director,
+            lines: VecDeque::new(),
+            y: 0.,
+        }
+    }
+
+    fn add_line(&mut self, ctx: &mut ApplicationContext, bytes: &[u8]) -> Result<()> {
+        let (new_runs, height) = {
+            let mut font_system = self.font_system.lock().unwrap();
+
+            shape_log_line(bytes, self.y, &mut font_system)
+        };
+
+        let glyph_runs: Vec<Shape> = new_runs.into_iter().map(|run| run.into()).collect();
+
+        let glyph_runs_visual = glyph_runs.clone();
+
+        let visual = Visual::new(self.location.clone(), glyph_runs_visual);
+
+        let line = self.director.stage(visual);
+
+        self.lines.push_back(LogLine {
+            y: self.y,
+            height,
+            fader: ctx.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
+            glyph_runs,
+            visual_handle: line,
+            fading_out: false,
+        });
+
+        // See if some lines need to be faded out.
+
+        {
+            let overhead_lines = if self.lines.len() > MAX_LINES {
+                self.lines.len() - MAX_LINES
+            } else {
+                0
+            };
+
+            for line in self.lines.iter_mut().take(overhead_lines) {
+                if !line.fading_out {
+                    line.fader
+                        .animate_to(0., FADE_DURATION, Interpolation::CubicIn);
+                    line.fading_out = true;
+                }
+            }
+        }
+
+        // Update page size.
+
+        self.update_vertical_alignment();
+
+        self.director.action()?;
+
+        self.y += height;
+
+        Ok(())
+    }
+
+    fn handle_event(
+        &mut self,
+        shell_event: ShellEvent,
+        window: &ShellWindow,
+    ) -> Result<UpdateResponse> {
+        if shell_event.apply_animations() {
+            self.apply_animations()?;
+            return Ok(UpdateResponse::Continue);
+        }
+
+        if let Some(window_event) = shell_event.window_event_for(window) {
+            if let WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } = window_event
+            {
+                warn!("{:?}", window_event);
+            }
+
+            match self.application.update(window_event) {
+                UpdateResponse::Exit => return Ok(UpdateResponse::Exit),
+                UpdateResponse::Continue => {}
+            }
+
+            self.update_page_matrix()?;
+        }
+
+        Ok(UpdateResponse::Continue)
+    }
+
+    fn apply_animations(&mut self) -> Result<()> {
+        self.vertical_center_matrix.update(Matrix::from_translation(
+            (0., self.vertical_center.value(), 0.).into(),
+        ));
+
+        // Remove all lines that finished fading out from top to bottom.
+
+        let mut update_v_alignment = false;
+
+        while let Some(line) = self.lines.front() {
+            if line.fading_out && !line.fader.is_animating() {
+                debug!("faded out at: {}", line.fader.value());
+                self.lines.pop_front();
+                update_v_alignment = true;
+            } else {
+                break;
+            }
+        }
+
+        if update_v_alignment {
+            self.update_vertical_alignment();
+        }
+
+        // DI: there is a director.action in update_page_matrix().
+        self.update_page_matrix()?;
+
+        for line in &mut self.lines {
+            line.apply_animations(&self.location)
+        }
+
+        self.director.action()
+    }
+
+    fn update_vertical_alignment(&mut self) {
+        let top_line = self.lines.front().unwrap();
+
+        self.vertical_center.animate_to(
+            -top_line.y,
+            VERTICAL_ALIGNMENT_DURATION,
+            Interpolation::CubicOut,
+        );
+
+        let last_line = self.lines.back().unwrap();
+        let new_height = last_line.y + last_line.height - top_line.y;
+        self.page_height.animate_to(
+            new_height,
+            VERTICAL_ALIGNMENT_DURATION,
+            Interpolation::CubicOut,
+        );
+    }
+
+    fn update_page_matrix(&mut self) -> Result<()> {
+        // DI: This check has to be done in the renderer and the renderer has to decide when
+        // it needs to redraw.
+        //
+        // OO: Or, we introduce another handle type that stores the matrix locally and
+        // compares it _before_ uploading.
+        let new_matrix = self
+            .application
+            .matrix((self.page_width, self.page_height.value() as u32));
+        if new_matrix != self.current_matrix {
+            self.page_matrix.update(new_matrix);
+            self.current_matrix = new_matrix;
+            self.director.action()?;
+        }
+        Ok(())
     }
 }
 
@@ -194,6 +382,42 @@ fn shape_log_line(
         Vector3::new(0., y, 0.),
     );
     (runs, height)
+}
+
+struct LogLine {
+    y: f64,
+    height: f64,
+    // Stored here, because we need to change opacity.
+    //
+    // OO: Just provide opacity somehow as a property, or at least introduce a Handle<T> that stores
+    // a local backup?
+    glyph_runs: Vec<Shape>,
+    visual_handle: Handle<Visual>,
+    fader: Timeline<f64>,
+    fading_out: bool,
+}
+
+impl LogLine {
+    const FADE_TRANSLATION: f64 = 256.0;
+
+    pub fn apply_animations(&mut self, location: &Handle<Location>) {
+        if !self.fader.is_animating() {
+            return;
+        }
+
+        let fading = self.fader.value();
+
+        for shape in &mut self.glyph_runs {
+            if let Shape::GlyphRun(glyph_run) = shape {
+                glyph_run.text_color.alpha = fading as f32;
+                glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
+            }
+        }
+
+        // OO: Avoid excessive cloning.
+        self.visual_handle
+            .update(Visual::new(location.clone(), self.glyph_runs.clone()));
+    }
 }
 
 #[derive(Debug)]

@@ -25,7 +25,7 @@ impl<T> IdTable<T> {
     {
         let index = *id;
         if index >= self.rows.len() {
-            self.rows.resize_with(index + 1, || T::default());
+            self.rows.resize_with(index + 1, T::default);
         }
         self.rows[index] = value;
     }
