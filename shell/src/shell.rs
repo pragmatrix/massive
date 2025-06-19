@@ -211,15 +211,14 @@ impl<'window> WindowRenderer<'window> {
         info!("Effective WebGPU backend: {:?}", adapter.get_info().backend);
 
         let (device, queue) = adapter
-            .request_device(
-                &wgpu::DeviceDescriptor {
-                    required_features: wgpu::Features::empty(),
-                    // May be wrong, see: <https://github.com/gfx-rs/wgpu/blob/1144b065c4784d769d59da2f58f5aa13212627b0/examples/src/hello_triangle/mod.rs#L33-L34>
-                    required_limits: adapter.limits(),
-                    label: None,
-                },
-                None, // Trace path
-            )
+            .request_device(&wgpu::DeviceDescriptor {
+                required_features: wgpu::Features::empty(),
+                // May be wrong, see: <https://github.com/gfx-rs/wgpu/blob/1144b065c4784d769d59da2f58f5aa13212627b0/examples/src/hello_triangle/mod.rs#L33-L34>
+                required_limits: adapter.limits(),
+                label: None,
+                memory_hints: Default::default(),
+                trace: Default::default(),
+            })
             .await
             .unwrap();
 
@@ -375,7 +374,7 @@ impl<'window> WindowRenderer<'window> {
         instance_descriptor: InstanceDescriptor,
         surface_target: &Window,
     ) -> Result<(Instance, Surface<'_>)> {
-        let instance = wgpu::Instance::new(instance_descriptor);
+        let instance = wgpu::Instance::new(&instance_descriptor);
 
         let surface_target: SurfaceTarget = surface_target.into();
         info!(

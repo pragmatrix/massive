@@ -9,9 +9,8 @@ use euclid::size2;
 
 use tracing::instrument;
 use wgpu::{
-    Device, Extent3d, ImageCopyTexture, ImageDataLayout, Origin3d, Queue, Texture, TextureAspect,
-    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
-    TextureViewDescriptor,
+    Device, Extent3d, Origin3d, Queue, Texture, TextureAspect, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
 };
 
 use super::RasterizedGlyphKey;
@@ -143,14 +142,14 @@ impl GlyphAtlas {
         };
 
         queue.write_texture(
-            ImageCopyTexture {
+            wgpu::TexelCopyTextureInfo {
                 texture: &self.texture.texture,
                 mip_level: 0,
                 origin: Origin3d { x, y, z: 0 },
                 aspect: TextureAspect::All,
             },
             &image.data,
-            ImageDataLayout {
+            wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(width * bytes_per_pixel),
                 rows_per_image: None,
