@@ -6,7 +6,7 @@ pub trait Object: Sized {
     /// The stuff from Self that needs to be stored locally to keep the referential integrity. These
     /// are the handles this instance refers to and which need to be kept alive.
     type Keep: fmt::Debug;
-    /// The type Uploaded type to the renderer.
+    /// The type of the change the renderer needs to receive.
     type Change;
 
     // TODO: It's possible to use a const here.
