@@ -30,3 +30,4 @@ getrandom = { version = "0.2.12", features = ["js"] }
 wgpu = { workspace = true, features = ["webgl"] }
 wasm-bindgen = { workspace = true }
 web-sys = { workspace = true }
+web-time = { version = "1.1.0" }

@@ -1,11 +1,12 @@
 use std::{
     cell::{Ref, RefCell},
     rc::{Rc, Weak},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use crate::{
-    BlendedAnimation, Interpolatable, Interpolation, ReceivesTicks, TickResponse, Tickery,
+    time::Instant, BlendedAnimation, Interpolatable, Interpolation, ReceivesTicks, TickResponse,
+    Tickery,
 };
 
 /// A timeline represents a value over time that can be animated.

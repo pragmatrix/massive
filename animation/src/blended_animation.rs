@@ -1,6 +1,6 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use crate::{Ease, Interpolatable, Interpolation};
+use crate::{time::Instant, Ease, Interpolatable, Interpolation};
 
 #[derive(Debug)]
 pub struct BlendedAnimation<T> {
