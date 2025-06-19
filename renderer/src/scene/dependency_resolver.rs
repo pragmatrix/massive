@@ -29,7 +29,7 @@ pub fn resolve<Resolver: DependencyResolver>(
     // Save the current max dependencies version for later.
     //
     // In theory this could be overwritten if there are cycles in the dependency graph, but in
-    // practice there are not (and everything may blow up anyway).
+    // practice they are not (and everything may blow up anyway).
     let computed_max_deps = Resolver::computed_mut(computed_storage, id).max_deps_version;
 
     let source = Resolver::source(shared_storage, id);
