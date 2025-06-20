@@ -1,10 +1,10 @@
 build-markdown:
 	cd examples/markdown && trunk build --example markdown
 
-dist-out := "/tmp/massive-shell-dist"
+dist-out := "/tmp/massive-dist"
 
 build-markdown-release:
-	rm -f shell/dist/*
+	rm -f examples/markdown/dist/*
 	cd examples/markdown && trunk build --example markdown --release
 	mkdir -p {{dist-out}}
 	rm -f {{dist-out}}/*
@@ -13,13 +13,13 @@ build-markdown-release:
 	sed -i '' 's/markdown_bg.wasm/massive-markdown_bg.wasm/g' {{dist-out}}/massive-markdown.js
 
 build-code-viewer-release:
-	rm -f shell/dist/*
-	cd shell && trunk build --example code_viewer --release
+	rm -f examples/code/dist/*
+	cd examples/code && trunk build --example code-viewer --release
 	mkdir -p {{dist-out}}
 	rm -f {{dist-out}}/*
-	cp shell/dist/massive-shell-*.js {{dist-out}}/massive-code.js
-	cp shell/dist/massive-shell-*_bg.wasm {{dist-out}}/massive-code_bg.wasm
-	sed -i '' 's/massive-shell_bg.wasm/massive-code_bg.wasm/g' {{dist-out}}/massive-code.js
+	cp examples/code/dist/code-*.js {{dist-out}}/massive-code.js
+	cp examples/code/dist/code-*_bg.wasm {{dist-out}}/massive-code_bg.wasm
+	sed -i '' 's/code_bg.wasm/massive-code_bg.wasm/g' {{dist-out}}/massive-code.js
 
 serve-markdown:
 	cd examples/markdown && trunk serve --example markdown --port 8888 --no-minification
