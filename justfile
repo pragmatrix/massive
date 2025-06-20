@@ -8,9 +8,9 @@ build-markdown-release:
 	cd examples/markdown && trunk build --example markdown --release
 	mkdir -p {{dist-out}}
 	rm -f {{dist-out}}/*
-	cp examples/markdown/dist/massive-shell-*.js {{dist-out}}/massive-markdown.js
-	cp examples/markdown/dist/massive-shell-*_bg.wasm {{dist-out}}/massive-markdown_bg.wasm
-	sed -i '' 's/massive-shell_bg.wasm/massive-markdown_bg.wasm/g' {{dist-out}}/massive-markdown.js
+	cp examples/markdown/dist/markdown-*.js {{dist-out}}/massive-markdown.js
+	cp examples/markdown/dist/markdown-*_bg.wasm {{dist-out}}/massive-markdown_bg.wasm
+	sed -i '' 's/markdown_bg.wasm/massive-markdown_bg.wasm/g' {{dist-out}}/massive-markdown.js
 
 build-code-viewer-release:
 	rm -f shell/dist/*
