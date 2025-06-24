@@ -27,6 +27,9 @@ serve-markdown:
 serve-markdown-release:
 	cd examples/markdown && trunk serve --example markdown --port 8888 --no-minification --release
 
+serve-code-viewer-release:
+	cd examples/code && trunk serve --example code-viewer --port 8888 --release --open
+
 wasm-features:
 	cd examples/markdown && cargo tree -f '{p} {f}' --target wasm32-unknown-unknown	
 
