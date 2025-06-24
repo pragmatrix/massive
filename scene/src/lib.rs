@@ -64,7 +64,10 @@ impl Director {
     }
 
     /// Put an object on the stage.
-    pub fn stage<T: Object + 'static>(&mut self, value: T) -> Handle<T> {
+    pub fn stage<T: Object + 'static>(&mut self, value: T) -> Handle<T>
+    where
+        SceneChange: From<Change<T::Change>>,
+    {
         let ti = TypeId::of::<T>();
         let id = self.id_generators.entry(ti).or_default().allocate();
         Handle::new(id, value, self.change_tracker.clone())

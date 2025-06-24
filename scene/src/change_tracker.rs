@@ -1,17 +1,24 @@
 use std::{any::TypeId, mem};
 
+use derive_more::From;
 use massive_geometry as geometry;
 
-use crate::{Id, Location, LocationRenderObj, Object, Visual, VisualRenderObj};
+use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
 
-#[derive(Debug)]
-pub enum Change<T> {
-    Create(Id, T),
-    Delete(Id),
-    Update(Id, T),
+#[derive(Debug, Default)]
+pub struct ChangeTracker(Vec<SceneChange>);
+
+impl ChangeTracker {
+    pub fn push(&mut self, change: impl Into<SceneChange>) {
+        self.0.push(change.into());
+    }
+
+    pub(crate) fn take_all(&mut self) -> Vec<SceneChange> {
+        mem::take(&mut self.0)
+    }
 }
 
-#[derive(Debug)]
+#[derive(Debug, From)]
 pub enum SceneChange {
     Matrix(Change<geometry::Matrix4>),
     Location(Change<LocationRenderObj>),
@@ -32,27 +39,9 @@ impl SceneChange {
     }
 }
 
-#[derive(Debug, Default)]
-pub struct ChangeTracker(Vec<SceneChange>);
-
-impl ChangeTracker {
-    pub fn create<T: Object>(&mut self, id: Id, value: T::Change) {
-        self.push::<T>(Change::Create(id, value))
-    }
-
-    pub fn update<T: Object>(&mut self, id: Id, value: T::Change) {
-        self.push::<T>(Change::Update(id, value))
-    }
-
-    pub fn delete<T: Object>(&mut self, id: Id) {
-        self.push::<T>(Change::Delete(id))
-    }
-
-    fn push<T: Object>(&mut self, change: Change<T::Change>) {
-        self.0.push(T::promote_change(change));
-    }
-
-    pub(crate) fn take_all(&mut self) -> Vec<SceneChange> {
-        mem::take(&mut self.0)
-    }
+#[derive(Debug)]
+pub enum Change<T> {
+    Create(Id, T),
+    Delete(Id),
+    Update(Id, T),
 }

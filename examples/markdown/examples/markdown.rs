@@ -15,7 +15,7 @@ use inlyne::{
     utils::{markdown_to_html, Rect},
     Element,
 };
-use log::{info, warn};
+use log::info;
 use winit::dpi::PhysicalSize;
 
 use massive_scene::Visual;

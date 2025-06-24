@@ -1,6 +1,6 @@
 use derive_more::From;
 
-use crate::{Change, Handle, Id, Object, SceneChange};
+use crate::{Handle, Id, Object};
 use massive_geometry as geometry;
 use massive_shapes::{GlyphRun, Quads};
 
@@ -44,10 +44,6 @@ impl Object for Visual {
         };
         (location, shape)
     }
-
-    fn promote_change(change: Change<Self::Change>) -> SceneChange {
-        SceneChange::Visual(change)
-    }
 }
 
 impl Visual {
@@ -84,10 +80,6 @@ impl Object for Location {
     type Keep = Self;
     type Change = LocationRenderObj;
 
-    fn promote_change(change: Change<Self::Change>) -> SceneChange {
-        SceneChange::Location(change)
-    }
-
     fn split(self) -> (Self::Keep, Self::Change) {
         let parent = self.parent.as_ref().map(|p| p.id());
         let matrix = self.matrix.id();
@@ -109,10 +101,6 @@ impl Object for Matrix {
 
     fn split(self) -> (Self::Keep, Self::Change) {
         ((), self)
-    }
-
-    fn promote_change(change: Change<Self::Change>) -> SceneChange {
-        SceneChange::Matrix(change)
     }
 }
 
