@@ -25,7 +25,7 @@ serve-markdown:
 	cd examples/markdown && trunk serve --example markdown --port 8888 --no-minification
 
 serve-markdown-release:
-	cd examples/markdown && trunk serve --example markdown --port 8888 --no-minification --release
+	cd examples/markdown && trunk serve --example markdown --port 8888 --release --open
 
 serve-code-viewer-release:
 	cd examples/code && trunk serve --example code-viewer --port 8888 --release --open
