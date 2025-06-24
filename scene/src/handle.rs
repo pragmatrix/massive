@@ -39,11 +39,9 @@ impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    pub(crate) fn new(id: Id, value: T, change_tracker: Rc<RefCell<ChangeTracker>>) -> Self {
+    pub(crate) fn new(id: Id, value: T, change_tracker: Rc<ChangeTracker>) -> Self {
         let (pinned, uploaded) = T::split(value);
-        change_tracker
-            .borrow_mut()
-            .push(Change::Create(id, uploaded));
+        change_tracker.push(Change::Create(id, uploaded));
 
         Self {
             inner: InnerHandle {
@@ -72,7 +70,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
-    change_tracker: Rc<RefCell<ChangeTracker>>,
+    change_tracker: Rc<ChangeTracker>,
     // As long as the inner handle is referred to by a bare Rc<>, we need a RefCell here. TODO:
     // Since T::Pinned is also Rc, we could put this directly in Handle, as we could the Id, it
     // would make the handle quite fat though, but is this a problem assuming that the number of
@@ -87,9 +85,7 @@ where
 {
     pub fn update(&self, value: T) {
         let (pinned, uploaded) = T::split(value);
-        self.change_tracker
-            .borrow_mut()
-            .push(Change::Update(self.id, uploaded));
+        self.change_tracker.push(Change::Update(self.id, uploaded));
 
         *self.pinned.borrow_mut() = pinned;
     }
@@ -100,8 +96,6 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     fn drop(&mut self) {
-        self.change_tracker
-            .borrow_mut()
-            .push(Change::Delete(self.id));
+        self.change_tracker.push(Change::Delete(self.id));
     }
 }
