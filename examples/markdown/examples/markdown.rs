@@ -16,17 +16,17 @@ use inlyne::{
     Element,
 };
 use log::info;
+use winit::dpi::PhysicalSize;
+
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::{shell, ApplicationContext};
-
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
 };
-use winit::dpi::PhysicalSize;
 
 // Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
 const CANVAS_ID: &str = "massive-markdown";
@@ -56,6 +56,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .primary_monitor()
         .map(|m| m.scale_factor())
         .unwrap_or(1.0);
+
+    info!("Scale factor: {scale_factor}");
+
     let initial_size = winit::dpi::LogicalSize::new(960, 800);
 
     let physical_size = initial_size.to_physical(scale_factor);
