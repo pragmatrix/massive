@@ -73,7 +73,7 @@ pub struct Location {
 
 impl From<Handle<Matrix>> for Location {
     fn from(matrix: Handle<Matrix>) -> Self {
-        Location {
+        Self {
             parent: None,
             matrix,
         }
