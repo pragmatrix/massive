@@ -9,7 +9,6 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{fontdb, FontSystem};
 use log::{debug, warn};
-use massive_animation::{Interpolation, Timeline};
 use termwiz::{
     cell::Intensity,
     color::ColorSpec,
@@ -28,6 +27,8 @@ use winit::{
 };
 
 use logs::terminal::{color_schemes, Rgb};
+
+use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Color, Identity, Vector3};
 use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
 use massive_shapes::TextWeight;
@@ -90,7 +91,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         let mut db = fontdb::Database::new();
         db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
         // Use an invariant locale.
-        FontSystem::new_with_locale_and_db("en-US".into(), db)
+        let fs = FontSystem::new_with_locale_and_db("en-US".into(), db);
+        Arc::new(Mutex::new(fs))
     };
 
     // Window
@@ -106,8 +108,6 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
-
-    let font_system = Arc::new(Mutex::new(font_system));
 
     let (mut renderer, director) = window
         .new_renderer(font_system.clone(), camera, window.inner_size())

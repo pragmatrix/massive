@@ -41,4 +41,4 @@ ide = { path = "rust-analyzer/crates/ide" }
 
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
-wasm-bindgen-futures = "0.4.42"
+wasm-bindgen-futures = { workspace = true }

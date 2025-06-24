@@ -10,6 +10,10 @@ use anyhow::Result;
 use base_db::{RootQueryDb, SourceDatabase};
 use chrono::{DateTime, Local};
 use cosmic_text::{fontdb, FontSystem};
+use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use winit::dpi::LogicalSize;
+
 use hir::EditionedFileId;
 use ide::{
     AnalysisHost, FilePosition, HighlightConfig, HighlightRelatedConfig, HlMod, HlMods, HlTag,
@@ -17,21 +21,17 @@ use ide::{
 };
 use load_cargo::{LoadCargoConfig, ProcMacroServerChoice};
 use project_model::CargoConfig;
-use shared::{
-    application::{Application, UpdateResponse},
-    attributed_text,
-};
 use syntax::{AstNode, SyntaxKind, WalkEvent};
-use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use vfs::VfsPath;
-use winit::dpi::LogicalSize;
 
-use crate::attributed_text::TextAttribute;
 use massive_geometry::{Camera, Color, SizeI};
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
+use shared::{
+    application::{Application, UpdateResponse},
+    attributed_text::{self, AttributedText, TextAttribute},
+};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -227,7 +227,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     // Store for the web viewer.
 
-    let attributed_code = attributed_text::AttributedText {
+    let attributed_code = AttributedText {
         text: text.to_string(),
         attributes: attributes.clone(),
     };

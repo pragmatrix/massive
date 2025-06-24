@@ -63,4 +63,5 @@ tokio = { version = "1.36.0", features = ["macros", "sync"] }
 # wasm
 
 wasm-bindgen = { version = "0.2.100" }
+wasm-bindgen-futures = { version = "0.4.50" }
 web-sys = "0.3.77"
