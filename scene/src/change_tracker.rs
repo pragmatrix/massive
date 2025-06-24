@@ -1,9 +1,9 @@
 use std::{any::TypeId, cell::RefCell, mem, ops::DerefMut};
 
 use derive_more::From;
-use massive_geometry as geometry;
 
 use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
+use massive_geometry as geometry;
 
 #[derive(Debug, Default)]
 pub struct ChangeTracker(RefCell<Vec<SceneChange>>);
