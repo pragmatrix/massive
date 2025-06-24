@@ -15,7 +15,7 @@ use inlyne::{
     utils::{markdown_to_html, Rect},
     Element,
 };
-use log::info;
+use log::{info, warn};
 use winit::dpi::PhysicalSize;
 
 use massive_scene::Visual;
@@ -52,10 +52,12 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
     };
 
-    let scale_factor = ctx
-        .primary_monitor()
-        .map(|m| m.scale_factor())
-        .unwrap_or(1.0);
+    let primary_monitor = ctx.primary_monitor();
+    if primary_monitor.is_none() {
+        warn!("Primary monitor is inaccessible");
+    }
+
+    let scale_factor = primary_monitor.map(|m| m.scale_factor()).unwrap_or(1.0);
 
     info!("Scale factor: {scale_factor}");
 
