@@ -52,19 +52,6 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
     };
 
-    let primary_monitor = ctx.primary_monitor();
-    if primary_monitor.is_none() {
-        warn!("Primary monitor is inaccessible");
-    }
-
-    let scale_factor = primary_monitor.map(|m| m.scale_factor()).unwrap_or(1.0);
-
-    info!("Scale factor: {scale_factor}");
-
-    let initial_size = winit::dpi::LogicalSize::new(960, 800);
-
-    let physical_size = initial_size.to_physical(scale_factor);
-
     // Camera
 
     let camera = {
@@ -73,7 +60,13 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
+    let initial_size = winit::dpi::LogicalSize::new(960, 800);
     let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+    let scale_factor = window.scale_factor();
+    info!("Window scale factor: {scale_factor}");
+
+    let physical_size = initial_size.to_physical(scale_factor);
+
     let (mut renderer, mut director) = window
         .new_renderer(
             Arc::new(Mutex::new(font_system)),
