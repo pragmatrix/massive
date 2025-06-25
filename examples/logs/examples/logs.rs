@@ -142,7 +142,6 @@ struct Logs {
 
     application: Application,
 
-    current_matrix: Matrix,
     page_matrix: Handle<Matrix>,
 
     page_width: u32,
@@ -184,7 +183,6 @@ impl Logs {
         Self {
             font_system,
             application,
-            current_matrix,
             page_matrix,
             page_width,
             page_height,
@@ -344,11 +342,8 @@ impl Logs {
         let new_matrix = self
             .application
             .matrix((self.page_width, self.page_height.value() as u32));
-        if new_matrix != self.current_matrix {
-            self.page_matrix.update(new_matrix);
-            self.current_matrix = new_matrix;
-            self.director.action()?;
-        }
+        self.page_matrix.update_if_changed(new_matrix);
+        self.director.action()?;
         Ok(())
     }
 }
