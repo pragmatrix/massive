@@ -338,9 +338,10 @@ impl Logs {
         //
         // OO: Or, we introduce another handle type that stores the matrix locally and
         // compares it _before_ uploading.
-        let new_matrix = self
-            .application
-            .matrix((self.page_width, self.page_height.value() as u32));
+        let new_matrix = self.application.matrix((
+            self.page_width,
+            1u32, /* self.page_height.value() as u32*/
+        ));
         self.page_matrix.update_if_changed(new_matrix);
         self.director.action()?;
         Ok(())
