@@ -536,7 +536,7 @@ impl ApplicationContext {
         };
 
         if let ShellEvent::ApplyAnimations(tick) = event {
-            // Animations could be removed in the meantime, so we check for wants_ticks()...
+            // Animations may have been removed in the meantime, so we check for wants_ticks()...
             self.tickery.tick(tick);
             // Even if nothing happened, the event _must_ be forwarded to the application, because
             // it may need to apply final values now.
