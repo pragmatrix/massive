@@ -311,7 +311,13 @@ impl Logs {
     }
 
     fn update_vertical_alignment(&mut self) {
-        let top_line = self.lines.front().unwrap();
+        assert!(!self.lines.is_empty());
+
+        let top_line = self
+            .lines
+            .iter()
+            .find(|l| !l.is_fading())
+            .unwrap_or(self.lines.front().unwrap());
 
         self.vertical_center.animate_to(
             -top_line.y,
@@ -319,10 +325,9 @@ impl Logs {
             Interpolation::CubicOut,
         );
 
-        let last_line = self.lines.back().unwrap();
-        let new_height = last_line.y + last_line.height - top_line.y;
+        let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
         self.page_height.animate_to(
-            new_height,
+            new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
         );
@@ -334,15 +339,16 @@ impl Logs {
         //
         // OO: Or, we introduce another handle type that stores the matrix locally and
         // compares it _before_ uploading.
-        let new_matrix = self.application.matrix((
-            self.page_width,
-            1u32, /* self.page_height.value() as u32*/
-        ));
+        let new_matrix = self
+            .application
+            .matrix((self.page_width, self.page_height.value() as u32));
         self.page_matrix.update_if_changed(new_matrix);
         self.director.action()?;
         Ok(())
     }
 }
+
+const LINE_HEIGHT: f32 = 40.;
 
 fn shape_log_line(
     bytes: &[u8],
@@ -362,14 +368,13 @@ fn shape_log_line(
     let (text, attributes) = processor.into_text_and_attribute_ranges();
 
     let font_size = 32.;
-    let line_height = 40.;
 
     let (runs, height) = attributed_text::shape_text(
         font_system,
         &text,
         &attributes,
         font_size,
-        line_height,
+        LINE_HEIGHT,
         Vector3::new(0., y, 0.),
     );
     (runs, height)
@@ -385,6 +390,10 @@ struct LogLine {
 
 impl LogLine {
     const FADE_TRANSLATION: f64 = 256.0;
+
+    pub fn is_fading(&self) -> bool {
+        self.fader.is_animating()
+    }
 
     pub fn apply_animations(&mut self) {
         if !self.fader.is_animating() {
