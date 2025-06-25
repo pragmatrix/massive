@@ -212,7 +212,6 @@ impl Logs {
 
         self.lines.push_back(LogLine {
             y: self.y,
-            height,
             fader: ctx.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
             visual: line,
             fading_out: false,
@@ -382,7 +381,6 @@ fn shape_log_line(
 
 struct LogLine {
     y: f64,
-    height: f64,
     visual: Handle<Visual>,
     fader: Timeline<f64>,
     fading_out: bool,
