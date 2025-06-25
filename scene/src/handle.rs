@@ -1,5 +1,5 @@
 use std::{
-    cell::{Ref, RefCell},
+    cell::{Ref, RefCell, RefMut},
     fmt,
     rc::Rc,
 };
@@ -72,8 +72,17 @@ where
         self.inner.update(update)
     }
 
+    pub fn update_with(&self, f: impl FnOnce(&mut T)) {
+        f(&mut *self.value_mut());
+        self.inner.updated();
+    }
+
     pub fn value(&self) -> Ref<T> {
         self.inner.value.borrow()
+    }
+
+    fn value_mut(&self) -> RefMut<T> {
+        self.inner.value.borrow_mut()
     }
 }
 
@@ -98,6 +107,11 @@ where
         self.change_tracker.push(Change::Update(self.id, change));
 
         *self.value.borrow_mut() = value;
+    }
+
+    pub fn updated(&self) {
+        let change = T::to_change(&*self.value.borrow());
+        self.change_tracker.push(Change::Update(self.id, change));
     }
 }
 

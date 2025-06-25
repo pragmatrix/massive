@@ -214,8 +214,7 @@ impl Logs {
             y: self.y,
             height,
             fader: ctx.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
-            glyph_runs,
-            visual_handle: line,
+            visual: line,
             fading_out: false,
         });
 
@@ -309,7 +308,7 @@ impl Logs {
         self.update_page_matrix()?;
 
         for line in &mut self.lines {
-            line.apply_animations(&self.location)
+            line.apply_animations();
         }
 
         self.director.action()
@@ -382,12 +381,7 @@ fn shape_log_line(
 struct LogLine {
     y: f64,
     height: f64,
-    // Stored here, because we need to change opacity.
-    //
-    // OO: Just provide opacity somehow as a property, or at least introduce a Handle<T> that stores
-    // a local backup?
-    glyph_runs: Vec<Shape>,
-    visual_handle: Handle<Visual>,
+    visual: Handle<Visual>,
     fader: Timeline<f64>,
     fading_out: bool,
 }
@@ -395,23 +389,21 @@ struct LogLine {
 impl LogLine {
     const FADE_TRANSLATION: f64 = 256.0;
 
-    pub fn apply_animations(&mut self, location: &Handle<Location>) {
+    pub fn apply_animations(&mut self) {
         if !self.fader.is_animating() {
             return;
         }
 
         let fading = self.fader.value();
 
-        for shape in &mut self.glyph_runs {
-            if let Shape::GlyphRun(glyph_run) = shape {
-                glyph_run.text_color.alpha = fading as f32;
-                glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
+        self.visual.update_with(|v| {
+            for shape in &mut v.shapes {
+                if let Shape::GlyphRun(glyph_run) = shape {
+                    glyph_run.text_color.alpha = fading as f32;
+                    glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
+                }
             }
-        }
-
-        // OO: Avoid excessive cloning.
-        self.visual_handle
-            .update(Visual::new(location.clone(), self.glyph_runs.clone()));
+        });
     }
 }
 
