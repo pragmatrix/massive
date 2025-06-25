@@ -1,4 +1,8 @@
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::{
+    cell::{Ref, RefCell},
+    fmt,
+    rc::Rc,
+};
 
 use crate::{Change, ChangeTracker, Id, SceneChange};
 
@@ -54,9 +58,22 @@ where
         self.inner.id
     }
 
+    pub fn update_if_changed(&self, update: T)
+    where
+        T: PartialEq,
+    {
+        if update != *self.value() {
+            self.update(update)
+        }
+    }
+
     /// Update the value of the handle.
     pub fn update(&self, update: T) {
         self.inner.update(update)
+    }
+
+    pub fn value(&self) -> Ref<T> {
+        self.inner.value.borrow()
     }
 }
 
