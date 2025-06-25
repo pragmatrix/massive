@@ -31,18 +31,14 @@ pub struct VisualRenderObj {
 }
 
 impl Object for Visual {
-    // We keep the location handle here.
-    type Keep = Handle<Location>;
     // And upload the render shape.
     type Change = VisualRenderObj;
 
-    fn split(self) -> (Self::Keep, Self::Change) {
-        let Visual { location, shapes } = self;
-        let shape = VisualRenderObj {
-            location: location.id(),
-            shapes,
-        };
-        (location, shape)
+    fn to_change(&self) -> Self::Change {
+        VisualRenderObj {
+            location: self.location.id(),
+            shapes: self.shapes.clone(),
+        }
     }
 }
 
@@ -77,13 +73,12 @@ impl From<Handle<Matrix>> for Location {
 }
 
 impl Object for Location {
-    type Keep = Self;
     type Change = LocationRenderObj;
 
-    fn split(self) -> (Self::Keep, Self::Change) {
+    fn to_change(&self) -> Self::Change {
         let parent = self.parent.as_ref().map(|p| p.id());
         let matrix = self.matrix.id();
-        (self, LocationRenderObj { parent, matrix })
+        LocationRenderObj { parent, matrix }
     }
 }
 
@@ -96,11 +91,10 @@ pub struct LocationRenderObj {
 pub type Matrix = geometry::Matrix4;
 
 impl Object for Matrix {
-    type Keep = ();
     type Change = Self;
 
-    fn split(self) -> (Self::Keep, Self::Change) {
-        ((), self)
+    fn to_change(&self) -> Self::Change {
+        *self
     }
 }
 

@@ -1,19 +1,20 @@
-use std::{cell::RefCell, fmt, rc::Rc};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    fmt,
+    rc::Rc,
+};
 
 use crate::{Change, ChangeTracker, Id, SceneChange};
 
-pub trait Object: Sized
+pub trait Object: Sized + fmt::Debug
 where
     SceneChange: From<Change<Self::Change>>,
 {
-    /// The stuff from Self that needs to be stored locally to keep the referential integrity. These
-    /// are the handles this instance refers to and which need to be kept alive.
-    type Keep: fmt::Debug;
     /// The type of the change the renderer needs to receive.
     type Change;
 
-    /// Separate the part we need to keep from the part to be uploaded.
-    fn split(self) -> (Self::Keep, Self::Change);
+    /// Convert the current value to something that can be uploaded.
+    fn to_change(&self) -> Self::Change;
 }
 
 #[derive(Debug)]
@@ -40,14 +41,14 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     pub(crate) fn new(id: Id, value: T, change_tracker: Rc<ChangeTracker>) -> Self {
-        let (pinned, uploaded) = T::split(value);
+        let uploaded = T::to_change(&value);
         change_tracker.push(Change::Create(id, uploaded));
 
         Self {
             inner: InnerHandle {
                 id,
                 change_tracker,
-                pinned: pinned.into(),
+                value: RefCell::new(value),
             }
             .into(),
         }
@@ -57,9 +58,31 @@ where
         self.inner.id
     }
 
+    pub fn update_if_changed(&self, update: T)
+    where
+        T: PartialEq,
+    {
+        if update != *self.value() {
+            self.update(update)
+        }
+    }
+
     /// Update the value of the handle.
     pub fn update(&self, update: T) {
         self.inner.update(update)
+    }
+
+    pub fn update_with(&self, f: impl FnOnce(&mut T)) {
+        f(&mut *self.value_mut());
+        self.inner.updated();
+    }
+
+    pub fn value(&self) -> Ref<T> {
+        self.inner.value.borrow()
+    }
+
+    fn value_mut(&self) -> RefMut<T> {
+        self.inner.value.borrow_mut()
     }
 }
 
@@ -71,12 +94,8 @@ where
 {
     id: Id,
     change_tracker: Rc<ChangeTracker>,
-    // As long as the inner handle is referred to by a bare Rc<>, we need a RefCell here. TODO:
-    // Since T::Pinned is also Rc, we could put this directly in Handle, as we could the Id, it
-    // would make the handle quite fat though, but is this a problem assuming that the number of
-    // handles are usually only one on average ... but not inside of shapes?! Also: how frequent is
-    // update being called?
-    pinned: RefCell<T::Keep>,
+    // OO: Some values might be too large to be duplicated between the application and the renderer.
+    value: RefCell<T>,
 }
 
 impl<T: Object> InnerHandle<T>
@@ -84,10 +103,15 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     pub fn update(&self, value: T) {
-        let (pinned, uploaded) = T::split(value);
-        self.change_tracker.push(Change::Update(self.id, uploaded));
+        let change = T::to_change(&value);
+        self.change_tracker.push(Change::Update(self.id, change));
 
-        *self.pinned.borrow_mut() = pinned;
+        *self.value.borrow_mut() = value;
+    }
+
+    pub fn updated(&self) {
+        let change = T::to_change(&*self.value.borrow());
+        self.change_tracker.push(Change::Update(self.id, change));
     }
 }
 
