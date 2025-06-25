@@ -221,11 +221,7 @@ impl Logs {
         // See if some lines need to be faded out.
 
         {
-            let overhead_lines = if self.lines.len() > MAX_LINES {
-                self.lines.len() - MAX_LINES
-            } else {
-                0
-            };
+            let overhead_lines = self.lines.len().saturating_sub(MAX_LINES);
 
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
