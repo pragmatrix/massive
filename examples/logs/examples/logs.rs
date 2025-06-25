@@ -204,9 +204,7 @@ impl Logs {
 
         let glyph_runs: Vec<Shape> = new_runs.into_iter().map(|run| run.into()).collect();
 
-        let glyph_runs_visual = glyph_runs.clone();
-
-        let visual = Visual::new(self.location.clone(), glyph_runs_visual);
+        let visual = Visual::new(self.location.clone(), glyph_runs);
 
         let line = self.director.stage(visual);
 
