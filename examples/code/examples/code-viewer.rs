@@ -91,12 +91,11 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     let initial_size = LogicalSize::new(800., 800.);
 
     let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+    // Using inner size screws up the renderer initialization, because the window is not sized yet.
+    // So we compute the proper physical for now.
+    let physical_size = initial_size.to_physical(window.scale_factor());
     let (mut renderer, mut director) = window
-        .new_renderer(
-            Arc::new(Mutex::new(font_system)),
-            camera,
-            window.inner_size(),
-        )
+        .new_renderer(Arc::new(Mutex::new(font_system)), camera, physical_size)
         .await?;
 
     let page_size = SizeI::new(1280, height as u64);
