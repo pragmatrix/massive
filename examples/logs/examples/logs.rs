@@ -221,11 +221,7 @@ impl Logs {
         // See if some lines need to be faded out.
 
         {
-            let overhead_lines = if self.lines.len() > MAX_LINES {
-                self.lines.len() - MAX_LINES
-            } else {
-                0
-            };
+            let overhead_lines = self.lines.len().saturating_sub(MAX_LINES);
 
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
@@ -315,7 +311,13 @@ impl Logs {
     }
 
     fn update_vertical_alignment(&mut self) {
-        let top_line = self.lines.front().unwrap();
+        assert!(!self.lines.is_empty());
+
+        let top_line = self
+            .lines
+            .iter()
+            .find(|l| !l.is_fading())
+            .unwrap_or(self.lines.front().unwrap());
 
         self.vertical_center.animate_to(
             -top_line.y,
@@ -323,10 +325,9 @@ impl Logs {
             Interpolation::CubicOut,
         );
 
-        let last_line = self.lines.back().unwrap();
-        let new_height = last_line.y + last_line.height - top_line.y;
+        let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
         self.page_height.animate_to(
-            new_height,
+            new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
         );
@@ -347,6 +348,8 @@ impl Logs {
     }
 }
 
+const LINE_HEIGHT: f32 = 40.;
+
 fn shape_log_line(
     bytes: &[u8],
     y: f64,
@@ -365,14 +368,13 @@ fn shape_log_line(
     let (text, attributes) = processor.into_text_and_attribute_ranges();
 
     let font_size = 32.;
-    let line_height = 40.;
 
     let (runs, height) = attributed_text::shape_text(
         font_system,
         &text,
         &attributes,
         font_size,
-        line_height,
+        LINE_HEIGHT,
         Vector3::new(0., y, 0.),
     );
     (runs, height)
@@ -388,6 +390,10 @@ struct LogLine {
 
 impl LogLine {
     const FADE_TRANSLATION: f64 = 256.0;
+
+    pub fn is_fading(&self) -> bool {
+        self.fader.is_animating()
+    }
 
     pub fn apply_animations(&mut self) {
         if !self.fader.is_animating() {
