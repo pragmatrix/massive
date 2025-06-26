@@ -23,8 +23,8 @@ impl<T: Interpolatable> Timeline<T> {
     pub(crate) fn new(tickery: Rc<Tickery>, value: T) -> Self {
         let shared = Rc::new(RefCell::new(TimelineInner {
             value,
-            pending_animations: Vec::new(),
-            animations: Default::default(),
+            scheduled: Vec::new(),
+            animation: Default::default(),
         }));
 
         Self { tickery, shared }
@@ -37,7 +37,7 @@ impl<T: Interpolatable> Timeline<T> {
         let mut shared = self.shared.borrow_mut();
         let receiving_ticks = shared.is_animating();
 
-        shared.pending_animations.push(PendingAnimation {
+        shared.scheduled.push(ScheduledAnimation {
             to: target_value,
             duration,
             interpolation,
@@ -71,15 +71,15 @@ impl<T: Interpolatable> Timeline<T> {
 struct TimelineInner<T> {
     /// The current value.
     value: T,
-    /// Pending animations.
-    pending_animations: Vec<PendingAnimation<T>>,
+    /// Pending animations. The animations added in the next tick.
+    scheduled: Vec<ScheduledAnimation<T>>,
     /// The currently running animations.
-    animations: BlendedAnimation<T>,
+    animation: BlendedAnimation<T>,
 }
 
 impl<T: Interpolatable> TimelineInner<T> {
     pub fn is_animating(&self) -> bool {
-        self.animations.is_active() || !self.pending_animations.is_empty()
+        self.animation.is_active() || !self.scheduled.is_empty()
     }
 
     pub fn tick(&mut self, instant: Instant) -> TickResponse {
@@ -88,8 +88,8 @@ impl<T: Interpolatable> TimelineInner<T> {
         // Even though the last animation added is the one the defines the ultimate ending time and
         // value, the ones before must be added too, so that their trajectory is blended into the
         // final animation.
-        for pending in self.pending_animations.drain(..) {
-            self.animations.animate_to(
+        for pending in self.scheduled.drain(..) {
+            self.animation.animate_to(
                 self.value.clone(),
                 instant,
                 pending.to,
@@ -99,11 +99,11 @@ impl<T: Interpolatable> TimelineInner<T> {
         }
 
         // Proceed with the blended animation an update the value.
-        if let Some(value) = self.animations.proceed(instant) {
+        if let Some(value) = self.animation.proceed(instant) {
             self.value = value;
         }
 
-        if self.animations.is_active() {
+        if self.animation.is_active() {
             TickResponse::Continue
         } else {
             TickResponse::Stop
@@ -111,8 +111,9 @@ impl<T: Interpolatable> TimelineInner<T> {
     }
 }
 
+/// An amimation scheduled to start at the next tick.
 #[derive(Debug)]
-struct PendingAnimation<T> {
+struct ScheduledAnimation<T> {
     to: T,
     duration: Duration,
     interpolation: Interpolation,
