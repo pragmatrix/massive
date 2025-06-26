@@ -114,7 +114,9 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     loop {
         select! {
             Some(bytes) = receiver.recv() => {
-                logs.add_line(&mut ctx, &bytes)?;
+                logs.add_line(&mut ctx, &bytes);
+                logs.update_layout()?;
+                logs.director.action()?;
             },
 
             Ok(event) = ctx.wait_for_event() => {
@@ -145,7 +147,7 @@ struct Logs {
     location: Handle<Location>,
     director: Director,
     lines: VecDeque<LogLine>,
-    y: f64,
+    next_line_top: f64,
 }
 
 impl Logs {
@@ -154,7 +156,6 @@ impl Logs {
         font_system: Arc<Mutex<FontSystem>>,
         mut director: Director,
     ) -> Self {
-        let page_height = 1;
         let page_width = 1280u32;
         let application = Application::default();
         let current_matrix = application.matrix((page_width, page_width));
@@ -172,7 +173,7 @@ impl Logs {
             matrix: vertical_center_matrix.clone(),
         });
 
-        let page_height = ctx.timeline(page_height as f64);
+        let page_height = ctx.timeline(0.0);
 
         Self {
             font_system,
@@ -185,30 +186,33 @@ impl Logs {
             location,
             director,
             lines: VecDeque::new(),
-            y: 0.,
+            next_line_top: 0.,
         }
     }
 
-    fn add_line(&mut self, ctx: &mut ApplicationContext, bytes: &[u8]) -> Result<()> {
-        let (new_runs, height) = {
+    fn add_line(&mut self, ctx: &mut ApplicationContext, bytes: &[u8]) {
+        let (glyph_runs, height) = {
             let mut font_system = self.font_system.lock().unwrap();
 
-            shape_log_line(bytes, self.y, &mut font_system)
+            shape_log_line(bytes, self.next_line_top, &mut font_system)
         };
 
-        let glyph_runs: Vec<Shape> = new_runs.into_iter().map(|run| run.into()).collect();
+        let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
-        let visual = Visual::new(self.location.clone(), glyph_runs);
-
-        let line = self.director.stage(visual);
+        let line = Visual::new(self.location.clone(), glyph_runs);
+        let line = self.director.stage(line);
 
         self.lines.push_back(LogLine {
-            y: self.y,
+            top: self.next_line_top,
             fader: ctx.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
             visual: line,
             fading_out: false,
         });
 
+        self.next_line_top += height;
+    }
+
+    fn update_layout(&mut self) -> Result<()> {
         // See if some lines need to be faded out.
 
         {
@@ -227,11 +231,28 @@ impl Logs {
 
         self.update_vertical_alignment();
 
-        self.director.action()?;
-
-        self.y += height;
-
         Ok(())
+    }
+
+    fn update_vertical_alignment(&mut self) {
+        let top_line = self
+            .lines
+            .iter()
+            .find(|l| !l.is_fading())
+            .unwrap_or(self.lines.front().unwrap());
+
+        self.vertical_center.animate_to(
+            -top_line.top,
+            VERTICAL_ALIGNMENT_DURATION,
+            Interpolation::CubicOut,
+        );
+
+        let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
+        self.page_height.animate_to(
+            new_height as f64,
+            VERTICAL_ALIGNMENT_DURATION,
+            Interpolation::CubicOut,
+        );
     }
 
     fn handle_event(
@@ -301,29 +322,6 @@ impl Logs {
         self.director.action()
     }
 
-    fn update_vertical_alignment(&mut self) {
-        assert!(!self.lines.is_empty());
-
-        let top_line = self
-            .lines
-            .iter()
-            .find(|l| !l.is_fading())
-            .unwrap_or(self.lines.front().unwrap());
-
-        self.vertical_center.animate_to(
-            -top_line.y,
-            VERTICAL_ALIGNMENT_DURATION,
-            Interpolation::CubicOut,
-        );
-
-        let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
-        self.page_height.animate_to(
-            new_height as f64,
-            VERTICAL_ALIGNMENT_DURATION,
-            Interpolation::CubicOut,
-        );
-    }
-
     fn update_page_matrix(&mut self) -> Result<()> {
         // DI: This check has to be done in the renderer and the renderer has to decide when
         // it needs to redraw.
@@ -372,7 +370,7 @@ fn shape_log_line(
 }
 
 struct LogLine {
-    y: f64,
+    top: f64,
     visual: Handle<Visual>,
     fader: Timeline<f64>,
     fading_out: bool,
