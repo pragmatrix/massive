@@ -5,7 +5,9 @@ mod color;
 pub mod color_schemes;
 mod config;
 mod named_color;
+mod text_attributor;
 
 pub use color::Rgb;
 pub use config::AnsiColors;
 pub use named_color::NamedColor;
+pub use text_attributor::TextAttributor;

@@ -3,15 +3,16 @@ name = "logs"
 version = "0.1.0"
 edition = "2021"
 
-[dev-dependencies]
+[dependencies]
 termwiz = "0.23.3"
-
+massive-geometry = { workspace = true }
+massive-shapes = { workspace = true }
 shared = { path = "../shared" }
 
-massive-geometry = { workspace = true }
+[dev-dependencies]
+
 massive-shell = { workspace = true }
 massive-scene = { workspace = true }
-massive-shapes = { workspace = true }
 massive-animation = { workspace = true }
 
 anyhow = { workspace = true }
