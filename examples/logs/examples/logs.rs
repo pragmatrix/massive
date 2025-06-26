@@ -135,6 +135,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
 struct Logs {
     font_system: Arc<Mutex<FontSystem>>,
+    director: Director,
 
     application: Application,
 
@@ -145,7 +146,6 @@ struct Logs {
     vertical_center: Timeline<f64>,
     vertical_center_matrix: Handle<Matrix>,
     location: Handle<Location>,
-    director: Director,
     lines: VecDeque<LogLine>,
     next_line_top: f64,
 }
@@ -177,6 +177,7 @@ impl Logs {
 
         Self {
             font_system,
+            director,
             application,
             page_matrix,
             page_width,
@@ -184,7 +185,6 @@ impl Logs {
             vertical_center,
             vertical_center_matrix,
             location,
-            director,
             lines: VecDeque::new(),
             next_line_top: 0.,
         }
