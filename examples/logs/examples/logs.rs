@@ -112,11 +112,12 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     // Application
 
     loop {
+        logs.director.action()?;
+
         select! {
             Some(bytes) = receiver.recv() => {
                 logs.add_line(&mut ctx, &bytes);
                 logs.update_layout()?;
-                logs.director.action()?;
             },
 
             Ok(event) = ctx.wait_for_event() => {
@@ -124,9 +125,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                     renderer.handle_window_event(window_event)?;
                 }
 
-                let r = logs.handle_event(event, &window)?;
-                if r == UpdateResponse::Exit {
-                    return Ok(());
+                if logs.handle_event(event, &window) == UpdateResponse::Exit {
+                    return Ok(())
                 }
             }
         }
@@ -255,14 +255,10 @@ impl Logs {
         );
     }
 
-    fn handle_event(
-        &mut self,
-        shell_event: ShellEvent,
-        window: &ShellWindow,
-    ) -> Result<UpdateResponse> {
+    fn handle_event(&mut self, shell_event: ShellEvent, window: &ShellWindow) -> UpdateResponse {
         if shell_event.apply_animations() {
-            self.apply_animations()?;
-            return Ok(UpdateResponse::Continue);
+            self.apply_animations();
+            return UpdateResponse::Continue;
         }
 
         if let Some(window_event) = shell_event.window_event_for(window) {
@@ -279,17 +275,17 @@ impl Logs {
             }
 
             match self.application.update(window_event) {
-                UpdateResponse::Exit => return Ok(UpdateResponse::Exit),
+                UpdateResponse::Exit => return UpdateResponse::Exit,
                 UpdateResponse::Continue => {}
             }
 
-            self.update_page_matrix()?;
+            self.update_page_matrix();
         }
 
-        Ok(UpdateResponse::Continue)
+        UpdateResponse::Continue
     }
 
-    fn apply_animations(&mut self) -> Result<()> {
+    fn apply_animations(&mut self) {
         self.vertical_center_matrix.update(Matrix::from_translation(
             (0., self.vertical_center.value(), 0.).into(),
         ));
@@ -313,27 +309,20 @@ impl Logs {
         }
 
         // DI: there is a director.action in update_page_matrix().
-        self.update_page_matrix()?;
+        self.update_page_matrix();
 
         for line in &mut self.lines {
             line.apply_animations();
         }
-
-        self.director.action()
     }
 
-    fn update_page_matrix(&mut self) -> Result<()> {
+    fn update_page_matrix(&mut self) {
         // DI: This check has to be done in the renderer and the renderer has to decide when
         // it needs to redraw.
-        //
-        // OO: Or, we introduce another handle type that stores the matrix locally and
-        // compares it _before_ uploading.
         let new_matrix = self
             .application
             .matrix((self.page_width, self.page_height.value() as u32));
         self.page_matrix.update_if_changed(new_matrix);
-        self.director.action()?;
-        Ok(())
     }
 }
 
