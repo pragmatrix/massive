@@ -287,7 +287,7 @@ impl Logs {
 
     fn apply_animations(&mut self) {
         self.vertical_center_matrix.update(Matrix::from_translation(
-            (0., self.vertical_center.value(), 0.).into(),
+            (0., *self.vertical_center.value(), 0.).into(),
         ));
 
         // Remove all lines that finished fading out from top to bottom.
@@ -321,7 +321,7 @@ impl Logs {
         // it needs to redraw.
         let new_matrix = self
             .application
-            .matrix((self.page_width, self.page_height.value() as u32));
+            .matrix((self.page_width, *self.page_height.value() as u32));
         self.page_matrix.update_if_changed(new_matrix);
     }
 }
@@ -377,7 +377,7 @@ impl LogLine {
             return;
         }
 
-        let fading = self.fader.value();
+        let fading = *self.fader.value();
 
         self.visual.update_with(|v| {
             for shape in &mut v.shapes {

@@ -1,126 +1,71 @@
 use std::{
     cell::{Ref, RefCell},
-    rc::{Rc, Weak},
+    rc::Rc,
     time::Duration,
 };
 
-use crate::{
-    time::Instant, BlendedAnimation, Interpolatable, Interpolation, ReceivesTicks, TickResponse,
-    Tickery,
-};
+use crate::{BlendedAnimation, Coordinator, Interpolatable, Interpolation};
 
 /// A timeline represents a value over time that can be animated.
 ///
 /// Timeline implicitly supports animation blending. New animations added are combined with the
 /// trajectory of previous animations.
+///
+/// ADR: Because we need an Instant at the time of an animation, new animations
+/// need to be scheduled and installed at the next tick.
 #[derive(Debug)]
 pub struct Timeline<T> {
-    tickery: Rc<Tickery>,
-    shared: Rc<RefCell<TimelineInner<T>>>,
+    coordinator: Rc<Coordinator>,
+
+    /// The current value.
+    value: RefCell<T>,
+
+    animation: RefCell<BlendedAnimation<T>>,
 }
 
 impl<T: Interpolatable> Timeline<T> {
-    pub(crate) fn new(tickery: Rc<Tickery>, value: T) -> Self {
-        let shared = Rc::new(RefCell::new(TimelineInner {
-            value,
-            scheduled: Vec::new(),
+    pub fn new(coordinator: Rc<Coordinator>, value: T) -> Self {
+        Self {
+            coordinator,
+            value: value.into(),
             animation: Default::default(),
-        }));
-
-        Self { tickery, shared }
+        }
     }
 
-    pub fn animate_to(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
-    where
-        T: 'static,
-    {
-        let mut shared = self.shared.borrow_mut();
-        let receiving_ticks = shared.is_animating();
-
-        shared.scheduled.push(ScheduledAnimation {
-            to: target_value,
+    pub fn animate_to(
+        &mut self,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) {
+        let current_time = self.coordinator.current_time();
+        let starting_value = self.value.borrow().clone();
+        self.animation.borrow_mut().animate_to(
+            starting_value,
+            current_time,
+            target_value,
             duration,
             interpolation,
-        });
-
-        if !receiving_ticks {
-            let tick_receiver = Rc::downgrade(&self.shared) as Weak<dyn ReceivesTicks>;
-            self.tickery.start_sending(tick_receiver)
+        );
+        if self.is_animating() {
+            self.coordinator.notify_active();
         }
     }
 
-    pub fn value(&self) -> T
-    where
-        T: Clone,
-    {
-        self.shared.borrow().value.clone()
-    }
+    pub fn value(&self) -> Ref<T> {
+        let current_time = self.coordinator.current_time();
 
-    pub fn value_ref(&self) -> Ref<T> {
-        let r = self.shared.borrow();
-        Ref::map(r, |i| &i.value)
+        if let Some(value) = self.animation.borrow_mut().proceed(current_time) {
+            self.value.replace(value);
+        }
+
+        if self.is_animating() {
+            self.coordinator.notify_active();
+        }
+        self.value.borrow()
     }
 
     pub fn is_animating(&self) -> bool {
-        self.shared.borrow().is_animating()
-    }
-}
-
-/// Shared by the timeline value and the tickery.
-#[derive(Debug)]
-struct TimelineInner<T> {
-    /// The current value.
-    value: T,
-    /// Pending animations. The animations added in the next tick.
-    scheduled: Vec<ScheduledAnimation<T>>,
-    /// The currently running animations.
-    animation: BlendedAnimation<T>,
-}
-
-impl<T: Interpolatable> TimelineInner<T> {
-    pub fn is_animating(&self) -> bool {
-        self.animation.is_active() || !self.scheduled.is_empty()
-    }
-
-    pub fn tick(&mut self, instant: Instant) -> TickResponse {
-        // Integrate the pending animations.
-        //
-        // Even though the last animation added is the one the defines the ultimate ending time and
-        // value, the ones before must be added too, so that their trajectory is blended into the
-        // final animation.
-        for pending in self.scheduled.drain(..) {
-            self.animation.animate_to(
-                self.value.clone(),
-                instant,
-                pending.to,
-                pending.duration,
-                pending.interpolation,
-            );
-        }
-
-        // Proceed with the blended animation an update the value.
-        if let Some(value) = self.animation.proceed(instant) {
-            self.value = value;
-        }
-
-        if self.animation.is_active() {
-            TickResponse::Continue
-        } else {
-            TickResponse::Stop
-        }
-    }
-}
-
-/// An amimation scheduled to start at the next tick.
-#[derive(Debug)]
-struct ScheduledAnimation<T> {
-    to: T,
-    duration: Duration,
-    interpolation: Interpolation,
-}
-
-impl<T: Interpolatable> ReceivesTicks for RefCell<TimelineInner<T>> {
-    fn tick(&self, instant: Instant) -> TickResponse {
-        self.borrow_mut().tick(instant)
+        self.animation.borrow().is_active()
     }
 }

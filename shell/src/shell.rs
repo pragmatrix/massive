@@ -1,5 +1,5 @@
 use std::{
-    cell::RefCell,
+    cell::{Cell, RefCell},
     future::Future,
     ptr,
     rc::Rc,
@@ -34,7 +34,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
+use massive_animation::{Interpolatable, Interpolation, Timeline};
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
 
@@ -52,14 +52,14 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
 
     let proxy = event_loop.create_proxy();
 
-    let active_event_loop: Rc<RefCell<*const ActiveEventLoop>> = Rc::new(RefCell::new(ptr::null()));
+    let active_event_loop: Rc<Cell<*const ActiveEventLoop>> = Rc::new(Cell::new(ptr::null()));
 
-    let tickery = Rc::new(Tickery::default());
+    let coordinator: Rc<_> = massive_animation::Coordinator::new(Instant::now()).into();
 
     let application_context = ApplicationContext {
         event_receiver,
         active_event_loop: active_event_loop.clone(),
-        tickery: tickery.clone(),
+        animation_coordinator: coordinator.clone(),
     };
 
     let local_set = LocalSet::new();
@@ -87,8 +87,8 @@ pub async fn run<R: Future<Output = Result<()>> + 'static>(
             active_event_loop,
             local_set,
             waker,
-
-            tickery,
+            animation_coordinator: coordinator,
+            animating: false,
         };
 
         info!("Entering event loop");
@@ -426,8 +426,8 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 /// coming from the shell.
 pub struct ApplicationContext {
     event_receiver: Receiver<ShellEvent>,
-    active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
-    tickery: Rc<Tickery>,
+    active_event_loop: Rc<Cell<*const ActiveEventLoop>>,
+    animation_coordinator: Rc<massive_animation::Coordinator>,
 }
 
 impl ApplicationContext {
@@ -493,22 +493,21 @@ impl ApplicationContext {
         self.with_active_event_loop(|event_loop| event_loop.primary_monitor())
     }
 
-    /// Create a timeline with a starting value.
-    pub fn timeline<T: Interpolatable>(&self, value: T) -> Timeline<T> {
-        self.tickery.timeline(value)
-    }
-
     /// Create a timeline that is animating from a starting value to a target value.
     pub fn animation<T: Interpolatable + 'static>(
         &self,
-        value: T,
+        starting_value: T,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
     ) -> Timeline<T> {
-        let mut timeline = self.tickery.timeline(value);
+        let mut timeline = self.timeline(starting_value);
         timeline.animate_to(target_value, duration, interpolation);
         timeline
+    }
+
+    pub fn timeline<T: Interpolatable>(&self, value: T) -> Timeline<T> {
+        Timeline::new(self.animation_coordinator.clone(), value)
     }
 
     /// Executes a lambda when a [`ActiveEventLoop`] reference is available. I.e. the code currently
@@ -516,8 +515,7 @@ impl ApplicationContext {
     ///
     /// Panics if the current code does not execute inside the winit event loop.
     fn with_active_event_loop<R>(&self, f: impl FnOnce(&ActiveEventLoop) -> R) -> R {
-        let ptr = self.active_event_loop.borrow();
-        let ptr = *ptr;
+        let ptr = self.active_event_loop.get();
         if ptr.is_null() {
             panic!("Active event loop not set");
         }
@@ -534,13 +532,6 @@ impl ApplicationContext {
             // happen in normal situations.
             bail!("Internal Error: Shell shut down, no more events")
         };
-
-        if let ShellEvent::ApplyAnimations(tick) = event {
-            // Animations may have been removed in the meantime, so we check for wants_ticks()...
-            self.tickery.tick(tick);
-            // Even if nothing happened, the event _must_ be forwarded to the application, because
-            // it may need to apply final values now.
-        }
 
         Ok(event)
     }
@@ -561,11 +552,11 @@ impl ApplicationContext {
 
 struct WinitApplicationHandler {
     event_sender: Sender<ShellEvent>,
-    active_event_loop: Rc<RefCell<*const ActiveEventLoop>>,
+    active_event_loop: Rc<Cell<*const ActiveEventLoop>>,
     local_set: LocalSet,
     waker: Arc<EventLoopWaker>,
-
-    tickery: Rc<Tickery>,
+    animation_coordinator: Rc<massive_animation::Coordinator>,
+    animating: bool,
 }
 
 const ANIMATION_FRAME_DURATION: Duration = Duration::from_nanos(16_666_667);
@@ -578,8 +569,14 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
             StartCause::ResumeTimeReached {
                 requested_resume, ..
             } => {
-                if self.tickery.wants_ticks() {
-                    self.send_event(event_loop, ShellEvent::ApplyAnimations(requested_resume));
+                assert!(self.animating);
+                // OO: Find a way to prevent sending out ApplyAnimations per frame if nothing is
+                // animating?
+                // Clear active animations and update current time.
+                self.animation_coordinator.begin_update(requested_resume);
+                self.process_event(event_loop, ShellEvent::ApplyAnimations(requested_resume));
+
+                if self.animation_coordinator.any_animation_active() {
                     event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
                         requested_resume + ANIMATION_FRAME_DURATION,
                     ));
@@ -588,14 +585,15 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
                     // Winit does not stop sending ResumeTimeReached until the control flow gets
                     // changed.
                     event_loop.set_control_flow(event_loop::ControlFlow::Wait);
+                    self.animating = false;
                 }
             }
             StartCause::WaitCancelled {
                 requested_resume: Some(requested_resume),
                 ..
             } => {
-                // Re-set a new wakeup time when the tickery has registrations.
-                if self.tickery.wants_ticks() {
+                // Set a new wakeup time when there are active animations.
+                if self.animation_coordinator.any_animation_active() {
                     // Control flow should stay where it was.
                     debug_assert_eq!(
                         event_loop.control_flow(),
@@ -615,7 +613,9 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: Event) {
         match event {
             Event::WakeUpApplication => {
+                self.animation_coordinator.begin_update(Instant::now());
                 self.drive_application(event_loop);
+                self.manage_animation_request(event_loop);
             }
         }
     }
@@ -631,16 +631,21 @@ impl ApplicationHandler<Event> for WinitApplicationHandler {
             info!("{:?}", event);
         }
 
-        self.send_event(event_loop, ShellEvent::WindowEvent(window_id, event))
+        self.animation_coordinator.begin_update(Instant::now());
+        self.process_event(event_loop, ShellEvent::WindowEvent(window_id, event));
+        self.manage_animation_request(event_loop);
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.animation_coordinator.begin_update(Instant::now());
         self.drive_application(event_loop);
+        self.manage_animation_request(event_loop);
     }
 }
 
 impl WinitApplicationHandler {
-    fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
+    /// This sends an event to the application and drives it as long all events are processed.
+    fn process_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
         match self.event_sender.try_send(shell_event) {
             Ok(()) => {
                 // OO: Can't we wait until the event loop is about to wait and then drive the
@@ -658,28 +663,27 @@ impl WinitApplicationHandler {
     }
 
     fn drive_application(&mut self, event_loop: &ActiveEventLoop) {
-        let wanted_ticks = self.tickery.wants_ticks();
+        let waker_ref = futures::task::waker_ref(&self.waker);
+        let mut context = std::task::Context::from_waker(&waker_ref);
 
-        {
-            let waker_ref = futures::task::waker_ref(&self.waker);
-            let mut context = std::task::Context::from_waker(&waker_ref);
+        self.active_event_loop.set(event_loop);
 
-            *self.active_event_loop.borrow_mut() = event_loop;
-
-            if self.local_set.poll_unpin(&mut context).is_ready() {
-                event_loop.exit();
-            }
-
-            *self.active_event_loop.borrow_mut() = ptr::null();
+        if self.local_set.poll_unpin(&mut context).is_ready() {
+            event_loop.exit();
         }
 
+        self.active_event_loop.set(ptr::null());
+    }
+
+    fn manage_animation_request(&mut self, event_loop: &ActiveEventLoop) {
         // Transitioning into an animation state?
-        if !wanted_ticks && self.tickery.wants_ticks() {
+        if !self.animating && self.animation_coordinator.any_animation_active() {
             let now = Instant::now();
             event_loop.set_control_flow(event_loop::ControlFlow::WaitUntil(
                 now + ANIMATION_FRAME_DURATION,
             ));
             debug!("Animation started");
+            self.animating = true;
         }
     }
 }
