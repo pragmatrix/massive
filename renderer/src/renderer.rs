@@ -14,8 +14,8 @@ use crate::{
     texture,
 };
 
-pub struct Renderer<'window> {
-    surface: wgpu::Surface<'window>,
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
@@ -50,12 +50,12 @@ pub struct RenderContext<'a, 'rpass> {
     pub pass: &'a mut wgpu::RenderPass<'rpass>,
 }
 
-impl<'window> Renderer<'window> {
+impl Renderer {
     /// Creates a new renderer and reconfigures the surface according to the given configuration.
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
-        surface: wgpu::Surface<'window>,
+        surface: wgpu::Surface<'static>,
         surface_config: wgpu::SurfaceConfiguration,
     ) -> Self {
         let view_projection_buffer = device.create_buffer(&wgpu::BufferDescriptor {

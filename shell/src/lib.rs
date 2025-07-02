@@ -1,5 +1,5 @@
 pub mod shell;
-pub use shell::{ApplicationContext, ShellWindow, WindowRenderer};
+pub use shell::{ApplicationContext, WindowRenderer};
 
 pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let start = std::time::Instant::now();

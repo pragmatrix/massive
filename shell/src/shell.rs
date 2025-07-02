@@ -16,10 +16,13 @@ use cosmic_text::FontSystem;
 use log::{error, info};
 use massive_scene::{Director, SceneChange};
 use tokio::sync::{
-        mpsc::{channel, Receiver, Sender},
-        oneshot,
-    };
-use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
+    mpsc::{channel, Receiver, Sender},
+    oneshot,
+};
+use wgpu::{
+    rwh::HasWindowHandle, Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget,
+    TextureFormat,
+};
 use winit::{
     application::ApplicationHandler,
     dpi::{self, PhysicalSize},
@@ -109,7 +112,7 @@ impl ShellWindow {
     ) -> Result<(WindowRenderer, Director)> {
         // DI: If we can access the ShellWindow, we don't need a clone of font_system or
         // event_loop_proxy here.
-        WindowRenderer::new(self, font_system, camera, initial_size).await
+        WindowRenderer::new(self.window.clone(), font_system, camera, initial_size).await
     }
 
     pub fn scale_factor(&self) -> f64 {
@@ -129,12 +132,12 @@ impl ShellWindow {
     }
 }
 
-pub struct WindowRenderer<'window> {
-    window: &'window ShellWindow,
+pub struct WindowRenderer {
+    window: Arc<Window>,
     font_system: Arc<Mutex<FontSystem>>,
     camera: Camera,
     scene_changes: Arc<Mutex<Vec<SceneChange>>>,
-    renderer: Renderer<'window>,
+    renderer: Renderer,
 }
 
 #[must_use]
@@ -144,18 +147,21 @@ pub enum ControlFlow {
     Continue,
 }
 
-impl<'window> WindowRenderer<'window> {
+impl WindowRenderer {
     pub fn font_system(&self) -> &Arc<Mutex<FontSystem>> {
         &self.font_system
     }
 
     async fn new(
-        window: &ShellWindow,
+        window: Arc<Window>,
         font_system: Arc<Mutex<FontSystem>>,
         camera: Camera,
         // TODO: use a rect here to be able to position the renderer!
         initial_size: PhysicalSize<u32>,
     ) -> Result<(WindowRenderer, Director)> {
+        if let Err(e) = window.window_handle() {
+            bail!("Error accessing Window handle: {e:?}");
+        }
         let instance_and_surface = WindowRenderer::create_instance_and_surface(
             InstanceDescriptor::default(),
             // Use this for testing webgl:
@@ -163,7 +169,7 @@ impl<'window> WindowRenderer<'window> {
             //     backends: wgpu::Backends::GL,
             //     ..InstanceDescriptor::default()
             // },
-            &window.window,
+            window.clone(),
         );
         // On wasm, attempt to fall back to webgl
         #[cfg(target_arch = "wasm32")]
@@ -221,9 +227,7 @@ impl<'window> WindowRenderer<'window> {
 
         let alpha_mode = surface_caps.alpha_modes[0];
 
-        info!(
-            "Selecting alpha mode: {alpha_mode:?}, initial size: {initial_size:?}",
-        );
+        info!("Selecting alpha mode: {alpha_mode:?}, initial size: {initial_size:?}",);
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
@@ -242,14 +246,14 @@ impl<'window> WindowRenderer<'window> {
         let scene_changes = Arc::new(Mutex::new(Vec::new()));
 
         let window_renderer = WindowRenderer {
-            window,
+            window: window.clone(),
             font_system,
             camera,
             scene_changes: scene_changes.clone(),
             renderer,
         };
 
-        let window = window.window.clone();
+        let window = window.clone();
 
         let director = Director::new(move |changes| {
             // Since we are the only one pushing to the renderer, we can invoke a request redraw
@@ -359,11 +363,11 @@ impl ShellEvent {
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
-impl<'window> WindowRenderer<'window> {
+impl WindowRenderer {
     fn create_instance_and_surface(
         instance_descriptor: InstanceDescriptor,
-        surface_target: &Window,
-    ) -> Result<(Instance, Surface<'_>)> {
+        surface_target: Arc<Window>,
+    ) -> Result<(Instance, Surface<'static>)> {
         let instance = wgpu::Instance::new(&instance_descriptor);
 
         let surface_target: SurfaceTarget = surface_target.into();

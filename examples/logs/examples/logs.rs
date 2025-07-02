@@ -25,8 +25,8 @@ use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Identity, Vector3};
 use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
 use massive_shell::{
-    shell::{self, ShellEvent},
-    ApplicationContext, ShellWindow,
+    shell::{self, ShellEvent, ShellWindow},
+    ApplicationContext,
 };
 
 use logs::terminal::{self, color_schemes};
