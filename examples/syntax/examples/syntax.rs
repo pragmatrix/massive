@@ -30,40 +30,38 @@ async fn async_main() -> Result<()> {
 }
 
 async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
-    // let data = include_str!("rick-and-morty.json");
-    let data = include_str!("books.xml");
-
-    // Load these once at the start of your program
-    let ps = SyntaxSet::load_defaults_newlines();
-    let ts = ThemeSet::load_defaults();
-
-    println!("themes: {:?}", ts.themes.keys());
-
-    let mut text_attributes = Vec::new();
-
-    let font_size = 32.;
-    let line_height = 40.;
-
-    let syntax = ps.find_syntax_by_extension("xml").unwrap();
-    let mut h = HighlightLines::new(syntax, &ts.themes["InspiredGitHub"]);
     let mut final_text = String::new();
-    for line in LinesWithEndings::from(data) {
-        let ranges: Vec<(Style, &str)> = h.highlight_line(line, &ps).unwrap();
+    let mut text_attributes = Vec::new();
+    {
+        // let data = include_str!("rick-and-morty.json");
+        let data = include_str!("books.xml");
 
-        for (style, str) in ranges {
-            let foreground = style.foreground;
-            let attribute = TextAttribute {
-                range: final_text.len()..final_text.len() + str.len(),
-                color: Color::from((foreground.r, foreground.g, foreground.b, foreground.a)),
-                weight: TextWeight::NORMAL,
-            };
+        // Load these once at the start of your program
+        let ps = SyntaxSet::load_defaults_newlines();
+        let ts = ThemeSet::load_defaults();
 
-            if style.font_style != FontStyle::empty() {
-                todo!("Support Font Style");
+        println!("themes: {:?}", ts.themes.keys());
+
+        let syntax = ps.find_syntax_by_extension("xml").unwrap();
+        let mut h = HighlightLines::new(syntax, &ts.themes["InspiredGitHub"]);
+        for line in LinesWithEndings::from(data) {
+            let ranges: Vec<(Style, &str)> = h.highlight_line(line, &ps).unwrap();
+
+            for (style, str) in ranges {
+                let foreground = style.foreground;
+                let attribute = TextAttribute {
+                    range: final_text.len()..final_text.len() + str.len(),
+                    color: Color::from((foreground.r, foreground.g, foreground.b, foreground.a)),
+                    weight: TextWeight::NORMAL,
+                };
+
+                if style.font_style != FontStyle::empty() {
+                    todo!("Support Font Style");
+                }
+
+                final_text.push_str(str);
+                text_attributes.push(attribute);
             }
-
-            final_text.push_str(str);
-            text_attributes.push(attribute);
         }
     }
 
@@ -83,6 +81,9 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
+    let font_size = 32.;
+    let line_height = 40.;
+
     let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
         &final_text,
@@ -97,7 +98,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     // Window
 
     let inner_size = LogicalSize::new(800., 800.);
-    let window = ctx.new_window(inner_size, Some(CANVAS_ID))?;
+    let window = ctx.new_window(inner_size, Some(CANVAS_ID)).await?;
     let (mut renderer, mut director) = window
         .new_renderer(font_system, camera, window.inner_size())
         .await?;

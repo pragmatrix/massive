@@ -265,7 +265,7 @@ impl<'window> Renderer<'window> {
     // A Matrix that translates from the WGPU coordinate system to surface coordinates.
     pub fn surface_matrix(&self) -> Matrix4 {
         let (width, height) = self.surface_size();
-        Matrix4::from_nonuniform_scale(width as f64 / 2.0, (height as f64 / 2.0) * -1.0, 1.0)
+        Matrix4::from_nonuniform_scale(width as f64 / 2.0, -(height as f64 / 2.0), 1.0)
             * Matrix4::from_translation(cgmath::Vector3::new(1.0, -1.0, 0.0))
     }
 

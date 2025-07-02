@@ -104,7 +104,7 @@ pub mod legacy {
     use anyhow::Result;
     use massive_geometry::Matrix4;
     use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
-    use std::{collections::HashMap, rc::Rc};
+    use std::{collections::HashMap, sync::Arc};
     use tokio::sync::mpsc;
 
     pub fn bootstrap_scene_changes(shapes: Vec<Shape>) -> Result<Vec<SceneChange>> {
@@ -133,7 +133,7 @@ pub mod legacy {
                 Shape::Quads(QuadsShape { model_matrix, .. }) => model_matrix,
             };
 
-            let position = location_handles.entry(Rc::as_ptr(matrix)).or_insert_with(
+            let position = location_handles.entry(Arc::as_ptr(matrix)).or_insert_with(
                 || -> Handle<Location> {
                     let matrix = director.stage(**matrix);
                     director.stage(matrix.into())

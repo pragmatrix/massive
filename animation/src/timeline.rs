@@ -1,6 +1,5 @@
 use std::{
-    cell::{Ref, RefCell},
-    rc::{Rc, Weak},
+    sync::{Arc, Mutex, Weak},
     time::Duration,
 };
 
@@ -14,14 +13,15 @@ use crate::{
 /// Timeline implicitly supports animation blending. New animations added are combined with the
 /// trajectory of previous animations.
 #[derive(Debug)]
-pub struct Timeline<T> {
-    tickery: Rc<Tickery>,
-    shared: Rc<RefCell<TimelineInner<T>>>,
+pub struct Timeline<T: Send> {
+    tickery: Arc<Tickery>,
+    // Performance: Use RwLock.
+    shared: Arc<Mutex<TimelineInner<T>>>,
 }
 
-impl<T: Interpolatable> Timeline<T> {
-    pub(crate) fn new(tickery: Rc<Tickery>, value: T) -> Self {
-        let shared = Rc::new(RefCell::new(TimelineInner {
+impl<T: Interpolatable + Send> Timeline<T> {
+    pub(crate) fn new(tickery: Arc<Tickery>, value: T) -> Self {
+        let shared = Arc::new(Mutex::new(TimelineInner {
             value,
             scheduled: Vec::new(),
             animation: Default::default(),
@@ -34,7 +34,7 @@ impl<T: Interpolatable> Timeline<T> {
     where
         T: 'static,
     {
-        let mut shared = self.shared.borrow_mut();
+        let mut shared = self.shared.lock().unwrap();
         let receiving_ticks = shared.is_animating();
 
         shared.scheduled.push(ScheduledAnimation {
@@ -44,7 +44,7 @@ impl<T: Interpolatable> Timeline<T> {
         });
 
         if !receiving_ticks {
-            let tick_receiver = Rc::downgrade(&self.shared) as Weak<dyn ReceivesTicks>;
+            let tick_receiver = Arc::downgrade(&self.shared) as Weak<dyn ReceivesTicks + Send>;
             self.tickery.start_sending(tick_receiver)
         }
     }
@@ -53,22 +53,20 @@ impl<T: Interpolatable> Timeline<T> {
     where
         T: Clone,
     {
-        self.shared.borrow().value.clone()
-    }
-
-    pub fn value_ref(&self) -> Ref<T> {
-        let r = self.shared.borrow();
-        Ref::map(r, |i| &i.value)
+        self.shared.lock().unwrap().value.clone()
     }
 
     pub fn is_animating(&self) -> bool {
-        self.shared.borrow().is_animating()
+        self.shared.lock().unwrap().is_animating()
     }
 }
 
 /// Shared by the timeline value and the tickery.
 #[derive(Debug)]
-struct TimelineInner<T> {
+struct TimelineInner<T>
+where
+    T: Send,
+{
     /// The current value.
     value: T,
     /// Pending animations. The animations added in the next tick.
@@ -77,7 +75,7 @@ struct TimelineInner<T> {
     animation: BlendedAnimation<T>,
 }
 
-impl<T: Interpolatable> TimelineInner<T> {
+impl<T: Interpolatable + Send> TimelineInner<T> {
     pub fn is_animating(&self) -> bool {
         self.animation.is_active() || !self.scheduled.is_empty()
     }
@@ -119,8 +117,8 @@ struct ScheduledAnimation<T> {
     interpolation: Interpolation,
 }
 
-impl<T: Interpolatable> ReceivesTicks for RefCell<TimelineInner<T>> {
+impl<T: Interpolatable + Send> ReceivesTicks for Mutex<TimelineInner<T>> {
     fn tick(&self, instant: Instant) -> TickResponse {
-        self.borrow_mut().tick(instant)
+        self.lock().unwrap().tick(instant)
     }
 }

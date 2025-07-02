@@ -93,7 +93,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let window_size = LogicalSize::new(1280., 800.);
 
-    let window = ctx.new_window(window_size, Some(CANVAS_ID))?;
+    let window = ctx.new_window(window_size, Some(CANVAS_ID)).await?;
 
     // Camera
 
@@ -271,7 +271,7 @@ impl Logs {
                 ..
             } = window_event
             {
-                warn!("{:?}", window_event);
+                warn!("{window_event:?}");
             }
 
             match self.application.update(window_event) {

@@ -61,7 +61,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     };
 
     let initial_size = winit::dpi::LogicalSize::new(960, 800);
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
     let scale_factor = window.scale_factor();
     let physical_size = initial_size.to_physical(scale_factor);
 

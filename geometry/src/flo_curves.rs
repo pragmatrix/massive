@@ -18,7 +18,7 @@ impl Coordinate for Point {
         match index {
             0 => self.x,
             1 => self.y,
-            _ => panic!("Invalid coordinate index: {}", index),
+            _ => panic!("Invalid coordinate index: {index}"),
         }
     }
 

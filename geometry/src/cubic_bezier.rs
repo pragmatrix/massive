@@ -232,7 +232,7 @@ impl Index<usize> for CubicBezier {
             1 => &self.span1,
             2 => &self.span2,
             3 => &self.end,
-            _ => panic!("Invalid index {}", index),
+            _ => panic!("Invalid index {index}"),
         }
     }
 }
@@ -244,7 +244,7 @@ impl IndexMut<usize> for CubicBezier {
             1 => &mut self.span1,
             2 => &mut self.span2,
             3 => &mut self.end,
-            _ => panic!("Invalid index {}", index),
+            _ => panic!("Invalid index {index}"),
         }
     }
 }

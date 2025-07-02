@@ -1,8 +1,4 @@
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    rc::{Rc, Weak},
-};
+use std::sync::{self, Arc, Mutex};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -13,45 +9,36 @@ use crate::{Interpolatable, Timeline};
 
 #[derive(Debug, Default)]
 pub struct Tickery {
-    receivers: RefCell<HashMap<*const dyn ReceivesTicks, Weak<dyn ReceivesTicks>>>,
+    receivers: Mutex<Vec<sync::Weak<dyn ReceivesTicks>>>,
 }
 
 impl Tickery {
-    pub fn timeline<T: Interpolatable>(self: &Rc<Self>, value: T) -> Timeline<T> {
+    pub fn timeline<T: Interpolatable + Send>(self: &Arc<Self>, value: T) -> Timeline<T> {
         Timeline::new(self.clone(), value)
     }
 
     pub fn tick(&self, instant: Instant) {
-        let mut receivers = self.receivers.borrow_mut();
-
-        let mut removal_queue = Vec::new();
-
-        for (ptr, registration) in receivers.iter() {
-            if let Some(registration) = registration.upgrade() {
-                match registration.tick(instant) {
-                    TickResponse::Stop => {
-                        removal_queue.push(*ptr);
+        self.receivers
+            .lock()
+            .expect("poisoned")
+            .retain_mut(|registration| {
+                if let Some(registration) = registration.upgrade() {
+                    match registration.tick(instant) {
+                        TickResponse::Stop => false,
+                        TickResponse::Continue => true,
                     }
-                    TickResponse::Continue => {}
+                } else {
+                    false
                 }
-            } else {
-                removal_queue.push(*ptr);
-            }
-        }
-
-        // Cleanup
-        removal_queue
-            .into_iter()
-            .for_each(|ptr| assert!(receivers.remove(&ptr).is_some()));
+            });
     }
 
     pub fn wants_ticks(&self) -> bool {
-        !self.receivers.borrow().is_empty()
+        !self.receivers.lock().unwrap().is_empty()
     }
 
-    pub(crate) fn start_sending(&self, receiver: Weak<dyn ReceivesTicks>) {
-        let ptr = receiver.as_ptr();
-        assert!(self.receivers.borrow_mut().insert(ptr, receiver).is_none());
+    pub(crate) fn start_sending(&self, receiver: sync::Weak<dyn ReceivesTicks>) {
+        self.receivers.lock().unwrap().push(receiver);
     }
 }
 
@@ -61,7 +48,7 @@ pub enum TickResponse {
     Stop,
 }
 
-pub trait ReceivesTicks {
+pub trait ReceivesTicks: Send + Sync {
     #[must_use]
     fn tick(&self, instant: Instant) -> TickResponse;
 }

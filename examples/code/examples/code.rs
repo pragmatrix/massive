@@ -185,7 +185,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                 relation_table.insert(name, related.iter().map(|hr| hr.range).collect::<Vec<_>>());
                 let related: Vec<_> = related.iter().map(|hr| &text[hr.range]).collect();
 
-                println!("related: {:?}", related)
+                println!("related: {related:?}")
             }
         }
     }
@@ -262,7 +262,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     // Window
 
-    let window = ctx.new_window(LogicalSize::new(1024, 800), None)?;
+    let window = ctx.new_window(LogicalSize::new(1024, 800), None).await?;
     let initial_size = window.inner_size();
 
     // Camera

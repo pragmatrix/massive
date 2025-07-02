@@ -69,7 +69,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
 
     let camera = {
         let fovy: f64 = 45.0;

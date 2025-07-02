@@ -90,7 +90,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     let initial_size = LogicalSize::new(800., 800.);
 
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
     // Using inner size screws up the renderer initialization, because the window is not sized yet.
     // So we compute the proper physical for now.
     let physical_size = initial_size.to_physical(window.scale_factor());
