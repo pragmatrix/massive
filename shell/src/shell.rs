@@ -459,6 +459,7 @@ impl ApplicationContext {
         inner_size: impl Into<dpi::Size>,
         canvas_id: Option<&str>,
     ) -> Result<ShellWindow> {
+        #[cfg(target_arch = "wasm32")]
         assert!(
             canvas_id.is_none(),
             "Rendering to a canvas isn't support yet"
