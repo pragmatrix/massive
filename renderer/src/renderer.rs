@@ -179,6 +179,7 @@ impl Renderer {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,

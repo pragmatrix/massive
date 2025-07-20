@@ -331,13 +331,13 @@ impl WindowRenderer {
                 info!("{window_event:?}");
                 self.renderer
                     .resize_surface((physical_size.width, physical_size.height));
-                self.window.request_redraw()
+                self.window.request_redraw();
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 let new_inner_size = self.window.inner_size();
                 self.renderer
                     .resize_surface((new_inner_size.width, new_inner_size.height));
-                self.window.request_redraw()
+                self.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
                 self.redraw()?;
@@ -442,7 +442,7 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
-/// The [`ApplicationContext`] is the connection to the window. It allows the application to poll
+/// The [`ApplicationContext`] is the connection to the runtinme. It allows the application to poll
 /// for events while also forwarding events to the renderer.
 ///
 /// In addition to that it provides an animator that is updated with each event (mostly ticks)
@@ -457,11 +457,11 @@ impl ApplicationContext {
     pub async fn new_window(
         &self,
         inner_size: impl Into<dpi::Size>,
-        canvas_id: Option<&str>,
+        _canvas_id: Option<&str>,
     ) -> Result<ShellWindow> {
         #[cfg(target_arch = "wasm32")]
         assert!(
-            canvas_id.is_none(),
+            _canvas_id.is_none(),
             "Rendering to a canvas isn't support yet"
         );
         let (on_created, when_created) = oneshot::channel();
