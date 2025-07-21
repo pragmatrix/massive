@@ -484,6 +484,7 @@ impl ApplicationContext {
     }
 
     #[cfg(not(target_arch = "wasm32"))]
+    #[allow(unused)]
     fn new_window_ev(
         &self,
         event_loop: &ActiveEventLoop,
