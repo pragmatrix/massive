@@ -279,8 +279,11 @@ impl WindowRenderer {
             format: *surface_format,
             width: initial_size.width,
             height: initial_size.height,
-            present_mode: PresentMode::AutoNoVsync,
-            // TODO: Select explicitly
+            // 20250721:
+            // Since the time we are rendering asynchronously, not bound to the main thread,
+            // VSync seems to be fast enough on MacOS and also fixes the "wobbly" resizing.
+            present_mode: PresentMode::AutoVsync,
+            // Robustness: Select explicitly
             alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
