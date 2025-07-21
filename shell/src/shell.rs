@@ -13,10 +13,10 @@ use web_time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use cosmic_text::FontSystem;
-use log::{error, info};
+use log::{debug, error, info};
 use massive_scene::{Director, SceneChange};
 use tokio::sync::{
-    mpsc::{channel, Receiver, Sender},
+    mpsc::{channel, Receiver, Sender, UnboundedReceiver, UnboundedSender},
     oneshot,
 };
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
@@ -42,7 +42,7 @@ pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
     // Spawn application.
 
     // Robustness: may use unbounded channels.
-    let (event_sender, event_receiver) = channel(256);
+    let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
@@ -331,7 +331,7 @@ impl WindowRenderer {
                 info!("{window_event:?}");
                 self.renderer
                     .resize_surface((physical_size.width, physical_size.height));
-                self.window.request_redraw();
+                // self.window.request_redraw();
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 let new_inner_size = self.window.inner_size();
@@ -448,7 +448,7 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 /// In addition to that it provides an animator that is updated with each event (mostly ticks)
 /// coming from the shell.
 pub struct ApplicationContext {
-    event_receiver: Receiver<ShellEvent>,
+    event_receiver: UnboundedReceiver<ShellEvent>,
     event_loop_proxy: EventLoopProxy<ShellRequest>,
     tickery: Arc<Tickery>,
 }
@@ -582,7 +582,7 @@ impl ApplicationContext {
 }
 
 struct WinitApplicationHandler {
-    event_sender: Sender<ShellEvent>,
+    event_sender: UnboundedSender<ShellEvent>,
     tickery: Arc<Tickery>,
 }
 
@@ -623,7 +623,6 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
         window_id: WindowId,
         event: WindowEvent,
     ) {
-        // This was added for the logs example.
         if event != WindowEvent::RedrawRequested {
             info!("{event:?}");
         }
@@ -634,10 +633,10 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
 
 impl WinitApplicationHandler {
     fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
-        if let Err(_e) = self.event_sender.try_send(shell_event) {
+        if let Err(_e) = self.event_sender.send(shell_event) {
             // Don't log when we are already exiting.
             if !event_loop.exiting() {
-                info!("Receiver for events dropped, exiting event loop");
+                info!("Receiver for events dropped, exiting event loop: {_e:?}");
                 event_loop.exit();
             }
         }
