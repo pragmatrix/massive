@@ -1,4 +1,3 @@
-# 20250721: Disabled, because we focus on Desktop / multithreaded async runtimes only for now.
 name: 'qa'
 on:
   push:
