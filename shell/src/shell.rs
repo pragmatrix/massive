@@ -13,10 +13,10 @@ use web_time::Instant;
 
 use anyhow::{anyhow, bail, Context, Result};
 use cosmic_text::FontSystem;
-use log::{debug, error, info};
+use log::{error, info};
 use massive_scene::{Director, SceneChange};
 use tokio::sync::{
-    mpsc::{channel, Receiver, Sender, UnboundedReceiver, UnboundedSender},
+    mpsc::{UnboundedReceiver, UnboundedSender},
     oneshot,
 };
 use wgpu::{Instance, InstanceDescriptor, PresentMode, Surface, SurfaceTarget, TextureFormat};
@@ -334,13 +334,13 @@ impl WindowRenderer {
                 info!("{window_event:?}");
                 self.renderer
                     .resize_surface((physical_size.width, physical_size.height));
-                // self.window.request_redraw();
+                // 20250721: Disabled, because redraw is happening automatically, and otherwise
+                // will slow things down.
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 let new_inner_size = self.window.inner_size();
                 self.renderer
                     .resize_surface((new_inner_size.width, new_inner_size.height));
-                self.window.request_redraw();
             }
             WindowEvent::RedrawRequested => {
                 self.redraw()?;

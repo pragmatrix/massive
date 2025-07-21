@@ -271,7 +271,8 @@ impl Renderer {
     }
 
     /// Resizes the surface, if necessary.
-    /// Keeps the surface size at least 1x1.
+    ///
+    /// Keeps the minimum surface size at at least 1x1.
     pub fn resize_surface(&mut self, new_size: (u32, u32)) {
         let new_surface_size = (new_size.0.max(1), new_size.1.max(1));
 
@@ -286,7 +287,9 @@ impl Renderer {
     }
 
     /// Returns the current surface size.
-    /// It may not match the window's size, for example if the window's size is 0,0.
+    ///
+    /// It may not exactly match the window's size, for example if the window's size is 0,0, the
+    /// surface's size will be 1x1.
     pub fn surface_size(&self) -> (u32, u32) {
         let config = &self.surface_config;
         (config.width, config.height)
@@ -294,7 +297,7 @@ impl Renderer {
 
     pub fn reconfigure_surface(&mut self) {
         info!("Reconfiguring surface {:?}", self.surface_config);
-        self.surface.configure(&self.device, &self.surface_config)
+        self.surface.configure(&self.device, &self.surface_config);
     }
 }
 
