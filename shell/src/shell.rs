@@ -1,8 +1,4 @@
-use std::{
-    future::Future,
-    sync::Arc,
-    time::Duration,
-};
+use std::{future::Future, sync::Arc, time::Duration};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
