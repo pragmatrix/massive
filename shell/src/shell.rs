@@ -47,7 +47,7 @@ pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
 
-    let tickery = Arc::new(Tickery::default());
+    let tickery = Arc::new(Tickery::new(Instant::now()));
 
     let application_context = ApplicationContext {
         event_receiver,
@@ -398,7 +398,6 @@ enum ShellRequest {
 #[derive(Debug)]
 pub enum ShellEvent {
     WindowEvent(WindowId, WindowEvent),
-    ApplyAnimations(Instant),
 }
 
 impl ShellEvent {
@@ -408,11 +407,6 @@ impl ShellEvent {
             ShellEvent::WindowEvent(id, window_event) if *id == window.id() => Some(window_event),
             _ => None,
         }
-    }
-
-    #[must_use]
-    pub fn apply_animations(&self) -> bool {
-        matches!(self, ShellEvent::ApplyAnimations(_))
     }
 }
 
@@ -571,7 +565,7 @@ impl ApplicationContext {
         Ok(event)
     }
 
-    /// Retrieve the next window event and forward it to the renderer if needed.
+    /// Wait for the next event of a specific window and forward it to the renderer if needed.
     pub async fn wait_for_window_event(&mut self, window: &ShellWindow) -> Result<WindowEvent> {
         match self.wait_for_event().await? {
             ShellEvent::WindowEvent(window_id, window_event) if window_id == window.id() => {

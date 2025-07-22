@@ -1,4 +1,8 @@
-use std::sync::{self, Arc, Mutex};
+use std::sync::{
+    self,
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex, RwLock,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -7,52 +11,52 @@ use web_time::Instant;
 
 use crate::{Interpolatable, Timeline};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Tickery {
-    receivers: Mutex<Vec<sync::Weak<dyn ReceivesTicks>>>,
+    inner: Mutex<TickeryInner>,
+}
+
+#[derive(Debug)]
+struct TickeryInner {
+    tick: Instant,
+    any_users: bool,
 }
 
 impl Tickery {
+    pub fn new(now: Instant) -> Self {
+        Self {
+            inner: TickeryInner {
+                tick: now.into(),
+                any_users: false.into(),
+            }
+            .into(),
+        }
+    }
+
     pub fn timeline<T: Interpolatable + Send>(self: &Arc<Self>, value: T) -> Timeline<T> {
         Timeline::new(self.clone(), value)
     }
 
-    pub fn tick(&self, instant: Instant) {
-        self.receivers
-            .lock()
-            .expect("poisoned")
-            .retain_mut(|registration| {
-                if let Some(registration) = registration.upgrade() {
-                    match registration.tick(instant) {
-                        TickResponse::Stop => false,
-                        TickResponse::Continue => true,
-                    }
-                } else {
-                    false
-                }
-            });
+    /// Update the current tick.
+    ///
+    /// This sets the current tick and resets the usage count.
+    ///
+    /// Not &mut self, because it must be usable behing an Arc and we don't put the whole Tickery in a Mutex.
+    pub fn update_tick(&self, instant: Instant) {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.tick = instant;
+        inner.any_users = false;
     }
 
-    pub fn wants_ticks(&self) -> bool {
-        !self.receivers.lock().unwrap().is_empty()
+    /// Marks the current tick as _used_ on and returns it.
+    pub fn current_tick(&self) -> Instant {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.any_users = true;
+        inner.tick
     }
 
-    pub(crate) fn start_sending(&self, receiver: sync::Weak<dyn ReceivesTicks>) {
-        self.receivers.lock().unwrap().push(receiver);
+    /// Were there any users of the tick value since [`Self::update_tick`] was called.
+    pub fn any_users(&self) -> bool {
+        self.inner.lock().expect("poisoned").any_users
     }
-}
-
-#[derive(Debug)]
-pub enum TickResponse {
-    Continue,
-    Stop,
-}
-
-pub trait ReceivesTicks: Send + Sync {
-    #[must_use]
-    fn tick(&self, instant: Instant) -> TickResponse;
-}
-
-pub trait TickProvider {
-    fn start_sending(&self);
 }
