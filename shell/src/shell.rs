@@ -332,6 +332,8 @@ impl WindowRenderer {
         match window_event {
             WindowEvent::Resized(physical_size) => {
                 info!("{window_event:?}");
+                // Robustness: Put this into a spawn_blocking inside when run in an async runtime.
+                // Last time measured: This takes around 40 to 60 microseconds.
                 self.renderer
                     .resize_surface((physical_size.width, physical_size.height));
                 // 20250721: Disabled, because redraw is happening automatically, and otherwise
@@ -343,6 +345,8 @@ impl WindowRenderer {
                     .resize_surface((new_inner_size.width, new_inner_size.height));
             }
             WindowEvent::RedrawRequested => {
+                // This may block when VSync is enabled and when the previous frame
+                // wasn't rendered yet.
                 self.redraw()?;
             }
             _ => {}
@@ -435,7 +439,7 @@ impl WindowRenderer {
 pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let start = std::time::Instant::now();
     let r = f();
-    println!("{name}: {:?}", start.elapsed());
+    info!("{name}: {:?}", start.elapsed());
     r
 }
 
@@ -555,12 +559,12 @@ impl ApplicationContext {
             bail!("Internal Error: Shell shut down, no more events")
         };
 
-        if let ShellEvent::ApplyAnimations(tick) = event {
-            // Animations may have been removed in the meantime, so we check for wants_ticks()...
-            self.tickery.tick(tick);
-            // Even if nothing happened, the event _must_ be forwarded to the application, because
-            // it may need to apply final values now.
-        }
+        // if let ShellEvent::ApplyAnimations(tick) = event {
+        //     // Animations may have been removed in the meantime, so we check for wants_ticks()...
+        //     self.tickery.tick(tick);
+        //     // Even if nothing happened, the event _must_ be forwarded to the application, because
+        //     // it may need to apply final values now.
+        // }
 
         Ok(event)
     }

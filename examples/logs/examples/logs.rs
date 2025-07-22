@@ -256,10 +256,10 @@ impl Logs {
     }
 
     fn handle_event(&mut self, shell_event: ShellEvent, window: &ShellWindow) -> UpdateResponse {
-        if shell_event.apply_animations() {
-            self.apply_animations();
-            return UpdateResponse::Continue;
-        }
+        // if shell_event.apply_animations() {
+        //     self.apply_animations();
+        //     return UpdateResponse::Continue;
+        // }
 
         if let Some(window_event) = shell_event.window_event_for(window) {
             if let WindowEvent::KeyboardInput {
