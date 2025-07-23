@@ -20,7 +20,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::ShellWindow;
+use crate::{AsyncWindowRenderer, ShellWindow};
 use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 
 pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
@@ -111,6 +111,14 @@ impl ShellEvent {
     pub fn window_event_for(&self, window: &ShellWindow) -> Option<&WindowEvent> {
         match self {
             ShellEvent::WindowEvent(id, window_event) if *id == window.id() => Some(window_event),
+            _ => None,
+        }
+    }
+
+    #[must_use]
+    pub fn window_event_for_id(&self, id: WindowId) -> Option<&WindowEvent> {
+        match self {
+            ShellEvent::WindowEvent(wid, window_event) if *wid == id => Some(window_event),
             _ => None,
         }
     }
@@ -246,6 +254,27 @@ impl ApplicationContext {
         //     // Even if nothing happened, the event _must_ be forwarded to the application, because
         //     // it may need to apply final values now.
         // }
+
+        Ok(event)
+    }
+
+    /// Waits for a shell event and coordinates the renderer.
+    ///
+    /// This is cancellation safe.
+    pub async fn wait_and_coordinate(
+        &mut self,
+        renderer: &mut AsyncWindowRenderer,
+    ) -> Result<ShellEvent> {
+        let event = self.event_receiver.recv().await;
+        let Some(event) = event else {
+            // This means that the shell stopped before the application ended, this should not
+            // happen in normal situations.
+            bail!("Internal Error: Shell shut down, no more events")
+        };
+
+        if let Some(window_event) = event.window_event_for_id(renderer.id()) {
+            renderer.handle_window_event(window_event)?;
+        }
 
         Ok(event)
     }

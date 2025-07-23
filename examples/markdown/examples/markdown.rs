@@ -22,7 +22,7 @@ use massive_scene::Visual;
 use massive_shapes::GlyphRun;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{shell, ApplicationContext, AsyncWindowRenderer};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
@@ -65,7 +65,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let scale_factor = window.scale_factor();
     let physical_size = initial_size.to_physical(scale_factor);
 
-    let (mut renderer, mut director) = window
+    let (renderer, mut director) = window
         .new_renderer(
             Arc::new(Mutex::new(font_system)),
             camera,
@@ -81,6 +81,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         renderer.font_system().clone(),
         markdown,
     )?;
+
+    let mut renderer = AsyncWindowRenderer::new(renderer);
 
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
@@ -99,23 +101,24 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_window_event(&window).await?;
-        renderer.handle_window_event(&window_event)?;
+        let event = ctx.wait_and_coordinate(&mut renderer).await?;
 
-        info!("Window Event: {window_event:?}");
+        if let Some(window_event) = event.window_event_for_id(renderer.id()) {
+            info!("Window Event: {window_event:?}");
 
-        match application.update(&window_event) {
-            UpdateResponse::Exit => return Ok(()),
-            UpdateResponse::Continue => {}
-        }
+            match application.update(&window_event) {
+                UpdateResponse::Exit => return Ok(()),
+                UpdateResponse::Continue => {}
+            }
 
-        // DI: This check has to be done in the renderer and the renderer has to decide when it
-        // needs to redraw.
-        let new_matrix = application.matrix(page_size);
-        if new_matrix != current_matrix {
-            matrix.update(new_matrix);
-            current_matrix = new_matrix;
-            director.action()?;
+            // DI: This check has to be done in the renderer and the renderer has to decide when it
+            // needs to redraw.
+            let new_matrix = application.matrix(page_size);
+            if new_matrix != current_matrix {
+                matrix.update(new_matrix);
+                current_matrix = new_matrix;
+                director.action()?;
+            }
         }
     }
 }

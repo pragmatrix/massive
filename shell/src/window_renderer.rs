@@ -8,7 +8,7 @@ use anyhow::{bail, Context, Result};
 use log::{error, info};
 use massive_scene::SceneChange;
 use wgpu::{PresentMode, Surface, TextureFormat};
-use winit::{dpi::PhysicalSize, event::WindowEvent, window::Window};
+use winit::{dpi::PhysicalSize, event::WindowEvent, window::{Window, WindowId}};
 
 use cosmic_text::FontSystem;
 use massive_geometry::{scalar, Camera, Matrix4};
@@ -26,10 +26,6 @@ pub struct WindowRenderer {
 }
 
 impl WindowRenderer {
-    pub fn font_system(&self) -> &Arc<Mutex<FontSystem>> {
-        &self.font_system
-    }
-
     pub async fn new(
         window: Arc<Window>,
         instance: wgpu::Instance,
@@ -128,6 +124,14 @@ impl WindowRenderer {
         });
 
         Ok((window_renderer, director))
+    }
+
+    pub fn id(&self) -> WindowId {
+        self.window.id()
+    }
+
+    pub fn font_system(&self) -> &Arc<Mutex<FontSystem>> {
+        &self.font_system
     }
 
     // DI: If the renderer does culling, we need to move the camera (or at least the view matrix) into the renderer, and

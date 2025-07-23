@@ -26,7 +26,7 @@ use massive_geometry::{Camera, Identity, Vector3};
 use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
 use massive_shell::{
     shell::{self, ShellEvent},
-    ApplicationContext, ShellWindow,
+    ApplicationContext, AsyncWindowRenderer, ShellWindow,
 };
 
 use logs::terminal::{self, color_schemes};
@@ -103,9 +103,11 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
-    let (mut renderer, director) = window
+    let (renderer, director) = window
         .new_renderer(font_system.clone(), camera, window.inner_size())
         .await?;
+
+    let mut renderer = AsyncWindowRenderer::new(renderer);
 
     let mut logs = Logs::new(&mut ctx, font_system, director);
 
@@ -120,11 +122,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                 logs.update_layout()?;
             },
 
-            Ok(event) = ctx.wait_for_event() => {
-                if let Some(window_event) = event.window_event_for(&window) {
-                    renderer.handle_window_event(window_event)?;
-                }
-
+            Ok(event) = ctx.wait_and_coordinate(&mut renderer) => {
                 if logs.handle_event(event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }

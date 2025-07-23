@@ -3,7 +3,10 @@ use std::{
     sync::mpsc::{self, channel, Sender},
     thread::{self, JoinHandle},
 };
-use winit::event::WindowEvent;
+use winit::{
+    event::WindowEvent,
+    window::{Window, WindowId},
+};
 
 use anyhow::{anyhow, Result};
 use log::error;
@@ -12,17 +15,19 @@ use crate::window_renderer::WindowRenderer;
 use massive_geometry::Camera;
 
 enum RendererMessage {
-    WindowEvent(Box<WindowEvent>),
+    WindowEvent(WindowEvent),
     UpdateCamera(Camera),
 }
 
 pub struct AsyncWindowRenderer {
+    id: WindowId,
     sender: Sender<RendererMessage>,
     thread_handle: Option<JoinHandle<()>>,
 }
 
 impl AsyncWindowRenderer {
     pub fn new(mut window_renderer: WindowRenderer) -> Self {
+        let id = window_renderer.id();
         let (sender, receiver) = channel();
 
         let thread_handle = thread::spawn(move || {
@@ -42,14 +47,33 @@ impl AsyncWindowRenderer {
         });
 
         Self {
+            id,
             sender,
             thread_handle: Some(thread_handle),
         }
     }
 
-    pub fn handle_window_event(&self, event: WindowEvent) -> Result<()> {
+    pub fn id(&self) -> WindowId {
+        self.id
+    }
+
+    pub fn should_handle_window_event(event: &WindowEvent) -> bool {
+        matches!(
+            event,
+            WindowEvent::Resized(_)
+                | WindowEvent::ScaleFactorChanged { .. }
+                | WindowEvent::RedrawRequested
+        )
+    }
+
+    pub fn handle_window_event(&self, event: &WindowEvent) -> Result<()> {
+        if !Self::should_handle_window_event(event) {
+            // Not handled, just ignore it.
+            return Ok(());
+        }
+
         self.sender
-            .send(RendererMessage::WindowEvent(Box::new(event)))
+            .send(RendererMessage::WindowEvent(event.clone()))
             .map_err(|e| anyhow!("Failed to send window event: {e:?}"))?;
         Ok(())
     }
