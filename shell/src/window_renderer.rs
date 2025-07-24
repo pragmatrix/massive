@@ -93,7 +93,7 @@ impl WindowRenderer {
             //
             // 20250724: This is not true, on my MacBook Pro with the mouse, this is considerably
             // slower. So we perhaps have to switch between interactive mode (Immediate, and VSync
-            // for animations).
+            // for animations). Also the "wobbly" resizing appears again with VSync.
             present_mode: PresentMode::AutoNoVsync,
             // Robustness: Select explicitly
             alpha_mode,
