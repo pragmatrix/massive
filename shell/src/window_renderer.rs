@@ -8,7 +8,11 @@ use anyhow::{bail, Context, Result};
 use log::{error, info};
 use massive_scene::SceneChange;
 use wgpu::{PresentMode, Surface, TextureFormat};
-use winit::{dpi::PhysicalSize, event::WindowEvent, window::{Window, WindowId}};
+use winit::{
+    dpi::PhysicalSize,
+    event::WindowEvent,
+    window::{Window, WindowId},
+};
 
 use cosmic_text::FontSystem;
 use massive_geometry::{scalar, Camera, Matrix4};
@@ -84,10 +88,13 @@ impl WindowRenderer {
             format: *surface_format,
             width: initial_size.width,
             height: initial_size.height,
-            // 20250721:
-            // Since the time we are rendering asynchronously, not bound to the main thread,
-            // VSync seems to be fast enough on MacOS and also fixes the "wobbly" resizing.
-            present_mode: PresentMode::AutoVsync,
+            // 20250721: Since the time we are rendering asynchronously, not bound to the main
+            // thread, VSync seems to be fast enough on MacOS and also fixes the "wobbly" resizing.
+            //
+            // 20250724: This is not true, on my MacBook Pro with the mouse, this is considerably
+            // slower. So we perhaps have to switch between interactive mode (Immediate, and VSync
+            // for animations).
+            present_mode: PresentMode::AutoNoVsync,
             // Robustness: Select explicitly
             alpha_mode,
             view_formats: vec![],
