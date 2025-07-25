@@ -5,9 +5,11 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context, Result};
 use log::error;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::{
+    error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender,
+};
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::window_renderer::WindowRenderer;
@@ -110,6 +112,29 @@ impl AsyncWindowRenderer {
             .send(RendererMessage::UpdateCamera(camera))
             .map_err(|e| anyhow!("Failed to send camera update: {e:?}"))?;
         Ok(())
+    }
+
+    /// Wait for the most recent presentation.
+    ///
+    /// If multiple presentation Instants are available, the most recent one is returned.
+    ///
+    /// This is cancel safe.
+    pub async fn wait_for_presentation(&mut self) -> Result<Instant> {
+        let most_recent = self.presentation_receiver.recv().await;
+        let Some(mut most_recent) = most_recent else {
+            bail!("Presentation sender vanished (thread got terminated)");
+        };
+
+        // Get the most recent one available.
+        loop {
+            match self.presentation_receiver.try_recv() {
+                Ok(instant) => most_recent = instant,
+                Err(TryRecvError::Empty) => return Ok(most_recent),
+                Err(TryRecvError::Disconnected) => {
+                    bail!("Presentation sender vanished (thread got terminated)");
+                }
+            }
+        }
     }
 }
 
