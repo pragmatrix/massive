@@ -178,10 +178,18 @@ impl WindowRenderer {
     }
 
     pub(crate) fn redraw(&mut self) -> Result<()> {
-        let changes = mem::take(self.scene_changes.lock().unwrap().deref_mut());
+        let texture = self.apply_scene_changes_and_prepare_presentation()?;
+        self.render_and_present(texture);
+        Ok(())
+    }
 
-        let surface_size = self.renderer.surface_size();
-        let view_projection_matrix = self.camera.view_projection_matrix(Z_RANGE, surface_size);
+    /// Apply all changes to the renderer and prepare the presentation.
+    ///
+    /// This is separate from render_and_present.
+    pub(crate) fn apply_scene_changes_and_prepare_presentation(
+        &mut self,
+    ) -> Result<wgpu::SurfaceTexture> {
+        let changes = mem::take(self.scene_changes.lock().unwrap().deref_mut());
 
         {
             let mut font_system = self.font_system.lock().unwrap();
@@ -190,16 +198,23 @@ impl WindowRenderer {
 
         // Robustness: Learn about how to recover from specific `SurfaceError`s errors here
         // `get_current_texture()` tries once.
-
         let texture = self
             .renderer
             .get_current_texture()
             .context("get_current_texture")?;
 
-        self.renderer
-            .render_and_present(&view_projection_matrix, texture);
+        Ok(texture)
+    }
 
-        Ok(())
+    pub(crate) fn render_and_present(&mut self, texture: wgpu::SurfaceTexture) {
+        let view_projection_matrix = self.view_projection_matrix();
+        self.renderer
+            .render_and_present(&view_projection_matrix, texture)
+    }
+
+    fn view_projection_matrix(&self) -> Matrix4 {
+        let surface_size = self.renderer.surface_size();
+        self.camera.view_projection_matrix(Z_RANGE, surface_size)
     }
 
     /// The format chosen for the swapchain.
