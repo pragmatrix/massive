@@ -4,8 +4,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{bail, Context, Result};
-use log::{error, info};
+use anyhow::{Context, Result};
+use log::info;
 use massive_scene::SceneChange;
 use wgpu::{PresentMode, Surface, TextureFormat};
 use winit::{
@@ -154,15 +154,13 @@ impl WindowRenderer {
                 info!("{window_event:?}");
                 // Robustness: Put this into a spawn_blocking inside when run in an async runtime.
                 // Last time measured: This takes around 40 to 60 microseconds.
-                self.renderer
-                    .resize_surface((physical_size.width, physical_size.height));
+                self.resize((physical_size.width, physical_size.height));
                 // 20250721: Disabled, because redraw is happening automatically, and otherwise
                 // will slow things down.
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 let new_inner_size = self.window.inner_size();
-                self.renderer
-                    .resize_surface((new_inner_size.width, new_inner_size.height));
+                self.resize((new_inner_size.width, new_inner_size.height));
             }
             WindowEvent::RedrawRequested => {
                 // This may block when VSync is enabled and when the previous frame
@@ -175,7 +173,11 @@ impl WindowRenderer {
         Ok(())
     }
 
-    fn redraw(&mut self) -> Result<()> {
+    pub(crate) fn resize(&mut self, new_size: (u32, u32)) {
+        self.renderer.resize_surface(new_size)
+    }
+
+    pub(crate) fn redraw(&mut self) -> Result<()> {
         let changes = mem::take(self.scene_changes.lock().unwrap().deref_mut());
 
         let surface_size = self.renderer.surface_size();
@@ -186,7 +188,9 @@ impl WindowRenderer {
             self.renderer.apply_changes(&mut font_system, changes)?;
         }
 
-        // Robustness: Learn about how to recover from errors here.
+        // Robustness: Learn about how to recover from specific `SurfaceError`s errors here
+        // `get_current_texture()` tries once.
+
         let texture = self
             .renderer
             .get_current_texture()
