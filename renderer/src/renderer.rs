@@ -4,10 +4,10 @@ use std::{
 };
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use massive_geometry::Matrix4;
 use massive_scene::SceneChange;
-use wgpu::StoreOp;
+use wgpu::{StoreOp, SurfaceTexture};
 
 use crate::{
     pipelines, pods, quads::QuadsRenderer, scene::Scene, text, text_layer::TextLayerRenderer,
@@ -142,14 +142,31 @@ impl Renderer {
         Ok(())
     }
 
+    /// We want this separate from [`Self::render_and_present`], because of the timing impliciation. In any
+    /// VSync mode, this blocks until the current frame is presented.
+    ///
+    /// This is `&mut self`, because it might call into [`Self::reconfigure_surface`] when the
+    /// surface is lost.
+    pub fn get_current_texture(&mut self) -> result::Result<SurfaceTexture, wgpu::SurfaceError> {
+        match self.surface.get_current_texture() {
+            Ok(texture) => Ok(texture),
+            Err(e) => {
+                // Try to reconfigure and re-acquire once when the surface is lost.
+                warn!("Surface error: {e:?}, retrying...");
+                self.reconfigure_surface();
+                self.surface.get_current_texture()
+            }
+        }
+    }
+
     // TODO: Can't we handle SurfaceError::Lost here by just reconfiguring the surface and trying
     // again?
     #[tracing::instrument(skip_all)]
     pub fn render_and_present(
         &mut self,
         view_projection_matrix: &Matrix4,
-    ) -> result::Result<(), wgpu::SurfaceError> {
-        let surface_texture = self.surface.get_current_texture()?;
+        surface_texture: SurfaceTexture,
+    ) {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -230,7 +247,6 @@ impl Renderer {
 
         self.queue.submit([command_buffer]);
         surface_texture.present();
-        Ok(())
     }
 
     fn queue_view_projection_matrix(

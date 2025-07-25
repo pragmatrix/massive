@@ -186,20 +186,14 @@ impl WindowRenderer {
             self.renderer.apply_changes(&mut font_system, changes)?;
         }
 
-        match self.renderer.render_and_present(&view_projection_matrix) {
-            Ok(_) => {}
-            // Reconfigure the surface if lost
-            // TODO: shouldn't we redraw here? Also, I think the renderer can do this, too.
-            Err(wgpu::SurfaceError::Lost) => {
-                self.renderer.reconfigure_surface();
-            }
-            // The system is out of memory, we should probably quit
-            Err(wgpu::SurfaceError::OutOfMemory) => bail!("Out of memory"),
-            // All other errors (Outdated, Timeout) should be resolved by the next frame
-            Err(e) => {
-                error!("{e:?}");
-            }
-        }
+        // Robustness: Learn about how to recover from errors here.
+        let texture = self
+            .renderer
+            .get_current_texture()
+            .context("get_current_texture")?;
+
+        self.renderer
+            .render_and_present(&view_projection_matrix, texture);
 
         Ok(())
     }
