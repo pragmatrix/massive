@@ -1,56 +1,76 @@
 use std::{
     mem,
-    sync::mpsc::{self, channel, Sender},
+    sync::mpsc::{self, Sender},
     thread::{self, JoinHandle},
-};
-use winit::{
-    event::WindowEvent,
-    window::{Window, WindowId},
+    time::Instant,
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use log::error;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
+use winit::{event::WindowEvent, window::WindowId};
 
 use crate::window_renderer::WindowRenderer;
 use massive_geometry::Camera;
 
+#[derive(Debug)]
 enum RendererMessage {
-    WindowEvent(WindowEvent),
+    Resize((u32, u32)),
+    Redraw,
     UpdateCamera(Camera),
 }
 
 pub struct AsyncWindowRenderer {
     id: WindowId,
-    sender: Sender<RendererMessage>,
+    msg_sender: Sender<RendererMessage>,
+    presentation_receiver: UnboundedReceiver<Instant>,
     thread_handle: Option<JoinHandle<()>>,
 }
 
 impl AsyncWindowRenderer {
     pub fn new(mut window_renderer: WindowRenderer) -> Self {
         let id = window_renderer.id();
-        let (sender, receiver) = channel();
+        let (msg_sender, msg_receiver) = mpsc::channel();
+        // Robustness: Limiting this channel's size, we could detect rendering lag.
+        let (presentation_sender, presentation_receiver) = unbounded_channel();
 
         let thread_handle = thread::spawn(move || {
-            while let Ok(message) = receiver.recv() {
-                match message {
-                    RendererMessage::WindowEvent(event) => {
-                        if let Err(e) = window_renderer.handle_window_event(&event) {
-                            error!("Error handling window event: {e:?}");
-                        }
-                    }
-                    RendererMessage::UpdateCamera(camera) => {
-                        window_renderer.update_camera(camera);
-                    }
+            while let Ok(message) = msg_receiver.recv() {
+                if let Err(e) = Self::dispatch(&mut window_renderer, &presentation_sender, message)
+                {
+                    // Robustness: What to do here, we need to inform the application, don't we?
+                    log::error!("Render error: {e:?}");
                 }
             }
-            // The loop will exit when the channel is closed (when sender is dropped)
         });
 
         Self {
             id,
-            sender,
+            msg_sender,
+            presentation_receiver,
             thread_handle: Some(thread_handle),
         }
+    }
+
+    fn dispatch(
+        renderer: &mut WindowRenderer,
+        presentation_timestamps: &UnboundedSender<Instant>,
+        message: RendererMessage,
+    ) -> Result<()> {
+        match message {
+            RendererMessage::Resize(new_size) => {
+                renderer.resize(new_size);
+            }
+            RendererMessage::UpdateCamera(camera) => {
+                renderer.update_camera(camera);
+            }
+            RendererMessage::Redraw => {
+                let texture = renderer.apply_scene_changes_and_prepare_presentation()?;
+                presentation_timestamps.send(Instant::now())?;
+                renderer.render_and_present(texture);
+            }
+        }
+        Ok(())
     }
 
     pub fn id(&self) -> WindowId {
@@ -58,28 +78,35 @@ impl AsyncWindowRenderer {
     }
 
     pub fn should_handle_window_event(event: &WindowEvent) -> bool {
+        // 202507: According to ChatGPT winit since version 0.29 may send additional Resize events when
+        // ScaleFactorChanged is sent, so we don't handle ScaleFactorChanged here anymore.
         matches!(
             event,
-            WindowEvent::Resized(_)
-                | WindowEvent::ScaleFactorChanged { .. }
-                | WindowEvent::RedrawRequested
+            WindowEvent::Resized(_) | WindowEvent::RedrawRequested
         )
     }
 
     pub fn handle_window_event(&self, event: &WindowEvent) -> Result<()> {
-        if !Self::should_handle_window_event(event) {
-            // Not handled, just ignore it.
-            return Ok(());
-        }
+        let event = match event {
+            WindowEvent::Resized(new_size) => {
+                RendererMessage::Resize((new_size.width, new_size.height))
+            }
+            WindowEvent::RedrawRequested => RendererMessage::Redraw,
+            _ => {
+                // Not something we are interested in
+                return Ok(());
+            }
+        };
 
-        self.sender
-            .send(RendererMessage::WindowEvent(event.clone()))
-            .map_err(|e| anyhow!("Failed to send window event: {e:?}"))?;
+        self.msg_sender
+            .send(event)
+            .context("Sending renderer message")?;
+
         Ok(())
     }
 
     pub fn update_camera(&self, camera: Camera) -> Result<()> {
-        self.sender
+        self.msg_sender
             .send(RendererMessage::UpdateCamera(camera))
             .map_err(|e| anyhow!("Failed to send camera update: {e:?}"))?;
         Ok(())
@@ -90,7 +117,7 @@ impl Drop for AsyncWindowRenderer {
     fn drop(&mut self) {
         // Explicitly drop the sender first to close the channel
         // This will cause the receiving thread to exit
-        mem::drop(mem::replace(&mut self.sender, mpsc::channel().0));
+        mem::drop(mem::replace(&mut self.msg_sender, mpsc::channel().0));
 
         // Then join the thread to ensure clean shutdown
         if let Some(handle) = self.thread_handle.take() {
