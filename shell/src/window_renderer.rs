@@ -177,6 +177,10 @@ impl WindowRenderer {
         self.renderer.resize_surface(new_size)
     }
 
+    pub(crate) fn set_present_mode(&mut self, present_mode: PresentMode) {
+        self.renderer.set_present_mode(present_mode);
+    }
+
     pub(crate) fn redraw(&mut self) -> Result<()> {
         let texture = self.apply_scene_changes_and_prepare_presentation()?;
         self.render_and_present(texture);

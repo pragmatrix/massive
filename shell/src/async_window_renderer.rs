@@ -10,23 +10,26 @@ use log::error;
 use tokio::sync::mpsc::{
     error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender,
 };
+use wgpu::PresentMode;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::window_renderer::WindowRenderer;
 use massive_geometry::Camera;
-
-#[derive(Debug)]
-enum RendererMessage {
-    Resize((u32, u32)),
-    Redraw,
-    UpdateCamera(Camera),
-}
 
 pub struct AsyncWindowRenderer {
     id: WindowId,
     msg_sender: Sender<RendererMessage>,
     presentation_receiver: UnboundedReceiver<Instant>,
     thread_handle: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug)]
+pub enum RendererMessage {
+    Resize((u32, u32)),
+    Redraw,
+    // This looks alien here.
+    UpdateCamera(Camera),
+    SetPresentMode(PresentMode),
 }
 
 impl AsyncWindowRenderer {
@@ -60,8 +63,13 @@ impl AsyncWindowRenderer {
         message: RendererMessage,
     ) -> Result<()> {
         match message {
+            // Optimization: If we resize and change present mode the same time, we would only need to reconfigure
+            // the surface once. Renderer might even reconfigure lazily.
             RendererMessage::Resize(new_size) => {
                 renderer.resize(new_size);
+            }
+            RendererMessage::SetPresentMode(present_mode) => {
+                renderer.set_present_mode(present_mode);
             }
             RendererMessage::UpdateCamera(camera) => {
                 renderer.update_camera(camera);
@@ -79,6 +87,7 @@ impl AsyncWindowRenderer {
         self.id
     }
 
+    // Architecture: Move this out of the impl, it is second nature now.
     pub fn should_handle_window_event(event: &WindowEvent) -> bool {
         // 202507: According to ChatGPT winit since version 0.29 may send additional Resize events when
         // ScaleFactorChanged is sent, so we don't handle ScaleFactorChanged here anymore.
@@ -88,6 +97,7 @@ impl AsyncWindowRenderer {
         )
     }
 
+    // Architecture: Move this out of the impl, it is second nature now.
     pub fn handle_window_event(&self, event: &WindowEvent) -> Result<()> {
         let event = match event {
             WindowEvent::Resized(new_size) => {
@@ -100,10 +110,13 @@ impl AsyncWindowRenderer {
             }
         };
 
+        self.post_msg(event)
+    }
+
+    pub fn post_msg(&self, event: RendererMessage) -> Result<()> {
         self.msg_sender
             .send(event)
             .context("Sending renderer message")?;
-
         Ok(())
     }
 
@@ -119,10 +132,10 @@ impl AsyncWindowRenderer {
     /// If multiple presentation Instants are available, the most recent one is returned.
     ///
     /// This is cancel safe.
-    pub async fn wait_for_presentation(&mut self) -> Result<Instant> {
+    pub async fn wait_for_most_recent_presentation(&mut self) -> Result<Instant> {
         let most_recent = self.presentation_receiver.recv().await;
         let Some(mut most_recent) = most_recent else {
-            bail!("Presentation sender vanished (thread got terminated)");
+            bail!("Presentation sender vanished (thread got terminated?)");
         };
 
         // Get the most recent one available.
@@ -131,7 +144,7 @@ impl AsyncWindowRenderer {
                 Ok(instant) => most_recent = instant,
                 Err(TryRecvError::Empty) => return Ok(most_recent),
                 Err(TryRecvError::Disconnected) => {
-                    bail!("Presentation sender vanished (thread got terminated)");
+                    bail!("Presentation sender vanished (thread got terminated?)");
                 }
             }
         }

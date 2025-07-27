@@ -16,7 +16,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{ApplicationContext, ShellWindow};
+use crate::{application_context::RenderPacing, ApplicationContext, ShellWindow};
 use massive_animation::Tickery;
 
 pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
@@ -38,6 +38,8 @@ pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
         event_receiver,
         event_loop_proxy,
         tickery: tickery.clone(),
+        render_pacing: RenderPacing::default(),
+        apply_animations: false,
     };
 
     let (result_tx, mut result_rx) = oneshot::channel();
@@ -99,7 +101,10 @@ pub enum ShellRequest {
 
 #[derive(Debug)]
 pub enum ShellEvent {
+    // Architecture: Seperate this into a separate WindowEvent, because ApplyAnimations isn't used
+    // as a event pathway from the WinitApplicationHandler anymore.
     WindowEvent(WindowId, WindowEvent),
+    ApplyAnimations,
 }
 
 impl ShellEvent {

@@ -42,7 +42,7 @@ impl Tickery {
     /// This sets the current tick and resets the usage count.
     ///
     /// Not &mut self, because it must be usable behing an Arc and we don't put the whole Tickery in a Mutex.
-    pub fn update_tick(&self, instant: Instant) {
+    pub fn prepare_frame(&self, instant: Instant) {
         let mut inner = self.inner.lock().expect("poisoned");
         inner.tick = instant;
         inner.any_users = false;

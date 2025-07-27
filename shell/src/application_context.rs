@@ -1,7 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{anyhow, bail, Result};
-use tokio::sync::{mpsc::UnboundedReceiver, oneshot};
+use log::info;
+use tokio::{
+    select,
+    sync::{mpsc::UnboundedReceiver, oneshot},
+};
 use winit::{
     dpi,
     event::WindowEvent,
@@ -11,17 +15,34 @@ use winit::{
 
 use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 
-use crate::{AsyncWindowRenderer, ShellEvent, ShellRequest, ShellWindow};
+use crate::{
+    async_window_renderer::RendererMessage, AsyncWindowRenderer, ShellEvent, ShellRequest,
+    ShellWindow,
+};
 
 /// The [`ApplicationContext`] is the connection to the runtinme. It allows the application to poll
 /// for events while also forwarding events to the renderer.
 ///
 /// In addition to that it provides an animator that is updated with each event (mostly ticks)
 /// coming from the shell.
+#[derive(Debug)]
 pub struct ApplicationContext {
-    pub(crate) event_receiver: UnboundedReceiver<ShellEvent>,
-    pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
-    pub(crate) tickery: Arc<Tickery>,
+    pub event_receiver: UnboundedReceiver<ShellEvent>,
+    pub event_loop_proxy: EventLoopProxy<ShellRequest>,
+    pub tickery: Arc<Tickery>,
+
+    pub render_pacing: RenderPacing,
+    /// Was the most recent [`ShellEvent`] [`ShellEvent::ApplyAnimations`]?
+    pub apply_animations: bool,
+}
+
+#[derive(Debug, PartialEq, Eq, Default)]
+pub enum RenderPacing {
+    #[default]
+    // Render as fast as possible to be able to represent input changes.
+    Fast,
+    // Render a smooth as possible so that animations are synced to the frame rate.
+    Smooth,
 }
 
 impl ApplicationContext {
@@ -146,18 +167,61 @@ impl ApplicationContext {
         &mut self,
         renderer: &mut AsyncWindowRenderer,
     ) -> Result<ShellEvent> {
-        let event = self.event_receiver.recv().await;
-        let Some(event) = event else {
-            // This means that the shell stopped before the application ended, this should not
-            // happen in normal situations.
-            bail!("Internal Error: Shell shut down, no more events")
-        };
+        self.synchronize_render_pacing(renderer)?;
 
-        if let Some(window_event) = event.window_event_for_id(renderer.id()) {
-            renderer.handle_window_event(window_event)?;
+        loop {
+            select! {
+                event = self.event_receiver.recv() => {
+                    let Some(event) = event else {
+                        // This means that the shell stopped before the application ended, this should not
+                        // happen in normal situations.
+                        bail!("Internal Error: Shell shut down, no more events")
+                    };
+
+                    if let Some(window_event) = event.window_event_for_id(renderer.id()) {
+                        // This handles resizes and redraws.
+                        renderer.handle_window_event(window_event)?;
+                    }
+                    self.apply_animations = false;
+                    return Ok(event)
+                }
+
+                instant = renderer.wait_for_most_recent_presentation() => {
+                    let instant = instant?;
+                    if self.render_pacing == RenderPacing::Smooth {
+                        self.tickery.prepare_frame(instant);
+                        self.apply_animations = true;
+                        return Ok(ShellEvent::ApplyAnimations);
+                    }
+                }
+            };
+        }
+    }
+
+    /// Synchronizes the render pacing suggested by the current state of the tickery with the renderer.
+    fn synchronize_render_pacing(&mut self, renderer: &mut AsyncWindowRenderer) -> Result<()> {
+        // Look at the Tickery to see if there are animations running and update the `RenderPacing`
+        // in the renderer if needed.
+        let animations_active = self.tickery.any_users();
+        let render_pacing_tickery = if animations_active {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        };
+        if render_pacing_tickery == self.render_pacing {
+            return Ok(());
         }
 
-        Ok(event)
+        info!("Changing renderer pacing to: {render_pacing_tickery:?}");
+
+        let new_present_mode = match render_pacing_tickery {
+            RenderPacing::Fast => wgpu::PresentMode::AutoNoVsync,
+            RenderPacing::Smooth => wgpu::PresentMode::AutoVsync,
+        };
+        renderer.post_msg(RendererMessage::SetPresentMode(new_present_mode))?;
+
+        self.render_pacing = render_pacing_tickery;
+        Ok(())
     }
 
     /// Wait for the next event of a specific window and forward it to the renderer if needed.

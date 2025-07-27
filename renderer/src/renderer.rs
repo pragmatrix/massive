@@ -7,7 +7,7 @@ use anyhow::Result;
 use log::{info, warn};
 use massive_geometry::Matrix4;
 use massive_scene::SceneChange;
-use wgpu::{StoreOp, SurfaceTexture};
+use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     pipelines, pods, quads::QuadsRenderer, scene::Scene, text, text_layer::TextLayerRenderer,
@@ -309,6 +309,12 @@ impl Renderer {
     pub fn surface_size(&self) -> (u32, u32) {
         let config = &self.surface_config;
         (config.width, config.height)
+    }
+
+    /// Sets the presentation mode and reconfigures the surface.
+    pub fn set_present_mode(&mut self, present_mode: PresentMode) {
+        self.surface_config.present_mode = present_mode;
+        self.reconfigure_surface();
     }
 
     pub fn reconfigure_surface(&mut self) {
