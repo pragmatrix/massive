@@ -101,12 +101,16 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let event = ctx.wait_and_coordinate(&mut renderer).await?;
+        let event = ctx.wait_for_shell_event(&mut renderer).await?;
 
-        if let Some(window_event) = event.window_event_for_id(renderer.id()) {
+        let window_id = renderer.window_id();
+
+        let _cycle = ctx.begin_update_cycle(&mut renderer, &event)?;
+
+        if let Some(window_event) = event.window_event_for_id(window_id) {
             info!("Window Event: {window_event:?}");
 
-            match application.update(&window_event) {
+            match application.update(window_event) {
                 UpdateResponse::Exit => return Ok(()),
                 UpdateResponse::Continue => {}
             }

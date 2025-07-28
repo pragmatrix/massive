@@ -16,6 +16,7 @@ use winit::{event::WindowEvent, window::WindowId};
 use crate::window_renderer::WindowRenderer;
 use massive_geometry::Camera;
 
+#[derive(Debug)]
 pub struct AsyncWindowRenderer {
     id: WindowId,
     msg_sender: Sender<RendererMessage>,
@@ -83,7 +84,7 @@ impl AsyncWindowRenderer {
         Ok(())
     }
 
-    pub fn id(&self) -> WindowId {
+    pub fn window_id(&self) -> WindowId {
         self.id
     }
 

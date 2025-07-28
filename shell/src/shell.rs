@@ -39,7 +39,6 @@ pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
         event_loop_proxy,
         tickery: tickery.clone(),
         render_pacing: RenderPacing::default(),
-        apply_animations: false,
     };
 
     let (result_tx, mut result_rx) = oneshot::channel();

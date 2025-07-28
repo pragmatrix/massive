@@ -1,8 +1,4 @@
-use std::sync::{
-    self,
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex, RwLock,
-};
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -19,15 +15,16 @@ pub struct Tickery {
 #[derive(Debug)]
 struct TickeryInner {
     tick: Instant,
-    any_users: bool,
+    /// Was there a request for an animation tick in this animation cycle?
+    animation_ticks_requested: bool,
 }
 
 impl Tickery {
     pub fn new(now: Instant) -> Self {
         Self {
             inner: TickeryInner {
-                tick: now.into(),
-                any_users: false.into(),
+                tick: now,
+                animation_ticks_requested: false,
             }
             .into(),
         }
@@ -37,26 +34,34 @@ impl Tickery {
         Timeline::new(self.clone(), value)
     }
 
-    /// Update the current tick.
+    pub fn begin_update_cycle(&self, instant: Instant) {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.tick = instant;
+    }
+
+    /// Beings an animation cycle.
     ///
     /// This sets the current tick and resets the usage count.
     ///
     /// Not &mut self, because it must be usable behing an Arc and we don't put the whole Tickery in a Mutex.
-    pub fn prepare_frame(&self, instant: Instant) {
+    pub fn begin_animation_cycle(&self, instant: Instant) {
         let mut inner = self.inner.lock().expect("poisoned");
         inner.tick = instant;
-        inner.any_users = false;
+        inner.animation_ticks_requested = false
     }
 
-    /// Marks the current tick as _used_ on and returns it.
-    pub fn current_tick(&self) -> Instant {
+    /// Marks the current tick as an animation tick on and returns it.
+    pub fn animation_tick(&self) -> Instant {
         let mut inner = self.inner.lock().expect("poisoned");
-        inner.any_users = true;
+        inner.animation_ticks_requested = true;
         inner.tick
     }
 
     /// Were there any users of the tick value since [`Self::update_tick`] was called.
-    pub fn any_users(&self) -> bool {
-        self.inner.lock().expect("poisoned").any_users
+    pub fn animation_ticks_requested(&self) -> bool {
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .animation_ticks_requested
     }
 }
