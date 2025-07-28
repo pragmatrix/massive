@@ -196,16 +196,20 @@ impl ApplicationContext {
         if let Some(event) = event {
             let window_event = event.window_event_for_id(renderer.window_id());
 
-            // A resize is sent to the renderer first, so that we can prepare it for the right size
-            // as soon as possible.
-            //
-            // Performance: Does a resize block inside the async renderer if there is a pending
-            // presentation?
-            if let Some(WindowEvent::Resized(size)) = window_event {
-                renderer.post_msg(RendererMessage::Resize((size.width, size.height)))?;
+            match window_event {
+                Some(WindowEvent::Resized(size)) => {
+                    // A resize is sent to the renderer first, so that we can prepare it for the right size
+                    // as soon as possible.
+                    //
+                    // Performance: Does a resize block inside the async renderer if there is a pending
+                    // presentation?
+                    renderer.post_msg(RendererMessage::Resize((size.width, size.height)))?;
+                }
+                Some(WindowEvent::RedrawRequested) => {
+                    redraw_requested = true;
+                }
+                _ => (),
             }
-
-            redraw_requested = matches!(window_event, Some(WindowEvent::RedrawRequested));
         }
 
         Ok(ActiveUpdateCycle {
