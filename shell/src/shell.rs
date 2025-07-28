@@ -122,6 +122,11 @@ impl ShellEvent {
             _ => None,
         }
     }
+
+    #[must_use]
+    pub fn apply_animations(&self) -> bool {
+        matches!(self, Self::ApplyAnimations)
+    }
 }
 
 #[allow(unused)]

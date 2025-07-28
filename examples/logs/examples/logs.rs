@@ -118,12 +118,14 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
         select! {
             Some(bytes) = receiver.recv() => {
+                let _cycle = ctx.begin_update_cycle(&mut renderer, None);
                 logs.add_line(&mut ctx, &bytes);
                 logs.update_layout()?;
             },
 
-            Ok(event) = ctx.wait_and_coordinate(&mut renderer) => {
-                if logs.handle_event(event, &window) == UpdateResponse::Exit {
+            Ok(event) = ctx.wait_for_shell_event(&mut renderer) => {
+                let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event));
+                if logs.handle_shell_event(event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }
             }
@@ -253,11 +255,15 @@ impl Logs {
         );
     }
 
-    fn handle_event(&mut self, shell_event: ShellEvent, window: &ShellWindow) -> UpdateResponse {
-        // if shell_event.apply_animations() {
-        //     self.apply_animations();
-        //     return UpdateResponse::Continue;
-        // }
+    fn handle_shell_event(
+        &mut self,
+        shell_event: ShellEvent,
+        window: &ShellWindow,
+    ) -> UpdateResponse {
+        if shell_event.apply_animations() {
+            self.apply_animations();
+            return UpdateResponse::Continue;
+        }
 
         if let Some(window_event) = shell_event.window_event_for(window) {
             if let WindowEvent::KeyboardInput {

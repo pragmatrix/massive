@@ -190,23 +190,32 @@ impl ApplicationContext {
     pub fn begin_update_cycle<'a>(
         &mut self,
         renderer: &'a mut AsyncWindowRenderer,
-        event: &ShellEvent,
+        event: Option<&ShellEvent>,
     ) -> Result<ActiveUpdateCycle<'a>> {
-        let window_event = event.window_event_for_id(renderer.window_id());
+        let mut redraw_requested = false;
+        if let Some(event) = event {
+            let window_event = event.window_event_for_id(renderer.window_id());
 
-        // A resize is sent to the renderer first, so that we can prepare updates for the right size
-        // in the update cycle.
-        if let Some(WindowEvent::Resized(size)) = window_event {
-            renderer.post_msg(RendererMessage::Resize((size.width, size.height)))?;
+            // A resize is sent to the renderer first, so that we can prepare it for the right size
+            // as soon as possible.
+            //
+            // Performance: Does a resize block inside the async renderer if there is a pending
+            // presentation?
+            if let Some(WindowEvent::Resized(size)) = window_event {
+                renderer.post_msg(RendererMessage::Resize((size.width, size.height)))?;
+            }
+
+            redraw_requested = matches!(window_event, Some(WindowEvent::RedrawRequested));
         }
 
-        let redraw = matches!(window_event, Some(WindowEvent::RedrawRequested));
-
-        Ok(ActiveUpdateCycle { redraw, renderer })
+        Ok(ActiveUpdateCycle {
+            redraw_requested,
+            renderer,
+        })
     }
 
     fn end_update_cycle(cycle: &mut ActiveUpdateCycle) -> Result<()> {
-        if cycle.redraw {
+        if cycle.redraw_requested {
             cycle.renderer.post_msg(RendererMessage::Redraw)?;
         }
         Ok(())
@@ -317,7 +326,7 @@ impl ApplicationContext {
 
 #[derive(Debug)]
 pub struct ActiveUpdateCycle<'a> {
-    redraw: bool,
+    redraw_requested: bool,
     renderer: &'a mut AsyncWindowRenderer,
 }
 
