@@ -267,7 +267,8 @@ impl ApplicationContext {
                 }
             }
             UpdateCycleMode::ApplyAnimations => {
-                if animations_before && !animations_detected {
+                assert!(animations_before);
+                if !animations_detected {
                     info!("Disabling smooth rendering (animations off)");
                     assert_eq!(cycle.ctx.render_pacing, RenderPacing::Smooth);
                     cycle
