@@ -41,11 +41,23 @@ impl AsyncWindowRenderer {
         let (presentation_sender, presentation_receiver) = unbounded_channel();
 
         let thread_handle = thread::spawn(move || {
-            while let Ok(message) = msg_receiver.recv() {
-                if let Err(e) = Self::dispatch(&mut window_renderer, &presentation_sender, message)
-                {
-                    // Robustness: What to do here, we need to inform the application, don't we?
-                    log::error!("Render error: {e:?}");
+            while let Ok(first_message) = msg_receiver.recv() {
+                // Collect all pending messages without blocking
+                let mut messages = vec![first_message];
+                while let Ok(message) = msg_receiver.try_recv() {
+                    messages.push(message);
+                }
+
+                // Process only the latest message of each type
+                let latest_messages = Self::filter_latest_messages(messages);
+
+                for message in latest_messages {
+                    if let Err(e) =
+                        Self::dispatch(&mut window_renderer, &presentation_sender, message)
+                    {
+                        // Robustness: What to do here, we need to inform the application, don't we?
+                        log::error!("Render error: {e:?}");
+                    }
                 }
             }
         });
@@ -56,6 +68,33 @@ impl AsyncWindowRenderer {
             presentation_receiver,
             thread_handle: Some(thread_handle),
         }
+    }
+
+    /// Filters messages to keep only the latest occurrence of each message type,
+    /// preserving the original order of the remaining messages.
+    fn filter_latest_messages(messages: Vec<RendererMessage>) -> Vec<RendererMessage> {
+        use std::collections::HashMap;
+        use std::mem;
+
+        // Find the latest index for each message type
+        let mut latest_index_by_type: HashMap<mem::Discriminant<RendererMessage>, usize> =
+            HashMap::new();
+
+        for (index, message) in messages.iter().enumerate() {
+            let discriminant = mem::discriminant(message);
+            latest_index_by_type.insert(discriminant, index);
+        }
+
+        // Collect messages at those indices, preserving original order
+        let mut result = Vec::new();
+        for (index, message) in messages.into_iter().enumerate() {
+            let discriminant = mem::discriminant(&message);
+            if latest_index_by_type.get(&discriminant) == Some(&index) {
+                result.push(message);
+            }
+        }
+
+        result
     }
 
     fn dispatch(
