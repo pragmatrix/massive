@@ -34,10 +34,12 @@ pub struct ApplicationContext {
     pub event_loop_proxy: EventLoopProxy<ShellRequest>,
     pub tickery: Arc<Tickery>,
 
+    /// The current render pacing as seen from the application context. This may not reflect
+    /// reality, as it is synchronized with the renderer asynchronously.
     pub render_pacing: RenderPacing,
 }
 
-#[derive(Debug, PartialEq, Eq, Default)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum RenderPacing {
     #[default]
     // Render as fast as possible to be able to represent input changes.
@@ -188,109 +190,164 @@ impl ApplicationContext {
     }
 
     pub fn begin_update_cycle<'a>(
-        &mut self,
+        // Not only do we need &mut self in the Drop handler, but this also prevents users to
+        // start a second update cycle in parallel. But this may be allowed?
+        // (right now, only .animation is used, which needs only the tickery).
+        &'a mut self,
         renderer: &'a mut AsyncWindowRenderer,
         event: Option<&ShellEvent>,
-    ) -> Result<ActiveUpdateCycle<'a>> {
-        let mut redraw_requested = false;
-        if let Some(event) = event {
-            let window_event = event.window_event_for_id(renderer.window_id());
+    ) -> Result<UpdateCycle<'a>> {
+        // Handle the window event.
+        let mode = if let Some(event) = event {
+            match event {
+                ShellEvent::WindowEvent(window_id, window_event)
+                    if *window_id == renderer.window_id() =>
+                {
+                    match window_event {
+                        WindowEvent::Resized(size) => {
+                            // A resize is sent to the renderer first, so that we can prepare it for the right size
+                            // as soon as possible.
+                            //
+                            // Performance: Does a resize block inside the async renderer if there is a pending
+                            // presentation?
+                            renderer
+                                .post_msg(RendererMessage::Resize((size.width, size.height)))?;
+                            UpdateCycleMode::WindowResize
+                        }
+                        WindowEvent::RedrawRequested => UpdateCycleMode::RedrawRequested,
+                        _ => UpdateCycleMode::ExternalOrInteractionEvent,
+                    }
+                }
+                ShellEvent::WindowEvent(_, _) => {
+                    bail!("Received an event from a foreign window");
+                }
 
-            match window_event {
-                Some(WindowEvent::Resized(size)) => {
-                    // A resize is sent to the renderer first, so that we can prepare it for the right size
-                    // as soon as possible.
-                    //
-                    // Performance: Does a resize block inside the async renderer if there is a pending
-                    // presentation?
-                    renderer.post_msg(RendererMessage::Resize((size.width, size.height)))?;
+                ShellEvent::ApplyAnimations => {
+                    // Optimization: This Instant::now() should not be used for animation cycles,
+                    // (Apply Animations could really carry the previous presentation time)
+                    UpdateCycleMode::ApplyAnimations
                 }
-                Some(WindowEvent::RedrawRequested) => {
-                    redraw_requested = true;
-                }
-                _ => (),
             }
-        }
+        } else {
+            UpdateCycleMode::ExternalOrInteractionEvent
+        };
 
-        Ok(ActiveUpdateCycle {
-            redraw_requested,
+        let apply_animations = mode == UpdateCycleMode::ApplyAnimations;
+        self.tickery
+            .begin_update_cycle(Instant::now(), apply_animations);
+
+        Ok(UpdateCycle {
+            mode,
+            ctx: self,
             renderer,
         })
     }
 
-    fn end_update_cycle(cycle: &mut ActiveUpdateCycle) -> Result<()> {
-        if cycle.redraw_requested {
+    fn end_update_cycle(cycle: &mut UpdateCycle) -> Result<()> {
+        // Issue a redraw before potentially chaning the render pacing.
+        if cycle.mode == UpdateCycleMode::RedrawRequested {
             cycle.renderer.post_msg(RendererMessage::Redraw)?;
         }
+
+        let animations_before = cycle.ctx.render_pacing == RenderPacing::Smooth;
+        let animations_detected = cycle.ctx.tickery.animation_ticks_requested();
+
+        match cycle.mode {
+            UpdateCycleMode::ExternalOrInteractionEvent
+            | UpdateCycleMode::WindowResize
+            | UpdateCycleMode::RedrawRequested => {
+                // For these cycle modes, we only allow upgrades to the Smooth render pacing
+                if !animations_before && animations_detected {
+                    info!("Enabling smooth rendering (animations on)");
+                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Fast);
+                    cycle
+                        .ctx
+                        .synchronize_render_pacing(RenderPacing::Smooth, cycle.renderer)?;
+                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Smooth);
+                }
+            }
+            UpdateCycleMode::ApplyAnimations => {
+                if animations_before && !animations_detected {
+                    info!("Disabling smooth rendering (animations off)");
+                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Smooth);
+                    cycle
+                        .ctx
+                        .synchronize_render_pacing(RenderPacing::Fast, cycle.renderer)?;
+                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Fast);
+                }
+            }
+        }
+
         Ok(())
     }
 
-    /// Waits for a shell event and coordinates the renderer.
-    ///
-    /// Everything that is active between the invocation here is called the update cycle.
-    ///
-    /// There are two kinds of update cycles, a reactive update cycle and an animation cycle.
-    ///
-    /// An update cycle starts when a input event is returned or this function is cancelled.
-    ///
-    /// A animation cycle starts when -
-    ///
-    /// - In the previous update cycle an animation was started or
-    ///   the previous update cycle was already an animation cycle.
-    /// - The previous frame got presented.
-    ///
-    /// This is cancellation safe.
-    pub async fn wait_and_coordinate(
-        &mut self,
-        renderer: &mut AsyncWindowRenderer,
-    ) -> Result<ShellEvent> {
-        // This covers both types of update cycles.
-        let fast_render_pacing = self.tickery.animation_ticks_requested();
+    // / Waits for a shell event and coordinates the renderer.
+    // /
+    // / Everything that is active between the invocation here is called the update cycle.
+    // /
+    // / There are two kinds of update cycles, a reactive update cycle and an animation cycle.
+    // /
+    // / An update cycle starts when a input event is returned or this function is cancelled.
+    // /
+    // / A animation cycle starts when -
+    // /
+    // / - In the previous update cycle an animation was started or
+    // /   the previous update cycle was already an animation cycle.
+    // / - The previous frame got presented.
+    // /
+    // / This is cancellation safe.
 
-        self.synchronize_render_pacing(
-            if fast_render_pacing {
-                RenderPacing::Fast
-            } else {
-                RenderPacing::Smooth
-            },
-            renderer,
-        )?;
+    // pub async fn wait_and_coordinate(
+    //     &mut self,
+    //     renderer: &mut AsyncWindowRenderer,
+    // ) -> Result<ShellEvent> {
+    //     // This covers both types of update cycles.
+    //     let fast_render_pacing = self.tickery.animation_ticks_requested();
 
-        // Begin an update cycle in case we got cancelled so that another event uses a more up to date tick.
-        if self.render_pacing == RenderPacing::Fast {
-            self.tickery.begin_update_cycle(Instant::now());
-        }
+    //     self.synchronize_render_pacing(
+    //         if fast_render_pacing {
+    //             RenderPacing::Fast
+    //         } else {
+    //             RenderPacing::Smooth
+    //         },
+    //         renderer,
+    //     )?;
 
-        // What if we get cancelled after a animation cycle?
+    //     // Begin an update cycle in case we got cancelled so that another event uses a more up to date tick.
+    //     if self.render_pacing == RenderPacing::Fast {
+    //         self.tickery.begin_update_cycle(Instant::now());
+    //     }
 
-        loop {
-            select! {
-                event = self.event_receiver.recv() => {
-                    let Some(event) = event else {
-                        // This means that the shell stopped before the application ended, this should not
-                        // happen in normal situations.
-                        bail!("Internal Error: Shell shut down, no more events")
-                    };
+    //     // What if we get cancelled after a animation cycle?
 
-                    if let Some(window_event) = event.window_event_for_id(renderer.window_id()) {
-                        // This handles resizes and redraws.
-                        renderer.handle_window_event(window_event)?;
-                    }
-                    self.tickery.begin_update_cycle(Instant::now());
-                    return Ok(event)
-                }
+    //     loop {
+    //         select! {
+    //             event = self.event_receiver.recv() => {
+    //                 let Some(event) = event else {
+    //                     // This means that the shell stopped before the application ended, this should not
+    //                     // happen in normal situations.
+    //                     bail!("Internal Error: Shell shut down, no more events")
+    //                 };
 
-                instant = renderer.wait_for_most_recent_presentation() => {
-                    let instant = instant?;
-                    if self.render_pacing == RenderPacing::Smooth {
-                        self.tickery.begin_animation_cycle(instant);
-                        return Ok(ShellEvent::ApplyAnimations);
-                    }
-                    // else: Wasn't in a animation cycle: loop and wait for an input event.
-                }
-            };
-        }
-    }
+    //                 if let Some(window_event) = event.window_event_for_id(renderer.window_id()) {
+    //                     // This handles resizes and redraws.
+    //                     renderer.handle_window_event(window_event)?;
+    //                 }
+    //                 self.tickery.begin_update_cycle(Instant::now());
+    //                 return Ok(event)
+    //             }
+
+    //             instant = renderer.wait_for_most_recent_presentation() => {
+    //                 let instant = instant?;
+    //                 if self.render_pacing == RenderPacing::Smooth {
+    //                     self.tickery.begin_animation_cycle(instant);
+    //                     return Ok(ShellEvent::ApplyAnimations);
+    //                 }
+    //                 // else: Wasn't in a animation cycle: loop and wait for an input event.
+    //             }
+    //         };
+    //     }
+    // }
 
     /// Synchronizes the render pacing suggested by the current state of the tickery with the renderer.
     fn synchronize_render_pacing(
@@ -328,13 +385,36 @@ impl ApplicationContext {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum UpdateCycleMode {
+    ExternalOrInteractionEvent,
+    WindowResize,
+    RedrawRequested,
+    ApplyAnimations,
+}
+
 #[derive(Debug)]
-pub struct ActiveUpdateCycle<'a> {
-    redraw_requested: bool,
+pub struct UpdateCycle<'a> {
+    mode: UpdateCycleMode,
+    ctx: &'a mut ApplicationContext,
     renderer: &'a mut AsyncWindowRenderer,
 }
 
-impl Drop for ActiveUpdateCycle<'_> {
+impl UpdateCycle<'_> {
+    /// Create a timeline that is animating from a starting value to a target value.
+    pub fn animation<T: Interpolatable + 'static + Send>(
+        &self,
+        value: T,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) -> Timeline<T> {
+        self.ctx
+            .animation(value, target_value, duration, interpolation)
+    }
+}
+
+impl Drop for UpdateCycle<'_> {
     fn drop(&mut self) {
         if let Err(e) = ApplicationContext::end_update_cycle(self) {
             error!("Error while ending the update cycle: {e:?}")

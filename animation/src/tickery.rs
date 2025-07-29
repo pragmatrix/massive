@@ -34,20 +34,17 @@ impl Tickery {
         Timeline::new(self.clone(), value)
     }
 
-    pub fn begin_update_cycle(&self, instant: Instant) {
-        let mut inner = self.inner.lock().expect("poisoned");
-        inner.tick = instant;
-    }
-
-    /// Beings an animation cycle.
+    /// Beings an update cycle.
     ///
-    /// This sets the current tick and resets the usage count.
+    /// This sets the current tick and - if this is an animation update cycle - resets the usage count.
     ///
     /// Not &mut self, because it must be usable behing an Arc and we don't put the whole Tickery in a Mutex.
-    pub fn begin_animation_cycle(&self, instant: Instant) {
+    pub fn begin_update_cycle(&self, instant: Instant, animation_cycle: bool) {
         let mut inner = self.inner.lock().expect("poisoned");
         inner.tick = instant;
-        inner.animation_ticks_requested = false
+        if animation_cycle {
+            inner.animation_ticks_requested = false;
+        }
     }
 
     /// Marks the current tick as an animation tick on and returns it.

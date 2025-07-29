@@ -311,8 +311,15 @@ impl Renderer {
         (config.width, config.height)
     }
 
-    /// Sets the presentation mode and reconfigures the surface.
+    pub fn present_mode(&self) -> PresentMode {
+        self.surface_config.present_mode
+    }
+
+    /// Sets the presentation mode and - if changed - reconfigures the surface.
     pub fn set_present_mode(&mut self, present_mode: PresentMode) {
+        if present_mode == self.surface_config.present_mode {
+            return;
+        }
         self.surface_config.present_mode = present_mode;
         self.reconfigure_surface();
     }

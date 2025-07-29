@@ -25,6 +25,7 @@ use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Identity, Vector3};
 use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
 use massive_shell::{
+    application_context::UpdateCycle,
     shell::{self, ShellEvent},
     ApplicationContext, AsyncWindowRenderer, ShellWindow,
 };
@@ -118,8 +119,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
         select! {
             Some(bytes) = receiver.recv() => {
-                let _cycle = ctx.begin_update_cycle(&mut renderer, None);
-                logs.add_line(&mut ctx, &bytes);
+                let cycle = ctx.begin_update_cycle(&mut renderer, None)?;
+                logs.add_line(&cycle, &bytes);
                 logs.update_layout()?;
             },
 
@@ -190,7 +191,7 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, ctx: &mut ApplicationContext, bytes: &[u8]) {
+    fn add_line(&mut self, cycle: &UpdateCycle, bytes: &[u8]) {
         let (glyph_runs, height) = {
             let mut font_system = self.font_system.lock().unwrap();
 
@@ -204,7 +205,7 @@ impl Logs {
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,
-            fader: ctx.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
+            fader: cycle.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
             visual: line,
             fading_out: false,
         });

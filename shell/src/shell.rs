@@ -37,7 +37,7 @@ pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
     let application_context = ApplicationContext {
         event_receiver,
         event_loop_proxy,
-        tickery: tickery.clone(),
+        tickery,
         render_pacing: RenderPacing::default(),
     };
 
@@ -54,10 +54,7 @@ pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
     // Event loop
 
     {
-        let mut winit_context = WinitApplicationHandler {
-            event_sender,
-            tickery,
-        };
+        let mut winit_context = WinitApplicationHandler { event_sender };
 
         info!("Entering event loop");
         event_loop.run_app(&mut winit_context)?;
@@ -139,7 +136,6 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 
 struct WinitApplicationHandler {
     event_sender: UnboundedSender<ShellEvent>,
-    tickery: Arc<Tickery>,
 }
 
 impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
