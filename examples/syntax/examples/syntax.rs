@@ -21,11 +21,8 @@ use shared::{
 
 const CANVAS_ID: &str = "massive-syntax";
 
-fn main() -> Result<()> {
-    shared::main(async_main)
-}
-
-async fn async_main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     shell::run(syntax).await
 }
 

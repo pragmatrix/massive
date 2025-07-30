@@ -10,11 +10,12 @@ massive-shapes = { workspace = true }
 massive-scene = { workspace = true }
 massive-animation = { workspace = true }
 
+env_logger = { workspace = true }
+anyhow = { workspace = true }
 
 winit = { workspace = true }
 log = { workspace = true }
 wgpu = { workspace = true }
-anyhow = { workspace = true }
 cosmic-text = { workspace = true }
 cgmath = { workspace = true }
 futures = { workspace = true }

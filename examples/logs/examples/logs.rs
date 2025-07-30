@@ -43,7 +43,8 @@ const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
 
 const MAX_LINES: usize = 32;
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let (sender, receiver) = mpsc::unbounded_channel();
 
     let stdout_layer = fmt::layer()
@@ -59,7 +60,7 @@ fn main() -> Result<()> {
         .with(info_only_layer)
         .init();
 
-    shared::main(|| async_main(receiver))
+    shell::run(|ctx| logs(receiver, ctx)).await
 }
 
 struct Sender(mpsc::UnboundedSender<Vec<u8>>);
@@ -75,10 +76,6 @@ impl io::Write for Sender {
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
-}
-
-async fn async_main(receiver: UnboundedReceiver<Vec<u8>>) -> Result<()> {
-    shell::run(|ctx| logs(receiver, ctx)).await
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {

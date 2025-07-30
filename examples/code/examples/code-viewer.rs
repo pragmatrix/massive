@@ -15,11 +15,8 @@ use shared::{
 
 const CANVAS_ID: &str = "massive-code";
 
-fn main() -> Result<()> {
-    shared::main(async_main)
-}
-
-async fn async_main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     shell::run(code_viewer).await
 }
 

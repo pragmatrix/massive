@@ -28,11 +28,8 @@ use shared::{
 
 const CANVAS_ID: &str = "massive-emojis";
 
-fn main() -> Result<()> {
-    shared::main(async_main)
-}
-
-async fn async_main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     shell::run(emojis).await
 }
 
