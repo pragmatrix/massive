@@ -123,7 +123,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             },
 
             Ok(event) = ctx.wait_for_shell_event(&mut renderer) => {
-                let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event));
+                let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
                 if logs.handle_shell_event(event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }
