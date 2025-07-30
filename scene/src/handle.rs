@@ -1,7 +1,6 @@
 use std::{
-    cell::{Ref, RefCell, RefMut},
     fmt,
-    rc::Rc,
+    sync::{Arc, Mutex, MutexGuard},
 };
 
 use crate::{Change, ChangeTracker, Id, SceneChange};
@@ -22,7 +21,7 @@ pub struct Handle<T: Object>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    inner: Rc<InnerHandle<T>>,
+    inner: Arc<InnerHandle<T>>,
 }
 
 impl<T: Object> Clone for Handle<T>
@@ -40,7 +39,7 @@ impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    pub(crate) fn new(id: Id, value: T, change_tracker: Rc<ChangeTracker>) -> Self {
+    pub(crate) fn new(id: Id, value: T, change_tracker: Arc<ChangeTracker>) -> Self {
         let uploaded = T::to_change(&value);
         change_tracker.push(Change::Create(id, uploaded));
 
@@ -48,7 +47,7 @@ where
             inner: InnerHandle {
                 id,
                 change_tracker,
-                value: RefCell::new(value),
+                value: value.into(),
             }
             .into(),
         }
@@ -77,12 +76,12 @@ where
         self.inner.updated();
     }
 
-    pub fn value(&self) -> Ref<T> {
-        self.inner.value.borrow()
+    pub fn value(&self) -> MutexGuard<T> {
+        self.inner.value.lock().unwrap()
     }
 
-    fn value_mut(&self) -> RefMut<T> {
-        self.inner.value.borrow_mut()
+    fn value_mut(&self) -> MutexGuard<T> {
+        self.inner.value.lock().unwrap()
     }
 }
 
@@ -93,9 +92,9 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
-    change_tracker: Rc<ChangeTracker>,
+    change_tracker: Arc<ChangeTracker>,
     // OO: Some values might be too large to be duplicated between the application and the renderer.
-    value: RefCell<T>,
+    value: Mutex<T>,
 }
 
 impl<T: Object> InnerHandle<T>
@@ -106,11 +105,11 @@ where
         let change = T::to_change(&value);
         self.change_tracker.push(Change::Update(self.id, change));
 
-        *self.value.borrow_mut() = value;
+        *self.value.lock().unwrap() = value;
     }
 
     pub fn updated(&self) {
-        let change = T::to_change(&*self.value.borrow());
+        let change = T::to_change(&*self.value.lock().unwrap());
         self.change_tracker.push(Change::Update(self.id, change));
     }
 }

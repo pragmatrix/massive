@@ -1,7 +1,4 @@
-use std::{
-    rc::Rc,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use cosmic_text as text;
@@ -37,7 +34,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let hello_world = "Hello, world!";
     let shapes = render(&mut font_system.lock().unwrap(), hello_world);
 
-    let window = ctx.new_window(LogicalSize::new(1280, 800), None)?;
+    let window = ctx.new_window(LogicalSize::new(1280, 800), None).await?;
 
     let (mut renderer, mut director) = window
         .new_renderer(font_system, camera, window.inner_size())
@@ -47,8 +44,13 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_window_event(&window).await?;
-        renderer.handle_window_event(&window_event)?;
+        let event = ctx.wait_for_shell_event(&mut renderer).await?;
+        let cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+
+        let Some(window_event) = event.window_event_for_id(window.id()) else {
+            continue;
+        };
+
         match window_event {
             WindowEvent::KeyboardInput {
                 event:
@@ -67,8 +69,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                     _ => {}
                 }
 
-                renderer.update_camera(camera);
-                println!("eye: {:?}", camera.eye)
+                cycle.update_camera(camera)?;
+                println!("Eye: {:?}", camera.eye)
             }
             WindowEvent::CloseRequested => {
                 return Ok(());
@@ -90,7 +92,7 @@ fn render(font_system: &mut FontSystem, str: &str) -> Vec<Shape> {
     glyph_run.translation = center_translation;
 
     let shapes = vec![GlyphRunShape {
-        model_matrix: Rc::new(Matrix4::identity()),
+        model_matrix: Matrix4::identity().into(),
         run: glyph_run,
     }
     .into()];

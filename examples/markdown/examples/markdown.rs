@@ -18,10 +18,9 @@ use inlyne::{
 use log::info;
 use winit::dpi::PhysicalSize;
 
+use massive_geometry::{Camera, SizeI, Vector3};
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-
-use massive_geometry::{Camera, SizeI, Vector3};
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
@@ -61,13 +60,15 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     };
 
     let initial_size = winit::dpi::LogicalSize::new(960, 800);
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID))?;
+    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
     let scale_factor = window.scale_factor();
     let physical_size = initial_size.to_physical(scale_factor);
 
+    let font_system = Arc::new(Mutex::new(font_system));
+
     let (mut renderer, mut director) = window
         .new_renderer(
-            Arc::new(Mutex::new(font_system)),
+            font_system.clone(),
             camera,
             initial_size.to_physical(scale_factor),
         )
@@ -75,12 +76,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let markdown = include_str!("replicator.org.md");
 
-    let (glyph_runs, page_size) = markdown_to_glyph_runs(
-        scale_factor,
-        physical_size,
-        renderer.font_system().clone(),
-        markdown,
-    )?;
+    let (glyph_runs, page_size) =
+        markdown_to_glyph_runs(scale_factor, physical_size, font_system.clone(), markdown)?;
 
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);
@@ -99,23 +96,28 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_window_event(&window).await?;
-        renderer.handle_window_event(&window_event)?;
+        let event = ctx.wait_for_shell_event(&mut renderer).await?;
 
-        info!("Window Event: {window_event:?}");
+        let window_id = renderer.window_id();
 
-        match application.update(&window_event) {
-            UpdateResponse::Exit => return Ok(()),
-            UpdateResponse::Continue => {}
-        }
+        let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
 
-        // DI: This check has to be done in the renderer and the renderer has to decide when it
-        // needs to redraw.
-        let new_matrix = application.matrix(page_size);
-        if new_matrix != current_matrix {
-            matrix.update(new_matrix);
-            current_matrix = new_matrix;
-            director.action()?;
+        if let Some(window_event) = event.window_event_for_id(window_id) {
+            info!("Window Event: {window_event:?}");
+
+            match application.update(window_event) {
+                UpdateResponse::Exit => return Ok(()),
+                UpdateResponse::Continue => {}
+            }
+
+            // DI: This check has to be done in the renderer and the renderer has to decide when it
+            // needs to redraw.
+            let new_matrix = application.matrix(page_size);
+            if new_matrix != current_matrix {
+                matrix.update(new_matrix);
+                current_matrix = new_matrix;
+                director.action()?;
+            }
         }
     }
 }

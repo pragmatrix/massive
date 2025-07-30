@@ -1,4 +1,4 @@
-use std::{any::TypeId, cell::RefCell, mem, ops::DerefMut};
+use std::{any::TypeId, mem, ops::DerefMut, sync::Mutex};
 
 use derive_more::From;
 
@@ -6,15 +6,15 @@ use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
 use massive_geometry as geometry;
 
 #[derive(Debug, Default)]
-pub struct ChangeTracker(RefCell<Vec<SceneChange>>);
+pub struct ChangeTracker(Mutex<Vec<SceneChange>>);
 
 impl ChangeTracker {
     pub fn push(&self, change: impl Into<SceneChange>) {
-        self.0.borrow_mut().push(change.into());
+        self.0.lock().unwrap().push(change.into());
     }
 
     pub(crate) fn take_all(&self) -> Vec<SceneChange> {
-        mem::take(self.0.borrow_mut().deref_mut())
+        mem::take(self.0.lock().unwrap().deref_mut())
     }
 }
 

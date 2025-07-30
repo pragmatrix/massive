@@ -1,4 +1,4 @@
-use std::rc::Rc;
+use std::sync::Arc;
 
 use cgmath::Point2;
 use cosmic_text as text;
@@ -17,7 +17,7 @@ pub enum Shape {
 #[derive(Debug)]
 pub struct GlyphRunShape {
     // Model transformation
-    pub model_matrix: Rc<Matrix4>,
+    pub model_matrix: Arc<Matrix4>,
     pub run: GlyphRun,
 }
 
@@ -69,7 +69,7 @@ impl GlyphRun {
 
 #[derive(Debug)]
 pub struct QuadsShape {
-    pub model_matrix: Rc<Matrix4>,
+    pub model_matrix: Arc<Matrix4>,
     pub quads: Quads,
 }
 

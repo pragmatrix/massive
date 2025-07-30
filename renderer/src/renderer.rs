@@ -4,18 +4,18 @@ use std::{
 };
 
 use anyhow::Result;
-use log::info;
+use log::{info, warn};
 use massive_geometry::Matrix4;
 use massive_scene::SceneChange;
-use wgpu::StoreOp;
+use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     pipelines, pods, quads::QuadsRenderer, scene::Scene, text, text_layer::TextLayerRenderer,
     texture,
 };
 
-pub struct Renderer<'window> {
-    surface: wgpu::Surface<'window>,
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
@@ -50,12 +50,12 @@ pub struct RenderContext<'a, 'rpass> {
     pub pass: &'a mut wgpu::RenderPass<'rpass>,
 }
 
-impl<'window> Renderer<'window> {
+impl Renderer {
     /// Creates a new renderer and reconfigures the surface according to the given configuration.
     pub fn new(
         device: wgpu::Device,
         queue: wgpu::Queue,
-        surface: wgpu::Surface<'window>,
+        surface: wgpu::Surface<'static>,
         surface_config: wgpu::SurfaceConfiguration,
     ) -> Self {
         let view_projection_buffer = device.create_buffer(&wgpu::BufferDescriptor {
@@ -142,14 +142,31 @@ impl<'window> Renderer<'window> {
         Ok(())
     }
 
+    /// We want this separate from [`Self::render_and_present`], because of the timing impliciation. In any
+    /// VSync mode, this blocks until the current frame is presented.
+    ///
+    /// This is `&mut self`, because it might call into [`Self::reconfigure_surface`] when the
+    /// surface is lost.
+    pub fn get_current_texture(&mut self) -> result::Result<SurfaceTexture, wgpu::SurfaceError> {
+        match self.surface.get_current_texture() {
+            Ok(texture) => Ok(texture),
+            Err(e) => {
+                // Try to reconfigure and re-acquire once when the surface is lost.
+                warn!("Surface error: {e:?}, retrying...");
+                self.reconfigure_surface();
+                self.surface.get_current_texture()
+            }
+        }
+    }
+
     // TODO: Can't we handle SurfaceError::Lost here by just reconfiguring the surface and trying
     // again?
     #[tracing::instrument(skip_all)]
     pub fn render_and_present(
         &mut self,
         view_projection_matrix: &Matrix4,
-    ) -> result::Result<(), wgpu::SurfaceError> {
-        let surface_texture = self.surface.get_current_texture()?;
+        surface_texture: SurfaceTexture,
+    ) {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
@@ -179,6 +196,7 @@ impl<'window> Renderer<'window> {
                             load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
                             store: StoreOp::Store,
                         },
+                        depth_slice: None,
                     })],
                     depth_stencil_attachment: None,
                     timestamp_writes: None,
@@ -229,7 +247,6 @@ impl<'window> Renderer<'window> {
 
         self.queue.submit([command_buffer]);
         surface_texture.present();
-        Ok(())
     }
 
     fn queue_view_projection_matrix(
@@ -265,12 +282,13 @@ impl<'window> Renderer<'window> {
     // A Matrix that translates from the WGPU coordinate system to surface coordinates.
     pub fn surface_matrix(&self) -> Matrix4 {
         let (width, height) = self.surface_size();
-        Matrix4::from_nonuniform_scale(width as f64 / 2.0, (height as f64 / 2.0) * -1.0, 1.0)
+        Matrix4::from_nonuniform_scale(width as f64 / 2.0, -(height as f64 / 2.0), 1.0)
             * Matrix4::from_translation(cgmath::Vector3::new(1.0, -1.0, 0.0))
     }
 
     /// Resizes the surface, if necessary.
-    /// Keeps the surface size at least 1x1.
+    ///
+    /// Keeps the minimum surface size at at least 1x1.
     pub fn resize_surface(&mut self, new_size: (u32, u32)) {
         let new_surface_size = (new_size.0.max(1), new_size.1.max(1));
 
@@ -285,15 +303,30 @@ impl<'window> Renderer<'window> {
     }
 
     /// Returns the current surface size.
-    /// It may not match the window's size, for example if the window's size is 0,0.
+    ///
+    /// It may not exactly match the window's size, for example if the window's size is 0,0, the
+    /// surface's size will be 1x1.
     pub fn surface_size(&self) -> (u32, u32) {
         let config = &self.surface_config;
         (config.width, config.height)
     }
 
+    pub fn present_mode(&self) -> PresentMode {
+        self.surface_config.present_mode
+    }
+
+    /// Sets the presentation mode and - if changed - reconfigures the surface.
+    pub fn set_present_mode(&mut self, present_mode: PresentMode) {
+        if present_mode == self.surface_config.present_mode {
+            return;
+        }
+        self.surface_config.present_mode = present_mode;
+        self.reconfigure_surface();
+    }
+
     pub fn reconfigure_surface(&mut self) {
         info!("Reconfiguring surface {:?}", self.surface_config);
-        self.surface.configure(&self.device, &self.surface_config)
+        self.surface.configure(&self.device, &self.surface_config);
     }
 }
 

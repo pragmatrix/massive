@@ -23,7 +23,7 @@
 //!   the renderer minimizes allocations and can trivially associate arbitrary additional data like
 //!   buffers or caches that are needed to render the objects fast and with a low memory
 //!   footprint and allocations.
-use std::{any::TypeId, collections::HashMap, rc::Rc};
+use std::{any::TypeId, collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use tokio::sync::mpsc;
@@ -46,8 +46,8 @@ pub struct Director {
     // Each type requires its own id generator to ensure that the generated ids are contiguous
     // within that type.
     id_generators: HashMap<TypeId, IdGen>,
-    change_tracker: Rc<ChangeTracker>,
-    notify_changes: Box<dyn FnMut(Vec<SceneChange>) -> Result<()> + 'static>,
+    change_tracker: Arc<ChangeTracker>,
+    notify_changes: Box<dyn FnMut(Vec<SceneChange>) -> Result<()> + 'static + Send>,
 }
 
 impl Director {
@@ -55,7 +55,7 @@ impl Director {
         Self::new(move |changes| Ok(sender.try_send(changes)?))
     }
 
-    pub fn new(f: impl FnMut(Vec<SceneChange>) -> Result<()> + 'static) -> Self {
+    pub fn new(f: impl FnMut(Vec<SceneChange>) -> Result<()> + 'static + Send) -> Self {
         Self {
             id_generators: Default::default(),
             change_tracker: Default::default(),

@@ -185,7 +185,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                 relation_table.insert(name, related.iter().map(|hr| hr.range).collect::<Vec<_>>());
                 let related: Vec<_> = related.iter().map(|hr| &text[hr.range]).collect();
 
-                println!("related: {:?}", related)
+                println!("related: {related:?}")
             }
         }
     }
@@ -262,7 +262,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     // Window
 
-    let window = ctx.new_window(LogicalSize::new(1024, 800), None)?;
+    let window = ctx.new_window(LogicalSize::new(1024, 800), None).await?;
     let initial_size = window.inner_size();
 
     // Camera
@@ -299,14 +299,16 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_window_event(&window).await?;
-        renderer.handle_window_event(&window_event)?;
+        let event = ctx.wait_for_shell_event(&mut renderer).await?;
+        let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
 
-        info!("Window Event: {window_event:?}");
+        info!("Event: {event:?}");
 
-        match application.update(&window_event) {
-            UpdateResponse::Exit => return Ok(()),
-            UpdateResponse::Continue => {}
+        if let Some(window_event) = event.window_event_for_id(window.id()) {
+            match application.update(window_event) {
+                UpdateResponse::Exit => return Ok(()),
+                UpdateResponse::Continue => {}
+            }
         }
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
