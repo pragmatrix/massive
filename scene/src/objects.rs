@@ -100,28 +100,10 @@ impl Object for Matrix {
 
 pub mod legacy {
     use super::Handle;
-    use crate::{Director, Location, SceneChange, Visual};
-    use anyhow::Result;
+    use crate::{Director, Location, Visual};
     use massive_geometry::Matrix4;
     use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
     use std::{collections::HashMap, sync::Arc};
-    use tokio::sync::mpsc;
-
-    pub fn bootstrap_scene_changes(shapes: Vec<Shape>) -> Result<Vec<SceneChange>> {
-        let (channel_tx, mut channel_rx) = mpsc::channel(1);
-
-        let mut director = Director::from_sender(channel_tx);
-
-        // The shapes must be alive
-
-        {
-            // Keep the visuals until the director ran through.
-            let _visuals = into_visuals(&mut director, shapes);
-            director.action()?;
-        }
-
-        Ok(channel_rx.try_recv().unwrap_or_default())
-    }
 
     pub fn into_visuals(director: &mut Director, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
         let mut location_handles: HashMap<*const Matrix4, Handle<Location>> = HashMap::new();
