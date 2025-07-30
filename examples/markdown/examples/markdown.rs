@@ -18,11 +18,10 @@ use inlyne::{
 use log::info;
 use winit::dpi::PhysicalSize;
 
+use massive_geometry::{Camera, SizeI, Vector3};
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-
-use massive_geometry::{Camera, SizeI, Vector3};
-use massive_shell::{shell, ApplicationContext, AsyncWindowRenderer};
+use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
@@ -65,9 +64,11 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let scale_factor = window.scale_factor();
     let physical_size = initial_size.to_physical(scale_factor);
 
-    let (renderer, mut director) = window
+    let font_system = Arc::new(Mutex::new(font_system));
+
+    let (mut renderer, mut director) = window
         .new_renderer(
-            Arc::new(Mutex::new(font_system)),
+            font_system.clone(),
             camera,
             initial_size.to_physical(scale_factor),
         )
@@ -75,14 +76,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let markdown = include_str!("replicator.org.md");
 
-    let (glyph_runs, page_size) = markdown_to_glyph_runs(
-        scale_factor,
-        physical_size,
-        renderer.font_system().clone(),
-        markdown,
-    )?;
-
-    let mut renderer = AsyncWindowRenderer::new(renderer);
+    let (glyph_runs, page_size) =
+        markdown_to_glyph_runs(scale_factor, physical_size, font_system.clone(), markdown)?;
 
     let mut application = Application::default();
     let mut current_matrix = application.matrix(page_size);

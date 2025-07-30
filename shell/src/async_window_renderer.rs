@@ -11,7 +11,7 @@ use tokio::sync::mpsc::{
     error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender,
 };
 use wgpu::PresentMode;
-use winit::{event::WindowEvent, window::WindowId};
+use winit::window::WindowId;
 
 use crate::window_renderer::WindowRenderer;
 use massive_geometry::Camera;
@@ -125,32 +125,6 @@ impl AsyncWindowRenderer {
 
     pub fn window_id(&self) -> WindowId {
         self.id
-    }
-
-    // Architecture: Move this out of the impl, it is second nature now.
-    pub fn should_handle_window_event(event: &WindowEvent) -> bool {
-        // 202507: According to ChatGPT winit since version 0.29 may send additional Resize events when
-        // ScaleFactorChanged is sent, so we don't handle ScaleFactorChanged here anymore.
-        matches!(
-            event,
-            WindowEvent::Resized(_) | WindowEvent::RedrawRequested
-        )
-    }
-
-    // Architecture: Move this out of the impl, it is second nature now.
-    pub fn handle_window_event(&self, event: &WindowEvent) -> Result<()> {
-        let event = match event {
-            WindowEvent::Resized(new_size) => {
-                RendererMessage::Resize((new_size.width, new_size.height))
-            }
-            WindowEvent::RedrawRequested => RendererMessage::Redraw,
-            _ => {
-                // Not something we are interested in
-                return Ok(());
-            }
-        };
-
-        self.post_msg(event)
     }
 
     pub fn post_msg(&self, event: RendererMessage) -> Result<()> {

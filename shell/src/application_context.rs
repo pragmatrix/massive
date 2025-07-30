@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::{anyhow, bail, Result};
 use log::{error, info};
+use massive_geometry::Camera;
 use tokio::{
     select,
     sync::{mpsc::UnboundedReceiver, oneshot},
@@ -143,26 +144,6 @@ impl ApplicationContext {
         timeline
     }
 
-    /// Waits for a shell event and updates all timelines if a [`ShellEvent::ApplyAnimations`] is
-    /// received.
-    pub async fn wait_for_event(&mut self) -> Result<ShellEvent> {
-        let event = self.event_receiver.recv().await;
-        let Some(event) = event else {
-            // This means that the shell stopped before the application ended, this should not
-            // happen in normal situations.
-            bail!("Internal Error: Shell shut down, no more events")
-        };
-
-        // if let ShellEvent::ApplyAnimations(tick) = event {
-        //     // Animations may have been removed in the meantime, so we check for wants_ticks()...
-        //     self.tickery.tick(tick);
-        //     // Even if nothing happened, the event _must_ be forwarded to the application, because
-        //     // it may need to apply final values now.
-        // }
-
-        Ok(event)
-    }
-
     pub async fn wait_for_shell_event(
         &mut self,
         renderer: &mut AsyncWindowRenderer,
@@ -282,74 +263,6 @@ impl ApplicationContext {
         Ok(())
     }
 
-    // / Waits for a shell event and coordinates the renderer.
-    // /
-    // / Everything that is active between the invocation here is called the update cycle.
-    // /
-    // / There are two kinds of update cycles, a reactive update cycle and an animation cycle.
-    // /
-    // / An update cycle starts when a input event is returned or this function is cancelled.
-    // /
-    // / A animation cycle starts when -
-    // /
-    // / - In the previous update cycle an animation was started or
-    // /   the previous update cycle was already an animation cycle.
-    // / - The previous frame got presented.
-    // /
-    // / This is cancellation safe.
-
-    // pub async fn wait_and_coordinate(
-    //     &mut self,
-    //     renderer: &mut AsyncWindowRenderer,
-    // ) -> Result<ShellEvent> {
-    //     // This covers both types of update cycles.
-    //     let fast_render_pacing = self.tickery.animation_ticks_requested();
-
-    //     self.synchronize_render_pacing(
-    //         if fast_render_pacing {
-    //             RenderPacing::Fast
-    //         } else {
-    //             RenderPacing::Smooth
-    //         },
-    //         renderer,
-    //     )?;
-
-    //     // Begin an update cycle in case we got cancelled so that another event uses a more up to date tick.
-    //     if self.render_pacing == RenderPacing::Fast {
-    //         self.tickery.begin_update_cycle(Instant::now());
-    //     }
-
-    //     // What if we get cancelled after a animation cycle?
-
-    //     loop {
-    //         select! {
-    //             event = self.event_receiver.recv() => {
-    //                 let Some(event) = event else {
-    //                     // This means that the shell stopped before the application ended, this should not
-    //                     // happen in normal situations.
-    //                     bail!("Internal Error: Shell shut down, no more events")
-    //                 };
-
-    //                 if let Some(window_event) = event.window_event_for_id(renderer.window_id()) {
-    //                     // This handles resizes and redraws.
-    //                     renderer.handle_window_event(window_event)?;
-    //                 }
-    //                 self.tickery.begin_update_cycle(Instant::now());
-    //                 return Ok(event)
-    //             }
-
-    //             instant = renderer.wait_for_most_recent_presentation() => {
-    //                 let instant = instant?;
-    //                 if self.render_pacing == RenderPacing::Smooth {
-    //                     self.tickery.begin_animation_cycle(instant);
-    //                     return Ok(ShellEvent::ApplyAnimations);
-    //                 }
-    //                 // else: Wasn't in a animation cycle: loop and wait for an input event.
-    //             }
-    //         };
-    //     }
-    // }
-
     /// Synchronizes the render pacing suggested by the current state of the tickery with the renderer.
     fn synchronize_render_pacing(
         &mut self,
@@ -370,19 +283,6 @@ impl ApplicationContext {
 
         self.render_pacing = pacing;
         Ok(())
-    }
-
-    /// Wait for the next event of a specific window and forward it to the renderer if needed.
-    pub async fn wait_for_window_event(&mut self, window: &ShellWindow) -> Result<WindowEvent> {
-        match self.wait_for_event().await? {
-            ShellEvent::WindowEvent(window_id, window_event) if window_id == window.id() => {
-                Ok(window_event)
-            }
-            _ => {
-                // TODO: Support this somehow.
-                panic!("Received event from another window")
-            }
-        }
     }
 }
 
@@ -412,6 +312,10 @@ impl UpdateCycle<'_> {
     ) -> Timeline<T> {
         self.ctx
             .animation(value, target_value, duration, interpolation)
+    }
+
+    pub fn update_camera(&self, camera: Camera) -> Result<()> {
+        self.renderer.update_camera(camera)
     }
 }
 

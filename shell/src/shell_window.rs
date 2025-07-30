@@ -11,8 +11,7 @@ use winit::{
     window::{Window, WindowId},
 };
 
-use crate::shell::ShellRequest;
-use crate::window_renderer::WindowRenderer;
+use crate::{shell::ShellRequest, window_renderer::WindowRenderer, AsyncWindowRenderer};
 use massive_geometry::Camera;
 use massive_scene::Director;
 
@@ -32,7 +31,7 @@ impl ShellWindow {
         // Use a rect here to place the renderer on the window.
         // (But what about resizes then?)
         initial_size: PhysicalSize<u32>,
-    ) -> Result<(WindowRenderer, Director)> {
+    ) -> Result<(AsyncWindowRenderer, Director)> {
         let instance_and_surface = self
             .new_instance_and_surface(
                 InstanceDescriptor::default(),
@@ -61,7 +60,7 @@ impl ShellWindow {
 
         // DI: If we can access the ShellWindow, we don't need a clone of font_system or
         // event_loop_proxy here.
-        WindowRenderer::new(
+        let (window_renderer, director) = WindowRenderer::new(
             self.window.clone(),
             instance,
             surface,
@@ -69,7 +68,10 @@ impl ShellWindow {
             camera,
             initial_size,
         )
-        .await
+        .await?;
+
+        let async_window_renderer = AsyncWindowRenderer::new(window_renderer);
+        Ok((async_window_renderer, director))
     }
 
     /// Helper to create instance and surface.

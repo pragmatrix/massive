@@ -44,8 +44,13 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_window_event(&window).await?;
-        renderer.handle_window_event(&window_event)?;
+        let event = ctx.wait_for_shell_event(&mut renderer).await?;
+        let cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+
+        let Some(window_event) = event.window_event_for_id(window.id()) else {
+            continue;
+        };
+
         match window_event {
             WindowEvent::KeyboardInput {
                 event:
@@ -64,8 +69,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                     _ => {}
                 }
 
-                renderer.update_camera(camera);
-                println!("eye: {:?}", camera.eye)
+                cycle.update_camera(camera)?;
+                println!("Eye: {:?}", camera.eye)
             }
             WindowEvent::CloseRequested => {
                 return Ok(());
