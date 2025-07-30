@@ -1,4 +1,4 @@
-use std::sync::{self, Arc, Mutex};
+use std::sync::{Arc, Mutex};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -7,52 +7,58 @@ use web_time::Instant;
 
 use crate::{Interpolatable, Timeline};
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Tickery {
-    receivers: Mutex<Vec<sync::Weak<dyn ReceivesTicks>>>,
+    inner: Mutex<TickeryInner>,
+}
+
+#[derive(Debug)]
+struct TickeryInner {
+    tick: Instant,
+    /// Was there a request for an animation tick in this animation cycle?
+    animation_ticks_requested: bool,
 }
 
 impl Tickery {
+    pub fn new(now: Instant) -> Self {
+        Self {
+            inner: TickeryInner {
+                tick: now,
+                animation_ticks_requested: false,
+            }
+            .into(),
+        }
+    }
+
     pub fn timeline<T: Interpolatable + Send>(self: &Arc<Self>, value: T) -> Timeline<T> {
         Timeline::new(self.clone(), value)
     }
 
-    pub fn tick(&self, instant: Instant) {
-        self.receivers
+    /// Beings an update cycle.
+    ///
+    /// This sets the current tick and - if this is an animation update cycle - resets the usage count.
+    ///
+    /// Not &mut self, because it must be usable behing an Arc and we don't put the whole Tickery in a Mutex.
+    pub fn begin_update_cycle(&self, instant: Instant, animation_cycle: bool) {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.tick = instant;
+        if animation_cycle {
+            inner.animation_ticks_requested = false;
+        }
+    }
+
+    /// Marks the current tick as an animation tick on and returns it.
+    pub fn animation_tick(&self) -> Instant {
+        let mut inner = self.inner.lock().expect("poisoned");
+        inner.animation_ticks_requested = true;
+        inner.tick
+    }
+
+    /// Were there any users of the tick value since [`Self::update_tick`] was called.
+    pub fn animation_ticks_requested(&self) -> bool {
+        self.inner
             .lock()
             .expect("poisoned")
-            .retain_mut(|registration| {
-                if let Some(registration) = registration.upgrade() {
-                    match registration.tick(instant) {
-                        TickResponse::Stop => false,
-                        TickResponse::Continue => true,
-                    }
-                } else {
-                    false
-                }
-            });
+            .animation_ticks_requested
     }
-
-    pub fn wants_ticks(&self) -> bool {
-        !self.receivers.lock().unwrap().is_empty()
-    }
-
-    pub(crate) fn start_sending(&self, receiver: sync::Weak<dyn ReceivesTicks>) {
-        self.receivers.lock().unwrap().push(receiver);
-    }
-}
-
-#[derive(Debug)]
-pub enum TickResponse {
-    Continue,
-    Stop,
-}
-
-pub trait ReceivesTicks: Send + Sync {
-    #[must_use]
-    fn tick(&self, instant: Instant) -> TickResponse;
-}
-
-pub trait TickProvider {
-    fn start_sending(&self);
 }

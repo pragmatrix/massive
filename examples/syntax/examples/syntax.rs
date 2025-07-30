@@ -123,12 +123,14 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     director.action()?;
 
     loop {
-        let window_event = ctx.wait_for_window_event(&window).await?;
-        renderer.handle_window_event(&window_event)?;
+        let event = ctx.wait_for_shell_event(&mut renderer).await?;
+        let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
 
-        match application.update(&window_event) {
-            UpdateResponse::Exit => return Ok(()),
-            UpdateResponse::Continue => {}
+        if let Some(window_event) = event.window_event_for_id(window.id()) {
+            match application.update(window_event) {
+                UpdateResponse::Exit => return Ok(()),
+                UpdateResponse::Continue => {}
+            }
         }
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it

@@ -25,8 +25,9 @@ use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Identity, Vector3};
 use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
 use massive_shell::{
-    shell::{self, ShellEvent, ShellWindow},
-    ApplicationContext,
+    application_context::UpdateCycle,
+    shell::{self, ShellEvent},
+    ApplicationContext, ShellWindow,
 };
 
 use logs::terminal::{self, color_schemes};
@@ -116,16 +117,14 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
         select! {
             Some(bytes) = receiver.recv() => {
-                logs.add_line(&mut ctx, &bytes);
+                let cycle = ctx.begin_update_cycle(&mut renderer, None)?;
+                logs.add_line(&cycle, &bytes);
                 logs.update_layout()?;
             },
 
-            Ok(event) = ctx.wait_for_event() => {
-                if let Some(window_event) = event.window_event_for(&window) {
-                    renderer.handle_window_event(window_event)?;
-                }
-
-                if logs.handle_event(event, &window) == UpdateResponse::Exit {
+            Ok(event) = ctx.wait_for_shell_event(&mut renderer) => {
+                let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+                if logs.handle_shell_event(event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }
             }
@@ -190,7 +189,7 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, ctx: &mut ApplicationContext, bytes: &[u8]) {
+    fn add_line(&mut self, cycle: &UpdateCycle, bytes: &[u8]) {
         let (glyph_runs, height) = {
             let mut font_system = self.font_system.lock().unwrap();
 
@@ -204,7 +203,7 @@ impl Logs {
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,
-            fader: ctx.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
+            fader: cycle.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
             visual: line,
             fading_out: false,
         });
@@ -255,7 +254,11 @@ impl Logs {
         );
     }
 
-    fn handle_event(&mut self, shell_event: ShellEvent, window: &ShellWindow) -> UpdateResponse {
+    fn handle_shell_event(
+        &mut self,
+        shell_event: ShellEvent,
+        window: &ShellWindow,
+    ) -> UpdateResponse {
         if shell_event.apply_animations() {
             self.apply_animations();
             return UpdateResponse::Continue;
