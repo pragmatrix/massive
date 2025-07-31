@@ -6,7 +6,7 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
-use massive_scene::Visual;
+use massive_scene::{Scene, Visual};
 use massive_shell::{shell, ApplicationContext};
 use shared::{
     application::{Application, UpdateResponse},
@@ -91,27 +91,25 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // Using inner size screws up the renderer initialization, because the window is not sized yet.
     // So we compute the proper physical for now.
     let physical_size = initial_size.to_physical(window.scale_factor());
-    let (mut renderer, mut director) = window
+    let scene = Scene::default();
+    let mut renderer = window
         .new_renderer(Arc::new(Mutex::new(font_system)), camera, physical_size)
         .await?;
 
     let page_size = SizeI::new(1280, height as u64);
     let mut application = Application::default();
-    let mut current_matrix = application.matrix(page_size);
-    let matrix = director.stage(current_matrix);
-    let location = director.stage(matrix.clone().into());
+    let matrix = scene.stage(application.matrix(page_size));
+    let location = scene.stage(matrix.clone().into());
 
     // Hold the visual in this context, otherwise it will disappear.
-    let _visual = director.stage(Visual::new(
+    let _visual = scene.stage(Visual::new(
         location.clone(),
         glyph_runs.into_iter().map(|m| m.into()).collect::<Vec<_>>(),
     ));
 
-    director.action()?;
-
     loop {
         let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
 
         info!("Event: {event:?}");
 
@@ -122,13 +120,6 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        // DI: This check has to be done in the renderer and the renderer has to decide when it
-        // needs to redraw.
-        let new_matrix = application.matrix(page_size);
-        if new_matrix != current_matrix {
-            matrix.update(new_matrix);
-            current_matrix = new_matrix;
-            director.action()?;
-        }
+        matrix.update_if_changed(application.matrix(page_size));
     }
 }

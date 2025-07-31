@@ -23,75 +23,18 @@
 //!   the renderer minimizes allocations and can trivially associate arbitrary additional data like
 //!   buffers or caches that are needed to render the objects fast and with a low memory
 //!   footprint and allocations.
-use std::{any::TypeId, collections::HashMap, sync::Arc};
 
-use anyhow::Result;
-use tokio::sync::mpsc;
-
-use id::*;
-
-mod change_tracker;
+mod change;
+mod change_collector;
 mod handle;
 mod id;
 mod objects;
+mod scene;
+mod type_id_generator;
 
-pub use change_tracker::*;
+pub use change::*;
+pub use change_collector::*;
 pub use handle::*;
 pub use id::Id;
 pub use objects::*;
-
-/// A director is the only direct connection to the renderer. It tracks all the changes to scene
-/// graph and uploads it on demand.
-pub struct Director {
-    // Each type requires its own id generator to ensure that the generated ids are contiguous
-    // within that type.
-    id_generators: HashMap<TypeId, IdGen>,
-    change_tracker: Arc<ChangeTracker>,
-    notify_changes: Box<dyn FnMut(Vec<SceneChange>) -> Result<()> + 'static + Send>,
-}
-
-impl Director {
-    pub fn from_sender(sender: mpsc::Sender<Vec<SceneChange>>) -> Self {
-        Self::new(move |changes| Ok(sender.try_send(changes)?))
-    }
-
-    pub fn new(f: impl FnMut(Vec<SceneChange>) -> Result<()> + 'static + Send) -> Self {
-        Self {
-            id_generators: Default::default(),
-            change_tracker: Default::default(),
-            notify_changes: Box::new(f),
-        }
-    }
-
-    /// Put an object on the stage.
-    pub fn stage<T: Object + 'static>(&mut self, value: T) -> Handle<T>
-    where
-        SceneChange: From<Change<T::Change>>,
-    {
-        let ti = TypeId::of::<T>();
-        let id = self.id_generators.entry(ti).or_default().allocate();
-        Handle::new(id, value, self.change_tracker.clone())
-    }
-
-    /// Send changes to the renderer.
-    pub fn action(&mut self) -> Result<()> {
-        let changes = self.change_tracker.take_all();
-        // Short circuit.
-        if changes.is_empty() {
-            return Ok(());
-        }
-
-        // Free up all deleted ids (this is done immediately for now, but may be later done in the
-        // renderer, for example to keep ids alive until animations are finished or cached resources
-        // are cleaned up)
-        for (type_id, id) in changes.iter().flat_map(|sc| sc.destructive_change()) {
-            // TODO: order by TypeId first?
-            self.id_generators
-                .get_mut(&type_id)
-                .expect("Internal Error: Freeing an id failed, generator missing for type")
-                .free(id)
-        }
-
-        (self.notify_changes)(changes)
-    }
-}
+pub use scene::Scene;

@@ -1,6 +1,10 @@
 use std::{
+    collections::HashMap,
     mem,
-    sync::mpsc::{self, Sender},
+    sync::{
+        mpsc::{self, Sender},
+        Arc,
+    },
     thread::{self, JoinHandle},
     time::Instant,
 };
@@ -15,10 +19,13 @@ use winit::window::WindowId;
 
 use crate::window_renderer::WindowRenderer;
 use massive_geometry::Camera;
+use massive_scene::ChangeCollector;
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {
-    id: WindowId,
+    window_id: WindowId,
+    // For pushing changes directly to the renderer.
+    change_collector: Arc<ChangeCollector>,
     msg_sender: Sender<RendererMessage>,
     presentation_receiver: UnboundedReceiver<Instant>,
     thread_handle: Option<JoinHandle<()>>,
@@ -35,7 +42,9 @@ pub enum RendererMessage {
 
 impl AsyncWindowRenderer {
     pub fn new(mut window_renderer: WindowRenderer) -> Self {
-        let id = window_renderer.id();
+        let id = window_renderer.window_id();
+        let change_collector = window_renderer.change_collector().clone();
+
         let (msg_sender, msg_receiver) = mpsc::channel();
         // Robustness: Limiting this channel's size, we could detect rendering lag.
         let (presentation_sender, presentation_receiver) = unbounded_channel();
@@ -63,7 +72,8 @@ impl AsyncWindowRenderer {
         });
 
         Self {
-            id,
+            window_id: id,
+            change_collector,
             msg_sender,
             presentation_receiver,
             thread_handle: Some(thread_handle),
@@ -73,9 +83,6 @@ impl AsyncWindowRenderer {
     /// Filters messages to keep only the latest occurrence of each message type,
     /// preserving the original order of the remaining messages.
     fn filter_latest_messages(messages: Vec<RendererMessage>) -> Vec<RendererMessage> {
-        use std::collections::HashMap;
-        use std::mem;
-
         // Find the latest index for each message type
         let mut latest_index_by_type: HashMap<mem::Discriminant<RendererMessage>, usize> =
             HashMap::new();
@@ -124,7 +131,11 @@ impl AsyncWindowRenderer {
     }
 
     pub fn window_id(&self) -> WindowId {
-        self.id
+        self.window_id
+    }
+
+    pub fn change_collector(&self) -> &Arc<ChangeCollector> {
+        &self.change_collector
     }
 
     pub fn post_msg(&self, event: RendererMessage) -> Result<()> {

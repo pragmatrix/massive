@@ -3,7 +3,7 @@ use std::{
     sync::{Arc, Mutex, MutexGuard},
 };
 
-use crate::{Change, ChangeTracker, Id, SceneChange};
+use crate::{Change, ChangeCollector, Id, SceneChange};
 
 pub trait Object: Sized + fmt::Debug
 where
@@ -39,7 +39,7 @@ impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    pub(crate) fn new(id: Id, value: T, change_tracker: Arc<ChangeTracker>) -> Self {
+    pub(crate) fn new(id: Id, value: T, change_tracker: Arc<ChangeCollector>) -> Self {
         let uploaded = T::to_change(&value);
         change_tracker.push(Change::Create(id, uploaded));
 
@@ -92,7 +92,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
-    change_tracker: Arc<ChangeTracker>,
+    change_tracker: Arc<ChangeCollector>,
     // OO: Some values might be too large to be duplicated between the application and the renderer.
     value: Mutex<T>,
 }

@@ -28,9 +28,10 @@ A 3D visualization of a markdown file (basically my CV). Layouted using [inlyne]
 cargo run --release --example markdown
 ```
 
-## Acronyms used in the code.
+## Acronyms and contexts used in the code.
 
 - DR: Decision Record.
-- OO: Optimization Opportunity
-- NI: Naming Issue
-- DI: Design Issue (e.g. something does not seem to belong here)
+- OO: Optimization Opportunity (replacement: `Optimization:`)
+- NI: Naming Issue (replacement: `Naming:`)
+- DI: Design Issue (e.g. something does not seem to belong here) (replacement `Architecture:`)
+- Ergonomics: API surface ergonomics, directly related to programmer happiness.
