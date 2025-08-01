@@ -21,7 +21,7 @@ pub struct WindowRenderer {
     window: Arc<Window>,
     font_system: Arc<Mutex<FontSystem>>,
     camera: Camera,
-    scene_changes: Arc<ChangeCollector>,
+    change_collector: Arc<ChangeCollector>,
     renderer: Renderer,
 }
 
@@ -103,7 +103,7 @@ impl WindowRenderer {
             window: window.clone(),
             font_system,
             camera,
-            scene_changes: Arc::new(ChangeCollector::default()),
+            change_collector: Arc::new(ChangeCollector::default()),
             renderer,
         };
 
@@ -119,7 +119,7 @@ impl WindowRenderer {
     }
 
     pub fn change_collector(&self) -> &Arc<ChangeCollector> {
-        &self.scene_changes
+        &self.change_collector
     }
 
     // DI: If the renderer does culling, we need to move the camera (or at least the view matrix) into the renderer, and
@@ -175,7 +175,7 @@ impl WindowRenderer {
     pub(crate) fn apply_scene_changes_and_prepare_presentation(
         &mut self,
     ) -> Result<wgpu::SurfaceTexture> {
-        let changes = self.scene_changes.take_all();
+        let changes = self.change_collector.take_all();
 
         {
             let mut font_system = self.font_system.lock().unwrap();
