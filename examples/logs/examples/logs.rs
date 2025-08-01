@@ -23,7 +23,7 @@ use winit::{
 
 use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Identity, Vector3};
-use massive_scene::{Director, Handle, Location, Matrix, Shape, Visual};
+use massive_scene::{Handle, Location, Matrix, Scene, Shape, Visual};
 use massive_shell::{
     application_context::UpdateCycle,
     shell::{self, ShellEvent},
@@ -101,26 +101,25 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     };
 
-    let (mut renderer, director) = window
+    let mut renderer = window
         .new_renderer(font_system.clone(), camera, window.inner_size())
         .await?;
 
-    let mut logs = Logs::new(&mut ctx, font_system, director);
+    let scene = Scene::new();
+    let mut logs = Logs::new(&mut ctx, &scene, font_system);
 
     // Application
 
     loop {
-        logs.director.action()?;
-
         select! {
             Some(bytes) = receiver.recv() => {
-                let cycle = ctx.begin_update_cycle(&mut renderer, None)?;
+                let cycle = ctx.begin_update_cycle(&scene, &mut renderer, None)?;
                 logs.add_line(&cycle, &bytes);
                 logs.update_layout()?;
             },
 
             Ok(event) = ctx.wait_for_shell_event(&mut renderer) => {
-                let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+                let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
                 if logs.handle_shell_event(event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }
@@ -131,7 +130,6 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
 struct Logs {
     font_system: Arc<Mutex<FontSystem>>,
-    director: Director,
 
     application: Application,
 
@@ -149,22 +147,22 @@ struct Logs {
 impl Logs {
     fn new(
         ctx: &mut ApplicationContext,
+        scene: &Scene,
         font_system: Arc<Mutex<FontSystem>>,
-        mut director: Director,
     ) -> Self {
         let page_width = 1280u32;
         let application = Application::default();
         let current_matrix = application.matrix((page_width, page_width));
-        let page_matrix = director.stage(current_matrix);
-        let page_location = director.stage(Location::from(page_matrix.clone()));
+        let page_matrix = scene.stage(current_matrix);
+        let page_location = scene.stage(Location::from(page_matrix.clone()));
 
         let vertical_center = ctx.timeline(0.0);
 
         // We move up the lines by their top position.
-        let vertical_center_matrix = director.stage(Matrix::identity());
+        let vertical_center_matrix = scene.stage(Matrix::identity());
 
         // Final position for all lines (runs are y-translated, but only increasing).
-        let location = director.stage(Location {
+        let location = scene.stage(Location {
             parent: Some(page_location),
             matrix: vertical_center_matrix.clone(),
         });
@@ -173,7 +171,6 @@ impl Logs {
 
         Self {
             font_system,
-            director,
             application,
             page_matrix,
             page_width,
@@ -196,7 +193,7 @@ impl Logs {
         let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
         let line = Visual::new(self.location.clone(), glyph_runs);
-        let line = self.director.stage(line);
+        let line = cycle.scene().stage(line);
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,

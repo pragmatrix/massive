@@ -25,7 +25,7 @@ use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
 use massive_geometry::{Camera, Color, SizeI};
-use massive_scene::Visual;
+use massive_scene::{Scene, Visual};
 use massive_shapes::TextWeight;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
@@ -280,15 +280,16 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let (mut renderer, mut director) = window
+    let scene = Scene::default();
+
+    let mut renderer = window
         .new_renderer(font_system, camera, initial_size)
         .await?;
 
-    let mut current_matrix = application.matrix(page_size);
-    let matrix = director.stage(current_matrix);
-    let location = director.stage(matrix.clone().into());
+    let matrix = scene.stage(application.matrix(page_size));
+    let location = scene.stage(matrix.clone().into());
 
-    let _visual = director.stage(Visual::new(
+    let _visual = scene.stage(Visual::new(
         location.clone(),
         glyph_runs
             .into_iter()
@@ -296,11 +297,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             .collect::<Vec<_>>(),
     ));
 
-    director.action()?;
-
     loop {
         let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
 
         info!("Event: {event:?}");
 
@@ -313,12 +312,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        let new_matrix = application.matrix(page_size);
-        if new_matrix != current_matrix {
-            matrix.update(new_matrix);
-            current_matrix = new_matrix;
-            director.action()?;
-        }
+        matrix.update_if_changed(application.matrix(page_size));
     }
 }
 

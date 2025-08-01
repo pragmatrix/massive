@@ -100,12 +100,12 @@ impl Object for Matrix {
 
 pub mod legacy {
     use super::Handle;
-    use crate::{Director, Location, Visual};
+    use crate::{Location, Scene, Visual};
     use massive_geometry::Matrix4;
     use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
     use std::{collections::HashMap, sync::Arc};
 
-    pub fn into_visuals(director: &mut Director, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
+    pub fn into_visuals(director: &Scene, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
         let mut location_handles: HashMap<*const Matrix4, Handle<Location>> = HashMap::new();
         let mut visuals = Vec::with_capacity(shapes.len());
 

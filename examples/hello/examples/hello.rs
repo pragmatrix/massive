@@ -2,8 +2,6 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
 use cosmic_text as text;
-use massive_scene::legacy;
-use shared::positioning;
 use text::FontSystem;
 use winit::{
     dpi::LogicalSize,
@@ -12,8 +10,10 @@ use winit::{
 };
 
 use massive_geometry::{Camera, Color, Identity, Matrix4, Vector3};
+use massive_scene::{legacy, Scene};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
 use massive_shell::{shell, ApplicationContext};
+use shared::positioning;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -36,16 +36,16 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let window = ctx.new_window(LogicalSize::new(1280, 800), None).await?;
 
-    let (mut renderer, mut director) = window
+    let mut renderer = window
         .new_renderer(font_system, camera, window.inner_size())
         .await?;
 
-    let _visuals = legacy::into_visuals(&mut director, shapes);
-    director.action()?;
+    let scene = Scene::new();
+    let _visuals = legacy::into_visuals(&scene, shapes);
 
     loop {
         let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+        let cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
 
         let Some(window_event) = event.window_event_for_id(window.id()) else {
             continue;

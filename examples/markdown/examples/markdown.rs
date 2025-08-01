@@ -19,7 +19,7 @@ use log::info;
 use winit::dpi::PhysicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_scene::Visual;
+use massive_scene::{Scene, Visual};
 use massive_shapes::GlyphRun;
 use massive_shell::{shell, ApplicationContext};
 use shared::{
@@ -63,7 +63,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let (mut renderer, mut director) = window
+    let mut renderer = window
         .new_renderer(
             font_system.clone(),
             camera,
@@ -77,12 +77,12 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         markdown_to_glyph_runs(scale_factor, physical_size, font_system.clone(), markdown)?;
 
     let mut application = Application::default();
-    let mut current_matrix = application.matrix(page_size);
-    let matrix = director.stage(current_matrix);
-    let location = director.stage(matrix.clone().into());
+    let scene = Scene::new();
+    let matrix = scene.stage(application.matrix(page_size));
+    let location = scene.stage(matrix.clone().into());
 
     // Hold the staged visual, otherwise it will disappear.
-    let _visual = director.stage(Visual::new(
+    let _visual = scene.stage(Visual::new(
         location.clone(),
         glyph_runs
             .into_iter()
@@ -90,14 +90,12 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             .collect::<Vec<_>>(),
     ));
 
-    director.action()?;
-
     loop {
         let event = ctx.wait_for_shell_event(&mut renderer).await?;
 
         let window_id = renderer.window_id();
 
-        let _cycle = ctx.begin_update_cycle(&mut renderer, Some(&event))?;
+        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
 
         if let Some(window_event) = event.window_event_for_id(window_id) {
             info!("Window Event: {window_event:?}");
@@ -107,14 +105,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                 UpdateResponse::Continue => {}
             }
 
-            // DI: This check has to be done in the renderer and the renderer has to decide when it
-            // needs to redraw.
-            let new_matrix = application.matrix(page_size);
-            if new_matrix != current_matrix {
-                matrix.update(new_matrix);
-                current_matrix = new_matrix;
-                director.action()?;
-            }
+            matrix.update_if_changed(application.matrix(page_size));
         }
     }
 }

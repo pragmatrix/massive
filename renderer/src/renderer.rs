@@ -142,8 +142,8 @@ impl Renderer {
         Ok(())
     }
 
-    /// We want this separate from [`Self::render_and_present`], because of the timing impliciation. In any
-    /// VSync mode, this blocks until the current frame is presented.
+    /// We want this separate from [`Self::render_and_present`], because of the timing impliciation.
+    /// In any VSync mode, this blocks until the current frame is presented.
     ///
     /// This is `&mut self`, because it might call into [`Self::reconfigure_surface`] when the
     /// surface is lost.

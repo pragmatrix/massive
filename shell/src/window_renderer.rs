@@ -1,12 +1,7 @@
-use std::{
-    mem,
-    ops::DerefMut,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use log::info;
-use massive_scene::SceneChange;
 use wgpu::{PresentMode, Surface, TextureFormat};
 use winit::{
     dpi::PhysicalSize,
@@ -17,6 +12,7 @@ use winit::{
 use cosmic_text::FontSystem;
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
+use massive_scene::ChangeCollector;
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
@@ -25,7 +21,7 @@ pub struct WindowRenderer {
     window: Arc<Window>,
     font_system: Arc<Mutex<FontSystem>>,
     camera: Camera,
-    scene_changes: Arc<Mutex<Vec<SceneChange>>>,
+    change_collector: Arc<ChangeCollector>,
     renderer: Renderer,
 }
 
@@ -38,7 +34,7 @@ impl WindowRenderer {
         camera: Camera,
         // TODO: use a rect here to be able to position the renderer!
         initial_size: PhysicalSize<u32>,
-    ) -> Result<(WindowRenderer, massive_scene::Director)> {
+    ) -> Result<WindowRenderer> {
         info!("Getting adapter");
 
         let adapter = instance
@@ -103,37 +99,18 @@ impl WindowRenderer {
         surface.configure(&device, &surface_config);
         let renderer = Renderer::new(device, queue, surface, surface_config);
 
-        let scene_changes = Arc::new(Mutex::new(Vec::new()));
-
         let window_renderer = WindowRenderer {
             window: window.clone(),
             font_system,
             camera,
-            scene_changes: scene_changes.clone(),
+            change_collector: Arc::new(ChangeCollector::default()),
             renderer,
         };
 
-        let window = window.clone();
-
-        let director = massive_scene::Director::new(move |changes| {
-            // Since we are the only one pushing to the renderer, we can invoke a request redraw
-            // only once as soon `scene_changes` switch from empty to non-empty.
-            let request_redraw = {
-                let mut scene_changes = scene_changes.lock().unwrap();
-                let was_empty = scene_changes.is_empty();
-                scene_changes.extend(changes);
-                was_empty && !scene_changes.is_empty()
-            };
-            if request_redraw {
-                window.request_redraw();
-            }
-            Ok(())
-        });
-
-        Ok((window_renderer, director))
+        Ok(window_renderer)
     }
 
-    pub fn id(&self) -> WindowId {
+    pub fn window_id(&self) -> WindowId {
         self.window.id()
     }
 
@@ -141,10 +118,15 @@ impl WindowRenderer {
         &self.font_system
     }
 
+    pub fn change_collector(&self) -> &Arc<ChangeCollector> {
+        &self.change_collector
+    }
+
     // DI: If the renderer does culling, we need to move the camera (or at least the view matrix) into the renderer, and
     // perhaps schedule updates using the director.
     pub fn update_camera(&mut self, camera: Camera) {
         self.camera = camera;
+        // Robustness: We probably should draw this directly in the end of the next cycle.
         self.window.request_redraw();
     }
 
@@ -193,13 +175,14 @@ impl WindowRenderer {
     pub(crate) fn apply_scene_changes_and_prepare_presentation(
         &mut self,
     ) -> Result<wgpu::SurfaceTexture> {
-        let changes = mem::take(self.scene_changes.lock().unwrap().deref_mut());
+        let changes = self.change_collector.take_all();
 
         {
             let mut font_system = self.font_system.lock().unwrap();
             self.renderer.apply_changes(&mut font_system, changes)?;
         }
 
+        // Important: This blocks in VSync modes until the previous frame is presented.
         // Robustness: Learn about how to recover from specific `SurfaceError`s errors here
         // `get_current_texture()` tries once.
         let texture = self

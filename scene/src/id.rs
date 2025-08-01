@@ -2,17 +2,20 @@ use derive_more::Deref;
 
 /// An identifier that can be used to index into rows to allow fast id associative storage and
 /// retrieval of objects.
+///
+/// Ids start at 0 and their maximum value are never greater than the number of ids acquired. This
+/// makes them optimal for using them as storage indices.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref)]
 pub struct Id(usize);
 
 #[derive(Debug, Default)]
-pub struct IdGen {
+pub struct Generator {
     next_id: usize,
     free_list: Vec<usize>,
 }
 
-impl IdGen {
-    pub fn allocate(&mut self) -> Id {
+impl Generator {
+    pub fn acquire(&mut self) -> Id {
         if let Some(free) = self.free_list.pop() {
             return Id(free);
         }
@@ -23,7 +26,7 @@ impl IdGen {
         Id(this_id)
     }
 
-    pub fn free(&mut self, id: Id) {
+    pub fn release(&mut self, id: Id) {
         self.free_list.push(id.0);
     }
 }

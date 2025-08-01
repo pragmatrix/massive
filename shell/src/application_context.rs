@@ -6,6 +6,7 @@ use std::{
 use anyhow::{anyhow, bail, Result};
 use log::{error, info};
 use massive_geometry::Camera;
+use massive_scene::Scene;
 use tokio::{
     select,
     sync::{mpsc::UnboundedReceiver, oneshot},
@@ -175,6 +176,7 @@ impl ApplicationContext {
         // start a second update cycle in parallel. But this may be allowed?
         // (right now, only .animation is used, which needs only the tickery).
         &'a mut self,
+        scene: &'a Scene,
         renderer: &'a mut AsyncWindowRenderer,
         event: Option<&ShellEvent>,
     ) -> Result<UpdateCycle<'a>> {
@@ -220,25 +222,41 @@ impl ApplicationContext {
         Ok(UpdateCycle {
             mode,
             ctx: self,
+            scene,
             renderer,
         })
     }
 
     fn end_update_cycle(cycle: &mut UpdateCycle) -> Result<()> {
-        // Issue a redraw before potentially chaning the render pacing.
-        if cycle.mode == UpdateCycleMode::RedrawRequested {
+        // Push scene changes to the renderer.
+
+        let changes = cycle.scene.take_changes()?;
+        let any_scene_changes = !changes.is_empty();
+
+        // Push the changes _directly_ to the renderer which picks it in the next redraw. This may
+        // asynchronously overtake the subsequent redraw request if a previous was pending.
+        // Architecture: We could send this through the RendererMessage::Redraw, which may cause other problems
+        // (increased latency and the need for combining changes if Redraws are pending).
+        if any_scene_changes {
+            cycle.renderer.change_collector().push_many(changes);
+        }
+
+        // Issue a redraw before potentially changing the render pacing.
+        if any_scene_changes || cycle.mode == UpdateCycleMode::RedrawRequested {
             cycle.renderer.post_msg(RendererMessage::Redraw)?;
         }
 
+        // Update render pacing depending on if there are active animations.
+
         let animations_before = cycle.ctx.render_pacing == RenderPacing::Smooth;
-        let animations_detected = cycle.ctx.tickery.animation_ticks_requested();
+        let animations_now = cycle.ctx.tickery.animation_ticks_requested();
 
         match cycle.mode {
             UpdateCycleMode::ExternalOrInteractionEvent
             | UpdateCycleMode::WindowResize
             | UpdateCycleMode::RedrawRequested => {
                 // For these cycle modes, we only allow upgrades to the Smooth render pacing
-                if !animations_before && animations_detected {
+                if !animations_before && animations_now {
                     info!("Enabling smooth rendering (animations on)");
                     assert_eq!(cycle.ctx.render_pacing, RenderPacing::Fast);
                     cycle
@@ -249,7 +267,7 @@ impl ApplicationContext {
             }
             UpdateCycleMode::ApplyAnimations => {
                 assert!(animations_before);
-                if !animations_detected {
+                if !animations_now {
                     info!("Disabling smooth rendering (animations off)");
                     assert_eq!(cycle.ctx.render_pacing, RenderPacing::Smooth);
                     cycle
@@ -298,10 +316,18 @@ enum UpdateCycleMode {
 pub struct UpdateCycle<'a> {
     mode: UpdateCycleMode,
     ctx: &'a mut ApplicationContext,
+    /// The scene, so that we can push the changes at the end of the cycle to the renderer.
+    scene: &'a Scene,
     renderer: &'a mut AsyncWindowRenderer,
 }
 
 impl UpdateCycle<'_> {
+    /// Ergonomics: Since Scene can only stage here, what about implementing the stage() function directly on
+    /// UpdateCycle?
+    pub fn scene(&self) -> &Scene {
+        self.scene
+    }
+
     /// Create a timeline that is animating from a starting value to a target value.
     pub fn animation<T: Interpolatable + 'static + Send>(
         &self,
