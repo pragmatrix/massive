@@ -47,7 +47,7 @@ pub struct RenderContext<'a, 'rpass> {
     view_projection_buffer: &'a wgpu::Buffer,
     pub view_projection_matrix: Matrix4,
     pub view_projection_bind_group: &'rpass wgpu::BindGroup,
-    pub pass: &'a mut wgpu::RenderPass<'rpass>,
+    pub pass: wgpu::RenderPass<'rpass>,
 }
 
 impl Renderer {
@@ -187,7 +187,7 @@ impl Renderer {
                 });
 
             {
-                let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &surface_view,
@@ -207,7 +207,7 @@ impl Renderer {
                 let mut render_context = RenderContext {
                     queue: &self.queue,
                     view_projection_buffer: &self.view_projection_buffer,
-                    pass: &mut render_pass,
+                    pass: render_pass,
                     view_projection_matrix: *view_projection_matrix,
                     view_projection_bind_group: &self.view_projection_bind_group,
                 };
