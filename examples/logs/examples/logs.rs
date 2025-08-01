@@ -105,8 +105,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         .new_renderer(font_system.clone(), camera, window.inner_size())
         .await?;
 
-    let mut logs = Logs::new(&mut ctx, font_system);
     let scene = Scene::new();
+    let mut logs = Logs::new(&mut ctx, &scene, font_system);
 
     // Application
 
@@ -145,11 +145,14 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(ctx: &mut ApplicationContext, font_system: Arc<Mutex<FontSystem>>) -> Self {
+    fn new(
+        ctx: &mut ApplicationContext,
+        scene: &Scene,
+        font_system: Arc<Mutex<FontSystem>>,
+    ) -> Self {
         let page_width = 1280u32;
         let application = Application::default();
         let current_matrix = application.matrix((page_width, page_width));
-        let scene = Scene::new();
         let page_matrix = scene.stage(current_matrix);
         let page_location = scene.stage(Location::from(page_matrix.clone()));
 
