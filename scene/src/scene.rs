@@ -48,7 +48,7 @@ impl Scene {
     pub fn take_changes(&self) -> Result<Vec<SceneChange>> {
         let changes = self.change_tracker.take_all();
 
-        // Short circute, to prevent locking the id generator.
+        // Short circuit, to prevent locking the id generator.
         if changes.is_empty() {
             return Ok(Vec::new());
         }
