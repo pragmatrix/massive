@@ -94,7 +94,7 @@ impl QuadsRenderer {
         Ok(())
     }
 
-    pub fn render<'rpass>(&'rpass self, context: &mut RenderContext<'_, 'rpass>) {
+    pub fn render(&self, context: &mut RenderContext) {
         let max_quads = self
             .layers
             .iter()

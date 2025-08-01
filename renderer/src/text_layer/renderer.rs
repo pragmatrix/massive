@@ -95,7 +95,7 @@ impl TextLayerRenderer {
         Ok(())
     }
 
-    pub fn render<'rpass>(&'rpass self, context: &mut RenderContext<'_, 'rpass>) {
+    pub fn render(&self, context: &mut RenderContext) {
         self.sdf_renderer.render(context, &self.sdf_batches);
         self.color_renderer.render(context, &self.color_batches);
     }

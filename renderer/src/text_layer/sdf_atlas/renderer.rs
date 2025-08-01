@@ -124,17 +124,12 @@ impl SdfAtlasRenderer {
         })
     }
 
-    pub fn render<'rpass>(
-        &'rpass self,
-        context: &mut RenderContext<'_, 'rpass>,
-        batches: &'rpass [QuadBatch],
-    ) {
+    pub fn render(&self, context: &mut RenderContext, batches: &[QuadBatch]) {
         // `set_index_buffer` will fail with empty buffers, so exit early if there is nothing to do.
         if batches.is_empty() {
             return;
         }
 
-        // OO: This resolves to a &mut &mut, is this really needed?
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
         // DI: May do this inside this renderer and pass a Matrix to prepare?.

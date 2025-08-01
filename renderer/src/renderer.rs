@@ -42,12 +42,12 @@ pub struct PreparationContext<'a> {
     pub font_system: &'a mut text::FontSystem,
 }
 
-pub struct RenderContext<'a, 'rpass> {
+pub struct RenderContext<'a> {
     queue: &'a wgpu::Queue,
     view_projection_buffer: &'a wgpu::Buffer,
     pub view_projection_matrix: Matrix4,
-    pub view_projection_bind_group: &'rpass wgpu::BindGroup,
-    pub pass: wgpu::RenderPass<'rpass>,
+    pub view_projection_bind_group: &'a wgpu::BindGroup,
+    pub pass: wgpu::RenderPass<'a>,
 }
 
 impl Renderer {
@@ -330,7 +330,7 @@ impl Renderer {
     }
 }
 
-impl RenderContext<'_, '_> {
+impl RenderContext<'_> {
     pub fn queue_view_projection_matrix(&self, matrix: &Matrix4) {
         Renderer::queue_view_projection_matrix(self.queue, self.view_projection_buffer, matrix);
     }
