@@ -305,7 +305,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
         if let Some(window_event) = event.window_event_for_id(window.id()) {
             match application.update(window_event) {
-                UpdateResponse::Exit => return Ok(()),
+                UpdateResponse::Exit => {
+                    return Ok(());
+                }
                 UpdateResponse::Continue => {}
             }
         }

@@ -272,7 +272,9 @@ impl Logs {
             }
 
             match self.application.update(window_event) {
-                UpdateResponse::Exit => return UpdateResponse::Exit,
+                UpdateResponse::Exit => {
+                    return UpdateResponse::Exit;
+                }
                 UpdateResponse::Continue => {}
             }
 

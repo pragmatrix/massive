@@ -33,6 +33,7 @@ use crate::{
 #[derive(Debug)]
 pub struct ApplicationContext {
     pub event_receiver: UnboundedReceiver<ShellEvent>,
+    // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
     pub event_loop_proxy: EventLoopProxy<ShellRequest>,
     pub tickery: Arc<Tickery>,
 
