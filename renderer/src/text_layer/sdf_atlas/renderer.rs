@@ -134,11 +134,7 @@ impl SdfAtlasRenderer {
         pass.set_pipeline(&self.pipeline);
         // DI: May do this inside this renderer and pass a Matrix to prepare?.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
-        // DI: May share index buffers between renderers?
-        //
-        // OO: Don't pass the full index buffer here, only what's actually needed (it is growing
-        // only)
-
+        // Optimization: May share index buffers between renderers?
         let max_quads = batches
             .iter()
             .map(|b| b.quad_count)
@@ -156,7 +152,7 @@ impl SdfAtlasRenderer {
         {
             let text_layer_matrix = context.view_projection_matrix * model_matrix;
 
-            // OO: Set bind group only once and update the buffer?
+            // Optimization: Set bind group only once and update the buffer?
             context.queue_view_projection_matrix(&text_layer_matrix);
 
             let pass = &mut context.pass;
