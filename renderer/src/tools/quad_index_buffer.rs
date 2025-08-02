@@ -22,8 +22,7 @@ impl QuadIndexBuffer {
         (self.0.size() as usize) / size_of_val(Self::QUAD_INDICES)
     }
 
-    pub fn set(&self, pass: &mut RenderPass, max_quads: usize)
-    {
+    pub fn set(&self, pass: &mut RenderPass, max_quads: usize) {
         pass.set_index_buffer(self.slice(max_quads), Self::INDEX_FORMAT)
     }
 

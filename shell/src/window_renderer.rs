@@ -3,12 +3,9 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use log::info;
 use wgpu::{PresentMode, Surface, TextureFormat};
-use winit::{
-    dpi::PhysicalSize,
-    event::WindowEvent,
-    window::{Window, WindowId},
-};
+use winit::{dpi::PhysicalSize, event::WindowEvent, window::WindowId};
 
+use crate::shell_window::ShellWindowShared;
 use cosmic_text::FontSystem;
 use massive_geometry::{scalar, Camera, Matrix4};
 use massive_renderer::Renderer;
@@ -18,7 +15,7 @@ const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
 pub struct WindowRenderer {
-    window: Arc<Window>,
+    window: Arc<ShellWindowShared>,
     font_system: Arc<Mutex<FontSystem>>,
     camera: Camera,
     change_collector: Arc<ChangeCollector>,
@@ -27,7 +24,7 @@ pub struct WindowRenderer {
 
 impl WindowRenderer {
     pub async fn new(
-        window: Arc<Window>,
+        window: Arc<ShellWindowShared>,
         instance: wgpu::Instance,
         surface: Surface<'static>,
         font_system: Arc<Mutex<FontSystem>>,
@@ -127,6 +124,7 @@ impl WindowRenderer {
     pub fn update_camera(&mut self, camera: Camera) {
         self.camera = camera;
         // Robustness: We probably should draw this directly in the end of the next cycle.
+        // This way we would not need to hold a Window handle here anymore.
         self.window.request_redraw();
     }
 

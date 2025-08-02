@@ -1,10 +1,15 @@
-use std::sync::{Arc, Mutex};
+use std::{
+    mem,
+    ops::Deref,
+    result,
+    sync::{Arc, Mutex},
+};
 
 use anyhow::{anyhow, Result};
 use cosmic_text::FontSystem;
-use log::info;
+use log::{error, info};
 use tokio::sync::oneshot;
-use wgpu::{Instance, InstanceDescriptor, Surface, SurfaceTarget};
+use wgpu::{rwh, Instance, InstanceDescriptor, Surface, SurfaceTarget};
 use winit::{
     dpi::PhysicalSize,
     event_loop::EventLoopProxy,
@@ -14,14 +19,37 @@ use winit::{
 use crate::{shell::ShellRequest, window_renderer::WindowRenderer, AsyncWindowRenderer};
 use massive_geometry::Camera;
 
+#[derive(Clone)]
 pub struct ShellWindow {
-    /// `Arc` because this is shared with the renderer because it needs to invoke request_redraw(), too.
-    pub(crate) window: Arc<Window>,
-    // For creating surfaces, we need to communicate with the Shell.
-    pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
+    /// We need to make Window "sharable", because the Renderer needs to lock it, so that it does
+    /// not close with a renderer running.
+    shared: Arc<ShellWindowShared>,
+}
+
+// Architecture: May expose all of the Window?
+impl Deref for ShellWindow {
+    type Target = ShellWindowShared;
+
+    fn deref(&self) -> &Self::Target {
+        &self.shared
+    }
 }
 
 impl ShellWindow {
+    pub(crate) fn new(window: Window, event_loop_proxy: EventLoopProxy<ShellRequest>) -> Self {
+        Self {
+            shared: ShellWindowShared {
+                window: Some(window),
+                event_loop_proxy,
+            }
+            .into(),
+        }
+    }
+
+    pub fn id(&self) -> WindowId {
+        self.shared.id()
+    }
+
     // DI: Use SizeI to represent initial_size.
     pub async fn new_renderer(
         &self,
@@ -39,7 +67,7 @@ impl ShellWindow {
                 //     backends: wgpu::Backends::GL,
                 //     ..InstanceDescriptor::default()
                 // },
-                self.window.clone(),
+                self.shared.clone(),
             )
             .await;
         // On wasm, attempt to fall back to webgl
@@ -60,7 +88,7 @@ impl ShellWindow {
         // DI: If we can access the ShellWindow, we don't need a clone of font_system or
         // event_loop_proxy here.
         let window_renderer = WindowRenderer::new(
-            self.window.clone(),
+            self.shared.clone(),
             instance,
             surface,
             font_system,
@@ -79,7 +107,7 @@ impl ShellWindow {
     async fn new_instance_and_surface(
         &self,
         instance_descriptor: InstanceDescriptor,
-        surface_target: Arc<Window>,
+        surface_target: Arc<ShellWindowShared>,
     ) -> Result<(Instance, Surface<'static>)> {
         let instance = wgpu::Instance::new(&instance_descriptor);
 
@@ -98,7 +126,8 @@ impl ShellWindow {
 
         let (on_created, when_created) = oneshot::channel();
 
-        self.event_loop_proxy
+        self.shared
+            .event_loop_proxy
             .send_event(ShellRequest::CreateSurface {
                 instance: instance.clone(),
                 target: surface_target,
@@ -108,20 +137,66 @@ impl ShellWindow {
         let surface = when_created.await.expect("oneshot receive");
         Ok((instance, surface?))
     }
+}
 
+pub struct ShellWindowShared {
+    // Option, because we have to send it back to the event loop for closing.
+    window: Option<Window>,
+    // For creating surfaces, we need to communicate with the Shell.
+    event_loop_proxy: EventLoopProxy<ShellRequest>,
+}
+
+impl Drop for ShellWindowShared {
+    fn drop(&mut self) {
+        let window = self.window.take().unwrap();
+        if let Err(e) = self
+            .event_loop_proxy
+            .send_event(ShellRequest::DestroyWindow { window })
+        {
+            error!("Failed to send back Window to the event loop (Event loop closed)");
+            // Dropping it here would most likely block indefinitely this thread, so we forget the
+            // window.
+            mem::forget(e)
+        }
+    }
+}
+
+impl ShellWindowShared {
     pub fn scale_factor(&self) -> f64 {
-        self.window.scale_factor()
+        self.window().scale_factor()
     }
 
     pub fn id(&self) -> WindowId {
-        self.window.id()
+        self.window().id()
     }
 
     pub fn request_redraw(&self) {
-        self.window.request_redraw()
+        self.window().request_redraw()
     }
 
     pub fn inner_size(&self) -> PhysicalSize<u32> {
-        self.window.inner_size()
+        self.window().inner_size()
+    }
+
+    fn window(&self) -> &Window {
+        self.window.as_ref().unwrap()
+    }
+}
+
+// Forward wgpu requirements to the window. This is so that we can create a SurfaceTarget.
+//
+// We can't pass the Arc<Window> to the Surface target, because then we would not know from where
+// (its last instance) it gets destroyed and could not guarantee that this is done on the event
+// loop.
+
+impl rwh::HasDisplayHandle for ShellWindowShared {
+    fn display_handle(&self) -> result::Result<rwh::DisplayHandle<'_>, rwh::HandleError> {
+        self.window().display_handle()
+    }
+}
+
+impl rwh::HasWindowHandle for ShellWindowShared {
+    fn window_handle(&self) -> result::Result<rwh::WindowHandle<'_>, rwh::HandleError> {
+        self.window().window_handle()
     }
 }

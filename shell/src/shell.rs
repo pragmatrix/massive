@@ -90,6 +90,9 @@ pub enum ShellRequest {
         attributes: Box<WindowAttributes>,
         on_created: oneshot::Sender<Result<Window>>,
     },
+    DestroyWindow {
+        window: Window,
+    },
     /// Surfaces need to be created on the main thread on macOS when a window handle is provided.
     CreateSurface {
         instance: Instance,
@@ -156,6 +159,9 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
                 on_created
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
+            }
+            ShellRequest::DestroyWindow { window } => {
+                drop(window);
             }
             ShellRequest::CreateSurface {
                 instance,

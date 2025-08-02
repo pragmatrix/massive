@@ -11,12 +11,7 @@ use tokio::{
     select,
     sync::{mpsc::UnboundedReceiver, oneshot},
 };
-use winit::{
-    dpi,
-    event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoopProxy},
-    window::WindowAttributes,
-};
+use winit::{dpi, event::WindowEvent, event_loop::EventLoopProxy, window::WindowAttributes};
 
 use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 
@@ -72,26 +67,7 @@ impl ApplicationContext {
             .map_err(|e| anyhow!(e.to_string()))?;
 
         let window = when_created.await??;
-        Ok(ShellWindow {
-            window: window.into(),
-            event_loop_proxy: self.event_loop_proxy.clone(),
-        })
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[allow(unused)]
-    fn new_window_ev(
-        &self,
-        event_loop: &ActiveEventLoop,
-        inner_size: impl Into<dpi::Size>,
-        _canvas_id: Option<&str>,
-    ) -> Result<ShellWindow> {
-        let window =
-            event_loop.create_window(WindowAttributes::default().with_inner_size(inner_size))?;
-        Ok(ShellWindow {
-            window: Arc::new(window),
-            event_loop_proxy: self.event_loop_proxy.clone(),
-        })
+        Ok(ShellWindow::new(window, self.event_loop_proxy.clone()))
     }
 
     #[cfg(target_arch = "wasm32")]
