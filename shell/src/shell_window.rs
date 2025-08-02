@@ -185,7 +185,7 @@ impl ShellWindowShared {
 
 // Forward wgpu requirements to the window. This is so that we can create a SurfaceTarget.
 //
-// We can't pass the Arc<Window> to the Surface target, becase then we would not know from where
+// We can't pass the Arc<Window> to the Surface target, because then we would not know from where
 // (its last instance) it gets destroyed and could not guarantee that this is done on the event
 // loop.
 
