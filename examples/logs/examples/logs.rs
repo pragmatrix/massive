@@ -383,9 +383,9 @@ impl LogLine {
             v.shapes = v
                 .shapes
                 .iter()
-                .map(|shape| {
-                    let mut shape = shape.clone();
-                    if let Shape::GlyphRun(glyph_run) = &mut shape {
+                .cloned()
+                .map(|mut shape| {
+                    if let Shape::GlyphRun(ref mut glyph_run) = shape {
                         glyph_run.text_color.alpha = fading as f32;
                         glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
                     }
