@@ -47,10 +47,6 @@ impl<T> IdTable<T> {
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.rows.iter()
     }
-
-    pub(crate) fn rows_mut(&mut self) -> &mut [T] {
-        &mut self.rows
-    }
 }
 
 /// Indexing into a table is only possible with a valid id.
