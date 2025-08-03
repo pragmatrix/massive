@@ -25,13 +25,13 @@ pub struct Visual {
     /// could go in direction of layout?
     ///
     /// Arc to make sharing shapes with the renderer really cheap. Cloning them would be too heavy.
-    pub shapes: Arc<Vec<Shape>>,
+    pub shapes: Arc<[Shape]>,
 }
 
 #[derive(Debug)]
 pub struct VisualRenderObj {
     pub location: Id,
-    pub shapes: Arc<Vec<Shape>>,
+    pub shapes: Arc<[Shape]>,
 }
 
 impl Object for Visual {
