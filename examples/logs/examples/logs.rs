@@ -268,6 +268,7 @@ impl Logs {
                 ..
             } = window_event
             {
+                // Warning levels gets captured and forwarded to the application itself.
                 warn!("{window_event:?}");
             }
 

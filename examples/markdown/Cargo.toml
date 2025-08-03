@@ -6,6 +6,10 @@ edition = "2021"
 [dev-dependencies]
 shared = { path = "../shared" }
 
+tracing-subscriber = { workspace = true }
+tracing-chrome = { workspace = true }
+chrono = { workspace = true }
+
 anyhow = { workspace = true }
 tokio = { workspace = true }
 

@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use chrono::{DateTime, Local};
 use cosmic_text::{fontdb, FontSystem};
 use inlyne::{
     color::Theme,
@@ -16,6 +17,7 @@ use inlyne::{
     Element,
 };
 use log::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
 use winit::dpi::PhysicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
@@ -32,6 +34,27 @@ const CANVAS_ID: &str = "massive-markdown";
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    let env_filter = EnvFilter::from_default_env();
+    let console_formatter = tracing_subscriber::fmt::Layer::default();
+    // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
+
+    let now: DateTime<Local> = Local::now();
+    #[allow(unused)]
+    let time_code = now.format("%Y%m%d%H%M").to_string();
+
+    let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+        .file(format!("./massive-trace-{time_code}.json"))
+        .build();
+
+    Registry::default()
+        // Filter seems to be applied globally, which is what we want.
+        .with(env_filter)
+        // Console formatter currently captures only log::xxx! macros for some reason.
+        .with(console_formatter)
+        // .with(flame_layer)
+        .with(chrome_layer)
+        .init();
+
     shell::run(application).await
 }
 
