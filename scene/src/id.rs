@@ -8,6 +8,12 @@ use derive_more::Deref;
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref)]
 pub struct Id(u32);
 
+impl Id {
+    pub fn to_usize(self) -> usize {
+        self.0 as _
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct Generator {
     next_id: u32,
@@ -28,11 +34,5 @@ impl Generator {
 
     pub fn release(&mut self, id: Id) {
         self.free_list.push(id.0);
-    }
-}
-
-impl From<Id> for usize {
-    fn from(value: Id) -> Self {
-        *value as _
     }
 }
