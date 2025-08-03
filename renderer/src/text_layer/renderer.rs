@@ -76,7 +76,7 @@ impl TextLayerRenderer {
         self.sdf_batches.clear();
         self.color_batches.clear();
 
-        for (matrix, ref shapes) in shapes {
+        for (matrix, shapes) in shapes {
             // NB: could deref the pointer here using unsafe.
             let (sdf_batch, color_batch) = self.prepare_runs(
                 context,

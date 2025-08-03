@@ -380,12 +380,19 @@ impl LogLine {
         let fading = self.fader.value();
 
         self.visual.update_with(|v| {
-            for shape in &mut v.shapes {
-                if let Shape::GlyphRun(glyph_run) = shape {
-                    glyph_run.text_color.alpha = fading as f32;
-                    glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
-                }
-            }
+            v.shapes = v
+                .shapes
+                .iter()
+                .map(|shape| {
+                    let mut shape = shape.clone();
+                    if let Shape::GlyphRun(glyph_run) = &mut shape {
+                        glyph_run.text_color.alpha = fading as f32;
+                        glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
+                    }
+                    shape
+                })
+                .collect::<Vec<_>>()
+                .into()
         });
     }
 }

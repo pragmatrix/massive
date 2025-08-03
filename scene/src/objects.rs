@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use derive_more::From;
 
 use crate::{Handle, Id, Object};
@@ -21,13 +23,15 @@ pub struct Visual {
     /// DI: Another idea is to add `Shape::Combined(Vec<Shape>)`, but this makes extraction per
     /// renderer a bit more complex. This would also point to sharing Shapes as handles ... which
     /// could go in direction of layout?
-    pub shapes: Vec<Shape>,
+    ///
+    /// Arc to make sharing shapes with the renderer really cheap. Cloning them would be too heavy.
+    pub shapes: Arc<Vec<Shape>>,
 }
 
 #[derive(Debug)]
 pub struct VisualRenderObj {
     pub location: Id,
-    pub shapes: Vec<Shape>,
+    pub shapes: Arc<Vec<Shape>>,
 }
 
 impl Object for Visual {
@@ -46,7 +50,7 @@ impl Visual {
     pub fn new(location: Handle<Location>, shapes: impl Into<Vec<Shape>>) -> Self {
         Self {
             location,
-            shapes: shapes.into(),
+            shapes: shapes.into().into(),
         }
     }
 }
