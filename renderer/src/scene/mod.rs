@@ -17,8 +17,14 @@ pub struct Scene {
     /// The version of newest values in the tables.
     current_version: Version,
 
+    // Option: Because setting the values to None deletes then.
+    //
+    // Optimization: Defaults could be used here, too, but Matrix4 currently does not define a
+    // default(), and using defaults has the drawback, that referential errors may lead to confusing
+    // render results instead of a panic.
     matrices: IdTable<Option<Versioned<Matrix4>>>,
     locations: IdTable<Option<Versioned<LocationRenderObj>>>,
+    // This is also versioned to allow the renderer to cache derived stuff.
     visuals: IdTable<Option<VisualRenderObj>>,
 
     caches: RefCell<SceneCaches>,
@@ -51,8 +57,8 @@ impl Scene {
         let mut map: HashMap<Id, Vec<&[Shape]>> = HashMap::new();
 
         for visual in self.visuals.iter_some() {
-            let visual_id = visual.location;
-            map.entry(visual_id).or_default().push(&visual.shapes);
+            let location_id = visual.location;
+            map.entry(location_id).or_default().push(&visual.shapes);
         }
 
         // Update all matrices that are in use.
@@ -149,10 +155,10 @@ impl<T> IdTable<Option<T>> {
     pub fn apply(&mut self, change: Change<T>) {
         match change {
             Change::Create(id, value) => self.put(id, Some(value)),
-            Change::Delete(id) => self.put(id, None),
+            Change::Delete(id) => self[id] = None,
             Change::Update(id, value) => {
                 // A value at this index must exist, so use `rows_mut()` here.
-                self.rows_mut()[*id] = Some(value)
+                self[id] = Some(value)
             }
         }
     }
@@ -169,10 +175,8 @@ impl<T> IdTable<Option<Versioned<T>>> {
     pub fn apply_versioned(&mut self, change: Change<T>, version: Version) {
         match change {
             Change::Create(id, value) => self.put(id, Some(Versioned::new(value, version))),
-            Change::Delete(id) => self.put(id, None),
-            Change::Update(id, value) => {
-                self.rows_mut()[*id] = Some(Versioned::new(value, version))
-            }
+            Change::Delete(id) => self[id] = None,
+            Change::Update(id, value) => self[id] = Some(Versioned::new(value, version)),
         }
     }
 }

@@ -6,7 +6,6 @@ use massive_scene::Id;
 
 #[derive(Debug)]
 pub struct IdTable<T> {
-    // Don't dare to make this pub! Use `rows_mut()` instead.
     rows: Vec<T>,
 }
 
@@ -23,7 +22,7 @@ impl<T> IdTable<T> {
     where
         T: Default,
     {
-        let index = *id;
+        let index: usize = id.into();
         if index >= self.rows.len() {
             self.rows.resize_with(index + 1, T::default);
         }
@@ -37,7 +36,7 @@ impl<T> IdTable<T> {
     where
         T: Default,
     {
-        let index = *id;
+        let index: usize = id.into();
         if index >= self.rows.len() {
             self.rows.resize_with(index + 1, || T::default())
         }
@@ -59,12 +58,12 @@ impl<T> Index<Id> for IdTable<T> {
     type Output = T;
 
     fn index(&self, index: Id) -> &Self::Output {
-        &self.rows[*index]
+        &self.rows[usize::from(index)]
     }
 }
 
 impl<T> IndexMut<Id> for IdTable<T> {
     fn index_mut(&mut self, index: Id) -> &mut Self::Output {
-        &mut self.rows[*index]
+        &mut self.rows[usize::from(index)]
     }
 }

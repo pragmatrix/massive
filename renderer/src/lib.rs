@@ -15,6 +15,7 @@ mod tools;
 
 pub use color_buffer::*;
 pub use renderer::Renderer;
+// Cleanup: This is old, unused and should be removed.
 pub use shape_renderer::*;
 pub use size_buffer::*;
 
