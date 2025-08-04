@@ -1,6 +1,6 @@
 use std::ops::Deref;
 
-pub type Version = u64;
+use crate::Version;
 
 #[derive(Debug)]
 pub struct Versioned<T> {

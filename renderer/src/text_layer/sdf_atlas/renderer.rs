@@ -132,8 +132,10 @@ impl SdfAtlasRenderer {
 
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
+
         // DI: May do this inside this renderer and pass a Matrix to prepare?.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
+
         // Optimization: May share index buffers between renderers?
         let max_quads = batches
             .iter()
@@ -141,6 +143,8 @@ impl SdfAtlasRenderer {
             .max()
             .unwrap_or_default();
 
+        // Optimization: We could increase its capacity at this point when needed.
+        // Architecture: Share it and call it quad_index_buffer.
         self.index_buffer.set(pass, max_quads);
 
         for QuadBatch {
@@ -156,8 +160,10 @@ impl SdfAtlasRenderer {
             context.queue_view_projection_matrix(&text_layer_matrix);
 
             let pass = &mut context.pass;
+            // Set this only once? I thinkg this should be possible.
             pass.set_bind_group(0, context.view_projection_bind_group, &[]);
 
+            // Also, this is mostly the same, set this only once.
             pass.set_bind_group(1, fs_bind_group, &[]);
             pass.set_vertex_buffer(0, vertex_buffer.slice(..));
 

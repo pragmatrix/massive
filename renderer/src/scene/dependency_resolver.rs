@@ -1,4 +1,7 @@
-use super::versioning::{Computed, Version, Versioned};
+use crate::{
+    scene::versioning::{Computed, Versioned},
+    Version,
+};
 use massive_scene::Id;
 
 /// Resolve a computed value.

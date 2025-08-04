@@ -11,7 +11,7 @@ use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     pipelines, pods, quads::QuadsRenderer, scene::Scene, text, text_layer::TextLayerRenderer,
-    texture,
+    texture, TransactionManager,
 };
 
 pub struct Renderer {
@@ -20,6 +20,7 @@ pub struct Renderer {
     pub queue: wgpu::Queue,
     pub surface_config: wgpu::SurfaceConfiguration,
 
+    transaction_manager: TransactionManager,
     scene: Scene,
 
     // DI: Type this.
@@ -83,6 +84,7 @@ impl Renderer {
             queue,
             surface,
             surface_config,
+            transaction_manager: TransactionManager::default(),
             scene: Scene::default(),
             view_projection_buffer,
             view_projection_bind_group,
@@ -114,16 +116,14 @@ impl Renderer {
         font_system: &mut text::FontSystem,
         changes: impl IntoIterator<Item = SceneChange>,
     ) -> Result<()> {
-        self.scene.transact(changes);
+        let transaction = self.transaction_manager.new_transaction();
 
-        let mut context = PreparationContext {
-            device: &self.device,
-            queue: &self.queue,
-            font_system,
-        };
+        for change in changes {
+            self.scene.apply(change, &transaction);
+        }
 
         // OO: Avoid allocations.
-        let grouped_shapes: Vec<_> = self.scene.grouped_shapes().collect();
+        let grouped_shapes: Vec<_> = self.scene.grouped_shapes(&transaction).collect();
 
         let pixel_matrix = self.pixel_matrix();
 
@@ -133,6 +133,12 @@ impl Renderer {
             .into_iter()
             .map(|(m, v)| (pixel_matrix * m, v))
             .collect();
+
+        let mut context = PreparationContext {
+            device: &self.device,
+            queue: &self.queue,
+            font_system,
+        };
 
         // OO: parallelize?
         self.text_layer_renderer

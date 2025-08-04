@@ -13,6 +13,7 @@ pub struct QuadBatch {
     // Matrix is not prepared as a buffer, because it is combined with the camera matrix before
     // uploading to the shader.
     model_matrix: Matrix4,
+    /// Contains texture reference(s) and the sampler configuration.
     fs_bind_group: wgpu::BindGroup,
     vertex_buffer: wgpu::Buffer,
     quad_count: usize,

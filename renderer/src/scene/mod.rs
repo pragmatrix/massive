@@ -6,7 +6,9 @@ use dependency_resolver::{resolve, DependencyResolver};
 use id_table::IdTable;
 use massive_geometry::Matrix4;
 use massive_scene::{Change, Id, LocationRenderObj, SceneChange, Shape, VisualRenderObj};
-use versioning::{Computed, Version, Versioned};
+use versioning::{Computed, Versioned};
+
+use crate::{Transaction, Version};
 
 mod dependency_resolver;
 mod id_table;
@@ -14,9 +16,6 @@ mod versioning;
 
 #[derive(Debug, Default)]
 pub struct Scene {
-    /// The version of newest values in the tables.
-    current_version: Version,
-
     // Option: Because setting the values to None deletes then.
     //
     // Optimization: Defaults could be used here, too, but Matrix4 currently does not define a
@@ -31,21 +30,17 @@ pub struct Scene {
 }
 
 impl Scene {
-    /// Integrate a number of scene changes as single transaction into the scene.
+    /// Integrate one scene change into the scene.
     ///
     /// The transaction is given a new version number, which is then treated as the most recent
     /// version and the current version of the whole scene.
-    pub fn transact(&mut self, changes: impl IntoIterator<Item = SceneChange>) {
-        self.current_version += 1;
-        for change in changes {
-            self.apply(change, self.current_version)
-        }
-    }
-
-    fn apply(&mut self, change: SceneChange, version: Version) {
+    pub fn apply(&mut self, change: SceneChange, transaction: &Transaction) {
+        let current_version = transaction.current_version();
         match change {
-            SceneChange::Matrix(change) => self.matrices.apply_versioned(change, version),
-            SceneChange::Location(change) => self.locations.apply_versioned(change, version),
+            SceneChange::Matrix(change) => self.matrices.apply_versioned(change, current_version),
+            SceneChange::Location(change) => {
+                self.locations.apply_versioned(change, current_version)
+            }
             SceneChange::Visual(change) => self.visuals.apply(change),
         }
     }
@@ -53,6 +48,7 @@ impl Scene {
     /// Returns a set of grouped shape by matrix.
     pub fn grouped_shapes(
         &self,
+        transaction: &Transaction,
     ) -> impl Iterator<Item = (Matrix4, impl Iterator<Item = &Shape> + Clone)> {
         let mut map: HashMap<Id, Vec<&[Shape]>> = HashMap::new();
 
@@ -63,9 +59,10 @@ impl Scene {
 
         // Update all matrices that are in use.
         {
+            let version = transaction.current_version();
             let mut caches = self.caches.borrow_mut();
             for visual_id in map.keys() {
-                self.resolve_visual_matrix(*visual_id, &mut caches);
+                self.resolve_visual_matrix(*visual_id, version, &mut caches);
             }
         }
 
@@ -84,8 +81,13 @@ impl Scene {
     ///
     /// When this function returns the matrix at `location_id` is up to date with the current
     /// version and can be used for rendering.
-    fn resolve_visual_matrix(&self, location_id: Id, caches: &mut SceneCaches) {
-        resolve::<VisualMatrix>(self.current_version, self, caches, location_id);
+    fn resolve_visual_matrix(
+        &self,
+        location_id: Id,
+        current_version: Version,
+        caches: &mut SceneCaches,
+    ) {
+        resolve::<VisualMatrix>(current_version, self, caches, location_id);
     }
 }
 
