@@ -276,10 +276,10 @@ impl Renderer {
             * Matrix4::from_scale(1.0 / surface_height as f64 * 2.0)
     }
 
-    // A Matrix that projects from normalized view coordinates -1.0 to 1.0 (3D, all axis, Z from 0.1
-    // to 100) to 2D coordinates.
-
-    // A Matrix that translates from the WGPU coordinate system to surface coordinates.
+    /// A Matrix that projects from normalized view coordinates -1.0 to 1.0 (3D, all axis, Z from 0.1
+    /// to 100) to 2D coordinates.
+    ///
+    /// A Matrix that translates from the WGPU coordinate system to surface coordinates.
     pub fn surface_matrix(&self) -> Matrix4 {
         let (width, height) = self.surface_size();
         Matrix4::from_nonuniform_scale(width as f64 / 2.0, -(height as f64 / 2.0), 1.0)
