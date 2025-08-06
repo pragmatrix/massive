@@ -1,4 +1,5 @@
 #![allow(clippy::needless_range_loop)]
+#![allow(unsafe_op_in_unsafe_fn)]
 
 // Ported from Skia Milestone 115.
 
@@ -150,13 +151,7 @@ fn edge_distance(direction: Point, alpha: f32) -> f32 {
     }
     // this is easier if we treat the direction as being in the first octant
     // (other octants are symmetrical)
-    let (dx, dy) = {
-        if dx < dy {
-            (dy, dx)
-        } else {
-            (dx, dy)
-        }
-    };
+    let (dx, dy) = { if dx < dy { (dy, dx) } else { (dx, dy) } };
 
     // a1 = 0.5*dy/dx is the smaller fractional area chopped off by the edge
     // to avoid the divide, we just consider the numerator

@@ -1,7 +1,7 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use cosmic_text::{fontdb, FontSystem};
+use cosmic_text::{FontSystem, fontdb};
 use syntect::{
     easy::HighlightLines,
     highlighting::{FontStyle, Style, ThemeSet},
@@ -13,7 +13,7 @@ use winit::dpi::LogicalSize;
 use massive_geometry::{Camera, Color};
 use massive_scene::{Scene, Visual};
 use massive_shapes::TextWeight;
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{ApplicationContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},

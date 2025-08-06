@@ -8,11 +8,11 @@ use tracing::instrument;
 use wgpu::Device;
 
 use crate::{
+    ColorBuffer,
     glyph::{GlyphCache, GlyphClass, GlyphRasterizationParam, RasterizedGlyphKey},
     primitives::Primitive,
     texture::{self, Texture},
     tools::texture_sampler,
-    ColorBuffer,
 };
 use massive_geometry::{Matrix4, Point};
 use massive_shapes::{GlyphRun, GlyphRunShape, RunGlyph, Shape};

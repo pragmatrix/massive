@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use cosmic_text::{fontdb, FontSystem};
+use cosmic_text::{FontSystem, fontdb};
 use log::{debug, warn};
 use termwiz::escape;
 use tokio::{
@@ -14,7 +14,7 @@ use tokio::{
     sync::mpsc::{self, UnboundedReceiver},
 };
 use tracing_subscriber::{
-    filter, fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+    EnvFilter, Layer, filter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
 };
 use winit::{
     dpi::LogicalSize,
@@ -25,9 +25,9 @@ use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Identity, Vector3};
 use massive_scene::{Handle, Location, Matrix, Scene, Shape, Visual};
 use massive_shell::{
+    ApplicationContext, ShellWindow,
     application_context::UpdateCycle,
     shell::{self, ShellEvent},
-    ApplicationContext, ShellWindow,
 };
 
 use logs::terminal::{self, color_schemes};

@@ -6,8 +6,8 @@ use crate::{Transaction, Version};
 
 mod dependency_resolver;
 mod id_table;
-mod versioning;
 mod location_matrices;
+mod versioning;
 
 pub use id_table::IdTable;
 pub use location_matrices::LocationMatrices;

@@ -3,7 +3,7 @@ mod glyph;
 mod pipelines;
 mod pods;
 mod primitives;
-mod quads;
+// mod quads;
 mod renderer;
 mod scene;
 mod shape;

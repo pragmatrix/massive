@@ -1,7 +1,7 @@
 use massive_scene::Matrix;
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     TextureFormat,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 
 use super::BindGroupLayout;
@@ -9,8 +9,8 @@ use crate::{
     glyph::GlyphAtlas,
     pods::TextureColorVertex,
     renderer::{PreparationContext, RenderContext},
-    text_layer::{sdf_atlas::QuadInstance, QuadBatch},
-    tools::{create_pipeline, texture_sampler, QuadIndexBuffer},
+    text_layer::{QuadBatch, sdf_atlas::QuadInstance},
+    tools::{QuadIndexBuffer, create_pipeline, texture_sampler},
 };
 
 pub struct SdfAtlasRenderer {

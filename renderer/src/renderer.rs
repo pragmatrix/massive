@@ -13,9 +13,7 @@ use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     TransactionManager, pipelines, pods,
-    quads::QuadsRenderer,
     scene::{LocationMatrices, Scene},
-    text,
     text_layer::TextLayerRenderer,
     texture,
 };

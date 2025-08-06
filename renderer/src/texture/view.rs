@@ -1,4 +1,4 @@
-use crate::{tools::AsBindingResource, SizeBuffer};
+use crate::{SizeBuffer, tools::AsBindingResource};
 
 #[derive(Debug)]
 pub struct View {

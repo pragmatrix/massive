@@ -1,7 +1,7 @@
 use std::mem::{self, size_of_val};
 
 use log::debug;
-use wgpu::{util::DeviceExt, BufferSlice, IndexFormat, RenderPass};
+use wgpu::{BufferSlice, IndexFormat, RenderPass, util::DeviceExt};
 
 #[derive(Debug)]
 pub struct QuadIndexBuffer(wgpu::Buffer);
@@ -51,7 +51,9 @@ impl QuadIndexBuffer {
             assert!(proposed_quad_capacity != 0);
         }
 
-        debug!("Growing index buffer from {current} to {proposed_quad_capacity} quads, required: {required_quad_count}");
+        debug!(
+            "Growing index buffer from {current} to {proposed_quad_capacity} quads, required: {required_quad_count}"
+        );
 
         let indices = Self::generate_array(self, proposed_quad_capacity);
         self.0 = Self::create_buffer(device, &indices);

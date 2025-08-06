@@ -1,7 +1,7 @@
 use derive_more::Deref;
 
 use super::View;
-use crate::{bind_group_entries, tools::BindGroupLayoutBuilder, ColorBuffer};
+use crate::{ColorBuffer, bind_group_entries, tools::BindGroupLayoutBuilder};
 
 /// The bind group layout of a texture.
 #[derive(Debug, Deref)]

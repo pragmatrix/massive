@@ -1,13 +1,13 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::Result;
-use cosmic_text::{fontdb, FontSystem};
+use cosmic_text::{FontSystem, fontdb};
 use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
 use massive_scene::{Scene, Visual};
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{ApplicationContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText},

@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
-use log::error;
 use massive_geometry::{Point, Point3};
 use massive_scene::{Change, Id, SceneChange, Shape, VisualRenderObj};
 use massive_shapes::{GlyphRun, RunGlyph, TextWeight};

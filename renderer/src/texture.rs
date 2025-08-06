@@ -1,7 +1,7 @@
-use tracing::{span, Level};
+use tracing::{Level, span};
 use wgpu::util::DeviceExt;
 
-use crate::{pods::TextureVertex, primitives::Pipeline, texture, ColorBuffer};
+use crate::{ColorBuffer, pods::TextureVertex, primitives::Pipeline, texture};
 use massive_geometry::Point3;
 
 mod bind_group;

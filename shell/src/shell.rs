@@ -16,7 +16,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{application_context::RenderPacing, ApplicationContext, ShellWindow};
+use crate::{ApplicationContext, ShellWindow, application_context::RenderPacing};
 use massive_animation::Tickery;
 
 pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(

@@ -3,12 +3,12 @@ use massive_geometry::Matrix4;
 use massive_scene::{Id, LocationRenderObj};
 
 use crate::{
-    scene::{
-        dependency_resolver::{resolve, DependencyResolver},
-        versioning::{Computed, Versioned},
-        IdTable, Scene,
-    },
     Transaction, Version,
+    scene::{
+        IdTable, Scene,
+        dependency_resolver::{DependencyResolver, resolve},
+        versioning::{Computed, Versioned},
+    },
 };
 
 /// Computed matrices of all the visuals.
@@ -26,7 +26,7 @@ impl LocationMatrices {
         locations: impl Iterator<Item = Id>,
     ) {
         locations.for_each(|id| {
-            self.compute_visual_matrix(scene, id, &transaction);
+            self.compute_visual_matrix(scene, id, transaction);
         });
     }
 

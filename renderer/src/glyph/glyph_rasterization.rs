@@ -6,8 +6,8 @@ use swash::{
 use text::SwashContent;
 
 use super::{
-    distance_field_gen::{generate_distance_field_from_image, DISTANCE_FIELD_PAD},
     RasterizedGlyphKey, SwashRasterizationParam,
+    distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image},
 };
 
 /// Rasterize a glyph into [`SwashImage`] as either monochrome, colored, or SDF, with appropriate
