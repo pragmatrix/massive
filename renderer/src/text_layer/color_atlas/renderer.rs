@@ -115,19 +115,15 @@ impl ColorAtlasRenderer {
     pub fn prepare(&self, context: &mut RenderContext) {
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
-
-        // DI: May do this inside this renderer and pass a Matrix to prepare?.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
     }
 
     pub fn render(&self, context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
         let text_layer_matrix = context.view_projection_matrix * model_matrix;
 
-        // OO: Set bind group only once and update the buffer?
         context.queue_view_projection_matrix(&text_layer_matrix);
 
         let pass = &mut context.pass;
-        pass.set_bind_group(0, context.view_projection_bind_group, &[]);
 
         pass.set_bind_group(1, &batch.fs_bind_group, &[]);
         pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));

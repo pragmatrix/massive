@@ -121,9 +121,6 @@ impl SdfAtlasRenderer {
     pub fn prepare(&self, context: &mut RenderContext) {
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
-
-        // DI: May do this inside this renderer and pass a Matrix to prepare?.
-        pass.set_bind_group(0, context.view_projection_bind_group, &[]);
     }
 
     /// The prerequisites for calling render():
@@ -132,11 +129,11 @@ impl SdfAtlasRenderer {
     pub fn render(&self, context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
         let text_layer_matrix = context.view_projection_matrix * model_matrix;
 
-        // Optimization: Set bind group only once and update the buffer?
         context.queue_view_projection_matrix(&text_layer_matrix);
 
+    
+
         let pass = &mut context.pass;
-        // Set this only once? I think this should be possible.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
 
         // Also, this is mostly the same, set this only once.
