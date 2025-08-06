@@ -23,8 +23,7 @@ pub fn resolve<Resolver: DependencyResolver>(
 {
     // Already validated at the latest version? Done.
     //
-    // `get_or_default` must be used here. This is the only situation in which the cache may
-    // need to be resized.
+    // This is the only situation in which the id might make the underlying storage to resize.
     if Resolver::computed_mut(computed_storage, id).validated_at == head_version {
         return;
     }

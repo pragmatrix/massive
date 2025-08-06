@@ -7,7 +7,7 @@ use winit::{dpi::PhysicalSize, event::WindowEvent, window::WindowId};
 
 use crate::shell_window::ShellWindowShared;
 use cosmic_text::FontSystem;
-use massive_geometry::{scalar, Camera, Matrix4};
+use massive_geometry::{Camera, Matrix4, scalar};
 use massive_renderer::Renderer;
 use massive_scene::ChangeCollector;
 
@@ -94,7 +94,7 @@ impl WindowRenderer {
             desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
         };
         surface.configure(&device, &surface_config);
-        let renderer = Renderer::new(device, queue, surface, surface_config);
+        let renderer = Renderer::new(device, queue, surface, surface_config, font_system.clone());
 
         let window_renderer = WindowRenderer {
             window: window.clone(),
@@ -175,10 +175,9 @@ impl WindowRenderer {
     ) -> Result<wgpu::SurfaceTexture> {
         let changes = self.change_collector.take_all();
 
-        {
-            let mut font_system = self.font_system.lock().unwrap();
-            self.renderer.apply_changes(&mut font_system, changes)?;
-        }
+        self.renderer.apply_changes(changes)?;
+
+        self.renderer.prepare();
 
         // Important: This blocks in VSync modes until the previous frame is presented.
         // Robustness: Learn about how to recover from specific `SurfaceError`s errors here

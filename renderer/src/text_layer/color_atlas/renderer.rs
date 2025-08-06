@@ -1,26 +1,24 @@
+use massive_scene::Matrix;
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     TextureFormat,
+    util::{BufferInitDescriptor, DeviceExt},
 };
-
-use massive_geometry::Matrix4;
 
 use crate::{
     glyph::GlyphAtlas,
     pods::TextureVertex,
     renderer::{PreparationContext, RenderContext},
-    tools::{create_pipeline, texture_sampler, QuadIndexBuffer},
+    text_layer::{QuadBatch, color_atlas::QuadInstance},
+    tools::{QuadIndexBuffer, create_pipeline, texture_sampler},
 };
 
-use super::{BindGroupLayout, QuadBatch, QuadInstance};
+use super::BindGroupLayout;
 
 pub struct ColorAtlasRenderer {
     pub atlas: GlyphAtlas,
     texture_sampler: wgpu::Sampler,
     pipeline: wgpu::RenderPipeline,
     fs_bind_group_layout: BindGroupLayout,
-    // OO: Share this sucker.
-    index_buffer: QuadIndexBuffer,
 }
 
 impl ColorAtlasRenderer {
@@ -62,7 +60,6 @@ impl ColorAtlasRenderer {
             texture_sampler: texture_sampler::linear_clamping(device),
             fs_bind_group_layout,
             pipeline,
-            index_buffer: QuadIndexBuffer::new(device),
         }
     }
 
@@ -70,7 +67,6 @@ impl ColorAtlasRenderer {
     pub fn batch(
         &mut self,
         context: &PreparationContext,
-        model_matrix: &Matrix4,
         instances: &[QuadInstance],
     ) -> Option<QuadBatch> {
         if instances.is_empty() {
@@ -104,71 +100,42 @@ impl ColorAtlasRenderer {
         });
 
         let bind_group = self.fs_bind_group_layout.create_bind_group(
-            context.device,
+            device,
             self.atlas.texture_view(),
             &self.texture_sampler,
         );
 
-        // Grow index buffer as needed.
-
-        let quad_count = instances.len();
-        self.index_buffer
-            .ensure_can_index_num_quads(context.device, quad_count);
-
         Some(QuadBatch {
-            model_matrix: *model_matrix,
             fs_bind_group: bind_group,
             vertex_buffer,
-            quad_count,
+            quad_count: instances.len(),
         })
     }
 
-    pub fn render(&self, context: &mut RenderContext, batches: &[QuadBatch]) {
-        // `set_index_buffer` will fail with empty buffers, so exit early if there is nothing to do.
-        if batches.is_empty() {
-            return;
-        }
-
+    pub fn prepare(&self, context: &mut RenderContext) {
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
+
         // DI: May do this inside this renderer and pass a Matrix to prepare?.
         pass.set_bind_group(0, context.view_projection_bind_group, &[]);
-        // DI: May share index buffers between renderers?
-        //
-        // OO: Don't pass the full index buffer here, only what's actually needed (it is growing
-        // only)
+    }
 
-        let max_quads = batches
-            .iter()
-            .map(|b| b.quad_count)
-            .max()
-            .unwrap_or_default();
+    pub fn render(&self, context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
+        let text_layer_matrix = context.view_projection_matrix * model_matrix;
 
-        self.index_buffer.set(pass, max_quads);
+        // OO: Set bind group only once and update the buffer?
+        context.queue_view_projection_matrix(&text_layer_matrix);
 
-        for QuadBatch {
-            model_matrix,
-            fs_bind_group,
-            vertex_buffer,
-            quad_count,
-        } in batches
-        {
-            let text_layer_matrix = context.view_projection_matrix * model_matrix;
+        let pass = &mut context.pass;
+        pass.set_bind_group(0, context.view_projection_bind_group, &[]);
 
-            // OO: Set bind group only once and update the buffer?
-            context.queue_view_projection_matrix(&text_layer_matrix);
+        pass.set_bind_group(1, &batch.fs_bind_group, &[]);
+        pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
 
-            let pass = &mut context.pass;
-            pass.set_bind_group(0, context.view_projection_bind_group, &[]);
-
-            pass.set_bind_group(1, fs_bind_group, &[]);
-            pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-
-            pass.draw_indexed(
-                0..(quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
-                0,
-                0..1,
-            )
-        }
+        pass.draw_indexed(
+            0..(batch.quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+            0,
+            0..1,
+        )
     }
 }

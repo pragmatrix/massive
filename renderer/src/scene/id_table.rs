@@ -18,7 +18,7 @@ impl<T> Default for IdTable<T> {
 }
 
 impl<T> IdTable<T> {
-    pub fn put(&mut self, id: Id, value: T)
+    pub fn insert(&mut self, id: Id, value: T)
     where
         T: Default,
     {

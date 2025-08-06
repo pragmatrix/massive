@@ -11,6 +11,10 @@ pub struct TransactionManager {
 impl TransactionManager {
     pub fn new_transaction(&mut self) -> Transaction {
         self.current_version += 1;
+        self.current_transaction()
+    }
+
+    pub fn current_transaction(&mut self) -> Transaction {
         Transaction {
             current_version: self.current_version,
         }

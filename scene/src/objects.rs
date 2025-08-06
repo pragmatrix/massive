@@ -28,7 +28,7 @@ pub struct Visual {
     pub shapes: Arc<[Shape]>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct VisualRenderObj {
     pub location: Id,
     pub shapes: Arc<[Shape]>,
@@ -86,7 +86,7 @@ impl Object for Location {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct LocationRenderObj {
     pub parent: Option<Id>,
     pub matrix: Id,

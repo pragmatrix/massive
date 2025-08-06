@@ -1,17 +1,23 @@
 use std::{
     mem::{self},
     result,
+    sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
+use cosmic_text::FontSystem;
 use log::{info, warn};
 use massive_geometry::Matrix4;
 use massive_scene::SceneChange;
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
-    pipelines, pods, quads::QuadsRenderer, scene::Scene, text, text_layer::TextLayerRenderer,
-    texture, TransactionManager,
+    TransactionManager, pipelines, pods,
+    quads::QuadsRenderer,
+    scene::{LocationMatrices, Scene},
+    text,
+    text_layer::TextLayerRenderer,
+    texture,
 };
 
 pub struct Renderer {
@@ -22,6 +28,7 @@ pub struct Renderer {
 
     transaction_manager: TransactionManager,
     scene: Scene,
+    visual_matrices: LocationMatrices,
 
     // DI: Type this.
     view_projection_buffer: wgpu::Buffer,
@@ -33,18 +40,19 @@ pub struct Renderer {
     pub texture_bind_group_layout: texture::BindGroupLayout,
 
     text_layer_renderer: TextLayerRenderer,
-    quads_renderer: QuadsRenderer,
+    // quads_renderer: QuadsRenderer,
 }
 
 /// The context provided to `prepare()` middleware functions.
 pub struct PreparationContext<'a> {
     pub device: &'a wgpu::Device,
     pub queue: &'a wgpu::Queue,
-    pub font_system: &'a mut text::FontSystem,
 }
 
 pub struct RenderContext<'a> {
+    // pub device: &'a wgpu::Device,
     queue: &'a wgpu::Queue,
+    pub pixel_matrix: &'a Matrix4,
     view_projection_buffer: &'a wgpu::Buffer,
     pub view_projection_matrix: Matrix4,
     pub view_projection_bind_group: &'a wgpu::BindGroup,
@@ -58,6 +66,7 @@ impl Renderer {
         queue: wgpu::Queue,
         surface: wgpu::Surface<'static>,
         surface_config: wgpu::SurfaceConfiguration,
+        font_system: Arc<Mutex<FontSystem>>,
     ) -> Self {
         let view_projection_buffer = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("View Projection Matrix Buffer"),
@@ -73,11 +82,16 @@ impl Renderer {
 
         let format = surface_config.format;
 
-        let text_layer_renderer =
-            TextLayerRenderer::new(&device, format, &view_projection_bind_group_layout);
+        let text_layer_renderer = TextLayerRenderer::new(
+            &device,
+            font_system,
+            format,
+            &view_projection_bind_group_layout,
+        );
 
-        let quads_renderer =
-            QuadsRenderer::new(&device, format, &view_projection_bind_group_layout);
+        // Currently unused (and also not anti-aliased). Need to create an sdf shape renderer.
+        // let quads_renderer =
+        //     QuadsRenderer::new(&device, format, &view_projection_bind_group_layout);
 
         let mut renderer = Self {
             device,
@@ -86,11 +100,12 @@ impl Renderer {
             surface_config,
             transaction_manager: TransactionManager::default(),
             scene: Scene::default(),
+            visual_matrices: LocationMatrices::default(),
             view_projection_buffer,
             view_projection_bind_group,
             texture_bind_group_layout,
             text_layer_renderer,
-            quads_renderer,
+            // quads_renderer,
         };
 
         renderer.reconfigure_surface();
@@ -102,50 +117,67 @@ impl Renderer {
     /// This is for legacy support an should be removed.
     pub fn bootstrap_changes(
         &mut self,
-        font_system: &mut text::FontSystem,
         changes: impl IntoIterator<Item = SceneChange>,
     ) -> Result<()> {
         // Reset the scene.
         self.scene = Scene::default();
-        self.apply_changes(font_system, changes)
+        self.apply_changes(changes)
     }
 
+    /// Apply changes to the renderer hierarchy.
+    ///
+    /// This can be called multiple times with new changes without losing significant performance compared to combining all changes first. I.e. no expensive value computation is done here.
+    ///
+    /// After all changes are pushed, call prepare().
     #[tracing::instrument(skip_all)]
-    pub fn apply_changes(
-        &mut self,
-        font_system: &mut text::FontSystem,
-        changes: impl IntoIterator<Item = SceneChange>,
-    ) -> Result<()> {
-        let transaction = self.transaction_manager.new_transaction();
-
-        for change in changes {
-            self.scene.apply(change, &transaction);
-        }
-
-        // OO: Avoid allocations.
-        let grouped_shapes: Vec<_> = self.scene.grouped_shapes(&transaction).collect();
-
-        let pixel_matrix = self.pixel_matrix();
-
-        // Group by matrix and apply the pixel matrix.
-        // OO: Lot's of allocations here. Modify Matrix in-place?
-        let grouped_by_matrix: Vec<_> = grouped_shapes
-            .into_iter()
-            .map(|(m, v)| (pixel_matrix * m, v))
-            .collect();
-
-        let mut context = PreparationContext {
+    pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = SceneChange>) -> Result<()> {
+        let context = &mut PreparationContext {
             device: &self.device,
             queue: &self.queue,
-            font_system,
         };
 
-        // OO: parallelize?
-        self.text_layer_renderer
-            .prepare(&mut context, &grouped_by_matrix)?;
-        self.quads_renderer
-            .prepare(&mut context, &grouped_by_matrix)?;
+        let transaction = self.transaction_manager.new_transaction();
+
+        // Architecture:
+        //
+        // Because there are no interdependencies beetween the text layer renderer and the scene, we
+        // could apply them in batches (and even paralellize)
+
+        // Optimization:
+        //
+        // I don't think that the scene needs to store Visuals anymore. All that is needed is
+        // extracted in the text_layer_renderer.
+        for change in changes {
+            // Optimization: Parallelize?
+            self.scene.apply(&change, &transaction);
+            self.text_layer_renderer.apply(&change, context)?;
+        }
         Ok(())
+    }
+
+    /// Prepare everything we can before the final render, without changing GPU state.
+    ///
+    /// Currently this
+    /// - This computes all final matrices.
+    ///
+    /// The prepare step should run before get_current_texture(), because it would block, and wait
+    /// for the next VSync. If we run prepare steps before, we can utilize CPU time more.
+    pub fn prepare(&mut self) {
+        let context = &mut PreparationContext {
+            device: &self.device,
+            queue: &self.queue,
+        };
+
+        self.text_layer_renderer.prepare(context);
+
+        let transaction = self.transaction_manager.current_transaction();
+
+        // Compute visuals locations
+        {
+            let all_locations = self.text_layer_renderer.all_locations();
+            self.visual_matrices
+                .compute_matrices(&self.scene, &transaction, all_locations);
+        }
     }
 
     /// We want this separate from [`Self::render_and_present`], because of the timing impliciation.
@@ -176,6 +208,8 @@ impl Renderer {
         let surface_view = surface_texture
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let pixel_matrix = self.pixel_matrix();
 
         // OO: This should not be needed anymore, because every renderer is now responsible for
         // setting up the view projection.
@@ -211,15 +245,18 @@ impl Renderer {
 
                 // DI: There is a lot of view_projection stuff going on.
                 let mut render_context = RenderContext {
+                    // device: &self.device,
                     queue: &self.queue,
+                    pixel_matrix: &pixel_matrix,
                     view_projection_buffer: &self.view_projection_buffer,
                     pass: render_pass,
                     view_projection_matrix: *view_projection_matrix,
                     view_projection_bind_group: &self.view_projection_bind_group,
                 };
 
-                self.text_layer_renderer.render(&mut render_context);
-                self.quads_renderer.render(&mut render_context);
+                self.text_layer_renderer
+                    .render(&self.visual_matrices, &mut render_context);
+                // self.quads_renderer.render(&mut render_context);
 
                 // for pipeline in &self.pipelines {
                 //     let kind = pipeline.0;

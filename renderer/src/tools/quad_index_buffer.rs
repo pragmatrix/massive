@@ -31,6 +31,7 @@ impl QuadIndexBuffer {
             .slice(..(max_quads * Self::INDICES_PER_QUAD * Self::INDEX_SIZE) as u64)
     }
 
+    // Optimization: Copy old data to the new buffer directly on the GPU
     pub fn ensure_can_index_num_quads(
         &mut self,
         device: &wgpu::Device,
