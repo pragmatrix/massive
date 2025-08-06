@@ -9,7 +9,7 @@ pub struct BindGroupLayout(wgpu::BindGroupLayout);
 
 impl BindGroupLayout {
     pub fn new(device: &wgpu::Device) -> Self {
-        let layout = BindGroupLayoutBuilder::fragment()
+        let layout = BindGroupLayoutBuilder::fragment_stage()
             .texture()
             // Texture size
             .uniform()

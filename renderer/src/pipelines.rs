@@ -90,9 +90,9 @@ pub fn create_view_projection_bind_group(
     device: &wgpu::Device,
     view_projection_buffer: &wgpu::Buffer,
 ) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
-    let layout = BindGroupLayoutBuilder::vertex()
+    let layout = BindGroupLayoutBuilder::vertex_stage()
         .uniform()
-        .build("Camera Bind Group Layout", device);
+        .build("View Projection Bind Group Layout", device);
 
     let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
         layout: &layout,

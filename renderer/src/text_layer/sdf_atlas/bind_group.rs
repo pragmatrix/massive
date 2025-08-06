@@ -9,7 +9,7 @@ pub struct BindGroupLayout(wgpu::BindGroupLayout);
 
 impl BindGroupLayout {
     pub fn new(device: &Device) -> Self {
-        let layout = BindGroupLayoutBuilder::fragment()
+        let layout = BindGroupLayoutBuilder::fragment_stage()
             .texture()
             .sampler()
             .build("Atlas SDF Bind Group Layout", device);

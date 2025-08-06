@@ -4,11 +4,11 @@ pub struct BindGroupLayoutBuilder {
 }
 
 impl BindGroupLayoutBuilder {
-    pub fn vertex() -> Self {
+    pub fn vertex_stage() -> Self {
         Self::new(wgpu::ShaderStages::VERTEX)
     }
 
-    pub fn fragment() -> Self {
+    pub fn fragment_stage() -> Self {
         Self::new(wgpu::ShaderStages::FRAGMENT)
     }
 
