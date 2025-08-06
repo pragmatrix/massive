@@ -7,20 +7,20 @@ use std::{
 use anyhow::{Context, Result};
 use cosmic_text::FontSystem;
 use inlyne::{
+    Element,
     color::Theme,
     interpreter::HtmlInterpreter,
     opts::ResolvedTheme,
-    positioner::{Positioned, Positioner, DEFAULT_MARGIN},
+    positioner::{DEFAULT_MARGIN, Positioned, Positioner},
     text::{CachedTextArea, TextCache, TextSystem},
-    utils::{markdown_to_html, Rect},
-    Element,
+    utils::{Rect, markdown_to_html},
 };
 use log::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
 use massive_scene::{Scene, Visual};
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{ApplicationContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,
@@ -266,10 +266,10 @@ mod tests {
 
     #[test]
     fn test_color_emoji_font() {
+        use swash::FontRef;
         use swash::scale::ScaleContext;
         use swash::scale::*;
         use swash::zeno;
-        use swash::FontRef;
         use zeno::Vector;
 
         let font_data = include_bytes!("fonts/NotoColorEmoji-Regular.ttf");

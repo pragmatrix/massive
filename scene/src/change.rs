@@ -5,7 +5,7 @@ use massive_geometry::Matrix4;
 
 use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
 
-#[derive(Debug, From)]
+#[derive(Debug, From, Clone)]
 pub enum SceneChange {
     Matrix(Change<Matrix4>),
     Location(Change<LocationRenderObj>),
@@ -24,9 +24,9 @@ impl SceneChange {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Change<T> {
     Create(Id, T),
-    Delete(Id),
     Update(Id, T),
+    Delete(Id),
 }

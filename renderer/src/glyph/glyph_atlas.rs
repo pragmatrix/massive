@@ -1,7 +1,7 @@
 //! A  wgpu glyph atlas for u8 textures. Inspired by glyphon's TextAtlas.
 use std::collections::HashMap;
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use cosmic_text::{SwashContent, SwashImage};
 pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};

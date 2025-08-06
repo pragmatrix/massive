@@ -10,9 +10,9 @@ use winit::{
 };
 
 use massive_geometry::{Camera, Color, Identity, Matrix4, Vector3};
-use massive_scene::{legacy, Scene};
+use massive_scene::{Scene, legacy};
 use massive_shapes::{GlyphRun, GlyphRunMetrics, GlyphRunShape, Shape, TextWeight};
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{ApplicationContext, shell};
 use shared::positioning;
 
 #[tokio::main]
@@ -91,11 +91,13 @@ fn render(font_system: &mut FontSystem, str: &str) -> Vec<Shape> {
 
     glyph_run.translation = center_translation;
 
-    let shapes = vec![GlyphRunShape {
-        model_matrix: Matrix4::identity().into(),
-        run: glyph_run,
-    }
-    .into()];
+    let shapes = vec![
+        GlyphRunShape {
+            model_matrix: Matrix4::identity().into(),
+            run: glyph_run,
+        }
+        .into(),
+    ];
 
     shapes
 }

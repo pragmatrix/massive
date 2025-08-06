@@ -3,10 +3,10 @@ use std::{iter, ops::Range};
 use termwiz::{
     cell::Intensity,
     color::ColorSpec,
-    escape::{self, csi::Sgr, Action, ControlCode, CSI},
+    escape::{self, Action, CSI, ControlCode, csi::Sgr},
 };
 
-use crate::terminal::{color_schemes, Rgb};
+use crate::terminal::{Rgb, color_schemes};
 use massive_geometry::Color;
 use massive_shapes::TextWeight;
 use shared::attributed_text::TextAttribute;

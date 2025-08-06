@@ -3,7 +3,7 @@ use crate::{
     pods::{TextureColorVertex, TextureVertex},
     primitives::Pipeline,
     texture,
-    tools::{create_pipeline, BindGroupLayoutBuilder},
+    tools::{BindGroupLayoutBuilder, create_pipeline},
 };
 
 #[allow(unused)]

@@ -109,6 +109,7 @@ impl TextureVertex {
     }
 }
 
+#[allow(unused)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct ColorVertex {
@@ -116,6 +117,7 @@ pub struct ColorVertex {
     pub color: Color,
 }
 
+#[allow(unused)]
 impl ColorVertex {
     pub fn new(position: impl Into<Vertex>, color: impl Into<Color>) -> Self {
         Self {

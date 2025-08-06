@@ -9,9 +9,9 @@ use std::{
 use anyhow::Result;
 use base_db::{RootQueryDb, SourceDatabase};
 use chrono::{DateTime, Local};
-use cosmic_text::{fontdb, FontSystem};
+use cosmic_text::{FontSystem, fontdb};
 use tracing::info;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Registry};
+use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use winit::dpi::LogicalSize;
 
 use hir::EditionedFileId;
@@ -27,7 +27,7 @@ use vfs::VfsPath;
 use massive_geometry::{Camera, Color, SizeI};
 use massive_scene::{Scene, Visual};
 use massive_shapes::TextWeight;
-use massive_shell::{shell, ApplicationContext};
+use massive_shell::{ApplicationContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText, TextAttribute},

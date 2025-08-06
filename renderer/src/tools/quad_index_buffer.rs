@@ -1,7 +1,7 @@
 use std::mem::{self, size_of_val};
 
 use log::debug;
-use wgpu::{util::DeviceExt, BufferSlice, IndexFormat, RenderPass};
+use wgpu::{BufferSlice, IndexFormat, RenderPass, util::DeviceExt};
 
 #[derive(Debug)]
 pub struct QuadIndexBuffer(wgpu::Buffer);
@@ -31,6 +31,7 @@ impl QuadIndexBuffer {
             .slice(..(max_quads * Self::INDICES_PER_QUAD * Self::INDEX_SIZE) as u64)
     }
 
+    // Optimization: Copy old data to the new buffer directly on the GPU
     pub fn ensure_can_index_num_quads(
         &mut self,
         device: &wgpu::Device,
@@ -50,7 +51,9 @@ impl QuadIndexBuffer {
             assert!(proposed_quad_capacity != 0);
         }
 
-        debug!("Growing index buffer from {current} to {proposed_quad_capacity} quads, required: {required_quad_count}");
+        debug!(
+            "Growing index buffer from {current} to {proposed_quad_capacity} quads, required: {required_quad_count}"
+        );
 
         let indices = Self::generate_array(self, proposed_quad_capacity);
         self.0 = Self::create_buffer(device, &indices);

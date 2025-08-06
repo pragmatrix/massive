@@ -1,5 +1,5 @@
 [workspace]
-resolver = "2"
+resolver = "3"
 
 members = [
     "animation",
@@ -16,6 +16,9 @@ exclude = [
     "examples/dist",
     "examples/code/rust-analyzer"
 ]
+
+[workspace.package]
+edition = "2024"
 
 [workspace.metadata]
 # For trunk

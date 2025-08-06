@@ -3,7 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use log::{error, info};
 use massive_geometry::Camera;
 use massive_scene::Scene;
@@ -16,8 +16,8 @@ use winit::{dpi, event::WindowEvent, event_loop::EventLoopProxy, window::WindowA
 use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 
 use crate::{
-    async_window_renderer::RendererMessage, AsyncWindowRenderer, ShellEvent, ShellRequest,
-    ShellWindow,
+    AsyncWindowRenderer, ShellEvent, ShellRequest, ShellWindow,
+    async_window_renderer::RendererMessage,
 };
 
 /// The [`ApplicationContext`] is the connection to the runtinme. It allows the application to poll

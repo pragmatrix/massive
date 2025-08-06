@@ -14,7 +14,7 @@ pub struct Primary {
 }
 
 pub mod light {
-    use super::{ac, rgb, Primary, Scheme};
+    use super::{Primary, Scheme, ac, rgb};
 
     pub const PENCIL: Scheme = Scheme {
         primary: Primary {

@@ -6,7 +6,7 @@ use std::{
 use anyhow::Result;
 
 use crate::{
-    type_id_generator::TypeIdGenerator, Change, ChangeCollector, Handle, Object, SceneChange,
+    Change, ChangeCollector, Handle, Object, SceneChange, type_id_generator::TypeIdGenerator,
 };
 
 /// A scene is the only direct connection of actual contents to the renderer. It tracks all the

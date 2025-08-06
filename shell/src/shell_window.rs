@@ -5,18 +5,18 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use cosmic_text::FontSystem;
 use log::{error, info};
 use tokio::sync::oneshot;
-use wgpu::{rwh, Instance, InstanceDescriptor, Surface, SurfaceTarget};
+use wgpu::{Instance, InstanceDescriptor, Surface, SurfaceTarget, rwh};
 use winit::{
     dpi::PhysicalSize,
     event_loop::EventLoopProxy,
     window::{Window, WindowId},
 };
 
-use crate::{shell::ShellRequest, window_renderer::WindowRenderer, AsyncWindowRenderer};
+use crate::{AsyncWindowRenderer, shell::ShellRequest, window_renderer::WindowRenderer};
 use massive_geometry::Camera;
 
 #[derive(Clone)]

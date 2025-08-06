@@ -1,7 +1,13 @@
 [package]
 name = "massive-shell"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
 
 [dependencies]
 massive-geometry = { workspace = true }

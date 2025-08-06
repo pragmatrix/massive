@@ -1,6 +1,6 @@
 use std::{any::TypeId, collections::HashMap};
 
-use crate::{id::Generator, Id};
+use crate::{Id, id::Generator};
 
 /// A (sharable) generator for ids per type.
 #[derive(Debug, Default)]

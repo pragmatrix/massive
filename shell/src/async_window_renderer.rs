@@ -2,17 +2,17 @@ use std::{
     collections::HashMap,
     mem,
     sync::{
-        mpsc::{self, Sender},
         Arc,
+        mpsc::{self, Sender},
     },
     thread::{self, JoinHandle},
     time::Instant,
 };
 
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{Context, Result, anyhow, bail};
 use log::error;
 use tokio::sync::mpsc::{
-    error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender,
+    UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel,
 };
 use wgpu::PresentMode;
 use winit::window::WindowId;

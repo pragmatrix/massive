@@ -1,6 +1,6 @@
 use derive_more::Deref;
 
-use crate::{bind_group_entries, tools::BindGroupLayoutBuilder, SizeBuffer};
+use crate::{SizeBuffer, bind_group_entries, tools::BindGroupLayoutBuilder};
 
 /// The bind group layout of a texture.
 #[derive(Debug, Deref)]
