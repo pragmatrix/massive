@@ -42,8 +42,6 @@ pub struct PreparationContext<'a> {
 }
 
 pub struct RenderContext<'a> {
-    // pub device: &'a wgpu::Device,
-    _queue: &'a wgpu::Queue,
     pub pixel_matrix: &'a Matrix4,
     pub view_projection_matrix: Matrix4,
     pub pass: wgpu::RenderPass<'a>,
@@ -210,8 +208,6 @@ impl Renderer {
 
                 // DI: There is a lot of view_projection stuff going on.
                 let mut render_context = RenderContext {
-                    // device: &self.device,
-                    _queue: &self.queue,
                     pixel_matrix: &pixel_matrix,
                     pass: render_pass,
                     view_projection_matrix: *view_projection_matrix,
