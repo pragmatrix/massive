@@ -1,8 +1,4 @@
-use massive_scene::Matrix;
-use wgpu::{
-    ShaderStages, TextureFormat,
-    util::{BufferInitDescriptor, DeviceExt},
-};
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use super::BindGroupLayout;
 use crate::{
@@ -12,6 +8,7 @@ use crate::{
     text_layer::{QuadBatch, color_atlas::QuadInstance},
     tools::{QuadIndexBuffer, create_pipeline, texture_sampler},
 };
+use massive_scene::Matrix;
 
 pub struct ColorAtlasRenderer {
     pub atlas: GlyphAtlas,
@@ -21,7 +18,7 @@ pub struct ColorAtlasRenderer {
 }
 
 impl ColorAtlasRenderer {
-    pub fn new(device: &wgpu::Device, target_format: TextureFormat) -> Self {
+    pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
         let fs_bind_group_layout = BindGroupLayout::new(device);
 
         let shader = &device.create_shader_module(wgpu::include_wgsl!("color_atlas.wgsl"));
@@ -30,7 +27,7 @@ impl ColorAtlasRenderer {
             label: Some("Atlas SDF Pipeline Layout"),
             bind_group_layouts: &[&fs_bind_group_layout],
             push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: ShaderStages::VERTEX,
+                stages: wgpu::ShaderStages::VERTEX,
                 range: 0..pods::Matrix4::size(),
             }],
         });
@@ -54,7 +51,7 @@ impl ColorAtlasRenderer {
         );
 
         Self {
-            atlas: GlyphAtlas::new(device, TextureFormat::Rgba8Unorm),
+            atlas: GlyphAtlas::new(device, wgpu::TextureFormat::Rgba8Unorm),
             texture_sampler: texture_sampler::linear_clamping(device),
             fs_bind_group_layout,
             pipeline,
@@ -121,7 +118,7 @@ impl ColorAtlasRenderer {
         let pass = &mut context.pass;
 
         pass.set_push_constants(
-            ShaderStages::VERTEX,
+            wgpu::ShaderStages::VERTEX,
             0,
             text_layer_matrix.to_pod().as_bytes(),
         );

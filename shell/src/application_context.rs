@@ -5,20 +5,19 @@ use std::{
 
 use anyhow::{Result, anyhow, bail};
 use log::{error, info};
-use massive_geometry::Camera;
-use massive_scene::Scene;
 use tokio::{
     select,
     sync::{mpsc::UnboundedReceiver, oneshot},
 };
 use winit::{dpi, event::WindowEvent, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
-
 use crate::{
     AsyncWindowRenderer, ShellEvent, ShellRequest, ShellWindow,
     async_window_renderer::RendererMessage,
 };
+use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
+use massive_geometry::Camera;
+use massive_scene::Scene;
 
 /// The [`ApplicationContext`] is the connection to the runtinme. It allows the application to poll
 /// for events while also forwarding events to the renderer.

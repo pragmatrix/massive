@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use cosmic_text::FontSystem;
 use log::{error, info};
 use tokio::sync::oneshot;
-use wgpu::{Instance, InstanceDescriptor, Surface, SurfaceTarget, rwh};
+use wgpu::rwh;
 use winit::{
     dpi::PhysicalSize,
     event_loop::EventLoopProxy,
@@ -61,7 +61,7 @@ impl ShellWindow {
     ) -> Result<AsyncWindowRenderer> {
         let instance_and_surface = self
             .new_instance_and_surface(
-                InstanceDescriptor::default(),
+                wgpu::InstanceDescriptor::default(),
                 // Use this for testing webgl:
                 // InstanceDescriptor {
                 //     backends: wgpu::Backends::GL,
@@ -106,12 +106,15 @@ impl ShellWindow {
     /// A function here, because we may try multiple times.
     async fn new_instance_and_surface(
         &self,
-        instance_descriptor: InstanceDescriptor,
+        instance_descriptor: wgpu::InstanceDescriptor,
         surface_target: Arc<ShellWindowShared>,
-    ) -> Result<(Instance, Surface<'static>)> {
+    ) -> Result<(wgpu::Instance, wgpu::Surface<'static>)> {
+        use wgpu::SurfaceTarget;
+
         let instance = wgpu::Instance::new(&instance_descriptor);
 
         let surface_target: SurfaceTarget<'static> = surface_target.into();
+
         info!(
             "Creating surface on a {} target",
             match surface_target {

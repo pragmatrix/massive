@@ -14,7 +14,6 @@ use log::error;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel,
 };
-use wgpu::PresentMode;
 use winit::window::WindowId;
 
 use crate::window_renderer::WindowRenderer;
@@ -37,7 +36,7 @@ pub enum RendererMessage {
     Redraw,
     // This looks alien here.
     UpdateCamera(Camera),
-    SetPresentMode(PresentMode),
+    SetPresentMode(wgpu::PresentMode),
 }
 
 impl AsyncWindowRenderer {
