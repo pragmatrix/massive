@@ -1,18 +1,17 @@
 use massive_scene::Matrix;
 use wgpu::{
-    TextureFormat,
+    ShaderStages, TextureFormat,
     util::{BufferInitDescriptor, DeviceExt},
 };
 
+use super::BindGroupLayout;
 use crate::{
     glyph::GlyphAtlas,
-    pods::TextureVertex,
+    pods::{self, AsBytes, TextureVertex, ToPod},
     renderer::{PreparationContext, RenderContext},
     text_layer::{QuadBatch, color_atlas::QuadInstance},
     tools::{QuadIndexBuffer, create_pipeline, texture_sampler},
 };
-
-use super::BindGroupLayout;
 
 pub struct ColorAtlasRenderer {
     pub atlas: GlyphAtlas,
@@ -22,19 +21,18 @@ pub struct ColorAtlasRenderer {
 }
 
 impl ColorAtlasRenderer {
-    pub fn new(
-        device: &wgpu::Device,
-        target_format: TextureFormat,
-        view_projection_bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> Self {
+    pub fn new(device: &wgpu::Device, target_format: TextureFormat) -> Self {
         let fs_bind_group_layout = BindGroupLayout::new(device);
 
         let shader = &device.create_shader_module(wgpu::include_wgsl!("color_atlas.wgsl"));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Atlas SDF Pipeline Layout"),
-            bind_group_layouts: &[view_projection_bind_group_layout, &fs_bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[&fs_bind_group_layout],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: ShaderStages::VERTEX,
+                range: 0..pods::Matrix4::size(),
+            }],
         });
 
         let targets = [Some(wgpu::ColorTargetState {
@@ -115,17 +113,19 @@ impl ColorAtlasRenderer {
     pub fn prepare(&self, context: &mut RenderContext) {
         let pass = &mut context.pass;
         pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, context.view_projection_bind_group, &[]);
     }
 
     pub fn render(&self, context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
         let text_layer_matrix = context.view_projection_matrix * model_matrix;
 
-        context.queue_view_projection_matrix(&text_layer_matrix);
-
         let pass = &mut context.pass;
 
-        pass.set_bind_group(1, &batch.fs_bind_group, &[]);
+        pass.set_push_constants(
+            ShaderStages::VERTEX,
+            0,
+            text_layer_matrix.to_pod().as_bytes(),
+        );
+        pass.set_bind_group(0, &batch.fs_bind_group, &[]);
         pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
 
         pass.draw_indexed(

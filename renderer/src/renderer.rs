@@ -1,5 +1,4 @@
 use std::{
-    mem::{self},
     result,
     sync::{Arc, Mutex},
 };
@@ -7,16 +6,16 @@ use std::{
 use anyhow::Result;
 use cosmic_text::FontSystem;
 use log::{info, warn};
-use massive_geometry::Matrix4;
-use massive_scene::SceneChange;
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
-    TransactionManager, pipelines, pods,
+    TransactionManager,
     scene::{LocationMatrices, Scene},
     text_layer::TextLayerRenderer,
     texture,
 };
+use massive_geometry::Matrix4;
+use massive_scene::SceneChange;
 
 pub struct Renderer {
     surface: wgpu::Surface<'static>,
@@ -27,11 +26,6 @@ pub struct Renderer {
     transaction_manager: TransactionManager,
     scene: Scene,
     visual_matrices: LocationMatrices,
-
-    // DI: Type this.
-    view_projection_buffer: wgpu::Buffer,
-    // DI: Type this.
-    view_projection_bind_group: wgpu::BindGroup,
 
     // TODO: this doesn't belong here and is used only for specific pipelines. We need some
     // per-pipeline information types.
@@ -49,11 +43,9 @@ pub struct PreparationContext<'a> {
 
 pub struct RenderContext<'a> {
     // pub device: &'a wgpu::Device,
-    queue: &'a wgpu::Queue,
+    _queue: &'a wgpu::Queue,
     pub pixel_matrix: &'a Matrix4,
-    view_projection_buffer: &'a wgpu::Buffer,
     pub view_projection_matrix: Matrix4,
-    pub view_projection_bind_group: &'a wgpu::BindGroup,
     pub pass: wgpu::RenderPass<'a>,
 }
 
@@ -66,26 +58,11 @@ impl Renderer {
         surface_config: wgpu::SurfaceConfiguration,
         font_system: Arc<Mutex<FontSystem>>,
     ) -> Self {
-        let view_projection_buffer = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("View Projection Matrix Buffer"),
-            size: mem::size_of::<pods::Matrix4>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-
-        let (view_projection_bind_group_layout, view_projection_bind_group) =
-            pipelines::create_view_projection_bind_group(&device, &view_projection_buffer);
-
         let texture_bind_group_layout = texture::BindGroupLayout::new(&device);
 
         let format = surface_config.format;
 
-        let text_layer_renderer = TextLayerRenderer::new(
-            &device,
-            font_system,
-            format,
-            &view_projection_bind_group_layout,
-        );
+        let text_layer_renderer = TextLayerRenderer::new(&device, font_system, format);
 
         // Currently unused (and also not anti-aliased). Need to create an sdf shape renderer.
         // let quads_renderer =
@@ -99,8 +76,6 @@ impl Renderer {
             transaction_manager: TransactionManager::default(),
             scene: Scene::default(),
             visual_matrices: LocationMatrices::default(),
-            view_projection_buffer,
-            view_projection_bind_group,
             texture_bind_group_layout,
             text_layer_renderer,
             // quads_renderer,
@@ -209,14 +184,6 @@ impl Renderer {
 
         let pixel_matrix = self.pixel_matrix();
 
-        // OO: This should not be needed anymore, because every renderer is now responsible for
-        // setting up the view projection.
-        Self::queue_view_projection_matrix(
-            &self.queue,
-            &self.view_projection_buffer,
-            view_projection_matrix,
-        );
-
         let command_buffer = {
             let mut encoder = self
                 .device
@@ -244,12 +211,10 @@ impl Renderer {
                 // DI: There is a lot of view_projection stuff going on.
                 let mut render_context = RenderContext {
                     // device: &self.device,
-                    queue: &self.queue,
+                    _queue: &self.queue,
                     pixel_matrix: &pixel_matrix,
-                    view_projection_buffer: &self.view_projection_buffer,
                     pass: render_pass,
                     view_projection_matrix: *view_projection_matrix,
-                    view_projection_bind_group: &self.view_projection_bind_group,
                 };
 
                 self.text_layer_renderer
@@ -288,25 +253,6 @@ impl Renderer {
 
         self.queue.submit([command_buffer]);
         surface_texture.present();
-    }
-
-    fn queue_view_projection_matrix(
-        queue: &wgpu::Queue,
-        view_projection_buffer: &wgpu::Buffer,
-        view_projection_matrix: &Matrix4,
-    ) {
-        let view_projection_uniform = {
-            let m: cgmath::Matrix4<f32> = view_projection_matrix
-                .cast()
-                .expect("matrix casting to f32 failed");
-            pods::Matrix4(m.into())
-        };
-
-        queue.write_buffer(
-            view_projection_buffer,
-            0,
-            bytemuck::cast_slice(&[view_projection_uniform]),
-        )
     }
 
     /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
@@ -368,11 +314,5 @@ impl Renderer {
     pub fn reconfigure_surface(&mut self) {
         info!("Reconfiguring surface {:?}", self.surface_config);
         self.surface.configure(&self.device, &self.surface_config);
-    }
-}
-
-impl RenderContext<'_> {
-    pub fn queue_view_projection_matrix(&self, matrix: &Matrix4) {
-        Renderer::queue_view_projection_matrix(self.queue, self.view_projection_buffer, matrix);
     }
 }

@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use log::info;
 use wgpu::{PresentMode, Surface, TextureFormat};
 use winit::{dpi::PhysicalSize, event::WindowEvent, window::WindowId};
@@ -13,6 +13,7 @@ use massive_scene::ChangeCollector;
 
 const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
+const REQUIRED_FEATURES: wgpu::Features = wgpu::Features::PUSH_CONSTANTS;
 
 pub struct WindowRenderer {
     window: Arc<ShellWindowShared>,
@@ -45,11 +46,15 @@ impl WindowRenderer {
             .await
             .expect("Adapter not found");
 
-        info!("Effective WebGPU backend: {:?}", adapter.get_info().backend);
+        if !adapter.features().contains(REQUIRED_FEATURES) {
+            bail!("GPU must support {:?}", REQUIRED_FEATURES);
+        }
+
+        info!("GPU backend: {:?}", adapter.get_info().backend,);
 
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
-                required_features: wgpu::Features::empty(),
+                required_features: REQUIRED_FEATURES,
                 // May be wrong, see: <https://github.com/gfx-rs/wgpu/blob/1144b065c4784d769d59da2f58f5aa13212627b0/examples/src/hello_triangle/mod.rs#L33-L34>
                 required_limits: adapter.limits(),
                 label: None,

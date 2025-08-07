@@ -1,7 +1,6 @@
 // Vertex shader
 
-@group(0) @binding(0)
-var<uniform> view_model: mat4x4<f32>;
+var<push_constant> view_model: mat4x4<f32>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -26,9 +25,9 @@ fn vs_main(
 
 // Fragment shader
 
-@group(1) @binding(0)
+@group(0) @binding(0)
 var t_texture: texture_2d<f32>;
-@group(1) @binding(1)
+@group(0) @binding(1)
 var s_sampler: sampler;
 
 @fragment

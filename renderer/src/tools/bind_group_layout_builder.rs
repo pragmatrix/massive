@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 pub struct BindGroupLayoutBuilder {
     shader_stages: wgpu::ShaderStages,
     entries: Vec<wgpu::BindGroupLayoutEntry>,

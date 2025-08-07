@@ -1,9 +1,8 @@
 use crate::{
-    bind_group_entries,
     pods::{TextureColorVertex, TextureVertex},
     primitives::Pipeline,
     texture,
-    tools::{BindGroupLayoutBuilder, create_pipeline},
+    tools::create_pipeline,
 };
 
 #[allow(unused)]
@@ -84,21 +83,4 @@ pub fn create(
         ),
     ]
     .into()
-}
-
-pub fn create_view_projection_bind_group(
-    device: &wgpu::Device,
-    view_projection_buffer: &wgpu::Buffer,
-) -> (wgpu::BindGroupLayout, wgpu::BindGroup) {
-    let layout = BindGroupLayoutBuilder::vertex_stage()
-        .uniform()
-        .build("View Projection Bind Group Layout", device);
-
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        layout: &layout,
-        entries: bind_group_entries!(0 => view_projection_buffer),
-        label: Some("Camera Bind Group"),
-    });
-
-    (layout, bind_group)
 }
