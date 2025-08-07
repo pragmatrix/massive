@@ -182,10 +182,10 @@ impl Drop for AsyncWindowRenderer {
         mem::drop(mem::replace(&mut self.msg_sender, mpsc::channel().0));
 
         // Then join the thread to ensure clean shutdown
-        if let Some(handle) = self.thread_handle.take() {
-            if let Err(e) = handle.join() {
-                error!("Error joining AsyncWindowRenderer thread: {e:?}");
-            }
+        if let Some(handle) = self.thread_handle.take()
+            && let Err(e) = handle.join()
+        {
+            error!("Error joining AsyncWindowRenderer thread: {e:?}");
         }
     }
 }

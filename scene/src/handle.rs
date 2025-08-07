@@ -76,11 +76,11 @@ where
         self.inner.updated();
     }
 
-    pub fn value(&self) -> MutexGuard<T> {
+    pub fn value(&self) -> MutexGuard<'_, T> {
         self.inner.value.lock().unwrap()
     }
 
-    fn value_mut(&self) -> MutexGuard<T> {
+    fn value_mut(&self) -> MutexGuard<'_, T> {
         self.inner.value.lock().unwrap()
     }
 }

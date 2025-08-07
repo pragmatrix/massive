@@ -26,7 +26,7 @@ impl QuadIndexBuffer {
         pass.set_index_buffer(self.slice(max_quads), Self::INDEX_FORMAT)
     }
 
-    fn slice(&self, max_quads: usize) -> BufferSlice {
+    fn slice(&self, max_quads: usize) -> BufferSlice<'_> {
         self.0
             .slice(..(max_quads * Self::INDICES_PER_QUAD * Self::INDEX_SIZE) as u64)
     }

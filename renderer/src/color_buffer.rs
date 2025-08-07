@@ -21,7 +21,7 @@ impl ColorBuffer {
 }
 
 impl AsBindingResource for ColorBuffer {
-    fn as_binding_resource(&self) -> wgpu::BindingResource {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
         self.0.as_entire_binding()
     }
 }

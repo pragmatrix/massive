@@ -10,23 +10,23 @@ pub use quad_index_buffer::*;
 use wgpu::BindingResource;
 
 pub trait AsBindingResource {
-    fn as_binding_resource(&self) -> wgpu::BindingResource;
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_>;
 }
 
 impl AsBindingResource for wgpu::Sampler {
-    fn as_binding_resource(&self) -> wgpu::BindingResource {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
         BindingResource::Sampler(self)
     }
 }
 
 impl AsBindingResource for wgpu::TextureView {
-    fn as_binding_resource(&self) -> wgpu::BindingResource {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
         BindingResource::TextureView(self)
     }
 }
 
 impl AsBindingResource for wgpu::Buffer {
-    fn as_binding_resource(&self) -> wgpu::BindingResource {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
         self.as_entire_binding()
     }
 }

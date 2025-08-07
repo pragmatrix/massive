@@ -58,7 +58,7 @@ impl View {
 }
 
 impl AsBindingResource for View {
-    fn as_binding_resource(&self) -> wgpu::BindingResource {
+    fn as_binding_resource(&self) -> wgpu::BindingResource<'_> {
         wgpu::BindingResource::TextureView(&self.view)
     }
 }
