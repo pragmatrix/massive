@@ -218,7 +218,7 @@ pub trait ToPod {
 
 pub trait AsBytes {
     fn as_bytes(&self) -> &[u8];
-    fn size<R: TryFrom<usize> + fmt::Debug>() -> R
+    fn size<R: TryFrom<usize>>() -> R
     where
         R::Error: fmt::Debug;
 }
