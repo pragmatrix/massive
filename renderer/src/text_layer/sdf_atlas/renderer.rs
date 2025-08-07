@@ -67,7 +67,6 @@ impl SdfAtlasRenderer {
         if instances.is_empty() {
             return None;
         }
-
         let mut vertices = Vec::with_capacity(instances.len() * 4);
 
         for instance in instances {
@@ -90,7 +89,7 @@ impl SdfAtlasRenderer {
         let device = context.device;
 
         let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Text Layer Vertex Buffer"),
+            label: Some("SDF Atlas Vertex Buffer"),
             contents: bytemuck::cast_slice(&vertices),
             usage: wgpu::BufferUsages::VERTEX,
         });
@@ -101,22 +100,17 @@ impl SdfAtlasRenderer {
             &self.texture_sampler,
         );
 
-        // Grow index buffer as needed.
-
-        let quad_count = instances.len();
-
         Some(QuadBatch {
             fs_bind_group: bind_group,
             vertex_buffer,
-            quad_count,
+            quad_count: instances.len(),
         })
     }
 
     // Architecture: Return some struct / context that enables repeated render(matrix, batch)
     // invocations.
     pub fn prepare(&self, context: &mut RenderContext) {
-        let pass = &mut context.pass;
-        pass.set_pipeline(&self.pipeline);
+        context.pass.set_pipeline(&self.pipeline);
     }
 
     /// The prerequisites for calling render():

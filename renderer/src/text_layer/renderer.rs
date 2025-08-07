@@ -241,31 +241,34 @@ impl TextLayerRenderer {
         for run in runs {
             let translation = run.translation;
             for glyph in &run.glyphs {
-                if let Some((rect, placement, kind)) = self.rasterized_glyph_atlas_rect(
+                let Some((rect, placement, kind)) = self.rasterized_glyph_atlas_rect(
                     context,
                     &mut font_system,
                     run.text_weight,
                     glyph,
-                )? {
-                    // OO: translation might be applied to two points only (lt, rb)
-                    let vertices =
-                        Self::glyph_vertices(run, glyph, &placement).map(|p| p + translation);
+                )?
+                else {
+                    continue; // Glyph is empty: Not rendered.
+                };
 
-                    match kind {
-                        AtlasKind::Sdf => {
-                            sdf_glyphs.push(sdf_atlas::QuadInstance {
-                                atlas_rect: rect,
-                                vertices,
-                                // OO: Text color is changing per run only.
-                                color: run.text_color,
-                            })
-                        }
-                        AtlasKind::Color => color_glyphs.push(color_atlas::QuadInstance {
+                // OO: translation might be applied to two points only (lt, rb)
+                let vertices =
+                    Self::glyph_vertices(run, glyph, &placement).map(|p| p + translation);
+
+                match kind {
+                    AtlasKind::Sdf => {
+                        sdf_glyphs.push(sdf_atlas::QuadInstance {
                             atlas_rect: rect,
                             vertices,
-                        }),
+                            // OO: Text color is changing per run only.
+                            color: run.text_color,
+                        })
                     }
-                } // else: Glyph is empty: Not rendered.
+                    AtlasKind::Color => color_glyphs.push(color_atlas::QuadInstance {
+                        atlas_rect: rect,
+                        vertices,
+                    }),
+                }
             }
         }
 
@@ -297,12 +300,12 @@ impl TextLayerRenderer {
             },
         };
 
-        if let Some((rect, image)) = self.sdf_renderer.atlas.get(&glyph_key) {
-            return Ok(Some((rect, image.placement, AtlasKind::Sdf)));
+        if let Some((rect, placement)) = self.sdf_renderer.atlas.get(&glyph_key) {
+            return Ok(Some((rect, placement, AtlasKind::Sdf)));
         }
 
-        if let Some((rect, image)) = self.color_renderer.atlas.get(&glyph_key) {
-            return Ok(Some((rect, image.placement, AtlasKind::Color)));
+        if let Some((rect, placement)) = self.color_renderer.atlas.get(&glyph_key) {
+            return Ok(Some((rect, placement, AtlasKind::Color)));
         }
 
         // Atlas / cache miss, empty cached glyph?.

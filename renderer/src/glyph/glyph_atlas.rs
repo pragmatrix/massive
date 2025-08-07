@@ -2,15 +2,16 @@
 use std::collections::HashMap;
 
 use anyhow::{Result, bail};
-use cosmic_text::{SwashContent, SwashImage};
+use cosmic_text::{Placement, SwashContent, SwashImage};
 pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
 
 use tracing::instrument;
 use wgpu::{
-    Device, Extent3d, Origin3d, Queue, Texture, TextureAspect, TextureDescriptor, TextureDimension,
-    TextureFormat, TextureUsages, TextureView, TextureViewDescriptor,
+    Device, Extent3d, Origin3d, Queue, TexelCopyTextureInfo, Texture, TextureAspect,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages, TextureView,
+    TextureViewDescriptor,
 };
 
 use super::RasterizedGlyphKey;
@@ -19,7 +20,7 @@ pub struct GlyphAtlas {
     texture: AtlasTexture,
     allocator: BucketedAtlasAllocator,
     /// Storage of the available and (padded) Images.
-    images: HashMap<RasterizedGlyphKey, (Allocation, SwashImage)>,
+    images: HashMap<RasterizedGlyphKey, (Allocation, Placement)>,
 }
 
 impl GlyphAtlas {
@@ -54,12 +55,16 @@ impl GlyphAtlas {
         self.texture.view()
     }
 
-    pub fn get(&self, key: &RasterizedGlyphKey) -> Option<(Rectangle, &SwashImage)> {
-        self.images.get(key).map(|(a, image)| {
-            let image_size = size2(image.placement.width as i32, image.placement.height as i32);
+    // Optimization: Size of allocation rectangle is _always_ equal to the size of the placement.
+    pub fn get(&self, key: &RasterizedGlyphKey) -> Option<(Rectangle, Placement)> {
+        self.images.get(key).map(|(allocation, placement)| {
+            let image_size = size2(placement.width as i32, placement.height as i32);
             (
-                Rectangle::new(a.rectangle.min, a.rectangle.min + image_size),
-                image,
+                Rectangle::new(
+                    allocation.rectangle.min,
+                    allocation.rectangle.min + image_size,
+                ),
+                *placement,
             )
         })
     }
@@ -83,9 +88,10 @@ impl GlyphAtlas {
                 let allocated_size = allocation.rectangle.size();
                 debug_assert!(allocated_size.width >= size.width);
                 debug_assert!(allocated_size.height >= size.height);
-                self.upload(queue, &image, allocation.rectangle.min);
+                self.copy_image_to_atlas(queue, &image, allocation.rectangle.min);
                 // commit
-                self.images.insert(key.clone(), (allocation, image));
+                self.images
+                    .insert(key.clone(), (allocation, image.placement));
                 let final_rect =
                     Rectangle::new(allocation.rectangle.min, allocation.rectangle.min + size);
                 return Ok(final_rect);
@@ -111,27 +117,59 @@ impl GlyphAtlas {
 
         log::info!("Growing glyph atlas from {current_dim} to {new_dim}");
 
-        // TODO: This allocates the new texture alongside the old for a short period of time.
-        // If we won't use COPY_SRC, this should be avoided.
-        self.texture = AtlasTexture::new(device, self.texture.format(), new_dim);
+        let new_texture = AtlasTexture::new(device, self.texture.format(), new_dim);
+        Self::copy_texture(
+            device,
+            queue,
+            self.texture.texture(),
+            new_texture.texture(),
+            (current_dim, current_dim),
+        );
+        self.texture = new_texture;
         // After growing, the allocated rectangles retain their position.
         self.allocator.grow(size2(new_dim as i32, new_dim as i32));
 
-        self.upload_all(queue);
+        // Performance: Just copy from the old texture and then throw it away?
+        // self.upload_all(queue);
 
         Ok(())
     }
 
-    #[instrument(skip_all)]
-    fn upload_all(&self, queue: &Queue) {
-        for (allocation, image) in self.images.values() {
-            self.upload(queue, image, allocation.rectangle.min)
-        }
+    fn copy_texture(
+        device: &Device,
+        queue: &Queue,
+        from: &Texture,
+        to: &Texture,
+        size: (u32, u32),
+    ) {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Atlas copy encoder"),
+        });
+        encoder.copy_texture_to_texture(
+            TexelCopyTextureInfo {
+                texture: from,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            TexelCopyTextureInfo {
+                texture: to,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            Extent3d {
+                width: size.0,
+                height: size.1,
+                depth_or_array_layers: 1,
+            },
+        );
+        queue.submit([encoder.finish()]);
     }
 
     /// Upload the image to the GPU into the atlas texture at the given position.
     #[instrument(skip_all)]
-    fn upload(&self, queue: &Queue, image: &SwashImage, pos: Point) {
+    fn copy_image_to_atlas(&self, queue: &Queue, image: &SwashImage, pos: Point) {
         let (x, y) = (pos.x as u32, pos.y as u32);
         let (width, height) = (image.placement.width, image.placement.height);
 
@@ -143,7 +181,7 @@ impl GlyphAtlas {
 
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
-                texture: &self.texture.texture,
+                texture: self.texture.texture(),
                 mip_level: 0,
                 origin: Origin3d { x, y, z: 0 },
                 aspect: TextureAspect::All,
@@ -165,7 +203,6 @@ impl GlyphAtlas {
 
 #[derive(Debug)]
 struct AtlasTexture {
-    texture: Texture,
     view: TextureView,
 }
 
@@ -182,21 +219,28 @@ impl AtlasTexture {
             sample_count: 1,
             dimension: TextureDimension::D2,
             format: texture_format,
-            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+            usage: TextureUsages::TEXTURE_BINDING
+                // COPY_SRC is needed when this texture gets to small and needs to grow.
+                | TextureUsages::COPY_DST
+                | TextureUsages::COPY_SRC,
             view_formats: &[],
         });
 
         let view = texture.create_view(&TextureViewDescriptor::default());
 
-        Self { texture, view }
+        Self { view }
     }
 
     pub fn format(&self) -> TextureFormat {
-        self.texture.format()
+        self.texture().format()
     }
 
     pub fn dim(&self) -> u32 {
-        self.texture.width()
+        self.texture().width()
+    }
+
+    pub fn texture(&self) -> &Texture {
+        self.view.texture()
     }
 
     pub fn view(&self) -> &TextureView {

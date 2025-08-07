@@ -70,7 +70,7 @@ impl QuadIndexBuffer {
         v
     }
 
-    pub const QUAD_INDICES: &'static [Index] = &[0, 1, 2, 0, 2, 3];
+    pub const QUAD_INDICES: &[Index] = &[0, 1, 2, 0, 2, 3];
     pub const INDICES_PER_QUAD: usize = Self::QUAD_INDICES.len();
     pub const VERTICES_PER_QUAD: usize = 4;
     const INDEX_SIZE: usize = mem::size_of::<Index>();
