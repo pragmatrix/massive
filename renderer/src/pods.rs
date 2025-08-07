@@ -1,4 +1,7 @@
-use std::mem::size_of;
+use std::{
+    fmt,
+    mem::{self, size_of},
+};
 
 use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;
@@ -204,6 +207,49 @@ impl From<massive_geometry::Color> for InstanceColor {
     fn from(value: massive_geometry::Color) -> Self {
         Self {
             color: [value.red, value.green, value.blue],
+        }
+    }
+}
+
+pub trait ToPod {
+    type Pod;
+    fn to_pod(&self) -> Self::Pod;
+}
+
+pub trait AsBytes {
+    fn as_bytes(&self) -> &[u8];
+    fn size<R: TryFrom<usize>>() -> R
+    where
+        R::Error: fmt::Debug;
+}
+
+impl<T: Pod> AsBytes for T {
+    fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
+    }
+
+    fn size<R: TryFrom<usize>>() -> R
+    where
+        R::Error: fmt::Debug,
+    {
+        mem::size_of::<Self>()
+            .try_into()
+            .expect("Failed to convert usize to the required size type")
+    }
+}
+
+pub mod cgmath {
+    use crate::pods;
+
+    use super::ToPod;
+    use cgmath::Matrix4;
+
+    impl ToPod for Matrix4<f64> {
+        type Pod = super::Matrix4;
+
+        fn to_pod(&self) -> Self::Pod {
+            let m: Matrix4<f32> = self.cast().expect("Cast to Matrix4<f32>");
+            pods::Matrix4(m.into())
         }
     }
 }

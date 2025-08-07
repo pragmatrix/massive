@@ -100,25 +100,14 @@ impl TextLayerRenderer {
         device: &Device,
         font_system: Arc<Mutex<FontSystem>>,
         target_format: wgpu::TextureFormat,
-        view_projection_bind_group_layout: &wgpu::BindGroupLayout,
     ) -> Self {
         Self {
             scale_context: ScaleContext::default(),
             font_system,
             empty_glyphs: HashSet::new(),
             index_buffer: QuadIndexBuffer::new(device),
-            sdf_renderer: SdfAtlasRenderer::new(
-                device,
-                target_format,
-                view_projection_bind_group_layout,
-            ),
-
-            color_renderer: ColorAtlasRenderer::new(
-                device,
-                target_format,
-                view_projection_bind_group_layout,
-            ),
-
+            sdf_renderer: SdfAtlasRenderer::new(device, target_format),
+            color_renderer: ColorAtlasRenderer::new(device, target_format),
             visuals: IdTable::default(),
             max_quads_in_use: 0,
         }
@@ -209,8 +198,8 @@ impl TextLayerRenderer {
             self.sdf_renderer.prepare(context);
 
             for visual in self.visuals.iter_some() {
-                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
                 if let Some(ref sdf_batch) = visual.batches.sdf {
+                    let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
                     self.sdf_renderer.render(context, &model_matrix, sdf_batch);
                 }
             }
@@ -221,8 +210,8 @@ impl TextLayerRenderer {
             self.color_renderer.prepare(context);
 
             for visual in self.visuals.iter_some() {
-                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
                 if let Some(ref color_batch) = visual.batches.color {
+                    let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
                     self.color_renderer
                         .render(context, &model_matrix, color_batch);
                 }

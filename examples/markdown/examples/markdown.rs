@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, VecDeque},
-    f64::consts::PI,
     mem,
     sync::{Arc, Mutex},
 };
@@ -21,7 +20,7 @@ use log::info;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use winit::dpi::PhysicalSize;
 
-use massive_geometry::{Camera, Matrix4, SizeI, Vector3};
+use massive_geometry::{Camera, SizeI, Vector3};
 use massive_scene::{Scene, Visual};
 use massive_shapes::GlyphRun;
 use massive_shell::{ApplicationContext, shell};
@@ -107,25 +106,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let matrix = scene.stage(page_matrix);
     let location = scene.stage(matrix.clone().into());
 
-    let rotation_matrix = Matrix4::from_angle_y(cgmath::Deg(45.0));
-    let matrix2 = rotation_matrix * page_matrix;
-
-    let matrix2 = scene.stage(matrix2);
-
-    let location2 = scene.stage(matrix2.clone().into());
-
     // Hold the staged visual, otherwise it will disappear.
     let _visual = scene.stage(Visual::new(
         location,
-        glyph_runs
-            .clone()
-            .into_iter()
-            .map(|run| run.into())
-            .collect::<Vec<_>>(),
-    ));
-
-    let _visual2 = scene.stage(Visual::new(
-        location2.clone(),
         glyph_runs
             .clone()
             .into_iter()
