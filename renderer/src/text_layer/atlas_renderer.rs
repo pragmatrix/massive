@@ -21,7 +21,7 @@ pub struct AtlasRenderer {
 }
 
 impl AtlasRenderer {
-    pub fn new<VertexT: VertexLayout>(
+    pub fn new<InstanceVertexT: VertexLayout>(
         device: &wgpu::Device,
         atlas_format: wgpu::TextureFormat,
         shader: wgpu::ShaderModuleDescriptor<'_>,
@@ -46,7 +46,8 @@ impl AtlasRenderer {
             write_mask: wgpu::ColorWrites::ALL,
         })];
 
-        let vertex_layout = [VertexT::layout()];
+        // One vertex buffer layout describing instance attributes.
+        let vertex_layout = [InstanceVertexT::layout()];
 
         let pipeline = create_pipeline(
             "Atlas Pipeline",
@@ -66,19 +67,14 @@ impl AtlasRenderer {
         }
     }
 
-    // Convert a number of instances to a batch.
-    pub fn batch<InstanceT: AtlasInstance>(
+    // Build a batch from instance data, uploading one instance per glyph.
+    pub fn batch_instances<InstanceVertexT: Pod>(
         &self,
         context: &PreparationContext,
-        instances: &[InstanceT],
+        instances: &[InstanceVertexT],
     ) -> Option<QuadBatch> {
         if instances.is_empty() {
             return None;
-        }
-        let mut vertices = Vec::with_capacity(instances.len() * 4);
-
-        for instance in instances {
-            vertices.extend(instance.to_vertices());
         }
 
         let device = context.device;
@@ -90,8 +86,8 @@ impl AtlasRenderer {
         );
 
         let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Atlas Vertex Buffer"),
-            contents: bytemuck::cast_slice(&vertices),
+            label: Some("Atlas Instance Buffer"),
+            contents: bytemuck::cast_slice(instances),
             usage: wgpu::BufferUsages::VERTEX,
         });
 
@@ -107,75 +103,70 @@ impl AtlasRenderer {
     }
 }
 
-pub trait AtlasInstance {
-    type Vertex: Pod;
-
-    fn to_vertices(&self) -> [Self::Vertex; 4];
-}
-
+// Instance vertex types used by the shaders
 pub mod sdf_atlas {
-    use massive_geometry::{Color, Point3};
+    use bytemuck::{Pod, Zeroable};
 
-    use super::AtlasInstance;
-    use crate::{glyph::glyph_atlas, pods::TextureColorVertex};
-
-    #[derive(Debug)]
-    pub struct QuadInstance {
-        pub atlas_rect: glyph_atlas::Rectangle,
-        pub vertices: [Point3; 4],
-        pub color: Color,
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Pod, Zeroable)]
+    pub struct InstanceVertex {
+        // pos_lt.xy, pos_rb.xy
+        pub pos_lt: [f32; 2],
+        pub pos_rb: [f32; 2],
+        // uv_lt.xy, uv_rb.xy
+        pub uv_lt: [f32; 2],
+        pub uv_rb: [f32; 2],
+        // color rgba
+        pub color: [f32; 4],
     }
 
-    impl AtlasInstance for QuadInstance {
-        type Vertex = TextureColorVertex;
-
-        fn to_vertices(&self) -> [Self::Vertex; 4] {
-            let r = self.atlas_rect;
-            // ADR: u/v normalization is done in the shader, because its probably free and we don't
-            // have to care about the atlas texture growing as long the rects stay the same.
-            let (ltx, lty) = (r.min.x as f32, r.min.y as f32);
-            let (rbx, rby) = (r.max.x as f32, r.max.y as f32);
-
-            let v = &self.vertices;
-            let color = self.color;
-            [
-                TextureColorVertex::new(v[0], (ltx, lty), color),
-                TextureColorVertex::new(v[1], (ltx, rby), color),
-                TextureColorVertex::new(v[2], (rbx, rby), color),
-                TextureColorVertex::new(v[3], (rbx, lty), color),
-            ]
+    impl super::VertexLayout for InstanceVertex {
+        fn layout() -> wgpu::VertexBufferLayout<'static> {
+            use std::mem::size_of;
+            use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
+            const ATTRS: [VertexAttribute; 5] = wgpu::vertex_attr_array![
+                0 => Float32x2, // pos_lt
+                1 => Float32x2, // pos_rb
+                2 => Float32x2, // uv_lt
+                3 => Float32x2, // uv_rb
+                4 => Float32x4  // color
+            ];
+            VertexBufferLayout {
+                array_stride: size_of::<InstanceVertex>() as BufferAddress,
+                step_mode: VertexStepMode::Instance,
+                attributes: &ATTRS,
+            }
         }
     }
 }
 
 pub mod color_atlas {
-    use massive_geometry::Point3;
+    use bytemuck::{Pod, Zeroable};
 
-    use super::AtlasInstance;
-    use crate::{glyph::glyph_atlas, pods::TextureVertex};
-
-    #[derive(Debug)]
-    pub struct QuadInstance {
-        pub atlas_rect: glyph_atlas::Rectangle,
-        pub vertices: [Point3; 4],
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Pod, Zeroable)]
+    pub struct InstanceVertex {
+        pub pos_lt: [f32; 2],
+        pub pos_rb: [f32; 2],
+        pub uv_lt: [f32; 2],
+        pub uv_rb: [f32; 2],
     }
 
-    impl AtlasInstance for QuadInstance {
-        type Vertex = TextureVertex;
-
-        fn to_vertices(&self) -> [Self::Vertex; 4] {
-            let r = self.atlas_rect;
-            // ADR: u/v normalization is done in the shader. Its probably free, and we don't have to
-            // care about the atlas texture growing as long the rects stay the same.
-            let (ltx, lty) = (r.min.x as f32, r.min.y as f32);
-            let (rbx, rby) = (r.max.x as f32, r.max.y as f32);
-            let v = &self.vertices;
-            [
-                TextureVertex::new(v[0], (ltx, lty)),
-                TextureVertex::new(v[1], (ltx, rby)),
-                TextureVertex::new(v[2], (rbx, rby)),
-                TextureVertex::new(v[3], (rbx, lty)),
-            ]
+    impl super::VertexLayout for InstanceVertex {
+        fn layout() -> wgpu::VertexBufferLayout<'static> {
+            use std::mem::size_of;
+            use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
+            const ATTRS: [VertexAttribute; 4] = wgpu::vertex_attr_array![
+                0 => Float32x2, // pos_lt
+                1 => Float32x2, // pos_rb
+                2 => Float32x2, // uv_lt
+                3 => Float32x2  // uv_rb
+            ];
+            VertexBufferLayout {
+                array_stride: size_of::<InstanceVertex>() as BufferAddress,
+                step_mode: VertexStepMode::Instance,
+                attributes: &ATTRS,
+            }
         }
     }
 }

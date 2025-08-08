@@ -5,7 +5,6 @@ use std::{
 
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
-use massive_geometry::{Point, Point3};
 use massive_scene::{Change, Id, Matrix, SceneChange, Shape, VisualRenderObj};
 use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 use swash::{Weight, scale::ScaleContext};
@@ -17,10 +16,10 @@ use crate::{
         GlyphRasterizationParam, RasterizedGlyphKey, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::rasterize_glyph_with_padding,
     },
-    pods::{AsBytes, TextureColorVertex, TextureVertex, ToPod},
+    pods::{AsBytes, ToPod},
     renderer::{PreparationContext, RenderContext},
     scene::{IdTable, LocationMatrices},
-    text_layer::atlas_renderer::{AtlasRenderer, color_atlas, sdf_atlas},
+    text_layer::atlas_renderer::{self, AtlasRenderer},
     tools::QuadIndexBuffer,
 };
 
@@ -106,13 +105,13 @@ impl TextLayerRenderer {
             index_buffer: QuadIndexBuffer::new(device),
             // Instead of specifying all these consts _and_ the vertex type, a trait based spec type
             // would probably be better.
-            sdf_renderer: AtlasRenderer::new::<TextureColorVertex>(
+            sdf_renderer: AtlasRenderer::new::<atlas_renderer::sdf_atlas::InstanceVertex>(
                 device,
                 wgpu::TextureFormat::R8Unorm,
                 wgpu::include_wgsl!("shader/sdf_atlas.wgsl"),
                 target_format,
             ),
-            color_renderer: AtlasRenderer::new::<TextureVertex>(
+            color_renderer: AtlasRenderer::new::<atlas_renderer::color_atlas::InstanceVertex>(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
                 wgpu::include_wgsl!("shader/color_atlas.wgsl"),
@@ -239,10 +238,11 @@ impl TextLayerRenderer {
         pass.set_bind_group(0, &batch.fs_bind_group, &[]);
         pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
 
+        // Draw instanced quads: 6 indices for the unit quad, one instance per glyph.
         pass.draw_indexed(
-            0..(batch.quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+            0..(QuadIndexBuffer::INDICES_PER_QUAD as u32),
             0,
-            0..1,
+            0..(batch.quad_count as u32),
         )
     }
 
@@ -254,10 +254,10 @@ impl TextLayerRenderer {
         context: &mut PreparationContext,
         runs: impl Iterator<Item = &'a GlyphRun>,
     ) -> Result<VisualBatches> {
-        // Step 1: Get all instance data.
         // Performance: Compute a conservative capacity?
-        let mut sdf_glyphs = Vec::new();
-        let mut color_glyphs = Vec::new();
+        // Step 1: Build instance data directly.
+        let mut sdf_instances: Vec<atlas_renderer::sdf_atlas::InstanceVertex> = Vec::new();
+        let mut color_instances: Vec<atlas_renderer::color_atlas::InstanceVertex> = Vec::new();
 
         // Architecture: We should really not lock this for a longer period of time. After initial
         // renderers, it's usually not used anymore, because it just invokes get_font() on
@@ -278,29 +278,51 @@ impl TextLayerRenderer {
                     continue; // Glyph is empty: Not rendered.
                 };
 
-                // Performance: translation might be applied to two points only (lt, rb)
-                let vertices =
-                    Self::glyph_vertices(run, glyph, &placement).map(|p| p + translation);
+                // Compute left-top/right-bottom in pixel space once.
+                let (lt, rb) = run.place_glyph(glyph, &placement);
+                let left = lt.x as f32 + translation.x as f32;
+                let top = lt.y as f32 + translation.y as f32;
+                let right = rb.x as f32 + translation.x as f32;
+                let bottom = rb.y as f32 + translation.y as f32;
+
+                let pos_lt = [left, top];
+                let pos_rb = [right, bottom];
+
+                // Atlas rect in pixel space; normalization is done in shader.
+                let uv_lt = [rect.min.x as f32, rect.min.y as f32];
+                let uv_rb = [rect.max.x as f32, rect.max.y as f32];
 
                 match kind {
                     AtlasKind::Sdf => {
-                        sdf_glyphs.push(sdf_atlas::QuadInstance {
-                            atlas_rect: rect,
-                            vertices,
-                            // OO: Text color is changing per run only.
-                            color: run.text_color,
-                        })
+                        sdf_instances.push(atlas_renderer::sdf_atlas::InstanceVertex {
+                            pos_lt,
+                            pos_rb,
+                            uv_lt,
+                            uv_rb,
+                            color: [
+                                run.text_color.red,
+                                run.text_color.green,
+                                run.text_color.blue,
+                                run.text_color.alpha,
+                            ],
+                        });
                     }
-                    AtlasKind::Color => color_glyphs.push(color_atlas::QuadInstance {
-                        atlas_rect: rect,
-                        vertices,
-                    }),
+                    AtlasKind::Color => {
+                        color_instances.push(atlas_renderer::color_atlas::InstanceVertex {
+                            pos_lt,
+                            pos_rb,
+                            uv_lt,
+                            uv_rb,
+                        });
+                    }
                 }
             }
         }
 
-        let sdf_batch = self.sdf_renderer.batch(context, &sdf_glyphs);
-        let color_batch = self.color_renderer.batch(context, &color_glyphs);
+        let sdf_batch = self.sdf_renderer.batch_instances(context, &sdf_instances);
+        let color_batch = self
+            .color_renderer
+            .batch_instances(context, &color_instances);
 
         Ok(VisualBatches {
             sdf: sdf_batch,
@@ -375,27 +397,5 @@ impl TextLayerRenderer {
         }
     }
 
-    fn glyph_vertices(
-        run: &GlyphRun,
-        glyph: &RunGlyph,
-        placement: &text::Placement,
-    ) -> [Point3; 4] {
-        let (lt, rb) = run.place_glyph(glyph, placement);
-
-        // Convert the pixel rect to 3D Points.
-        let left = lt.x as f64;
-        let top = lt.y as f64;
-        let right = rb.x as f64;
-        let bottom = rb.y as f64;
-
-        // OO: might use Point3 here.
-        let points: [Point; 4] = [
-            (left, top).into(),
-            (left, bottom).into(),
-            (right, bottom).into(),
-            (right, top).into(),
-        ];
-
-        points.map(|f| f.with_z(0.0))
-    }
+    // glyph_vertices removed in instanced rendering path
 }
