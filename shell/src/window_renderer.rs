@@ -64,6 +64,8 @@ impl WindowRenderer {
             .await
             .context("Requesting device")?;
 
+        info!("Device limits: {:?}", device.limits());
+
         let surface_caps = surface.get_capabilities(&adapter);
 
         // Don't use srgb now, colors are specified in linear rgb space.

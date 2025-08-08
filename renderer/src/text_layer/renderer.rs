@@ -6,7 +6,7 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use massive_geometry::{Point, Point3};
-use massive_scene::{Change, Id, SceneChange, Shape, VisualRenderObj};
+use massive_scene::{Change, Id, Matrix, SceneChange, Shape, VisualRenderObj};
 use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 use swash::{Weight, scale::ScaleContext};
 use text::SwashContent;
@@ -21,6 +21,7 @@ use crate::{
         GlyphRasterizationParam, RasterizedGlyphKey, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::rasterize_glyph_with_padding,
     },
+    pods::{AsBytes, ToPod},
     renderer::{PreparationContext, RenderContext},
     scene::{IdTable, LocationMatrices},
     tools::QuadIndexBuffer,
@@ -200,7 +201,7 @@ impl TextLayerRenderer {
             for visual in self.visuals.iter_some() {
                 if let Some(ref sdf_batch) = visual.batches.sdf {
                     let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                    self.sdf_renderer.render(context, &model_matrix, sdf_batch);
+                    Self::render_batch(context, &model_matrix, sdf_batch);
                 }
             }
         }
@@ -212,11 +213,30 @@ impl TextLayerRenderer {
             for visual in self.visuals.iter_some() {
                 if let Some(ref color_batch) = visual.batches.color {
                     let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                    self.color_renderer
-                        .render(context, &model_matrix, color_batch);
+                    Self::render_batch(context, &model_matrix, color_batch);
                 }
             }
         }
+    }
+
+    pub fn render_batch(context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
+        let text_layer_matrix = context.view_projection_matrix * model_matrix;
+
+        let pass = &mut context.pass;
+
+        pass.set_push_constants(
+            wgpu::ShaderStages::VERTEX,
+            0,
+            text_layer_matrix.to_pod().as_bytes(),
+        );
+        pass.set_bind_group(0, &batch.fs_bind_group, &[]);
+        pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
+
+        pass.draw_indexed(
+            0..(batch.quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+            0,
+            0..1,
+        )
     }
 
     /// Prepare a number of glyph runs and produce a TextLayer.

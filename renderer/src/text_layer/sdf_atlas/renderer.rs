@@ -3,12 +3,11 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use super::BindGroupLayout;
 use crate::{
     glyph::GlyphAtlas,
-    pods::{self, AsBytes, TextureColorVertex, ToPod},
+    pods::{self, AsBytes, TextureColorVertex},
     renderer::{PreparationContext, RenderContext},
     text_layer::{QuadBatch, sdf_atlas::QuadInstance},
-    tools::{QuadIndexBuffer, create_pipeline, texture_sampler},
+    tools::{create_pipeline, texture_sampler},
 };
-use massive_scene::Matrix;
 
 pub struct SdfAtlasRenderer {
     pub atlas: GlyphAtlas,
@@ -111,29 +110,5 @@ impl SdfAtlasRenderer {
     // invocations.
     pub fn prepare(&self, context: &mut RenderContext) {
         context.pass.set_pipeline(&self.pipeline);
-    }
-
-    /// The prerequisites for calling render():
-    /// - A prepared quad index buffer
-    /// - prepare() invocation.
-    pub fn render(&self, context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
-        let text_layer_matrix = context.view_projection_matrix * model_matrix;
-
-        let pass = &mut context.pass;
-
-        pass.set_push_constants(
-            wgpu::ShaderStages::VERTEX,
-            0,
-            text_layer_matrix.to_pod().as_bytes(),
-        );
-        // Also, this is mostly the same, set this only once.
-        pass.set_bind_group(0, &batch.fs_bind_group, &[]);
-        pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
-
-        pass.draw_indexed(
-            0..(batch.quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
-            0,
-            0..1,
-        )
     }
 }
