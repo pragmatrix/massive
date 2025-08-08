@@ -19,7 +19,7 @@ use crate::{
     pods::{AsBytes, ToPod},
     renderer::{PreparationContext, RenderContext},
     scene::{IdTable, LocationMatrices},
-    text_layer::atlas_renderer::{self, AtlasRenderer},
+    text_layer::atlas_renderer::{self, AtlasRenderer, color_atlas, sdf_atlas},
     tools::QuadIndexBuffer,
 };
 
@@ -105,13 +105,13 @@ impl TextLayerRenderer {
             index_buffer: QuadIndexBuffer::new(device),
             // Instead of specifying all these consts _and_ the vertex type, a trait based spec type
             // would probably be better.
-            sdf_renderer: AtlasRenderer::new::<atlas_renderer::sdf_atlas::InstanceVertex>(
+            sdf_renderer: AtlasRenderer::new::<atlas_renderer::sdf_atlas::Instance>(
                 device,
                 wgpu::TextureFormat::R8Unorm,
                 wgpu::include_wgsl!("shader/sdf_atlas.wgsl"),
                 target_format,
             ),
-            color_renderer: AtlasRenderer::new::<atlas_renderer::color_atlas::InstanceVertex>(
+            color_renderer: AtlasRenderer::new::<atlas_renderer::color_atlas::Instance>(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
                 wgpu::include_wgsl!("shader/color_atlas.wgsl"),
@@ -256,8 +256,8 @@ impl TextLayerRenderer {
     ) -> Result<VisualBatches> {
         // Performance: Compute a conservative capacity?
         // Step 1: Build instance data directly.
-        let mut sdf_instances: Vec<atlas_renderer::sdf_atlas::InstanceVertex> = Vec::new();
-        let mut color_instances: Vec<atlas_renderer::color_atlas::InstanceVertex> = Vec::new();
+        let mut sdf_instances: Vec<sdf_atlas::Instance> = Vec::new();
+        let mut color_instances: Vec<color_atlas::Instance> = Vec::new();
 
         // Architecture: We should really not lock this for a longer period of time. After initial
         // renderers, it's usually not used anymore, because it just invokes get_font() on
@@ -294,21 +294,16 @@ impl TextLayerRenderer {
 
                 match kind {
                     AtlasKind::Sdf => {
-                        sdf_instances.push(atlas_renderer::sdf_atlas::InstanceVertex {
+                        sdf_instances.push(sdf_atlas::Instance {
                             pos_lt,
                             pos_rb,
                             uv_lt,
                             uv_rb,
-                            color: [
-                                run.text_color.red,
-                                run.text_color.green,
-                                run.text_color.blue,
-                                run.text_color.alpha,
-                            ],
+                            color: run.text_color.into(),
                         });
                     }
                     AtlasKind::Color => {
-                        color_instances.push(atlas_renderer::color_atlas::InstanceVertex {
+                        color_instances.push(color_atlas::Instance {
                             pos_lt,
                             pos_rb,
                             uv_lt,

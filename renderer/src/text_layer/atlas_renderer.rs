@@ -107,9 +107,11 @@ impl AtlasRenderer {
 pub mod sdf_atlas {
     use bytemuck::{Pod, Zeroable};
 
+    use crate::pods::Color;
+
     #[repr(C)]
     #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-    pub struct InstanceVertex {
+    pub struct Instance {
         // pos_lt.xy, pos_rb.xy
         pub pos_lt: [f32; 2],
         pub pos_rb: [f32; 2],
@@ -117,10 +119,10 @@ pub mod sdf_atlas {
         pub uv_lt: [f32; 2],
         pub uv_rb: [f32; 2],
         // color rgba
-        pub color: [f32; 4],
+        pub color: Color,
     }
 
-    impl super::VertexLayout for InstanceVertex {
+    impl super::VertexLayout for Instance {
         fn layout() -> wgpu::VertexBufferLayout<'static> {
             use std::mem::size_of;
             use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
@@ -132,7 +134,7 @@ pub mod sdf_atlas {
                 4 => Float32x4  // color
             ];
             VertexBufferLayout {
-                array_stride: size_of::<InstanceVertex>() as BufferAddress,
+                array_stride: size_of::<Instance>() as BufferAddress,
                 step_mode: VertexStepMode::Instance,
                 attributes: &ATTRS,
             }
@@ -143,16 +145,18 @@ pub mod sdf_atlas {
 pub mod color_atlas {
     use bytemuck::{Pod, Zeroable};
 
+    use crate::pods::VertexLayout;
+
     #[repr(C)]
     #[derive(Copy, Clone, Debug, Pod, Zeroable)]
-    pub struct InstanceVertex {
+    pub struct Instance {
         pub pos_lt: [f32; 2],
         pub pos_rb: [f32; 2],
         pub uv_lt: [f32; 2],
         pub uv_rb: [f32; 2],
     }
 
-    impl super::VertexLayout for InstanceVertex {
+    impl VertexLayout for Instance {
         fn layout() -> wgpu::VertexBufferLayout<'static> {
             use std::mem::size_of;
             use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
@@ -163,7 +167,7 @@ pub mod color_atlas {
                 3 => Float32x2  // uv_rb
             ];
             VertexBufferLayout {
-                array_stride: size_of::<InstanceVertex>() as BufferAddress,
+                array_stride: size_of::<Instance>() as BufferAddress,
                 step_mode: VertexStepMode::Instance,
                 attributes: &ATTRS,
             }
