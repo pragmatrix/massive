@@ -31,7 +31,7 @@ var t_texture: texture_2d<f32>;
 var s_sampler: sampler;
 
 @fragment
-fn fs_color(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let texture_size = vec2<f32>(textureDimensions(t_texture));
     return textureSample(t_texture, s_sampler, in.tex_coords / texture_size);
 }

@@ -12,18 +12,15 @@ use swash::{Weight, scale::ScaleContext};
 use text::SwashContent;
 use wgpu::Device;
 
-use super::{
-    color_atlas::{self, ColorAtlasRenderer},
-    sdf_atlas::{self, SdfAtlasRenderer},
-};
 use crate::{
     glyph::{
         GlyphRasterizationParam, RasterizedGlyphKey, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::rasterize_glyph_with_padding,
     },
-    pods::{AsBytes, ToPod},
+    pods::{AsBytes, TextureColorVertex, TextureVertex, ToPod},
     renderer::{PreparationContext, RenderContext},
     scene::{IdTable, LocationMatrices},
+    text_layer::atlas_renderer::{AtlasRenderer, color_atlas, sdf_atlas},
     tools::QuadIndexBuffer,
 };
 
@@ -43,8 +40,8 @@ pub struct TextLayerRenderer {
 
     index_buffer: QuadIndexBuffer,
 
-    sdf_renderer: SdfAtlasRenderer,
-    color_renderer: ColorAtlasRenderer,
+    sdf_renderer: AtlasRenderer,
+    color_renderer: AtlasRenderer,
 
     // Architecture:
     //
@@ -107,8 +104,20 @@ impl TextLayerRenderer {
             font_system,
             empty_glyphs: HashSet::new(),
             index_buffer: QuadIndexBuffer::new(device),
-            sdf_renderer: SdfAtlasRenderer::new(device, target_format),
-            color_renderer: ColorAtlasRenderer::new(device, target_format),
+            // Instead of specifying all these consts _and_ the vertex type, a trait based spec type
+            // would probably be better.
+            sdf_renderer: AtlasRenderer::new::<TextureColorVertex>(
+                device,
+                wgpu::TextureFormat::R8Unorm,
+                wgpu::include_wgsl!("shader/sdf_atlas.wgsl"),
+                target_format,
+            ),
+            color_renderer: AtlasRenderer::new::<TextureVertex>(
+                device,
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::include_wgsl!("shader/color_atlas.wgsl"),
+                target_format,
+            ),
             visuals: IdTable::default(),
             max_quads_in_use: 0,
         }
@@ -195,8 +204,7 @@ impl TextLayerRenderer {
             .set(&mut context.pass, self.max_quads_in_use);
 
         {
-            // Optimization: Don't call prepare if there is nothing to render.
-            self.sdf_renderer.prepare(context);
+            context.pass.set_pipeline(self.sdf_renderer.pipeline());
 
             for visual in self.visuals.iter_some() {
                 if let Some(ref sdf_batch) = visual.batches.sdf {
@@ -207,8 +215,7 @@ impl TextLayerRenderer {
         }
 
         {
-            // Optimization: Don't call prepare if there is nothing to render.
-            self.color_renderer.prepare(context);
+            context.pass.set_pipeline(self.color_renderer.pipeline());
 
             for visual in self.visuals.iter_some() {
                 if let Some(ref color_batch) = visual.batches.color {

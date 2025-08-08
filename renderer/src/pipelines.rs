@@ -1,5 +1,5 @@
 use crate::{
-    pods::{TextureColorVertex, TextureVertex},
+    pods::{TextureColorVertex, TextureVertex, VertexLayout},
     primitives::Pipeline,
     texture,
     tools::create_pipeline,
@@ -29,8 +29,8 @@ pub fn create(
         push_constant_ranges: &[],
     });
 
-    let texture_vertex_layout = [TextureVertex::layout()];
-    let text_layer_vertex_layout = [TextureColorVertex::layout()];
+    let texture_vertex_layout = [TextureVertex::layout().clone()];
+    let text_layer_vertex_layout = [TextureColorVertex::layout().clone()];
 
     [
         (

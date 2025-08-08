@@ -1,3 +1,5 @@
+const VERTEX_SHADER_ENTRY: &str = "vs_main";
+
 pub fn create_pipeline(
     label: &str,
     device: &wgpu::Device,
@@ -12,7 +14,7 @@ pub fn create_pipeline(
         layout: Some(pipeline_layout),
         vertex: wgpu::VertexState {
             module: shader,
-            entry_point: Some("vs_main"),
+            entry_point: Some(VERTEX_SHADER_ENTRY),
             compilation_options: Default::default(),
             buffers: vert_layout,
         },

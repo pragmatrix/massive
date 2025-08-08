@@ -46,7 +46,7 @@ const half_sqrt2 = 0.70710678118654757;
 const df_epsilon = 0.0001;
 
 @fragment
-fn fs_sdf(in: VertexOutput) -> @location(0) vec4<f32> {
+fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // fetch the SDF value from the texture
     // OO: Use 1 / texture_size and multiply.
     let texture_size = vec2<f32>(textureDimensions(t_texture));

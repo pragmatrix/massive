@@ -1,5 +1,4 @@
-mod color_atlas;
+mod atlas_renderer;
 mod renderer;
-mod sdf_atlas;
 
 pub use renderer::*;
