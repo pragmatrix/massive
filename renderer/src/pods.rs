@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::{
     fmt,
     mem::{self, size_of},
@@ -91,7 +92,6 @@ pub struct TextureVertex {
 }
 
 impl TextureVertex {
-    #[allow(unused)]
     pub fn new(position: impl Into<Vertex>, uv: (f32, f32)) -> Self {
         Self {
             position: position.into(),
@@ -113,7 +113,6 @@ impl VertexLayout for TextureVertex {
     }
 }
 
-#[allow(unused)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
 pub struct ColorVertex {
@@ -121,7 +120,6 @@ pub struct ColorVertex {
     pub color: Color,
 }
 
-#[allow(unused)]
 impl ColorVertex {
     pub fn new(position: impl Into<Vertex>, color: impl Into<Color>) -> Self {
         Self {
