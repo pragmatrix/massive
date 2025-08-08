@@ -5,8 +5,6 @@ use std::{
 
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
-use massive_scene::{Change, Id, Matrix, SceneChange, Shape, VisualRenderObj};
-use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 use swash::{Weight, scale::ScaleContext};
 use text::SwashContent;
 use wgpu::Device;
@@ -22,6 +20,8 @@ use crate::{
     text_layer::atlas_renderer::{self, AtlasRenderer, color_atlas, sdf_atlas},
     tools::QuadIndexBuffer,
 };
+use massive_scene::{Change, Id, Matrix, SceneChange, Shape, VisualRenderObj};
+use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 
 pub struct TextLayerRenderer {
     // Optimization: This is used for get_font() only, which needs &mut. In the long run, completely
@@ -48,9 +48,6 @@ pub struct TextLayerRenderer {
     // Quads for example?
     /// Visual Id -> batch table.
     visuals: IdTable<Option<Visual>>,
-
-    /// The maximum quads currently in use. This may be more than the index buffer can hold.
-    max_quads_in_use: usize,
 }
 
 struct Visual {
@@ -62,21 +59,6 @@ struct Visual {
 struct VisualBatches {
     sdf: Option<QuadBatch>,
     color: Option<QuadBatch>,
-}
-
-impl VisualBatches {
-    fn max_quads(&self) -> usize {
-        [
-            self.sdf.as_ref().map(|b| b.quad_count).unwrap_or_default(),
-            self.color
-                .as_ref()
-                .map(|b| b.quad_count)
-                .unwrap_or_default(),
-        ]
-        .into_iter()
-        .max()
-        .unwrap()
-    }
 }
 
 pub struct QuadBatch {
@@ -98,7 +80,7 @@ impl TextLayerRenderer {
         font_system: Arc<Mutex<FontSystem>>,
         target_format: wgpu::TextureFormat,
     ) -> Self {
-        Self {
+        let mut renderer = Self {
             scale_context: ScaleContext::default(),
             font_system,
             empty_glyphs: HashSet::new(),
@@ -118,8 +100,11 @@ impl TextLayerRenderer {
                 target_format,
             ),
             visuals: IdTable::default(),
-            max_quads_in_use: 0,
-        }
+        };
+
+        // Since we use instance drendering, the index buffer needs to hold only one quad.
+        renderer.index_buffer.ensure_can_index_num_quads(device, 1);
+        renderer
     }
 
     // Architecture: Optimization:
@@ -175,32 +160,11 @@ impl TextLayerRenderer {
         locations.into_iter()
     }
 
-    pub fn prepare(&mut self, context: &mut PreparationContext) {
-        // Optimization: Visuals are iterated 4 times per render (see all_locations(), which could
-        // also compute max_quads).
-        //
-        // Compute only one max_quads value (which is optimal when we use one index buffer only).
-        let max_quads = self
-            .visuals
-            .iter_some()
-            .map(|v| v.batches.max_quads())
-            .max()
-            .unwrap_or_default();
-
-        self.index_buffer
-            .ensure_can_index_num_quads(context.device, max_quads);
-
-        self.max_quads_in_use = max_quads;
-    }
+    pub fn prepare(&mut self, _context: &mut PreparationContext) {}
 
     pub fn render(&self, matrices: &LocationMatrices, context: &mut RenderContext) {
-        if self.max_quads_in_use == 0 {
-            return;
-        }
-
         // Set the shared index buffer for all quad renderers.
-        self.index_buffer
-            .set(&mut context.pass, self.max_quads_in_use);
+        self.index_buffer.set(&mut context.pass, 1);
 
         {
             context.pass.set_pipeline(self.sdf_renderer.pipeline());
