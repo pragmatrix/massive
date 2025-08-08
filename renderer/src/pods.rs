@@ -51,16 +51,15 @@ impl Vertex {
             position: [x, y, z],
         }
     }
+}
 
-    #[allow(unused)]
-    fn desc() -> &'static wgpu::VertexBufferLayout<'static> {
-        const LAYOUT: wgpu::VertexBufferLayout = wgpu::VertexBufferLayout {
+impl VertexLayout for Vertex {
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
             array_stride: size_of::<Vertex>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Float32x3],
-        };
-
-        &LAYOUT
+        }
     }
 }
 
@@ -99,8 +98,10 @@ impl TextureVertex {
             tex_coords: [uv.0, uv.1],
         }
     }
+}
 
-    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+impl VertexLayout for TextureVertex {
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 2] =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
 
@@ -128,8 +129,10 @@ impl ColorVertex {
             color: color.into(),
         }
     }
+}
 
-    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+impl VertexLayout for ColorVertex {
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 2] =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
 
@@ -158,8 +161,10 @@ impl TextureColorVertex {
             color: color.into(),
         }
     }
+}
 
-    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+impl VertexLayout for TextureColorVertex {
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 3] =
             wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4];
 
@@ -190,9 +195,8 @@ pub struct InstanceColor {
     pub color: [f32; 3],
 }
 
-impl InstanceColor {
-    #[allow(unused)]
-    pub fn layout() -> wgpu::VertexBufferLayout<'static> {
+impl VertexLayout for InstanceColor {
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
         const ATTRS: [VertexAttribute; 1] = wgpu::vertex_attr_array![2 => Float32x3];
 
         VertexBufferLayout {
@@ -209,6 +213,12 @@ impl From<massive_geometry::Color> for InstanceColor {
             color: [value.red, value.green, value.blue],
         }
     }
+}
+
+// Some helpful traits.
+
+pub trait VertexLayout {
+    fn layout() -> wgpu::VertexBufferLayout<'static>;
 }
 
 pub trait ToPod {

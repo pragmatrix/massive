@@ -6,23 +6,21 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use massive_geometry::{Point, Point3};
-use massive_scene::{Change, Id, SceneChange, Shape, VisualRenderObj};
+use massive_scene::{Change, Id, Matrix, SceneChange, Shape, VisualRenderObj};
 use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 use swash::{Weight, scale::ScaleContext};
 use text::SwashContent;
 use wgpu::Device;
 
-use super::{
-    color_atlas::{self, ColorAtlasRenderer},
-    sdf_atlas::{self, SdfAtlasRenderer},
-};
 use crate::{
     glyph::{
         GlyphRasterizationParam, RasterizedGlyphKey, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::rasterize_glyph_with_padding,
     },
+    pods::{AsBytes, TextureColorVertex, TextureVertex, ToPod},
     renderer::{PreparationContext, RenderContext},
     scene::{IdTable, LocationMatrices},
+    text_layer::atlas_renderer::{AtlasRenderer, color_atlas, sdf_atlas},
     tools::QuadIndexBuffer,
 };
 
@@ -42,8 +40,8 @@ pub struct TextLayerRenderer {
 
     index_buffer: QuadIndexBuffer,
 
-    sdf_renderer: SdfAtlasRenderer,
-    color_renderer: ColorAtlasRenderer,
+    sdf_renderer: AtlasRenderer,
+    color_renderer: AtlasRenderer,
 
     // Architecture:
     //
@@ -106,8 +104,20 @@ impl TextLayerRenderer {
             font_system,
             empty_glyphs: HashSet::new(),
             index_buffer: QuadIndexBuffer::new(device),
-            sdf_renderer: SdfAtlasRenderer::new(device, target_format),
-            color_renderer: ColorAtlasRenderer::new(device, target_format),
+            // Instead of specifying all these consts _and_ the vertex type, a trait based spec type
+            // would probably be better.
+            sdf_renderer: AtlasRenderer::new::<TextureColorVertex>(
+                device,
+                wgpu::TextureFormat::R8Unorm,
+                wgpu::include_wgsl!("shader/sdf_atlas.wgsl"),
+                target_format,
+            ),
+            color_renderer: AtlasRenderer::new::<TextureVertex>(
+                device,
+                wgpu::TextureFormat::Rgba8Unorm,
+                wgpu::include_wgsl!("shader/color_atlas.wgsl"),
+                target_format,
+            ),
             visuals: IdTable::default(),
             max_quads_in_use: 0,
         }
@@ -194,29 +204,46 @@ impl TextLayerRenderer {
             .set(&mut context.pass, self.max_quads_in_use);
 
         {
-            // Optimization: Don't call prepare if there is nothing to render.
-            self.sdf_renderer.prepare(context);
+            context.pass.set_pipeline(self.sdf_renderer.pipeline());
 
             for visual in self.visuals.iter_some() {
                 if let Some(ref sdf_batch) = visual.batches.sdf {
                     let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                    self.sdf_renderer.render(context, &model_matrix, sdf_batch);
+                    Self::render_batch(context, &model_matrix, sdf_batch);
                 }
             }
         }
 
         {
-            // Optimization: Don't call prepare if there is nothing to render.
-            self.color_renderer.prepare(context);
+            context.pass.set_pipeline(self.color_renderer.pipeline());
 
             for visual in self.visuals.iter_some() {
                 if let Some(ref color_batch) = visual.batches.color {
                     let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                    self.color_renderer
-                        .render(context, &model_matrix, color_batch);
+                    Self::render_batch(context, &model_matrix, color_batch);
                 }
             }
         }
+    }
+
+    pub fn render_batch(context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
+        let text_layer_matrix = context.view_projection_matrix * model_matrix;
+
+        let pass = &mut context.pass;
+
+        pass.set_push_constants(
+            wgpu::ShaderStages::VERTEX,
+            0,
+            text_layer_matrix.to_pod().as_bytes(),
+        );
+        pass.set_bind_group(0, &batch.fs_bind_group, &[]);
+        pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
+
+        pass.draw_indexed(
+            0..(batch.quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+            0,
+            0..1,
+        )
     }
 
     /// Prepare a number of glyph runs and produce a TextLayer.

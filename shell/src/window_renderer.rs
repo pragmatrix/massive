@@ -64,6 +64,11 @@ impl WindowRenderer {
             .await
             .context("Requesting device")?;
 
+        info!(
+            "Max texture dimension: {}",
+            device.limits().max_texture_dimension_2d
+        );
+
         let surface_caps = surface.get_capabilities(&adapter);
 
         // Don't use srgb now, colors are specified in linear rgb space.

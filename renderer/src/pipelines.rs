@@ -1,5 +1,5 @@
 use crate::{
-    pods::{TextureColorVertex, TextureVertex},
+    pods::{TextureColorVertex, TextureVertex, VertexLayout},
     primitives::Pipeline,
     texture,
     tools::create_pipeline,
