@@ -248,6 +248,7 @@ impl TextLayerRenderer {
                 let top = lt.y as f32 + translation.y as f32;
                 let right = rb.x as f32 + translation.x as f32;
                 let bottom = rb.y as f32 + translation.y as f32;
+                let depth = translation.z as f32;
 
                 let pos_lt = [left, top];
                 let pos_rb = [right, bottom];
@@ -264,6 +265,7 @@ impl TextLayerRenderer {
                             uv_lt,
                             uv_rb,
                             color: run.text_color.into(),
+                            depth,
                         });
                     }
                     AtlasKind::Color => {
@@ -272,6 +274,7 @@ impl TextLayerRenderer {
                             pos_rb,
                             uv_lt,
                             uv_rb,
+                            depth,
                         });
                     }
                 }

@@ -13,6 +13,8 @@ struct VertexInput {
     @location(3) uv_rb: vec2<f32>,
     // Per-glyph color
     @location(4) color: vec4<f32>,
+    // Depth in pixel space
+    @location(5) depth: f32,
 }
 
 struct VertexOutput {
@@ -31,7 +33,7 @@ fn vs_main(input: VertexInput) -> VertexOutput {
 
     let x = select(input.pos_lt.x, input.pos_rb.x, use_right);
     let y = select(input.pos_lt.y, input.pos_rb.y, use_bottom);
-    let pos = vec3<f32>(x, y, 0.0);
+    let pos = vec3<f32>(x, y, input.depth);
 
     let tu = select(input.uv_lt.x, input.uv_rb.x, use_right);
     let tv = select(input.uv_lt.y, input.uv_rb.y, use_bottom);

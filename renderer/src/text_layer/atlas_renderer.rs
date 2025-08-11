@@ -120,18 +120,21 @@ pub mod sdf_atlas {
         pub uv_rb: [f32; 2],
         // color rgba
         pub color: Color,
+        // depth (z in pixel space)
+        pub depth: f32,
     }
 
     impl super::VertexLayout for Instance {
         fn layout() -> wgpu::VertexBufferLayout<'static> {
             use std::mem::size_of;
             use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
-            const ATTRS: [VertexAttribute; 5] = wgpu::vertex_attr_array![
+            const ATTRS: [VertexAttribute; 6] = wgpu::vertex_attr_array![
                 0 => Float32x2, // pos_lt
                 1 => Float32x2, // pos_rb
                 2 => Float32x2, // uv_lt
                 3 => Float32x2, // uv_rb
-                4 => Float32x4  // color
+                4 => Float32x4, // color
+                5 => Float32,   // depth
             ];
             VertexBufferLayout {
                 array_stride: size_of::<Instance>() as BufferAddress,
@@ -154,17 +157,20 @@ pub mod color_atlas {
         pub pos_rb: [f32; 2],
         pub uv_lt: [f32; 2],
         pub uv_rb: [f32; 2],
+        // depth (z in pixel space)
+        pub depth: f32,
     }
 
     impl VertexLayout for Instance {
         fn layout() -> wgpu::VertexBufferLayout<'static> {
             use std::mem::size_of;
             use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
-            const ATTRS: [VertexAttribute; 4] = wgpu::vertex_attr_array![
+            const ATTRS: [VertexAttribute; 5] = wgpu::vertex_attr_array![
                 0 => Float32x2, // pos_lt
                 1 => Float32x2, // pos_rb
                 2 => Float32x2, // uv_lt
-                3 => Float32x2  // uv_rb
+                3 => Float32x2, // uv_rb
+                4 => Float32,   // depth
             ];
             VertexBufferLayout {
                 array_stride: size_of::<Instance>() as BufferAddress,
