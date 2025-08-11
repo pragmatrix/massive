@@ -9,12 +9,14 @@ mod scene;
 mod shape;
 mod shape_renderer;
 mod size_buffer;
+mod stats;
 mod text_layer;
 mod texture;
 mod tools;
 mod transactions;
 
 pub use color_buffer::*;
+pub use renderer::Config as RendererConfig;
 pub use renderer::Renderer;
 pub use transactions::*;
 // Cleanup: This is old, unused and should be removed.

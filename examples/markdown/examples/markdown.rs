@@ -127,7 +127,10 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             info!("Window Event: {window_event:?}");
 
             match application.update(window_event) {
-                UpdateResponse::Exit => return Ok(()),
+                UpdateResponse::Exit => {
+                    info!("Exiting Markdown application");
+                    return Ok(());
+                }
                 UpdateResponse::Continue => {}
             }
 
