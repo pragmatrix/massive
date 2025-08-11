@@ -1,6 +1,7 @@
 use std::{
     result,
     sync::{Arc, Mutex},
+    time::Instant,
 };
 
 use anyhow::Result;
@@ -11,6 +12,7 @@ use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 use crate::{
     TransactionManager,
     scene::{LocationMatrices, Scene},
+    stats::MeasureSeries,
     text_layer::TextLayerRenderer,
     texture,
 };
@@ -18,9 +20,11 @@ use massive_geometry::Matrix4;
 use massive_scene::SceneChange;
 
 pub struct Renderer {
+    config: Config,
     surface: wgpu::Surface<'static>,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
+    pub measure_series: MeasureSeries,
     pub surface_config: wgpu::SurfaceConfiguration,
 
     transaction_manager: TransactionManager,
@@ -47,6 +51,13 @@ pub struct RenderContext<'a> {
     pub pass: wgpu::RenderPass<'a>,
 }
 
+#[derive(Debug)]
+pub struct Config {
+    measure: bool,
+}
+
+const MEASURE: bool = true;
+
 impl Renderer {
     /// Creates a new renderer and reconfigures the surface according to the given configuration.
     pub fn new(
@@ -67,10 +78,12 @@ impl Renderer {
         //     QuadsRenderer::new(&device, format, &view_projection_bind_group_layout);
 
         let mut renderer = Self {
+            config: Config { measure: MEASURE },
             device,
             queue,
             surface,
             surface_config,
+            measure_series: MeasureSeries::default(),
             transaction_manager: TransactionManager::default(),
             scene: Scene::default(),
             visual_matrices: LocationMatrices::default(),
@@ -182,6 +195,8 @@ impl Renderer {
 
         let pixel_matrix = self.pixel_matrix();
 
+        let render_start_time = Instant::now();
+
         let command_buffer = {
             let mut encoder = self
                 .device
@@ -247,7 +262,17 @@ impl Renderer {
             encoder.finish()
         };
 
-        self.queue.submit([command_buffer]);
+        let submit_index = self.queue.submit([command_buffer]);
+
+        if self.config.measure {
+            // Robustness: This should be done in another thread to prevent us from blocking or delaying present().
+            self.device
+                .poll(wgpu::PollType::WaitForSubmissionIndex(submit_index))
+                .unwrap();
+            let duration_passed = Instant::now().duration_since(render_start_time);
+            self.measure_series.add_sample(duration_passed);
+        }
+
         surface_texture.present();
     }
 

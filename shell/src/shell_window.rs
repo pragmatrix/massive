@@ -157,8 +157,8 @@ impl Drop for ShellWindowShared {
             .send_event(ShellRequest::DestroyWindow { window })
         {
             error!("Failed to send back Window to the event loop (Event loop closed)");
-            // Dropping it here would most likely block indefinitely this thread, so we forget the
-            // window.
+            // Dropping it here would most likely block this thread indefinitely, so we forget the
+            // window, which is in the ShellRequest returned in the Error.
             mem::forget(e)
         }
     }
