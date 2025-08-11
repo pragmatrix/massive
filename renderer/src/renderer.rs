@@ -265,7 +265,7 @@ impl Renderer {
         let submit_index = self.queue.submit([command_buffer]);
 
         if self.config.measure {
-            // Robustness: This should be done in another thread to prevent us from blocking delaying present().
+            // Robustness: This should be done in another thread to prevent us from blocking or delaying present().
             self.device
                 .poll(wgpu::PollType::WaitForSubmissionIndex(submit_index))
                 .unwrap();
