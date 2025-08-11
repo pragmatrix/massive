@@ -179,7 +179,7 @@ impl TextLayerRenderer {
     pub fn prepare(&mut self, context: &mut PreparationContext) {
         // Optimization: Visuals are iterated 4 times per render (see all_locations(), which could
         // also compute max_quads).
-
+        //
         // Compute only one max_quads value (which is optimal when we use one index buffer only).
         let max_quads = self
             .visuals
@@ -255,7 +255,7 @@ impl TextLayerRenderer {
         runs: impl Iterator<Item = &'a GlyphRun>,
     ) -> Result<VisualBatches> {
         // Step 1: Get all instance data.
-        // OO: Compute a conservative capacity?
+        // Performance: Compute a conservative capacity?
         let mut sdf_glyphs = Vec::new();
         let mut color_glyphs = Vec::new();
 
@@ -278,7 +278,7 @@ impl TextLayerRenderer {
                     continue; // Glyph is empty: Not rendered.
                 };
 
-                // OO: translation might be applied to two points only (lt, rb)
+                // Performance: translation might be applied to two points only (lt, rb)
                 let vertices =
                     Self::glyph_vertices(run, glyph, &placement).map(|p| p + translation);
 
