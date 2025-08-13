@@ -17,7 +17,7 @@ const CANVAS_ID: &str = "massive-code";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(code_viewer).await
+    shell::run(code_viewer)
 }
 
 async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {

@@ -19,7 +19,7 @@ use shared::positioning;
 async fn main() -> Result<()> {
     env_logger::init();
 
-    shell::run(application).await
+    shell::run(application)
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {

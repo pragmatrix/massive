@@ -30,7 +30,7 @@ const CANVAS_ID: &str = "massive-emojis";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(emojis).await
+    shell::run(emojis)
 }
 
 async fn emojis(mut ctx: ApplicationContext) -> Result<()> {

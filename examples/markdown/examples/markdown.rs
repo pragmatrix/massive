@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
         .with(chrome_layer)
         .init();
 
-    shell::run(application).await
+    shell::run(application)
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {

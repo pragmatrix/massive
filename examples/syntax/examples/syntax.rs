@@ -23,7 +23,7 @@ const CANVAS_ID: &str = "massive-syntax";
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(syntax).await
+    shell::run(syntax)
 }
 
 async fn syntax(mut ctx: ApplicationContext) -> Result<()> {

@@ -19,7 +19,15 @@ use winit::{
 use crate::{ApplicationContext, ShellWindow, application_context::RenderPacing};
 use massive_animation::Tickery;
 
-pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
+/// Starts the shell.
+///
+/// This runs `application` with `tokio::spawn` on the tokio threadpool and waits for its
+/// completion. It also executes the winit event loop and blocks until it returns. This gives
+/// clients the option to run the event loop on the main thread, which some platforms require.
+///
+/// This function is not async, but the tokio runtime _must_ be created and this function's async
+/// caller must be called using the runtime's block_on() function (which #[tokio::main] does).
+pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
 ) -> Result<()> {
     // Don't force initialization of the env logger (calling main may already initialized it)
@@ -29,7 +37,6 @@ pub async fn run<R: Future<Output = Result<()>> + 'static + Send>(
 
     // Spawn application.
 
-    // Robustness: may use unbounded channels.
     let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 
     // Proxy for sending events to the event loop from another thread.

@@ -60,7 +60,7 @@ async fn main() -> Result<()> {
         .with(info_only_layer)
         .init();
 
-    shell::run(|ctx| logs(receiver, ctx)).await
+    shell::run(|ctx| logs(receiver, ctx))
 }
 
 struct Sender(mpsc::UnboundedSender<Vec<u8>>);
