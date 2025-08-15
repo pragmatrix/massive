@@ -14,7 +14,7 @@ use wgpu::{
     TextureViewDescriptor,
 };
 
-use super::RasterizedGlyphKey;
+use crate::glyph::glyph_rasterization::RasterizedGlyphKey;
 
 pub struct GlyphAtlas {
     texture: AtlasTexture,

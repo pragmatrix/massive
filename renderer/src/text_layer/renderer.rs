@@ -14,8 +14,8 @@ use wgpu::Device;
 
 use crate::{
     glyph::{
-        GlyphRasterizationParam, RasterizedGlyphKey, SwashRasterizationParam, glyph_atlas,
-        glyph_rasterization::rasterize_glyph_with_padding,
+        GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas,
+        glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
     },
     pods::{AsBytes, TextureColorVertex, TextureVertex, ToPod},
     renderer::{PreparationContext, RenderContext},

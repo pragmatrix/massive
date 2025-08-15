@@ -5,10 +5,18 @@ use swash::{
 };
 use text::SwashContent;
 
+use crate::glyph::GlyphRasterizationParam;
+
 use super::{
-    RasterizedGlyphKey, SwashRasterizationParam,
+    SwashRasterizationParam,
     distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image},
 };
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RasterizedGlyphKey {
+    pub text: text::CacheKey,
+    pub param: GlyphRasterizationParam,
+}
 
 /// Rasterize a glyph into [`SwashImage`] as either monochrome, colored, or SDF, with appropriate
 /// padding prepared to be used as a texture.
