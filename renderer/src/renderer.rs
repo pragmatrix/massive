@@ -14,7 +14,6 @@ use crate::{
     scene::{LocationMatrices, Scene},
     stats::MeasureSeries,
     text_layer::TextLayerRenderer,
-    texture,
 };
 use massive_geometry::Matrix4;
 use massive_scene::SceneChange;
@@ -31,12 +30,7 @@ pub struct Renderer {
     scene: Scene,
     visual_matrices: LocationMatrices,
 
-    // TODO: this doesn't belong here and is used only for specific pipelines. We need some
-    // per-pipeline information types.
-    pub texture_bind_group_layout: texture::BindGroupLayout,
-
     text_layer_renderer: TextLayerRenderer,
-    // quads_renderer: QuadsRenderer,
 }
 
 /// The context provided to `prepare()` middleware functions.
@@ -67,8 +61,6 @@ impl Renderer {
         surface_config: wgpu::SurfaceConfiguration,
         font_system: Arc<Mutex<FontSystem>>,
     ) -> Self {
-        let texture_bind_group_layout = texture::BindGroupLayout::new(&device);
-
         let format = surface_config.format;
 
         let text_layer_renderer = TextLayerRenderer::new(&device, font_system, format);
@@ -87,7 +79,6 @@ impl Renderer {
             transaction_manager: TransactionManager::default(),
             scene: Scene::default(),
             visual_matrices: LocationMatrices::default(),
-            texture_bind_group_layout,
             text_layer_renderer,
             // quads_renderer,
         };

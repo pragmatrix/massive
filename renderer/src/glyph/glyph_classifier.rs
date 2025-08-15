@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use approx::{abs_diff_eq, ulps_eq};
 use massive_geometry::Point3;
 

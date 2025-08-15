@@ -71,7 +71,7 @@ fn position_glyph(glyph: &LayoutGlyph) -> RunGlyph {
         (glyph.x.round(), glyph.y.round())
     };
 
-    let (ck, x, y) = CacheKey::new(
+    let (glyph_key, x, y) = CacheKey::new(
         glyph.font_id,
         glyph.glyph_id,
         glyph.font_size,
@@ -79,7 +79,5 @@ fn position_glyph(glyph: &LayoutGlyph) -> RunGlyph {
         CacheKeyFlags::empty(),
     );
 
-    // Hitbox width is actually _fractional_, but does not change with / without subpixel
-    // rendering.
-    RunGlyph::new(ck, (x, y), glyph.w)
+    RunGlyph::new((x, y), glyph_key)
 }

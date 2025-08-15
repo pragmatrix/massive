@@ -1,5 +1,4 @@
 use super::GlyphClass;
-use crate::primitives::Pipeline;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GlyphRasterizationParam {
@@ -13,16 +12,6 @@ pub struct SwashRasterizationParam {
     pub hinted: bool,
     // Currently used with variable fonts only, by passing the `wght` tag.
     pub weight: swash::Weight,
-}
-
-impl GlyphRasterizationParam {
-    pub fn pipeline(&self) -> Pipeline {
-        if self.prefer_sdf {
-            Pipeline::SdfGlyph
-        } else {
-            Pipeline::PlanarGlyph
-        }
-    }
 }
 
 impl From<GlyphClass> for GlyphRasterizationParam {
