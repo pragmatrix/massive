@@ -24,7 +24,7 @@ jobs:
       run: cargo clippy --all-targets -- -D warnings
 
     - name: 'Test'
-      run: cargo test --all-targets
+      run: cargo test --release
 
   formatting:
     runs-on: ubuntu-22.04
