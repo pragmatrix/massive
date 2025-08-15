@@ -14,22 +14,23 @@ dump_edge = []
 
 [dependencies]
 massive-geometry = { workspace = true }
-massive-shapes = { workspace = true }
 massive-scene = { workspace = true }
-winit = { workspace = true }
-wgpu = { workspace = true }
-bytemuck = { workspace = true }
-cgmath = { workspace = true }
+massive-shapes = { workspace = true }
+
 anyhow = { workspace = true }
-derive_more = { workspace = true }
-cosmic-text = { workspace = true }
-swash = { workspace = true }
-log = { workspace = true }
 approx = { workspace = true }
 bitflags = { workspace = true }
-static_assertions = { workspace = true }
-tracing = { workspace = true }
+bytemuck = { workspace = true }
+cgmath = { workspace = true }
+cosmic-text = { workspace = true }
+derive_more = { workspace = true }
 itertools = { workspace = true }
+log = { workspace = true }
+static_assertions = { workspace = true }
+swash = { workspace = true }
+tracing = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
 
 # Atlas
 
