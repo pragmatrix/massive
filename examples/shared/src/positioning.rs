@@ -21,7 +21,7 @@ pub fn to_attributed_glyph_runs(
 
     run.glyphs
         .iter()
-        .group_by(|r| r.metadata)
+        .chunk_by(|r| r.metadata)
         .into_iter()
         .map(|(metadata, sub_run_glyphs)| {
             let positioned_glyphs = sub_run_glyphs.map(position_glyph);
