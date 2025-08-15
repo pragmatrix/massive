@@ -105,10 +105,18 @@ fn render(font_system: &mut FontSystem, str: &str) -> Vec<Shape> {
 fn shape_text(font_system: &mut text::FontSystem, text: &str, font_size: f32) -> GlyphRun {
     let mut buffer = text::BufferLine::new(
         text,
-        text::AttrsList::new(text::Attrs::new()),
+        text::LineEnding::default(),
+        text::AttrsList::new(&text::Attrs::new()),
         text::Shaping::Advanced,
     );
-    let line = &buffer.layout(font_system, font_size, f32::MAX, text::Wrap::None, None)[0];
+    let line = &buffer.layout(
+        font_system,
+        font_size,
+        None,
+        text::Wrap::None,
+        None,
+        0, //< tab width
+    )[0];
     let placed = positioning::position_glyphs(&line.glyphs);
     let metrics = GlyphRunMetrics {
         max_ascent: line.max_ascent as u32,
