@@ -42,17 +42,23 @@ pub fn shape_text(
     // something is wrong. Set it to an illegal offset `usize::MAX` for now.
     let base_attrs = Attrs::new().family(Family::Monospace).metadata(usize::MAX);
     let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
-    buffer.set_size(font_system, f32::INFINITY, f32::INFINITY);
+    buffer.set_size(font_system, None, None);
     // buffer.set_text(font_system, text, attrs, Shaping::Advanced);
     buffer.set_wrap(font_system, Wrap::None);
     // Create associated metadata.
     let text_attr_spans = attributes.iter().enumerate().map(|(attribute_index, ta)| {
         (
             text.get(ta.range.clone()).unwrap(),
-            base_attrs.metadata(attribute_index),
+            base_attrs.clone().metadata(attribute_index),
         )
     });
-    buffer.set_rich_text(font_system, text_attr_spans, base_attrs, Shaping::Advanced);
+    buffer.set_rich_text(
+        font_system,
+        text_attr_spans,
+        &base_attrs,
+        Shaping::Advanced,
+        None,
+    );
     buffer.shape_until_scroll(font_system, true);
 
     let mut runs = Vec::new();
