@@ -78,7 +78,8 @@ fn position_glyph(glyph: &LayoutGlyph) -> RunGlyph {
         fractional_pos,
         CacheKeyFlags::empty(),
     );
-    // Note: hitbox width is fractional, but does not change with / without subpixel
+
+    // Hitbox width is actually _fractional_, but does not change with / without subpixel
     // rendering.
     RunGlyph::new(ck, (x, y), glyph.w)
 }
