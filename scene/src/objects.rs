@@ -24,7 +24,7 @@ pub struct Visual {
     /// renderer a bit more complex. This would also point to sharing Shapes as handles ... which
     /// could go in direction of layout?
     ///
-    /// Arc to make sharing shapes with the renderer really cheap. Cloning them would be too heavy.
+    /// Arc is used here to make sharing shapes with the renderer really cheap.
     pub shapes: Arc<[Shape]>,
 }
 

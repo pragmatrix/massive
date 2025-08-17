@@ -38,9 +38,13 @@ pub fn shape_text(
         text.len(),
     );
 
-    // The text covers everything. But if these attributes are appearing without adjusted metadata,
-    // something is wrong. Set it to an illegal offset `usize::MAX` for now.
+    // The text covers everything. If the attributes are appearing without adjusted metadata,
+    // something is wrong.
+    //
+    // Set it to an illegal out of bounds `usize::MAX` for now.
     let base_attrs = Attrs::new().family(Family::Monospace).metadata(usize::MAX);
+    // Optimization: Why is Buffer used when thre is no wrapping. BufferLine would
+    // probably be better.
     let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
     buffer.set_size(font_system, None, None);
     // buffer.set_text(font_system, text, attrs, Shaping::Advanced);
