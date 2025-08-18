@@ -112,7 +112,7 @@ pub mod legacy {
     use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
     use std::{collections::HashMap, sync::Arc};
 
-    pub fn into_visuals(director: &Scene, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
+    pub fn into_visuals(scene: &Scene, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
         let mut location_handles: HashMap<*const Matrix4, Handle<Location>> = HashMap::new();
         let mut visuals = Vec::with_capacity(shapes.len());
 
@@ -124,8 +124,8 @@ pub mod legacy {
 
             let position = location_handles.entry(Arc::as_ptr(matrix)).or_insert_with(
                 || -> Handle<Location> {
-                    let matrix = director.stage(**matrix);
-                    director.stage(matrix.into())
+                    let matrix = scene.stage(**matrix);
+                    scene.stage(matrix.into())
                 },
             );
 
@@ -138,7 +138,7 @@ pub mod legacy {
                 }
             };
 
-            visuals.push(director.stage(visual));
+            visuals.push(scene.stage(visual));
         }
 
         visuals
