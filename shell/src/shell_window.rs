@@ -57,7 +57,8 @@ impl ShellWindow {
         camera: Camera,
         // Feature: Use a rect here to place the renderer on the window.
         // (But what about resizes then?)
-        initial_size: PhysicalSize<u32>,
+        // Ergonomics: Don't use winit types.
+        initial_size: impl Into<PhysicalSize<u32>>,
     ) -> Result<AsyncWindowRenderer> {
         let instance_and_surface = self
             .new_instance_and_surface(
@@ -93,7 +94,7 @@ impl ShellWindow {
             surface,
             font_system,
             camera,
-            initial_size,
+            initial_size.into(),
         )
         .await?;
 

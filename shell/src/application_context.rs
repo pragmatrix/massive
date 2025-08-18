@@ -46,8 +46,13 @@ pub enum RenderPacing {
 }
 
 impl ApplicationContext {
+    /// Creates a new window.
+    ///
+    /// Async because it needs to communicate with the application's main thread on which the window
+    /// is actually created.
     pub async fn new_window(
         &self,
+        // Ergonomics: Use a massive-geometry size type here.
         inner_size: impl Into<dpi::Size>,
         _canvas_id: Option<&str>,
     ) -> Result<ShellWindow> {
