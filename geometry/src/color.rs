@@ -127,3 +127,15 @@ impl From<(u8, u8, u8, u8)> for Color {
         )
     }
 }
+
+impl From<(f32, f32, f32, f32)> for Color {
+    fn from((r, g, b, a): (f32, f32, f32, f32)) -> Self {
+        Color::new(r, g, b, a)
+    }
+}
+
+impl From<Color> for (f32, f32, f32, f32) {
+    fn from(value: Color) -> Self {
+        (value.red, value.green, value.blue, value.alpha)
+    }
+}
