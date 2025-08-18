@@ -278,7 +278,9 @@ impl TextLayerRenderer {
                     continue; // Glyph is empty: Not rendered.
                 };
 
-                // Performance: translation might be applied to two points only (lt, rb)
+                // Performance: translation might be applied to two points only (lt, rb).
+                // Performance: translation should be in pixel grid space I guess (a i32 tuple?).
+                // Otherwise pixel perfect positioning could not be guaranteed. But what about z translations?
                 let vertices =
                     Self::glyph_vertices(run, glyph, &placement).map(|p| p + translation);
 

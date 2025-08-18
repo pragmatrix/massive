@@ -13,6 +13,9 @@ pub enum Shape {
 }
 
 /// A visual represents a set of shapes that have a common position / location in the space.
+///
+/// Architecture: This has now the same size as [`VisualRenderObj`]. Why not just clone this one for
+/// the renderer then .. or even just the [`Handle<Visual>`]?
 #[derive(Debug)]
 pub struct Visual {
     pub location: Handle<Location>,

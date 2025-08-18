@@ -55,7 +55,7 @@ impl ShellWindow {
         &self,
         font_system: Arc<Mutex<FontSystem>>,
         camera: Camera,
-        // Use a rect here to place the renderer on the window.
+        // Feature: Use a rect here to place the renderer on the window.
         // (But what about resizes then?)
         initial_size: PhysicalSize<u32>,
     ) -> Result<AsyncWindowRenderer> {

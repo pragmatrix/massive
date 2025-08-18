@@ -23,8 +23,12 @@ pub struct GlyphRunShape {
 
 #[derive(Debug, Clone)]
 pub struct GlyphRun {
-    // Local translation This is separated from the view transformation because matrix changes are
-    // expensive.
+    // Local translation.
+    //
+    // This is separated from the view transformation because matrix changes are expensive.
+    //
+    // Keep z zero and x / y non-fractional for keeping a pixel perfect rendering at the origin
+    // position.
     pub translation: Vector3,
     pub metrics: GlyphRunMetrics,
     pub text_color: Color,

@@ -121,6 +121,10 @@ impl ApplicationContext {
         timeline
     }
 
+    /// Wait for the next shell event.
+    ///
+    /// `renderer` is needed so that we know when the renderer finished while animation mode a
+    /// [`ShellEvent::ApplyAnimations`] can be produced.
     pub async fn wait_for_shell_event(
         &mut self,
         renderer: &mut AsyncWindowRenderer,
@@ -147,6 +151,10 @@ impl ApplicationContext {
         }
     }
 
+    /// Begin an update cycle.
+    ///
+    /// The update cycle is used at a time the scene changes and the renderer needs to be informed
+    /// at the end of the update cycle about the changes.
     pub fn begin_update_cycle<'a>(
         // Not only do we need &mut self in the Drop handler, but this also prevents users to
         // start a second update cycle in parallel. But this may be allowed?
