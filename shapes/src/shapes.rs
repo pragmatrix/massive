@@ -27,7 +27,7 @@ pub struct GlyphRun {
     //
     // This is separated from the view transformation because matrix changes are expensive.
     //
-    // Keep z zero and x / y non-fractional for keeping a pixel perfect rendering at the origin
+    // Keep z zero and x / y integer for keeping a pixel perfect rendering at the origin
     // position.
     pub translation: Vector3,
     pub metrics: GlyphRunMetrics,
