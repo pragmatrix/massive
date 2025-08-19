@@ -7,7 +7,7 @@ use winit::{dpi::PhysicalSize, event::WindowEvent, window::WindowId};
 
 use crate::shell_window::ShellWindowShared;
 use cosmic_text::FontSystem;
-use massive_geometry::{Camera, Matrix4, scalar};
+use massive_geometry::{Camera, Color, Matrix4, scalar};
 use massive_renderer::Renderer;
 use massive_scene::ChangeCollector;
 
@@ -128,6 +128,29 @@ impl WindowRenderer {
     pub fn change_collector(&self) -> &Arc<ChangeCollector> {
         &self.change_collector
     }
+    /// The format chosen for the swapchain.
+    pub fn surface_format(&self) -> TextureFormat {
+        self.renderer.surface_config.format
+    }
+
+    /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
+    /// 1.0 in each axis. Also flips y.
+    pub fn pixel_matrix(&self) -> Matrix4 {
+        self.renderer.pixel_matrix()
+    }
+
+    // Surface size may not match the Window's size, for example if the window's size is 0,0.
+    #[allow(unused)]
+    pub fn surface_size(&self) -> (u32, u32) {
+        self.renderer.surface_size()
+    }
+
+    /// Sets the background color for the next redraw.
+    ///
+    /// Does not request a redraw.
+    pub fn set_background_color(&mut self, color: Option<Color>) {
+        self.renderer.background_color = color;
+    }
 
     // DI: If the renderer does culling, we need to move the camera (or at least the view matrix) into the renderer, and
     // perhaps schedule updates using the director.
@@ -162,7 +185,9 @@ impl WindowRenderer {
 
         Ok(())
     }
+}
 
+impl WindowRenderer {
     pub(crate) fn resize(&mut self, new_size: (u32, u32)) {
         self.renderer.resize_surface(new_size)
     }
@@ -209,22 +234,5 @@ impl WindowRenderer {
     fn view_projection_matrix(&self) -> Matrix4 {
         let surface_size = self.renderer.surface_size();
         self.camera.view_projection_matrix(Z_RANGE, surface_size)
-    }
-
-    /// The format chosen for the swapchain.
-    pub fn surface_format(&self) -> TextureFormat {
-        self.renderer.surface_config.format
-    }
-
-    /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
-    /// 1.0 in each axis. Also flips y.
-    pub fn pixel_matrix(&self) -> Matrix4 {
-        self.renderer.pixel_matrix()
-    }
-
-    // Surface size may not match the Window's size, for example if the window's size is 0,0.
-    #[allow(unused)]
-    pub fn surface_size(&self) -> (u32, u32) {
-        self.renderer.surface_size()
     }
 }

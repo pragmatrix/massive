@@ -71,7 +71,7 @@ impl fmt::Debug for TextLayerRenderer {
 }
 
 #[derive(Debug)]
-struct Visual { 
+struct Visual {
     location_id: Id,
     batches: VisualBatches,
 }

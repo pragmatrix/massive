@@ -17,7 +17,7 @@ use tokio::sync::mpsc::{
 use winit::window::WindowId;
 
 use crate::window_renderer::WindowRenderer;
-use massive_geometry::Camera;
+use massive_geometry::{Camera, Color};
 use massive_scene::ChangeCollector;
 
 #[derive(Debug)]
@@ -37,6 +37,8 @@ pub enum RendererMessage {
     // This looks alien here.
     UpdateCamera(Camera),
     SetPresentMode(wgpu::PresentMode),
+    SetBackgroundColor(Option<Color>),
+    // Protocol: When adding a new RenderMessage, consider filter_latest_messages().
 }
 
 impl AsyncWindowRenderer {
@@ -124,6 +126,9 @@ impl AsyncWindowRenderer {
                 let texture = renderer.apply_scene_changes_and_prepare_presentation()?;
                 presentation_timestamps.send(Instant::now())?;
                 renderer.render_and_present(texture);
+            }
+            RendererMessage::SetBackgroundColor(color) => {
+                renderer.set_background_color(color);
             }
         }
         Ok(())

@@ -15,7 +15,7 @@ use crate::{
     stats::MeasureSeries,
     text_layer::TextLayerRenderer,
 };
-use massive_geometry::Matrix4;
+use massive_geometry::{Color, Matrix4};
 use massive_scene::SceneChange;
 
 #[derive(Debug)]
@@ -26,6 +26,7 @@ pub struct Renderer {
     pub queue: wgpu::Queue,
     pub measure_series: MeasureSeries,
     pub surface_config: wgpu::SurfaceConfiguration,
+    pub background_color: Option<Color>,
 
     transaction_manager: TransactionManager,
     scene: Scene,
@@ -81,6 +82,7 @@ impl Renderer {
             scene: Scene::default(),
             visual_matrices: LocationMatrices::default(),
             text_layer_renderer,
+            background_color: Some(Color::WHITE),
             // quads_renderer,
         };
 
@@ -197,13 +199,25 @@ impl Renderer {
                 });
 
             {
+                let load_op = if let Some(color) = self.background_color {
+                    let (r, g, b, a) = color.into();
+                    wgpu::LoadOp::Clear(wgpu::Color {
+                        r: r as _,
+                        g: g as _,
+                        b: b as _,
+                        a: a as _,
+                    })
+                } else {
+                    wgpu::LoadOp::Load
+                };
+
                 let render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &surface_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
+                            load: load_op,
                             store: StoreOp::Store,
                         },
                         depth_slice: None,
