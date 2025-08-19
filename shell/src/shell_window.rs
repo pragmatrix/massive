@@ -50,6 +50,10 @@ impl ShellWindow {
         self.shared.id()
     }
 
+    pub fn set_title(&self, title: &str) {
+        self.shared.window().set_title(title);
+    }
+
     // DI: Use SizeI to represent initial_size.
     pub async fn new_renderer(
         &self,
