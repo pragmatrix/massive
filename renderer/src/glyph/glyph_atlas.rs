@@ -1,5 +1,5 @@
 //! A  wgpu glyph atlas for u8 textures. Inspired by glyphon's TextAtlas.
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt};
 
 use anyhow::{Result, bail};
 use cosmic_text::{Placement, SwashContent, SwashImage};
@@ -21,6 +21,15 @@ pub struct GlyphAtlas {
     allocator: BucketedAtlasAllocator,
     /// Storage of the available and (padded) Images.
     images: HashMap<RasterizedGlyphKey, (Allocation, Placement)>,
+}
+
+impl fmt::Debug for GlyphAtlas {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GlyphAtlas")
+            .field("texture", &self.texture)
+            .field("images", &self.images)
+            .finish()
+    }
 }
 
 impl GlyphAtlas {

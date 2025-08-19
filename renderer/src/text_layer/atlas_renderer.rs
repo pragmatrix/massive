@@ -13,6 +13,7 @@ use crate::{
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
 
+#[derive(Debug)]
 pub struct AtlasRenderer {
     pub atlas: GlyphAtlas,
     texture_sampler: wgpu::Sampler,

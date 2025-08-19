@@ -18,6 +18,7 @@ use crate::{
 use massive_geometry::Matrix4;
 use massive_scene::SceneChange;
 
+#[derive(Debug)]
 pub struct Renderer {
     config: Config,
     surface: wgpu::Surface<'static>,

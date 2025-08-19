@@ -1,5 +1,6 @@
 use std::{
     collections::HashSet,
+    fmt,
     sync::{Arc, Mutex},
 };
 
@@ -54,12 +55,29 @@ pub struct TextLayerRenderer {
     max_quads_in_use: usize,
 }
 
-struct Visual {
+impl fmt::Debug for TextLayerRenderer {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("TextLayerRenderer")
+            .field("font_system", &self.font_system)
+            // .field("scale_context", &self.scale_context)
+            .field("empty_glyphs", &self.empty_glyphs)
+            .field("index_buffer", &self.index_buffer)
+            .field("sdf_renderer", &self.sdf_renderer)
+            .field("color_renderer", &self.color_renderer)
+            .field("visuals", &self.visuals)
+            .field("max_quads_in_use", &self.max_quads_in_use)
+            .finish()
+    }
+}
+
+#[derive(Debug)]
+struct Visual { 
     location_id: Id,
     batches: VisualBatches,
 }
 
 /// Representing all batches in a visual.
+#[derive(Debug)]
 struct VisualBatches {
     sdf: Option<QuadBatch>,
     color: Option<QuadBatch>,
@@ -80,6 +98,7 @@ impl VisualBatches {
     }
 }
 
+#[derive(Debug)]
 pub struct QuadBatch {
     /// Contains texture reference(s) and the sampler configuration.
     pub fs_bind_group: wgpu::BindGroup,
