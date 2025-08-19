@@ -88,13 +88,32 @@ pub struct Quad {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphRunMetrics {
+    /// The maximum ascent in pixels (use ceil()).
+    ///
+    /// Used for baseline positioning of the rasterized glyphs.
     pub max_ascent: u32,
+    /// The maximum descent in pixels.
+    ///
+    /// Used for height computation.
     pub max_descent: u32,
+    /// The pixel width of all the glyphs in the run.
     pub width: u32,
 }
 
 impl GlyphRunMetrics {
+    pub fn from_float(max_ascent: f32, max_descent: f32, width: f32) -> Self {
+        // This should cover all pixels to enable culling (later), use ceil().
+        Self {
+            max_ascent: max_ascent.ceil() as u32,
+            max_descent: max_descent.ceil() as u32,
+            width: width.ceil() as u32,
+        }
+    }
+
     /// Size of the glyph run in font-size pixels.
+    ///
+    /// Robustness: A run might start start at a negative pixel position, so size is probably not
+    ///   enough. Perhaps a rectangle is needed here.
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.max_ascent + self.max_descent)
     }
