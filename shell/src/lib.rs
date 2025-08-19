@@ -5,7 +5,7 @@ pub mod shell_window;
 pub mod window_renderer;
 
 pub use application_context::ApplicationContext;
-pub use async_window_renderer::AsyncWindowRenderer;
+pub use async_window_renderer::*;
 pub use shell::{ShellEvent, ShellRequest};
 pub use shell_window::ShellWindow;
 pub use window_renderer::WindowRenderer;

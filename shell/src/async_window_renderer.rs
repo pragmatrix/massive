@@ -142,9 +142,9 @@ impl AsyncWindowRenderer {
         &self.change_collector
     }
 
-    pub fn post_msg(&self, event: RendererMessage) -> Result<()> {
+    pub fn post_msg(&self, message: RendererMessage) -> Result<()> {
         self.msg_sender
-            .send(event)
+            .send(message)
             .context("Sending renderer message")?;
         Ok(())
     }
