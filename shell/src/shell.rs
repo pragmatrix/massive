@@ -16,7 +16,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{ApplicationContext, ShellWindow, application_context::RenderPacing};
+use crate::{ApplicationContext, ShellWindow};
 use massive_animation::Tickery;
 
 /// Starts the shell.
@@ -44,12 +44,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
 
     let tickery = Arc::new(Tickery::new(Instant::now()));
 
-    let application_context = ApplicationContext {
-        event_receiver,
-        event_loop_proxy,
-        tickery,
-        render_pacing: RenderPacing::default(),
-    };
+    let application_context = ApplicationContext::new(event_receiver, event_loop_proxy, tickery);
 
     let (result_tx, mut result_rx) = oneshot::channel();
     let _application_task = tokio::spawn(async move {

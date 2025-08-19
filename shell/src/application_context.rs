@@ -26,14 +26,14 @@ use massive_scene::Scene;
 /// coming from the shell.
 #[derive(Debug)]
 pub struct ApplicationContext {
-    pub event_receiver: UnboundedReceiver<ShellEvent>,
+    event_receiver: UnboundedReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
-    pub event_loop_proxy: EventLoopProxy<ShellRequest>,
-    pub tickery: Arc<Tickery>,
+    event_loop_proxy: EventLoopProxy<ShellRequest>,
+    tickery: Arc<Tickery>,
 
     /// The current render pacing as seen from the application context. This may not reflect
     /// reality, as it is synchronized with the renderer asynchronously.
-    pub render_pacing: RenderPacing,
+    render_pacing: RenderPacing,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -46,6 +46,19 @@ pub enum RenderPacing {
 }
 
 impl ApplicationContext {
+    pub fn new(
+        event_receiver: UnboundedReceiver<ShellEvent>,
+        event_loop_proxy: EventLoopProxy<ShellRequest>,
+        tickery: Arc<Tickery>,
+    ) -> Self {
+        Self {
+            event_receiver,
+            event_loop_proxy,
+            tickery,
+            render_pacing: RenderPacing::default(),
+        }
+    }
+
     /// Creates a new window.
     ///
     /// Async because it needs to communicate with the application's main thread on which the window
