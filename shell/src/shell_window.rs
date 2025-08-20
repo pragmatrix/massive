@@ -7,7 +7,7 @@ use std::{
 
 use anyhow::{Result, anyhow};
 use cosmic_text::FontSystem;
-use log::{error, info};
+use log::error;
 use tokio::sync::oneshot;
 use wgpu::rwh;
 use winit::{
@@ -112,25 +112,9 @@ impl ShellWindow {
     async fn new_instance_and_surface(
         &self,
         instance_descriptor: wgpu::InstanceDescriptor,
-        surface_target: Arc<ShellWindowShared>,
+        window: Arc<ShellWindowShared>,
     ) -> Result<(wgpu::Instance, wgpu::Surface<'static>)> {
-        use wgpu::SurfaceTarget;
-
         let instance = wgpu::Instance::new(&instance_descriptor);
-
-        let surface_target: SurfaceTarget<'static> = surface_target.into();
-
-        info!(
-            "Creating surface on a {} target",
-            match surface_target {
-                SurfaceTarget::Window(_) => "Window",
-                #[cfg(target_arch = "wasm32")]
-                SurfaceTarget::Canvas(_) => "Canvas",
-                #[cfg(target_arch = "wasm32")]
-                SurfaceTarget::OffscreenCanvas(_) => "OffscreenCanvas",
-                _ => "(Undefined SurfaceTarget, Internal Error)",
-            }
-        );
 
         let (on_created, when_created) = oneshot::channel();
 
@@ -138,7 +122,7 @@ impl ShellWindow {
             .event_loop_proxy
             .send_event(ShellRequest::CreateSurface {
                 instance: instance.clone(),
-                target: surface_target,
+                window,
                 on_created,
             })
             .map_err(|e| anyhow!(e.to_string()))?;
@@ -147,8 +131,9 @@ impl ShellWindow {
     }
 }
 
+#[derive(Debug)]
 pub struct ShellWindowShared {
-    // Option, because we have to send it back to the event loop for closing.
+    // ADR: Option, because we have to send it back to the event loop for closing.
     window: Option<Window>,
     // For creating surfaces, we need to communicate with the Shell.
     event_loop_proxy: EventLoopProxy<ShellRequest>,

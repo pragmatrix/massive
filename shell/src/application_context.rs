@@ -31,6 +31,9 @@ pub struct ApplicationContext {
     event_loop_proxy: EventLoopProxy<ShellRequest>,
     tickery: Arc<Tickery>,
 
+    /// ADR: currently here, but should probably be an EventLoop query.
+    monitor_scale_factor: Option<f64>,
+
     /// The current render pacing as seen from the application context. This may not reflect
     /// reality, as it is synchronized with the renderer asynchronously.
     render_pacing: RenderPacing,
@@ -50,13 +53,19 @@ impl ApplicationContext {
         event_receiver: UnboundedReceiver<ShellEvent>,
         event_loop_proxy: EventLoopProxy<ShellRequest>,
         tickery: Arc<Tickery>,
+        monitor_scale_factor: Option<f64>,
     ) -> Self {
         Self {
             event_receiver,
             event_loop_proxy,
             tickery,
+            monitor_scale_factor,
             render_pacing: RenderPacing::default(),
         }
+    }
+
+    pub fn primary_monitor_scale_factor(&self) -> Option<f64> {
+        self.monitor_scale_factor
     }
 
     /// Creates a new window.

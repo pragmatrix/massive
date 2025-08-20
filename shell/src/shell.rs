@@ -5,18 +5,18 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-use anyhow::Result;
-use log::info;
+use anyhow::{Result, anyhow, bail};
+use log::{error, info, warn};
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use wgpu::{Instance, Surface, SurfaceTarget};
+use wgpu::{Surface, SurfaceTarget};
 use winit::{
     application::ApplicationHandler,
     event::WindowEvent,
-    event_loop::{ActiveEventLoop, EventLoop},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{ApplicationContext, ShellWindow};
+use crate::{ApplicationContext, ShellWindow, shell_window::ShellWindowShared};
 use massive_animation::Tickery;
 
 /// Starts the shell.
@@ -37,46 +37,41 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
 
     // Spawn application.
 
-    let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
-
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
 
-    let tickery = Arc::new(Tickery::new(Instant::now()));
+    let spawn_application = |application_context: ApplicationContext| {
+        let (result_tx, result_rx) = oneshot::channel();
+        let _application_task = tokio::spawn(async move {
+            let r = application(application_context).await;
+            // Found no way to retrieve the result via JoinHandle, so a return via a onceshot channel
+            // must do.
+            result_tx
+                .send(Some(r))
+                .expect("Internal Error: Failed to set the application result");
+        });
 
-    let application_context = ApplicationContext::new(event_receiver, event_loop_proxy, tickery);
-
-    let (result_tx, mut result_rx) = oneshot::channel();
-    let _application_task = tokio::spawn(async move {
-        let r = application(application_context).await;
-        // Found no way to retrieve the result via JoinHandle, so a return via a onceshot channel
-        // must do.
-        result_tx
-            .send(Some(r))
-            .expect("Internal Error: Failed to set the application result");
-    });
+        result_rx
+    };
 
     // Event loop
 
     {
-        let mut winit_context = WinitApplicationHandler { event_sender };
+        let mut winit_context = WinitApplicationHandler::Initializing {
+            proxy: event_loop_proxy,
+            spawner: Some(Box::new(spawn_application)),
+        };
 
         info!("Entering event loop");
         event_loop.run_app(&mut winit_context)?;
-        info!("Exiting event loop");
-    };
+        info!("Exited event loop");
 
-    // Check application's result
-    if let Ok(Some(r)) = result_rx.try_recv() {
-        info!("Application ended with {r:?}");
-        r?;
-    } else {
-        // TODO: This should probably be an error, we want to the application to have full
-        // control over the lifetime of the winit event loop.
-        info!("Application did not end");
+        let WinitApplicationHandler::Exited { application_result } = winit_context else {
+            bail!("Internal error: Exited event loop, but it was never actually exiting");
+        };
+
+        application_result
     }
-
-    Ok(())
 }
 
 #[must_use]
@@ -86,6 +81,7 @@ pub enum ControlFlow {
     Continue,
 }
 
+#[derive(Debug)]
 pub enum ShellRequest {
     CreateWindow {
         // Box because of large size.
@@ -97,8 +93,8 @@ pub enum ShellRequest {
     },
     /// Surfaces need to be created on the main thread on macOS when a window handle is provided.
     CreateSurface {
-        instance: Instance,
-        target: SurfaceTarget<'static>,
+        instance: wgpu::Instance,
+        window: Arc<ShellWindowShared>,
         on_created: oneshot::Sender<Result<Surface<'static>>>,
     },
 }
@@ -142,13 +138,46 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     r
 }
 
-struct WinitApplicationHandler {
-    event_sender: UnboundedSender<ShellEvent>,
+/// ADR: We move the application into the event loop handler.
+/// - Because we need to scale_factor() to be passed _to_ application. This does not work on Wayland.
+enum WinitApplicationHandler {
+    Initializing {
+        proxy: EventLoopProxy<ShellRequest>,
+        // ADR: Option because we need to move it out.
+        #[allow(clippy::type_complexity)]
+        // Robustness: use a replace_with variant, so that we don't need an Option<Box<..>> here.
+        spawner:
+            Option<Box<dyn FnOnce(ApplicationContext) -> oneshot::Receiver<Option<Result<()>>>>>,
+    },
+    Running {
+        result_receiver: oneshot::Receiver<Option<Result<()>>>,
+        event_sender: UnboundedSender<ShellEvent>,
+    },
+    Exited {
+        application_result: Result<()>,
+    },
 }
 
 impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
-    fn resumed(&mut self, _event_loop: &ActiveEventLoop) {
-        // Robustness: As recommended, wait for the resumed event before creating any window.
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        let Self::Initializing { proxy, spawner } = self else {
+            panic!("Resumed called in an invalid state");
+        };
+
+        let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
+
+        let tickery = Tickery::new(Instant::now());
+
+        let scale_factor = event_loop.primary_monitor().map(|pm| pm.scale_factor());
+
+        let application_context =
+            ApplicationContext::new(event_receiver, proxy.clone(), tickery.into(), scale_factor);
+
+        let result_receiver = (spawner.take().unwrap())(application_context);
+        *self = Self::Running {
+            result_receiver,
+            event_sender,
+        }
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellRequest) {
@@ -167,9 +196,10 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
             }
             ShellRequest::CreateSurface {
                 instance,
-                target,
+                window,
                 on_created,
             } => {
+                let target: SurfaceTarget<'static> = window.into();
                 let r = instance.create_surface(target);
                 on_created
                     .send(r.map_err(|e| e.into()))
@@ -190,14 +220,39 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
 
         self.send_event(event_loop, ShellEvent::WindowEvent(window_id, event))
     }
+
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        let Self::Running {
+            result_receiver, ..
+        } = self
+        else {
+            warn!("Exiting from a non-Running state");
+            return;
+        };
+
+        // Check application's result
+        let application_result = if let Ok(Some(r)) = result_receiver.try_recv() {
+            info!("Application ended with {r:?}");
+            r
+        } else {
+            Err(anyhow!("Event loop exited, but application did not end"))
+        };
+
+        *self = Self::Exited { application_result }
+    }
 }
 
 impl WinitApplicationHandler {
     fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
-        if let Err(_e) = self.event_sender.send(shell_event) {
+        let Self::Running { event_sender, .. } = self else {
+            error!("Failed to send event, application not running.");
+            return;
+        };
+
+        if let Err(e) = event_sender.send(shell_event) {
             // Don't log when we are already exiting.
             if !event_loop.exiting() {
-                info!("Receiver for events dropped, exiting event loop: {_e:?}");
+                info!("Receiver for events dropped, exiting event loop: {e:?}");
                 event_loop.exit();
             }
         }
