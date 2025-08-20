@@ -144,18 +144,6 @@ enum WinitApplicationHandler {
     Initializing {
         proxy: EventLoopProxy<ShellRequest>,
         // ADR: Option because we need to move it out.
-        #[allow(clippy::type_complexity)]
-        // Robustness: use a replace_with variant, so that we don't need an Option<Box<..>> here.
-        spawner:
-/// Type alias for the application spawner closure.
-type ApplicationSpawner = Box<dyn FnOnce(ApplicationContext) -> oneshot::Receiver<Option<Result<()>>>>;
-
-/// ADR: We move the application into the event loop handler.
-/// - Because we need to scale_factor() to be passed _to_ application. This does not work on Wayland.
-enum WinitApplicationHandler {
-    Initializing {
-        proxy: EventLoopProxy<ShellRequest>,
-        // ADR: Option because we need to move it out.
         // Robustness: use a replace_with variant, so that we don't need an Option<Box<..>> here.
         spawner: Option<ApplicationSpawner>,
     },
@@ -167,6 +155,10 @@ enum WinitApplicationHandler {
         application_result: Result<()>,
     },
 }
+
+/// Type alias for the application spawner closure.
+type ApplicationSpawner =
+    Box<dyn FnOnce(ApplicationContext) -> oneshot::Receiver<Option<Result<()>>>>;
 
 impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
