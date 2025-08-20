@@ -255,7 +255,7 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
 impl WinitApplicationHandler {
     fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
         let Self::Running { event_sender, .. } = self else {
-            error!("Failed to send event, application not running.");
+            error!("Cannot send event: application handler not in running state.");
             return;
         };
 
