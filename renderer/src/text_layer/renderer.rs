@@ -21,7 +21,7 @@ use crate::{
     pods::{AsBytes, ToPod},
     renderer::{PreparationContext, RenderContext},
     scene::{IdTable, LocationMatrices},
-    text_layer::atlas_renderer::{AtlasRenderer, color_atlas, sdf_atlas},
+    text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
     tools::QuadIndexBuffer,
 };
 
@@ -79,18 +79,15 @@ struct Visual {
 /// Representing all batches in a visual.
 #[derive(Debug)]
 struct VisualBatches {
-    sdf: Option<QuadBatch>,
-    color: Option<QuadBatch>,
+    sdf: Option<Batch>,
+    color: Option<Batch>,
 }
 
 impl VisualBatches {
     fn max_quads(&self) -> usize {
         [
-            self.sdf.as_ref().map(|b| b.quad_count).unwrap_or_default(),
-            self.color
-                .as_ref()
-                .map(|b| b.quad_count)
-                .unwrap_or_default(),
+            self.sdf.as_ref().map(|b| b.count).unwrap_or_default(),
+            self.color.as_ref().map(|b| b.count).unwrap_or_default(),
         ]
         .into_iter()
         .max()
@@ -99,11 +96,11 @@ impl VisualBatches {
 }
 
 #[derive(Debug)]
-pub struct QuadBatch {
+pub struct Batch {
     /// Contains texture reference(s) and the sampler configuration.
     pub fs_bind_group: wgpu::BindGroup,
     pub vertex_buffer: wgpu::Buffer,
-    pub quad_count: usize,
+    pub count: usize,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -128,13 +125,13 @@ impl TextLayerRenderer {
             sdf_renderer: AtlasRenderer::new::<sdf_atlas::Vertex>(
                 device,
                 wgpu::TextureFormat::R8Unorm,
-                wgpu::include_wgsl!("shader/sdf_atlas.wgsl"),
+                wgpu::include_wgsl!("sdf_atlas.wgsl"),
                 target_format,
             ),
             color_renderer: AtlasRenderer::new::<color_atlas::TextureVertex>(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
-                wgpu::include_wgsl!("shader/color_atlas.wgsl"),
+                wgpu::include_wgsl!("color_atlas.wgsl"),
                 target_format,
             ),
             visuals: IdTable::default(),
@@ -169,7 +166,6 @@ impl TextLayerRenderer {
     ) -> Result<()> {
         let runs = visual.shapes.iter().filter_map(|s| match s {
             Shape::GlyphRun(run) => Some(run),
-            Shape::Quads(_) => None,
         });
 
         let batches = self.runs_to_batches(context, runs)?;
@@ -245,7 +241,7 @@ impl TextLayerRenderer {
         }
     }
 
-    pub fn render_batch(context: &mut RenderContext, model_matrix: &Matrix, batch: &QuadBatch) {
+    pub fn render_batch(context: &mut RenderContext, model_matrix: &Matrix, batch: &Batch) {
         let text_layer_matrix = context.view_projection_matrix * model_matrix;
 
         let pass = &mut context.pass;
@@ -259,7 +255,7 @@ impl TextLayerRenderer {
         pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
 
         pass.draw_indexed(
-            0..(batch.quad_count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+            0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
             0,
             0..1,
         )
@@ -305,14 +301,14 @@ impl TextLayerRenderer {
 
                 match kind {
                     AtlasKind::Sdf => {
-                        sdf_glyphs.push(sdf_atlas::QuadInstance {
+                        sdf_glyphs.push(sdf_atlas::Instance {
                             atlas_rect: rect,
                             vertices,
                             // OO: Text color is changing per run only.
                             color: run.text_color,
                         })
                     }
-                    AtlasKind::Color => color_glyphs.push(color_atlas::QuadInstance {
+                    AtlasKind::Color => color_glyphs.push(color_atlas::Instance {
                         atlas_rect: rect,
                         vertices,
                     }),

@@ -4,7 +4,7 @@ mod pods;
 // mod quads;
 mod renderer;
 mod scene;
-mod shape;
+mod shape_renderer;
 mod size_buffer;
 mod stats;
 mod text_layer;

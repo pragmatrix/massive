@@ -4,12 +4,11 @@ use derive_more::From;
 
 use crate::{Handle, Id, Object};
 use massive_geometry as geometry;
-use massive_shapes::{GlyphRun, Quads};
+use massive_shapes::GlyphRun;
 
 #[derive(Debug, Clone, From)]
 pub enum Shape {
     GlyphRun(GlyphRun),
-    Quads(Quads),
 }
 
 /// A visual represents a set of shapes that have a common position / location in the space.
@@ -109,7 +108,7 @@ pub mod legacy {
     use super::Handle;
     use crate::{Location, Scene, Visual};
     use massive_geometry::Matrix4;
-    use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
+    use massive_shapes::{GlyphRunShape, Shape};
     use std::{collections::HashMap, sync::Arc};
 
     pub fn into_visuals(scene: &Scene, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
@@ -119,7 +118,6 @@ pub mod legacy {
         for shape in shapes {
             let matrix = match &shape {
                 Shape::GlyphRun(GlyphRunShape { model_matrix, .. }) => model_matrix,
-                Shape::Quads(QuadsShape { model_matrix, .. }) => model_matrix,
             };
 
             let position = location_handles.entry(Arc::as_ptr(matrix)).or_insert_with(
@@ -132,9 +130,6 @@ pub mod legacy {
             let visual = match shape {
                 Shape::GlyphRun(GlyphRunShape { run, .. }) => {
                     Visual::new(position.clone(), super::Shape::from(run))
-                }
-                Shape::Quads(QuadsShape { quads, .. }) => {
-                    Visual::new(position.clone(), super::Shape::from(quads))
                 }
             };
 
