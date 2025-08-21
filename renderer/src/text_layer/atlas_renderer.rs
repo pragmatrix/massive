@@ -115,10 +115,14 @@ pub trait AtlasInstance {
 }
 
 pub mod sdf_atlas {
+    use bytemuck::{Pod, Zeroable};
     use massive_geometry::{Color, Point3};
 
     use super::AtlasInstance;
-    use crate::{glyph::glyph_atlas, pods::TextureColorVertex};
+    use crate::{
+        glyph::glyph_atlas,
+        pods::{self, VertexLayout},
+    };
 
     #[derive(Debug)]
     pub struct QuadInstance {
@@ -128,32 +132,72 @@ pub mod sdf_atlas {
     }
 
     impl AtlasInstance for QuadInstance {
-        type Vertex = TextureColorVertex;
+        type Vertex = Vertex;
 
         fn to_vertices(&self) -> [Self::Vertex; 4] {
             let r = self.atlas_rect;
-            // ADR: u/v normalization is done in the shader, because its probably free and we don't
-            // have to care about the atlas texture growing as long the rects stay the same.
+            // ADR: u/v normalization is done in the shader, because its probably free and we can
+            // reuse vertices when the texture atlas grows.
             let (ltx, lty) = (r.min.x as f32, r.min.y as f32);
             let (rbx, rby) = (r.max.x as f32, r.max.y as f32);
 
             let v = &self.vertices;
             let color = self.color;
             [
-                TextureColorVertex::new(v[0], (ltx, lty), color),
-                TextureColorVertex::new(v[1], (ltx, rby), color),
-                TextureColorVertex::new(v[2], (rbx, rby), color),
-                TextureColorVertex::new(v[3], (rbx, lty), color),
+                Vertex::new(v[0], (ltx, lty), color),
+                Vertex::new(v[1], (ltx, rby), color),
+                Vertex::new(v[2], (rbx, rby), color),
+                Vertex::new(v[3], (rbx, lty), color),
             ]
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Pod, Zeroable)]
+    pub struct Vertex {
+        pub position: pods::Vertex,
+        pub tex_coords: [f32; 2],
+        /// OO: Use one byte per color component?
+        pub color: pods::Color,
+    }
+
+    impl Vertex {
+        pub fn new(
+            position: impl Into<pods::Vertex>,
+            uv: (f32, f32),
+            color: impl Into<pods::Color>,
+        ) -> Self {
+            Self {
+                position: position.into(),
+                tex_coords: [uv.0, uv.1],
+                color: color.into(),
+            }
+        }
+    }
+
+    impl VertexLayout for Vertex {
+        fn layout() -> wgpu::VertexBufferLayout<'static> {
+            const ATTRS: [wgpu::VertexAttribute; 3] =
+                wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4];
+
+            wgpu::VertexBufferLayout {
+                array_stride: size_of::<Vertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &ATTRS,
+            }
         }
     }
 }
 
 pub mod color_atlas {
+    use bytemuck::{Pod, Zeroable};
     use massive_geometry::Point3;
 
     use super::AtlasInstance;
-    use crate::{glyph::glyph_atlas, pods::TextureVertex};
+    use crate::{
+        glyph::glyph_atlas,
+        pods::{Vertex, VertexLayout},
+    };
 
     #[derive(Debug)]
     pub struct QuadInstance {
@@ -177,6 +221,36 @@ pub mod color_atlas {
                 TextureVertex::new(v[2], (rbx, rby)),
                 TextureVertex::new(v[3], (rbx, lty)),
             ]
+        }
+    }
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Debug, Pod, Zeroable)]
+    pub struct TextureVertex {
+        pub position: Vertex,
+        pub tex_coords: [f32; 2],
+    }
+
+    impl TextureVertex {
+        #[allow(unused)]
+        pub fn new(position: impl Into<Vertex>, uv: (f32, f32)) -> Self {
+            Self {
+                position: position.into(),
+                tex_coords: [uv.0, uv.1],
+            }
+        }
+    }
+
+    impl VertexLayout for TextureVertex {
+        fn layout() -> wgpu::VertexBufferLayout<'static> {
+            const ATTRS: [wgpu::VertexAttribute; 2] =
+                wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
+
+            wgpu::VertexBufferLayout {
+                array_stride: size_of::<TextureVertex>() as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &ATTRS,
+            }
         }
     }
 }

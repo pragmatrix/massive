@@ -18,7 +18,7 @@ use crate::{
         GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
     },
-    pods::{AsBytes, TextureColorVertex, TextureVertex, ToPod},
+    pods::{AsBytes, ToPod},
     renderer::{PreparationContext, RenderContext},
     scene::{IdTable, LocationMatrices},
     text_layer::atlas_renderer::{AtlasRenderer, color_atlas, sdf_atlas},
@@ -125,13 +125,13 @@ impl TextLayerRenderer {
             index_buffer: QuadIndexBuffer::new(device),
             // Instead of specifying all these consts _and_ the vertex type, a trait based spec type
             // would probably be better.
-            sdf_renderer: AtlasRenderer::new::<TextureColorVertex>(
+            sdf_renderer: AtlasRenderer::new::<sdf_atlas::Vertex>(
                 device,
                 wgpu::TextureFormat::R8Unorm,
                 wgpu::include_wgsl!("shader/sdf_atlas.wgsl"),
                 target_format,
             ),
-            color_renderer: AtlasRenderer::new::<TextureVertex>(
+            color_renderer: AtlasRenderer::new::<color_atlas::TextureVertex>(
                 device,
                 wgpu::TextureFormat::Rgba8Unorm,
                 wgpu::include_wgsl!("shader/color_atlas.wgsl"),

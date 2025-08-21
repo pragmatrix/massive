@@ -83,36 +83,6 @@ impl From<Vector3> for Vertex {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct TextureVertex {
-    pub position: Vertex,
-    pub tex_coords: [f32; 2],
-}
-
-impl TextureVertex {
-    #[allow(unused)]
-    pub fn new(position: impl Into<Vertex>, uv: (f32, f32)) -> Self {
-        Self {
-            position: position.into(),
-            tex_coords: [uv.0, uv.1],
-        }
-    }
-}
-
-impl VertexLayout for TextureVertex {
-    fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [VertexAttribute; 2] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2];
-
-        VertexBufferLayout {
-            array_stride: size_of::<TextureVertex>() as BufferAddress,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &ATTRS,
-        }
-    }
-}
-
 #[allow(unused)]
 #[repr(C)]
 #[derive(Copy, Clone, Debug, Pod, Zeroable)]
@@ -138,38 +108,6 @@ impl VertexLayout for ColorVertex {
 
         VertexBufferLayout {
             array_stride: size_of::<ColorVertex>() as BufferAddress,
-            step_mode: VertexStepMode::Vertex,
-            attributes: &ATTRS,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, Pod, Zeroable)]
-pub struct TextureColorVertex {
-    pub position: Vertex,
-    pub tex_coords: [f32; 2],
-    /// OO: Use one byte per color component?
-    pub color: Color,
-}
-
-impl TextureColorVertex {
-    pub fn new(position: impl Into<Vertex>, uv: (f32, f32), color: impl Into<Color>) -> Self {
-        Self {
-            position: position.into(),
-            tex_coords: [uv.0, uv.1],
-            color: color.into(),
-        }
-    }
-}
-
-impl VertexLayout for TextureColorVertex {
-    fn layout() -> wgpu::VertexBufferLayout<'static> {
-        const ATTRS: [VertexAttribute; 3] =
-            wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x2, 2 => Float32x4];
-
-        VertexBufferLayout {
-            array_stride: size_of::<TextureColorVertex>() as BufferAddress,
             step_mode: VertexStepMode::Vertex,
             attributes: &ATTRS,
         }
