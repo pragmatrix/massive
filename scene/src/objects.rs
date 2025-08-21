@@ -103,39 +103,3 @@ impl Object for Matrix {
         *self
     }
 }
-
-pub mod legacy {
-    use super::Handle;
-    use crate::{Location, Scene, Visual};
-    use massive_geometry::Matrix4;
-    use massive_shapes::{GlyphRunShape, Shape};
-    use std::{collections::HashMap, sync::Arc};
-
-    pub fn into_visuals(scene: &Scene, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
-        let mut location_handles: HashMap<*const Matrix4, Handle<Location>> = HashMap::new();
-        let mut visuals = Vec::with_capacity(shapes.len());
-
-        for shape in shapes {
-            let matrix = match &shape {
-                Shape::GlyphRun(GlyphRunShape { model_matrix, .. }) => model_matrix,
-            };
-
-            let position = location_handles.entry(Arc::as_ptr(matrix)).or_insert_with(
-                || -> Handle<Location> {
-                    let matrix = scene.stage(**matrix);
-                    scene.stage(matrix.into())
-                },
-            );
-
-            let visual = match shape {
-                Shape::GlyphRun(GlyphRunShape { run, .. }) => {
-                    Visual::new(position.clone(), super::Shape::from(run))
-                }
-            };
-
-            visuals.push(scene.stage(visual));
-        }
-
-        visuals
-    }
-}

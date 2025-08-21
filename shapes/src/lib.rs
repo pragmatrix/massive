@@ -1,5 +1,5 @@
-mod shapes;
+mod text;
 
-pub use shapes::*;
+pub use text::*;
 
 use massive_geometry as geometry;

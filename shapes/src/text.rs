@@ -1,24 +1,9 @@
-use std::sync::Arc;
-
 use cgmath::Point2;
 use cosmic_text as text;
 use massive_geometry::{Color, Vector3};
 use serde::{Deserialize, Serialize};
 
-use crate::geometry::{Bounds, Matrix4};
-
-#[derive(Debug, derive_more::From)]
-pub enum Shape {
-    GlyphRun(GlyphRunShape),
-}
-
-/// A number of glyphs to be rendered with same model matrix and an additional translation per run.
-#[derive(Debug)]
-pub struct GlyphRunShape {
-    // Model transformation
-    pub model_matrix: Arc<Matrix4>,
-    pub run: GlyphRun,
-}
+use crate::geometry::Bounds;
 
 #[derive(Debug, Clone)]
 pub struct GlyphRun {
