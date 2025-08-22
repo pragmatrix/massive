@@ -6,7 +6,9 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, Color, Rect, Size};
 use massive_scene::{Scene, Visual};
-use massive_shapes::{Circle, Ellipse, ChamferRect, Rect as FilledRect, RoundRect, Shape, StrokeRect};
+use massive_shapes::{
+    ChamferRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
+};
 use massive_shell::{ApplicationContext, shell};
 use shared::application::{Application, UpdateResponse};
 

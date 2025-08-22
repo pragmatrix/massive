@@ -24,7 +24,9 @@ pub enum ShapeSelector {
 }
 
 impl From<ShapeSelector> for u32 {
-    fn from(value: ShapeSelector) -> Self { value as u32 }
+    fn from(value: ShapeSelector) -> Self {
+        value as u32
+    }
 }
 
 #[derive(Debug)]
