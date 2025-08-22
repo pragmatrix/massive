@@ -6,8 +6,7 @@ use crate::{
     bind_group_entries,
     glyph::GlyphAtlas,
     pods::{self, AsBytes, VertexLayout},
-    renderer::PreparationContext,
-    text_layer::Batch,
+    renderer::{PreparationContext, RenderBatch},
     tools::{BindGroupLayoutBuilder, create_pipeline, texture_sampler},
 };
 
@@ -72,7 +71,7 @@ impl AtlasRenderer {
         &self,
         context: &PreparationContext,
         instances: &[InstanceT],
-    ) -> Option<Batch> {
+    ) -> Option<RenderBatch> {
         if instances.is_empty() {
             return None;
         }
@@ -96,7 +95,7 @@ impl AtlasRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Some(Batch {
+        Some(RenderBatch {
             fs_bind_group,
             vertex_buffer,
             count: instances.len(),

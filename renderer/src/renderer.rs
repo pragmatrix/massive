@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     result,
     sync::{Arc, Mutex},
     time::Instant,
@@ -7,16 +8,17 @@ use std::{
 use anyhow::Result;
 use cosmic_text::FontSystem;
 use log::{info, warn};
+use massive_shapes::Shape;
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     TransactionManager,
-    scene::{LocationMatrices, Scene},
+    scene::{IdTable, LocationMatrices, Scene},
     stats::MeasureSeries,
     text_layer::TextLayerRenderer,
 };
 use massive_geometry::{Color, Matrix4};
-use massive_scene::SceneChange;
+use massive_scene::{Change, Id, SceneChange, VisualRenderObj};
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -31,8 +33,43 @@ pub struct Renderer {
     transaction_manager: TransactionManager,
     scene: Scene,
     visual_matrices: LocationMatrices,
+    /// Visual Id -> batch table.
+    visuals: IdTable<Option<RenderVisual>>,
 
     text_layer_renderer: TextLayerRenderer,
+}
+
+#[derive(Debug)]
+pub struct RenderVisual {
+    pub location_id: Id,
+    pub batches: PipelineBatches,
+}
+
+/// Representing all batches in a visual.
+#[derive(Debug)]
+pub struct PipelineBatches {
+    pub sdf: Option<RenderBatch>,
+    pub color: Option<RenderBatch>,
+}
+
+impl PipelineBatches {
+    pub fn max_quads(&self) -> usize {
+        [
+            self.sdf.as_ref().map(|b| b.count).unwrap_or_default(),
+            self.color.as_ref().map(|b| b.count).unwrap_or_default(),
+        ]
+        .into_iter()
+        .max()
+        .unwrap()
+    }
+}
+
+#[derive(Debug)]
+pub struct RenderBatch {
+    /// The bind group contains texture reference(s) and the sampler configuration.
+    pub fs_bind_group: wgpu::BindGroup,
+    pub vertex_buffer: wgpu::Buffer,
+    pub count: usize,
 }
 
 /// The context provided to `prepare()` middleware functions.
@@ -83,6 +120,7 @@ impl Renderer {
             visual_matrices: LocationMatrices::default(),
             text_layer_renderer,
             background_color: Some(Color::WHITE),
+            visuals: IdTable::default(),
             // quads_renderer,
         };
 
@@ -109,11 +147,6 @@ impl Renderer {
     /// After all changes are pushed, call prepare().
     #[tracing::instrument(skip_all)]
     pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = SceneChange>) -> Result<()> {
-        let context = &mut PreparationContext {
-            device: &self.device,
-            queue: &self.queue,
-        };
-
         let transaction = self.transaction_manager.new_transaction();
 
         // Architecture:
@@ -128,9 +161,62 @@ impl Renderer {
         for change in changes {
             // Optimization: Parallelize?
             self.scene.apply(&change, &transaction);
-            self.text_layer_renderer.apply(&change, context)?;
+            self.apply(&change)?;
         }
         Ok(())
+    }
+
+    // Architecture: Optimization:
+    //
+    // This immediately creates QuadBatches, meaning that if we apply a Create / Delete combination
+    // they would be destroyed before rendered. I think that we should create the QuadBatches later
+    // based on a actual usage (and even later visibility) analysis?
+    pub fn apply(&mut self, change: &SceneChange) -> Result<()> {
+        if let SceneChange::Visual(visual_change) = change {
+            match visual_change {
+                Change::Create(id, visual) | Change::Update(id, visual) => {
+                    self.insert(*id, visual)?;
+                }
+                Change::Delete(id) => {
+                    self.delete(*id);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub fn insert(&mut self, id: Id, visual: &VisualRenderObj) -> Result<()> {
+        let runs = visual.shapes.iter().filter_map(|s| match s {
+            Shape::GlyphRun(run) => Some(run),
+            _ => None,
+        });
+
+        let context = &mut PreparationContext {
+            device: &self.device,
+            queue: &self.queue,
+        };
+
+        let batches = self.text_layer_renderer.runs_to_batches(context, runs)?;
+        self.visuals.insert(
+            id,
+            Some(RenderVisual {
+                location_id: visual.location,
+                batches,
+            }),
+        );
+        Ok(())
+    }
+
+    pub fn delete(&mut self, id: Id) {
+        self.visuals[id] = None;
+    }
+
+    pub fn all_locations(&self) -> impl Iterator<Item = Id> + use<> {
+        let mut locations = HashSet::new();
+        for visual in self.visuals.iter_some() {
+            locations.insert(visual.location_id);
+        }
+        locations.into_iter()
     }
 
     /// Prepare everything we can before the final render, without changing GPU state.
@@ -146,15 +232,18 @@ impl Renderer {
             queue: &self.queue,
         };
 
-        self.text_layer_renderer.prepare(context);
+        self.text_layer_renderer.prepare(&self.visuals, context);
 
         let transaction = self.transaction_manager.current_transaction();
 
         // Compute visuals locations
         {
-            let all_locations = self.text_layer_renderer.all_locations();
-            self.visual_matrices
-                .compute_matrices(&self.scene, &transaction, all_locations);
+            let all_locations = self.all_locations();
+            self.visual_matrices.compute_matrices(
+                &self.scene,
+                &transaction,
+                all_locations.into_iter(),
+            );
         }
     }
 
@@ -234,8 +323,11 @@ impl Renderer {
                     view_projection_matrix: *view_projection_matrix,
                 };
 
-                self.text_layer_renderer
-                    .render(&self.visual_matrices, &mut render_context);
+                self.text_layer_renderer.render(
+                    &self.visual_matrices,
+                    &self.visuals,
+                    &mut render_context,
+                );
                 // self.quads_renderer.render(&mut render_context);
 
                 // for pipeline in &self.pipelines {

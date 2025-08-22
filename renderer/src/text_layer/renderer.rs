@@ -7,8 +7,8 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use massive_geometry::{Point, Point3};
-use massive_scene::{Change, Id, Matrix, SceneChange, VisualRenderObj};
-use massive_shapes::{GlyphRun, RunGlyph, Shape, TextWeight};
+use massive_scene::Matrix;
+use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 use swash::{Weight, scale::ScaleContext};
 use text::SwashContent;
 use wgpu::Device;
@@ -19,7 +19,7 @@ use crate::{
         glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
     },
     pods::{AsBytes, ToPod},
-    renderer::{PreparationContext, RenderContext},
+    renderer::{PipelineBatches, PreparationContext, RenderBatch, RenderContext, RenderVisual},
     scene::{IdTable, LocationMatrices},
     text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
     tools::QuadIndexBuffer,
@@ -44,13 +44,6 @@ pub struct TextLayerRenderer {
     sdf_renderer: AtlasRenderer,
     color_renderer: AtlasRenderer,
 
-    // Architecture:
-    //
-    // Visuals should be stored one layer above. After all, they contain all shapes,
-    // Quads for example?
-    /// Visual Id -> batch table.
-    visuals: IdTable<Option<Visual>>,
-
     /// The maximum quads currently in use. This may be more than the index buffer can hold.
     max_quads_in_use: usize,
 }
@@ -64,43 +57,9 @@ impl fmt::Debug for TextLayerRenderer {
             .field("index_buffer", &self.index_buffer)
             .field("sdf_renderer", &self.sdf_renderer)
             .field("color_renderer", &self.color_renderer)
-            .field("visuals", &self.visuals)
             .field("max_quads_in_use", &self.max_quads_in_use)
             .finish()
     }
-}
-
-#[derive(Debug)]
-struct Visual {
-    location_id: Id,
-    batches: VisualBatches,
-}
-
-/// Representing all batches in a visual.
-#[derive(Debug)]
-struct VisualBatches {
-    sdf: Option<Batch>,
-    color: Option<Batch>,
-}
-
-impl VisualBatches {
-    fn max_quads(&self) -> usize {
-        [
-            self.sdf.as_ref().map(|b| b.count).unwrap_or_default(),
-            self.color.as_ref().map(|b| b.count).unwrap_or_default(),
-        ]
-        .into_iter()
-        .max()
-        .unwrap()
-    }
-}
-
-#[derive(Debug)]
-pub struct Batch {
-    /// The bind group contains texture reference(s) and the sampler configuration.
-    pub fs_bind_group: wgpu::BindGroup,
-    pub vertex_buffer: wgpu::Buffer,
-    pub count: usize,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -134,71 +93,20 @@ impl TextLayerRenderer {
                 wgpu::include_wgsl!("color_atlas.wgsl"),
                 target_format,
             ),
-            visuals: IdTable::default(),
             max_quads_in_use: 0,
         }
     }
 
-    // Architecture: Optimization:
-    //
-    // This immediately creates QuadBatches, meaning that if we apply a Create / Delete combination
-    // they would be destroyed before rendered. I think that we should create the QuadBatches later
-    // based on a actual usage (and even later visibility) analysis?
-    pub fn apply(&mut self, change: &SceneChange, context: &mut PreparationContext) -> Result<()> {
-        if let SceneChange::Visual(visual_change) = change {
-            match visual_change {
-                Change::Create(id, visual) | Change::Update(id, visual) => {
-                    self.insert(*id, visual, context)?;
-                }
-                Change::Delete(id) => {
-                    self.delete(*id);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn insert(
+    pub fn prepare(
         &mut self,
-        id: Id,
-        visual: &VisualRenderObj,
+        visuals: &IdTable<Option<RenderVisual>>,
         context: &mut PreparationContext,
-    ) -> Result<()> {
-        let runs = visual.shapes.iter().filter_map(|s| match s {
-            Shape::GlyphRun(run) => Some(run),
-            _ => None,
-        });
-
-        let batches = self.runs_to_batches(context, runs)?;
-        self.visuals.insert(
-            id,
-            Some(Visual {
-                location_id: visual.location,
-                batches,
-            }),
-        );
-        Ok(())
-    }
-
-    pub fn delete(&mut self, id: Id) {
-        self.visuals[id] = None;
-    }
-
-    pub fn all_locations(&self) -> impl Iterator<Item = Id> {
-        let mut locations = HashSet::new();
-        for visual in self.visuals.iter_some() {
-            locations.insert(visual.location_id);
-        }
-        locations.into_iter()
-    }
-
-    pub fn prepare(&mut self, context: &mut PreparationContext) {
+    ) {
         // Optimization: Visuals are iterated 4 times per render (see all_locations(), which could
         // also compute max_quads).
         //
         // Compute only one max_quads value (which is optimal when we use one index buffer only).
-        let max_quads = self
-            .visuals
+        let max_quads = visuals
             .iter_some()
             .map(|v| v.batches.max_quads())
             .max()
@@ -210,7 +118,12 @@ impl TextLayerRenderer {
         self.max_quads_in_use = max_quads;
     }
 
-    pub fn render(&self, matrices: &LocationMatrices, context: &mut RenderContext) {
+    pub fn render(
+        &self,
+        matrices: &LocationMatrices,
+        visuals: &IdTable<Option<RenderVisual>>,
+        context: &mut RenderContext,
+    ) {
         if self.max_quads_in_use == 0 {
             return;
         }
@@ -222,7 +135,7 @@ impl TextLayerRenderer {
         {
             context.pass.set_pipeline(self.sdf_renderer.pipeline());
 
-            for visual in self.visuals.iter_some() {
+            for visual in visuals.iter_some() {
                 if let Some(ref sdf_batch) = visual.batches.sdf {
                     let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
                     Self::render_batch(context, &model_matrix, sdf_batch);
@@ -233,7 +146,7 @@ impl TextLayerRenderer {
         {
             context.pass.set_pipeline(self.color_renderer.pipeline());
 
-            for visual in self.visuals.iter_some() {
+            for visual in visuals.iter_some() {
                 if let Some(ref color_batch) = visual.batches.color {
                     let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
                     Self::render_batch(context, &model_matrix, color_batch);
@@ -242,7 +155,7 @@ impl TextLayerRenderer {
         }
     }
 
-    pub fn render_batch(context: &mut RenderContext, model_matrix: &Matrix, batch: &Batch) {
+    pub fn render_batch(context: &mut RenderContext, model_matrix: &Matrix, batch: &RenderBatch) {
         let text_layer_matrix = context.view_projection_matrix * model_matrix;
 
         let pass = &mut context.pass;
@@ -265,11 +178,11 @@ impl TextLayerRenderer {
     /// Prepare a number of glyph runs and produce a TextLayer.
     ///
     /// All of the runs use the same model matrix.
-    fn runs_to_batches<'a>(
+    pub fn runs_to_batches<'a>(
         &mut self,
         context: &mut PreparationContext,
         runs: impl Iterator<Item = &'a GlyphRun>,
-    ) -> Result<VisualBatches> {
+    ) -> Result<PipelineBatches> {
         // Step 1: Get all instance data.
         // Performance: Compute a conservative capacity?
         let mut sdf_glyphs = Vec::new();
@@ -320,7 +233,7 @@ impl TextLayerRenderer {
         let sdf_batch = self.sdf_renderer.batch(context, &sdf_glyphs);
         let color_batch = self.color_renderer.batch(context, &color_glyphs);
 
-        Ok(VisualBatches {
+        Ok(PipelineBatches {
             sdf: sdf_batch,
             color: color_batch,
         })
