@@ -1,7 +1,6 @@
 // Vertex shader
 
-@group(0) @binding(0)
-var<uniform> model_view: mat4x4<f32>;
+var<push_constant> view_model: mat4x4<f32>;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -32,7 +31,7 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.unorm_tex_coords = vertex_input.unorm_tex_coords;
-    out.clip_position = model_view * vec4<f32>(vertex_input.position, 1.0);
+    out.clip_position = view_model * vec4<f32>(vertex_input.position, 1.0);
     // New: pass-through selector, size, and rounding
     out.shape_selector = vertex_input.shape_selector;
     out.shape_size = vertex_input.shape_size;

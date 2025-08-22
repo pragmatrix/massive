@@ -13,8 +13,6 @@ const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
 #[derive(Debug)]
 pub struct ShapeRenderer {
     pipeline: wgpu::RenderPipeline,
-    /// VS bind group layout for the model_view uniform
-    vs_bind_group_layout: VsBindGroupLayout,
 }
 
 impl ShapeRenderer {
@@ -23,15 +21,15 @@ impl ShapeRenderer {
         device: &wgpu::Device,
         target_format: wgpu::TextureFormat,
     ) -> Self {
-        let vs_bind_group_layout = VsBindGroupLayout::new(device);
-
         let shader = &device.create_shader_module(wgpu::include_wgsl!("shape_renderer.wgsl"));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Shape Pipeline Layout"),
-            bind_group_layouts: &[&vs_bind_group_layout],
-            // model_view is passed as a uniform, so no push constants are needed here
-            push_constant_ranges: &[],
+            bind_group_layouts: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..pods::Matrix4::size(),
+            }],
         });
 
         let targets = [Some(wgpu::ColorTargetState {
@@ -52,17 +50,13 @@ impl ShapeRenderer {
             &targets,
         );
 
-        Self {
-            pipeline,
-            vs_bind_group_layout,
-        }
+        Self { pipeline }
     }
 
     /// Build a batch from a slice of instances sharing the same model_view matrix.
     pub fn batch<InstanceT: ShapeInstance>(
         &self,
         device: &wgpu::Device,
-        model_view: &pods::Matrix4,
         instances: &[InstanceT],
     ) -> Option<Batch> {
         if instances.is_empty() {
@@ -80,18 +74,7 @@ impl ShapeRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        let model_view_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Shape ModelView Uniform"),
-            contents: model_view.as_bytes(),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-
-        let vs_bind_group = self
-            .vs_bind_group_layout
-            .create_bind_group(device, &model_view_buffer);
-
         Some(Batch {
-            vs_bind_group,
             vertex_buffer,
             quad_count: instances.len(),
         })
@@ -188,7 +171,6 @@ impl VsBindGroupLayout {
 
 #[derive(Debug)]
 pub struct Batch {
-    pub vs_bind_group: wgpu::BindGroup,
     pub vertex_buffer: wgpu::Buffer,
     pub quad_count: usize,
 }
