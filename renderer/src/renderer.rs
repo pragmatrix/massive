@@ -213,7 +213,7 @@ impl Renderer {
                 Shape::Rect(r) => {
                     let w = (r.rect.right - r.rect.left) as f32;
                     let h = (r.rect.bottom - r.rect.top) as f32;
-                    let selector = 0u32; // filled rect
+                    let selector = crate::shape_renderer::ShapeSelector::Rect as u32;
                     let size = (w, h);
                     let data = (0.0, 0.0);
                     let color = r.color;
@@ -262,7 +262,7 @@ impl Renderer {
                 Shape::RoundRect(r) => {
                     let w = (r.rect.right - r.rect.left) as f32;
                     let h = (r.rect.bottom - r.rect.top) as f32;
-                    let selector = 1u32; // rounded rect
+                    let selector = crate::shape_renderer::ShapeSelector::RoundedRect as u32;
                     let size = (w, h);
                     let data = (r.corner_radius, 0.0);
                     let color = r.color;
@@ -310,7 +310,7 @@ impl Renderer {
                 Shape::Circle(c) => {
                     let w = (c.rect.right - c.rect.left) as f32;
                     let h = (c.rect.bottom - c.rect.top) as f32;
-                    let selector = 2u32; // circle
+                    let selector = crate::shape_renderer::ShapeSelector::Circle as u32;
                     let size = (w, h);
                     let data = (0.0, 0.0);
                     let color = c.color;
@@ -358,7 +358,7 @@ impl Renderer {
                 Shape::StrokeRect(s) => {
                     let w = (s.rect.right - s.rect.left) as f32;
                     let h = (s.rect.bottom - s.rect.top) as f32;
-                    let selector = 3u32; // stroke rect
+                    let selector = crate::shape_renderer::ShapeSelector::StrokeRect as u32; // starts at 10
                     let size = (w, h);
                     let data = (s.stroke.width as f32, s.stroke.height as f32);
                     let color = s.color;

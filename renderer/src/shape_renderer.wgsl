@@ -53,7 +53,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var distance: f32;
 
-    // Shape selector: 0 = rect, 1 = rounded rect, 2 = circle, 3 = rect stroke
     switch (in.shape_selector) {
         case 0u: {
             // Filled rect
@@ -70,6 +69,10 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             distance = -sd_circle(p_local, r);
         }
         case 3u: {
+            // Ellipse using half_shape_size as radii
+            distance = -sd_ellipse(p_local, half_shape_size);
+        }
+        case 10u: {
             // Rect stroke: shape_data.xy = per-axis stroke thickness (x for vertical edges, y for horizontal edges thickness)
             let stroke = in.shape_data;
             distance = -sd_stroked_rect(p_local, half_shape_size, stroke);
@@ -98,6 +101,16 @@ fn sd_filled_rect(p: vec2<f32>, half_size: vec2<f32>) -> f32 {
 
 fn sd_circle(p : vec2<f32>, r : f32) -> f32 {
     return length(p) - r;
+}
+
+// Approximate signed distance to an axis-aligned ellipse with radii r (half-size) centered at the origin.
+// Negative inside, positive outside. Based on Inigo Quilez formula: https://iquilezles.org/articles/distfunctions2d/
+fn sd_ellipse(p: vec2<f32>, r: vec2<f32>) -> f32 {
+    // Avoid division by zero if any radius is zero (degenerates to line); clamp radii minimally.
+    let rr = max(r, vec2<f32>(1e-5, 1e-5));
+    let k0 = length(p / rr);
+    let k1 = length(p / (rr * rr));
+    return k0 * (k0 - 1.0) / k1;
 }
 
 // From <https://iquilezles.org/articles/distfunctions>

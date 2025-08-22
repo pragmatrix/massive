@@ -8,6 +8,24 @@ use crate::{
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
 
+/// Shape selector values shared with `shape_renderer.wgsl`.
+///
+/// Filled variants are in the 0 range; non-filled (stroked) start at 10.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[repr(u32)]
+pub enum ShapeSelector {
+    Rect = 0,
+    RoundedRect = 1,
+    Circle = 2,
+    Ellipse = 3,
+    // Non-filled
+    StrokeRect = 10,
+}
+
+impl From<ShapeSelector> for u32 {
+    fn from(value: ShapeSelector) -> Self { value as u32 }
+}
+
 #[derive(Debug)]
 pub struct ShapeRenderer {
     pipeline: wgpu::RenderPipeline,
