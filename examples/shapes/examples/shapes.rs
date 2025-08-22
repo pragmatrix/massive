@@ -94,7 +94,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     // Grid of small circles (to the right of the overlapping shapes)
     for y in 0..5 {
         for x in 0..10 {
-            let px = 480.0 + x as f64 * 28.0;
+            let px = 560.0 + x as f64 * 28.0;
             let py = 180.0 + y as f64 * 28.0;
             shapes.push(Shape::Circle(Circle {
                 rect: Rect::new((px, py), Size::new(20.0, 20.0)),
