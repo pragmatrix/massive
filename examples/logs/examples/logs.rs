@@ -23,7 +23,8 @@ use winit::{
 
 use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Identity, Vector3};
-use massive_scene::{Handle, Location, Matrix, Scene, Shape, Visual};
+use massive_scene::{Handle, Location, Matrix, Scene, Visual};
+use massive_shapes::Shape;
 use massive_shell::{
     ApplicationContext, ShellWindow,
     application_context::UpdateCycle,

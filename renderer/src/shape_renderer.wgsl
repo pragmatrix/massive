@@ -8,9 +8,11 @@ struct VertexInput {
     @location(1) unorm_tex_coords: vec2<f32>,
     // Per-vertex shape size (width, height)
     @location(3) shape_size: vec2<f32>,
-    // Shape selector (0 = rect, 1 = rounded rect, 2 = circle)
+    // Shape selector (0 = rect, 1 = rounded rect, 2 = circle, 3 = rect stroke)
     @location(2) shape_selector: u32,
-    // Per-shape vec (rounded rect: radius (only [0] is used))
+    // Per-shape vec
+    //  - rounded rect: radius (only [0] is used)
+    //  - rect stroke: stroke thickness per axis (x = horizontal edges thickness, y = vertical edges thickness)
     @location(4) shape_data: vec2<f32>,
     @location(5) color: vec4<f32>,
 }
@@ -52,18 +54,32 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 
     var distance: f32;
 
-    // Shape selector: 0 = rect, 1 = rounded rect, 2 = circle
-    if (in.shape_selector == 0u) {
-        // Filled rect
-        distance = -sd_filled_rect(p_local, half_shape_size);
-    } else if (in.shape_selector == 1u) {
-        // Rounded rect
-        let radius = in.shape_data[0];
-        distance = -sd_rounded_rect(p_local, half_shape_size, radius);
-    } else {
-        // Circle
-        let r = min(half_shape_size.x, half_shape_size.y);
-        distance = -sd_circle(p_local, r);
+    // Shape selector: 0 = rect, 1 = rounded rect, 2 = circle, 3 = rect stroke
+    switch (in.shape_selector) {
+        case 0u: {
+            // Filled rect
+            distance = -sd_filled_rect(p_local, half_shape_size);
+        }
+        case 1u: {
+            // Rounded rect
+            let radius = in.shape_data[0];
+            distance = -sd_rounded_rect(p_local, half_shape_size, radius);
+        }
+        case 2u: {
+            // Circle
+            let r = min(half_shape_size.x, half_shape_size.y);
+            distance = -sd_circle(p_local, r);
+        }
+        case 3u: {
+            // Rect stroke: shape_data.xy = per-axis stroke thickness (x for vertical edges, y for horizontal edges thickness)
+            let stroke = in.shape_data;
+            distance = -sd_stroked_rect(p_local, half_shape_size, stroke);
+        }
+
+        default: {
+            // Filled rect
+            distance = -sd_filled_rect(p_local, half_shape_size);
+        }
     }
 
     // Screen-space AA using distance derivatives
@@ -88,4 +104,13 @@ fn sd_circle(p : vec2<f32>, r : f32) -> f32 {
 // From <https://iquilezles.org/articles/distfunctions>
 fn sd_rounded_rect(p: vec2<f32>, size: vec2<f32>, radius: f32) -> f32 {
     return length(max(abs(p) - size + vec2(radius, radius), vec2(0.0, 0.0)))-radius;
+}
+
+fn sd_stroked_rect(p: vec2<f32>, half_size: vec2<f32>, stroke: vec2<f32>) -> f32 {
+    // Clamp inner half-size to non-negative
+    let inner_half = max(half_size - stroke, vec2<f32>(0.0, 0.0));
+    let d_outer = sd_filled_rect(p, half_size);
+    let d_inner = sd_filled_rect(p, inner_half);
+    // Ring = outer minus inner: max(d_outer, -d_inner)
+    return max(d_outer, -d_inner);
 }

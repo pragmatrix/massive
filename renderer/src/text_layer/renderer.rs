@@ -7,8 +7,8 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use massive_geometry::{Point, Point3};
-use massive_scene::{Change, Id, Matrix, SceneChange, Shape, VisualRenderObj};
-use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
+use massive_scene::{Change, Id, Matrix, SceneChange, VisualRenderObj};
+use massive_shapes::{GlyphRun, RunGlyph, Shape, TextWeight};
 use swash::{Weight, scale::ScaleContext};
 use text::SwashContent;
 use wgpu::Device;
@@ -97,7 +97,7 @@ impl VisualBatches {
 
 #[derive(Debug)]
 pub struct Batch {
-    /// Contains texture reference(s) and the sampler configuration.
+    /// The bind group contains texture reference(s) and the sampler configuration.
     pub fs_bind_group: wgpu::BindGroup,
     pub vertex_buffer: wgpu::Buffer,
     pub count: usize,
@@ -166,6 +166,7 @@ impl TextLayerRenderer {
     ) -> Result<()> {
         let runs = visual.shapes.iter().filter_map(|s| match s {
             Shape::GlyphRun(run) => Some(run),
+            _ => None,
         });
 
         let batches = self.runs_to_batches(context, runs)?;

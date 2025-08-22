@@ -1,15 +1,8 @@
 use std::sync::Arc;
 
-use derive_more::From;
-
 use crate::{Handle, Id, Object};
 use massive_geometry as geometry;
-use massive_shapes::GlyphRun;
-
-#[derive(Debug, Clone, From)]
-pub enum Shape {
-    GlyphRun(GlyphRun),
-}
+use massive_shapes::Shape;
 
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
@@ -54,12 +47,6 @@ impl Visual {
             location,
             shapes: shapes.into().into(),
         }
-    }
-}
-
-impl From<Shape> for Vec<Shape> {
-    fn from(value: Shape) -> Self {
-        vec![value]
     }
 }
 
