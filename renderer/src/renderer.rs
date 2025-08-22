@@ -5,6 +5,7 @@ use std::{
     time::Instant,
 };
 
+use crate::pods::{AsBytes, ToPod};
 use anyhow::Result;
 use cosmic_text::FontSystem;
 use log::{info, warn};
@@ -37,6 +38,7 @@ pub struct Renderer {
     visuals: IdTable<Option<RenderVisual>>,
 
     text_layer_renderer: TextLayerRenderer,
+    shape_renderer: crate::shape_renderer::ShapeRenderer,
 }
 
 #[derive(Debug)]
@@ -50,6 +52,7 @@ pub struct RenderVisual {
 pub struct PipelineBatches {
     pub sdf: Option<RenderBatch>,
     pub color: Option<RenderBatch>,
+    pub shapes: Option<ShapeRenderBatch>,
 }
 
 impl PipelineBatches {
@@ -68,6 +71,12 @@ impl PipelineBatches {
 pub struct RenderBatch {
     /// The bind group contains texture reference(s) and the sampler configuration.
     pub fs_bind_group: wgpu::BindGroup,
+    pub vertex_buffer: wgpu::Buffer,
+    pub count: usize,
+}
+
+#[derive(Debug)]
+pub struct ShapeRenderBatch {
     pub vertex_buffer: wgpu::Buffer,
     pub count: usize,
 }
@@ -103,6 +112,9 @@ impl Renderer {
         let format = surface_config.format;
 
         let text_layer_renderer = TextLayerRenderer::new(&device, font_system, format);
+        let shape_renderer = crate::shape_renderer::ShapeRenderer::new::<
+            crate::shape_renderer::Vertex,
+        >(&device, format);
 
         // Currently unused (and also not anti-aliased). Need to create an sdf shape renderer.
         // let quads_renderer =
@@ -119,6 +131,7 @@ impl Renderer {
             scene: Scene::default(),
             visual_matrices: LocationMatrices::default(),
             text_layer_renderer,
+            shape_renderer,
             background_color: Some(Color::WHITE),
             visuals: IdTable::default(),
             // quads_renderer,
@@ -191,17 +204,239 @@ impl Renderer {
             _ => None,
         });
 
+        // Collect shape instances for non-text shapes.
+        #[derive(Copy, Clone)]
+        struct ShapeInstanceData {
+            vertices: [crate::shape_renderer::Vertex; 4],
+        }
+
+        impl crate::shape_renderer::ShapeInstance for ShapeInstanceData {
+            type Vertex = crate::shape_renderer::Vertex;
+            fn to_vertices(&self) -> [Self::Vertex; 4] {
+                self.vertices
+            }
+        }
+
+        use massive_geometry::Point;
+        let mut shape_instances: Vec<ShapeInstanceData> = Vec::new();
+        for shape in visual.shapes.iter() {
+            match shape {
+                Shape::GlyphRun(_) => {}
+                Shape::Rect(r) => {
+                    let w = (r.rect.right - r.rect.left) as f32;
+                    let h = (r.rect.bottom - r.rect.top) as f32;
+                    let selector = 0u32; // filled rect
+                    let size = (w, h);
+                    let data = (0.0, 0.0);
+                    let color = r.color;
+                    let lt: Point = (r.rect.left, r.rect.top).into();
+                    let rb: Point = (r.rect.right, r.rect.bottom).into();
+                    let lb: Point = (r.rect.left, r.rect.bottom).into();
+                    let rt: Point = (r.rect.right, r.rect.top).into();
+                    // unorm tex coords: local 0..w,0..h
+                    let verts = [
+                        crate::shape_renderer::Vertex::new(
+                            (lt.x as f32, lt.y as f32, 0.0),
+                            (0.0, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (lb.x as f32, lb.y as f32, 0.0),
+                            (0.0, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rb.x as f32, rb.y as f32, 0.0),
+                            (w, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rt.x as f32, rt.y as f32, 0.0),
+                            (w, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                    ];
+                    shape_instances.push(ShapeInstanceData { vertices: verts });
+                }
+                Shape::RoundRect(r) => {
+                    let w = (r.rect.right - r.rect.left) as f32;
+                    let h = (r.rect.bottom - r.rect.top) as f32;
+                    let selector = 1u32; // rounded rect
+                    let size = (w, h);
+                    let data = (r.corner_radius, 0.0);
+                    let color = r.color;
+                    let lt: Point = (r.rect.left, r.rect.top).into();
+                    let rb: Point = (r.rect.right, r.rect.bottom).into();
+                    let lb: Point = (r.rect.left, r.rect.bottom).into();
+                    let rt: Point = (r.rect.right, r.rect.top).into();
+                    let verts = [
+                        crate::shape_renderer::Vertex::new(
+                            (lt.x as f32, lt.y as f32, 0.0),
+                            (0.0, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (lb.x as f32, lb.y as f32, 0.0),
+                            (0.0, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rb.x as f32, rb.y as f32, 0.0),
+                            (w, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rt.x as f32, rt.y as f32, 0.0),
+                            (w, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                    ];
+                    shape_instances.push(ShapeInstanceData { vertices: verts });
+                }
+                Shape::Circle(c) => {
+                    let w = (c.rect.right - c.rect.left) as f32;
+                    let h = (c.rect.bottom - c.rect.top) as f32;
+                    let selector = 2u32; // circle
+                    let size = (w, h);
+                    let data = (0.0, 0.0);
+                    let color = c.color;
+                    let lt: Point = (c.rect.left, c.rect.top).into();
+                    let rb: Point = (c.rect.right, c.rect.bottom).into();
+                    let lb: Point = (c.rect.left, c.rect.bottom).into();
+                    let rt: Point = (c.rect.right, c.rect.top).into();
+                    let verts = [
+                        crate::shape_renderer::Vertex::new(
+                            (lt.x as f32, lt.y as f32, 0.0),
+                            (0.0, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (lb.x as f32, lb.y as f32, 0.0),
+                            (0.0, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rb.x as f32, rb.y as f32, 0.0),
+                            (w, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rt.x as f32, rt.y as f32, 0.0),
+                            (w, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                    ];
+                    shape_instances.push(ShapeInstanceData { vertices: verts });
+                }
+                Shape::StrokeRect(s) => {
+                    let w = (s.rect.right - s.rect.left) as f32;
+                    let h = (s.rect.bottom - s.rect.top) as f32;
+                    let selector = 3u32; // stroke rect
+                    let size = (w, h);
+                    let data = (s.stroke.width as f32, s.stroke.height as f32);
+                    let color = s.color;
+                    let lt: Point = (s.rect.left, s.rect.top).into();
+                    let rb: Point = (s.rect.right, s.rect.bottom).into();
+                    let lb: Point = (s.rect.left, s.rect.bottom).into();
+                    let rt: Point = (s.rect.right, s.rect.top).into();
+                    let verts = [
+                        crate::shape_renderer::Vertex::new(
+                            (lt.x as f32, lt.y as f32, 0.0),
+                            (0.0, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (lb.x as f32, lb.y as f32, 0.0),
+                            (0.0, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rb.x as f32, rb.y as f32, 0.0),
+                            (w, h),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            (rt.x as f32, rt.y as f32, 0.0),
+                            (w, 0.0),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                    ];
+                    shape_instances.push(ShapeInstanceData { vertices: verts });
+                }
+            }
+        }
+
         let context = &mut PreparationContext {
             device: &self.device,
             queue: &self.queue,
         };
 
         let batches = self.text_layer_renderer.runs_to_batches(context, runs)?;
+        // Shape batch
+        let shape_batch = self
+            .shape_renderer
+            .batch(&self.device, &shape_instances)
+            .map(|b| ShapeRenderBatch {
+                vertex_buffer: b.vertex_buffer,
+                count: b.quad_count,
+            });
         self.visuals.insert(
             id,
             Some(RenderVisual {
                 location_id: visual.location,
-                batches,
+                batches: PipelineBatches {
+                    sdf: batches.sdf,
+                    color: batches.color,
+                    shapes: shape_batch,
+                },
             }),
         );
         Ok(())
@@ -328,6 +563,45 @@ impl Renderer {
                     &self.visuals,
                     &mut render_context,
                 );
+
+                // Shape rendering
+                let mut max_shape_quads = 0usize;
+                for visual in self.visuals.iter_some() {
+                    if let Some(ref shape_batch) = visual.batches.shapes {
+                        max_shape_quads = max_shape_quads.max(shape_batch.count);
+                    }
+                }
+                if max_shape_quads > 0 {
+                    self.shape_renderer
+                        .ensure_index_capacity(&self.device, max_shape_quads);
+                    render_context
+                        .pass
+                        .set_pipeline(self.shape_renderer.pipeline());
+                    self.shape_renderer
+                        .set_index_buffer(&mut render_context.pass, max_shape_quads);
+                    for visual in self.visuals.iter_some() {
+                        if let Some(ref shape_batch) = visual.batches.shapes {
+                            let model_matrix = render_context.pixel_matrix
+                                * self.visual_matrices.get(visual.location_id);
+                            let vm = render_context.view_projection_matrix * model_matrix;
+                            render_context.pass.set_push_constants(
+                                wgpu::ShaderStages::VERTEX,
+                                0,
+                                vm.to_pod().as_bytes(),
+                            );
+                            render_context
+                                .pass
+                                .set_vertex_buffer(0, shape_batch.vertex_buffer.slice(..));
+                            render_context.pass.draw_indexed(
+                                0..(shape_batch.count
+                                    * crate::tools::QuadIndexBuffer::INDICES_PER_QUAD)
+                                    as u32,
+                                0,
+                                0..1,
+                            );
+                        }
+                    }
+                }
                 // self.quads_renderer.render(&mut render_context);
 
                 // for pipeline in &self.pipelines {

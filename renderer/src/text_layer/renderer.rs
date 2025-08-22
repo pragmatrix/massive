@@ -236,6 +236,7 @@ impl TextLayerRenderer {
         Ok(PipelineBatches {
             sdf: sdf_batch,
             color: color_batch,
+            shapes: None,
         })
     }
 
