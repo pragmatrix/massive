@@ -12,6 +12,7 @@ pub enum Shape {
     RoundRect(RoundRect),
     Circle(Circle),
     Ellipse(Ellipse),
+    ChamferRect(ChamferRect),
     StrokeRect(StrokeRect),
     GlyphRun(GlyphRun),
 }
@@ -38,6 +39,13 @@ pub struct Circle {
 #[derive(Debug, Clone)]
 pub struct Ellipse {
     pub rect: geometry::Rect,
+    pub color: Color,
+}
+
+#[derive(Debug, Clone)]
+pub struct ChamferRect {
+    pub rect: geometry::Rect,
+    pub chamfer: f32,
     pub color: Color,
 }
 

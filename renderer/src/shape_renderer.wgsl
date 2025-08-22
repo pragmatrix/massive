@@ -72,6 +72,11 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
             // Ellipse using half_shape_size as radii
             distance = -sd_ellipse(p_local, half_shape_size);
         }
+        case 4u: {
+            // Chamfer rect (shape_data.x = chamfer)
+            let chamfer = in.shape_data.x;
+            distance = -sd_chamfer_rect(p_local, half_shape_size, chamfer);
+        }
         case 10u: {
             // Rect stroke: shape_data.xy = per-axis stroke thickness (x for vertical edges, y for horizontal edges thickness)
             let stroke = in.shape_data;
@@ -125,4 +130,23 @@ fn sd_stroked_rect(p: vec2<f32>, half_size: vec2<f32>, stroke: vec2<f32>) -> f32
     let d_inner = sd_filled_rect(p, inner_half);
     // Ring = outer minus inner: max(d_outer, -d_inner)
     return max(d_outer, -d_inner);
+}
+
+// Chamfer rectangle SDF (based on Inigo Quilez sdChamferBox)
+fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) -> f32 {
+    // b is the inner box after removing chamfer extents
+    let b = half_size - vec2<f32>(chamfer, chamfer);
+    var q = abs(p) - b;
+    if (q.y > q.x) {
+        q = vec2<f32>(q.y, q.x);
+    }
+    q.y = q.y + chamfer;
+    let k = 1.0 - sqrt(2.0);
+    if (q.y < 0.0 && q.y + q.x * k < 0.0) {
+        return q.x;
+    }
+    if (q.x < q.y) {
+        return (q.x + q.y) * sqrt(0.5);
+    }
+    return length(q);
 }

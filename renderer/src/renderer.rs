@@ -307,6 +307,54 @@ impl Renderer {
                     ];
                     shape_instances.push(ShapeInstanceData { vertices: verts });
                 }
+                Shape::ChamferRect(r) => {
+                    let w = (r.rect.right - r.rect.left) as f32;
+                    let h = (r.rect.bottom - r.rect.top) as f32;
+                    let selector = crate::shape_renderer::ShapeSelector::ChamferRect as u32;
+                    let size = (w, h);
+                    let data = (r.chamfer, 0.0);
+                    let color = r.color;
+                    let lt: Point = (r.rect.left, r.rect.top).into();
+                    let rb: Point = (r.rect.right, r.rect.bottom).into();
+                    let lb: Point = (r.rect.left, r.rect.bottom).into();
+                    let rt: Point = (r.rect.right, r.rect.top).into();
+                    let b = 1.0f32;
+                    let verts = [
+                        crate::shape_renderer::Vertex::new(
+                            ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
+                            (-b, -b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
+                            (-b, h + b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
+                            (w + b, h + b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
+                            (w + b, -b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                    ];
+                    shape_instances.push(ShapeInstanceData { vertices: verts });
+                }
                 Shape::Circle(c) => {
                     let w = (c.rect.right - c.rect.left) as f32;
                     let h = (c.rect.bottom - c.rect.top) as f32;

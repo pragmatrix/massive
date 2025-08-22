@@ -6,7 +6,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, Color, Rect, Size};
 use massive_scene::{Scene, Visual};
-use massive_shapes::{Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect};
+use massive_shapes::{Circle, Ellipse, ChamferRect, Rect as FilledRect, RoundRect, Shape, StrokeRect};
 use massive_shell::{ApplicationContext, shell};
 use shared::application::{Application, UpdateResponse};
 
@@ -71,6 +71,11 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             rect: Rect::new((880.0, 0.0), Size::new(180.0, 120.0)),
             color: Color::from((0.4, 0.85, 0.4, 1.0)),
         }),
+        Shape::ChamferRect(ChamferRect {
+            rect: Rect::new((1080.0, 0.0), Size::new(200.0, 120.0)),
+            chamfer: 12.0,
+            color: Color::from((0.85, 0.4, 0.7, 1.0)),
+        }),
         // Overlapping translucent stack
         Shape::Rect(FilledRect {
             rect: Rect::new((0.0, 180.0), Size::new(240.0, 160.0)),
@@ -113,6 +118,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             Shape::Circle(c) => c.rect,
             Shape::StrokeRect(r) => r.rect,
             Shape::Ellipse(e) => e.rect,
+            Shape::ChamferRect(r) => r.rect,
             Shape::GlyphRun(_) => continue,
         };
         bounds = Some(if let Some(b) = bounds { b.joined(r) } else { r });
@@ -157,6 +163,12 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                 e.rect.right += offset_x;
                 e.rect.top += offset_y;
                 e.rect.bottom += offset_y;
+            }
+            Shape::ChamferRect(r) => {
+                r.rect.left += offset_x;
+                r.rect.right += offset_x;
+                r.rect.top += offset_y;
+                r.rect.bottom += offset_y;
             }
             Shape::GlyphRun(_) => {}
         }

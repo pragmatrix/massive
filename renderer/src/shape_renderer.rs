@@ -18,6 +18,7 @@ pub enum ShapeSelector {
     RoundedRect = 1,
     Circle = 2,
     Ellipse = 3,
+    ChamferRect = 4,
     // Non-filled
     StrokeRect = 10,
 }
