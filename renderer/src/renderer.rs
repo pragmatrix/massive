@@ -355,6 +355,54 @@ impl Renderer {
                     ];
                     shape_instances.push(ShapeInstanceData { vertices: verts });
                 }
+                Shape::Ellipse(e) => {
+                    let w = (e.rect.right - e.rect.left) as f32;
+                    let h = (e.rect.bottom - e.rect.top) as f32;
+                    let selector = crate::shape_renderer::ShapeSelector::Ellipse as u32;
+                    let size = (w, h);
+                    let data = (0.0, 0.0);
+                    let color = e.color;
+                    let lt: Point = (e.rect.left, e.rect.top).into();
+                    let rb: Point = (e.rect.right, e.rect.bottom).into();
+                    let lb: Point = (e.rect.left, e.rect.bottom).into();
+                    let rt: Point = (e.rect.right, e.rect.top).into();
+                    let b = 1.0f32;
+                    let verts = [
+                        crate::shape_renderer::Vertex::new(
+                            ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
+                            (-b, -b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
+                            (-b, h + b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
+                            (w + b, h + b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
+                            (w + b, -b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                    ];
+                    shape_instances.push(ShapeInstanceData { vertices: verts });
+                }
                 Shape::StrokeRect(s) => {
                     let w = (s.rect.right - s.rect.left) as f32;
                     let h = (s.rect.bottom - s.rect.top) as f32;

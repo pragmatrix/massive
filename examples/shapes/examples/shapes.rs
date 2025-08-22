@@ -6,7 +6,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, Color, Rect, Size};
 use massive_scene::{Scene, Visual};
-use massive_shapes::{Circle, Rect as FilledRect, RoundRect, Shape, StrokeRect};
+use massive_shapes::{Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect};
 use massive_shell::{ApplicationContext, shell};
 use shared::application::{Application, UpdateResponse};
 
@@ -67,6 +67,10 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             stroke: Size::new(6.0, 6.0),
             color: Color::from((0.95, 0.75, 0.2, 1.0)),
         }),
+        Shape::Ellipse(Ellipse {
+            rect: Rect::new((880.0, 0.0), Size::new(180.0, 120.0)),
+            color: Color::from((0.4, 0.85, 0.4, 1.0)),
+        }),
         // Overlapping translucent stack
         Shape::Rect(FilledRect {
             rect: Rect::new((0.0, 180.0), Size::new(240.0, 160.0)),
@@ -80,6 +84,10 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             rect: Rect::new((160.0, 260.0), Size::new(180.0, 160.0)),
             corner_radius: 32.0,
             color: Color::from((0.9, 0.6, 0.2, 0.6)),
+        }),
+        Shape::Ellipse(Ellipse {
+            rect: Rect::new((280.0, 210.0), Size::new(200.0, 120.0)),
+            color: Color::from((0.2, 0.5, 0.85, 0.5)),
         }),
     ];
 
@@ -104,6 +112,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             Shape::RoundRect(r) => r.rect,
             Shape::Circle(c) => c.rect,
             Shape::StrokeRect(r) => r.rect,
+            Shape::Ellipse(e) => e.rect,
             Shape::GlyphRun(_) => continue,
         };
         bounds = Some(if let Some(b) = bounds { b.joined(r) } else { r });
@@ -142,6 +151,12 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                 r.rect.right += offset_x;
                 r.rect.top += offset_y;
                 r.rect.bottom += offset_y;
+            }
+            Shape::Ellipse(e) => {
+                e.rect.left += offset_x;
+                e.rect.right += offset_x;
+                e.rect.top += offset_y;
+                e.rect.bottom += offset_y;
             }
             Shape::GlyphRun(_) => {}
         }
