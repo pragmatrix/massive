@@ -233,41 +233,42 @@ impl Renderer {
                     let rb: Point = (r.rect.right, r.rect.bottom).into();
                     let lb: Point = (r.rect.left, r.rect.bottom).into();
                     let rt: Point = (r.rect.right, r.rect.top).into();
-                    // unorm tex coords: local 0..w,0..h
-                    let verts = [
-                        crate::shape_renderer::Vertex::new(
-                            (lt.x as f32, lt.y as f32, 0.0),
-                            (0.0, 0.0),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        crate::shape_renderer::Vertex::new(
-                            (lb.x as f32, lb.y as f32, 0.0),
-                            (0.0, h),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        crate::shape_renderer::Vertex::new(
-                            (rb.x as f32, rb.y as f32, 0.0),
-                            (w, h),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        crate::shape_renderer::Vertex::new(
-                            (rt.x as f32, rt.y as f32, 0.0),
-                            (w, 0.0),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                    ];
+                        // Add 1px AA border around geometry in model coordinates.
+                        let b = 1.0f32;
+                        let verts = [
+                            crate::shape_renderer::Vertex::new(
+                                ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
+                                (-b, -b),
+                                selector,
+                                size,
+                                data,
+                                color,
+                            ),
+                            crate::shape_renderer::Vertex::new(
+                                ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
+                                (-b, h + b),
+                                selector,
+                                size,
+                                data,
+                                color,
+                            ),
+                            crate::shape_renderer::Vertex::new(
+                                ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
+                                (w + b, h + b),
+                                selector,
+                                size,
+                                data,
+                                color,
+                            ),
+                            crate::shape_renderer::Vertex::new(
+                                ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
+                                (w + b, -b),
+                                selector,
+                                size,
+                                data,
+                                color,
+                            ),
+                        ];
                     shape_instances.push(ShapeInstanceData { vertices: verts });
                 }
                 Shape::RoundRect(r) => {
@@ -281,34 +282,35 @@ impl Renderer {
                     let rb: Point = (r.rect.right, r.rect.bottom).into();
                     let lb: Point = (r.rect.left, r.rect.bottom).into();
                     let rt: Point = (r.rect.right, r.rect.top).into();
+                    let b = 1.0f32;
                     let verts = [
                         crate::shape_renderer::Vertex::new(
-                            (lt.x as f32, lt.y as f32, 0.0),
-                            (0.0, 0.0),
+                            ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
+                            (-b, -b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (lb.x as f32, lb.y as f32, 0.0),
-                            (0.0, h),
+                            ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
+                            (-b, h + b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (rb.x as f32, rb.y as f32, 0.0),
-                            (w, h),
+                            ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
+                            (w + b, h + b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (rt.x as f32, rt.y as f32, 0.0),
-                            (w, 0.0),
+                            ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
+                            (w + b, -b),
                             selector,
                             size,
                             data,
@@ -328,34 +330,35 @@ impl Renderer {
                     let rb: Point = (c.rect.right, c.rect.bottom).into();
                     let lb: Point = (c.rect.left, c.rect.bottom).into();
                     let rt: Point = (c.rect.right, c.rect.top).into();
+                    let b = 1.0f32;
                     let verts = [
                         crate::shape_renderer::Vertex::new(
-                            (lt.x as f32, lt.y as f32, 0.0),
-                            (0.0, 0.0),
+                            ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
+                            (-b, -b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (lb.x as f32, lb.y as f32, 0.0),
-                            (0.0, h),
+                            ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
+                            (-b, h + b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (rb.x as f32, rb.y as f32, 0.0),
-                            (w, h),
+                            ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
+                            (w + b, h + b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (rt.x as f32, rt.y as f32, 0.0),
-                            (w, 0.0),
+                            ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
+                            (w + b, -b),
                             selector,
                             size,
                             data,
@@ -375,34 +378,35 @@ impl Renderer {
                     let rb: Point = (s.rect.right, s.rect.bottom).into();
                     let lb: Point = (s.rect.left, s.rect.bottom).into();
                     let rt: Point = (s.rect.right, s.rect.top).into();
+                    let b = 1.0f32;
                     let verts = [
                         crate::shape_renderer::Vertex::new(
-                            (lt.x as f32, lt.y as f32, 0.0),
-                            (0.0, 0.0),
+                            ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
+                            (-b, -b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (lb.x as f32, lb.y as f32, 0.0),
-                            (0.0, h),
+                            ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
+                            (-b, h + b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (rb.x as f32, rb.y as f32, 0.0),
-                            (w, h),
+                            ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
+                            (w + b, h + b),
                             selector,
                             size,
                             data,
                             color,
                         ),
                         crate::shape_renderer::Vertex::new(
-                            (rt.x as f32, rt.y as f32, 0.0),
-                            (w, 0.0),
+                            ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
+                            (w + b, -b),
                             selector,
                             size,
                             data,
