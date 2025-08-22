@@ -1,11 +1,9 @@
 use bytemuck::{Pod, Zeroable};
-use derive_more::Deref;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use crate::{
-    bind_group_entries,
     pods::{self, AsBytes, VertexLayout},
-    tools::{BindGroupLayoutBuilder, QuadIndexBuffer, create_pipeline},
+    tools::{QuadIndexBuffer, create_pipeline},
 };
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
@@ -155,30 +153,6 @@ impl VertexLayout for Vertex {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &ATTRS,
         }
-    }
-}
-
-#[derive(Debug, Deref)]
-pub struct VsBindGroupLayout(wgpu::BindGroupLayout);
-
-impl VsBindGroupLayout {
-    pub fn new(device: &wgpu::Device) -> Self {
-        let layout = BindGroupLayoutBuilder::vertex_stage()
-            .uniform()
-            .build("Shape VS Bind Group Layout", device);
-        Self(layout)
-    }
-
-    pub fn create_bind_group(
-        &self,
-        device: &wgpu::Device,
-        model_view_buffer: &wgpu::Buffer,
-    ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Shape VS Bind Group"),
-            layout: &self.0,
-            entries: bind_group_entries!(0 => model_view_buffer),
-        })
     }
 }
 
