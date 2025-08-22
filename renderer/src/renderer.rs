@@ -141,18 +141,6 @@ impl Renderer {
         renderer
     }
 
-    /// Forget everything known and bootstrap a new set of initial changes.
-    ///
-    /// This is for legacy support an should be removed.
-    pub fn bootstrap_changes(
-        &mut self,
-        changes: impl IntoIterator<Item = SceneChange>,
-    ) -> Result<()> {
-        // Reset the scene.
-        self.scene = Scene::default();
-        self.apply_changes(changes)
-    }
-
     /// Apply changes to the renderer hierarchy.
     ///
     /// This can be called multiple times with new changes without losing significant performance compared to combining all changes first. I.e. no expensive value computation is done here.
@@ -233,42 +221,42 @@ impl Renderer {
                     let rb: Point = (r.rect.right, r.rect.bottom).into();
                     let lb: Point = (r.rect.left, r.rect.bottom).into();
                     let rt: Point = (r.rect.right, r.rect.top).into();
-                        // Add 1px AA border around geometry in model coordinates.
-                        let b = 1.0f32;
-                        let verts = [
-                            crate::shape_renderer::Vertex::new(
-                                ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
-                                (-b, -b),
-                                selector,
-                                size,
-                                data,
-                                color,
-                            ),
-                            crate::shape_renderer::Vertex::new(
-                                ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
-                                (-b, h + b),
-                                selector,
-                                size,
-                                data,
-                                color,
-                            ),
-                            crate::shape_renderer::Vertex::new(
-                                ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
-                                (w + b, h + b),
-                                selector,
-                                size,
-                                data,
-                                color,
-                            ),
-                            crate::shape_renderer::Vertex::new(
-                                ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
-                                (w + b, -b),
-                                selector,
-                                size,
-                                data,
-                                color,
-                            ),
-                        ];
+                    // Add 1px AA border around geometry in model coordinates.
+                    let b = 1.0f32;
+                    let verts = [
+                        crate::shape_renderer::Vertex::new(
+                            ((lt.x as f32) - b, (lt.y as f32) - b, 0.0),
+                            (-b, -b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((lb.x as f32) - b, (lb.y as f32) + b, 0.0),
+                            (-b, h + b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((rb.x as f32) + b, (rb.y as f32) + b, 0.0),
+                            (w + b, h + b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                        crate::shape_renderer::Vertex::new(
+                            ((rt.x as f32) + b, (rt.y as f32) - b, 0.0),
+                            (w + b, -b),
+                            selector,
+                            size,
+                            data,
+                            color,
+                        ),
+                    ];
                     shape_instances.push(ShapeInstanceData { vertices: verts });
                 }
                 Shape::RoundRect(r) => {
