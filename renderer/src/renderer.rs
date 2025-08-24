@@ -368,19 +368,19 @@ impl Renderer {
                         .set(&mut render_context.pass, self.max_quads_in_use);
                 }
 
-                self.render_batch(
+                self.render_pipeline_batches(
                     self.text_renderer.sdf_pipeline(),
                     |b| b.sdf.as_ref(),
                     render_context,
                 );
 
-                self.render_batch(
+                self.render_pipeline_batches(
                     self.text_renderer.color_pipeline(),
                     |b| b.color.as_ref(),
                     render_context,
                 );
 
-                self.render_batch(
+                self.render_pipeline_batches(
                     self.shape_renderer.pipeline(),
                     |b| b.shapes.as_ref(),
                     render_context,
@@ -403,7 +403,8 @@ impl Renderer {
         surface_texture.present();
     }
 
-    pub fn render_batch(
+    /// Pick up one specific pipeline batch from every visual and render it.
+    pub fn render_pipeline_batches(
         &self,
         pipeline: &wgpu::RenderPipeline,
         select_batch: impl Fn(&PipelineBatches) -> Option<&RenderBatch>,
@@ -414,12 +415,16 @@ impl Renderer {
 
         for visual in self.visuals.values() {
             if let Some(batch) = select_batch(&visual.batches) {
+                // Architecture: We may go multiple times over the same visual and compute the
+                //   final, because it renders to different pipelines. Perhaps we need a derived /
+                //   lazy table here.
                 let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
                 let matrix = context.view_projection_matrix * model_matrix;
 
                 let pass = &mut context.pass;
 
                 pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, matrix.to_pod().as_bytes());
+                // Architecture: This test needs only done once per pipeline.
                 if let Some(bg) = &batch.fs_bind_group {
                     pass.set_bind_group(0, bg, &[]);
                 }
