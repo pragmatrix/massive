@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{Handle, Id, Object};
 use massive_geometry as geometry;
-use massive_shapes::Shape;
+use massive_shapes::{GlyphRun, Shape};
 
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
@@ -27,6 +27,18 @@ pub struct Visual {
 pub struct VisualRenderObj {
     pub location: Id,
     pub shapes: Arc<[Shape]>,
+}
+
+impl VisualRenderObj {
+    pub fn runs(&self) -> impl Iterator<Item = &GlyphRun> {
+        self.shapes.iter().filter_map(|s| {
+            if let Shape::GlyphRun(run) = s {
+                Some(run)
+            } else {
+                None
+            }
+        })
+    }
 }
 
 impl Object for Visual {

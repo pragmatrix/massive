@@ -3,7 +3,7 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use crate::{
     pods::{self, AsBytes, VertexLayout},
-    tools::{QuadIndexBuffer, create_pipeline},
+    tools::create_pipeline,
 };
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
@@ -32,7 +32,6 @@ impl From<ShapeSelector> for u32 {
 #[derive(Debug)]
 pub struct ShapeRenderer {
     pipeline: wgpu::RenderPipeline,
-    index_buffer: QuadIndexBuffer,
 }
 
 impl ShapeRenderer {
@@ -71,10 +70,7 @@ impl ShapeRenderer {
             &targets,
         );
 
-        Self {
-            pipeline,
-            index_buffer: QuadIndexBuffer::new(device),
-        }
+        Self { pipeline }
     }
 
     /// Build a batch from a slice of instances sharing the same model_view matrix.
@@ -106,14 +102,6 @@ impl ShapeRenderer {
 
     pub fn pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
-    }
-
-    pub fn ensure_index_capacity(&mut self, device: &wgpu::Device, quads: usize) {
-        self.index_buffer.ensure_can_index_num_quads(device, quads);
-    }
-
-    pub fn set_index_buffer<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, max_quads: usize) {
-        self.index_buffer.set(pass, max_quads);
     }
 }
 

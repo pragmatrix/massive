@@ -20,7 +20,7 @@ use crate::{
     },
     pods::{AsBytes, ToPod},
     renderer::{PipelineBatches, PreparationContext, RenderBatch, RenderContext, RenderVisual},
-    scene::{IdTable, LocationMatrices},
+    scene::LocationMatrices,
     text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
     tools::QuadIndexBuffer,
 };
@@ -39,8 +39,6 @@ pub struct TextLayerRenderer {
     scale_context: ScaleContext,
     empty_glyphs: HashSet<RasterizedGlyphKey>,
 
-    index_buffer: QuadIndexBuffer,
-
     sdf_renderer: AtlasRenderer,
     color_renderer: AtlasRenderer,
 
@@ -54,7 +52,6 @@ impl fmt::Debug for TextLayerRenderer {
             .field("font_system", &self.font_system)
             // .field("scale_context", &self.scale_context)
             .field("empty_glyphs", &self.empty_glyphs)
-            .field("index_buffer", &self.index_buffer)
             .field("sdf_renderer", &self.sdf_renderer)
             .field("color_renderer", &self.color_renderer)
             .field("max_quads_in_use", &self.max_quads_in_use)
@@ -78,7 +75,6 @@ impl TextLayerRenderer {
             scale_context: ScaleContext::default(),
             font_system,
             empty_glyphs: HashSet::new(),
-            index_buffer: QuadIndexBuffer::new(device),
             // Instead of specifying all these consts _and_ the vertex type, a trait based spec type
             // would probably be better.
             sdf_renderer: AtlasRenderer::new::<sdf_atlas::Vertex>(
@@ -97,60 +93,34 @@ impl TextLayerRenderer {
         }
     }
 
-    pub fn prepare(
-        &mut self,
-        visuals: &IdTable<Option<RenderVisual>>,
-        context: &mut PreparationContext,
-    ) {
-        // Optimization: Visuals are iterated 4 times per render (see all_locations(), which could
-        // also compute max_quads).
-        //
-        // Compute only one max_quads value (which is optimal when we use one index buffer only).
-        let max_quads = visuals
-            .iter_some()
-            .map(|v| v.batches.max_quads())
-            .max()
-            .unwrap_or_default();
-
-        self.index_buffer
-            .ensure_can_index_num_quads(context.device, max_quads);
-
-        self.max_quads_in_use = max_quads;
-    }
-
-    pub fn render(
+    pub fn render_sdf_glyphs<'a>(
         &self,
         matrices: &LocationMatrices,
-        visuals: &IdTable<Option<RenderVisual>>,
+        visuals: impl Iterator<Item = &'a RenderVisual>,
         context: &mut RenderContext,
     ) {
-        if self.max_quads_in_use == 0 {
-            return;
-        }
+        context.pass.set_pipeline(self.sdf_renderer.pipeline());
 
-        // Set the shared index buffer for all quad renderers.
-        self.index_buffer
-            .set(&mut context.pass, self.max_quads_in_use);
-
-        {
-            context.pass.set_pipeline(self.sdf_renderer.pipeline());
-
-            for visual in visuals.iter_some() {
-                if let Some(ref sdf_batch) = visual.batches.sdf {
-                    let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                    Self::render_batch(context, &model_matrix, sdf_batch);
-                }
+        for visual in visuals {
+            if let Some(ref sdf_batch) = visual.batches.sdf {
+                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
+                Self::render_batch(context, &model_matrix, sdf_batch);
             }
         }
+    }
 
-        {
-            context.pass.set_pipeline(self.color_renderer.pipeline());
+    pub fn render_color_glyphs<'a>(
+        &self,
+        matrices: &LocationMatrices,
+        visuals: impl Iterator<Item = &'a RenderVisual>,
+        context: &mut RenderContext,
+    ) {
+        context.pass.set_pipeline(self.color_renderer.pipeline());
 
-            for visual in visuals.iter_some() {
-                if let Some(ref color_batch) = visual.batches.color {
-                    let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                    Self::render_batch(context, &model_matrix, color_batch);
-                }
+        for visual in visuals {
+            if let Some(ref color_batch) = visual.batches.color {
+                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
+                Self::render_batch(context, &model_matrix, color_batch);
             }
         }
     }
@@ -180,7 +150,7 @@ impl TextLayerRenderer {
     /// All of the runs use the same model matrix.
     pub fn runs_to_batches<'a>(
         &mut self,
-        context: &mut PreparationContext,
+        context: &PreparationContext,
         runs: impl Iterator<Item = &'a GlyphRun>,
     ) -> Result<PipelineBatches> {
         // Step 1: Get all instance data.
@@ -243,7 +213,7 @@ impl TextLayerRenderer {
     // This makes sure that there is a rasterized glyph in the atlas and returns the rectangle.
     fn rasterized_glyph_atlas_rect(
         &mut self,
-        context: &mut PreparationContext,
+        context: &PreparationContext,
         font_system: &mut FontSystem,
         weight: TextWeight,
         glyph: &RunGlyph,
