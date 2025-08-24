@@ -30,3 +30,13 @@ pub enum Change<T> {
     Update(Id, T),
     Delete(Id),
 }
+
+impl<T> Change<T> {
+    pub fn id(&self) -> Id {
+        match *self {
+            Change::Create(id, _) => id,
+            Change::Update(id, _) => id,
+            Change::Delete(id) => id,
+        }
+    }
+}

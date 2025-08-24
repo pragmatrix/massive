@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     result,
     sync::{Arc, Mutex},
     time::Instant,
@@ -6,17 +7,22 @@ use std::{
 
 use anyhow::Result;
 use cosmic_text::FontSystem;
+use itertools::Itertools;
 use log::{info, warn};
+use massive_shapes::Shape;
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
-    TransactionManager,
+    Transaction, TransactionManager,
+    pods::{AsBytes, ToPod},
     scene::{LocationMatrices, Scene},
+    shape_renderer::ShapeRenderer,
     stats::MeasureSeries,
     text_layer::TextLayerRenderer,
+    tools::QuadIndexBuffer,
 };
 use massive_geometry::{Color, Matrix4};
-use massive_scene::SceneChange;
+use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -28,11 +34,61 @@ pub struct Renderer {
     pub surface_config: wgpu::SurfaceConfiguration,
     pub background_color: Option<Color>,
 
+    quads_index_buffer: QuadIndexBuffer,
+    max_quads_in_use: usize,
+
+    //
+    // Scene and Cache updates
+    //
     transaction_manager: TransactionManager,
     scene: Scene,
-    visual_matrices: LocationMatrices,
 
-    text_layer_renderer: TextLayerRenderer,
+    /// The changed visuals since the previous draw call.
+    changed_visuals: ChangedIds,
+
+    visual_matrices: LocationMatrices,
+    /// Per visual location and RenderBatch
+    visuals: HashMap<Id, RenderVisual>,
+
+    //
+    // Pipeline Renderer
+    //
+    text_renderer: TextLayerRenderer,
+    shape_renderer: ShapeRenderer,
+}
+
+#[derive(Debug)]
+pub struct RenderVisual {
+    pub location_id: Id,
+    pub batches: PipelineBatches,
+}
+
+/// Representing all batches in a visual.
+#[derive(Debug)]
+pub struct PipelineBatches {
+    pub sdf: Option<RenderBatch>,
+    pub color: Option<RenderBatch>,
+    pub shapes: Option<RenderBatch>,
+}
+
+impl PipelineBatches {
+    pub fn max_quads(&self) -> usize {
+        [
+            self.sdf.as_ref().map(|b| b.count).unwrap_or_default(),
+            self.color.as_ref().map(|b| b.count).unwrap_or_default(),
+            self.shapes.as_ref().map(|b| b.count).unwrap_or_default(),
+        ]
+        .into_iter()
+        .max()
+        .unwrap()
+    }
+}
+
+#[derive(Debug)]
+pub struct RenderBatch {
+    pub fs_bind_group: Option<wgpu::BindGroup>,
+    pub vertex_buffer: wgpu::Buffer,
+    pub count: usize,
 }
 
 /// The context provided to `prepare()` middleware functions.
@@ -66,40 +122,39 @@ impl Renderer {
         let format = surface_config.format;
 
         let text_layer_renderer = TextLayerRenderer::new(&device, font_system, format);
+        let shape_renderer = crate::shape_renderer::ShapeRenderer::new::<
+            crate::shape_renderer::Vertex,
+        >(&device, format);
 
         // Currently unused (and also not anti-aliased). Need to create an sdf shape renderer.
         // let quads_renderer =
         //     QuadsRenderer::new(&device, format, &view_projection_bind_group_layout);
 
+        let index_buffer = QuadIndexBuffer::new(&device);
+
         let mut renderer = Self {
             config: Config { measure: MEASURE },
             device,
             queue,
+            measure_series: Default::default(),
             surface,
             surface_config,
-            measure_series: MeasureSeries::default(),
-            transaction_manager: TransactionManager::default(),
-            scene: Scene::default(),
-            visual_matrices: LocationMatrices::default(),
-            text_layer_renderer,
             background_color: Some(Color::WHITE),
-            // quads_renderer,
+            quads_index_buffer: index_buffer,
+            max_quads_in_use: 0,
+
+            transaction_manager: Default::default(),
+            scene: Default::default(),
+            changed_visuals: Default::default(),
+            visual_matrices: Default::default(),
+            visuals: Default::default(),
+
+            text_renderer: text_layer_renderer,
+            shape_renderer,
         };
 
         renderer.reconfigure_surface();
         renderer
-    }
-
-    /// Forget everything known and bootstrap a new set of initial changes.
-    ///
-    /// This is for legacy support an should be removed.
-    pub fn bootstrap_changes(
-        &mut self,
-        changes: impl IntoIterator<Item = SceneChange>,
-    ) -> Result<()> {
-        // Reset the scene.
-        self.scene = Scene::default();
-        self.apply_changes(changes)
     }
 
     /// Apply changes to the renderer hierarchy.
@@ -109,26 +164,13 @@ impl Renderer {
     /// After all changes are pushed, call prepare().
     #[tracing::instrument(skip_all)]
     pub fn apply_changes(&mut self, changes: impl IntoIterator<Item = SceneChange>) -> Result<()> {
-        let context = &mut PreparationContext {
-            device: &self.device,
-            queue: &self.queue,
-        };
-
         let transaction = self.transaction_manager.new_transaction();
 
-        // Architecture:
-        //
-        // Because there are no interdependencies beetween the text layer renderer and the scene, we
-        // could apply them in batches (and even paralellize)
-
-        // Optimization:
-        //
-        // I don't think that the scene needs to store Visuals anymore. All that is needed is
-        // extracted in the text_layer_renderer.
         for change in changes {
-            // Optimization: Parallelize?
             self.scene.apply(&change, &transaction);
-            self.text_layer_renderer.apply(&change, context)?;
+            if let SceneChange::Visual(visual_change) = change {
+                self.changed_visuals.add(visual_change.id());
+            }
         }
         Ok(())
     }
@@ -136,26 +178,112 @@ impl Renderer {
     /// Prepare everything we can before the final render, without changing GPU state.
     ///
     /// Currently this
-    /// - This computes all final matrices.
+    /// - produces all pipeline batches.
+    /// - prepares the index buffer so that it can render all quads needed.
+    /// - computes the final matrices for all the visuals.
+    ///
+    /// It's important that pipeline batches are updated before index buffer and final matrices,
+    /// because they both depend on it. The index buffer needs the max quads used, and the final
+    /// matrix computation needs a unique list of locations.
+    ///
+    /// Architecture: These dependencies should probably be encoded with the type system.
     ///
     /// The prepare step should run before get_current_texture(), because it would block, and wait
     /// for the next VSync. If we run prepare steps before, we can utilize CPU time more.
-    pub fn prepare(&mut self) {
-        let context = &mut PreparationContext {
-            device: &self.device,
-            queue: &self.queue,
-        };
+    pub fn prepare(&mut self) -> Result<()> {
+        self.prepare_batches()?;
 
-        self.text_layer_renderer.prepare(context);
+        self.prepare_index_buffer();
 
-        let transaction = self.transaction_manager.current_transaction();
-
-        // Compute visuals locations
         {
-            let all_locations = self.text_layer_renderer.all_locations();
-            self.visual_matrices
-                .compute_matrices(&self.scene, &transaction, all_locations);
+            let transaction = self.transaction_manager.current_transaction();
+            self.prepare_matrices(&transaction);
         }
+
+        Ok(())
+    }
+
+    fn prepare_index_buffer(&mut self) {
+        // Performance: Compute max_quads them incrementally, going through all batches might be
+        // expensive.
+        //
+        // Compute only one max_quads value (which is optimal when we use one index buffer only).
+        let max_quads = self
+            .visuals
+            .values()
+            .map(|v| v.batches.max_quads())
+            .max()
+            .unwrap_or_default();
+
+        self.quads_index_buffer
+            .ensure_can_index_num_quads(&self.device, max_quads);
+
+        self.max_quads_in_use = max_quads;
+    }
+
+    fn prepare_matrices(&mut self, transaction: &Transaction) {
+        let location_ids = self.visuals.values().map(|v| v.location_id).unique();
+        self.visual_matrices
+            .compute_matrices(&self.scene, transaction, location_ids);
+    }
+
+    fn prepare_batches(&mut self) -> Result<()> {
+        let visuals = self.scene.visuals();
+        for id in self.changed_visuals.take_all() {
+            if let Some(v) = &visuals[id] {
+                Self::visual_updated(
+                    id,
+                    v,
+                    &self.device,
+                    &self.queue,
+                    &mut self.text_renderer,
+                    &self.shape_renderer,
+                    &mut self.visuals,
+                )?;
+            } else {
+                self.visuals.remove(&id);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn visual_updated(
+        id: Id,
+        visual: &VisualRenderObj,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        text_renderer: &mut TextLayerRenderer,
+        shape_renderer: &ShapeRenderer,
+        render_visuals: &mut HashMap<Id, RenderVisual>,
+    ) -> Result<()> {
+        let runs = visual.shapes.iter().filter_map(|s| match s {
+            Shape::GlyphRun(run) => Some(run),
+            _ => None,
+        });
+
+        let batches = text_renderer.runs_to_batches(&PreparationContext { device, queue }, runs)?;
+
+        let shape_batch = shape_renderer
+            .batch_from_shapes(device, &visual.shapes)
+            .map(|b| RenderBatch {
+                fs_bind_group: None,
+                vertex_buffer: b.vertex_buffer,
+                count: b.quad_count,
+            });
+
+        render_visuals.insert(
+            id,
+            RenderVisual {
+                location_id: visual.location,
+                batches: PipelineBatches {
+                    sdf: batches.sdf,
+                    color: batches.color,
+                    shapes: shape_batch,
+                },
+            },
+        );
+        Ok(())
     }
 
     /// We want this separate from [`Self::render_and_present`], because of the timing impliciation.
@@ -228,42 +356,35 @@ impl Renderer {
                 });
 
                 // DI: There is a lot of view_projection stuff going on.
-                let mut render_context = RenderContext {
+                let render_context = &mut RenderContext {
                     pixel_matrix: &pixel_matrix,
                     pass: render_pass,
                     view_projection_matrix: *view_projection_matrix,
                 };
 
-                self.text_layer_renderer
-                    .render(&self.visual_matrices, &mut render_context);
-                // self.quads_renderer.render(&mut render_context);
+                // Set the shared index buffer for all quad renderers.
+                if self.max_quads_in_use > 0 {
+                    self.quads_index_buffer
+                        .set(&mut render_context.pass, self.max_quads_in_use);
+                }
 
-                // for pipeline in &self.pipelines {
-                //     let kind = pipeline.0;
-                //     let pipeline = &pipeline.1;
-                //     render_pass.set_pipeline(pipeline);
-                //     render_pass.set_bind_group(0, &self.view_projection_bind_group, &[]);
-                //     render_pass
-                //         .set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
+                self.render_pipeline_batches(
+                    self.text_renderer.sdf_pipeline(),
+                    |b| b.sdf.as_ref(),
+                    render_context,
+                );
 
-                //     for primitive in primitives.iter().filter(|p| p.pipeline() == kind) {
-                //         match primitive {
-                //             Primitive::Texture(Texture {
-                //                 bind_group,
-                //                 vertex_buffer,
-                //                 ..
-                //             }) => {
-                //                 render_pass.set_bind_group(1, bind_group, &[]);
-                //                 render_pass.set_vertex_buffer(0, vertex_buffer.slice(..));
-                //                 render_pass.draw_indexed(
-                //                     0..QuadIndexBuffer::QUAD_INDICES_COUNT as u32,
-                //                     0,
-                //                     0..1,
-                //                 );
-                //             }
-                //         }
-                //     }
-                // }
+                self.render_pipeline_batches(
+                    self.text_renderer.color_pipeline(),
+                    |b| b.color.as_ref(),
+                    render_context,
+                );
+
+                self.render_pipeline_batches(
+                    self.shape_renderer.pipeline(),
+                    |b| b.shapes.as_ref(),
+                    render_context,
+                );
             }
             encoder.finish()
         };
@@ -280,6 +401,42 @@ impl Renderer {
         }
 
         surface_texture.present();
+    }
+
+    /// Pick up one specific pipeline batch from every visual and render it.
+    pub fn render_pipeline_batches(
+        &self,
+        pipeline: &wgpu::RenderPipeline,
+        select_batch: impl Fn(&PipelineBatches) -> Option<&RenderBatch>,
+        context: &mut RenderContext,
+    ) {
+        let matrices = &self.visual_matrices;
+        context.pass.set_pipeline(pipeline);
+
+        for visual in self.visuals.values() {
+            if let Some(batch) = select_batch(&visual.batches) {
+                // Architecture: We may go multiple times over the same visual and compute the
+                //   final, because it renders to different pipelines. Perhaps we need a derived /
+                //   lazy table here.
+                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
+                let matrix = context.view_projection_matrix * model_matrix;
+
+                let pass = &mut context.pass;
+
+                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, matrix.to_pod().as_bytes());
+                // Architecture: This test needs only done once per pipeline.
+                if let Some(bg) = &batch.fs_bind_group {
+                    pass.set_bind_group(0, bg, &[]);
+                }
+                pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
+
+                pass.draw_indexed(
+                    0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+                    0,
+                    0..1,
+                )
+            }
+        }
     }
 
     /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to

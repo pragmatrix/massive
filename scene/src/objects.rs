@@ -1,16 +1,8 @@
 use std::sync::Arc;
 
-use derive_more::From;
-
 use crate::{Handle, Id, Object};
 use massive_geometry as geometry;
-use massive_shapes::{GlyphRun, Quads};
-
-#[derive(Debug, Clone, From)]
-pub enum Shape {
-    GlyphRun(GlyphRun),
-    Quads(Quads),
-}
+use massive_shapes::{GlyphRun, Shape};
 
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
@@ -37,6 +29,18 @@ pub struct VisualRenderObj {
     pub shapes: Arc<[Shape]>,
 }
 
+impl VisualRenderObj {
+    pub fn runs(&self) -> impl Iterator<Item = &GlyphRun> {
+        self.shapes.iter().filter_map(|s| {
+            if let Shape::GlyphRun(run) = s {
+                Some(run)
+            } else {
+                None
+            }
+        })
+    }
+}
+
 impl Object for Visual {
     // And upload the render shape.
     type Change = VisualRenderObj;
@@ -55,12 +59,6 @@ impl Visual {
             location,
             shapes: shapes.into().into(),
         }
-    }
-}
-
-impl From<Shape> for Vec<Shape> {
-    fn from(value: Shape) -> Self {
-        vec![value]
     }
 }
 
@@ -102,45 +100,5 @@ impl Object for Matrix {
 
     fn to_change(&self) -> Self::Change {
         *self
-    }
-}
-
-pub mod legacy {
-    use super::Handle;
-    use crate::{Location, Scene, Visual};
-    use massive_geometry::Matrix4;
-    use massive_shapes::{GlyphRunShape, QuadsShape, Shape};
-    use std::{collections::HashMap, sync::Arc};
-
-    pub fn into_visuals(scene: &Scene, shapes: Vec<Shape>) -> Vec<Handle<Visual>> {
-        let mut location_handles: HashMap<*const Matrix4, Handle<Location>> = HashMap::new();
-        let mut visuals = Vec::with_capacity(shapes.len());
-
-        for shape in shapes {
-            let matrix = match &shape {
-                Shape::GlyphRun(GlyphRunShape { model_matrix, .. }) => model_matrix,
-                Shape::Quads(QuadsShape { model_matrix, .. }) => model_matrix,
-            };
-
-            let position = location_handles.entry(Arc::as_ptr(matrix)).or_insert_with(
-                || -> Handle<Location> {
-                    let matrix = scene.stage(**matrix);
-                    scene.stage(matrix.into())
-                },
-            );
-
-            let visual = match shape {
-                Shape::GlyphRun(GlyphRunShape { run, .. }) => {
-                    Visual::new(position.clone(), super::Shape::from(run))
-                }
-                Shape::Quads(QuadsShape { quads, .. }) => {
-                    Visual::new(position.clone(), super::Shape::from(quads))
-                }
-            };
-
-            visuals.push(scene.stage(visual));
-        }
-
-        visuals
     }
 }

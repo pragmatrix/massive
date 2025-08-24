@@ -21,7 +21,6 @@ pub struct Scene {
     // render results instead of a panic.
     matrices: IdTable<Option<Versioned<Matrix4>>>,
     locations: IdTable<Option<Versioned<LocationRenderObj>>>,
-    // This is also versioned to allow the renderer to cache derived stuff.
     visuals: IdTable<Option<VisualRenderObj>>,
 }
 
@@ -41,37 +40,9 @@ impl Scene {
         }
     }
 
-    // Returns a set of grouped shape by matrix.
-    // pub fn grouped_shapes(
-    //     &self,
-    //     transaction: &Transaction,
-    // ) -> impl Iterator<Item = (Matrix4, impl Iterator<Item = &Shape> + Clone)> {
-    //     let mut map: HashMap<Id, Vec<&[Shape]>> = HashMap::new();
-
-    //     for visual in self.visuals.iter_some() {
-    //         let location_id = visual.location;
-    //         map.entry(location_id).or_default().push(&visual.shapes);
-    //     }
-
-    //     // Update all matrices that are in use.
-    //     {
-    //         let version = transaction.current_version();
-    //         let mut caches = self.caches.borrow_mut();
-    //         for location_id in map.keys() {
-    //             self.resolve_visual_matrix(*location_id, version, &mut caches);
-    //         }
-    //     }
-
-    //     // Create the group iterator.
-
-    //     let caches = self.caches.borrow();
-
-    //     map.into_iter().map(move |(visual_id, shapes)| {
-    //         // We can't return a reference to matrix, because this would also borrow `caches`.
-    //         let matrix = *caches.location_matrix[visual_id];
-    //         (matrix, shapes.into_iter().flatten())
-    //     })
-    // }
+    pub fn visuals(&self) -> &IdTable<Option<VisualRenderObj>> {
+        &self.visuals
+    }
 }
 
 impl<T> IdTable<Option<Versioned<T>>> {

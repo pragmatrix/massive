@@ -212,7 +212,7 @@ impl WindowRenderer {
 
         self.renderer.apply_changes(changes)?;
 
-        self.renderer.prepare();
+        self.renderer.prepare()?;
 
         // Important: This blocks in VSync modes until the previous frame is presented.
         // Robustness: Learn about how to recover from specific `SurfaceError`s errors here
