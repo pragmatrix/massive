@@ -1,4 +1,6 @@
 use bytemuck::{Pod, Zeroable};
+use massive_geometry::{Color, Rect};
+use massive_shapes::Shape;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use crate::{
@@ -75,33 +77,6 @@ impl ShapeRenderer {
         Self { pipeline }
     }
 
-    /// Build a batch from a slice of instances sharing the same model_view matrix.
-    pub fn batch<InstanceT: ShapeInstance>(
-        &self,
-        device: &wgpu::Device,
-        instances: &[InstanceT],
-    ) -> Option<Batch> {
-        if instances.is_empty() {
-            return None;
-        }
-
-        let mut vertices = Vec::with_capacity(instances.len() * 4);
-        for instance in instances {
-            vertices.extend(instance.to_vertices());
-        }
-
-        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
-            label: Some("Shape Vertex Buffer"),
-            contents: bytemuck::cast_slice(&vertices),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        Some(Batch {
-            vertex_buffer,
-            quad_count: instances.len(),
-        })
-    }
-
     pub fn pipeline(&self) -> &wgpu::RenderPipeline {
         &self.pipeline
     }
@@ -138,299 +113,81 @@ impl ShapeRenderer {
         device: &wgpu::Device,
         shapes: &[massive_shapes::Shape],
     ) -> Option<Batch> {
-        use massive_geometry::Point; // For convenient point conversions
-        use massive_shapes::Shape;
-
-        let mut vertices: Vec<Vertex> = Vec::with_capacity(shapes.len() * 4); // upper bound (glyphs skipped later)
-
+        let mut vertices: Vec<Vertex> = Vec::with_capacity(shapes.len() * 4); // upper bound
         let mut quad_count = 0usize;
-        const B: f32 = 1.0; // 1px AA border in model coordinates
+        const B: f32 = 1.0; // 1px AA fringe in model space
+
+        // Helper that emits a single expanded quad with AA fringe and normalized tex coords.
+        let mut emit = |rect: &Rect, selector: ShapeSelector, data: (f32, f32), color: Color| {
+            let left = rect.left as f32;
+            let top = rect.top as f32;
+            let right = rect.right as f32;
+            let bottom = rect.bottom as f32;
+            let w = right - left;
+            let h = bottom - top;
+            let size = (w, h);
+            let selector: u32 = selector.into();
+            vertices.extend([
+                Vertex::new(
+                    (left - B, top - B, 0.0),
+                    (-B, -B),
+                    selector,
+                    size,
+                    data,
+                    color,
+                ),
+                Vertex::new(
+                    (left - B, bottom + B, 0.0),
+                    (-B, h + B),
+                    selector,
+                    size,
+                    data,
+                    color,
+                ),
+                Vertex::new(
+                    (right + B, bottom + B, 0.0),
+                    (w + B, h + B),
+                    selector,
+                    size,
+                    data,
+                    color,
+                ),
+                Vertex::new(
+                    (right + B, top - B, 0.0),
+                    (w + B, -B),
+                    selector,
+                    size,
+                    data,
+                    color,
+                ),
+            ]);
+            quad_count += 1;
+        };
 
         for shape in shapes.iter() {
             match shape {
                 Shape::GlyphRun(_) => {}
-                Shape::Rect(r) => {
-                    let w = (r.rect.right - r.rect.left) as f32;
-                    let h = (r.rect.bottom - r.rect.top) as f32;
-                    let selector = ShapeSelector::Rect as u32;
-                    let size = (w, h);
-                    let data = (0.0, 0.0);
-                    let color = r.color;
-                    let lt: Point = (r.rect.left, r.rect.top).into();
-                    let rb: Point = (r.rect.right, r.rect.bottom).into();
-                    let lb: Point = (r.rect.left, r.rect.bottom).into();
-                    let rt: Point = (r.rect.right, r.rect.top).into();
-                    vertices.extend([
-                        Vertex::new(
-                            ((lt.x as f32) - B, (lt.y as f32) - B, 0.0),
-                            (-B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((lb.x as f32) - B, (lb.y as f32) + B, 0.0),
-                            (-B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rb.x as f32) + B, (rb.y as f32) + B, 0.0),
-                            (w + B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rt.x as f32) + B, (rt.y as f32) - B, 0.0),
-                            (w + B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                    ]);
-                    quad_count += 1;
-                }
-                Shape::RoundRect(r) => {
-                    let w = (r.rect.right - r.rect.left) as f32;
-                    let h = (r.rect.bottom - r.rect.top) as f32;
-                    let selector = ShapeSelector::RoundedRect as u32;
-                    let size = (w, h);
-                    let data = (r.corner_radius, 0.0);
-                    let color = r.color;
-                    let lt: Point = (r.rect.left, r.rect.top).into();
-                    let rb: Point = (r.rect.right, r.rect.bottom).into();
-                    let lb: Point = (r.rect.left, r.rect.bottom).into();
-                    let rt: Point = (r.rect.right, r.rect.top).into();
-                    vertices.extend([
-                        Vertex::new(
-                            ((lt.x as f32) - B, (lt.y as f32) - B, 0.0),
-                            (-B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((lb.x as f32) - B, (lb.y as f32) + B, 0.0),
-                            (-B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rb.x as f32) + B, (rb.y as f32) + B, 0.0),
-                            (w + B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rt.x as f32) + B, (rt.y as f32) - B, 0.0),
-                            (w + B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                    ]);
-                    quad_count += 1;
-                }
-                Shape::ChamferRect(r) => {
-                    let w = (r.rect.right - r.rect.left) as f32;
-                    let h = (r.rect.bottom - r.rect.top) as f32;
-                    let selector = ShapeSelector::ChamferRect as u32;
-                    let size = (w, h);
-                    let data = (r.chamfer, 0.0);
-                    let color = r.color;
-                    let lt: Point = (r.rect.left, r.rect.top).into();
-                    let rb: Point = (r.rect.right, r.rect.bottom).into();
-                    let lb: Point = (r.rect.left, r.rect.bottom).into();
-                    let rt: Point = (r.rect.right, r.rect.top).into();
-                    vertices.extend([
-                        Vertex::new(
-                            ((lt.x as f32) - B, (lt.y as f32) - B, 0.0),
-                            (-B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((lb.x as f32) - B, (lb.y as f32) + B, 0.0),
-                            (-B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rb.x as f32) + B, (rb.y as f32) + B, 0.0),
-                            (w + B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rt.x as f32) + B, (rt.y as f32) - B, 0.0),
-                            (w + B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                    ]);
-                    quad_count += 1;
-                }
-                Shape::Circle(c) => {
-                    let w = (c.rect.right - c.rect.left) as f32;
-                    let h = (c.rect.bottom - c.rect.top) as f32;
-                    let selector = ShapeSelector::Circle as u32;
-                    let size = (w, h);
-                    let data = (0.0, 0.0);
-                    let color = c.color;
-                    let lt: Point = (c.rect.left, c.rect.top).into();
-                    let rb: Point = (c.rect.right, c.rect.bottom).into();
-                    let lb: Point = (c.rect.left, c.rect.bottom).into();
-                    let rt: Point = (c.rect.right, c.rect.top).into();
-                    vertices.extend([
-                        Vertex::new(
-                            ((lt.x as f32) - B, (lt.y as f32) - B, 0.0),
-                            (-B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((lb.x as f32) - B, (lb.y as f32) + B, 0.0),
-                            (-B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rb.x as f32) + B, (rb.y as f32) + B, 0.0),
-                            (w + B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rt.x as f32) + B, (rt.y as f32) - B, 0.0),
-                            (w + B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                    ]);
-                    quad_count += 1;
-                }
-                Shape::Ellipse(e) => {
-                    let w = (e.rect.right - e.rect.left) as f32;
-                    let h = (e.rect.bottom - e.rect.top) as f32;
-                    let selector = ShapeSelector::Ellipse as u32;
-                    let size = (w, h);
-                    let data = (0.0, 0.0);
-                    let color = e.color;
-                    let lt: Point = (e.rect.left, e.rect.top).into();
-                    let rb: Point = (e.rect.right, e.rect.bottom).into();
-                    let lb: Point = (e.rect.left, e.rect.bottom).into();
-                    let rt: Point = (e.rect.right, e.rect.top).into();
-                    vertices.extend([
-                        Vertex::new(
-                            ((lt.x as f32) - B, (lt.y as f32) - B, 0.0),
-                            (-B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((lb.x as f32) - B, (lb.y as f32) + B, 0.0),
-                            (-B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rb.x as f32) + B, (rb.y as f32) + B, 0.0),
-                            (w + B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rt.x as f32) + B, (rt.y as f32) - B, 0.0),
-                            (w + B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                    ]);
-                    quad_count += 1;
-                }
-                Shape::StrokeRect(s) => {
-                    let w = (s.rect.right - s.rect.left) as f32;
-                    let h = (s.rect.bottom - s.rect.top) as f32;
-                    let selector = ShapeSelector::StrokeRect as u32;
-                    let size = (w, h);
-                    let data = (s.stroke.width as f32, s.stroke.height as f32);
-                    let color = s.color;
-                    let lt: Point = (s.rect.left, s.rect.top).into();
-                    let rb: Point = (s.rect.right, s.rect.bottom).into();
-                    let lb: Point = (s.rect.left, s.rect.bottom).into();
-                    let rt: Point = (s.rect.right, s.rect.top).into();
-                    vertices.extend([
-                        Vertex::new(
-                            ((lt.x as f32) - B, (lt.y as f32) - B, 0.0),
-                            (-B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((lb.x as f32) - B, (lb.y as f32) + B, 0.0),
-                            (-B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rb.x as f32) + B, (rb.y as f32) + B, 0.0),
-                            (w + B, h + B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                        Vertex::new(
-                            ((rt.x as f32) + B, (rt.y as f32) - B, 0.0),
-                            (w + B, -B),
-                            selector,
-                            size,
-                            data,
-                            color,
-                        ),
-                    ]);
-                    quad_count += 1;
-                }
+                Shape::Rect(r) => emit(&r.rect, ShapeSelector::Rect, (0.0, 0.0), r.color),
+                Shape::RoundRect(r) => emit(
+                    &r.rect,
+                    ShapeSelector::RoundedRect,
+                    (r.corner_radius, 0.0),
+                    r.color,
+                ),
+                Shape::ChamferRect(r) => emit(
+                    &r.rect,
+                    ShapeSelector::ChamferRect,
+                    (r.chamfer, 0.0),
+                    r.color,
+                ),
+                Shape::Circle(c) => emit(&c.rect, ShapeSelector::Circle, (0.0, 0.0), c.color),
+                Shape::Ellipse(e) => emit(&e.rect, ShapeSelector::Ellipse, (0.0, 0.0), e.color),
+                Shape::StrokeRect(s) => emit(
+                    &s.rect,
+                    ShapeSelector::StrokeRect,
+                    (s.stroke.width as f32, s.stroke.height as f32),
+                    s.color,
+                ),
             }
         }
 
@@ -449,12 +206,6 @@ impl ShapeRenderer {
             quad_count,
         })
     }
-}
-
-pub trait ShapeInstance {
-    type Vertex: Pod;
-
-    fn to_vertices(&self) -> [Self::Vertex; 4];
 }
 
 /// Vertex format for `shape/shape.wgsl`.
