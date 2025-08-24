@@ -7,7 +7,6 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use massive_geometry::{Point, Point3};
-use massive_scene::Matrix;
 use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
 use swash::{Weight, scale::ScaleContext};
 use text::SwashContent;
@@ -18,11 +17,8 @@ use crate::{
         GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
     },
-    pods::{AsBytes, ToPod},
-    renderer::{PipelineBatches, PreparationContext, RenderBatch, RenderContext, RenderVisual},
-    scene::LocationMatrices,
+    renderer::{PipelineBatches, PreparationContext},
     text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
-    tools::QuadIndexBuffer,
 };
 
 pub struct TextLayerRenderer {
@@ -91,58 +87,6 @@ impl TextLayerRenderer {
             ),
             max_quads_in_use: 0,
         }
-    }
-
-    pub fn render_sdf_glyphs<'a>(
-        &self,
-        matrices: &LocationMatrices,
-        visuals: impl Iterator<Item = &'a RenderVisual>,
-        context: &mut RenderContext,
-    ) {
-        context.pass.set_pipeline(self.sdf_renderer.pipeline());
-
-        for visual in visuals {
-            if let Some(ref sdf_batch) = visual.batches.sdf {
-                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                Self::render_batch(context, &model_matrix, sdf_batch);
-            }
-        }
-    }
-
-    pub fn render_color_glyphs<'a>(
-        &self,
-        matrices: &LocationMatrices,
-        visuals: impl Iterator<Item = &'a RenderVisual>,
-        context: &mut RenderContext,
-    ) {
-        context.pass.set_pipeline(self.color_renderer.pipeline());
-
-        for visual in visuals {
-            if let Some(ref color_batch) = visual.batches.color {
-                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                Self::render_batch(context, &model_matrix, color_batch);
-            }
-        }
-    }
-
-    pub fn render_batch(context: &mut RenderContext, model_matrix: &Matrix, batch: &RenderBatch) {
-        let text_layer_matrix = context.view_projection_matrix * model_matrix;
-
-        let pass = &mut context.pass;
-
-        pass.set_push_constants(
-            wgpu::ShaderStages::VERTEX,
-            0,
-            text_layer_matrix.to_pod().as_bytes(),
-        );
-        pass.set_bind_group(0, &batch.fs_bind_group, &[]);
-        pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
-
-        pass.draw_indexed(
-            0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
-            0,
-            0..1,
-        )
     }
 
     /// Prepare a number of glyph runs and produce a TextLayer.
@@ -299,5 +243,13 @@ impl TextLayerRenderer {
         ];
 
         points.map(|f| f.with_z(0.0))
+    }
+
+    pub fn sdf_pipeline(&self) -> &wgpu::RenderPipeline {
+        self.sdf_renderer.pipeline()
+    }
+
+    pub fn color_pipeline(&self) -> &wgpu::RenderPipeline {
+        self.color_renderer.pipeline()
     }
 }

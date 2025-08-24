@@ -96,7 +96,7 @@ impl AtlasRenderer {
         });
 
         Some(RenderBatch {
-            fs_bind_group,
+            fs_bind_group: Some(fs_bind_group),
             vertex_buffer,
             count: instances.len(),
         })

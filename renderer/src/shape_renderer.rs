@@ -83,8 +83,8 @@ impl ShapeRenderer {
 
     pub fn render<'a>(
         &self,
-        visuals: impl Iterator<Item = &'a RenderVisual>,
         visual_matrices: &LocationMatrices,
+        visuals: impl Iterator<Item = &'a RenderVisual>,
         render_context: &mut RenderContext,
     ) {
         let pass = &mut render_context.pass;

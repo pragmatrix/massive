@@ -14,6 +14,7 @@ use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     Transaction, TransactionManager,
+    pods::{AsBytes, ToPod},
     scene::{LocationMatrices, Scene},
     shape_renderer::ShapeRenderer,
     stats::MeasureSeries,
@@ -67,7 +68,7 @@ pub struct RenderVisual {
 pub struct PipelineBatches {
     pub sdf: Option<RenderBatch>,
     pub color: Option<RenderBatch>,
-    pub shapes: Option<ShapeRenderBatch>,
+    pub shapes: Option<RenderBatch>,
 }
 
 impl PipelineBatches {
@@ -85,14 +86,7 @@ impl PipelineBatches {
 
 #[derive(Debug)]
 pub struct RenderBatch {
-    /// The bind group contains texture reference(s) and the sampler configuration.
-    pub fs_bind_group: wgpu::BindGroup,
-    pub vertex_buffer: wgpu::Buffer,
-    pub count: usize,
-}
-
-#[derive(Debug)]
-pub struct ShapeRenderBatch {
+    pub fs_bind_group: Option<wgpu::BindGroup>,
     pub vertex_buffer: wgpu::Buffer,
     pub count: usize,
 }
@@ -272,10 +266,12 @@ impl Renderer {
 
         let shape_batch = shape_renderer
             .batch_from_shapes(device, &visual.shapes)
-            .map(|b| ShapeRenderBatch {
+            .map(|b| RenderBatch {
+                fs_bind_group: None,
                 vertex_buffer: b.vertex_buffer,
                 count: b.quad_count,
             });
+
         render_visuals.insert(
             id,
             RenderVisual {
@@ -360,7 +356,7 @@ impl Renderer {
                 });
 
                 // DI: There is a lot of view_projection stuff going on.
-                let mut render_context = RenderContext {
+                let render_context = &mut RenderContext {
                     pixel_matrix: &pixel_matrix,
                     pass: render_pass,
                     view_projection_matrix: *view_projection_matrix,
@@ -372,23 +368,22 @@ impl Renderer {
                         .set(&mut render_context.pass, self.max_quads_in_use);
                 }
 
-                self.text_renderer.render_sdf_glyphs(
-                    &self.visual_matrices,
-                    self.visuals.values(),
-                    &mut render_context,
+                self.render_batch(
+                    self.text_renderer.sdf_pipeline(),
+                    |b| b.sdf.as_ref(),
+                    render_context,
                 );
 
-                self.text_renderer.render_color_glyphs(
-                    &self.visual_matrices,
-                    self.visuals.values(),
-                    &mut render_context,
+                self.render_batch(
+                    self.text_renderer.color_pipeline(),
+                    |b| b.color.as_ref(),
+                    render_context,
                 );
 
-                // Render geometric shapes
-                self.shape_renderer.render(
-                    self.visuals.values(),
-                    &self.visual_matrices,
-                    &mut render_context,
+                self.render_batch(
+                    self.shape_renderer.pipeline(),
+                    |b| b.shapes.as_ref(),
+                    render_context,
                 );
             }
             encoder.finish()
@@ -406,6 +401,37 @@ impl Renderer {
         }
 
         surface_texture.present();
+    }
+
+    pub fn render_batch(
+        &self,
+        pipeline: &wgpu::RenderPipeline,
+        select_batch: impl Fn(&PipelineBatches) -> Option<&RenderBatch>,
+        context: &mut RenderContext,
+    ) {
+        let matrices = &self.visual_matrices;
+        context.pass.set_pipeline(pipeline);
+
+        for visual in self.visuals.values() {
+            if let Some(batch) = select_batch(&visual.batches) {
+                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
+                let matrix = context.view_projection_matrix * model_matrix;
+
+                let pass = &mut context.pass;
+
+                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, matrix.to_pod().as_bytes());
+                if let Some(bg) = &batch.fs_bind_group {
+                    pass.set_bind_group(0, bg, &[]);
+                }
+                pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
+
+                pass.draw_indexed(
+                    0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+                    0,
+                    0..1,
+                )
+            }
+        }
     }
 
     /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
