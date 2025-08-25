@@ -23,11 +23,34 @@ pub struct Rect {
     pub color: Color,
 }
 
+impl Rect {
+    pub fn new(rect: impl Into<geometry::Rect>, color: impl Into<Color>) -> Self {
+        Self {
+            rect: rect.into(),
+            color: color.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct RoundRect {
     pub rect: geometry::Rect,
     pub corner_radius: f32,
     pub color: Color,
+}
+
+impl RoundRect {
+    pub fn new(
+        rect: impl Into<geometry::Rect>,
+        corner_radius: f32,
+        color: impl Into<Color>,
+    ) -> Self {
+        Self {
+            rect: rect.into(),
+            corner_radius,
+            color: color.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -36,10 +59,28 @@ pub struct Circle {
     pub color: Color,
 }
 
+impl Circle {
+    pub fn new(rect: impl Into<geometry::Rect>, color: impl Into<Color>) -> Self {
+        Self {
+            rect: rect.into(),
+            color: color.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Ellipse {
     pub rect: geometry::Rect,
     pub color: Color,
+}
+
+impl Ellipse {
+    pub fn new(rect: impl Into<geometry::Rect>, color: impl Into<Color>) -> Self {
+        Self {
+            rect: rect.into(),
+            color: color.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,9 +90,33 @@ pub struct ChamferRect {
     pub color: Color,
 }
 
+impl ChamferRect {
+    pub fn new(rect: impl Into<geometry::Rect>, chamfer: f32, color: impl Into<Color>) -> Self {
+        Self {
+            rect: rect.into(),
+            chamfer,
+            color: color.into(),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StrokeRect {
     pub rect: geometry::Rect,
     pub stroke: Size,
     pub color: Color,
+}
+
+impl StrokeRect {
+    pub fn new(
+        rect: impl Into<geometry::Rect>,
+        stroke: impl Into<Size>,
+        color: impl Into<Color>,
+    ) -> Self {
+        Self {
+            rect: rect.into(),
+            stroke: stroke.into(),
+            color: color.into(),
+        }
+    }
 }
