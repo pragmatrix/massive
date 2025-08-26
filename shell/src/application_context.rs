@@ -150,7 +150,7 @@ impl ApplicationContext {
 
     /// Wait for the next shell event.
     ///
-    /// `renderer` is needed so that we know when the renderer finished while animation mode a
+    /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
     /// [`ShellEvent::ApplyAnimations`] can be produced.
     pub async fn wait_for_shell_event(
         &mut self,
