@@ -19,7 +19,7 @@ use winit::{
 use crate::{AsyncWindowRenderer, shell::ShellRequest, window_renderer::WindowRenderer};
 use massive_geometry::Camera;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ShellWindow {
     /// We need to make Window "sharable", because the Renderer needs to lock it, so that it does
     /// not close with a renderer running.
