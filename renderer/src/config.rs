@@ -45,7 +45,7 @@ impl BatchProducer for TextLayerRenderer {
         [self.sdf_pipeline().clone(), self.color_pipeline().clone()].into()
     }
 
-    /// We should require only &self here, everything that has cache semantic, should not require
+    /// We should require only &self here, everything that has cache semantics, should not require
     /// &mut self.
     fn produce_batches(
         &mut self,
