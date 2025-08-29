@@ -91,7 +91,7 @@ impl PipelineBatches {
 #[derive(Debug)]
 pub struct RenderBatch {
     pub fs_bind_group: Option<wgpu::BindGroup>,
-    /// Think of making count und vertex_buffer optional. This would remove all Option<RenderBatch>.
+    /// Think of making count and vertex_buffer optional. This would remove all Option<RenderBatch>.
     pub vertex_buffer: wgpu::Buffer,
     pub count: usize,
 }
