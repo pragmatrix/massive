@@ -9,14 +9,14 @@ use anyhow::Result;
 use cosmic_text::FontSystem;
 use itertools::Itertools;
 use log::{info, warn};
-use massive_shapes::Shape;
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     Transaction, TransactionManager,
+    config::{BatchProducer, RendererConfig},
     pods::{AsBytes, ToPod},
     scene::{LocationMatrices, Scene},
-    shape_renderer::ShapeRenderer,
+    shape_renderer::{self, ShapeRenderer},
     stats::MeasureSeries,
     text_layer::TextLayerRenderer,
     tools::QuadIndexBuffer,
@@ -24,16 +24,22 @@ use crate::{
 use massive_geometry::{Color, Matrix4};
 use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
 
+/// Robustness: We need to announce _prominently_ when we are measuring, because this reduces
+/// performance. Until then it's default false.
+const MEASURE: bool = false;
+
 #[derive(Debug)]
 pub struct Renderer {
-    config: Config,
-    surface: wgpu::Surface<'static>,
+    config: RendererConfig,
     pub device: wgpu::Device,
     pub queue: wgpu::Queue,
     pub measure_series: MeasureSeries,
+    surface: wgpu::Surface<'static>,
     pub surface_config: wgpu::SurfaceConfiguration,
     pub background_color: Option<Color>,
 
+    /// The pipelines for each batch builder.
+    pipelines: Vec<Vec<wgpu::RenderPipeline>>,
     quads_index_buffer: QuadIndexBuffer,
     max_quads_in_use: usize,
 
@@ -49,12 +55,6 @@ pub struct Renderer {
     visual_matrices: LocationMatrices,
     /// Per visual location and pipeline batches.
     visuals: HashMap<Id, RenderVisual>,
-
-    //
-    // Pipeline Renderer
-    //
-    text_renderer: TextLayerRenderer,
-    shape_renderer: ShapeRenderer,
 }
 
 #[derive(Debug)]
@@ -66,27 +66,32 @@ pub struct RenderVisual {
 /// Representing all batches in a visual.
 #[derive(Debug)]
 pub struct PipelineBatches {
-    pub sdf: Option<RenderBatch>,
-    pub color: Option<RenderBatch>,
-    pub shapes: Option<RenderBatch>,
+    // Performance: Consider SmallVec and change the storage structure (index, pipeline) or a global
+    // HashTable?. The more pipelines there are the sparser this gets.
+    pub batches: Vec<Option<RenderBatch>>,
 }
 
 impl PipelineBatches {
+    /// Create pipeline batches, and preallocate a number of empty batches.
+    pub fn new(pipelines: usize) -> Self {
+        let mut v = Vec::with_capacity(pipelines);
+        v.resize_with(pipelines, || None);
+        Self { batches: v }
+    }
+
     pub fn max_quads(&self) -> usize {
-        [
-            self.sdf.as_ref().map(|b| b.count).unwrap_or_default(),
-            self.color.as_ref().map(|b| b.count).unwrap_or_default(),
-            self.shapes.as_ref().map(|b| b.count).unwrap_or_default(),
-        ]
-        .into_iter()
-        .max()
-        .unwrap()
+        self.batches
+            .iter()
+            .filter_map(|b| b.as_ref().map(|rb| rb.count))
+            .max()
+            .unwrap_or_default()
     }
 }
 
 #[derive(Debug)]
 pub struct RenderBatch {
     pub fs_bind_group: Option<wgpu::BindGroup>,
+    /// Think of making count und vertex_buffer optional. This would remove all Option<RenderBatch>.
     pub vertex_buffer: wgpu::Buffer,
     pub count: usize,
 }
@@ -103,13 +108,6 @@ pub struct RenderContext<'a> {
     pub pass: wgpu::RenderPass<'a>,
 }
 
-#[derive(Debug)]
-pub struct Config {
-    measure: bool,
-}
-
-const MEASURE: bool = true;
-
 impl Renderer {
     /// Creates a new renderer and reconfigures the surface according to the given configuration.
     pub fn new(
@@ -121,25 +119,24 @@ impl Renderer {
     ) -> Self {
         let format = surface_config.format;
 
-        let text_layer_renderer = TextLayerRenderer::new(&device, font_system, format);
-        let shape_renderer = crate::shape_renderer::ShapeRenderer::new::<
-            crate::shape_renderer::Vertex,
-        >(&device, format);
-
-        // Currently unused (and also not anti-aliased). Need to create an sdf shape renderer.
-        // let quads_renderer =
-        //     QuadsRenderer::new(&device, format, &view_projection_bind_group_layout);
+        let config = RendererConfig {
+            measure: MEASURE,
+            batch_builders: Self::default_batch_producers(&device, font_system, format),
+        };
+        let pipelines = config.create_pipeline_table();
 
         let index_buffer = QuadIndexBuffer::new(&device);
 
         let mut renderer = Self {
-            config: Config { measure: MEASURE },
+            config,
             device,
             queue,
             measure_series: Default::default(),
             surface,
             surface_config,
             background_color: Some(Color::WHITE),
+            pipelines,
+
             quads_index_buffer: index_buffer,
             max_quads_in_use: 0,
 
@@ -148,13 +145,21 @@ impl Renderer {
             changed_visuals: Default::default(),
             visual_matrices: Default::default(),
             visuals: Default::default(),
-
-            text_renderer: text_layer_renderer,
-            shape_renderer,
         };
 
         renderer.reconfigure_surface();
         renderer
+    }
+
+    fn default_batch_producers(
+        device: &wgpu::Device,
+        font_system: Arc<Mutex<FontSystem>>,
+        format: wgpu::TextureFormat,
+    ) -> Vec<Box<dyn BatchProducer>> {
+        let text_layer_renderer = TextLayerRenderer::new(device, font_system, format);
+        let shape_renderer = ShapeRenderer::new::<shape_renderer::Vertex>(device, format);
+
+        vec![Box::new(text_layer_renderer), Box::new(shape_renderer)]
     }
 
     /// Apply changes to the renderer hierarchy.
@@ -229,15 +234,18 @@ impl Renderer {
 
     fn prepare_batches(&mut self) -> Result<()> {
         let visuals = self.scene.visuals();
+        let context = &PreparationContext {
+            device: &self.device,
+            queue: &self.queue,
+        };
         for id in self.changed_visuals.take_all() {
             if let Some(v) = &visuals[id] {
                 Self::visual_updated(
                     id,
                     v,
-                    &self.device,
-                    &self.queue,
-                    &mut self.text_renderer,
-                    &self.shape_renderer,
+                    &mut self.config,
+                    &self.pipelines,
+                    context,
                     &mut self.visuals,
                 )?;
             } else {
@@ -251,36 +259,32 @@ impl Renderer {
     pub fn visual_updated(
         id: Id,
         visual: &VisualRenderObj,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        text_renderer: &mut TextLayerRenderer,
-        shape_renderer: &ShapeRenderer,
+        config: &mut RendererConfig,
+        pipelines: &[Vec<wgpu::RenderPipeline>],
+        context: &PreparationContext,
         render_visuals: &mut HashMap<Id, RenderVisual>,
     ) -> Result<()> {
-        let runs = visual.shapes.iter().filter_map(|s| match s {
-            Shape::GlyphRun(run) => Some(run),
-            _ => None,
-        });
+        // Architecture: Define a new type PipelineTable.
+        let all_pipelines_count = pipelines.iter().flatten().count();
+        // Performance: Recycle. This requires an allocation.
+        let mut batches = PipelineBatches::new(all_pipelines_count);
 
-        let batches = text_renderer.runs_to_batches(&PreparationContext { device, queue }, runs)?;
+        let mut batch_index = 0;
+        debug_assert_eq!(config.batch_builders.len(), pipelines.len());
+        for (i, builder) in config.batch_builders.iter_mut().enumerate() {
+            let batches_count = pipelines[i].len();
+            let expected_batches = &mut batches.batches[batch_index..batch_index + batches_count];
 
-        let shape_batch = shape_renderer
-            .batch_from_shapes(device, &visual.shapes)
-            .map(|b| RenderBatch {
-                fs_bind_group: None,
-                vertex_buffer: b.vertex_buffer,
-                count: b.quad_count,
-            });
+            builder.produce_batches(context, &visual.shapes, expected_batches)?;
+
+            batch_index += batches_count;
+        }
 
         render_visuals.insert(
             id,
             RenderVisual {
                 location_id: visual.location,
-                batches: PipelineBatches {
-                    sdf: batches.sdf,
-                    color: batches.color,
-                    shapes: shape_batch,
-                },
+                batches,
             },
         );
         Ok(())
@@ -368,23 +372,13 @@ impl Renderer {
                         .set(&mut render_context.pass, self.max_quads_in_use);
                 }
 
-                self.render_pipeline_batches(
-                    self.text_renderer.sdf_pipeline(),
-                    |b| b.sdf.as_ref(),
-                    render_context,
-                );
-
-                self.render_pipeline_batches(
-                    self.text_renderer.color_pipeline(),
-                    |b| b.color.as_ref(),
-                    render_context,
-                );
-
-                self.render_pipeline_batches(
-                    self.shape_renderer.pipeline(),
-                    |b| b.shapes.as_ref(),
-                    render_context,
-                );
+                for (i, pipeline) in self.pipelines.iter().flatten().enumerate() {
+                    self.render_pipeline_batches(
+                        pipeline,
+                        |b| b.batches[i].as_ref(),
+                        render_context,
+                    );
+                }
             }
             encoder.finish()
         };

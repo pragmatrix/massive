@@ -2,6 +2,7 @@ mod color_buffer;
 mod glyph;
 mod pods;
 // mod quads;
+mod config;
 mod renderer;
 mod scene;
 mod shape_renderer;
@@ -12,7 +13,7 @@ mod tools;
 mod transactions;
 
 pub use color_buffer::*;
-pub use renderer::Config as RendererConfig;
+pub use config::*;
 pub use renderer::Renderer;
 pub use size_buffer::*;
 pub use transactions::*;
