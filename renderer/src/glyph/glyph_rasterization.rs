@@ -35,7 +35,7 @@ pub fn rasterize_glyph_with_padding(
         return render_sdf(&without_padding);
     }
 
-    // Add a one pixel padding to make this compatible with texture mapping.
+    // Add a one pixel padding to make this work with texture mapping.
     Some(pad_image(&without_padding))
 }
 

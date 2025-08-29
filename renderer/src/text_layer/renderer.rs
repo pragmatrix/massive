@@ -17,7 +17,7 @@ use crate::{
         GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
     },
-    renderer::{PipelineBatches, PreparationContext},
+    renderer::{PreparationContext, RenderBatch},
     text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
 };
 
@@ -89,14 +89,14 @@ impl TextLayerRenderer {
         }
     }
 
-    /// Prepare a number of glyph runs and produce a TextLayer.
+    /// Prepare a number of glyph runs and produce sdf and color batches.
     ///
     /// All of the runs use the same model matrix.
     pub fn runs_to_batches<'a>(
         &mut self,
         context: &PreparationContext,
         runs: impl Iterator<Item = &'a GlyphRun>,
-    ) -> Result<PipelineBatches> {
+    ) -> Result<[Option<RenderBatch>; 2]> {
         // Step 1: Get all instance data.
         // Performance: Compute a conservative capacity?
         let mut sdf_glyphs = Vec::new();
@@ -147,11 +147,7 @@ impl TextLayerRenderer {
         let sdf_batch = self.sdf_renderer.batch(context, &sdf_glyphs);
         let color_batch = self.color_renderer.batch(context, &color_glyphs);
 
-        Ok(PipelineBatches {
-            sdf: sdf_batch,
-            color: color_batch,
-            shapes: None,
-        })
+        Ok([sdf_batch, color_batch])
     }
 
     // This makes sure that there is a rasterized glyph in the atlas and returns the rectangle.

@@ -57,6 +57,7 @@ impl<T> IdTable<Option<Versioned<T>>> {
 
 impl<T> IdTable<Option<T>> {
     /// Iterate through all existing (non-`None`) values.
+    #[allow(unused)]
     pub fn iter_some(&self) -> impl Iterator<Item = &T> {
         self.iter().filter_map(|v| v.as_ref())
     }

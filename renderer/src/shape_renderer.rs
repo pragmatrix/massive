@@ -4,10 +4,9 @@ use massive_shapes::Shape;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
 use crate::{
-    pods::{self, AsBytes, ToPod, VertexLayout},
-    renderer::{RenderContext, RenderVisual},
-    scene::LocationMatrices,
-    tools::{QuadIndexBuffer, create_pipeline},
+    pods::{self, AsBytes, VertexLayout},
+    renderer::RenderBatch,
+    tools::create_pipeline,
 };
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
@@ -81,38 +80,13 @@ impl ShapeRenderer {
         &self.pipeline
     }
 
-    pub fn render<'a>(
-        &self,
-        visual_matrices: &LocationMatrices,
-        visuals: impl Iterator<Item = &'a RenderVisual>,
-        render_context: &mut RenderContext,
-    ) {
-        let pass = &mut render_context.pass;
-
-        pass.set_pipeline(self.pipeline());
-        for visual in visuals {
-            if let Some(ref shape_batch) = visual.batches.shapes {
-                let model_matrix =
-                    *render_context.pixel_matrix * visual_matrices.get(visual.location_id);
-                let vm = render_context.view_projection_matrix * model_matrix;
-                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, vm.to_pod().as_bytes());
-                pass.set_vertex_buffer(0, shape_batch.vertex_buffer.slice(..));
-                pass.draw_indexed(
-                    0..(shape_batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
-                    0,
-                    0..1,
-                );
-            }
-        }
-    }
-
     /// Build a batch directly from a slice of `massive_shapes::Shape` objects.
     /// Ignores glyph runs (text); only geometric shapes are converted.
     pub fn batch_from_shapes(
         &self,
         device: &wgpu::Device,
         shapes: &[massive_shapes::Shape],
-    ) -> Option<Batch> {
+    ) -> Option<RenderBatch> {
         let mut vertices: Vec<Vertex> = Vec::with_capacity(shapes.len() * 4); // upper bound
         let mut quad_count = 0usize;
         const B: f32 = 1.0; // 1px AA fringe in model space
@@ -201,9 +175,10 @@ impl ShapeRenderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Some(Batch {
+        Some(RenderBatch {
+            fs_bind_group: None,
             vertex_buffer,
-            quad_count,
+            count: quad_count,
         })
     }
 }
@@ -260,10 +235,4 @@ impl VertexLayout for Vertex {
             attributes: &ATTRS,
         }
     }
-}
-
-#[derive(Debug)]
-pub struct Batch {
-    pub vertex_buffer: wgpu::Buffer,
-    pub quad_count: usize,
 }

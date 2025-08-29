@@ -44,6 +44,7 @@ impl<T> IdTable<T> {
         &mut self.rows[index]
     }
 
+    #[allow(unused)]
     pub fn iter(&self) -> impl Iterator<Item = &T> {
         self.rows.iter()
     }
