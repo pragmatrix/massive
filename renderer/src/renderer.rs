@@ -47,7 +47,7 @@ pub struct Renderer {
     changed_visuals: ChangedIds,
 
     visual_matrices: LocationMatrices,
-    /// Per visual location and RenderBatch
+    /// Per visual location and pipeline batches.
     visuals: HashMap<Id, RenderVisual>,
 
     //
