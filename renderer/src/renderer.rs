@@ -38,7 +38,7 @@ pub struct Renderer {
     pub surface_config: wgpu::SurfaceConfiguration,
     pub background_color: Option<Color>,
 
-    /// The pipelines for each batch builder.
+    /// The pipelines for each batch producer.
     pipelines: Vec<Vec<wgpu::RenderPipeline>>,
     quads_index_buffer: QuadIndexBuffer,
     max_quads_in_use: usize,
