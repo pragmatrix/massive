@@ -2,9 +2,11 @@ mod text;
 
 pub use text::*;
 
+use std::{any::Any, fmt, mem, ops};
+
 use derive_more::From;
 use massive_geometry::{self as geometry, Color, Size};
-use std::{any::Any, fmt};
+use smallbox::{SmallBox, smallbox};
 
 #[derive(Debug, Clone, From)]
 pub enum Shape {
@@ -15,13 +17,45 @@ pub enum Shape {
     ChamferRect(ChamferRect),
     StrokeRect(StrokeRect),
     GlyphRun(GlyphRun),
-    Custom(Box<dyn CustomShape>),
+    Custom(Custom),
+}
+
+const CUSTOM_INLINE_SIZE: usize = 7;
+
+const _: () = {
+    // GlyphRun is expected to be the biggest contenter. If that changes, we want to know.
+    // Also it seems that the enum discriminant is stored in the layout of the GlyphRun.
+    assert!(mem::size_of::<GlyphRun>() == mem::size_of::<Shape>());
+    // It seems that there are three words overhead, so we keep that as a constraint.
+    assert!(mem::size_of::<Shape>() == (CUSTOM_INLINE_SIZE + 3) * mem::size_of::<usize>());
+    // Niche optimization possible for Shape?
+    assert!(mem::size_of::<Option<Shape>>() == mem::size_of::<Shape>());
+    // Niche optimization possible for Custom?
+    assert!(mem::size_of::<Option<Custom>>() == mem::size_of::<Custom>());
+};
+
+#[derive(From, Debug)]
+pub struct Custom(SmallBox<dyn CustomShape, [usize; CUSTOM_INLINE_SIZE]>);
+
+impl ops::Deref for Custom {
+    type Target = dyn CustomShape;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl Clone for Custom {
+    fn clone(&self) -> Self {
+        self.clone_smallbox()
+    }
 }
 
 impl Shape {
     // Construct a custom shape from any suitable type
     pub fn custom<S: CustomShape>(shape: S) -> Self {
-        Self::Custom(Box::new(shape))
+        let sm: SmallBox<dyn CustomShape, [usize; CUSTOM_INLINE_SIZE]> = smallbox!(shape);
+        Self::Custom(sm.into())
     }
 
     // Attempt to downcast a custom shape to a concrete type
@@ -145,7 +179,7 @@ impl StrokeRect {
 // Supports cloning of boxed custom shapes. Send + Sync so shapes can be shared/moved across threads.
 pub trait CustomShape: fmt::Debug + Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
-    fn clone_box(&self) -> Box<dyn CustomShape>;
+    fn clone_smallbox(&self) -> Custom;
 }
 
 // Blanket impl now requires Clone (for Shape: Clone) plus Send + Sync to satisfy the supertraits.
@@ -153,14 +187,8 @@ impl<T: fmt::Debug + Any + Clone + Send + Sync> CustomShape for T {
     fn as_any(&self) -> &dyn Any {
         self
     }
-    fn clone_box(&self) -> Box<dyn CustomShape> {
-        Box::new(self.clone())
-    }
-}
 
-// Enable cloning Box<dyn CustomShape>
-impl Clone for Box<dyn CustomShape> {
-    fn clone(&self) -> Self {
-        self.clone_box()
+    fn clone_smallbox(&self) -> Custom {
+        Custom(smallbox!(self.clone()))
     }
 }

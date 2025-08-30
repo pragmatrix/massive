@@ -12,3 +12,4 @@ swash = { workspace = true }
 derive_more = { workspace = true }
 cgmath = { workspace = true }
 serde = { workspace = true }
+smallbox.workspace = true
