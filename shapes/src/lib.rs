@@ -20,42 +20,24 @@ pub enum Shape {
     Custom(Custom),
 }
 
-const CUSTOM_INLINE_SIZE: usize = 7;
+const CUSTOM_EMBEDDED_SIZE: usize = 7;
 
 const _: () = {
     // GlyphRun is expected to be the biggest contenter. If that changes, we want to know.
     // Also it seems that the enum discriminant is stored in the layout of the GlyphRun.
     assert!(mem::size_of::<GlyphRun>() == mem::size_of::<Shape>());
     // It seems that there are three words overhead, so we keep that as a constraint.
-    assert!(mem::size_of::<Shape>() == (CUSTOM_INLINE_SIZE + 3) * mem::size_of::<usize>());
+    assert!(mem::size_of::<Shape>() == (CUSTOM_EMBEDDED_SIZE + 3) * mem::size_of::<usize>());
     // Niche optimization possible for Shape?
     assert!(mem::size_of::<Option<Shape>>() == mem::size_of::<Shape>());
     // Niche optimization possible for Custom?
     assert!(mem::size_of::<Option<Custom>>() == mem::size_of::<Custom>());
 };
 
-#[derive(From, Debug)]
-pub struct Custom(SmallBox<dyn CustomShape, [usize; CUSTOM_INLINE_SIZE]>);
-
-impl ops::Deref for Custom {
-    type Target = dyn CustomShape;
-
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
-}
-
-impl Clone for Custom {
-    fn clone(&self) -> Self {
-        self.clone_smallbox()
-    }
-}
-
 impl Shape {
     // Construct a custom shape from any suitable type
     pub fn custom<S: CustomShape>(shape: S) -> Self {
-        let sm: SmallBox<dyn CustomShape, [usize; CUSTOM_INLINE_SIZE]> = smallbox!(shape);
-        Self::Custom(sm.into())
+        Self::Custom(Custom(smallbox!(shape)))
     }
 
     // Attempt to downcast a custom shape to a concrete type
@@ -173,6 +155,23 @@ impl StrokeRect {
             stroke: stroke.into(),
             color: color.into(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct Custom(SmallBox<dyn CustomShape, [usize; CUSTOM_EMBEDDED_SIZE]>);
+
+impl ops::Deref for Custom {
+    type Target = dyn CustomShape;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
+}
+
+impl Clone for Custom {
+    fn clone(&self) -> Self {
+        self.clone_smallbox()
     }
 }
 
