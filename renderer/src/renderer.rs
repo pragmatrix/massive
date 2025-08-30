@@ -101,8 +101,7 @@ pub struct PreparationContext<'a> {
 }
 
 pub struct RenderContext<'a> {
-    pub pixel_matrix: &'a Matrix4,
-    pub view_projection_matrix: Matrix4,
+    pub pixel_view_projection_matrix: Matrix4,
     pub pass: wgpu::RenderPass<'a>,
 }
 
@@ -348,9 +347,8 @@ impl Renderer {
 
                 // DI: There is a lot of view_projection stuff going on.
                 let render_context = &mut RenderContext {
-                    pixel_matrix: &pixel_matrix,
                     pass: render_pass,
-                    view_projection_matrix: *view_projection_matrix,
+                    pixel_view_projection_matrix: *view_projection_matrix * pixel_matrix,
                 };
 
                 // Set the shared index buffer for all quad renderers.
@@ -397,10 +395,10 @@ impl Renderer {
         for visual in self.visuals.values() {
             if let Some(batch) = select_batch(&visual.batches) {
                 // Architecture: We may go multiple times over the same visual and compute the
-                //   final, because it renders to different pipelines. Perhaps we need a derived /
+                //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
                 //   lazy table here.
-                let model_matrix = context.pixel_matrix * matrices.get(visual.location_id);
-                let matrix = context.view_projection_matrix * model_matrix;
+                let matrix =
+                    context.pixel_view_projection_matrix * matrices.get(visual.location_id);
 
                 let pass = &mut context.pass;
 
