@@ -13,12 +13,10 @@ use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
     Transaction, TransactionManager,
-    config::{BatchProducer, RendererConfig},
+    config::RendererConfig,
     pods::{AsBytes, ToPod},
     scene::{LocationMatrices, Scene},
-    shape_renderer::{self, ShapeRenderer},
     stats::MeasureSeries,
-    text_layer::TextLayerRenderer,
     tools::QuadIndexBuffer,
 };
 use massive_geometry::{Color, Matrix4};
@@ -121,7 +119,7 @@ impl Renderer {
 
         let config = RendererConfig {
             measure: MEASURE,
-            batch_builders: Self::default_batch_producers(&device, font_system, format),
+            batch_producers: RendererConfig::default_batch_producers(&device, font_system, format),
         };
         let pipelines = config.create_pipeline_table();
 
@@ -149,17 +147,6 @@ impl Renderer {
 
         renderer.reconfigure_surface();
         renderer
-    }
-
-    fn default_batch_producers(
-        device: &wgpu::Device,
-        font_system: Arc<Mutex<FontSystem>>,
-        format: wgpu::TextureFormat,
-    ) -> Vec<Box<dyn BatchProducer>> {
-        let text_layer_renderer = TextLayerRenderer::new(device, font_system, format);
-        let shape_renderer = ShapeRenderer::new::<shape_renderer::Vertex>(device, format);
-
-        vec![Box::new(text_layer_renderer), Box::new(shape_renderer)]
     }
 
     /// Apply changes to the renderer hierarchy.
@@ -270,12 +257,12 @@ impl Renderer {
         let mut batches = PipelineBatches::new(all_pipelines_count);
 
         let mut batch_index = 0;
-        debug_assert_eq!(config.batch_builders.len(), pipelines.len());
-        for (i, builder) in config.batch_builders.iter_mut().enumerate() {
+        debug_assert_eq!(config.batch_producers.len(), pipelines.len());
+        for (i, producer) in config.batch_producers.iter_mut().enumerate() {
             let batches_count = pipelines[i].len();
             let expected_batches = &mut batches.batches[batch_index..batch_index + batches_count];
 
-            builder.produce_batches(context, &visual.shapes, expected_batches)?;
+            producer.produce_batches(context, &visual.shapes, expected_batches)?;
 
             batch_index += batches_count;
         }
