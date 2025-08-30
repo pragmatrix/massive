@@ -1,12 +1,15 @@
 //! The renderer's configuration
 
+use std::sync::{Arc, Mutex};
+
 use anyhow::Result;
+use cosmic_text::FontSystem;
 use derive_more::Debug;
 use massive_shapes::Shape;
 
 use crate::{
     renderer::{PreparationContext, RenderBatch},
-    shape_renderer::ShapeRenderer,
+    shape_renderer::{self, ShapeRenderer},
     text_layer::TextLayerRenderer,
 };
 
@@ -14,13 +17,25 @@ use crate::{
 pub struct RendererConfig {
     pub measure: bool,
     #[debug(skip)]
-    pub batch_builders: Vec<Box<dyn BatchProducer>>,
+    pub batch_producers: Vec<Box<dyn BatchProducer>>,
 }
 
 impl RendererConfig {
+    pub fn default_batch_producers(
+        device: &wgpu::Device,
+        font_system: Arc<Mutex<FontSystem>>,
+        format: wgpu::TextureFormat,
+    ) -> Vec<Box<dyn BatchProducer>> {
+        let text_layer_renderer = TextLayerRenderer::new(device, font_system, format);
+        let shape_renderer = ShapeRenderer::new::<shape_renderer::Vertex>(device, format);
+
+        // Shapes are always rendered below the text.
+        vec![Box::new(shape_renderer), Box::new(text_layer_renderer)]
+    }
+
     /// Returns a set of pipelines for each batch producer.
     pub fn create_pipeline_table(&self) -> Vec<Vec<wgpu::RenderPipeline>> {
-        self.batch_builders
+        self.batch_producers
             .iter()
             .map(|bb| bb.pipelines())
             .collect()
