@@ -37,7 +37,7 @@ impl RendererConfig {
     pub fn create_pipeline_table(&self) -> Vec<Vec<wgpu::RenderPipeline>> {
         self.batch_producers
             .iter()
-            .map(|bb| bb.pipelines())
+            .map(|bp| bp.pipelines())
             .collect()
     }
 }
