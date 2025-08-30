@@ -121,7 +121,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             Shape::StrokeRect(r) => r.rect,
             Shape::Ellipse(e) => e.rect,
             Shape::ChamferRect(r) => r.rect,
-            Shape::GlyphRun(_) => continue,
+            Shape::GlyphRun(_) | Shape::Custom(_) => continue,
         };
         bounds = Some(if let Some(b) = bounds { b.joined(r) } else { r });
     }
@@ -172,7 +172,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                 r.rect.top += offset_y;
                 r.rect.bottom += offset_y;
             }
-            Shape::GlyphRun(_) => {}
+            Shape::GlyphRun(_) | Shape::Custom(_) => {}
         }
     }
 

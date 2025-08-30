@@ -140,7 +140,7 @@ impl ShapeRenderer {
 
         for shape in shapes.iter() {
             match shape {
-                Shape::GlyphRun(_) => {}
+                Shape::GlyphRun(..) => {}
                 Shape::Rect(r) => emit(&r.rect, ShapeSelector::Rect, (0.0, 0.0), r.color),
                 Shape::RoundRect(r) => emit(
                     &r.rect,
@@ -162,6 +162,7 @@ impl ShapeRenderer {
                     (s.stroke.width as f32, s.stroke.height as f32),
                     s.color,
                 ),
+                Shape::Custom(..) => {}
             }
         }
 
