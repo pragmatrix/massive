@@ -158,8 +158,10 @@ impl StrokeRect {
     }
 }
 
+type CustomSmallBox = SmallBox<dyn CustomShape, [usize; CUSTOM_EMBEDDED_SIZE]>;
+
 #[derive(Debug)]
-pub struct Custom(SmallBox<dyn CustomShape, [usize; CUSTOM_EMBEDDED_SIZE]>);
+pub struct Custom(CustomSmallBox);
 
 impl ops::Deref for Custom {
     type Target = dyn CustomShape;
@@ -171,14 +173,14 @@ impl ops::Deref for Custom {
 
 impl Clone for Custom {
     fn clone(&self) -> Self {
-        self.0.clone_smallbox()
+        Self(self.0.clone_smallbox())
     }
 }
 
 // Supports cloning of boxed custom shapes. Send + Sync so shapes can be shared/moved across threads.
 pub trait CustomShape: fmt::Debug + Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
-    fn clone_smallbox(&self) -> Custom;
+    fn clone_smallbox(&self) -> CustomSmallBox;
 }
 
 // Blanket impl now requires Clone (for Shape: Clone) plus Send + Sync to satisfy the supertraits.
@@ -187,7 +189,7 @@ impl<T: fmt::Debug + Any + Clone + Send + Sync> CustomShape for T {
         self
     }
 
-    fn clone_smallbox(&self) -> Custom {
-        Custom(smallbox!(self.clone()))
+    fn clone_smallbox(&self) -> CustomSmallBox {
+        smallbox!(self.clone())
     }
 }
