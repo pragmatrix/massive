@@ -24,7 +24,7 @@ const CUSTOM_EMBEDDED_SIZE: usize = 7;
 
 const _: () = {
     // GlyphRun is expected to be the biggest contender. If that changes, we want to know.
-    // Also it seems that the enum discriminant is stored in the layout of the GlyphRun.
+    // Also it seems that the enum discriminant is stored inside the space of the GlyphRun.
     assert!(mem::size_of::<GlyphRun>() == mem::size_of::<Shape>());
     // It seems that there are three words overhead, so we keep that as a constraint.
     assert!(mem::size_of::<Shape>() == (CUSTOM_EMBEDDED_SIZE + 3) * mem::size_of::<usize>());
@@ -171,7 +171,7 @@ impl ops::Deref for Custom {
 
 impl Clone for Custom {
     fn clone(&self) -> Self {
-        self.clone_smallbox()
+        self.0.clone_smallbox()
     }
 }
 
