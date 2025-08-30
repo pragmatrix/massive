@@ -23,7 +23,7 @@ pub enum Shape {
 const CUSTOM_EMBEDDED_SIZE: usize = 7;
 
 const _: () = {
-    // GlyphRun is expected to be the biggest contenter. If that changes, we want to know.
+    // GlyphRun is expected to be the biggest contender. If that changes, we want to know.
     // Also it seems that the enum discriminant is stored in the layout of the GlyphRun.
     assert!(mem::size_of::<GlyphRun>() == mem::size_of::<Shape>());
     // It seems that there are three words overhead, so we keep that as a constraint.
