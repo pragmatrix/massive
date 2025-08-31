@@ -40,62 +40,70 @@ fn vs_main(
     return out;
 }
 
+
 // Fragment shader
 
-// Screen-space antialiasing factor
-const df_aa_factor = 0.65;
+// v2:
+// - version 1 would not render horizontal / vertical edges pixel perfect. Only with df_aa_factor 0.5, but 
+//   then the diagonal anti-aliasing is too crisp.
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Common precomputations
-    let half_shape_size = in.shape_size * 0.5;
-    let p_local = in.unorm_tex_coords - half_shape_size; // centered, pixel-space
+    let distance = compute_distance(in);
+    // Adaptive screen-space AA using intrinsic fwidth(distance)
+    // fwidth(x) = abs(dfdx(x)) + abs(dfdy(x)); gives 1.0 on axis-aligned SDF edges, ~1.414 at 45°.
+    let afwidth = fwidth(distance) * 0.5;
+    let val = smoothstep(-afwidth, afwidth, distance);
+    return vec4(in.color.rgb, in.color.a * val);
+}
 
-    var distance: f32;
+// v1
 
-    switch (in.shape_selector) {
-        case 0u: {
-            // Filled rect
-            distance = -sd_filled_rect(p_local, half_shape_size);
-        }
-        case 1u: {
-            // Rounded rect
-            let radius = in.shape_data[0];
-            distance = -sd_rounded_rect(p_local, half_shape_size, radius);
-        }
-        case 2u: {
-            // Circle
-            let r = min(half_shape_size.x, half_shape_size.y);
-            distance = -sd_circle(p_local, r);
-        }
-        case 3u: {
-            // Ellipse using half_shape_size as radii
-            distance = -sd_ellipse(p_local, half_shape_size);
-        }
-        case 4u: {
-            // Chamfer rect (shape_data.x = chamfer)
-            let chamfer = in.shape_data.x;
-            distance = -sd_chamfer_rect(p_local, half_shape_size, chamfer);
-        }
-        case 10u: {
-            // Rect stroke: shape_data.xy = per-axis stroke thickness (x for vertical edges, y for horizontal edges thickness)
-            let stroke = in.shape_data;
-            distance = -sd_stroked_rect(p_local, half_shape_size, stroke);
-        }
+// Screen-space antialiasing factor (0.5 ≤ α ≤ √2)
+const df_aa_factor = 0.65;
 
-        default: {
-            // Filled rect
-            distance = -sd_filled_rect(p_local, half_shape_size);
-        }
-    }
-
-    // Screen-space AA using distance derivatives
+@fragment
+fn fs_main_v1(in: VertexOutput) -> @location(0) vec4<f32> {
+    let distance = compute_distance(in);
     let df = length(vec2<f32>(dpdx(distance), dpdy(distance)));
     let afwidth = df_aa_factor * df;
     let val = smoothstep(-afwidth, afwidth, distance);
-
-    // Straight-alpha output: modulate only alpha by coverage
     return vec4(in.color.rgb, in.color.a * val);
+}
+
+
+fn compute_distance(in: VertexOutput) -> f32 {
+    let half_shape_size = in.shape_size * 0.5;
+    let p_local = in.unorm_tex_coords - half_shape_size;
+    var distance: f32 = 0.0;
+    switch (in.shape_selector) {
+        case 0u: { // filled rect
+            distance = -sd_filled_rect(p_local, half_shape_size);
+        }
+        case 1u: { // rounded rect (shape_data.x = radius)
+            let radius = in.shape_data[0];
+            distance = -sd_rounded_rect(p_local, half_shape_size, radius);
+        }
+        case 2u: { // circle (min half extent)
+            let r = min(half_shape_size.x, half_shape_size.y);
+            distance = -sd_circle(p_local, r);
+        }
+        case 3u: { // ellipse (use half extents)
+            distance = -sd_ellipse(p_local, half_shape_size);
+        }
+        case 4u: { // chamfer rect (shape_data.x = chamfer)
+            let chamfer = in.shape_data.x;
+            distance = -sd_chamfer_rect(p_local, half_shape_size, chamfer);
+        }
+        case 10u: { // rect stroke (shape_data.xy = stroke thickness)
+            let stroke = in.shape_data;
+            distance = -sd_stroked_rect(p_local, half_shape_size, stroke);
+        }
+        default: { // fallback
+            distance = -sd_filled_rect(p_local, half_shape_size);
+        }
+    }
+    return distance;
 }
 
 // New: signed distance to axis-aligned rectangle (negative inside)
