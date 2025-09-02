@@ -77,6 +77,12 @@ impl From<Handle<Matrix>> for Location {
     }
 }
 
+impl Location {
+    pub fn new(parent: Option<Handle<Location>>, matrix: Handle<Matrix>) -> Self {
+        Self { parent, matrix }
+    }
+}
+
 impl Object for Location {
     type Change = LocationRenderObj;
 
