@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     mem,
     sync::{
         Arc,
@@ -16,7 +15,7 @@ use tokio::sync::mpsc::{
 };
 use winit::window::WindowId;
 
-use crate::window_renderer::WindowRenderer;
+use crate::{message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
 use massive_geometry::{Camera, Color};
 use massive_scene::ChangeCollector;
 
@@ -58,8 +57,8 @@ impl AsyncWindowRenderer {
                     messages.push(message);
                 }
 
-                // Process only the latest message of each type
-                let latest_messages = Self::filter_latest_messages(messages);
+                // Process only the latest message of each variant
+                let latest_messages = keep_last_per_variant(messages, |_| true);
 
                 for message in latest_messages {
                     if let Err(e) =
@@ -79,30 +78,6 @@ impl AsyncWindowRenderer {
             presentation_receiver,
             thread_handle: Some(thread_handle),
         }
-    }
-
-    /// Filters messages to keep only the latest occurrence of each message type,
-    /// preserving the original order of the remaining messages.
-    fn filter_latest_messages(messages: Vec<RendererMessage>) -> Vec<RendererMessage> {
-        // Find the latest index for each message type
-        let mut latest_index_by_type: HashMap<mem::Discriminant<RendererMessage>, usize> =
-            HashMap::new();
-
-        for (index, message) in messages.iter().enumerate() {
-            let discriminant = mem::discriminant(message);
-            latest_index_by_type.insert(discriminant, index);
-        }
-
-        // Collect messages at those indices, preserving original order
-        let mut result = Vec::new();
-        for (index, message) in messages.into_iter().enumerate() {
-            let discriminant = mem::discriminant(&message);
-            if latest_index_by_type.get(&discriminant) == Some(&index) {
-                result.push(message);
-            }
-        }
-
-        result
     }
 
     fn dispatch(

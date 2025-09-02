@@ -168,8 +168,7 @@ impl WindowRenderer {
                 // Robustness: Put this into a spawn_blocking inside when run in an async runtime.
                 // Last time measured: This takes around 40 to 60 microseconds.
                 self.resize((physical_size.width, physical_size.height));
-                // 20250721: Disabled, because redraw is happening automatically, and otherwise
-                // will slow things down.
+                // Detail: A WindowEvent::Redraw will happen automatically after every resize.
             }
             WindowEvent::ScaleFactorChanged { .. } => {
                 let new_inner_size = self.window.inner_size();

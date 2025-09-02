@@ -1,4 +1,4 @@
-use std::{future::Future, sync::Arc};
+use std::{future::Future, mem, sync::Arc};
 
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Instant;
@@ -11,7 +11,7 @@ use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use wgpu::{Surface, SurfaceTarget};
 use winit::{
     application::ApplicationHandler,
-    event::WindowEvent,
+    event::{DeviceId, WindowEvent},
     event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
     window::{Window, WindowAttributes, WindowId},
 };
@@ -99,7 +99,8 @@ pub enum ShellRequest {
     },
 }
 
-#[derive(Debug)]
+// Robustness: Try to remove the Clone requirement.
+#[derive(Debug, Clone)]
 pub enum ShellEvent {
     // Architecture: Seperate this into a separate WindowEvent, because ApplyAnimations isn't used
     // as a event pathway from the WinitApplicationHandler anymore.
@@ -128,6 +129,33 @@ impl ShellEvent {
     pub fn apply_animations(&self) -> bool {
         matches!(self, Self::ApplyAnimations)
     }
+
+    pub(crate) fn skip_key(&self) -> Option<ShellEventSkipKey> {
+        match self {
+            ShellEvent::WindowEvent(window_id, window_event) => match window_event {
+                WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::RedrawRequested => {
+                    Some(ShellEventSkipKey::WindowEvent(
+                        *window_id,
+                        None,
+                        mem::discriminant(window_event),
+                    ))
+                }
+                WindowEvent::CursorMoved { device_id, .. } => Some(ShellEventSkipKey::WindowEvent(
+                    *window_id,
+                    Some(*device_id),
+                    mem::discriminant(window_event),
+                )),
+                _ => None,
+            },
+            ShellEvent::ApplyAnimations => Some(ShellEventSkipKey::ApplyAnimations),
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub(crate) enum ShellEventSkipKey {
+    ApplyAnimations,
+    WindowEvent(WindowId, Option<DeviceId>, mem::Discriminant<WindowEvent>),
 }
 
 #[allow(unused)]

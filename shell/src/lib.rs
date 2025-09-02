@@ -3,6 +3,7 @@ pub mod async_window_renderer;
 pub mod shell;
 pub mod shell_window;
 pub mod window_renderer;
+mod message_filter;
 
 pub use application_context::ApplicationContext;
 pub use async_window_renderer::*;

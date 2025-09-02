@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -7,13 +8,16 @@ use anyhow::{Result, anyhow, bail};
 use log::{error, info};
 use tokio::{
     select,
-    sync::{mpsc::UnboundedReceiver, oneshot},
+    sync::{
+        mpsc::{UnboundedReceiver, error::TryRecvError},
+        oneshot,
+    },
 };
 use winit::{dpi, event::WindowEvent, event_loop::EventLoopProxy, window::WindowAttributes};
 
 use crate::{
     AsyncWindowRenderer, ShellEvent, ShellRequest, ShellWindow,
-    async_window_renderer::RendererMessage,
+    async_window_renderer::RendererMessage, message_filter,
 };
 use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 use massive_geometry::Camera;
@@ -37,6 +41,9 @@ pub struct ApplicationContext {
     /// The current render pacing as seen from the application context. This may not reflect
     /// reality, as it is synchronized with the renderer asynchronously.
     render_pacing: RenderPacing,
+
+    /// Pending events received but not yet delivered.
+    pending_events: VecDeque<ShellEvent>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -61,6 +68,7 @@ impl ApplicationContext {
             tickery,
             monitor_scale_factor,
             render_pacing: RenderPacing::default(),
+            pending_events: Default::default(),
         }
     }
 
@@ -157,6 +165,34 @@ impl ApplicationContext {
         renderer: &mut AsyncWindowRenderer,
     ) -> Result<ShellEvent> {
         loop {
+            // Pull in every event we can get.
+            loop {
+                match self.event_receiver.try_recv() {
+                    Ok(event) => self.pending_events.push_back(event),
+                    Err(TryRecvError::Disconnected) => {
+                        bail!("Internal Error: Shell shut down, no more events");
+                    }
+                    Err(TryRecvError::Empty) => {
+                        break;
+                    }
+                }
+            }
+
+            // Skip by key. This is to reduce the resizes, redraws and others.
+            // Robustness: Going from VecDequeue to Vec and back is a mess.
+            {
+                let events: Vec<ShellEvent> = message_filter::keep_last_per_key(
+                    self.pending_events.iter().cloned().collect(),
+                    |ev| ev.skip_key(),
+                );
+
+                self.pending_events = events.into_iter().collect();
+            }
+
+            // Robustness: If the main application can't process events fast enough, ApplyAnimations will never come.
+            if let Some(pending) = self.pending_events.pop_front() {
+                return Ok(pending);
+            }
             select! {
                 event = self.event_receiver.recv() => {
                     let Some(event) = event else {
@@ -164,12 +200,13 @@ impl ApplicationContext {
                         // happen in normal situations.
                         bail!("Internal Error: Shell shut down, no more events")
                     };
-
-                    return Ok(event);
+                    self.pending_events.push_back(event);
                 }
 
                 _instant = renderer.wait_for_most_recent_presentation() => {
                     if self.render_pacing == RenderPacing::Smooth {
+                        // Robustness: If applyAnimations will come to fast, we probably should push
+                        // them into pending_messages.
                         return Ok(ShellEvent::ApplyAnimations);
                     }
                     // else: Wasn't in a animation cycle: loop and wait for an input event.
