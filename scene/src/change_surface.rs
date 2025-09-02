@@ -39,4 +39,12 @@ impl ChangedIds {
     pub fn take_all(&mut self) -> impl Iterator<Item = Id> {
         self.changed.drain()
     }
+
+    pub fn is_empty(&self) -> bool {
+        self.changed.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.changed.len()
+    }
 }

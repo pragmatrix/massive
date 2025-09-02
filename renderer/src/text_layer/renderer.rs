@@ -102,18 +102,14 @@ impl TextLayerRenderer {
         let mut sdf_glyphs = Vec::new();
         let mut color_glyphs = Vec::new();
 
-        // Architecture: We should really not lock this for a longer period of time. After initial
-        // renderers, it's usually not used anymore, because it just invokes get_font() on
-        // non-existing glyphs.0
         let font_system = self.font_system.clone();
-        let mut font_system = font_system.lock().unwrap();
 
         for run in runs {
             let translation = run.translation;
             for glyph in &run.glyphs {
                 let Some((rect, placement, kind)) = self.rasterized_glyph_atlas_rect(
                     context,
-                    &mut font_system,
+                    &font_system,
                     run.text_weight,
                     glyph,
                 )?
@@ -154,7 +150,7 @@ impl TextLayerRenderer {
     fn rasterized_glyph_atlas_rect(
         &mut self,
         context: &PreparationContext,
-        font_system: &mut FontSystem,
+        font_system: &Arc<Mutex<FontSystem>>,
         weight: TextWeight,
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement, AtlasKind)>> {
@@ -183,9 +179,18 @@ impl TextLayerRenderer {
         }
 
         // Not yet in an atlas and not empty. Now rasterize.
-        let Some(image) =
-            rasterize_glyph_with_padding(font_system, &mut self.scale_context, &glyph_key)
-        else {
+
+        let image = {
+            // Architecture: We lock this for the least amount of time, because it might be shared with
+            // client application's layout processes (which usually take longer).
+            //
+            // A better solution would be to build our own Font cache, because it's only used for
+            // looking up the Arc<Font> for the glyph using get_font().
+            let mut font_system = font_system.lock().unwrap();
+            rasterize_glyph_with_padding(&mut font_system, &mut self.scale_context, &glyph_key)
+        };
+
+        let Some(image) = image else {
             self.empty_glyphs.insert(glyph_key);
             return Ok(None);
         };
