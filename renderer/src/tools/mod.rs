@@ -2,10 +2,12 @@ mod bind_group_layout_builder;
 mod pipeline;
 mod quad_index_buffer;
 pub mod texture_sampler;
+mod versioning;
 
 pub use bind_group_layout_builder::*;
 pub use pipeline::*;
 pub use quad_index_buffer::*;
+pub use versioning::*;
 
 use wgpu::BindingResource;
 

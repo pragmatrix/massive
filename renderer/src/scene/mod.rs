@@ -1,13 +1,11 @@
 use massive_geometry::Matrix4;
 use massive_scene::{Change, Id, LocationRenderObj, SceneChange, VisualRenderObj};
-use versioning::Versioned;
 
-use crate::{Transaction, Version};
+use crate::{Transaction, Version, tools::Versioned};
 
 mod dependency_resolver;
 mod id_table;
 mod location_matrices;
-mod versioning;
 
 pub use id_table::IdTable;
 pub use location_matrices::LocationMatrices;

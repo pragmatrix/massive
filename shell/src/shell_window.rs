@@ -8,6 +8,7 @@ use std::{
 use anyhow::{Result, anyhow};
 use cosmic_text::FontSystem;
 use log::error;
+use massive_renderer::RenderGeometry;
 use tokio::sync::oneshot;
 use wgpu::rwh;
 use winit::{
@@ -90,6 +91,11 @@ impl ShellWindow {
         .await;
         let (instance, surface) = instance_and_surface?;
 
+        let surface_size: PhysicalSize<u32> = initial_size.into();
+        let surface_size = (surface_size.width, surface_size.height);
+
+        let geometry = RenderGeometry::new(surface_size, camera);
+
         // DI: If we can access the ShellWindow, we don't need a clone of font_system or
         // event_loop_proxy here.
         let window_renderer = WindowRenderer::new(
@@ -97,13 +103,11 @@ impl ShellWindow {
             instance,
             surface,
             font_system,
-            camera,
-            initial_size.into(),
+            geometry.surface_size(),
         )
         .await?;
 
-        let async_window_renderer = AsyncWindowRenderer::new(window_renderer);
-        Ok(async_window_renderer)
+        Ok(AsyncWindowRenderer::new(geometry, window_renderer))
     }
 
     /// Helper to create instance and surface.

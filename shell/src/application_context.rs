@@ -15,10 +15,7 @@ use tokio::{
 };
 use winit::{dpi, event::WindowEvent, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{
-    AsyncWindowRenderer, ShellEvent, ShellRequest, ShellWindow,
-    async_window_renderer::RendererMessage, message_filter,
-};
+use crate::{AsyncWindowRenderer, ShellEvent, ShellRequest, ShellWindow, message_filter};
 use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
 use massive_geometry::Camera;
 use massive_scene::Scene;
@@ -241,8 +238,7 @@ impl ApplicationContext {
                             //
                             // Performance: Does a resize block inside the async renderer if there is a pending
                             // presentation?
-                            renderer
-                                .post_msg(RendererMessage::Resize((size.width, size.height)))?;
+                            renderer.resize((size.width, size.height))?;
                             UpdateCycleMode::WindowResize
                         }
                         WindowEvent::RedrawRequested => UpdateCycleMode::RedrawRequested,
@@ -291,7 +287,7 @@ impl ApplicationContext {
 
         // Issue a redraw before potentially changing the render pacing.
         if any_scene_changes || cycle.mode == UpdateCycleMode::RedrawRequested {
-            cycle.renderer.post_msg(RendererMessage::Redraw)?;
+            cycle.renderer.redraw()?;
         }
 
         // Update render pacing depending on if there are active animations.
@@ -345,7 +341,7 @@ impl ApplicationContext {
             RenderPacing::Fast => wgpu::PresentMode::AutoNoVsync,
             RenderPacing::Smooth => wgpu::PresentMode::AutoVsync,
         };
-        renderer.post_msg(RendererMessage::SetPresentMode(new_present_mode))?;
+        renderer.set_present_mode(new_present_mode)?;
 
         self.render_pacing = pacing;
         Ok(())
@@ -388,7 +384,7 @@ impl UpdateCycle<'_> {
             .animation(value, target_value, duration, interpolation)
     }
 
-    pub fn update_camera(&self, camera: Camera) -> Result<()> {
+    pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
         self.renderer.update_camera(camera)
     }
 }

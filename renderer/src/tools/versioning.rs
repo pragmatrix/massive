@@ -30,6 +30,14 @@ impl<T> Versioned<T> {
         self.value = value;
         self.updated_at = version;
     }
+
+    pub fn resolve(&mut self, head_version: Version, mut resolver: impl FnMut() -> T) -> &T {
+        assert!(head_version >= self.updated_at);
+        if self.updated_at < head_version {
+            self.update(resolver(), head_version);
+        }
+        &self.value
+    }
 }
 
 #[derive(Debug)]

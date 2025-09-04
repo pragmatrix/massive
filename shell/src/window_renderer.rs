@@ -1,24 +1,22 @@
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result, bail};
+use cosmic_text::FontSystem;
 use log::info;
 use wgpu::{PresentMode, Surface, TextureFormat};
-use winit::{dpi::PhysicalSize, event::WindowEvent, window::WindowId};
+use winit::window::WindowId;
 
 use crate::shell_window::ShellWindowShared;
-use cosmic_text::FontSystem;
-use massive_geometry::{Camera, Color, Matrix4, scalar};
+use massive_geometry::{Color, Matrix4};
 use massive_renderer::Renderer;
 use massive_scene::ChangeCollector;
 
-const Z_RANGE: (scalar, scalar) = (0.1, 100.0);
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 const REQUIRED_FEATURES: wgpu::Features = wgpu::Features::PUSH_CONSTANTS;
 
 pub struct WindowRenderer {
     window: Arc<ShellWindowShared>,
     font_system: Arc<Mutex<FontSystem>>,
-    camera: Camera,
     change_collector: Arc<ChangeCollector>,
     renderer: Renderer,
 }
@@ -29,9 +27,8 @@ impl WindowRenderer {
         instance: wgpu::Instance,
         surface: Surface<'static>,
         font_system: Arc<Mutex<FontSystem>>,
-        camera: Camera,
-        // TODO: use a rect here to be able to position the renderer!
-        initial_size: PhysicalSize<u32>,
+        // TODO: use a rect here to be able to position the surface on the window!
+        initial_surface_size: (u32, u32),
     ) -> Result<WindowRenderer> {
         info!("Getting adapter");
 
@@ -84,13 +81,13 @@ impl WindowRenderer {
 
         let alpha_mode = surface_caps.alpha_modes[0];
 
-        info!("Selecting alpha mode: {alpha_mode:?}, initial size: {initial_size:?}",);
+        info!("Selecting alpha mode: {alpha_mode:?}, initial size: {initial_surface_size:?}",);
 
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: *surface_format,
-            width: initial_size.width,
-            height: initial_size.height,
+            width: initial_surface_size.0,
+            height: initial_surface_size.1,
             // 20250721: Since the time we are rendering asynchronously, not bound to the main
             // thread, VSync seems to be fast enough on MacOS and also fixes the "wobbly" resizing.
             //
@@ -109,7 +106,6 @@ impl WindowRenderer {
         let window_renderer = WindowRenderer {
             window: window.clone(),
             font_system,
-            camera,
             change_collector: Arc::new(ChangeCollector::default()),
             renderer,
         };
@@ -128,19 +124,13 @@ impl WindowRenderer {
     pub fn change_collector(&self) -> &Arc<ChangeCollector> {
         &self.change_collector
     }
+
     /// The format chosen for the swapchain.
     pub fn surface_format(&self) -> TextureFormat {
         self.renderer.surface_config.format
     }
 
-    /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
-    /// 1.0 in each axis. Also flips y.
-    pub fn pixel_matrix(&self) -> Matrix4 {
-        self.renderer.pixel_matrix()
-    }
-
     // Surface size may not match the Window's size, for example if the window's size is 0,0.
-    #[allow(unused)]
     pub fn surface_size(&self) -> (u32, u32) {
         self.renderer.surface_size()
     }
@@ -151,39 +141,6 @@ impl WindowRenderer {
     pub fn set_background_color(&mut self, color: Option<Color>) {
         self.renderer.background_color = color;
     }
-
-    // DI: If the renderer does culling, we need to move the camera (or at least the view matrix) into the renderer, and
-    // perhaps schedule updates using the director.
-    pub fn update_camera(&mut self, camera: Camera) {
-        self.camera = camera;
-        // Robustness: We probably should draw this directly in the end of the next cycle.
-        // This way we would not need to hold a Window handle here anymore.
-        self.window.request_redraw();
-    }
-
-    pub fn handle_window_event(&mut self, window_event: &WindowEvent) -> Result<()> {
-        match window_event {
-            WindowEvent::Resized(physical_size) => {
-                info!("{window_event:?}");
-                // Robustness: Put this into a spawn_blocking inside when run in an async runtime.
-                // Last time measured: This takes around 40 to 60 microseconds.
-                self.resize((physical_size.width, physical_size.height));
-                // Detail: A WindowEvent::Redraw will happen automatically after every resize.
-            }
-            WindowEvent::ScaleFactorChanged { .. } => {
-                let new_inner_size = self.window.inner_size();
-                self.resize((new_inner_size.width, new_inner_size.height));
-            }
-            WindowEvent::RedrawRequested => {
-                // This may block when VSync is enabled and when the previous frame
-                // wasn't rendered yet.
-                self.redraw()?;
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
 }
 
 impl WindowRenderer {
@@ -193,12 +150,6 @@ impl WindowRenderer {
 
     pub(crate) fn set_present_mode(&mut self, present_mode: PresentMode) {
         self.renderer.set_present_mode(present_mode);
-    }
-
-    pub(crate) fn redraw(&mut self) -> Result<()> {
-        let texture = self.apply_scene_changes_and_prepare_presentation()?;
-        self.render_and_present(texture);
-        Ok(())
     }
 
     /// Apply all changes to the renderer and prepare the presentation.
@@ -224,14 +175,12 @@ impl WindowRenderer {
         Ok(texture)
     }
 
-    pub(crate) fn render_and_present(&mut self, texture: wgpu::SurfaceTexture) {
-        let view_projection_matrix = self.view_projection_matrix();
+    pub(crate) fn render_and_present(
+        &mut self,
+        view_projection_matrix: Matrix4,
+        texture: wgpu::SurfaceTexture,
+    ) {
         self.renderer
             .render_and_present(&view_projection_matrix, texture)
-    }
-
-    fn view_projection_matrix(&self) -> Matrix4 {
-        let surface_size = self.renderer.surface_size();
-        self.camera.view_projection_matrix(Z_RANGE, surface_size)
     }
 }

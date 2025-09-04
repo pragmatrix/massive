@@ -1,3 +1,4 @@
+// Robustness: Version 0 should not exist. This would enable niche optimization.
 pub type Version = u64;
 
 /// The "TransactionManager" manages the current version of scene updates.
