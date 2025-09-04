@@ -1,6 +1,6 @@
 use crate::{
     Version,
-    scene::versioning::{Computed, Versioned},
+    tools::{Computed, Versioned},
 };
 use massive_scene::Id;
 

@@ -8,7 +8,7 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use log::error;
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel,
@@ -17,7 +17,8 @@ use winit::window::WindowId;
 
 use crate::{message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
 use massive_geometry::{Camera, Color};
-use massive_scene::ChangeCollector;
+use massive_renderer::RenderGeometry;
+use massive_scene::{ChangeCollector, Matrix};
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {
@@ -27,21 +28,21 @@ pub struct AsyncWindowRenderer {
     msg_sender: Sender<RendererMessage>,
     presentation_receiver: UnboundedReceiver<Instant>,
     thread_handle: Option<JoinHandle<()>>,
+    geometry: RenderGeometry,
 }
 
 #[derive(Debug)]
 pub enum RendererMessage {
     Resize((u32, u32)),
-    Redraw,
-    // This looks alien here.
-    UpdateCamera(Camera),
+    Redraw { view_projection: Matrix },
     SetPresentMode(wgpu::PresentMode),
     SetBackgroundColor(Option<Color>),
     // Protocol: When adding a new RenderMessage, consider filter_latest_messages().
 }
 
 impl AsyncWindowRenderer {
-    pub fn new(mut window_renderer: WindowRenderer) -> Self {
+    // Architecture: Camera does not feel to belong here. It already moved from the Renderer to here.
+    pub fn new(geometry: RenderGeometry, mut window_renderer: WindowRenderer) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
 
@@ -77,6 +78,7 @@ impl AsyncWindowRenderer {
             msg_sender,
             presentation_receiver,
             thread_handle: Some(thread_handle),
+            geometry,
         }
     }
 
@@ -94,13 +96,10 @@ impl AsyncWindowRenderer {
             RendererMessage::SetPresentMode(present_mode) => {
                 renderer.set_present_mode(present_mode);
             }
-            RendererMessage::UpdateCamera(camera) => {
-                renderer.update_camera(camera);
-            }
-            RendererMessage::Redraw => {
+            RendererMessage::Redraw { view_projection } => {
                 let texture = renderer.apply_scene_changes_and_prepare_presentation()?;
                 presentation_timestamps.send(Instant::now())?;
-                renderer.render_and_present(texture);
+                renderer.render_and_present(view_projection, texture);
             }
             RendererMessage::SetBackgroundColor(color) => {
                 renderer.set_background_color(color);
@@ -117,17 +116,34 @@ impl AsyncWindowRenderer {
         &self.change_collector
     }
 
-    pub fn post_msg(&self, message: RendererMessage) -> Result<()> {
+    /// The geometry of the renderer.
+    pub fn geometry(&self) -> &RenderGeometry {
+        &self.geometry
+    }
+
+    pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
+        self.geometry.set_camera(camera);
+        self.redraw()
+    }
+
+    pub fn set_present_mode(&self, new_present_mode: wgpu::PresentMode) -> Result<()> {
+        self.post_msg(RendererMessage::SetPresentMode(new_present_mode))
+    }
+
+    pub fn resize(&mut self, surface_size: (u32, u32)) -> Result<()> {
+        self.geometry.set_surface_size(surface_size);
+        self.post_msg(RendererMessage::Resize(surface_size))
+    }
+
+    pub fn redraw(&mut self) -> Result<()> {
+        let view_projection = self.geometry.view_projection();
+        self.post_msg(RendererMessage::Redraw { view_projection })
+    }
+
+    fn post_msg(&self, message: RendererMessage) -> Result<()> {
         self.msg_sender
             .send(message)
             .context("Sending renderer message")?;
-        Ok(())
-    }
-
-    pub fn update_camera(&self, camera: Camera) -> Result<()> {
-        self.msg_sender
-            .send(RendererMessage::UpdateCamera(camera))
-            .map_err(|e| anyhow!("Failed to send camera update: {e:?}"))?;
         Ok(())
     }
 

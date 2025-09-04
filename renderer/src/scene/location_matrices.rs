@@ -7,8 +7,8 @@ use crate::{
     scene::{
         IdTable, Scene,
         dependency_resolver::{DependencyResolver, resolve},
-        versioning::{Computed, Versioned},
     },
+    tools::{Computed, Versioned},
 };
 
 /// Computed matrices of all the visuals.

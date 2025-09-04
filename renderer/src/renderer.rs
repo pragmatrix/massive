@@ -101,7 +101,7 @@ pub struct PreparationContext<'a> {
 }
 
 pub struct RenderContext<'a> {
-    pub pixel_view_projection_matrix: Matrix4,
+    pub view_projection_matrix: Matrix4,
     pub pass: wgpu::RenderPass<'a>,
 }
 
@@ -305,8 +305,6 @@ impl Renderer {
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
 
-        let pixel_matrix = self.pixel_matrix();
-
         let render_start_time = Instant::now();
 
         let command_buffer = {
@@ -348,7 +346,7 @@ impl Renderer {
                 // DI: There is a lot of view_projection stuff going on.
                 let render_context = &mut RenderContext {
                     pass: render_pass,
-                    pixel_view_projection_matrix: *view_projection_matrix * pixel_matrix,
+                    view_projection_matrix: *view_projection_matrix,
                 };
 
                 // Set the shared index buffer for all quad renderers.
@@ -397,8 +395,7 @@ impl Renderer {
                 // Architecture: We may go multiple times over the same visual and compute the
                 //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
                 //   lazy table here.
-                let matrix =
-                    context.pixel_view_projection_matrix * matrices.get(visual.location_id);
+                let matrix = context.view_projection_matrix * matrices.get(visual.location_id);
 
                 let pass = &mut context.pass;
 
@@ -416,14 +413,6 @@ impl Renderer {
                 )
             }
         }
-    }
-
-    /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
-    /// 1.0 in each axis. Also flips y.
-    pub fn pixel_matrix(&self) -> Matrix4 {
-        let (_, surface_height) = self.surface_size();
-        Matrix4::from_nonuniform_scale(1.0, -1.0, 1.0)
-            * Matrix4::from_scale(1.0 / surface_height as f64 * 2.0)
     }
 
     /// A Matrix that projects from normalized view coordinates -1.0 to 1.0 (3D, all axis, Z from 0.1
