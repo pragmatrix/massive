@@ -5,7 +5,7 @@
 // Architecture: This is slighly overengineered. Depedency tracking is probably not worth it.
 use std::cell::RefCell;
 
-use massive_geometry::{Camera, DepthRange, PerpectiveDivide, Plane, Point3, Ray, Vector4};
+use massive_geometry::{Camera, DepthRange, PerspectiveDivide, Plane, Point3, Ray, Vector4};
 use massive_scene::Matrix;
 
 use crate::{Version, tools::Versioned};
