@@ -180,7 +180,7 @@ impl<T> Derived<T> {
     pub fn resolve(&mut self, head_version: Version, mut resolver: impl FnMut() -> T) -> &T {
         if self.inner.is_none() {
             self.inner = Some(Versioned::new(resolver(), head_version));
-            self.inner.as_deref().unwrap()
+            self.inner.as_ref().unwrap().deref()
         } else {
             self.inner.as_mut().unwrap().resolve(head_version, resolver)
         }
