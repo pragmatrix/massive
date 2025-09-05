@@ -137,7 +137,6 @@ impl RenderGeometry {
     }
 }
 
-// --- Derived cache types ---
 #[derive(Debug, Default)]
 struct DerivedCache {
     pixel_matrix: Derived<Matrix>,
@@ -152,28 +151,16 @@ impl DerivedCache {
         camera: &Camera,
         surface_size: (u32, u32),
     ) -> &Matrix {
-        let (camera_matrix, pixel_matrix) = {
-            let pixel = *self.pixel_matrix(version, surface_size);
-            let camera_proj = *self.camera_projection(version, camera, surface_size);
-            (camera_proj, pixel)
-        };
-        self.view_projection
-            .resolve(version, || camera_matrix * pixel_matrix)
-    }
+        self.view_projection.resolve(version, || {
+            let pixel_matrix = self
+                .pixel_matrix
+                .resolve(version, || RenderGeometry::pixel_matrix(surface_size));
 
-    fn pixel_matrix(&mut self, version: Version, surface_size: (u32, u32)) -> &Matrix {
-        self.pixel_matrix
-            .resolve(version, || RenderGeometry::pixel_matrix(surface_size))
-    }
+            let camera_projection = self.camera_projection.resolve(version, || {
+                camera.view_projection_matrix(CAMERA_Z_RANGE, surface_size)
+            });
 
-    fn camera_projection(
-        &mut self,
-        version: Version,
-        camera: &Camera,
-        surface_size: (u32, u32),
-    ) -> &Matrix {
-        self.camera_projection.resolve(version, || {
-            camera.view_projection_matrix(CAMERA_Z_RANGE, surface_size)
+            camera_projection * pixel_matrix
         })
     }
 }
