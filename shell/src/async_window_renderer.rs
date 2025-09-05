@@ -32,7 +32,7 @@ pub struct AsyncWindowRenderer {
 }
 
 #[derive(Debug)]
-pub enum RendererMessage {
+enum RendererMessage {
     Resize((u32, u32)),
     Redraw { view_projection: Matrix },
     SetPresentMode(wgpu::PresentMode),
@@ -116,9 +116,12 @@ impl AsyncWindowRenderer {
         &self.change_collector
     }
 
-    /// The geometry of the renderer.
     pub fn geometry(&self) -> &RenderGeometry {
         &self.geometry
+    }
+
+    pub fn view_projection(&mut self) -> Matrix {
+        self.geometry.view_projection()
     }
 
     pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
@@ -138,6 +141,10 @@ impl AsyncWindowRenderer {
     pub fn redraw(&mut self) -> Result<()> {
         let view_projection = self.geometry.view_projection();
         self.post_msg(RendererMessage::Redraw { view_projection })
+    }
+
+    pub fn set_background_color(&self, color: Option<Color>) -> Result<()> {
+        self.post_msg(RendererMessage::SetBackgroundColor(color))
     }
 
     fn post_msg(&self, message: RendererMessage) -> Result<()> {
