@@ -1,4 +1,4 @@
-use crate::{scalar, Matrix4, Point3, Projection, Vector3};
+use crate::{Matrix4, Point3, Projection, Vector3};
 
 // TODO: May use yaw / pitch based camera?
 // <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
@@ -8,11 +8,11 @@ pub struct Camera {
     pub eye: Point3,
     pub target: Point3,
     pub up: Vector3,
-    pub fovy: scalar,
+    pub fovy: f64,
 }
 
 impl Camera {
-    pub const DEFAULT_FOVY: scalar = 45.0;
+    pub const DEFAULT_FOVY: f64 = 45.0;
 
     pub fn new(eye: impl Into<Point3>, target: impl Into<Point3>) -> Self {
         Self {
@@ -27,13 +27,9 @@ impl Camera {
         Matrix4::look_at_rh(self.eye, self.target, self.up)
     }
 
-    pub fn view_projection_matrix(
-        &self,
-        z_range: (scalar, scalar),
-        surface_size: (u32, u32),
-    ) -> Matrix4 {
+    pub fn view_projection_matrix(&self, z_range: (f64, f64), surface_size: (u32, u32)) -> Matrix4 {
         let (width, height) = surface_size;
-        let projection = Projection::new(width as scalar / height as scalar, z_range.0, z_range.1);
+        let projection = Projection::new(width as f64 / height as f64, z_range.0, z_range.1);
         view_projection_matrix(self, &projection)
     }
 }
