@@ -1,15 +1,15 @@
 //! Taken from skia-safe at 20230701
 use std::ops::{Add, Sub};
 
-use crate::{scalar, Centered, Contains, Point, Size, Vector};
+use crate::{Centered, Contains, Point, Size, Vector};
 
 /// A basic rectangle representation. Meant to be sorted and with finite values only.
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct Rect {
-    pub left: scalar,
-    pub top: scalar,
-    pub right: scalar,
-    pub bottom: scalar,
+    pub left: f64,
+    pub top: f64,
+    pub right: f64,
+    pub bottom: f64,
 }
 
 impl Rect {
@@ -36,7 +36,7 @@ impl Rect {
 
     // TODO: Guarantee that Rects are always finite.
     pub fn is_finite(&self) -> bool {
-        let mut accum: scalar = 0.0;
+        let mut accum: f64 = 0.0;
         accum *= self.left;
         accum *= self.top;
         accum *= self.right;
@@ -177,13 +177,13 @@ impl Rect {
             .into()
     }
 
-    pub fn to_scalars(&self) -> [scalar; 4] {
+    pub fn to_scalars(&self) -> [f64; 4] {
         [self.left, self.top, self.right, self.bottom]
     }
 }
 
-impl From<(scalar, scalar, scalar, scalar)> for Rect {
-    fn from((left, top, right, bottom): (scalar, scalar, scalar, scalar)) -> Self {
+impl From<(f64, f64, f64, f64)> for Rect {
+    fn from((left, top, right, bottom): (f64, f64, f64, f64)) -> Self {
         (Point::new(left, top), Point::new(right, bottom)).into()
     }
 }

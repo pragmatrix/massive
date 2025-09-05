@@ -1,19 +1,19 @@
-use crate::{scalar, Matrix4};
+use crate::Matrix4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Projection {
-    pub aspect: scalar,
-    pub near: scalar,
-    pub far: scalar,
+    pub aspect: f64,
+    pub near: f64,
+    pub far: f64,
 }
 
 impl Projection {
-    pub fn new(aspect: scalar, near: scalar, far: scalar) -> Self {
+    pub fn new(aspect: f64, near: f64, far: f64) -> Self {
         Self { aspect, near, far }
     }
 
     /// Create a perspective projection matrix.
-    pub fn perspective_matrix(&self, fovy: scalar) -> Matrix4 {
+    pub fn perspective_matrix(&self, fovy: f64) -> Matrix4 {
         cgmath::perspective(cgmath::Deg(fovy), self.aspect, self.near, self.far)
     }
 }
