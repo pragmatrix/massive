@@ -64,11 +64,11 @@ impl Identity for Matrix4 {
     }
 }
 
-pub trait PerpectiveDivide {
+pub trait PerspectiveDivide {
     fn perspective_divide(&self) -> Option<Point3>;
 }
 
-impl PerpectiveDivide for Vector4 {
+impl PerspectiveDivide for Vector4 {
     // Perspective divide helper: converts homogeneous Vector4 (x,y,z,w) into Point3 (x/w,y/w,z/w)
     // returning None if w is too close to zero.
     fn perspective_divide(&self) -> Option<Point3> {
