@@ -4,6 +4,7 @@ use std::ops::{Add, Sub};
 use crate::{Centered, Contains, Point, Size, Vector};
 
 /// A basic rectangle representation. Meant to be sorted and with finite values only.
+// Architecture: Think about replacing this with an euclid Rect
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct Rect {
     pub left: f64,
@@ -259,5 +260,14 @@ impl Contains<&Rect> for Rect {
             && self.top <= r.top
             && self.right >= r.right
             && self.bottom >= r.bottom
+    }
+}
+
+impl<Unit> From<euclid::Rect<f64, Unit>> for Rect {
+    fn from(value: euclid::Rect<f64, Unit>) -> Self {
+        Self::new(
+            (value.origin.x, value.origin.y),
+            (value.size.width, value.size.height),
+        )
     }
 }
