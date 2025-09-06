@@ -35,6 +35,15 @@ where
     }
 }
 
+impl<T: Object> PartialEq for Handle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.id.eq(&other.inner.id)
+    }
+}
+
 impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,

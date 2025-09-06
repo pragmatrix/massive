@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::geometry::Bounds;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GlyphRun {
     // Local translation.
     //
@@ -88,7 +88,7 @@ impl GlyphRunMetrics {
     }
 }
 
-#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TextWeight(pub u16);
 
 impl TextWeight {
@@ -104,7 +104,7 @@ impl TextWeight {
 }
 
 /// A glyph inside a [`GlyphRun`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RunGlyph {
     /// The position (left / top) relative to the start of the line in pixel.
     ///

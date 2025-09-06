@@ -8,7 +8,7 @@ use derive_more::From;
 use massive_geometry::{self as geometry, Color, Size};
 use smallbox::{SmallBox, smallbox};
 
-#[derive(Debug, Clone, From)]
+#[derive(Debug, Clone, From, PartialEq)]
 pub enum Shape {
     Rect(Rect),
     RoundRect(RoundRect),
@@ -54,7 +54,7 @@ impl Shape {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Rect {
     pub rect: geometry::Rect,
     pub color: Color,
@@ -69,7 +69,7 @@ impl Rect {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RoundRect {
     pub rect: geometry::Rect,
     pub corner_radius: f32,
@@ -90,7 +90,7 @@ impl RoundRect {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Circle {
     pub rect: geometry::Rect,
     pub color: Color,
@@ -105,7 +105,7 @@ impl Circle {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Ellipse {
     pub rect: geometry::Rect,
     pub color: Color,
@@ -120,7 +120,7 @@ impl Ellipse {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ChamferRect {
     pub rect: geometry::Rect,
     pub chamfer: f32,
@@ -137,7 +137,7 @@ impl ChamferRect {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StrokeRect {
     pub rect: geometry::Rect,
     pub stroke: Size,
@@ -160,7 +160,7 @@ impl StrokeRect {
 
 type CustomSmallBox = SmallBox<dyn CustomShape, [usize; CUSTOM_EMBEDDED_SIZE]>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Custom(CustomSmallBox);
 
 impl ops::Deref for Custom {
@@ -181,15 +181,27 @@ impl Clone for Custom {
 pub trait CustomShape: fmt::Debug + Any + Send + Sync {
     fn as_any(&self) -> &dyn Any;
     fn clone_smallbox(&self) -> CustomSmallBox;
+    fn eq_dyn(&self, other: &dyn CustomShape) -> bool;
 }
 
 // Blanket impl now requires Clone (for Shape: Clone) plus Send + Sync to satisfy the supertraits.
-impl<T: fmt::Debug + Any + Clone + Send + Sync> CustomShape for T {
+impl<T: fmt::Debug + Any + Clone + PartialEq + Send + Sync> CustomShape for T {
     fn as_any(&self) -> &dyn Any {
         self
     }
 
     fn clone_smallbox(&self) -> CustomSmallBox {
         smallbox!(self.clone())
+    }
+
+    fn eq_dyn(&self, other: &dyn CustomShape) -> bool {
+        other.as_any().downcast_ref::<Self>() == Some(self)
+    }
+}
+
+// Provide PartialEq for trait objects of CustomShape using the trait's own `eq_dyn` method.
+impl PartialEq for dyn CustomShape {
+    fn eq(&self, other: &Self) -> bool {
+        self.eq_dyn(other)
     }
 }

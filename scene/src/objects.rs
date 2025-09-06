@@ -8,7 +8,7 @@ use massive_shapes::{GlyphRun, Shape};
 ///
 /// Architecture: This has now the same size as [`VisualRenderObj`]. Why not just clone this one for
 /// the renderer then .. or even just the [`Handle<Visual>`]?
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Visual {
     pub location: Handle<Location>,
     /// DR: Clients should be able to use [`Visual`] directly as a an abstract thing. Like for
@@ -21,6 +21,15 @@ pub struct Visual {
     ///
     /// Arc is used here to make sharing shapes with the renderer really cheap.
     pub shapes: Arc<[Shape]>,
+}
+
+impl Visual {
+    pub fn new(location: Handle<Location>, shapes: impl Into<Arc<[Shape]>>) -> Self {
+        Self {
+            location,
+            shapes: shapes.into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -49,15 +58,6 @@ impl Object for Visual {
         VisualRenderObj {
             location: self.location.id(),
             shapes: self.shapes.clone(),
-        }
-    }
-}
-
-impl Visual {
-    pub fn new(location: Handle<Location>, shapes: impl Into<Vec<Shape>>) -> Self {
-        Self {
-            location,
-            shapes: shapes.into().into(),
         }
     }
 }
