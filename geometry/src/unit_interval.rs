@@ -36,21 +36,3 @@ impl From<UnitInterval> for f64 {
         ui.0
     }
 }
-
-/*
-impl ops::Mul for UnitInterval {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self {
-        (self.0 * rhs.0).into()
-    }
-}
-
-impl ops::Div for UnitInterval {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self {
-        (self.0 / rhs.0).into()
-    }
-}
-*/
