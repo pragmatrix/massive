@@ -131,7 +131,7 @@ impl Event {
 
     /// Detect several mouse gestures.
     ///
-    /// `min_distance` specifies the minimum movement for the detectino in physicial device
+    /// `min_distance` specifies the minimum movement for the detection in physical device
     /// coordinates.
     pub fn detect_mouse_gesture(
         &self,
