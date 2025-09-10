@@ -147,7 +147,7 @@ impl DeviceStates {
         self.keyboard_modifiers.contains(ModifiersState::SUPER)
     }
 
-    /// Returns the physcial coordinates of the pointing device.
+    /// Returns the physical coordinates of the pointing device.
     pub fn pos(&self, id: DeviceId) -> Option<Point> {
         self.pointing_device(id).and_then(|p| p.pos)
     }
