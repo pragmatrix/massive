@@ -43,6 +43,7 @@ chrono = "0.4.38"
 cosmic-text = { version = "0.14.2", features = ["swash"] }
 derive_more = { version = "2.0.1", features = ["full"] }
 env_logger = "0.11.3"
+euclid = { version = "0.22.11" }
 flo_curves = "0.8.0"
 futures = { version = "0.3.30" }
 itertools = "0.14.0"
