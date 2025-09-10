@@ -12,7 +12,7 @@ use super::{Movement, movement};
 
 #[derive(Clone, Debug, Deref)]
 pub struct MovementInactivity {
-    // TODO: may ut this into a module named `inactivity` and name it `Movement`?
+    // TODO: may put this into a module named `inactivity` and name it `Movement`?
     /// When should the user be hinted about the inactivity.
     pub inactivity_hint_start: UnitInterval,
     /// After what duration should the inactivity begin.
