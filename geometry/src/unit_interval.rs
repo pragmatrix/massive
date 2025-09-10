@@ -1,10 +1,9 @@
+use derive_more::{Into, Mul, MulAssign};
 use log::warn;
 
 /// 0 .. 1
 /// https://english.stackexchange.com/questions/275734/a-word-for-a-value-between-0-and-1-inclusive
-#[derive(
-    Copy, Clone, PartialEq, PartialOrd, Debug, Default, derive_more::Mul, derive_more::MulAssign,
-)]
+#[derive(Copy, Clone, PartialEq, PartialOrd, Debug, Default, Mul, MulAssign, Into)]
 pub struct UnitInterval(f64);
 
 impl UnitInterval {
@@ -22,17 +21,5 @@ impl UnitInterval {
 
     pub const fn new_unchecked(v: f64) -> Self {
         Self(v)
-    }
-}
-
-impl From<f64> for UnitInterval {
-    fn from(v: f64) -> Self {
-        Self::new(v)
-    }
-}
-
-impl From<UnitInterval> for f64 {
-    fn from(ui: UnitInterval) -> Self {
-        ui.0
     }
 }
