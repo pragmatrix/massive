@@ -76,7 +76,7 @@ impl MovementInactivity {
         if let Some(duration) = event.detect_movement_inactivity(
             self.device(),
             self.inactivity_duration,
-            Self::MIN_DISTANCE_FOR_MOVEMENT,
+            self.minimum_distance,
         ) {
             return duration == self.inactivity_duration;
         }
@@ -85,12 +85,11 @@ impl MovementInactivity {
     }
 
     /// Return the current state of inactivity.
-    ///
     pub fn inactivity_state(&self, event: &Event) -> InactivityState {
         if let Some(inactivity) = event.detect_movement_inactivity(
             self.device(),
             self.inactivity_duration,
-            Self::MIN_DISTANCE_FOR_MOVEMENT,
+            self.minimum_distance,
         ) {
             let hint_start = self.hint_duration_start();
             let inactive = inactivity == self.inactivity_duration;
@@ -105,8 +104,6 @@ impl MovementInactivity {
         }
         InactivityState::default()
     }
-
-    const MIN_DISTANCE_FOR_MOVEMENT: f64 = Event::MIN_DISTANCE_FOR_MOVEMENT;
 
     fn device(&self) -> DeviceId {
         self.movement.sensor.device

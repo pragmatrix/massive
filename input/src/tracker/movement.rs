@@ -19,6 +19,8 @@ pub struct Movement {
     pub from: Point,
     /// The current movement vector relative to `from`.
     pub delta: Vector,
+    /// What was the minimum distance used to detect this movement?
+    pub minimum_distance: f64,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -83,13 +85,4 @@ impl Movement {
             })
         )
     }
-
-    // pub fn transform(self, m: &Matrix) -> Movement {
-    //     // TODO: We need our own matrix type with a f64 component precision.
-    //     Self {
-    //         from: m.map_point(self.from).into(),
-    //         delta: m.map_vector(self.delta).into(),
-    //         ..self
-    //     }
-    // }
 }
