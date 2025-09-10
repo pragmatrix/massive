@@ -12,6 +12,8 @@ use winit::{
     keyboard::ModifiersState,
 };
 
+use crate::Sensor;
+
 use super::{DeviceId, ExternalEvent};
 
 #[derive(Debug, Clone, Default)]
@@ -154,9 +156,12 @@ impl DeviceStates {
 
     /// When pressed, returns the instant a device was pressed first and where it was pressed.
     // TODO: May introduce a type `PointInTime` or `TimedPoint`, or even `SpaceTime`?
-    pub fn is_pressed(&self, device_id: DeviceId, button: MouseButton) -> Option<(Instant, Point)> {
+    pub fn is_pressed(&self, sensor: Sensor) -> Option<(Instant, Point)> {
         // TODO implement in terms of `is_pressed_all()`
-        let state = self.pointing_device(device_id)?.buttons.get(&button)?;
+        let state = self
+            .pointing_device(sensor.device)?
+            .buttons
+            .get(&sensor.button)?;
         (state.element == ElementState::Pressed).then_some((state.when, state.at_pos))
     }
 
