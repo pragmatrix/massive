@@ -55,7 +55,7 @@ pub fn pressing(
 pub fn movement(
     history: &EventHistory,
     button: MouseButton,
-    min_distance: f64,
+    minimum_distance: f64,
 ) -> Option<Movement> {
     let current_event = history.current()?;
     let device_id = current_event.is_cursor_moved_event()?;
@@ -70,18 +70,19 @@ pub fn movement(
         .historic()
         .until(when_pressed)
         .max_distance_moved(device_id, from)
-        >= min_distance
+        >= minimum_distance
     {
         return None;
     }
     let pos_now = current_event.states.pos(device_id)?;
     let movement = pos_now - from;
-    (movement.length() >= min_distance).then(|| Movement {
+    (movement.length() >= minimum_distance).then(|| Movement {
         sensor,
         began: when_pressed,
         detected_after: current_event.time - when_pressed,
         from,
         delta: movement,
+        minimum_distance,
     })
 }
 
@@ -94,7 +95,7 @@ pub fn movement_inactivity(
     device: DeviceId,
     // How far should we go back to detect inactivity at max?
     check_range: Duration,
-    min_distance: f64,
+    minimum_distance: f64,
 ) -> Option<Duration> {
     // We take the current position as the basis for comparison (Should be symmetric).
     let current = history.current()?;
@@ -105,7 +106,7 @@ pub fn movement_inactivity(
         .until(current.time - check_range)
         .find(|r| {
             if let Some(pos) = r.states.pos(device) {
-                (current_pos - pos).length() >= min_distance
+                (current_pos - pos).length() >= minimum_distance
             } else {
                 false
             }

@@ -21,7 +21,7 @@ pub struct EventAggregator {
 }
 
 impl EventAggregator {
-    pub fn update(&mut self, event: &ExternalEvent, to_logical: impl Fn(Point) -> Point) {
+    pub fn update(&mut self, event: &ExternalEvent) {
         if let ExternalEvent::Window {
             ref event, time, ..
         } = *event
@@ -31,7 +31,7 @@ impl EventAggregator {
                     device_id,
                     position,
                     ..
-                } => self.cursor_moved(device_id, to_logical((position.x, position.y).into())),
+                } => self.cursor_moved(device_id, (position.x, position.y).into()),
                 WindowEvent::CursorEntered { device_id } => self.cursor_entered(device_id),
                 WindowEvent::CursorLeft { device_id } => {
                     self.cursor_left(device_id);
@@ -147,7 +147,7 @@ impl DeviceStates {
         self.keyboard_modifiers.contains(ModifiersState::SUPER)
     }
 
-    /// Returns the logical window coordinates of the pointing device.
+    /// Returns the physical coordinates of the pointing device.
     pub fn pos(&self, id: DeviceId) -> Option<Point> {
         self.pointing_device(id).and_then(|p| p.pos)
     }

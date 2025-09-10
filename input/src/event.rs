@@ -14,17 +14,6 @@ pub struct Event {
     /// Internal flag, that is set when a gesture detection needs regular tick events to function as
     /// expected.
     requires_ticks: Rc<Cell<bool>>,
-    // / Matrix conversion from logical window coordinates to coordinate system of the client. All
-    // / [`Point`]s returned here are translated through it.
-    // /
-    // / This conversion has the following purposes:
-    // / - to simplify the translation to another coordinate system.
-    // / - to enable gesture detection _while_ the client coordinate system changes.
-    // / - to make the gesture detection independent from the client coordinate system and so always
-    // /   use the logical screen coordinates.
-    // /
-    // / By default this is the identity matrix.
-    // matrix: Matrix,
 }
 
 impl Event {
@@ -36,19 +25,6 @@ impl Event {
             // matrix: default(),
         }
     }
-
-    // Transform the points returned from this event into another coordinate system.
-    //
-    // Consecutive transformation applied as seen from the incoming event that initially has
-    // logical window coordinates.
-    // pub fn transform(self, m: &Matrix) -> Event {
-    //     let matrix = Matrix::concat(&self.matrix, m);
-    //     Self { matrix, ..self }
-    // }
-
-    // pub fn map_point(&self, p: impl Into<Point>) -> Point {
-    //     self.matrix.map_point(p.into()).into()
-    // }
 
     pub fn pressed(&self, sensor: Sensor) -> bool {
         matches!(self.window_event(), Some(WindowEvent::MouseInput {
@@ -62,10 +38,9 @@ impl Event {
             }) if *device_id == sensor.device && *state == ElementState::Released)
     }
 
-    /// Returns the logical coordinates if the event is a pointer event.
+    /// Returns the physical coordinates if the event is a pointer event.
     pub fn pos(&self) -> Option<Point> {
         self.pointing_device().and_then(|di| self.states().pos(di))
-        // .map(|p| self.map_point(p))
     }
 
     pub fn pointing_device(&self) -> Option<DeviceId> {
@@ -133,9 +108,9 @@ impl Event {
         // .map(|p| self.map_point(p))
     }
 
+    // Detect a movement of >= `min_distance`. `min_distance` is in physical device coordinates.
     pub fn detect_movement(&self, button: MouseButton, min_distance: f64) -> Option<Movement> {
         detect::movement(&self.history, button, min_distance)
-        // .map(|m| m.transform(&self.matrix))
     }
 
     /*
@@ -154,13 +129,15 @@ impl Event {
         }
     */
 
-    // TODO: Fix magic value: minimum distance considered a move. This value must also
-    // dependent on the current zoom factor.
-    // TODO: this, together with enabling movement detection could be a `Param`.
-    pub const MIN_DISTANCE_FOR_MOVEMENT: f64 = 5.0;
-
     /// Detect several mouse gestures.
-    pub fn detect_mouse_gesture(&self, button: MouseButton) -> Option<MouseGesture> {
+    ///
+    /// `min_distance` specifies the minimum movement for the detection in physical device
+    /// coordinates.
+    pub fn detect_mouse_gesture(
+        &self,
+        button: MouseButton,
+        min_distance: f64,
+    ) -> Option<MouseGesture> {
         if let Some(point) = self.detect_double_click(button) {
             // TODO: This is to support `detect_pressing`.
             self.requires_ticks();
@@ -173,7 +150,7 @@ impl Event {
             return Some(MouseGesture::Click(point));
         }
 
-        if let Some(movement) = self.detect_movement(button, Self::MIN_DISTANCE_FOR_MOVEMENT) {
+        if let Some(movement) = self.detect_movement(button, min_distance) {
             return Some(MouseGesture::Movement(movement));
         }
 
