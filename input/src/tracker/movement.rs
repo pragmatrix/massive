@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use winit::event::{ElementState, WindowEvent};
 
-use crate::{Event, ButtonSensor};
+use crate::{ButtonSensor, Event};
 use massive_geometry::{Point, Vector};
 
 // `Clone` because of the borrow checker.
