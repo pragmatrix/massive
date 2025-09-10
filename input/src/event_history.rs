@@ -51,7 +51,7 @@ impl EventHistory {
         self.records.front()
     }
 
-    // The previous record.
+    /// The previous record.
     pub fn previous(&self) -> Option<&Record> {
         self.records.get(1)
     }
