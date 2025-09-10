@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use winit::event::{DeviceId, ElementState, MouseButton};
 
 use crate::{
-    DeviceIdExtensions, Sensor,
+    DeviceIdExtensions, ButtonSensor,
     event_history::{EventHistory, HistoryIterator},
     tracker::Movement,
 };
@@ -121,7 +121,7 @@ impl EventHistory {
     /// A movement over `distance_considered_a_movement` breaks the holding period.
     pub fn held(
         &self,
-        sensor: Sensor,
+        sensor: ButtonSensor,
         distance_considered_a_movement: f64,
         duration_considered_a_hold: Duration,
     ) -> Option<Instant> {

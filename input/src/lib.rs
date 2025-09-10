@@ -1,8 +1,8 @@
 //! Most of the code here was taken from the BS2 project.
-mod event_history_detect;
 mod event;
 mod event_aggregator;
 mod event_history;
+mod event_history_detect;
 mod external_event;
 mod mouse_gesture;
 mod sensor;
@@ -34,11 +34,11 @@ impl WindowEventExtensions for WindowEvent {
 }
 
 pub trait DeviceIdExtensions {
-    fn sensor(self, button: MouseButton) -> Sensor;
+    fn sensor(self, button: MouseButton) -> ButtonSensor;
 }
 
 impl DeviceIdExtensions for DeviceId {
-    fn sensor(self, button: MouseButton) -> Sensor {
-        Sensor::new(self, button)
+    fn sensor(self, button: MouseButton) -> ButtonSensor {
+        ButtonSensor::new(self, button)
     }
 }

@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use winit::event::{ElementState, WindowEvent};
 
-use crate::{Event, Sensor};
+use crate::{Event, ButtonSensor};
 use massive_geometry::{Point, Vector};
 
 // `Clone` because of the borrow checker.
@@ -10,7 +10,7 @@ use massive_geometry::{Point, Vector};
 #[non_exhaustive]
 pub struct Movement {
     /// What was moved?
-    pub sensor: Sensor,
+    pub sensor: ButtonSensor,
     /// The instant when the movement began.
     pub began: Instant,
     /// Time it took to detect the movement.

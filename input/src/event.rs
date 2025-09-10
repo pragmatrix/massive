@@ -5,7 +5,7 @@ use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
 
 use crate::{MouseGesture, event_aggregator::DeviceStates, event_history::EventHistory};
 
-use super::{Sensor, WindowEventExtensions, event_history::EventRecord, tracker::Movement};
+use super::{ButtonSensor, WindowEventExtensions, event_history::EventRecord, tracker::Movement};
 
 #[derive(Clone, Debug)]
 pub struct Event {
@@ -25,13 +25,13 @@ impl Event {
         }
     }
 
-    pub fn pressed(&self, sensor: Sensor) -> bool {
+    pub fn pressed(&self, sensor: ButtonSensor) -> bool {
         matches!(self.window_event(), Some(WindowEvent::MouseInput {
                 device_id, state, ..
             }) if *device_id == sensor.device && *state == ElementState::Pressed)
     }
 
-    pub fn released(&self, sensor: Sensor) -> bool {
+    pub fn released(&self, sensor: ButtonSensor) -> bool {
         matches!(self.window_event(), Some(WindowEvent::MouseInput {
                 device_id, state, ..
             }) if *device_id == sensor.device && *state == ElementState::Released)
@@ -46,14 +46,14 @@ impl Event {
         self.window_event()?.pointing_device()
     }
 
-    pub fn mouse_pressed(&self) -> Option<Sensor> {
+    pub fn mouse_pressed(&self) -> Option<ButtonSensor> {
         match self.window_event()? {
             WindowEvent::MouseInput {
                 device_id,
                 state,
                 button,
                 ..
-            } if *state == ElementState::Pressed => Some(Sensor::new(*device_id, *button)),
+            } if *state == ElementState::Pressed => Some(ButtonSensor::new(*device_id, *button)),
             _ => None,
         }
     }
@@ -67,14 +67,14 @@ impl Event {
         }
     }
 
-    pub fn mouse_released(&self) -> Option<Sensor> {
+    pub fn mouse_released(&self) -> Option<ButtonSensor> {
         match self.window_event()? {
             WindowEvent::MouseInput {
                 device_id,
                 state,
                 button,
                 ..
-            } if *state == ElementState::Released => Some(Sensor::new(*device_id, *button)),
+            } if *state == ElementState::Released => Some(ButtonSensor::new(*device_id, *button)),
             _ => None,
         }
     }
