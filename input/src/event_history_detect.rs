@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 use winit::event::{DeviceId, ElementState, MouseButton};
 
 use crate::{
-    DeviceIdExtensions, ButtonSensor,
+    ButtonSensor, DeviceIdExtensions,
     event_history::{EventHistory, HistoryIterator},
     tracker::Movement,
 };
@@ -33,20 +33,6 @@ impl EventHistory {
             .max_distance_moved(device, pos)
             <= max_distance)
             .then_some(pos)
-    }
-
-    /// Returns the duration since the mouse button get pressed most recently at the time of the current
-    /// event.  
-    /// This detects pressing for all events. This make this work as expected, the frame tick events
-    /// must be subscribed after an initial click event.
-    pub fn detect_pressing(&self, button: MouseButton) -> Option<(DeviceId, (Point, Duration))> {
-        let current = self.current()?;
-        // Only considering the most recent one.
-        let (device_id, (when_pressed, from)) = current.states.all_pressed(button).next()?;
-        let duration = current.time() - when_pressed;
-        // The gesture "pressing" is not defined at the moment the sensor gets clicked.
-        // TODO: Not so sure about this anymore.
-        (!duration.is_zero()).then_some((device_id, (from, duration)))
     }
 
     /// Detects significant movement since the time a mouse button was pressed.

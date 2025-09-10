@@ -135,18 +135,8 @@ impl EventRecord {
     }
 
     pub fn window_event(&self) -> Option<&WindowEvent> {
-        if let ExternalEvent::Window { event, .. } = &self.event {
-            Some(event)
-        } else {
-            None
-        }
-    }
-
-    pub fn frame_tick(&self) -> Option<&Self> {
-        match self.event {
-            ExternalEvent::FrameTick(_) => Some(self),
-            _ => None,
-        }
+        let ExternalEvent::Window { event, .. } = &self.event;
+        Some(event)
     }
 
     pub fn time(&self) -> Instant {

@@ -24,31 +24,30 @@ pub struct EventAggregator {
 
 impl EventAggregator {
     pub fn update(&mut self, event: &ExternalEvent) {
-        if let ExternalEvent::Window {
-            ref event, time, ..
-        } = *event
-        {
-            match *event {
-                WindowEvent::CursorMoved {
-                    device_id,
-                    position,
-                    ..
-                } => self.cursor_moved(device_id, (position.x, position.y).into()),
-                WindowEvent::CursorEntered { device_id } => self.cursor_entered(device_id),
-                WindowEvent::CursorLeft { device_id } => {
-                    self.cursor_left(device_id);
-                }
-                WindowEvent::MouseInput {
-                    device_id,
-                    state,
-                    button,
-                    ..
-                } => self.mouse_button_state_changed(time, device_id, button, state),
-                WindowEvent::ModifiersChanged(modifiers) => {
-                    self.modifiers_changed(modifiers.state())
-                }
-                _ => {}
+        let ExternalEvent::Window {
+            event: window_event,
+            time,
+            ..
+        } = event;
+
+        match *window_event {
+            WindowEvent::CursorMoved {
+                device_id,
+                position,
+                ..
+            } => self.cursor_moved(device_id, (position.x, position.y).into()),
+            WindowEvent::CursorEntered { device_id } => self.cursor_entered(device_id),
+            WindowEvent::CursorLeft { device_id } => {
+                self.cursor_left(device_id);
             }
+            WindowEvent::MouseInput {
+                device_id,
+                state,
+                button,
+                ..
+            } => self.mouse_button_state_changed(*time, device_id, button, state),
+            WindowEvent::ModifiersChanged(modifiers) => self.modifiers_changed(modifiers.state()),
+            _ => {}
         }
     }
 

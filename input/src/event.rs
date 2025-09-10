@@ -1,4 +1,4 @@
-use std::{cell::Cell, rc::Rc, time::Duration};
+use std::{rc::Rc, time::Duration};
 
 use massive_geometry::Point;
 use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
@@ -11,18 +11,12 @@ use super::{ButtonSensor, WindowEventExtensions, event_history::EventRecord, tra
 pub struct Event {
     /// The event history, including the most recent event.
     history: Rc<EventHistory>,
-    /// Internal flag, that is set when a gesture detection needs regular tick events to function as
-    /// expected.
-    requires_ticks: Rc<Cell<bool>>,
 }
 
 impl Event {
-    pub fn new(history: Rc<EventHistory>, requires_ticks: Rc<Cell<bool>>) -> Self {
+    pub fn new(history: Rc<EventHistory>) -> Self {
         assert!(history.current().is_some());
-        Self {
-            history,
-            requires_ticks,
-        }
+        Self { history }
     }
 
     pub fn pressed(&self, sensor: ButtonSensor) -> bool {
@@ -138,14 +132,10 @@ impl Event {
         min_distance: f64,
     ) -> Option<MouseGesture> {
         if let Some(point) = self.detect_double_click(button, min_distance) {
-            // TODO: This is to support `detect_pressing`.
-            self.requires_ticks();
             return Some(MouseGesture::DoubleClick(point));
         }
 
         if let Some(point) = self.detect_click(button) {
-            // TODO: This is to support `detect_pressing`.
-            self.requires_ticks();
             return Some(MouseGesture::Click(point));
         }
 
@@ -160,15 +150,6 @@ impl Event {
         None
     }
 
-    pub fn detect_pressing(&self, button: MouseButton) -> Option<(Point, Duration)> {
-        self.requires_ticks();
-        if let Some((_, (point, since))) = self.history.detect_pressing(button) {
-            // As soon pressing was detected, subscribe to future ticks.
-            return Some((point, since));
-        }
-        None
-    }
-
     /// Returns the current duration since movement inactivity began.
     ///
     /// Returns `max_range` if the inactivity duration is equal or exceeds the `max_range`
@@ -178,11 +159,9 @@ impl Event {
         max_range: Duration,
         min_distance: f64,
     ) -> Option<Duration> {
-        self.requires_ticks();
-
         self.history
             .detect_movement_inactivity(device, max_range, min_distance)
-        // TODO: This may return `UnitInterval` in relation to `max_range`?
+        // TODO: This may return `UnitInterval` with respect to `max_range`?
     }
 
     fn record(&self) -> &EventRecord {
@@ -195,10 +174,5 @@ impl Event {
 
     pub fn states(&self) -> &DeviceStates {
         &self.record().states
-    }
-
-    /// Enable the reception of tick / frame events.
-    fn requires_ticks(&self) {
-        self.requires_ticks.set(true)
     }
 }

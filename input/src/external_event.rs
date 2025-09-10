@@ -9,15 +9,12 @@ pub enum ExternalEvent {
         event: WindowEvent,
         time: Instant,
     },
-    FrameTick(Instant),
 }
 
 impl ExternalEvent {
     pub fn time(&self) -> Instant {
-        use ExternalEvent::*;
         match *self {
-            Window { time, .. } => time,
-            FrameTick(time) => time,
+            Self::Window { time, .. } => time,
         }
     }
 }
