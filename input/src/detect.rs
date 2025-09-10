@@ -16,14 +16,14 @@ pub fn double_click(
     max_distance: f64,
 ) -> Option<Point> {
     debug_assert!(max_duration < history.max_duration());
-    let entry = history.current()?;
+    let record = history.current()?;
 
-    let device = entry.is_mouse_event(ElementState::Pressed, button)?;
-    let pos: Point = entry.states.pos(device)?;
+    let device = record.is_mouse_event(ElementState::Pressed, button)?;
+    let pos: Point = record.states.pos(device)?;
 
     let previous_press = history
         .historic()
-        .until(entry.time - max_duration)
+        .until(record.time() - max_duration)
         .find(|e| e.is_mouse_event(ElementState::Pressed, button) == Some(device))?;
 
     (history
@@ -45,7 +45,7 @@ pub fn pressing(
     let current = history.current()?;
     // Only considering the most recent one.
     let (device_id, (when_pressed, from)) = current.states.all_pressed(button).next()?;
-    let duration = current.time - when_pressed;
+    let duration = current.time() - when_pressed;
     // The gesture "pressing" is not defined at the moment the sensor gets clicked.
     // TODO: Not so sure about this anymore.
     (!duration.is_zero()).then_some((device_id, (from, duration)))
@@ -79,7 +79,7 @@ pub fn movement(
     (movement.length() >= minimum_distance).then(|| Movement {
         sensor,
         began: when_pressed,
-        detected_after: current_event.time - when_pressed,
+        detected_after: current_event.time() - when_pressed,
         from,
         delta: movement,
         minimum_distance,
@@ -103,7 +103,7 @@ pub fn movement_inactivity(
 
     if let Some(r) = history
         .historic()
-        .until(current.time - check_range)
+        .until(current.time() - check_range)
         .find(|r| {
             if let Some(pos) = r.states.pos(device) {
                 (current_pos - pos).length() >= minimum_distance
@@ -114,7 +114,7 @@ pub fn movement_inactivity(
     {
         // Actually this is the time we consider movement, so shouldn't we return the time of the
         // next event?
-        return Some(current.time - r.time);
+        return Some(current.time() - r.time());
     }
 
     // No Activity found in the range, we return the full range.
@@ -136,7 +136,7 @@ fn held(
     let current = history.current()?;
     let (when_pressed, from) = current.states.is_pressed(device_id, button)?;
     let holding_period_end = when_pressed + duration_considered_a_hold;
-    if holding_period_end > current.time {
+    if holding_period_end > current.time() {
         // Holding period hasn't passed yet.
         return None;
     }

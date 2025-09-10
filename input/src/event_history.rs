@@ -14,7 +14,7 @@ pub struct EventHistory {
     max_duration: Duration,
     current_id: u64,
     /// The event records, most recent first.
-    records: VecDeque<Record>,
+    records: VecDeque<EventRecord>,
 }
 
 impl EventHistory {
@@ -29,16 +29,15 @@ impl EventHistory {
     pub fn push(&mut self, event: ExternalEvent, states: DeviceStates) {
         let time = event.time();
         if let Some(front) = self.records.front()
-            && front.time > time
+            && front.time() > time
         {
             panic!("New event arrived with an earlier timestamp.")
         }
 
         self.gc(time);
 
-        let record = Record {
+        let record = EventRecord {
             id: self.next_id(),
-            time,
             event,
             states,
         };
@@ -47,17 +46,17 @@ impl EventHistory {
     }
 
     /// The current record.
-    pub fn current(&self) -> Option<&Record> {
+    pub fn current(&self) -> Option<&EventRecord> {
         self.records.front()
     }
 
     /// The previous record.
-    pub fn previous(&self) -> Option<&Record> {
+    pub fn previous(&self) -> Option<&EventRecord> {
         self.records.get(1)
     }
 
     /// An iterator over all event, including the most recent one including.
-    pub fn iter(&self) -> impl Iterator<Item = &Record> {
+    pub fn iter(&self) -> impl Iterator<Item = &EventRecord> {
         // Can't use HistoryIterator as return type:
         // <https://github.com/rust-lang/rust-analyzer/issues/9881>
         self.records.iter()
@@ -65,14 +64,14 @@ impl EventHistory {
 
     /// An iterator over historic events. These are all events that came before, starting with the
     /// event that came before the current / most recent one.
-    pub fn historic(&self) -> impl Iterator<Item = &Record> {
+    pub fn historic(&self) -> impl Iterator<Item = &EventRecord> {
         // Can't use HistoryIterator as return type:
         // <https://github.com/rust-lang/rust-analyzer/issues/9881>
         self.iter().skip(1)
     }
 
     /// Returns the Record at the `point` or the one that is newer.
-    pub fn at_or_newer(&self, point: impl Into<RecordPoint>) -> Option<&Record> {
+    pub fn at_or_newer(&self, point: impl Into<RecordPoint>) -> Option<&EventRecord> {
         // TODO: optimize this by using binary searches.
         self.iter().from(point).next()
     }
@@ -89,7 +88,7 @@ impl EventHistory {
     fn gc(&mut self, now: Instant) {
         let oldest = now - self.max_duration;
         while let Some(back) = self.records.back() {
-            if back.time > oldest {
+            if back.time() > oldest {
                 break;
             }
             self.records.pop_back();
@@ -99,15 +98,14 @@ impl EventHistory {
 
 /// A record of an [`Event`] and all device states at that time.
 #[derive(Debug)]
-pub struct Record {
+pub struct EventRecord {
     pub id: u64,
-    pub time: Instant,
     pub event: ExternalEvent,
     // TODO: may recycle states if they don't change (use `Rc`).
     pub states: DeviceStates,
 }
 
-impl Record {
+impl EventRecord {
     pub fn is_mouse_event(
         &self,
         element_state: ElementState,
@@ -150,14 +148,19 @@ impl Record {
             _ => None,
         }
     }
+
+    pub fn time(&self) -> Instant {
+        self.event.time()
+    }
 }
 
-pub trait HistoryIterator<'a>: Iterator<Item = &'a Record> {
+pub trait HistoryIterator<'a>: Iterator<Item = &'a EventRecord> {
     /// Skips over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn from(self, until: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a Record> + 'a>;
+    fn from(self, until: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a EventRecord> + 'a>;
 
     /// Iterates over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn until(self, until: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a Record> + 'a>;
+    fn until(self, until: impl Into<RecordPoint>)
+    -> Box<dyn Iterator<Item = &'a EventRecord> + 'a>;
 
     /// Returns the maximum distance a pointer device moved in relation to the given point in the
     /// range of all events.
@@ -166,14 +169,17 @@ pub trait HistoryIterator<'a>: Iterator<Item = &'a Record> {
 
 impl<'a, T> HistoryIterator<'a> for T
 where
-    T: Iterator<Item = &'a Record> + 'a,
+    T: Iterator<Item = &'a EventRecord> + 'a,
 {
-    fn from(self, point: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a Record> + 'a> {
+    fn from(self, point: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a EventRecord> + 'a> {
         let point = point.into();
         Box::new(self.skip_while(move |record| record.received_after(point)))
     }
 
-    fn until(self, point: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a Record> + 'a> {
+    fn until(
+        self,
+        point: impl Into<RecordPoint>,
+    ) -> Box<dyn Iterator<Item = &'a EventRecord> + 'a> {
         let point = point.into();
         Box::new(self.take_while(move |record| record.received_after(point)))
     }
@@ -204,18 +210,18 @@ impl From<Instant> for RecordPoint {
     }
 }
 
-impl From<&Record> for RecordPoint {
-    fn from(e: &Record) -> Self {
+impl From<&EventRecord> for RecordPoint {
+    fn from(e: &EventRecord) -> Self {
         RecordPoint::EntryId(e.id)
     }
 }
 
-impl Record {
+impl EventRecord {
     /// Was the record received after the given `p` point.
     fn received_after(&self, p: RecordPoint) -> bool {
         use RecordPoint::*;
         match p {
-            Instant(i) => self.time > i,
+            Instant(i) => self.time() > i,
             EntryId(id) => self.id > id,
         }
     }
@@ -225,7 +231,7 @@ impl Record {
     fn received_before(&self, p: RecordPoint) -> bool {
         use RecordPoint::*;
         match p {
-            Instant(i) => self.time < i,
+            Instant(i) => self.time() < i,
             EntryId(id) => self.id < id,
         }
     }

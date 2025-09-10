@@ -5,7 +5,7 @@ use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
 
 use crate::{MouseGesture, event_aggregator::DeviceStates, event_history::EventHistory};
 
-use super::{Sensor, WindowEventExtensions, detect, event_history::Record, tracker::Movement};
+use super::{Sensor, WindowEventExtensions, detect, event_history::EventRecord, tracker::Movement};
 
 #[derive(Clone, Debug)]
 pub struct Event {
@@ -22,7 +22,6 @@ impl Event {
         Self {
             history,
             requires_ticks,
-            // matrix: default(),
         }
     }
 
@@ -103,9 +102,13 @@ impl Event {
         }
     }
 
-    pub fn detect_double_click(&self, button: MouseButton) -> Option<Point> {
-        detect::double_click(&self.history, button, Duration::from_millis(500), 5.0)
-        // .map(|p| self.map_point(p))
+    pub fn detect_double_click(&self, button: MouseButton, max_distance: f64) -> Option<Point> {
+        detect::double_click(
+            &self.history,
+            button,
+            Duration::from_millis(500),
+            max_distance,
+        )
     }
 
     // Detect a movement of >= `min_distance`. `min_distance` is in physical device coordinates.
@@ -138,7 +141,7 @@ impl Event {
         button: MouseButton,
         min_distance: f64,
     ) -> Option<MouseGesture> {
-        if let Some(point) = self.detect_double_click(button) {
+        if let Some(point) = self.detect_double_click(button, min_distance) {
             // TODO: This is to support `detect_pressing`.
             self.requires_ticks();
             return Some(MouseGesture::DoubleClick(point));
@@ -185,7 +188,7 @@ impl Event {
         // TODO: This may return `UnitInterval` in relation to `max_range`?
     }
 
-    fn record(&self) -> &Record {
+    fn record(&self) -> &EventRecord {
         self.history.current().unwrap()
     }
 
