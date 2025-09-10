@@ -4,12 +4,12 @@ resolver = "3"
 members = [
     "animation",
     "geometry",
+    "input",
     "shapes",
     "renderer",
     "shell",
     "scene",
     "examples/*", 
-    
 ]
 
 exclude = [
@@ -29,6 +29,7 @@ root-package = "shell"
 [workspace.dependencies]
 massive-animation = { path = "animation" }
 massive-geometry = { path = "geometry" }
+massive-input = { path = "input" }
 massive-renderer = { path = "renderer" }
 massive-scene = { path = "scene" }
 massive-shapes = { path = "shapes" }
