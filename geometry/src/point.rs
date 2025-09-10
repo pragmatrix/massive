@@ -4,7 +4,7 @@ use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
 use crate::Point3;
 
-#[derive(Copy, Clone, PartialEq, Debug, Default, Serialize_tuple, Deserialize_tuple)]
+#[derive(Debug, Copy, Clone, PartialEq, Default, Serialize_tuple, Deserialize_tuple)]
 pub struct Point {
     pub x: f64,
     pub y: f64,
@@ -18,7 +18,7 @@ impl Point {
     }
 
     pub fn length(&self) -> f64 {
-        (self.x * self.x + self.y * self.y).sqrt()
+        self.squared_length().sqrt()
     }
 
     pub fn abs(&self) -> Self {

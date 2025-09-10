@@ -4,12 +4,12 @@ resolver = "3"
 members = [
     "animation",
     "geometry",
+    "input",
     "shapes",
     "renderer",
     "shell",
     "scene",
     "examples/*", 
-    
 ]
 
 exclude = [
@@ -29,6 +29,7 @@ root-package = "shell"
 [workspace.dependencies]
 massive-animation = { path = "animation" }
 massive-geometry = { path = "geometry" }
+massive-input = { path = "input" }
 massive-renderer = { path = "renderer" }
 massive-scene = { path = "scene" }
 massive-shapes = { path = "shapes" }
@@ -43,6 +44,7 @@ chrono = "0.4.38"
 cosmic-text = { version = "0.14.2", features = ["swash"] }
 derive_more = { version = "2.0.1", features = ["full"] }
 env_logger = "0.11.3"
+euclid = { version = "0.22.11" }
 flo_curves = "0.8.0"
 futures = { version = "0.3.30" }
 itertools = "0.14.0"

@@ -1,0 +1,12 @@
+[package]
+name = "massive-input"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+massive-geometry = { workspace = true }
+derive_more = { workspace = true }
+anyhow = { workspace = true }
+winit = { workspace = true }
+itertools = { workspace = true }
+euclid = { workspace = true }
