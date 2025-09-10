@@ -157,17 +157,16 @@ fn held(
     Some(holding_period_end)
 }
 
-/*
 /// Returns [`Movement`] when it happened after a holding period.
 pub fn movement_after_hold(
     history: &EventHistory,
     button: MouseButton,
     min_hold: Duration,
-    distance_considered_movement: scalar,
+    distance_considered_movement: f64,
 ) -> Option<Movement> {
     let current_event = history.current()?;
     let device_id = current_event.is_cursor_moved_event()?;
-    let sensor = (device_id, button).into();
+    let sensor = Sensor::new(device_id, button);
 
     let holding_period_end = held(
         history,
@@ -176,20 +175,18 @@ pub fn movement_after_hold(
         min_hold,
     )?;
 
-    let pos_holding_period_end = history
-        .at_or_newer(holding_period_end)?
-        .states
-        .pos(device_id)?
-        .into_point();
-    let pos_now = current_event.states.pos(device_id)?.into_point();
-    let movement = pos_now - pos_holding_period_end;
+    let holding_period_end_record = history.at_or_newer(holding_period_end)?;
+
+    let holding_period_end_pos = holding_period_end_record.states.pos(device_id)?;
+    let pos_now = current_event.states.pos(device_id)?;
+    let movement = pos_now - holding_period_end_pos;
 
     (movement.length() >= distance_considered_movement).then(|| Movement {
         sensor,
         began: holding_period_end,
-        from: pos_holding_period_end,
-        movement,
+        detected_after: current_event.time() - holding_period_end_record.time(),
+        from: holding_period_end_pos,
+        delta: movement,
+        minimum_distance: distance_considered_movement,
     })
 }
-
-*/
