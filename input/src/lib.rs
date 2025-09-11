@@ -15,6 +15,7 @@ pub use event_manager::*;
 pub use external_event::*;
 pub use mouse_gesture::*;
 pub use sensor::*;
+pub use tracker::*;
 
 use winit::event::{DeviceId, MouseButton, WindowEvent};
 

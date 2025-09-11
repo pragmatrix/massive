@@ -148,6 +148,11 @@ impl DeviceStates {
         self.keyboard_modifiers.contains(ModifiersState::SUPER)
     }
 
+    /// Architecture: May introduce our own modifiers state and add the is_* functions to it?
+    pub fn keyboard_modifiers(&self) -> ModifiersState {
+        self.keyboard_modifiers
+    }
+
     /// Returns the physical coordinates of the pointing device.
     pub fn pos(&self, id: DeviceId) -> Option<Point> {
         self.pointing_device(id).and_then(|p| p.pos)

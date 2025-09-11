@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use crate::{Event, EventAggregator, ExternalEvent, event_history::EventHistory};
 
+// Naming: GestureDetector?
 #[derive(Debug)]
 pub struct EventManager {
     aggregator: EventAggregator,

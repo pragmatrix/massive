@@ -44,7 +44,7 @@ impl MovementInactivity {
     }
 
     pub fn track(&mut self, event: &Event) -> Result {
-        use movement::Result::*;
+        use movement::MovementChange::*;
         match self.movement.track(event) {
             Move(delta) => {
                 let inactive = self.is_inactive(event);

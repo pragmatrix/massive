@@ -158,9 +158,9 @@ impl EventHistory {
             sensor,
             began: holding_period_end,
             detected_after: current_event.time() - holding_period_end_record.time(),
+            minimum_distance: distance_considered_movement,
             from: holding_period_end_pos,
             delta: movement,
-            minimum_distance: distance_considered_movement,
         })
     }
 }

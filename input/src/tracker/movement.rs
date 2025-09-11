@@ -9,22 +9,24 @@ use massive_geometry::{Point, Vector};
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub struct Movement {
-    /// What was moved?
+    /// Which sensor triggered the move?
     pub sensor: ButtonSensor,
     /// The instant when the movement began.
     pub began: Instant,
     /// Time it took to detect the movement.
     pub detected_after: Duration,
-    /// The origin of the movement. The point from where the movement started.
-    pub from: Point,
-    /// The current movement vector relative to `from`.
-    pub delta: Vector,
     /// What was the minimum distance used to detect this movement?
     pub minimum_distance: f64,
+
+    /// The origin of the movement. The point from where the movement started.
+    pub from: Point,
+
+    /// The current movement vector relative to `from`.
+    pub delta: Vector,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
-pub enum Result {
+pub enum MovementChange {
     /// A movement to another location was detected. [`Vector`] describes the distance from the
     /// origin hit position (`from`) to the current position.  
     /// This is _always_ the same as `movement` and provided for convenience.
@@ -44,29 +46,29 @@ pub enum Result {
 
 impl Movement {
     /// Tracks movements. Updates `movement` if current position changed.
-    pub fn track(&mut self, event: &Event) -> Result {
+    pub fn track(&mut self, event: &Event) -> MovementChange {
         if self.cancels(event) {
             self.delta = Vector::default();
-            return Result::Cancel;
+            return MovementChange::Cancel;
         }
 
         if event.pointing_device() != Some(self.sensor.device) {
-            return Result::Continue;
+            return MovementChange::Continue;
         }
 
         let movement = event.pos().unwrap() - self.from;
 
         if event.released(self.sensor) {
             self.delta = movement;
-            return Result::Commit(movement);
+            return MovementChange::Commit(movement);
         }
 
         if movement != self.delta {
             self.delta = movement;
-            return Result::Move(movement);
+            return MovementChange::Move(movement);
         }
 
-        Result::Continue
+        MovementChange::Continue
     }
 
     /// Returns the current point of the movement.
