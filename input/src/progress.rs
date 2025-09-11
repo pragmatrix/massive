@@ -1,5 +1,5 @@
 /// A generic type that describes progress over time in form of a stream of varying values that
-/// can be cancelled or commited at the end.
+/// can be cancelled or committed at the end.
 #[derive(Debug, Clone, Copy)]
 pub enum Progress<T> {
     Proceed(T),
