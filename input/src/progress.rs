@@ -25,4 +25,11 @@ impl<T> Progress<T> {
             Progress::Cancel => Progress::Cancel,
         }
     }
+
+    pub fn ends(&self) -> bool {
+        match self {
+            Progress::Proceed(_) => false,
+            Progress::Commit | Progress::Cancel => true,
+        }
+    }
 }
