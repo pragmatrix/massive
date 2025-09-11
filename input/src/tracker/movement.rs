@@ -1,8 +1,9 @@
 use std::time::{Duration, Instant};
 
+use log::error;
 use winit::event::{ElementState, WindowEvent};
 
-use crate::{ButtonSensor, Event};
+use crate::{ButtonSensor, Event, Progress};
 use massive_geometry::{Point, Vector};
 
 // `Clone` because of the borrow checker.
@@ -25,50 +26,45 @@ pub struct Movement {
     pub delta: Vector,
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum MovementChange {
-    /// A movement to another location was detected. [`Vector`] describes the distance from the
-    /// origin hit position (`from`) to the current position.  
-    /// This is _always_ the same as `movement` and provided for convenience.
-    Move(Vector),
-    /// The movement was completed successfully and the new final position should be used.
-    /// [`Vector`] describes the distance from the original hit position to the current position.  
-    /// This is _always_ the same as `movement` and provided for convenience.
-    ///
-    /// Note that the event system must guarantee that the final [`Result::Commit`] is equal to
-    /// the most recent vector sent by [`Result::Move`].  
-    Commit(Vector),
-    /// Cancelled by another event that has the power to cancel a movement gesture.
-    Cancel,
-    /// Event was unrelated to movements, movement stays active.
-    Continue,
-}
-
 impl Movement {
+    pub fn track_delta(&mut self, event: &Event) -> Option<Progress<Vector>> {
+        self.track(event).map(|p| p.map(|m| m.delta))
+    }
+
+    pub fn track_to(&mut self, event: &Event) -> Option<Progress<Point>> {
+        self.track(event).map(|p| p.map(|m| m.to()))
+    }
+
     /// Tracks movements. Updates `movement` if current position changed.
-    pub fn track(&mut self, event: &Event) -> MovementChange {
+    ///
+    /// `None` if the event was unrelated to the movement and it stays active.
+    pub fn track(&mut self, event: &Event) -> Option<Progress<&Movement>> {
         if self.cancels(event) {
             self.delta = Vector::default();
-            return MovementChange::Cancel;
+            return Some(Progress::Cancel);
         }
 
         if event.pointing_device() != Some(self.sensor.device) {
-            return MovementChange::Continue;
+            return None;
         }
 
         let movement = event.pos().unwrap() - self.from;
 
         if event.released(self.sensor) {
-            self.delta = movement;
-            return MovementChange::Commit(movement);
+            if self.delta != movement {
+                error!(
+                    "Internal error: movement is different from current delta when the sensor got released, did we miss movement updates?"
+                )
+            }
+            return Some(Progress::Commit);
         }
 
         if movement != self.delta {
             self.delta = movement;
-            return MovementChange::Move(movement);
+            return Some(Progress::Proceed(self));
         }
 
-        MovementChange::Continue
+        None
     }
 
     /// Returns the current point of the movement.

@@ -3,14 +3,13 @@
 use std::time::Duration;
 
 use derive_more::{Constructor, Deref};
-use massive_geometry::{UnitInterval, Vector};
 use winit::event::DeviceId;
 
-use crate::Event;
+use super::Movement;
+use crate::{Event, Progress};
+use massive_geometry::{UnitInterval, Vector};
 
-use super::{Movement, movement};
-
-#[derive(Clone, Debug, Deref)]
+#[derive(Debug, Clone, Deref)]
 pub struct MovementInactivity {
     // TODO: may put this into a module named `inactivity` and name it `Movement`?
     /// When should the user be hinted about the inactivity.
@@ -23,11 +22,10 @@ pub struct MovementInactivity {
     inactive: bool,
 }
 
-pub enum Result {
-    Update { delta: Vector, inactive: bool },
-    Commit { delta: Vector, inactive: bool },
-    Cancel,
-    Continue,
+#[derive(Debug, Clone)]
+pub struct InactivityProgress {
+    pub delta: Vector,
+    pub inactive: bool,
 }
 
 impl MovementInactivity {
@@ -43,32 +41,23 @@ impl MovementInactivity {
         }
     }
 
-    pub fn track(&mut self, event: &Event) -> Result {
-        use movement::MovementChange::*;
-        match self.movement.track(event) {
-            Move(delta) => {
-                let inactive = self.is_inactive(event);
-                self.inactive = inactive;
-                Result::Update { delta, inactive }
-            }
-            Commit(delta) => {
-                let inactive = self.is_inactive(event);
-                self.inactive = inactive;
-                Result::Commit { delta, inactive }
-            }
-            Cancel => Result::Cancel,
-            Continue => {
-                let inactive = self.is_inactive(event);
-                if inactive != self.inactive {
-                    self.inactive = inactive;
-                    return Result::Update {
-                        delta: self.movement.delta,
-                        inactive,
-                    };
-                }
-                Result::Continue
-            }
+    pub fn track(&mut self, event: &Event) -> Option<Progress<InactivityProgress>> {
+        if let Some(progress) = self.movement.track_delta(event) {
+            return Some(progress.map(|delta| InactivityProgress {
+                delta,
+                inactive: self.is_inactive(event),
+            }));
         }
+        // Missing: This may not work if we don't push tick events yet?
+        let inactive = self.is_inactive(event);
+        if inactive != self.inactive {
+            self.inactive = inactive;
+            return Some(Progress::Proceed(InactivityProgress {
+                delta: self.movement.delta,
+                inactive,
+            }));
+        }
+        None
     }
 
     /// `true` if the user is currently inactive.
