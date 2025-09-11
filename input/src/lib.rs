@@ -3,6 +3,7 @@ mod event;
 mod event_aggregator;
 mod event_history;
 mod event_history_detect;
+mod event_manager;
 mod external_event;
 mod mouse_gesture;
 mod sensor;
@@ -10,6 +11,7 @@ mod tracker;
 
 pub use event::*;
 pub use event_aggregator::*;
+pub use event_manager::*;
 pub use external_event::*;
 pub use mouse_gesture::*;
 pub use sensor::*;

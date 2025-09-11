@@ -1,20 +1,19 @@
-use std::{rc::Rc, time::Duration};
+use std::time::Duration;
 
-use massive_geometry::Point;
 use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
 
-use crate::{MouseGesture, event_aggregator::DeviceStates, event_history::EventHistory};
-
 use super::{ButtonSensor, WindowEventExtensions, event_history::EventRecord, tracker::Movement};
+use crate::{MouseGesture, event_aggregator::DeviceStates, event_history::EventHistory};
+use massive_geometry::Point;
 
 #[derive(Clone, Debug)]
-pub struct Event {
+pub struct Event<'history> {
     /// The event history, including the most recent event.
-    history: Rc<EventHistory>,
+    history: &'history EventHistory,
 }
 
-impl Event {
-    pub fn new(history: Rc<EventHistory>) -> Self {
+impl<'history> Event<'history> {
+    pub fn new(history: &'history EventHistory) -> Self {
         assert!(history.current().is_some());
         Self { history }
     }
