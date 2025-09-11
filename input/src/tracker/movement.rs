@@ -53,7 +53,7 @@ impl Movement {
         if event.released(self.sensor) {
             if self.delta != movement {
                 error!(
-                    "Internal error: movement is different from current delta when the sensor got released, did we move movement updates?"
+                    "Internal error: movement is different from current delta when the sensor got released, did we miss movement updates?"
                 )
             }
             return Some(Progress::Commit);
