@@ -49,14 +49,11 @@ impl<T: Interpolatable + Send> Timeline<T> {
             .animate_to(value, instant, target_value, duration, interpolation);
     }
 
-    pub fn value(&self) -> T
-    where
-        T: Clone,
-    {
+    pub fn value(&self) -> T {
         let mut inner = self.inner.lock().expect("poisoned");
         if inner.animation.is_active() {
-            // Important: Don't retrieve the animation_tick if there is no animation active, because
-            // this marks the update cycle as animated.
+            // Detail: Don't retrieve the animation_tick if there is no animation active, because
+            // this marks informs the update cycle tha an animation is active.
             let instant = self.tickery.animation_tick();
             if let Some(new_value) = inner.animation.proceed(instant) {
                 inner.value = new_value;
