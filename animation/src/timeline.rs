@@ -49,7 +49,7 @@ impl<T: Interpolatable + Send> Timeline<T> {
             .animate_to(value, instant, target_value, duration, interpolation);
     }
 
-    /// Retrieve the current value of this timeline.
+    /// The current value of this timeline.
     ///
     /// If an animaton is active, this computes the current value from the animation and also
     /// subscribes for further ticks in the future.
@@ -69,6 +69,17 @@ impl<T: Interpolatable + Send> Timeline<T> {
         }
 
         inner.value.clone()
+    }
+
+    /// The final value of this timeline after all current animations ran through or the current one
+    /// if no animations are active.
+    pub fn final_value(&self) -> T {
+        let inner = &self.inner.lock().expect("poisoned");
+        inner
+            .animation
+            .final_value()
+            .cloned()
+            .unwrap_or(inner.value.clone())
     }
 
     pub fn is_animating(&self) -> bool {

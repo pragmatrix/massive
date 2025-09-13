@@ -47,6 +47,11 @@ impl<T> BlendedAnimation<T> {
         !self.animations.is_empty()
     }
 
+    /// The final value if all animations ran through, or `None` if animations are not active.
+    pub fn final_value(&self) -> Option<&T> {
+        self.animations.last().map(|a| &a.to)
+    }
+
     /// Proceed with the animation.
     ///
     /// Returns a computed current value at the instant, or None if there is no animation active.
