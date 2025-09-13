@@ -97,9 +97,6 @@ pub trait Ease {
 macro_rules! impl_ease_trait_for {
     ($T: ident) => {
         mod $T {
-            #[allow(clippy::excessive_precision)]
-            pub const PI_2: $T = 6.28318530717958647692528676655900576;
-
             pub fn clamp(p: $T) -> $T {
                 match () {
                     _ if p > 1.0 => 1.0,
@@ -238,15 +235,15 @@ macro_rules! impl_ease_trait_for {
             }
 
             fn sine_in(self) -> Self {
-                use self::$T::PI_2;
+                use std::$T::consts::FRAC_PI_2;
                 let p = $T::clamp(self);
-                ((p - 1.0) * PI_2).sin() + 1.0
+                1.0 - (p * FRAC_PI_2).cos()
             }
 
             fn sine_out(self) -> Self {
-                use self::$T::PI_2;
+                use std::$T::consts::FRAC_PI_2;
                 let p = $T::clamp(self);
-                (p * PI_2).sin()
+                (p * FRAC_PI_2).sin()
             }
 
             fn sine_in_out(self) -> Self {
@@ -306,52 +303,68 @@ macro_rules! impl_ease_trait_for {
             }
 
             fn elastic_in(self) -> Self {
-                use self::$T::PI_2;
                 let p = $T::clamp(self);
-                (13.0 * PI_2 * p).sin() * (2.0 as $T).powf(10.0 * (p - 1.0))
+                if p == 0.0 {
+                    return 0.0;
+                }
+                if p == 1.0 {
+                    return 1.0;
+                }
+                let c4: $T = ((2.0 as $T) * std::$T::consts::PI) / (3.0 as $T);
+                -(2.0 as $T).powf(10.0 * p - 10.0) * ((p * 10.0 - 10.75) * c4).sin()
             }
 
             fn elastic_out(self) -> Self {
-                use self::$T::PI_2;
                 let p = $T::clamp(self);
-                (-13.0 * PI_2 * (p + 1.0)).sin() * (2.0 as $T).powf(-10.0 * p) + 1.0
+                if p == 0.0 {
+                    return 0.0;
+                }
+                if p == 1.0 {
+                    return 1.0;
+                }
+                let c4: $T = ((2.0 as $T) * std::$T::consts::PI) / (3.0 as $T);
+                (2.0 as $T).powf(-10.0 * p) * ((p * 10.0 - 0.75) * c4).sin() + 1.0
             }
 
             fn elastic_in_out(self) -> Self {
-                use self::$T::PI_2;
                 let p = $T::clamp(self);
+                if p == 0.0 {
+                    return 0.0;
+                }
+                if p == 1.0 {
+                    return 1.0;
+                }
+                let c5: $T = ((2.0 as $T) * std::$T::consts::PI) / (4.5 as $T);
                 if p < 0.5 {
-                    0.5 * (13.0 * PI_2 * (2.0 * p)).sin()
-                        * (2.0 as $T).powf(10.0 * ((2.0 * p) - 1.0))
+                    -0.5 * (2.0 as $T).powf(20.0 * p - 10.0) * ((20.0 * p - 11.125) * c5).sin()
                 } else {
-                    0.5 * ((-13.0 * PI_2 * ((2.0 * p - 1.0) + 1.0)).sin()
-                        * (2.0 as $T).powf(-10.0 * (2.0 * p - 1.0))
-                        + 2.0)
+                    0.5 * (2.0 as $T).powf(-20.0 * p + 10.0) * ((20.0 * p - 11.125) * c5).sin()
+                        + 1.0
                 }
             }
 
             fn back_in(self) -> Self {
-                use std::$T::consts::PI;
                 let p = $T::clamp(self);
-                p * p * p - p * (p * PI).sin()
+                let s: $T = 1.70158;
+                p * p * ((s + 1.0) * p - s)
             }
 
             fn back_out(self) -> Self {
-                use std::$T::consts::PI;
                 let p = $T::clamp(self);
-                let f = 1.0 - p;
-                1.0 - (f * f * f - f * (f * PI).sin())
+                let s: $T = 1.70158;
+                let f = p - 1.0;
+                f * f * ((s + 1.0) * f + s) + 1.0
             }
 
             fn back_in_out(self) -> Self {
-                use std::$T::consts::PI;
                 let p = $T::clamp(self);
+                let s: $T = 1.70158 * 1.525; // Overshoot adjustment for in-out
                 if p < 0.5 {
-                    let f = 2.0 * p;
-                    0.5 * (f * f * f - f * (f * PI).sin())
+                    let t = 2.0 * p;
+                    0.5 * (t * t * ((s + 1.0) * t - s))
                 } else {
-                    let f = 1.0 - (2.0 * p - 1.0);
-                    0.5 * (1.0 - (f * f * f - f * (f * PI).sin())) + 0.5
+                    let t = 2.0 * p - 2.0;
+                    0.5 * (t * t * ((s + 1.0) * t + s) + 2.0)
                 }
             }
 
@@ -387,3 +400,219 @@ macro_rules! impl_ease_trait_for {
 
 impl_ease_trait_for!(f32);
 impl_ease_trait_for!(f64);
+
+#[cfg(test)]
+mod tests {
+    use super::{Ease, Interpolation};
+
+    // All interpolation variants to verify endpoints.
+    const ALL_VARIANTS: [Interpolation; 31] = [
+        Interpolation::Linear,
+        Interpolation::QuadraticIn,
+        Interpolation::QuadraticOut,
+        Interpolation::QuadraticInOut,
+        Interpolation::CubicIn,
+        Interpolation::CubicOut,
+        Interpolation::CubicInOut,
+        Interpolation::QuarticIn,
+        Interpolation::QuarticOut,
+        Interpolation::QuarticInOut,
+        Interpolation::QuinticIn,
+        Interpolation::QuinticOut,
+        Interpolation::QuinticInOut,
+        Interpolation::SineIn,
+        Interpolation::SineOut,
+        Interpolation::SineInOut,
+        Interpolation::CircularIn,
+        Interpolation::CircularOut,
+        Interpolation::CircularInOut,
+        Interpolation::ExponentialIn,
+        Interpolation::ExponentialOut,
+        Interpolation::ExponentialInOut,
+        Interpolation::ElasticIn,
+        Interpolation::ElasticOut,
+        Interpolation::ElasticInOut,
+        Interpolation::BackIn,
+        Interpolation::BackOut,
+        Interpolation::BackInOut,
+        Interpolation::BounceIn,
+        Interpolation::BounceOut,
+        Interpolation::BounceInOut,
+    ];
+
+    fn assert_approx_eq_f32(a: f32, b: f32, variant: Interpolation, endpoint: &str) {
+        let eps = 1e-5_f32;
+        assert!(
+            (a - b).abs() <= eps,
+            "variant={:?} endpoint={} expected {}, got {} (|diff|={})",
+            variant,
+            endpoint,
+            b,
+            a,
+            (a - b).abs()
+        );
+    }
+
+    fn assert_approx_eq_f64(a: f64, b: f64, variant: Interpolation, endpoint: &str) {
+        let eps = 1e-12_f64;
+        assert!(
+            (a - b).abs() <= eps,
+            "variant={:?} endpoint={} expected {}, got {} (|diff|={})",
+            variant,
+            endpoint,
+            b,
+            a,
+            (a - b).abs()
+        );
+    }
+
+    #[test]
+    fn endpoints_are_0_and_1_for_f32() {
+        for &e in &ALL_VARIANTS {
+            let at_0 = 0.0f32.interpolate(e);
+            let at_1 = 1.0f32.interpolate(e);
+            assert_approx_eq_f32(at_0, 0.0, e, "0");
+            assert_approx_eq_f32(at_1, 1.0, e, "1");
+        }
+    }
+
+    #[test]
+    fn endpoints_are_0_and_1_for_f64() {
+        for &e in &ALL_VARIANTS {
+            let at_0 = 0.0f64.interpolate(e);
+            let at_1 = 1.0f64.interpolate(e);
+            assert_approx_eq_f64(at_0, 0.0, e, "0");
+            assert_approx_eq_f64(at_1, 1.0, e, "1");
+        }
+    }
+}
+
+// The charting code depends on the `plotters` crate which is a dev-dependency.
+// It's only compiled during tests.
+#[cfg(test)]
+mod manual_charts {
+    use super::{Ease, Interpolation};
+    use plotters::prelude::*;
+    use plotters::series::LineSeries;
+    use std::fs;
+
+    const OUT_DIR: &str = "target/ease_charts";
+    const WIDTH: u32 = 800;
+    const HEIGHT: u32 = 600;
+    const SAMPLES: usize = 1024;
+
+    fn variant_name(v: Interpolation) -> &'static str {
+        match v {
+            Interpolation::Linear => "linear",
+            Interpolation::QuadraticIn => "quadratic_in",
+            Interpolation::QuadraticOut => "quadratic_out",
+            Interpolation::QuadraticInOut => "quadratic_in_out",
+            Interpolation::CubicIn => "cubic_in",
+            Interpolation::CubicOut => "cubic_out",
+            Interpolation::CubicInOut => "cubic_in_out",
+            Interpolation::QuarticIn => "quartic_in",
+            Interpolation::QuarticOut => "quartic_out",
+            Interpolation::QuarticInOut => "quartic_in_out",
+            Interpolation::QuinticIn => "quintic_in",
+            Interpolation::QuinticOut => "quintic_out",
+            Interpolation::QuinticInOut => "quintic_in_out",
+            Interpolation::SineIn => "sine_in",
+            Interpolation::SineOut => "sine_out",
+            Interpolation::SineInOut => "sine_in_out",
+            Interpolation::CircularIn => "circular_in",
+            Interpolation::CircularOut => "circular_out",
+            Interpolation::CircularInOut => "circular_in_out",
+            Interpolation::ExponentialIn => "exponential_in",
+            Interpolation::ExponentialOut => "exponential_out",
+            Interpolation::ExponentialInOut => "exponential_in_out",
+            Interpolation::ElasticIn => "elastic_in",
+            Interpolation::ElasticOut => "elastic_out",
+            Interpolation::ElasticInOut => "elastic_in_out",
+            Interpolation::BackIn => "back_in",
+            Interpolation::BackOut => "back_out",
+            Interpolation::BackInOut => "back_in_out",
+            Interpolation::BounceIn => "bounce_in",
+            Interpolation::BounceOut => "bounce_out",
+            Interpolation::BounceInOut => "bounce_in_out",
+        }
+    }
+
+    fn draw_variant(v: Interpolation) -> Result<(), Box<dyn std::error::Error>> {
+        fs::create_dir_all(OUT_DIR)?;
+        let filename = format!("{}/{}.png", OUT_DIR, variant_name(v));
+
+        let root = BitMapBackend::new(&filename, (WIDTH, HEIGHT)).into_drawing_area();
+        root.fill(&WHITE)?;
+
+        let mut chart = ChartBuilder::on(&root)
+            .caption(format!("Easing: {}", variant_name(v)), ("sans-serif", 28))
+            .margin(20)
+            .x_label_area_size(40)
+            .y_label_area_size(40)
+            // Many easing functions (back/elastic/bounce) overshoot outside [0,1].
+            // Use a slightly expanded y-range to visualize the full curve.
+            .build_cartesian_2d(0.0f64..1.0f64, -0.3f64..1.3f64)?;
+
+        chart
+            .configure_mesh()
+            .x_labels(11)
+            .y_labels(11)
+            .x_desc("t")
+            .y_desc("value")
+            .draw()?;
+
+        chart.draw_series(LineSeries::new(
+            (0..=SAMPLES).map(|i| {
+                let t = i as f64 / SAMPLES as f64;
+                (t, t.interpolate(v))
+            }),
+            &BLUE,
+        ))?;
+
+        root.present()?;
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn generate_ease_charts() -> Result<(), Box<dyn std::error::Error>> {
+        let variants = [
+            Interpolation::Linear,
+            Interpolation::QuadraticIn,
+            Interpolation::QuadraticOut,
+            Interpolation::QuadraticInOut,
+            Interpolation::CubicIn,
+            Interpolation::CubicOut,
+            Interpolation::CubicInOut,
+            Interpolation::QuarticIn,
+            Interpolation::QuarticOut,
+            Interpolation::QuarticInOut,
+            Interpolation::QuinticIn,
+            Interpolation::QuinticOut,
+            Interpolation::QuinticInOut,
+            Interpolation::SineIn,
+            Interpolation::SineOut,
+            Interpolation::SineInOut,
+            Interpolation::CircularIn,
+            Interpolation::CircularOut,
+            Interpolation::CircularInOut,
+            Interpolation::ExponentialIn,
+            Interpolation::ExponentialOut,
+            Interpolation::ExponentialInOut,
+            Interpolation::ElasticIn,
+            Interpolation::ElasticOut,
+            Interpolation::ElasticInOut,
+            Interpolation::BackIn,
+            Interpolation::BackOut,
+            Interpolation::BackInOut,
+            Interpolation::BounceIn,
+            Interpolation::BounceOut,
+            Interpolation::BounceInOut,
+        ];
+
+        for &v in &variants {
+            draw_variant(v)?;
+        }
+        Ok(())
+    }
+}
