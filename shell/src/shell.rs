@@ -30,7 +30,7 @@ use massive_animation::Tickery;
 pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
 ) -> Result<()> {
-    // Don't force initialization of the env logger (calling main may already initialized it)
+    // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
 
     let event_loop = EventLoop::with_user_event().build()?;
