@@ -18,6 +18,25 @@ impl<T> Progress<T> {
         }
     }
 
+    pub fn map_or_cancel<R>(self, f: impl FnMut(T) -> Option<R>) -> Progress<R> {
+        self.map_or(f, Progress::Cancel)
+    }
+
+    pub fn map_or_commit<R>(self, f: impl FnMut(T) -> Option<R>) -> Progress<R> {
+        self.map_or(f, Progress::Commit)
+    }
+
+    pub fn map_or<R>(self, mut f: impl FnMut(T) -> Option<R>, or: Progress<R>) -> Progress<R> {
+        match self {
+            Progress::Proceed(v) => match f(v) {
+                Some(r) => Progress::Proceed(r),
+                None => or,
+            },
+            Progress::Commit => Progress::Commit,
+            Progress::Cancel => Progress::Cancel,
+        }
+    }
+
     pub fn map<R>(self, mut f: impl FnMut(T) -> R) -> Progress<R> {
         match self {
             Progress::Proceed(v) => Progress::Proceed(f(v)),
@@ -27,9 +46,14 @@ impl<T> Progress<T> {
     }
 
     pub fn ends(&self) -> bool {
+        self.proceeds().is_none()
+    }
+
+    pub fn proceeds(&self) -> Option<&T> {
         match self {
-            Progress::Proceed(_) => false,
-            Progress::Commit | Progress::Cancel => true,
+            Progress::Proceed(v) => Some(v),
+            Progress::Commit => None,
+            Progress::Cancel => None,
         }
     }
 }
