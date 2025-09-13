@@ -65,20 +65,22 @@ impl<T> BlendedAnimation<T> {
 
         for (index, animation) in self.animations.iter().enumerate() {
             let t = animation.t_at(instant);
+            // t might be larger than 1, if the animation does not end. But it's never negative.
+            assert!(t >= 0.0);
             let value = animation.value_at_t(t);
 
             // The weight of the current animation relative to all previous ones.
             //
             // Weight is 1 at index 0, because a single animation does not need a blending factor,
             // otherwise the weight is the same t the animation uses to interpolate its value.
-            let blend_weight = if index == 0 { 1. } else { t };
+            let blend_weight = if index == 0 { 1. } else { t.min(1.0) };
 
             // Blend the current value (linearily) into the animations value and use it as the basis
             // for the next round.
             blended = Interpolatable::interpolate(&blended, &value, blend_weight);
 
-            // The previous ones can be removed if the weight of the current animation is >= 1..
-            // They don't contribute to the final value anymore.
+            // The previous animations can be removed if the weight of the current animation is >=
+            // 1.. They don't contribute to the final value anymore.
             if blend_weight >= 1. {
                 first_contributing_animation_index = index;
             }
@@ -120,7 +122,8 @@ impl<T> Animation<T> {
             return 0.;
         }
 
-        if instant >= self.end_time() {
+        let end_time = self.start_time + self.duration;
+        if instant >= end_time {
             return 1.;
         }
 
@@ -154,9 +157,5 @@ impl<T> Animation<T> {
         let t = Ease::interpolate(t, self.interpolation);
 
         Interpolatable::interpolate(&self.from, &self.to, t)
-    }
-
-    pub fn end_time(&self) -> Instant {
-        self.start_time + self.duration
     }
 }
