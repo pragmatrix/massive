@@ -5,7 +5,7 @@
 // Architecture: This is slighly overengineered. Depedency tracking is probably not worth it.
 use std::cell::RefCell;
 
-use massive_geometry::{Camera, DepthRange, PerspectiveDivide, Plane, Point3, Ray, Vector4};
+use massive_geometry::{Camera, DepthRange, PerspectiveDivide, Plane, Point, Point3, Ray, Vector4};
 use massive_scene::Matrix;
 
 use crate::{Version, tools::Versioned};
@@ -105,13 +105,13 @@ impl RenderGeometry {
     ///
     /// Returns the hit point in model-local coordinates or None if the ray is parallel or
     /// numerically unstable.
-    pub fn unproject_to_model_z0(&self, pos_px: (f64, f64), model: &Matrix) -> Option<Point3> {
+    pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix) -> Option<Point3> {
         use cgmath::SquareMatrix;
         let depth_range = self.depth_range();
         let inverted_mvp = (self.view_projection() * model).invert()?;
 
         // Screen -> NDC (flip Y)
-        let (ndc_x, ndc_y) = self.screen_to_ndc(pos_px);
+        let (ndc_x, ndc_y) = self.screen_to_ndc(pos_px).into();
 
         // Unproject near/far in panel space directly
         let clip_near = Vector4::new(ndc_x, ndc_y, depth_range.near, 1.0);
@@ -127,13 +127,13 @@ impl RenderGeometry {
     }
 
     /// Map screen pixel coordinates to normalized WGPU device coordinates.
-    fn screen_to_ndc(&self, pos_px: (f64, f64)) -> (f64, f64) {
+    fn screen_to_ndc(&self, pos_px: Point) -> Point {
         let surface_size = self.surface_size();
 
         // Screen -> NDC (flip Y)
-        let ndc_x = (pos_px.0 / surface_size.0 as f64) * 2.0 - 1.0;
-        let ndc_y = 1.0 - (pos_px.1 / surface_size.1 as f64) * 2.0;
-        (ndc_x, ndc_y)
+        let ndc_x = (pos_px.x / surface_size.0 as f64) * 2.0 - 1.0;
+        let ndc_y = 1.0 - (pos_px.y / surface_size.1 as f64) * 2.0;
+        (ndc_x, ndc_y).into()
     }
 }
 
