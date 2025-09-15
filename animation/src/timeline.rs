@@ -82,6 +82,16 @@ impl<T: Interpolatable + Send> Timeline<T> {
             .unwrap_or(inner.value.clone())
     }
 
+    /// `true` if this is currently animating.
+    ///
+    /// Detail: Even if this is returning `false`, the client needing the value in response to
+    /// ApplyAnimations may not have seen the final value yet. For example, this happens when the
+    /// current value is retrieved while not in response to an ApplyAnimations event.
+    ///
+    /// So if this returns `false`, the value should be used to apply to the animated values that
+    /// need updates.
+    ///
+    /// Ergonomics: Foolproof!
     pub fn is_animating(&self) -> bool {
         self.inner.lock().expect("poisoned").animation.is_active()
     }
