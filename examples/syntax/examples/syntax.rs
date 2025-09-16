@@ -11,9 +11,9 @@ use syntect::{
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, Color};
-use massive_scene::{Scene, Visual};
+use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, shell};
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},
@@ -119,7 +119,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
     loop {
         let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
+        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
 
         if let Some(window_event) = event.window_event_for_id(window.id()) {
             match application.update(window_event) {

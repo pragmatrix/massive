@@ -6,8 +6,8 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
-use massive_scene::{Scene, Visual};
-use massive_shell::{ApplicationContext, shell};
+use massive_scene::Visual;
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText},
@@ -109,7 +109,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     loop {
         let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
+        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
 
         info!("Event: {event:?}");
 

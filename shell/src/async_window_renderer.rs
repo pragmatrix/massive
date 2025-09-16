@@ -9,7 +9,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
-use log::error;
+use log::{error, info};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel,
 };
@@ -29,6 +29,18 @@ pub struct AsyncWindowRenderer {
     presentation_receiver: UnboundedReceiver<Instant>,
     thread_handle: Option<JoinHandle<()>>,
     geometry: RenderGeometry,
+    /// The current render pacing as seen from the client. This may not reflect reality, as it is
+    /// synchronized with the renderer asynchronously.
+    pacing: RenderPacing,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum RenderPacing {
+    #[default]
+    // Render as fast as possible to be able to represent input changes.
+    Fast,
+    // Render a smooth as possible so that animations are synced to the frame rate.
+    Smooth,
 }
 
 #[derive(Debug)]
@@ -79,6 +91,7 @@ impl AsyncWindowRenderer {
             presentation_receiver,
             thread_handle: Some(thread_handle),
             geometry,
+            pacing: Default::default(),
         }
     }
 
@@ -129,7 +142,29 @@ impl AsyncWindowRenderer {
         self.redraw()
     }
 
-    pub fn set_present_mode(&self, new_present_mode: wgpu::PresentMode) -> Result<()> {
+    pub fn pacing(&self) -> RenderPacing {
+        self.pacing
+    }
+
+    /// Synchronizes the render pacing suggested by the current state of the tickery with the renderer.
+    pub fn update_render_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
+        if pacing == self.pacing {
+            return Ok(());
+        }
+
+        info!("Changing renderer pacing to: {pacing:?}");
+
+        let new_present_mode = match pacing {
+            RenderPacing::Fast => wgpu::PresentMode::AutoNoVsync,
+            RenderPacing::Smooth => wgpu::PresentMode::AutoVsync,
+        };
+        self.set_present_mode(new_present_mode)?;
+
+        self.pacing = pacing;
+        Ok(())
+    }
+
+    fn set_present_mode(&self, new_present_mode: wgpu::PresentMode) -> Result<()> {
         self.post_msg(RendererMessage::SetPresentMode(new_present_mode))
     }
 

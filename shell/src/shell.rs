@@ -1,10 +1,5 @@
 use std::{future::Future, mem, sync::Arc};
 
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::Instant;
-#[cfg(target_arch = "wasm32")]
-use web_time::Instant;
-
 use anyhow::{Result, anyhow, bail};
 use log::{error, info, warn};
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
@@ -17,7 +12,6 @@ use winit::{
 };
 
 use crate::{ApplicationContext, ShellWindow, shell_window::ShellWindowShared};
-use massive_animation::Tickery;
 
 /// Starts the shell.
 ///
@@ -196,12 +190,10 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
 
         let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 
-        let tickery = Tickery::new(Instant::now());
-
         let scale_factor = event_loop.primary_monitor().map(|pm| pm.scale_factor());
 
         let application_context =
-            ApplicationContext::new(event_receiver, proxy.clone(), tickery.into(), scale_factor);
+            ApplicationContext::new(event_receiver, proxy.clone(), scale_factor);
 
         let result_receiver = (spawner.take().unwrap())(application_context);
         *self = Self::Running {

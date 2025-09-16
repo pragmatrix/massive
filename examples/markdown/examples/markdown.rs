@@ -21,9 +21,9 @@ use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::Subscr
 use winit::dpi::PhysicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_scene::{Scene, Visual};
+use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-use massive_shell::{ApplicationContext, shell};
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
@@ -121,7 +121,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
         let window_id = renderer.window_id();
 
-        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
+        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
 
         if let Some(window_event) = event.window_event_for_id(window_id) {
             info!("Window Event: {window_event:?}");
