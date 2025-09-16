@@ -103,6 +103,15 @@ impl<T> BlendedAnimation<T> {
 
         Some(blended)
     }
+
+    /// Remove all animations and return the final value.
+    pub fn commit(&mut self) -> Option<T> {
+        if let Some(last) = self.animations.pop() {
+            self.animations.clear();
+            return Some(last.to);
+        }
+        None
+    }
 }
 
 #[derive(Debug)]
