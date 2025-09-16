@@ -113,7 +113,7 @@ impl RenderGeometry {
         // Screen -> NDC (flip Y)
         let (ndc_x, ndc_y) = self.screen_to_ndc(pos_px).into();
 
-        // Unproject near/far in panel space directly
+        // Unproject near/far in plane space directly
         let clip_near = Vector4::new(ndc_x, ndc_y, depth_range.near, 1.0);
         let clip_far = Vector4::new(ndc_x, ndc_y, depth_range.far, 1.0);
         let near_h = inverted_mvp * clip_near;

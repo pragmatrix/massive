@@ -21,7 +21,6 @@ impl Ray {
         let origin = origin.into();
         let target = target.into();
 
-        // Ray in panel space
         let mut dir = target - origin;
         if dir.magnitude2() < EPSILON * 1e-6 {
             return None;
