@@ -121,7 +121,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
         let window_id = renderer.window_id();
 
-        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
+        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
 
         if let Some(window_event) = event.window_event_for_id(window_id) {
             info!("Window Event: {window_event:?}");

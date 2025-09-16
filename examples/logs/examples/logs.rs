@@ -113,13 +113,13 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     loop {
         select! {
             Some(bytes) = receiver.recv() => {
-                let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, None)?;
+                let _cycle = scene.begin_update_cycle(&mut renderer, None)?;
                 logs.add_line(&scene, &bytes);
                 logs.update_layout()?;
             },
 
             Ok(event) = ctx.wait_for_shell_event(&mut renderer) => {
-                let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
+                let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
                 if logs.handle_shell_event(event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }

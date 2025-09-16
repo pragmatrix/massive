@@ -1,7 +1,6 @@
-use std::{collections::VecDeque, time::Instant};
+use std::collections::VecDeque;
 
 use anyhow::{Result, anyhow, bail};
-use log::{error, info};
 use tokio::{
     select,
     sync::{
@@ -9,10 +8,11 @@ use tokio::{
         oneshot,
     },
 };
-use winit::{dpi, event::WindowEvent, event_loop::EventLoopProxy, window::WindowAttributes};
+use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{AsyncWindowRenderer, Scene, ShellEvent, ShellRequest, ShellWindow, message_filter};
-use massive_geometry::Camera;
+use crate::{
+    AsyncWindowRenderer, RenderPacing, ShellEvent, ShellRequest, ShellWindow, message_filter,
+};
 
 /// The [`ApplicationContext`] is the connection to the runtinme. It allows the application to poll
 /// for events while also forwarding events to the renderer.
@@ -28,21 +28,8 @@ pub struct ApplicationContext {
     /// ADR: currently here, but should probably be an EventLoop query.
     monitor_scale_factor: Option<f64>,
 
-    /// The current render pacing as seen from the application context. This may not reflect
-    /// reality, as it is synchronized with the renderer asynchronously.
-    render_pacing: RenderPacing,
-
     /// Pending events received but not yet delivered.
     pending_events: VecDeque<ShellEvent>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub enum RenderPacing {
-    #[default]
-    // Render as fast as possible to be able to represent input changes.
-    Fast,
-    // Render a smooth as possible so that animations are synced to the frame rate.
-    Smooth,
 }
 
 impl ApplicationContext {
@@ -55,7 +42,6 @@ impl ApplicationContext {
             event_receiver,
             event_loop_proxy,
             monitor_scale_factor,
-            render_pacing: RenderPacing::default(),
             pending_events: Default::default(),
         }
     }
@@ -174,7 +160,7 @@ impl ApplicationContext {
                 }
 
                 _instant = renderer.wait_for_most_recent_presentation() => {
-                    if self.render_pacing == RenderPacing::Smooth {
+                    if renderer.pacing() == RenderPacing::Smooth {
                         // Robustness: If applyAnimations will come to fast, we probably should push
                         // them into pending_messages.
                         return Ok(ShellEvent::ApplyAnimations);
@@ -182,179 +168,6 @@ impl ApplicationContext {
                     // else: Wasn't in a animation cycle: loop and wait for an input event.
                 }
             };
-        }
-    }
-
-    /// Begin an update cycle.
-    ///
-    /// The update cycle is used at a time the scene changes and the renderer needs to be informed
-    /// at the end of the update cycle about the changes.
-    pub fn begin_update_cycle<'a>(
-        // Not only do we need &mut self in the Drop handler, but this also prevents users to
-        // start a second update cycle in parallel. But this may be allowed?
-        // (right now, only .animation is used, which needs only the tickery).
-        &'a mut self,
-        scene: &'a Scene,
-        renderer: &'a mut AsyncWindowRenderer,
-        event: Option<&ShellEvent>,
-    ) -> Result<UpdateCycle<'a>> {
-        // Handle the window event.
-        let mode = if let Some(event) = event {
-            match event {
-                ShellEvent::WindowEvent(window_id, window_event)
-                    if *window_id == renderer.window_id() =>
-                {
-                    match window_event {
-                        WindowEvent::Resized(size) => {
-                            // A resize is sent to the renderer first, so that we can prepare it for the right size
-                            // as soon as possible.
-                            //
-                            // Performance: Does a resize block inside the async renderer if there is a pending
-                            // presentation?
-                            renderer.resize((size.width, size.height))?;
-                            UpdateCycleMode::WindowResize
-                        }
-                        WindowEvent::RedrawRequested => UpdateCycleMode::RedrawRequested,
-                        _ => UpdateCycleMode::ExternalOrInteractionEvent,
-                    }
-                }
-                ShellEvent::WindowEvent(_, _) => {
-                    bail!("Received an event from a foreign window");
-                }
-
-                ShellEvent::ApplyAnimations => {
-                    // Optimization: This Instant::now() should not be used for animation cycles,
-                    // (Apply Animations could really carry the previous presentation time)
-                    UpdateCycleMode::ApplyAnimations
-                }
-            }
-        } else {
-            UpdateCycleMode::ExternalOrInteractionEvent
-        };
-
-        let apply_animations = mode == UpdateCycleMode::ApplyAnimations;
-        scene
-            .tickery
-            .begin_update_cycle(Instant::now(), apply_animations);
-
-        Ok(UpdateCycle {
-            mode,
-            ctx: self,
-            scene,
-            renderer,
-        })
-    }
-
-    fn end_update_cycle(cycle: &mut UpdateCycle) -> Result<()> {
-        // Push scene changes to the renderer.
-
-        let changes = cycle.scene.take_changes()?;
-        let any_scene_changes = !changes.is_empty();
-
-        // Push the changes _directly_ to the renderer which picks it in the next redraw. This may
-        // asynchronously overtake the subsequent redraw request if a previous was pending.
-        // Architecture: We could send this through the RendererMessage::Redraw, which may cause other problems
-        // (increased latency and the need for combining changes if Redraws are pending).
-        if any_scene_changes {
-            cycle.renderer.change_collector().push_many(changes);
-        }
-
-        // Issue a redraw before potentially changing the render pacing.
-        if any_scene_changes || cycle.mode == UpdateCycleMode::RedrawRequested {
-            cycle.renderer.redraw()?;
-        }
-
-        // Update render pacing depending on if there are active animations.
-
-        let animations_before = cycle.ctx.render_pacing == RenderPacing::Smooth;
-        let animations_now = cycle.scene.tickery.animation_ticks_requested();
-
-        match cycle.mode {
-            UpdateCycleMode::ExternalOrInteractionEvent
-            | UpdateCycleMode::WindowResize
-            | UpdateCycleMode::RedrawRequested => {
-                // For these cycle modes, we only allow upgrades to the Smooth render pacing
-                if !animations_before && animations_now {
-                    info!("Enabling smooth rendering (animations on)");
-                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Fast);
-                    cycle
-                        .ctx
-                        .synchronize_render_pacing(RenderPacing::Smooth, cycle.renderer)?;
-                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Smooth);
-                }
-            }
-            UpdateCycleMode::ApplyAnimations => {
-                assert!(animations_before);
-                if !animations_now {
-                    info!("Disabling smooth rendering (animations off)");
-                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Smooth);
-                    cycle
-                        .ctx
-                        .synchronize_render_pacing(RenderPacing::Fast, cycle.renderer)?;
-                    assert_eq!(cycle.ctx.render_pacing, RenderPacing::Fast);
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Synchronizes the render pacing suggested by the current state of the tickery with the renderer.
-    fn synchronize_render_pacing(
-        &mut self,
-        pacing: RenderPacing,
-        renderer: &mut AsyncWindowRenderer,
-    ) -> Result<()> {
-        if pacing == self.render_pacing {
-            return Ok(());
-        }
-
-        info!("Changing renderer pacing to: {pacing:?}");
-
-        let new_present_mode = match pacing {
-            RenderPacing::Fast => wgpu::PresentMode::AutoNoVsync,
-            RenderPacing::Smooth => wgpu::PresentMode::AutoVsync,
-        };
-        renderer.set_present_mode(new_present_mode)?;
-
-        self.render_pacing = pacing;
-        Ok(())
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum UpdateCycleMode {
-    ExternalOrInteractionEvent,
-    WindowResize,
-    RedrawRequested,
-    ApplyAnimations,
-}
-
-#[derive(Debug)]
-pub struct UpdateCycle<'a> {
-    mode: UpdateCycleMode,
-    ctx: &'a mut ApplicationContext,
-    /// The scene, so that we can push the changes at the end of the cycle to the renderer.
-    scene: &'a Scene,
-    renderer: &'a mut AsyncWindowRenderer,
-}
-
-impl UpdateCycle<'_> {
-    /// Ergonomics: Since Scene can only stage here, what about implementing the stage() function directly on
-    /// UpdateCycle?
-    pub fn scene(&self) -> &Scene {
-        self.scene
-    }
-
-    pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
-        self.renderer.update_camera(camera)
-    }
-}
-
-impl Drop for UpdateCycle<'_> {
-    fn drop(&mut self) {
-        if let Err(e) = ApplicationContext::end_update_cycle(self) {
-            error!("Error while ending the update cycle: {e:?}")
         }
     }
 }

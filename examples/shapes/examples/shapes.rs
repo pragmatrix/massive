@@ -183,7 +183,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
 
     loop {
         let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, Some(&event))?;
+        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
 
         if let Some(window_event) = event.window_event_for_id(window.id()) {
             match application.update(window_event) {
