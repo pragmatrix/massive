@@ -6,8 +6,8 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI};
-use massive_scene::{Scene, Visual};
-use massive_shell::{ApplicationContext, shell};
+use massive_scene::Visual;
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText},

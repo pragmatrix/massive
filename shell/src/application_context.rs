@@ -1,8 +1,4 @@
-use std::{
-    collections::VecDeque,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{collections::VecDeque, time::Instant};
 
 use anyhow::{Result, anyhow, bail};
 use log::{error, info};
@@ -15,10 +11,8 @@ use tokio::{
 };
 use winit::{dpi, event::WindowEvent, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{AsyncWindowRenderer, ShellEvent, ShellRequest, ShellWindow, message_filter};
-use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
+use crate::{AsyncWindowRenderer, Scene, ShellEvent, ShellRequest, ShellWindow, message_filter};
 use massive_geometry::Camera;
-use massive_scene::Scene;
 
 /// The [`ApplicationContext`] is the connection to the runtinme. It allows the application to poll
 /// for events while also forwarding events to the renderer.
@@ -30,7 +24,6 @@ pub struct ApplicationContext {
     event_receiver: UnboundedReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
     event_loop_proxy: EventLoopProxy<ShellRequest>,
-    tickery: Arc<Tickery>,
 
     /// ADR: currently here, but should probably be an EventLoop query.
     monitor_scale_factor: Option<f64>,
@@ -56,13 +49,11 @@ impl ApplicationContext {
     pub fn new(
         event_receiver: UnboundedReceiver<ShellEvent>,
         event_loop_proxy: EventLoopProxy<ShellRequest>,
-        tickery: Arc<Tickery>,
         monitor_scale_factor: Option<f64>,
     ) -> Self {
         Self {
             event_receiver,
             event_loop_proxy,
-            tickery,
             monitor_scale_factor,
             render_pacing: RenderPacing::default(),
             pending_events: Default::default(),
@@ -133,24 +124,6 @@ impl ApplicationContext {
         Ok(ShellWindow {
             window: Rc::new(window),
         })
-    }
-
-    /// Create a timeline with a starting value.
-    pub fn timeline<T: Interpolatable + Send>(&self, value: T) -> Timeline<T> {
-        self.tickery.timeline(value)
-    }
-
-    /// Create a timeline that is animating from a starting value to a target value.
-    pub fn animation<T: Interpolatable + 'static + Send>(
-        &self,
-        value: T,
-        target_value: T,
-        duration: Duration,
-        interpolation: Interpolation,
-    ) -> Timeline<T> {
-        let mut timeline = self.tickery.timeline(value);
-        timeline.animate_to(target_value, duration, interpolation);
-        timeline
     }
 
     /// Wait for the next shell event.
@@ -260,7 +233,8 @@ impl ApplicationContext {
         };
 
         let apply_animations = mode == UpdateCycleMode::ApplyAnimations;
-        self.tickery
+        scene
+            .tickery
             .begin_update_cycle(Instant::now(), apply_animations);
 
         Ok(UpdateCycle {
@@ -293,7 +267,7 @@ impl ApplicationContext {
         // Update render pacing depending on if there are active animations.
 
         let animations_before = cycle.ctx.render_pacing == RenderPacing::Smooth;
-        let animations_now = cycle.ctx.tickery.animation_ticks_requested();
+        let animations_now = cycle.scene.tickery.animation_ticks_requested();
 
         match cycle.mode {
             UpdateCycleMode::ExternalOrInteractionEvent
@@ -370,18 +344,6 @@ impl UpdateCycle<'_> {
     /// UpdateCycle?
     pub fn scene(&self) -> &Scene {
         self.scene
-    }
-
-    /// Create a timeline that is animating from a starting value to a target value.
-    pub fn animation<T: Interpolatable + 'static + Send>(
-        &self,
-        value: T,
-        target_value: T,
-        duration: Duration,
-        interpolation: Interpolation,
-    ) -> Timeline<T> {
-        self.ctx
-            .animation(value, target_value, duration, interpolation)
     }
 
     pub fn update_camera(&mut self, camera: Camera) -> Result<()> {

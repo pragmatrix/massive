@@ -23,11 +23,10 @@ use winit::{
 
 use massive_animation::{Interpolation, Timeline};
 use massive_geometry::{Camera, Identity, Vector3};
-use massive_scene::{Handle, Location, Matrix, Scene, Visual};
+use massive_scene::{Handle, Location, Matrix, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
-    ApplicationContext, ShellWindow,
-    application_context::UpdateCycle,
+    ApplicationContext, Scene, ShellWindow,
     shell::{self, ShellEvent},
 };
 
@@ -107,15 +106,15 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         .await?;
 
     let scene = Scene::new();
-    let mut logs = Logs::new(&mut ctx, &scene, font_system);
+    let mut logs = Logs::new(&scene, font_system);
 
     // Application
 
     loop {
         select! {
             Some(bytes) = receiver.recv() => {
-                let cycle = ctx.begin_update_cycle(&scene, &mut renderer, None)?;
-                logs.add_line(&cycle, &bytes);
+                let _cycle = ctx.begin_update_cycle(&scene, &mut renderer, None)?;
+                logs.add_line(&scene, &bytes);
                 logs.update_layout()?;
             },
 
@@ -146,18 +145,14 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(
-        ctx: &mut ApplicationContext,
-        scene: &Scene,
-        font_system: Arc<Mutex<FontSystem>>,
-    ) -> Self {
+    fn new(scene: &Scene, font_system: Arc<Mutex<FontSystem>>) -> Self {
         let page_width = 1280u32;
         let application = Application::default();
         let current_matrix = application.matrix((page_width, page_width));
         let page_matrix = scene.stage(current_matrix);
         let page_location = scene.stage(Location::from(page_matrix.clone()));
 
-        let vertical_center = ctx.timeline(0.0);
+        let vertical_center = scene.timeline(0.0);
 
         // We move up the lines by their top position.
         let vertical_center_matrix = scene.stage(Matrix::identity());
@@ -168,7 +163,7 @@ impl Logs {
             matrix: vertical_center_matrix.clone(),
         });
 
-        let page_height = ctx.timeline(0.0);
+        let page_height = scene.timeline(0.0);
 
         Self {
             font_system,
@@ -184,7 +179,7 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, cycle: &UpdateCycle, bytes: &[u8]) {
+    fn add_line(&mut self, scene: &Scene, bytes: &[u8]) {
         let (glyph_runs, height) = {
             let mut font_system = self.font_system.lock().unwrap();
 
@@ -194,11 +189,11 @@ impl Logs {
         let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
         let line = Visual::new(self.location.clone(), glyph_runs);
-        let line = cycle.scene().stage(line);
+        let line = scene.stage(line);
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,
-            fader: cycle.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
+            fader: scene.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
             visual: line,
             fading_out: false,
         });

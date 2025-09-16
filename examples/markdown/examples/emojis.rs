@@ -19,8 +19,8 @@ use log::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_scene::{Scene, Visual};
-use massive_shell::{ApplicationContext, shell};
+use massive_scene::Visual;
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,

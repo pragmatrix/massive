@@ -5,11 +5,11 @@ use cosmic_text::{FontSystem, fontdb};
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Camera, Color, Rect, Size};
-use massive_scene::{Scene, Visual};
+use massive_scene::Visual;
 use massive_shapes::{
     ChamferRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
-use massive_shell::{ApplicationContext, shell};
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::application::{Application, UpdateResponse};
 
 const CANVAS_ID: &str = "massive-shapes";

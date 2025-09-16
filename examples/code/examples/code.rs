@@ -25,9 +25,9 @@ use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
 use massive_geometry::{Camera, Color, SizeI};
-use massive_scene::{Scene, Visual};
+use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, shell};
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText, TextAttribute},

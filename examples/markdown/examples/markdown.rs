@@ -21,9 +21,9 @@ use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::Subscr
 use winit::dpi::PhysicalSize;
 
 use massive_geometry::{Camera, SizeI, Vector3};
-use massive_scene::{Scene, Visual};
+use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-use massive_shell::{ApplicationContext, shell};
+use massive_shell::{ApplicationContext, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
