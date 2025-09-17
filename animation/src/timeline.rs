@@ -49,12 +49,12 @@ impl<T: Interpolatable + Send> Timeline<T> {
             .animate_to(value, instant, target_value, duration, interpolation);
     }
 
-    /// Commit all animations.
+    /// Finalize all animations.
     ///
     /// This sets the current timeline to the final animation target value and stops all animations.
     ///
     /// Does nothing when no animation is active.
-    pub fn commit_animation(&mut self) {
+    pub fn finalize(&mut self) {
         let mut inner = self.inner.lock().expect("poisoned");
         if let Some(final_value) = inner.animation.commit() {
             inner.value = final_value
