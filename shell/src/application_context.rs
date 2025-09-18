@@ -14,7 +14,7 @@ use crate::{
     AsyncWindowRenderer, RenderPacing, ShellEvent, ShellRequest, ShellWindow, message_filter,
 };
 
-/// The [`ApplicationContext`] is the connection to the runtinme. It allows the application to poll
+/// The [`ApplicationContext`] is the connection to the runtime. It allows the application to poll
 /// for events while also forwarding events to the renderer.
 ///
 /// In addition to that it provides an animator that is updated with each event (mostly ticks)
