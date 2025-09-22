@@ -209,7 +209,8 @@ impl Logs {
 
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
-                    line.fader.to(0., FADE_DURATION, Interpolation::CubicIn);
+                    line.fader
+                        .animate_to(0., FADE_DURATION, Interpolation::CubicIn);
                     line.fading_out = true;
                 }
             }
@@ -229,14 +230,14 @@ impl Logs {
             .find(|l| !l.is_fading())
             .unwrap_or(self.lines.front().unwrap());
 
-        self.vertical_center.to(
+        self.vertical_center.animate_to(
             -top_line.top,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
         );
 
         let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
-        self.page_height.to(
+        self.page_height.animate_to(
             new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
