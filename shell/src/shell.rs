@@ -38,7 +38,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
         let (result_tx, result_rx) = oneshot::channel();
         let _application_task = tokio::spawn(async move {
             let r = application(application_context).await;
-            // Found no way to retrieve the result via JoinHandle, so a return via a onceshot channel
+            // Found no way to retrieve the result via JoinHandle, so a return via a oneshot channel
             // must do.
             result_tx
                 .send(Some(r))
@@ -96,7 +96,7 @@ pub enum ShellRequest {
 // Robustness: Try to remove the Clone requirement.
 #[derive(Debug, Clone)]
 pub enum ShellEvent {
-    // Architecture: Seperate this into a separate WindowEvent, because ApplyAnimations isn't used
+    // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
     // as a event pathway from the WinitApplicationHandler anymore.
     WindowEvent(WindowId, WindowEvent),
     ApplyAnimations,

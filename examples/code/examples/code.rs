@@ -61,9 +61,7 @@ async fn main() -> Result<()> {
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
-    let root_path = env::current_dir()
-        .unwrap()
-        .join(Path::new("/Users/armin/dev/massive/Cargo.toml"));
+    let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
 
     println!("Root path: {}", root_path.display());
 
@@ -253,7 +251,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let (glyph_runs, height) = attributed_text::shape_text(
         &mut font_system,
-        &text,
+        text,
         &attributes,
         font_size,
         line_height,
