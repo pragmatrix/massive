@@ -36,7 +36,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Animation starts on the next time the value is queried. This function does not change the
     /// current value, if it is currently not animating.
-    pub fn to(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
+    pub fn animate_to(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
     where
         T: 'static,
     {

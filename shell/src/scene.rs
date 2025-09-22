@@ -48,7 +48,7 @@ impl Scene {
         interpolation: Interpolation,
     ) -> Animated<T> {
         let mut animated = self.tickery.animated(value);
-        animated.to(target_value, duration, interpolation);
+        animated.animate_to(target_value, duration, interpolation);
         animated
     }
     /// Begin an update cycle.
