@@ -84,7 +84,7 @@ impl Scene {
                     }
                 }
                 ShellEvent::WindowEvent(_, _) => {
-                    bail!("Received an event from a foreign window");
+                    bail!("Received an event from another window");
                 }
 
                 ShellEvent::ApplyAnimations => {
@@ -130,7 +130,7 @@ impl Scene {
         // Update render pacing depending on if there are active animations.
 
         let animations_before = cycle.renderer.pacing() == RenderPacing::Smooth;
-        let animations_now = cycle.scene.tickery.animation_ticks_requested();
+        let animations_now = cycle.scene.tickery.animation_ticks_needed();
 
         match cycle.mode {
             UpdateCycleMode::ExternalOrInteractionEvent

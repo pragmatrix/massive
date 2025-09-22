@@ -149,6 +149,7 @@ impl ApplicationContext {
             if let Some(pending) = self.pending_events.pop_front() {
                 return Ok(pending);
             }
+
             select! {
                 event = self.event_receiver.recv() => {
                     let Some(event) = event else {
@@ -162,10 +163,12 @@ impl ApplicationContext {
                 _instant = renderer.wait_for_most_recent_presentation() => {
                     if renderer.pacing() == RenderPacing::Smooth {
                         // Robustness: If applyAnimations will come to fast, we probably should push
-                        // them into pending_messages.
+                        // them into pending_events.
+                        //
+                        // Detail: The renderer returns only the latest one.
                         return Ok(ShellEvent::ApplyAnimations);
                     }
-                    // else: Wasn't in a animation cycle: loop and wait for an input event.
+                    // else: Not in a animation cycle: loop and wait for an input event.
                 }
             };
         }
