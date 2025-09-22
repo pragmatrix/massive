@@ -56,9 +56,10 @@ impl Tickery {
     ///
     /// See [`AnimationToken`] and [`named_token()`].
     pub fn animation_ticks_needed(&self) -> bool {
-        let inner = self.inner.lock().expect("poisoned");
-
-        inner.animation_ticks_requested || self.any_tokens_alive()
+        self.inner
+            .lock()
+            .expect("poisoned")
+            .animation_ticks_requested
     }
 
     /// Marks the current tick as an animation tick on and returns it.
