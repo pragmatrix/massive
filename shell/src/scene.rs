@@ -11,7 +11,7 @@ use massive_geometry::Camera;
 use winit::event::WindowEvent;
 
 use crate::{AsyncWindowRenderer, RenderPacing, ShellEvent};
-use massive_animation::{Interpolatable, Interpolation, Tickery, Timeline};
+use massive_animation::{Animated, Interpolatable, Interpolation, Tickery};
 
 #[derive(Debug, Deref)]
 pub struct Scene {
@@ -34,22 +34,22 @@ impl Scene {
         }
     }
 
-    /// Create a timeline with a starting value.
-    pub fn timeline<T: Interpolatable + Send>(&self, value: T) -> Timeline<T> {
-        self.tickery.timeline(value)
+    /// Create an [`Animated`] with an initial value.
+    pub fn animated<T: Interpolatable + Send>(&self, value: T) -> Animated<T> {
+        self.tickery.animated(value)
     }
 
-    /// Create a timeline that is animating from a starting value to a target value.
+    /// Create a animated value that is animating from a starting value to a target value.
     pub fn animation<T: Interpolatable + 'static + Send>(
         &self,
         value: T,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
-    ) -> Timeline<T> {
-        let mut timeline = self.tickery.timeline(value);
-        timeline.animate_to(target_value, duration, interpolation);
-        timeline
+    ) -> Animated<T> {
+        let mut animated = self.tickery.animated(value);
+        animated.to(target_value, duration, interpolation);
+        animated
     }
     /// Begin an update cycle.
     ///

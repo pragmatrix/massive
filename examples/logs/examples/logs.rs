@@ -21,7 +21,7 @@ use winit::{
     event::{ElementState, KeyEvent, WindowEvent},
 };
 
-use massive_animation::{Interpolation, Timeline};
+use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Camera, Identity, Vector3};
 use massive_scene::{Handle, Location, Matrix, Visual};
 use massive_shapes::Shape;
@@ -136,8 +136,8 @@ struct Logs {
     page_matrix: Handle<Matrix>,
 
     page_width: u32,
-    page_height: Timeline<f64>,
-    vertical_center: Timeline<f64>,
+    page_height: Animated<f64>,
+    vertical_center: Animated<f64>,
     vertical_center_matrix: Handle<Matrix>,
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
@@ -152,7 +152,7 @@ impl Logs {
         let page_matrix = scene.stage(current_matrix);
         let page_location = scene.stage(Location::from(page_matrix.clone()));
 
-        let vertical_center = scene.timeline(0.0);
+        let vertical_center = scene.animated(0.0);
 
         // We move up the lines by their top position.
         let vertical_center_matrix = scene.stage(Matrix::identity());
@@ -163,7 +163,7 @@ impl Logs {
             matrix: vertical_center_matrix.clone(),
         });
 
-        let page_height = scene.timeline(0.0);
+        let page_height = scene.animated(0.0);
 
         Self {
             font_system,
@@ -209,8 +209,7 @@ impl Logs {
 
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
-                    line.fader
-                        .animate_to(0., FADE_DURATION, Interpolation::CubicIn);
+                    line.fader.to(0., FADE_DURATION, Interpolation::CubicIn);
                     line.fading_out = true;
                 }
             }
@@ -230,14 +229,14 @@ impl Logs {
             .find(|l| !l.is_fading())
             .unwrap_or(self.lines.front().unwrap());
 
-        self.vertical_center.animate_to(
+        self.vertical_center.to(
             -top_line.top,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
         );
 
         let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
-        self.page_height.animate_to(
+        self.page_height.to(
             new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
@@ -357,7 +356,7 @@ fn shape_log_line(
 struct LogLine {
     top: f64,
     visual: Handle<Visual>,
-    fader: Timeline<f64>,
+    fader: Animated<f64>,
     fading_out: bool,
 }
 
