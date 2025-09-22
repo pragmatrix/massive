@@ -5,7 +5,7 @@ use std::time::Instant;
 #[cfg(target_arch = "wasm32")]
 use web_time::Instant;
 
-use crate::{Interpolatable, Timeline};
+use crate::{Animated, Interpolatable};
 
 #[derive(Debug)]
 pub struct Tickery {
@@ -32,8 +32,8 @@ impl Tickery {
         }
     }
 
-    pub fn timeline<T: Interpolatable + Send>(self: &Arc<Self>, value: T) -> Timeline<T> {
-        Timeline::new(self.clone(), value)
+    pub fn animated<T: Interpolatable + Send>(self: &Arc<Self>, value: T) -> Animated<T> {
+        Animated::new(self.clone(), value)
     }
 
     /// Beings an update cycle.

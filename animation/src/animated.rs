@@ -5,24 +5,24 @@ use std::{
 
 use crate::{BlendedAnimation, Interpolatable, Interpolation, Tickery};
 
-/// A timeline represents a value over time that can be animated.
+/// `Animated` represents an animated value over time.
 ///
-/// Timeline implicitly supports animation blending. New animations added are combined with the
+/// `Animated` implicitly supports animation blending. New animations added are combined with the
 /// trajectory of previous animations.
 #[derive(Debug)]
-pub struct Timeline<T: Send> {
+pub struct Animated<T: Send> {
     tickery: Arc<Tickery>,
     /// The current value and the current state of the animation.
     ///
     /// Mutex, because we want to access it through `&self` but modify it through the animator.
-    inner: Mutex<TimelineInner<T>>,
+    inner: Mutex<AnimatedInner<T>>,
 }
 
-impl<T: Interpolatable + Send> Timeline<T> {
+impl<T: Interpolatable + Send> Animated<T> {
     pub(crate) fn new(tickery: Arc<Tickery>, value: T) -> Self {
         Self {
             tickery,
-            inner: TimelineInner {
+            inner: AnimatedInner {
                 value,
                 animation: Default::default(),
             }
@@ -36,7 +36,7 @@ impl<T: Interpolatable + Send> Timeline<T> {
     ///
     /// Animation starts on the next time the value is queried. This function does not change the
     /// current value, if it is currently not animating.
-    pub fn animate_to(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
+    pub fn to(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
     where
         T: 'static,
     {
@@ -51,7 +51,8 @@ impl<T: Interpolatable + Send> Timeline<T> {
 
     /// Finalize all animations.
     ///
-    /// This sets the current timeline to the final animation target value and stops all animations.
+    /// This sets the current animated value to the final animation target value and stops all
+    /// animations.
     ///
     /// Does nothing when no animation is active.
     pub fn finalize(&mut self) {
@@ -61,9 +62,9 @@ impl<T: Interpolatable + Send> Timeline<T> {
         }
     }
 
-    /// The current value of this timeline.
+    /// The current value of this animated value.
     ///
-    /// If an animaton is active, this computes the current value from the animation and also
+    /// If an animation is active, this computes the current value from the animation and also
     /// subscribes for further ticks in the future.
     pub fn value(&self) -> T {
         let mut inner = self.inner.lock().expect("poisoned");
@@ -83,8 +84,8 @@ impl<T: Interpolatable + Send> Timeline<T> {
         inner.value.clone()
     }
 
-    /// The final value of this timeline after all current animations ran through or the current one
-    /// if no animations are active.
+    /// The final value of this animated value after all current animations ran through or the
+    /// current one if no animations are active.
     pub fn final_value(&self) -> T {
         let inner = &self.inner.lock().expect("poisoned");
         inner
@@ -109,9 +110,9 @@ impl<T: Interpolatable + Send> Timeline<T> {
     }
 }
 
-/// Shared by the timeline value and the tickery.
+/// Shared by the animated value and the tickery.
 #[derive(Debug)]
-struct TimelineInner<T>
+struct AnimatedInner<T>
 where
     T: Send,
 {
