@@ -11,7 +11,7 @@ use massive_geometry::Camera;
 use winit::event::WindowEvent;
 
 use crate::{AsyncWindowRenderer, RenderPacing, ShellEvent};
-use massive_animation::{Animated, Interpolatable, Interpolation, Tickery};
+use massive_animation::{Animated, Interpolatable, Interpolation, Tickery, TimeScale};
 
 #[derive(Debug, Deref)]
 pub struct Scene {
@@ -51,6 +51,19 @@ impl Scene {
         animated.animate_to(target_value, duration, interpolation);
         animated
     }
+
+    /// Creates a animated value that can be used to animate other values.
+    ///
+    /// This tracks durations from one update cycle to the next and provides a way to animate other
+    /// values indirectly so that - even when update cycles are not called in regular intervals -
+    /// animations are as smooth as possible.
+    ///
+    /// As long as a TimeScale is asked to scale values, the system stays in "animation mode"
+    /// (attempts to re-render every frame) and sends regular  [`ShellEvent::ApplyAnimations`]s.
+    pub fn time_scale(&self) -> TimeScale {
+        self.tickery.time_scale()
+    }
+
     /// Begin an update cycle.
     ///
     /// The update cycle is used at a time the scene changes and the renderer needs to be informed
