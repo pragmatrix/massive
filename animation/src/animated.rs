@@ -30,6 +30,28 @@ impl<T: Interpolatable + Send> Animated<T> {
         }
     }
 
+    /// Animate to a target value if its different from the current target value.
+    ///
+    /// Ergonomics: This should probably be the default behavior.
+    pub fn animate_to_if_changed(
+        &mut self,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) where
+        T: 'static + PartialEq,
+    {
+        let mut inner = self.inner.lock().expect("poisoned");
+        if *inner.final_value() == target_value {
+            return;
+        }
+        let instant = self.tickery.animation_tick();
+        let value = inner.value.clone();
+        inner
+            .animation
+            .animate_to(value, instant, target_value, duration, interpolation);
+    }
+
     /// Animate to a target value in the given duration.
     ///
     /// When multiple animations happen in the same time slice, they are blended together.
@@ -87,12 +109,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     /// The final value of this animated value after all current animations ran through or the
     /// current one if no animations are active.
     pub fn final_value(&self) -> T {
-        let inner = &self.inner.lock().expect("poisoned");
-        inner
-            .animation
-            .final_value()
-            .cloned()
-            .unwrap_or(inner.value.clone())
+        self.inner.lock().expect("poisoned").final_value().clone()
     }
 
     /// `true` if this is currently animating.
@@ -108,6 +125,11 @@ impl<T: Interpolatable + Send> Animated<T> {
     pub fn is_animating(&self) -> bool {
         self.inner.lock().expect("poisoned").animation.is_active()
     }
+
+    /// Returns the number of active animation blendings.
+    pub fn animation_count(&self) -> usize {
+        self.inner.lock().expect("poisoned").animation.count()
+    }
 }
 
 /// Shared by the animated value and the tickery.
@@ -120,4 +142,10 @@ where
     value: T,
     /// The currently running animations.
     animation: BlendedAnimation<T>,
+}
+
+impl<T: Send> AnimatedInner<T> {
+    pub fn final_value(&self) -> &T {
+        self.animation.final_value().unwrap_or(&self.value)
+    }
 }

@@ -80,7 +80,7 @@ impl<T> BlendedAnimation<T> {
             // otherwise the weight is the same t the animation uses to interpolate its value.
             let blend_weight = if index == 0 { 1. } else { t.min(1.0) };
 
-            // Blend the current value (linearily) into the animations value and use it as the basis
+            // Blend the current value (linearly) into the animations value and use it as the basis
             // for the next round.
             blended = Interpolatable::interpolate(&blended, &value, blend_weight);
 
@@ -111,6 +111,13 @@ impl<T> BlendedAnimation<T> {
             return Some(last.to);
         }
         None
+    }
+
+    /// Returns the number of blended animations.
+    ///
+    /// Useful for debugging purposes.
+    pub fn count(&self) -> usize {
+        return self.animations.len();
     }
 }
 
