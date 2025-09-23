@@ -26,10 +26,11 @@ impl TimeScale {
         }
     }
 
-    /// Scale the value with the seconds passed since the previous animation update cycle. Returns 0
-    /// if [`TimeScale`] was created in the current update cycle.
-    pub fn scale_seconds(&mut self, value: f64) -> f64 {
-        value * self.duration_passed().as_secs_f64()
+    /// Multiply with the returned value to scale another value that is relative to seconds.
+    ///
+    /// Returns 0 if [`TimeScale`] was created in the current update cycle.
+    pub fn scale_seconds(&mut self) -> f64 {
+        self.duration_passed().as_secs_f64()
     }
 
     /// The duration passed since the last update cycle (ZERO if the [`TimeScale`] was just
