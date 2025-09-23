@@ -117,7 +117,7 @@ impl<T> BlendedAnimation<T> {
     ///
     /// Useful for debugging purposes.
     pub fn count(&self) -> usize {
-        return self.animations.len();
+        self.animations.len()
     }
 }
 
