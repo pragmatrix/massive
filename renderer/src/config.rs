@@ -29,7 +29,7 @@ impl RendererConfig {
         let text_layer_renderer = TextLayerRenderer::new(device, font_system, format);
         let shape_renderer = ShapeRenderer::new::<shape_renderer::Vertex>(device, format);
 
-        // Shapes are always rendered below the text.
+        // Shapes are always rendered before (and therefore below) the text.
         vec![Box::new(shape_renderer), Box::new(text_layer_renderer)]
     }
 
