@@ -246,11 +246,11 @@ impl TextLayerRenderer {
         points.map(|f| f.with_z(0.0))
     }
 
-    pub fn sdf_pipeline(&self) -> &wgpu::RenderPipeline {
-        self.sdf_renderer.pipeline()
+    pub fn create_sdf_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        self.sdf_renderer.create_pipeline(device)
     }
 
-    pub fn color_pipeline(&self) -> &wgpu::RenderPipeline {
-        self.color_renderer.pipeline()
+    pub fn create_color_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        self.color_renderer.create_pipeline(device)
     }
 }

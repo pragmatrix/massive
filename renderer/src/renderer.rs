@@ -37,7 +37,7 @@ pub struct Renderer {
     pub background_color: Option<Color>,
 
     /// The pipelines for each batch producer.
-    pipelines: Vec<Vec<wgpu::RenderPipeline>>,
+    pipelines: Vec<wgpu::RenderPipeline>,
     quads_index_buffer: QuadIndexBuffer,
     max_quads_in_use: usize,
 
@@ -120,7 +120,7 @@ impl Renderer {
             measure: MEASURE,
             batch_producers: RendererConfig::default_batch_producers(&device, font_system, format),
         };
-        let pipelines = config.create_pipeline_table();
+        let pipelines = config.create_pipelines(&device);
 
         let index_buffer = QuadIndexBuffer::new(&device);
 
@@ -246,24 +246,21 @@ impl Renderer {
         id: Id,
         visual: &VisualRenderObj,
         config: &mut RendererConfig,
-        pipelines: &[Vec<wgpu::RenderPipeline>],
+        pipelines: &[wgpu::RenderPipeline],
         context: &PreparationContext,
         render_visuals: &mut HashMap<Id, RenderVisual>,
     ) -> Result<()> {
         // Architecture: Define a new type PipelineTable.
-        let all_pipelines_count = pipelines.iter().flatten().count();
-        // Performance: Recycle. This requires an allocation.
+        let all_pipelines_count = pipelines.len();
+        // Performance: Recycle. This allocates.
         let mut batches = PipelineBatches::new(all_pipelines_count);
 
-        let mut batch_index = 0;
-        debug_assert_eq!(config.batch_producers.len(), pipelines.len());
-        for (i, producer) in config.batch_producers.iter_mut().enumerate() {
-            let batches_count = pipelines[i].len();
-            let expected_batches = &mut batches.batches[batch_index..batch_index + batches_count];
+        for producer in config.batch_producers.iter_mut() {
+            let expected_batches = &mut batches.batches[producer.pipeline_range.clone()];
 
-            producer.produce_batches(context, &visual.shapes, expected_batches)?;
-
-            batch_index += batches_count;
+            producer
+                .producer
+                .produce_batches(context, &visual.shapes, expected_batches)?;
         }
 
         render_visuals.insert(
@@ -276,7 +273,7 @@ impl Renderer {
         Ok(())
     }
 
-    /// We want this separate from [`Self::render_and_present`], because of the timing impliciation.
+    /// We want this separate from [`Self::render_and_present`], because of the timing implication.
     /// In any VSync mode, this blocks until the current frame is presented.
     ///
     /// This is `&mut self`, because it might call into [`Self::reconfigure_surface`] when the
@@ -355,7 +352,7 @@ impl Renderer {
                         .set(&mut render_context.pass, self.max_quads_in_use);
                 }
 
-                for (i, pipeline) in self.pipelines.iter().flatten().enumerate() {
+                for (i, pipeline) in self.pipelines.iter().enumerate() {
                     self.render_pipeline_batches(
                         pipeline,
                         |b| b.batches[i].as_ref(),

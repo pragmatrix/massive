@@ -1,11 +1,39 @@
 const VERTEX_SHADER_ENTRY: &str = "vs_main";
 
+/// A consolidated set of parameters for the pipeline creation.
+#[derive(Debug)]
+pub struct PipelineParams {
+    pub shader: wgpu::ShaderModule,
+    pub pipeline_layout: wgpu::PipelineLayout,
+    pub targets: [Option<wgpu::ColorTargetState>; 1],
+    pub vertex_layout: [wgpu::VertexBufferLayout<'static>; 1],
+}
+
+impl PipelineParams {
+    pub fn create_pipeline(
+        &self,
+        label: &str,
+        device: &wgpu::Device,
+        fragment_shader_entry: &str,
+    ) -> wgpu::RenderPipeline {
+        create_pipeline(
+            label,
+            device,
+            &self.shader,
+            fragment_shader_entry,
+            &self.vertex_layout,
+            &self.pipeline_layout,
+            &self.targets,
+        )
+    }
+}
+
 pub fn create_pipeline(
     label: &str,
     device: &wgpu::Device,
     shader: &wgpu::ShaderModule,
     fragment_shader_entry: &str,
-    vert_layout: &[wgpu::VertexBufferLayout],
+    vertex_layout: &[wgpu::VertexBufferLayout],
     pipeline_layout: &wgpu::PipelineLayout,
     targets: &[Option<wgpu::ColorTargetState>],
 ) -> wgpu::RenderPipeline {
@@ -16,7 +44,7 @@ pub fn create_pipeline(
             module: shader,
             entry_point: Some(VERTEX_SHADER_ENTRY),
             compilation_options: Default::default(),
-            buffers: vert_layout,
+            buffers: vertex_layout,
         },
         fragment: Some(wgpu::FragmentState {
             module: shader,
