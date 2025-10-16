@@ -7,7 +7,7 @@ use crate::{
     glyph::GlyphAtlas,
     pods::{self, AsBytes, VertexLayout},
     renderer::{PreparationContext, RenderBatch},
-    tools::{BindGroupLayoutBuilder, create_pipeline, texture_sampler},
+    tools::{BindGroupLayoutBuilder, PipelineParams, texture_sampler},
 };
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
@@ -16,7 +16,7 @@ const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
 pub struct AtlasRenderer {
     pub atlas: GlyphAtlas,
     texture_sampler: wgpu::Sampler,
-    pipeline: wgpu::RenderPipeline,
+    pipeline_params: PipelineParams,
     fs_bind_group_layout: BindGroupLayout,
 }
 
@@ -29,7 +29,7 @@ impl AtlasRenderer {
     ) -> Self {
         let fs_bind_group_layout = BindGroupLayout::new(device);
 
-        let shader = &device.create_shader_module(shader);
+        let shader = device.create_shader_module(shader);
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Atlas Pipeline Layout"),
@@ -48,22 +48,22 @@ impl AtlasRenderer {
 
         let vertex_layout = [VertexT::layout()];
 
-        let pipeline = create_pipeline(
-            "Atlas Pipeline",
-            device,
-            shader,
-            FRAGMENT_SHADER_ENTRY,
-            &vertex_layout,
-            &pipeline_layout,
-            &targets,
-        );
-
         Self {
             atlas: GlyphAtlas::new(device, atlas_format),
             texture_sampler: texture_sampler::linear_clamping(device),
             fs_bind_group_layout,
-            pipeline,
+            pipeline_params: PipelineParams {
+                shader,
+                pipeline_layout,
+                targets,
+                vertex_layout,
+            },
         }
+    }
+
+    pub fn create_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        self.pipeline_params
+            .create_pipeline("Atlas Pipeline", device, FRAGMENT_SHADER_ENTRY)
     }
 
     // Convert a number of instances to a batch.
@@ -100,10 +100,6 @@ impl AtlasRenderer {
             vertex_buffer,
             count: instances.len(),
         })
-    }
-
-    pub fn pipeline(&self) -> &wgpu::RenderPipeline {
-        &self.pipeline
     }
 }
 

@@ -6,7 +6,7 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use crate::{
     pods::{self, AsBytes, VertexLayout},
     renderer::RenderBatch,
-    tools::create_pipeline,
+    tools::PipelineParams,
 };
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
@@ -32,9 +32,10 @@ impl From<ShapeSelector> for u32 {
     }
 }
 
+// Detail: Everything contained in this struct is just there to create the pipeline.
 #[derive(Debug)]
 pub struct ShapeRenderer {
-    pipeline: wgpu::RenderPipeline,
+    pipeline_params: PipelineParams,
 }
 
 impl ShapeRenderer {
@@ -43,7 +44,7 @@ impl ShapeRenderer {
         device: &wgpu::Device,
         target_format: wgpu::TextureFormat,
     ) -> Self {
-        let shader = &device.create_shader_module(wgpu::include_wgsl!("shape_renderer.wgsl"));
+        let shader = device.create_shader_module(wgpu::include_wgsl!("shape_renderer.wgsl"));
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Shape Pipeline Layout"),
@@ -62,22 +63,19 @@ impl ShapeRenderer {
 
         let vertex_layout = [VertexT::layout()];
 
-        // Triangle list pipeline (will use quad index buffer like text layer)
-        let pipeline = create_pipeline(
-            "Shape Pipeline",
-            device,
-            shader,
-            FRAGMENT_SHADER_ENTRY,
-            &vertex_layout,
-            &pipeline_layout,
-            &targets,
-        );
-
-        Self { pipeline }
+        Self {
+            pipeline_params: PipelineParams {
+                shader,
+                pipeline_layout,
+                targets,
+                vertex_layout,
+            },
+        }
     }
 
-    pub fn pipeline(&self) -> &wgpu::RenderPipeline {
-        &self.pipeline
+    pub fn create_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        self.pipeline_params
+            .create_pipeline("Shape Pipeline", device, FRAGMENT_SHADER_ENTRY)
     }
 
     /// Build a batch directly from a slice of `massive_shapes::Shape` objects.
