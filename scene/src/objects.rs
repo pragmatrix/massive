@@ -11,6 +11,10 @@ use massive_shapes::{GlyphRun, Shape};
 #[derive(Debug, PartialEq)]
 pub struct Visual {
     pub location: Handle<Location>,
+    /// The current depth bias for this Visual. Default is 0, which renders it at first (without
+    /// z-buffer) or with the corresponding depth bias (with z-buffer).
+    pub depth_bias: usize,
+
     /// DR: Clients should be able to use [`Visual`] directly as a an abstract thing. Like for
     /// example a line which contains multiple Shapes (runs, quads, etc.). Therefore `Vec<Shape>`
     /// and not just `Shape`.
@@ -27,6 +31,7 @@ impl Visual {
     pub fn new(location: Handle<Location>, shapes: impl Into<Arc<[Shape]>>) -> Self {
         Self {
             location,
+            depth_bias: 0,
             shapes: shapes.into(),
         }
     }
@@ -35,6 +40,7 @@ impl Visual {
 #[derive(Debug, Clone)]
 pub struct VisualRenderObj {
     pub location: Id,
+    pub depth_bias: usize,
     pub shapes: Arc<[Shape]>,
 }
 
@@ -57,6 +63,7 @@ impl Object for Visual {
     fn to_change(&self) -> Self::Change {
         VisualRenderObj {
             location: self.location.id(),
+            depth_bias: self.depth_bias,
             shapes: self.shapes.clone(),
         }
     }
