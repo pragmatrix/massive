@@ -12,7 +12,7 @@ use massive_shapes::{GlyphRun, Shape};
 pub struct Visual {
     pub location: Handle<Location>,
     /// The current depth bias for this Visual. Default is 0, which renders it at first (without
-    /// z-buffer) or with the according depth bias (with z-buffer).
+    /// z-buffer) or with the corresponding depth bias (with z-buffer).
     pub depth_bias: usize,
 
     /// DR: Clients should be able to use [`Visual`] directly as a an abstract thing. Like for
