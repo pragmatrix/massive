@@ -3,6 +3,7 @@ mod glyph;
 mod pods;
 // mod quads;
 mod config;
+mod render_batches;
 mod render_geometry;
 mod renderer;
 mod scene;

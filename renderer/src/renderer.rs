@@ -1,5 +1,4 @@
 use std::{
-    collections::HashMap,
     result,
     sync::{Arc, Mutex},
     time::Instant,
@@ -15,6 +14,7 @@ use crate::{
     Transaction, TransactionManager,
     config::RendererConfig,
     pods::{AsBytes, ToPod},
+    render_batches::RenderBatches,
     scene::{LocationMatrices, Scene},
     stats::MeasureSeries,
     tools::QuadIndexBuffer,
@@ -51,13 +51,13 @@ pub struct Renderer {
     changed_visuals: ChangedIds,
 
     visual_matrices: LocationMatrices,
-    /// Per visual location and pipeline batches.
-    visuals: HashMap<Id, RenderVisual>,
+    batches: RenderBatches,
 }
 
 #[derive(Debug)]
 pub struct RenderVisual {
     pub location_id: Id,
+    pub depth_bias: usize,
     pub batches: PipelineBatches,
 }
 
@@ -141,7 +141,7 @@ impl Renderer {
             scene: Default::default(),
             changed_visuals: Default::default(),
             visual_matrices: Default::default(),
-            visuals: Default::default(),
+            batches: Default::default(),
         };
 
         renderer.reconfigure_surface();
@@ -200,8 +200,8 @@ impl Renderer {
         //
         // Compute only one max_quads value (which is optimal when we use one index buffer only).
         let max_quads = self
-            .visuals
-            .values()
+            .batches
+            .render_visuals()
             .map(|v| v.batches.max_quads())
             .max()
             .unwrap_or_default();
@@ -213,7 +213,11 @@ impl Renderer {
     }
 
     fn prepare_matrices(&mut self, transaction: &Transaction) {
-        let location_ids = self.visuals.values().map(|v| v.location_id).unique();
+        let location_ids = self
+            .batches
+            .render_visuals()
+            .map(|v| v.location_id)
+            .unique();
         self.visual_matrices
             .compute_matrices(&self.scene, transaction, location_ids);
     }
@@ -232,10 +236,10 @@ impl Renderer {
                     &mut self.config,
                     &self.pipelines,
                     context,
-                    &mut self.visuals,
+                    &mut self.batches,
                 )?;
             } else {
-                self.visuals.remove(&id);
+                self.batches.remove(id);
             }
         }
 
@@ -248,7 +252,7 @@ impl Renderer {
         config: &mut RendererConfig,
         pipelines: &[wgpu::RenderPipeline],
         context: &PreparationContext,
-        render_visuals: &mut HashMap<Id, RenderVisual>,
+        render_batches: &mut RenderBatches,
     ) -> Result<()> {
         // Architecture: Define a new type PipelineTable.
         let all_pipelines_count = pipelines.len();
@@ -263,13 +267,15 @@ impl Renderer {
                 .produce_batches(context, &visual.shapes, expected_batches)?;
         }
 
-        render_visuals.insert(
+        render_batches.insert(
             id,
             RenderVisual {
                 location_id: visual.location,
+                depth_bias: visual.depth_bias,
                 batches,
             },
         );
+
         Ok(())
     }
 
@@ -352,12 +358,15 @@ impl Renderer {
                         .set(&mut render_context.pass, self.max_quads_in_use);
                 }
 
-                for (i, pipeline) in self.pipelines.iter().enumerate() {
-                    self.render_pipeline_batches(
-                        pipeline,
-                        |b| b.batches[i].as_ref(),
-                        render_context,
-                    );
+                for visuals in self.batches.by_depth_bias.values() {
+                    for (i, pipeline) in self.pipelines.iter().enumerate() {
+                        self.render_pipeline_batches(
+                            visuals.values(),
+                            pipeline,
+                            |b| b.batches[i].as_ref(),
+                            render_context,
+                        );
+                    }
                 }
             }
             encoder.finish()
@@ -378,37 +387,45 @@ impl Renderer {
     }
 
     /// Pick up one specific pipeline batch from every visual and render it.
-    pub fn render_pipeline_batches(
+    pub fn render_pipeline_batches<'a>(
         &self,
+        visuals: impl Iterator<Item = &'a RenderVisual>,
         pipeline: &wgpu::RenderPipeline,
         select_batch: impl Fn(&PipelineBatches) -> Option<&RenderBatch>,
         context: &mut RenderContext,
     ) {
         let matrices = &self.visual_matrices;
-        context.pass.set_pipeline(pipeline);
+        let mut pipeline_set = false;
 
-        for visual in self.visuals.values() {
-            if let Some(batch) = select_batch(&visual.batches) {
-                // Architecture: We may go multiple times over the same visual and compute the
-                //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
-                //   lazy table here.
-                let matrix = context.view_projection_matrix * matrices.get(visual.location_id);
+        for visual in visuals {
+            let Some(batch) = select_batch(&visual.batches) else {
+                continue;
+            };
 
-                let pass = &mut context.pass;
-
-                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, matrix.to_pod().as_bytes());
-                // Architecture: This test needs only done once per pipeline.
-                if let Some(bg) = &batch.fs_bind_group {
-                    pass.set_bind_group(0, bg, &[]);
-                }
-                pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
-
-                pass.draw_indexed(
-                    0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
-                    0,
-                    0..1,
-                )
+            if !pipeline_set {
+                context.pass.set_pipeline(pipeline);
+                pipeline_set = true;
             }
+
+            // Architecture: We may go multiple times over the same visual and compute the
+            //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
+            //   lazy table here.
+            let matrix = context.view_projection_matrix * matrices.get(visual.location_id);
+
+            let pass = &mut context.pass;
+
+            pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, matrix.to_pod().as_bytes());
+            // Architecture: This test needs only done once per pipeline.
+            if let Some(bg) = &batch.fs_bind_group {
+                pass.set_bind_group(0, bg, &[]);
+            }
+            pass.set_vertex_buffer(0, batch.vertex_buffer.slice(..));
+
+            pass.draw_indexed(
+                0..(batch.count * QuadIndexBuffer::INDICES_PER_QUAD) as u32,
+                0,
+                0..1,
+            )
         }
     }
 
