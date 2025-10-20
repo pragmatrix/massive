@@ -42,10 +42,12 @@ impl RenderBatches {
     }
 
     pub fn remove(&mut self, id: Id) {
-        let depth = self
-            .visuals_to_depth
-            .remove(&id)
-            .expect("Internal Error: Visual not found");
+        let Some(depth) = self.visuals_to_depth.remove(&id) else {
+            // Redundant removes might happen if a visual was inserted and removed in the same
+            // cycle. So we keep this idempotent.
+            return;
+        };
+
         let btree_map::Entry::Occupied(mut entry) = self.by_depth_bias.entry(depth) else {
             panic!("Internal Error: Depth not found");
         };
