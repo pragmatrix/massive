@@ -35,6 +35,10 @@ impl Visual {
             shapes: shapes.into(),
         }
     }
+
+    pub fn with_depth_bias(self, depth_bias: usize) -> Self {
+        Self { depth_bias, ..self }
+    }
 }
 
 #[derive(Debug, Clone)]
