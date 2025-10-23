@@ -14,7 +14,7 @@ use wgpu::rwh;
 use winit::{
     dpi::PhysicalSize,
     event_loop::EventLoopProxy,
-    window::{Window, WindowId},
+    window::{CursorIcon, Window, WindowId},
 };
 
 use crate::{AsyncWindowRenderer, shell::ShellRequest, window_renderer::WindowRenderer};
@@ -53,6 +53,10 @@ impl ShellWindow {
 
     pub fn set_title(&self, title: &str) {
         self.shared.window().set_title(title);
+    }
+
+    pub fn set_cursor(&self, icon: CursorIcon) {
+        self.shared.window().set_cursor(icon);
     }
 
     // DI: Use SizeI to represent initial_size.
