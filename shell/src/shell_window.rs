@@ -72,7 +72,7 @@ impl ShellWindow {
         let instance_and_surface = self
             .new_instance_and_surface(
                 wgpu::InstanceDescriptor::default(),
-                // Use this for testing webgl:
+                // Use this for testing WebGL:
                 // InstanceDescriptor {
                 //     backends: wgpu::Backends::GL,
                 //     ..InstanceDescriptor::default()
@@ -80,7 +80,7 @@ impl ShellWindow {
                 self.shared.clone(),
             )
             .await;
-        // On wasm, attempt to fall back to webgl
+        // On Wasm, attempt to fall back to WebGL
         #[cfg(target_arch = "wasm32")]
         let instance_and_surface = match instance_and_surface {
             Ok(_) => instance_and_surface,
