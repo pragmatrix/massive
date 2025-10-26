@@ -113,20 +113,6 @@ pub struct DeviceStates {
     keyboard_modifiers: ModifiersState,
 }
 
-#[derive(Clone, Default, Debug)]
-struct PointingDeviceState {
-    entered: bool,
-    pos: Option<Point>,
-    buttons: HashMap<MouseButton, MouseButtonState>,
-}
-
-#[derive(Debug, Clone)]
-struct MouseButtonState {
-    element: ElementState,
-    when: Instant,
-    at_pos: Point,
-}
-
 impl DeviceStates {
     /// `true` if the Shift button is pressed.
     pub fn is_shift(&self) -> bool {
@@ -186,9 +172,23 @@ impl DeviceStates {
             .rev()
     }
 
-    fn pointing_device(&self, id: DeviceId) -> Option<&PointingDeviceState> {
+    pub fn pointing_device(&self, id: DeviceId) -> Option<&PointingDeviceState> {
         self.pointing_devices
             .iter()
             .find_map(|(di, s)| (*di == id).then_some(s))
     }
+}
+
+#[derive(Clone, Default, Debug)]
+pub struct PointingDeviceState {
+    pub entered: bool,
+    pub pos: Option<Point>,
+    pub buttons: HashMap<MouseButton, MouseButtonState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MouseButtonState {
+    pub element: ElementState,
+    pub when: Instant,
+    pub at_pos: Point,
 }
