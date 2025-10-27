@@ -1,6 +1,8 @@
 use std::time::Duration;
 
-use crate::{Event, EventAggregator, ExternalEvent, event_history::EventHistory};
+use crate::{
+    AggregationReport, Event, EventAggregator, ExternalEvent, event_history::EventHistory,
+};
 
 // Naming: GestureDetector?
 #[derive(Debug)]
@@ -28,9 +30,18 @@ impl EventManager {
     }
 
     /// Add a new event at the current time.
-    pub fn event(&mut self, event: ExternalEvent) -> Event<'_> {
-        self.aggregator.update(&event);
+    ///
+    /// `None`: The event is redundant in terms of the state update. Like a CursorMoved event that
+    /// moves the same device to the same point as before. This happens on winit when a mouse state
+    /// is changed, for example.
+    ///
+    /// Architecture: Even aggregation and event queries should be part of the massive shell.
+    pub fn add_event(&mut self, event: ExternalEvent) -> Option<Event<'_>> {
+        if self.aggregator.update(&event) == AggregationReport::Redundant {
+            return None;
+        }
+
         self.history.push(event, self.aggregator.to_device_states());
-        Event::new(&self.history)
+        Some(Event::new(&self.history))
     }
 }

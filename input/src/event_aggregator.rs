@@ -22,8 +22,22 @@ pub struct EventAggregator {
     keyboard_modifiers: ModifiersState,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregationReport {
+    /// This is not an event we need to aggregate.
+    Ignored,
+    /// The event was used to change a state.
+    Integrated,
+    /// The event is related to the aggregation state, but seems redundant, no aggregate changes
+    /// were detected.
+    Redundant,
+    /// Some prerequisites are not met. For example a mouse button state change was received, but
+    /// there was not Position available yet.
+    PrerequisitesNotMet,
+}
+
 impl EventAggregator {
-    pub fn update(&mut self, event: &ExternalEvent) {
+    pub fn update(&mut self, event: &ExternalEvent) -> AggregationReport {
         let ExternalEvent::Window {
             event: window_event,
             time,
@@ -34,12 +48,9 @@ impl EventAggregator {
             WindowEvent::CursorMoved {
                 device_id,
                 position,
-                ..
             } => self.cursor_moved(device_id, (position.x, position.y).into()),
             WindowEvent::CursorEntered { device_id } => self.cursor_entered(device_id),
-            WindowEvent::CursorLeft { device_id } => {
-                self.cursor_left(device_id);
-            }
+            WindowEvent::CursorLeft { device_id } => self.cursor_left(device_id),
             WindowEvent::MouseInput {
                 device_id,
                 state,
@@ -47,20 +58,36 @@ impl EventAggregator {
                 ..
             } => self.mouse_button_state_changed(*time, device_id, button, state),
             WindowEvent::ModifiersChanged(modifiers) => self.modifiers_changed(modifiers.state()),
-            _ => {}
+            _ => AggregationReport::Ignored,
         }
     }
 
-    fn cursor_entered(&mut self, device_id: DeviceId) {
-        self.pointing_device_mut(device_id).entered = true;
+    fn cursor_entered(&mut self, device_id: DeviceId) -> AggregationReport {
+        let device = self.pointing_device_mut(device_id);
+        if device.entered {
+            return AggregationReport::Redundant;
+        }
+        device.entered = true;
+        AggregationReport::Integrated
     }
 
-    fn cursor_left(&mut self, device_id: DeviceId) {
-        self.pointing_device_mut(device_id).entered = false;
+    fn cursor_left(&mut self, device_id: DeviceId) -> AggregationReport {
+        let device = self.pointing_device_mut(device_id);
+        if !device.entered {
+            return AggregationReport::Redundant;
+        }
+        device.entered = false;
+        AggregationReport::Integrated
     }
 
-    fn cursor_moved(&mut self, device_id: DeviceId, pos: Point) {
-        self.pointing_device_mut(device_id).pos = Some(pos);
+    fn cursor_moved(&mut self, device_id: DeviceId, pos: Point) -> AggregationReport {
+        let device = self.pointing_device_mut(device_id);
+        let pos = Some(pos);
+        if device.pos == pos {
+            return AggregationReport::Redundant;
+        }
+        device.pos = pos;
+        AggregationReport::Integrated
     }
 
     fn mouse_button_state_changed(
@@ -69,24 +96,35 @@ impl EventAggregator {
         device_id: DeviceId,
         button: MouseButton,
         state: ElementState,
-    ) {
+    ) -> AggregationReport {
         let device = self.pointing_device_mut(device_id);
         // If no pos received yet, completely ignore that event.
         // TODO: log this!
-        if let Some(pos) = device.pos {
-            device.buttons.insert(
-                button,
-                MouseButtonState {
-                    element: state,
-                    when: now,
-                    at_pos: pos,
-                },
-            );
-        }
+        let Some(pos) = device.pos else {
+            return AggregationReport::PrerequisitesNotMet;
+        };
+
+        device.buttons.insert(
+            button,
+            MouseButtonState {
+                element: state,
+                when: now,
+                at_pos: pos,
+            },
+        );
+
+        // Assuming `when` always changes, this is always integrated, even when the same `state` was
+        // received.
+        AggregationReport::Integrated
     }
 
-    fn modifiers_changed(&mut self, state: ModifiersState) {
-        self.keyboard_modifiers = state
+    fn modifiers_changed(&mut self, state: ModifiersState) -> AggregationReport {
+        if self.keyboard_modifiers == state {
+            return AggregationReport::Redundant;
+        }
+
+        self.keyboard_modifiers = state;
+        AggregationReport::Integrated
     }
 
     fn pointing_device_mut(&mut self, device_id: DeviceId) -> &mut PointingDeviceState {
