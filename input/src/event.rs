@@ -30,13 +30,15 @@ impl<'history> Event<'history> {
             }) if *device_id == sensor.device && *state == ElementState::Released)
     }
 
-    /// Returns the physical coordinates if the event is a pointer event.
+    /// Returns the physical coordinates if the event was caused by a pointer device and the device
+    /// has reported a position yet.
     pub fn pos(&self) -> Option<Point> {
-        self.pointing_device().and_then(|di| self.states().pos(di))
+        self.states().pos(self.device()?)
     }
 
-    pub fn pointing_device(&self) -> Option<DeviceId> {
-        self.window_event()?.pointing_device()
+    /// Returns the device that is associated with the event.
+    pub fn device(&self) -> Option<DeviceId> {
+        self.window_event()?.device()
     }
 
     pub fn mouse_pressed(&self) -> Option<ButtonSensor> {

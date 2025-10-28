@@ -44,11 +44,11 @@ impl Movement {
             return Some(Progress::Cancel);
         }
 
-        if event.pointing_device() != Some(self.sensor.device) {
+        if event.device() != Some(self.sensor.device) {
             return None;
         }
-
-        let movement = event.pos().unwrap() - self.from;
+        let pos = event.pos()?;
+        let movement = pos - self.from;
 
         if event.released(self.sensor) {
             if self.delta != movement {
