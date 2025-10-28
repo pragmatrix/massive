@@ -1,14 +1,14 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
 
 use super::{ButtonSensor, WindowEventExtensions, event_history::EventRecord, tracker::Movement};
 use crate::{MouseGesture, event_aggregator::DeviceStates, event_history::EventHistory};
-use massive_geometry::Point;
+use massive_geometry::{Point, Vector};
 
 #[derive(Clone, Debug)]
 pub struct Event<'history> {
-    /// The event history, including the most recent event.
+    /// The event history, including this as the most recent event.
     history: &'history EventHistory,
 }
 
@@ -42,13 +42,26 @@ impl<'history> Event<'history> {
     }
 
     pub fn mouse_pressed(&self) -> Option<ButtonSensor> {
+        self.button_sensor_and_state()
+            .filter(|(_, state)| *state == ElementState::Pressed)
+            .map(|(sensor, _)| sensor)
+    }
+
+    pub fn mouse_released(&self) -> Option<ButtonSensor> {
+        self.button_sensor_and_state()
+            .filter(|(_, state)| *state == ElementState::Released)
+            .map(|(sensor, _)| sensor)
+    }
+
+    /// If this is a mouse button event, return its sensor and state.
+    pub fn button_sensor_and_state(&self) -> Option<(ButtonSensor, ElementState)> {
         match self.window_event()? {
             WindowEvent::MouseInput {
                 device_id,
                 state,
                 button,
                 ..
-            } if *state == ElementState::Pressed => Some(ButtonSensor::new(*device_id, *button)),
+            } => Some((ButtonSensor::new(*device_id, *button), *state)),
             _ => None,
         }
     }
@@ -58,18 +71,6 @@ impl<'history> Event<'history> {
     pub fn cursor_moved(&self) -> Option<DeviceId> {
         match self.window_event()? {
             WindowEvent::CursorMoved { device_id, .. } => Some(*device_id),
-            _ => None,
-        }
-    }
-
-    pub fn mouse_released(&self) -> Option<ButtonSensor> {
-        match self.window_event()? {
-            WindowEvent::MouseInput {
-                device_id,
-                state,
-                button,
-                ..
-            } if *state == ElementState::Released => Some(ButtonSensor::new(*device_id, *button)),
             _ => None,
         }
     }
@@ -102,9 +103,25 @@ impl<'history> Event<'history> {
             .detect_double_click(button, Duration::from_millis(500), max_distance)
     }
 
-    // Detect a movement of >= `min_distance`. `min_distance` is in physical device coordinates.
+    /// Detect a movement of >= `min_distance`. `min_distance` is in physical device coordinates
+    /// while a mouse button was pressed.
     pub fn detect_movement(&self, button: MouseButton, min_distance: f64) -> Option<Movement> {
         self.history.detect_movement(button, min_distance)
+    }
+
+    /// Create a movement tracker based on this event.
+    ///
+    /// The event must be a mouse button event, otherwise `None`.
+    pub fn track_movement(&self) -> Option<Movement> {
+        let (sensor, _) = self.button_sensor_and_state()?;
+        Some(Movement {
+            sensor,
+            began: self.time(),
+            detected_after: Duration::ZERO,
+            minimum_distance: 0.0,
+            from: self.pos()?,
+            delta: Vector::default(),
+        })
     }
 
     /*
@@ -163,6 +180,10 @@ impl<'history> Event<'history> {
         self.history
             .detect_movement_inactivity(device, max_range, min_distance)
         // TODO: This may return `UnitInterval` with respect to `max_range`?
+    }
+
+    pub fn time(&self) -> Instant {
+        self.record().event.time()
     }
 
     fn record(&self) -> &EventRecord {
