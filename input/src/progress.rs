@@ -18,15 +18,15 @@ impl<T> Progress<T> {
         }
     }
 
-    pub fn map_or_cancel<R>(self, f: impl FnMut(T) -> Option<R>) -> Progress<R> {
-        self.map_or(f, Progress::Cancel)
+    pub fn try_map_or_cancel<R>(self, f: impl FnMut(T) -> Option<R>) -> Progress<R> {
+        self.try_map_or(f, Progress::Cancel)
     }
 
-    pub fn map_or_commit<R>(self, f: impl FnMut(T) -> Option<R>) -> Progress<R> {
-        self.map_or(f, Progress::Commit)
+    pub fn try_map_or_commit<R>(self, f: impl FnMut(T) -> Option<R>) -> Progress<R> {
+        self.try_map_or(f, Progress::Commit)
     }
 
-    pub fn map_or<R>(self, mut f: impl FnMut(T) -> Option<R>, or: Progress<R>) -> Progress<R> {
+    pub fn try_map_or<R>(self, mut f: impl FnMut(T) -> Option<R>, or: Progress<R>) -> Progress<R> {
         match self {
             Progress::Proceed(v) => match f(v) {
                 Some(r) => Progress::Proceed(r),
