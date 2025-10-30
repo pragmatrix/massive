@@ -23,7 +23,7 @@ pub struct Scene {
     id_generator: Mutex<TypeIdGenerator>,
     // This tracks all changes from staging, changing the the values in the handles, and dropping them.
     //
-    // Shared because the Handles need to push changes on drop.
+    // `Arc` because Handles need to push changes when dropped.
     change_tracker: Arc<ChangeCollector>,
 }
 

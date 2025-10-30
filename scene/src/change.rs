@@ -18,7 +18,7 @@ impl SceneChange {
             SceneChange::Matrix(Change::Delete(id)) => Some((TypeId::of::<Matrix4>(), *id)),
             SceneChange::Visual(Change::Delete(id)) => Some((TypeId::of::<Visual>(), *id)),
             SceneChange::Location(Change::Delete(id)) => Some((TypeId::of::<Location>(), *id)),
-            // .. to prevent missing new cases:
+            // .. match exhaustive.
             SceneChange::Matrix(_) | SceneChange::Location(_) | SceneChange::Visual(_) => None,
         }
     }

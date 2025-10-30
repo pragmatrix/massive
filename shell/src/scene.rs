@@ -127,10 +127,12 @@ impl Scene {
         let changes = cycle.scene.take_changes()?;
         let any_scene_changes = !changes.is_empty();
 
-        // Push the changes _directly_ to the renderer which picks it in the next redraw. This may
-        // asynchronously overtake the subsequent redraw request if a previous was pending.
-        // Architecture: We could send this through the RendererMessage::Redraw, which may cause other problems
-        // (increased latency and the need for combining changes if Redraws are pending).
+        // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
+        // may asynchronously overtake the subsequent redraw request if a previous was pending.
+        //
+        // Architecture: We could send this through the RendererMessage::Redraw, which may cause
+        // other problems (increased latency and the need for combining changes if Redraws are
+        // pending).
         if any_scene_changes {
             cycle.renderer.change_collector().push_many(changes);
         }

@@ -7,7 +7,8 @@ pub struct ChangeCollector(Mutex<Vec<SceneChange>>);
 
 impl ChangeCollector {
     pub fn push(&self, change: impl Into<SceneChange>) {
-        self.0.lock().unwrap().push(change.into());
+        let change = change.into();
+        self.0.lock().unwrap().push(change);
     }
 
     pub fn push_many(&self, changes: Vec<SceneChange>) {
