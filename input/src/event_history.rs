@@ -55,7 +55,7 @@ impl EventHistory {
         self.records.get(1)
     }
 
-    /// An iterator over all event, including the most recent one including.
+    /// An iterator over all events, including the most recent one including.
     pub fn iter(&self) -> impl Iterator<Item = &EventRecord> {
         // Can't use HistoryIterator as return type:
         // <https://github.com/rust-lang/rust-analyzer/issues/9881>
@@ -146,11 +146,14 @@ impl EventRecord {
 
 pub trait HistoryIterator<'a>: Iterator<Item = &'a EventRecord> {
     /// Skips over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn from(self, until: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a EventRecord> + 'a>;
+    fn from<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, Self>
+    where
+        P: Into<RecordPoint>;
 
     /// Iterates over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn until(self, until: impl Into<RecordPoint>)
-    -> Box<dyn Iterator<Item = &'a EventRecord> + 'a>;
+    fn until<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, Self>
+    where
+        P: Into<RecordPoint>;
 
     /// Returns the maximum distance a pointer device moved in relation to the given point in the
     /// range of all events.
@@ -161,17 +164,20 @@ impl<'a, T> HistoryIterator<'a> for T
 where
     T: Iterator<Item = &'a EventRecord> + 'a,
 {
-    fn from(self, point: impl Into<RecordPoint>) -> Box<dyn Iterator<Item = &'a EventRecord> + 'a> {
+    fn from<P>(self, point: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, T>
+    where
+        P: Into<RecordPoint>,
+    {
         let point = point.into();
-        Box::new(self.skip_while(move |record| record.received_after(point)))
+        self.skip_while(move |record| record.received_after(point))
     }
 
-    fn until(
-        self,
-        point: impl Into<RecordPoint>,
-    ) -> Box<dyn Iterator<Item = &'a EventRecord> + 'a> {
+    fn until<P>(self, point: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, T>
+    where
+        P: Into<RecordPoint>,
+    {
         let point = point.into();
-        Box::new(self.take_while(move |record| record.received_after(point)))
+        self.take_while(move |record| record.received_after(point))
     }
 
     fn max_distance_moved(self, device_id: DeviceId, pos: Point) -> f64 {

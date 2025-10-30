@@ -13,10 +13,10 @@ impl EventHistory {
     pub fn detect_double_click(
         &self,
         button: MouseButton,
-        max_duration: Duration,
+        double_click_interval: Duration,
         max_distance: f64,
     ) -> Option<Point> {
-        debug_assert!(max_duration < self.max_duration());
+        debug_assert!(self.max_duration() > double_click_interval);
         let record = self.current()?;
 
         let device = record.is_mouse_event(ElementState::Pressed, button)?;
@@ -24,8 +24,11 @@ impl EventHistory {
 
         let previous_press = self
             .historic()
-            .until(record.time() - max_duration)
+            .until(record.time() - double_click_interval)
             .find(|e| e.is_mouse_event(ElementState::Pressed, button) == Some(device))?;
+
+        // Architecture: This movement detection is overkill, we can just compare the two locations
+        // of the events?
 
         (self
             .historic()
