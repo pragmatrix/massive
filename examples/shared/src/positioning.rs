@@ -71,11 +71,15 @@ fn position_glyph(glyph: &LayoutGlyph) -> RunGlyph {
         (glyph.x.round(), glyph.y.round())
     };
 
+    // Robustness: There is a function physical() in glyph which also returns a GlyphKey, perhaps
+    // use this here.
+
     let (glyph_key, x, y) = CacheKey::new(
         glyph.font_id,
         glyph.glyph_id,
         glyph.font_size,
         fractional_pos,
+        glyph.font_weight,
         CacheKeyFlags::empty(),
     );
 

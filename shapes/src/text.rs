@@ -16,6 +16,8 @@ pub struct GlyphRun {
     pub translation: Vector3,
     pub metrics: GlyphRunMetrics,
     pub text_color: Color,
+    // Robustness: As of cosmic-text version 0.15, this is now included in cache-key of every glyph.
+    // we may need to remove it from there and use our own "CacheKey" like struct.
     pub text_weight: TextWeight,
     pub glyphs: Vec<RunGlyph>,
 }
@@ -109,7 +111,7 @@ pub struct RunGlyph {
     /// The position (left / top) relative to the start of the line in pixel.
     ///
     /// x (.0) usually starts with zero (may probably be negative with negative left side bearings).
-    /// y is usually 0 meaning that the glyph "boxes" usally are having the same height.
+    /// y is usually 0 meaning that the glyph "boxes" usually are having the same height.
     ///
     /// This is the left top position of the "advance box" (in typography terms). Cosmic text
     /// uses the term "hit box".
@@ -119,7 +121,11 @@ pub struct RunGlyph {
     /// glyph box in the line.
     ///
     /// This is a direct dependency on cosmic_text.
+    ///
     /// Robustness: Should probably be wrapped to support different rasterizers.
+    ///
+    /// Robustness: There are probably a few values we don't need (weight for example, because it's
+    /// once per run).
     pub key: text::CacheKey,
 }
 

@@ -7,8 +7,8 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use massive_geometry::{Point, Point3};
-use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
-use swash::{Weight, scale::ScaleContext};
+use massive_shapes::{GlyphRun, RunGlyph};
+use swash::scale::ScaleContext;
 use text::SwashContent;
 use wgpu::Device;
 
@@ -110,7 +110,7 @@ impl TextLayerRenderer {
                 let Some((rect, placement, kind)) = self.rasterized_glyph_atlas_rect(
                     context,
                     &font_system,
-                    run.text_weight,
+                    // run.text_weight,
                     glyph,
                 )?
                 else {
@@ -151,17 +151,13 @@ impl TextLayerRenderer {
         &mut self,
         context: &PreparationContext,
         font_system: &Arc<Mutex<FontSystem>>,
-        weight: TextWeight,
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement, AtlasKind)>> {
         let glyph_key = RasterizedGlyphKey {
             text: glyph.key,
             param: GlyphRasterizationParam {
                 prefer_sdf: true,
-                swash: SwashRasterizationParam {
-                    hinted: true,
-                    weight: Weight(weight.0),
-                },
+                swash: SwashRasterizationParam { hinted: true },
             },
         };
 
