@@ -10,8 +10,6 @@ pub struct GlyphRasterizationParam {
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SwashRasterizationParam {
     pub hinted: bool,
-    // Currently used with variable fonts only, by passing the `wght` tag.
-    pub weight: swash::Weight,
 }
 
 impl From<GlyphClass> for GlyphRasterizationParam {
@@ -19,17 +17,11 @@ impl From<GlyphClass> for GlyphRasterizationParam {
         use GlyphClass::*;
         match class {
             Zoomed(_) | PixelPerfect { .. } => GlyphRasterizationParam {
-                swash: SwashRasterizationParam {
-                    hinted: true,
-                    weight: Default::default(),
-                },
+                swash: SwashRasterizationParam { hinted: true },
                 prefer_sdf: false,
             },
             Distorted(_) => GlyphRasterizationParam {
-                swash: SwashRasterizationParam {
-                    hinted: true,
-                    weight: Default::default(),
-                },
+                swash: SwashRasterizationParam { hinted: true },
                 prefer_sdf: true,
             },
         }
