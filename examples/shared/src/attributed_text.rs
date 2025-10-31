@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Wrap};
+use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
 use massive_geometry::{Color, Vector3};
 use massive_shapes::{GlyphRun, TextWeight};
 use serde::{Deserialize, Serialize};
@@ -43,7 +43,7 @@ pub fn shape_text(
     //
     // Set it to an illegal out of bounds `usize::MAX` for now.
     let base_attrs = Attrs::new().family(Family::Monospace).metadata(usize::MAX);
-    // Optimization: Why is Buffer used when thre is no wrapping. BufferLine would
+    // Optimization: Why is Buffer used when there is no wrapping. BufferLine would
     // probably be better.
     let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
     buffer.set_size(font_system, None, None);
@@ -53,7 +53,10 @@ pub fn shape_text(
     let text_attr_spans = attributes.iter().enumerate().map(|(attribute_index, ta)| {
         (
             text.get(ta.range.clone()).unwrap(),
-            base_attrs.clone().metadata(attribute_index),
+            base_attrs
+                .clone()
+                .metadata(attribute_index)
+                .weight(Weight(ta.weight.0)),
         )
     });
     buffer.set_rich_text(
@@ -68,6 +71,8 @@ pub fn shape_text(
     let mut runs = Vec::new();
     let mut height: f64 = 0.;
 
+    // Detail: For now we keep the redundancy of providing weight to the run and the individual
+    // glyphs (cosmic text 0.15 introduced this).
     let attributes: Vec<_> = attributes.iter().map(|ta| (ta.color, ta.weight)).collect();
 
     let translation = translation.into().unwrap_or(Vector3::new(0., 0., 0.));

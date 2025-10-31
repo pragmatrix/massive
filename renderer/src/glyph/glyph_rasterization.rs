@@ -1,4 +1,4 @@
-use cosmic_text::{self as text, Weight};
+use cosmic_text::{self as text};
 use swash::{
     scale::{Render, ScaleContext, Source, StrikeWith},
     zeno::{Format, Vector},
@@ -63,8 +63,9 @@ pub fn rasterize_glyph(
         .builder(font.as_swash())
         .size(f32::from_bits(cache_key.font_size_bits))
         .hint(param.hinted)
-        // This was used before get_font() supported the font_weight parameter.
-        // .variations(&[("wght", param.weight.0 as f32)])
+        // Detail: the font ignores the font weight (for variable fonts), even though get_font()
+        // added the font_weight parameter in cosmic-text 0.15,
+        .variations(&[("wght", cache_key.font_weight.0 as f32)])
         .build();
 
     // Compute the fractional offset -- you'll likely want to quantize this

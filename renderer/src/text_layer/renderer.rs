@@ -7,8 +7,8 @@ use std::{
 use anyhow::Result;
 use cosmic_text::{self as text, FontSystem};
 use massive_geometry::{Point, Point3};
-use massive_shapes::{GlyphRun, RunGlyph, TextWeight};
-use swash::{Weight, scale::ScaleContext};
+use massive_shapes::{GlyphRun, RunGlyph};
+use swash::scale::ScaleContext;
 use text::SwashContent;
 use wgpu::Device;
 
