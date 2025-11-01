@@ -11,7 +11,7 @@ use tokio::{
 use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
 use crate::{
-    AsyncWindowRenderer, RenderPacing, ShellEvent, ShellRequest, ShellWindow, message_filter,
+    AsyncWindowRenderer, RenderPacing, ShellEvent, ShellWindow, message_filter, shell::ShellRequest,
 };
 
 /// The [`ApplicationContext`] is the connection to the runtime. It allows the application to poll
@@ -23,7 +23,7 @@ use crate::{
 pub struct ApplicationContext {
     event_receiver: UnboundedReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
-    event_loop_proxy: EventLoopProxy<ShellRequest>,
+    pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
 
     /// ADR: currently here, but should probably be an EventLoop query.
     monitor_scale_factor: Option<f64>,
@@ -33,7 +33,7 @@ pub struct ApplicationContext {
 }
 
 impl ApplicationContext {
-    pub fn new(
+    pub(crate) fn new(
         event_receiver: UnboundedReceiver<ShellEvent>,
         event_loop_proxy: EventLoopProxy<ShellRequest>,
         monitor_scale_factor: Option<f64>,
