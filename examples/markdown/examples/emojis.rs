@@ -52,12 +52,11 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         // Load system fonts for now. NotoColorEmoji does not render, see the test case below.
 
         // const DEFAULT_LOCALE: &str = "en-US";
-        //
-        // let mut font_db = fontdb::Database::new();
+        // let mut font_db = cosmic_text::fontdb::Database::new();
         // let noto_color_emoji = include_bytes!("fonts/NotoColorEmoji-Regular.ttf");
-        // let source = fontdb::Source::Binary(Arc::new(noto_color_emoji));
+        // let source = cosmic_text::fontdb::Source::Binary(Arc::new(noto_color_emoji));
         // font_db.load_font_source(source);
-        // FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db);
+        // FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
 
         FontSystem::new()
     };
