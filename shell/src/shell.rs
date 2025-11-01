@@ -1,13 +1,13 @@
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
-use log::{error, info, warn};
+use log::{error, info};
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use wgpu::{Surface, SurfaceTarget};
 use winit::{
     application::ApplicationHandler,
     event::{DeviceId, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy},
+    event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy},
     window::{Window, WindowAttributes, WindowId},
 };
 
@@ -35,17 +35,15 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     let event_loop_proxy = event_loop.create_proxy();
 
     let spawn_application = |application_context: ApplicationContext| {
-        let (result_tx, result_rx) = oneshot::channel();
         let _application_task = tokio::spawn(async move {
+            let event_loop_proxy = application_context.event_loop_proxy.clone();
             let r = application(application_context).await;
-            // Found no way to retrieve the result via JoinHandle, so a return via a oneshot channel
-            // must do.
-            result_tx
-                .send(Some(r))
-                .expect("Internal Error: Failed to set the application result");
+            if let Err(EventLoopClosed(ShellRequest::ApplicationEnded(r))) =
+                event_loop_proxy.send_event(ShellRequest::ApplicationEnded(r))
+            {
+                error!("Application ended after the event loop exited: {r:?}");
+            }
         });
-
-        result_rx
     };
 
     // Event loop
@@ -60,23 +58,25 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
         event_loop.run_app(&mut winit_context)?;
         info!("Exited event loop");
 
-        let WinitApplicationHandler::Exited { application_result } = winit_context else {
+        let WinitApplicationHandler::Exited { final_result } = winit_context else {
             bail!("Internal error: Exited event loop, but it was never actually exiting");
         };
 
-        application_result
+        final_result
     }
 }
 
-#[must_use]
-#[derive(Debug, Copy, Clone)]
-pub enum ControlFlow {
-    Exit,
-    Continue,
+// Robustness: Try to remove the Clone requirement.
+#[derive(Debug, Clone)]
+pub enum ShellEvent {
+    // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
+    // as a event pathway from the WinitApplicationHandler anymore.
+    WindowEvent(WindowId, WindowEvent),
+    ApplyAnimations,
 }
 
 #[derive(Debug)]
-pub enum ShellRequest {
+pub(crate) enum ShellRequest {
     CreateWindow {
         // Box because of large size.
         attributes: Box<WindowAttributes>,
@@ -91,15 +91,7 @@ pub enum ShellRequest {
         window: Arc<ShellWindowShared>,
         on_created: oneshot::Sender<Result<Surface<'static>>>,
     },
-}
-
-// Robustness: Try to remove the Clone requirement.
-#[derive(Debug, Clone)]
-pub enum ShellEvent {
-    // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
-    // as a event pathway from the WinitApplicationHandler anymore.
-    WindowEvent(WindowId, WindowEvent),
-    ApplyAnimations,
+    ApplicationEnded(Result<()>),
 }
 
 impl ShellEvent {
@@ -170,17 +162,18 @@ enum WinitApplicationHandler {
         spawner: Option<ApplicationSpawner>,
     },
     Running {
-        result_receiver: oneshot::Receiver<Option<Result<()>>>,
         event_sender: UnboundedSender<ShellEvent>,
     },
-    Exited {
+    Ended {
         application_result: Result<()>,
+    },
+    Exited {
+        final_result: Result<()>,
     },
 }
 
 /// Type alias for the application spawner closure.
-type ApplicationSpawner =
-    Box<dyn FnOnce(ApplicationContext) -> oneshot::Receiver<Option<Result<()>>>>;
+type ApplicationSpawner = Box<dyn FnOnce(ApplicationContext)>;
 
 impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -195,11 +188,8 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
         let application_context =
             ApplicationContext::new(event_receiver, proxy.clone(), scale_factor);
 
-        let result_receiver = (spawner.take().unwrap())(application_context);
-        *self = Self::Running {
-            result_receiver,
-            event_sender,
-        }
+        (spawner.take().unwrap())(application_context);
+        *self = Self::Running { event_sender }
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellRequest) {
@@ -227,6 +217,12 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
+            ShellRequest::ApplicationEnded(r) => {
+                *self = Self::Ended {
+                    application_result: r,
+                };
+                event_loop.exit();
+            }
         }
     }
 
@@ -244,23 +240,17 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
-        let Self::Running {
-            result_receiver, ..
-        } = self
-        else {
-            warn!("Exiting from a non-Running state");
-            return;
-        };
+        replace_with::replace_with_or_abort(self, |state| {
+            let final_result: Result<()> = if let Self::Ended { application_result } = state {
+                // Detail: Don't output the error here. We'll do this later anyway.
+                info!("Application ended");
+                application_result
+            } else {
+                Err(anyhow!("Event loop exited, but application did not end"))
+            };
 
-        // Check application's result
-        let application_result = if let Ok(Some(r)) = result_receiver.try_recv() {
-            info!("Application ended with {r:?}");
-            r
-        } else {
-            Err(anyhow!("Event loop exited, but application did not end"))
-        };
-
-        *self = Self::Exited { application_result }
+            Self::Exited { final_result }
+        });
     }
 }
 

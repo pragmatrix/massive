@@ -9,7 +9,7 @@ pub mod window_renderer;
 pub use application_context::ApplicationContext;
 pub use async_window_renderer::*;
 pub use scene::Scene;
-pub use shell::{ShellEvent, ShellRequest};
+pub use shell::ShellEvent;
 pub use shell_window::ShellWindow;
 pub use window_renderer::WindowRenderer;
 

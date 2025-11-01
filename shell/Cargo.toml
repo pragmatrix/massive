@@ -10,22 +10,22 @@ panic = "abort"
 panic = "abort"
 
 [dependencies]
-massive-geometry = { workspace = true }
-massive-renderer = { workspace = true }
-massive-shapes = { workspace = true }
-massive-scene = { workspace = true }
-massive-animation = { workspace = true }
+massive-geometry.workspace = true
+massive-renderer.workspace = true
+massive-shapes.workspace = true
+massive-scene.workspace = true
+massive-animation.workspace = true
 
-env_logger = { workspace = true }
-anyhow = { workspace = true }
-
-winit.workspace = true
-log.workspace = true
-wgpu.workspace = true
-cosmic-text.workspace = true
+anyhow.workspace = true
 cgmath.workspace = true
-futures.workspace = true
+cosmic-text.workspace = true
 derive_more.workspace = true
+env_logger.workspace = true
+futures.workspace = true
+log.workspace = true
+replace_with.workspace = true
+wgpu.workspace = true
+winit.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 
