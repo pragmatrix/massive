@@ -53,7 +53,7 @@ impl Movement {
         if event.released(self.sensor) {
             if self.delta != movement {
                 error!(
-                    "Internal error: movement is different from current delta when the sensor got released, did we miss movement updates?"
+                    "Internal error: movement is different from current delta when the sensor got released, were movement updates missed?"
                 )
             }
             return Some(Progress::Commit);
@@ -75,6 +75,7 @@ impl Movement {
     fn cancels(&self, event: &Event) -> bool {
         // Cancellation of a movement that involves the mouse happens when _any_ mouse button is
         // pressed.
+        // Feature: May react on the Escape key?
         matches!(
             event.window_event(),
             Some(WindowEvent::MouseInput {

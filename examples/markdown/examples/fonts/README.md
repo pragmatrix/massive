@@ -1,0 +1,3 @@
+- Downloaded from <https://github.com/googlefonts/noto-emoji/blob/main/fonts/NotoColorEmoji.ttf> 
+- Version 2.051
+- CBDT / CBLC tables (bitmap variants, because Swash does not render COLR)
