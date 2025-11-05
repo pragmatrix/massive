@@ -52,14 +52,14 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         // The default NotoColorEmoji does not render. Use the one from the github repository that
         // contains CBDT and CBLT tables.
 
-        #[cfg!(false)]
+        #[cfg(false)]
         {
-        const DEFAULT_LOCALE: &str = "en-US";
-        let mut font_db = cosmic_text::fontdb::Database::new();
-        let noto_color_emoji = include_bytes!("fonts/NotoColorEmoji.ttf");
-        let source = cosmic_text::fontdb::Source::Binary(Arc::new(noto_color_emoji));
-        font_db.load_font_source(source);
-        FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
+            const DEFAULT_LOCALE: &str = "en-US";
+            let mut font_db = cosmic_text::fontdb::Database::new();
+            let noto_color_emoji = include_bytes!("fonts/NotoColorEmoji.ttf");
+            let source = cosmic_text::fontdb::Source::Binary(Arc::new(noto_color_emoji));
+            font_db.load_font_source(source);
+            FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
         }
 
         // or just the system fonts.
