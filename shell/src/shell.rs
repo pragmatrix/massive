@@ -66,7 +66,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     }
 }
 
-// Robustness: Try to remove the Clone requirement.
+// Robustness: Try to remove Clone.
 #[derive(Debug, Clone)]
 pub enum ShellEvent {
     // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
