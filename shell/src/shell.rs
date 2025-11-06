@@ -27,6 +27,29 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
 
+    // Power up a tokio runtime, if none is running yet.
+
+    match tokio::runtime::Handle::try_current() {
+        Ok(_handle) => {
+            // Already inside a Tokio runtime.
+            run_with_tokio(application)
+        }
+        Err(_) => {
+            // Create and enter a multi-thread runtime so tokio::spawn can run while the event loop blocks.
+            let runtime = tokio::runtime::Builder::new_multi_thread()
+                .enable_all()
+                .build()?;
+            let _guard = runtime.enter();
+            let r = run_with_tokio(application);
+            drop(_guard);
+            r
+        }
+    }
+}
+
+fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
+    application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
+) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
 
     // Spawn application.

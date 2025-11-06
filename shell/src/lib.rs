@@ -13,6 +13,9 @@ pub use shell::ShellEvent;
 pub use shell_window::ShellWindow;
 pub use window_renderer::WindowRenderer;
 
+// Re-exports to make life easier for shell users.
+pub use anyhow::Result;
+
 pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
     let start = std::time::Instant::now();
     let r = f();
