@@ -18,9 +18,6 @@ use crate::{ApplicationContext, ShellWindow, shell_window::ShellWindowShared};
 /// This runs `application` with `tokio::spawn` on the tokio threadpool and waits for its
 /// completion. It also executes the winit event loop and blocks until it returns. This gives
 /// clients the option to run the event loop on the main thread, which some platforms require.
-///
-/// This function is not async, but the tokio runtime _must_ be created and this function's async
-/// caller must be called using the runtime's block_on() function (which #[tokio::main] does).
 pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
 ) -> Result<()> {
