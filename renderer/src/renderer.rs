@@ -1,17 +1,12 @@
-use std::{
-    result,
-    sync::{Arc, Mutex},
-    time::Instant,
-};
+use std::{result, time::Instant};
 
 use anyhow::Result;
-use cosmic_text::FontSystem;
 use itertools::Itertools;
 use log::{info, warn};
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
 use crate::{
-    Transaction, TransactionManager,
+    RenderDevice, Transaction, TransactionManager,
     config::RendererConfig,
     pods::{AsBytes, ToPod},
     render_batches::RenderBatches,
@@ -22,19 +17,15 @@ use crate::{
 use massive_geometry::{Color, Matrix4};
 use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
 
-/// Robustness: We need to announce _prominently_ when we are measuring, because this reduces
-/// performance. Until then it's default false.
-const MEASURE: bool = false;
+const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
 #[derive(Debug)]
 pub struct Renderer {
-    config: RendererConfig,
-    pub device: wgpu::Device,
-    pub queue: wgpu::Queue,
-    pub measure_series: MeasureSeries,
+    pub device: RenderDevice,
     surface: wgpu::Surface<'static>,
+    config: RendererConfig,
     pub surface_config: wgpu::SurfaceConfiguration,
-    pub background_color: Option<Color>,
+    pub measure_series: MeasureSeries,
 
     /// The pipelines for each batch producer.
     pipelines: Vec<wgpu::RenderPipeline>,
@@ -108,30 +99,43 @@ pub struct RenderContext<'a> {
 impl Renderer {
     /// Creates a new renderer and reconfigures the surface according to the given configuration.
     pub fn new(
-        device: wgpu::Device,
-        queue: wgpu::Queue,
+        device: RenderDevice,
         surface: wgpu::Surface<'static>,
-        surface_config: wgpu::SurfaceConfiguration,
-        font_system: Arc<Mutex<FontSystem>>,
+        initial_size: (u32, u32),
+        config: RendererConfig,
     ) -> Self {
-        let format = surface_config.format;
+        let pipelines = config.create_pipelines(&device.device);
 
-        let config = RendererConfig {
-            measure: MEASURE,
-            batch_producers: RendererConfig::default_batch_producers(&device, font_system, format),
+        // Configure the surface.
+
+        // Architecture: I think we can re-create this every time the surface needs reconfiguration.
+        let surface_config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format: device.surface_format,
+            width: initial_size.0,
+            height: initial_size.1,
+            // 20250721: Since the time we are rendering asynchronously, not bound to the main
+            // thread, VSync seems to be fast enough on MacOS and also fixes the "wobbly" resizing.
+            //
+            // 20250724: This is not true, on my MacBook Pro with the mouse, this is considerably
+            // slower. So we perhaps have to switch between interactive mode (Immediate, and VSync
+            // for animations). Also the "wobbly" resizing appears again with VSync.
+            present_mode: PresentMode::AutoNoVsync,
+            alpha_mode: device.alpha_mode,
+            view_formats: vec![],
+            desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
         };
-        let pipelines = config.create_pipelines(&device);
 
-        let index_buffer = QuadIndexBuffer::new(&device);
+        surface.configure(&device.device, &surface_config);
+
+        let index_buffer = QuadIndexBuffer::new(&device.device);
 
         let mut renderer = Self {
             config,
             device,
-            queue,
             measure_series: Default::default(),
             surface,
             surface_config,
-            background_color: Some(Color::WHITE),
             pipelines,
 
             quads_index_buffer: index_buffer,
@@ -207,7 +211,7 @@ impl Renderer {
             .unwrap_or_default();
 
         self.quads_index_buffer
-            .ensure_can_index_num_quads(&self.device, max_quads);
+            .ensure_can_index_num_quads(&self.device.device, max_quads);
 
         self.max_quads_in_use = max_quads;
     }
@@ -225,8 +229,8 @@ impl Renderer {
     fn prepare_batches(&mut self) -> Result<()> {
         let visuals = self.scene.visuals();
         let context = &PreparationContext {
-            device: &self.device,
-            queue: &self.queue,
+            device: &self.device.device,
+            queue: &self.device.queue,
         };
         for id in self.changed_visuals.take_all() {
             if let Some(v) = &visuals[id] {
@@ -311,14 +315,15 @@ impl Renderer {
         let render_start_time = Instant::now();
 
         let command_buffer = {
-            let mut encoder = self
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                });
+            let mut encoder =
+                self.device
+                    .device
+                    .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                        label: Some("Render Encoder"),
+                    });
 
             {
-                let load_op = if let Some(color) = self.background_color {
+                let load_op = if let Some(color) = self.config.background_color {
                     let (r, g, b, a) = color.into();
                     wgpu::LoadOp::Clear(wgpu::Color {
                         r: r as _,
@@ -372,11 +377,12 @@ impl Renderer {
             encoder.finish()
         };
 
-        let submit_index = self.queue.submit([command_buffer]);
+        let submit_index = self.device.queue.submit([command_buffer]);
 
         if self.config.measure {
             // Robustness: This should be done in another thread to prevent us from blocking or delaying present().
             self.device
+                .device
                 .poll(wgpu::PollType::WaitForSubmissionIndex(submit_index))
                 .unwrap();
             let duration_passed = Instant::now().duration_since(render_start_time);
@@ -479,6 +485,11 @@ impl Renderer {
 
     pub fn reconfigure_surface(&mut self) {
         info!("Reconfiguring surface {:?}", self.surface_config);
-        self.surface.configure(&self.device, &self.surface_config);
+        self.surface
+            .configure(&self.device.device, &self.surface_config);
+    }
+
+    pub fn set_background_color(&mut self, color: Option<Color>) {
+        self.config.background_color = color;
     }
 }

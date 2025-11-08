@@ -31,6 +31,10 @@ swash = { workspace = true }
 tracing = { workspace = true }
 wgpu = { workspace = true }
 winit = { workspace = true }
+parking_lot.workspace = true
+
+sys-locale = "0.3.2"
+unicode-script = "0.5.7"
 
 # Atlas
 

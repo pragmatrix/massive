@@ -1,14 +1,7 @@
-use std::{
-    mem,
-    ops::Deref,
-    result,
-    sync::{Arc, Mutex},
-};
+use std::{mem, ops::Deref, result, sync::Arc};
 
 use anyhow::{Result, anyhow};
-use cosmic_text::FontSystem;
 use log::error;
-use massive_renderer::RenderGeometry;
 use tokio::sync::oneshot;
 use wgpu::rwh;
 use winit::{
@@ -17,8 +10,7 @@ use winit::{
     window::{CursorIcon, Window, WindowId},
 };
 
-use crate::{AsyncWindowRenderer, shell::ShellRequest, window_renderer::WindowRenderer};
-use massive_geometry::Camera;
+use crate::{WindowRendererBuilder, shell::ShellRequest};
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
@@ -60,82 +52,8 @@ impl ShellWindow {
     }
 
     // DI: Use SizeI to represent initial_size.
-    pub async fn new_renderer(
-        &self,
-        font_system: Arc<Mutex<FontSystem>>,
-        camera: Camera,
-        // Feature: Use a rect here to place the renderer on the window.
-        // (But what about resizes then?)
-        // Ergonomics: Don't use winit types.
-        initial_size: impl Into<PhysicalSize<u32>>,
-    ) -> Result<AsyncWindowRenderer> {
-        let instance_and_surface = self
-            .new_instance_and_surface(
-                wgpu::InstanceDescriptor::default(),
-                // Use this for testing WebGL:
-                // InstanceDescriptor {
-                //     backends: wgpu::Backends::GL,
-                //     ..InstanceDescriptor::default()
-                // },
-                self.shared.clone(),
-            )
-            .await;
-        // On Wasm, attempt to fall back to WebGL
-        #[cfg(target_arch = "wasm32")]
-        let instance_and_surface = match instance_and_surface {
-            Ok(_) => instance_and_surface,
-            Err(_) => self.new_instance_and_surface(
-                InstanceDescriptor {
-                    backends: wgpu::Backends::GL,
-                    ..InstanceDescriptor::default()
-                },
-                self.window.clone(),
-            ),
-        }
-        .await;
-        let (instance, surface) = instance_and_surface?;
-
-        let surface_size: PhysicalSize<u32> = initial_size.into();
-        let surface_size = (surface_size.width, surface_size.height);
-
-        let geometry = RenderGeometry::new(surface_size, camera);
-
-        // DI: If we can access the ShellWindow, we don't need a clone of font_system or
-        // event_loop_proxy here.
-        let window_renderer = WindowRenderer::new(
-            self.shared.clone(),
-            instance,
-            surface,
-            font_system,
-            geometry.surface_size(),
-        )
-        .await?;
-
-        Ok(AsyncWindowRenderer::new(geometry, window_renderer))
-    }
-
-    /// Helper to create instance and surface.
-    ///
-    /// A function here, because we may try multiple times.
-    async fn new_instance_and_surface(
-        &self,
-        instance_descriptor: wgpu::InstanceDescriptor,
-        window: Arc<ShellWindowShared>,
-    ) -> Result<(wgpu::Instance, wgpu::Surface<'static>)> {
-        let instance = wgpu::Instance::new(&instance_descriptor);
-
-        let (on_created, when_created) = oneshot::channel();
-
-        self.shared
-            .event_loop_proxy
-            .send_event(ShellRequest::CreateSurface {
-                instance: instance.clone(),
-                window,
-                on_created,
-            })
-            .map_err(|e| anyhow!(e.to_string()))?;
-        let surface = when_created.await.expect("oneshot receive");
-        Ok((instance, surface?))
+    pub fn renderer(&self) -> WindowRendererBuilder {
+        WindowRendererBuilder::new(self.shared.clone())
     }
 }
 
@@ -181,6 +99,29 @@ impl ShellWindowShared {
 
     fn window(&self) -> &Window {
         self.window.as_ref().unwrap()
+    }
+
+    /// Helper to create instance and surface.
+    ///
+    /// A function here, because we may try multiple times.
+    pub(crate) async fn new_instance_and_surface(
+        &self,
+        instance_descriptor: wgpu::InstanceDescriptor,
+        window: Arc<ShellWindowShared>,
+    ) -> Result<(wgpu::Instance, wgpu::Surface<'static>)> {
+        let instance = wgpu::Instance::new(&instance_descriptor);
+
+        let (on_created, when_created) = oneshot::channel();
+
+        self.event_loop_proxy
+            .send_event(ShellRequest::CreateSurface {
+                instance: instance.clone(),
+                window,
+                on_created,
+            })
+            .map_err(|e| anyhow!(e.to_string()))?;
+        let surface = when_created.await.expect("oneshot receive");
+        Ok((instance, surface?))
     }
 }
 

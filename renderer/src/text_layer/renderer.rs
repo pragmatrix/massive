@@ -1,11 +1,7 @@
-use std::{
-    collections::HashSet,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashSet, fmt};
 
 use anyhow::Result;
-use cosmic_text::{self as text, FontSystem};
+use cosmic_text::{self as text};
 use massive_geometry::{Point, Point3};
 use massive_shapes::{GlyphRun, RunGlyph};
 use swash::scale::ScaleContext;
@@ -13,6 +9,7 @@ use text::SwashContent;
 use wgpu::Device;
 
 use crate::{
+    FontManager,
     glyph::{
         GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas,
         glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
@@ -22,12 +19,11 @@ use crate::{
 };
 
 pub struct TextLayerRenderer {
-    // Optimization: This is used for get_font() only, which needs &mut. In the long run, completely
-    // put the character renderer off-thread and run the rasterizers completely parallel (tokio is
-    // probably fine, too). This is needed as soon we need asynchronous optimization of rendered
-    // resolutions to match the pixel density.
-    // Architecture: We should wrap this in some kind of FontEnvironment, or RasterizerEnvironment?
-    font_system: Arc<Mutex<FontSystem>>,
+    // Optimization: This is used for `FontSystem::get_font()` only, which needs &mut. In the long
+    // run, completely put the character renderer off-thread and run the rasterizers completely
+    // parallel (tokio is probably fine, too). This is needed as soon we need asynchronous
+    // optimization of rendered resolutions to match the pixel density.
+    fonts: FontManager,
     // Font cache and scratch buffers for the rasterizer.
     //
     // TODO: May make the Rasterizer a thing and put it in there alongside with its functions. This
@@ -45,7 +41,7 @@ pub struct TextLayerRenderer {
 impl fmt::Debug for TextLayerRenderer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TextLayerRenderer")
-            .field("font_system", &self.font_system)
+            .field("font_system", &self.fonts)
             // .field("scale_context", &self.scale_context)
             .field("empty_glyphs", &self.empty_glyphs)
             .field("sdf_renderer", &self.sdf_renderer)
@@ -62,14 +58,10 @@ enum AtlasKind {
 }
 
 impl TextLayerRenderer {
-    pub fn new(
-        device: &Device,
-        font_system: Arc<Mutex<FontSystem>>,
-        target_format: wgpu::TextureFormat,
-    ) -> Self {
+    pub fn new(device: &Device, fonts: FontManager, target_format: wgpu::TextureFormat) -> Self {
         Self {
             scale_context: ScaleContext::default(),
-            font_system,
+            fonts,
             empty_glyphs: HashSet::new(),
             // Instead of specifying all these consts _and_ the vertex type, a trait based spec type
             // would probably be better.
@@ -102,15 +94,13 @@ impl TextLayerRenderer {
         let mut sdf_glyphs = Vec::new();
         let mut color_glyphs = Vec::new();
 
-        let font_system = self.font_system.clone();
+        let fonts = self.fonts.clone();
 
         for run in runs {
             let translation = run.translation;
             for glyph in &run.glyphs {
                 let Some((rect, placement, kind)) = self.rasterized_glyph_atlas_rect(
-                    context,
-                    &font_system,
-                    // run.text_weight,
+                    context, &fonts, // run.text_weight,
                     glyph,
                 )?
                 else {
@@ -150,7 +140,7 @@ impl TextLayerRenderer {
     fn rasterized_glyph_atlas_rect(
         &mut self,
         context: &PreparationContext,
-        font_system: &Arc<Mutex<FontSystem>>,
+        fonts: &FontManager,
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement, AtlasKind)>> {
         let glyph_key = RasterizedGlyphKey {
@@ -182,7 +172,7 @@ impl TextLayerRenderer {
             //
             // A better solution would be to build our own Font cache, because it's only used for
             // looking up the Arc<Font> for the glyph using get_font().
-            let mut font_system = font_system.lock().unwrap();
+            let mut font_system = fonts.lock();
             rasterize_glyph_with_padding(&mut font_system, &mut self.scale_context, &glyph_key)
         };
 

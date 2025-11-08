@@ -1,12 +1,7 @@
-use std::{
-    collections::VecDeque,
-    io,
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{collections::VecDeque, io, time::Duration};
 
 use anyhow::Result;
-use cosmic_text::{FontSystem, fontdb};
+use cosmic_text::FontSystem;
 use log::{debug, warn};
 use termwiz::escape;
 use tokio::{
@@ -22,11 +17,11 @@ use winit::{
 };
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Camera, Identity, Vector3};
+use massive_geometry::{Identity, Vector3};
 use massive_scene::{Handle, Location, Matrix, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
-    ApplicationContext, Scene, ShellWindow,
+    ApplicationContext, FontManager, Scene, ShellWindow,
     shell::{self, ShellEvent},
 };
 
@@ -79,13 +74,7 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    let font_system = {
-        let mut db = fontdb::Database::new();
-        db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
-        // Use an invariant locale.
-        let fs = FontSystem::new_with_locale_and_db("en-US".into(), db);
-        Arc::new(Mutex::new(fs))
-    };
+    let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
 
     // Window
 
@@ -93,20 +82,10 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let window = ctx.new_window(window_size, Some(CANVAS_ID)).await?;
 
-    // Camera
-
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
-
-    let mut renderer = window
-        .new_renderer(font_system.clone(), camera, window.inner_size())
-        .await?;
+    let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
     let scene = Scene::new();
-    let mut logs = Logs::new(&scene, font_system);
+    let mut logs = Logs::new(&scene, fonts);
 
     // Application
 
@@ -129,7 +108,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 }
 
 struct Logs {
-    font_system: Arc<Mutex<FontSystem>>,
+    fonts: FontManager,
 
     application: Application,
 
@@ -145,7 +124,7 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(scene: &Scene, font_system: Arc<Mutex<FontSystem>>) -> Self {
+    fn new(scene: &Scene, fonts: FontManager) -> Self {
         let page_width = 1280u32;
         let application = Application::default();
         let current_matrix = application.matrix((page_width, page_width));
@@ -166,7 +145,7 @@ impl Logs {
         let page_height = scene.animated(0.0);
 
         Self {
-            font_system,
+            fonts,
             application,
             page_matrix,
             page_width,
@@ -181,8 +160,7 @@ impl Logs {
 
     fn add_line(&mut self, scene: &Scene, bytes: &[u8]) {
         let (glyph_runs, height) = {
-            let mut font_system = self.font_system.lock().unwrap();
-
+            let mut font_system = self.fonts.lock();
             shape_log_line(bytes, self.next_line_top, &mut font_system)
         };
 

@@ -27,6 +27,8 @@ replace_with.workspace = true
 wgpu.workspace = true
 winit.workspace = true
 
+sys-locale = { version = "0.3.2" }
+
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 
 tokio = { workspace = true, features = ["rt-multi-thread"] }

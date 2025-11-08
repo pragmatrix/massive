@@ -54,7 +54,7 @@ enum RendererMessage {
 
 impl AsyncWindowRenderer {
     // Architecture: Camera does not feel to belong here. It already moved from the Renderer to here.
-    pub fn new(geometry: RenderGeometry, mut window_renderer: WindowRenderer) -> Self {
+    pub fn new(mut window_renderer: WindowRenderer, geometry: RenderGeometry) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
 

@@ -9,7 +9,7 @@ members = [
     "renderer",
     "shell",
     "scene",
-    "examples/*", 
+    "examples/*", "desktop", 
 ]
 
 exclude = [
@@ -49,6 +49,7 @@ flo_curves = "0.8.0"
 futures = { version = "0.3.30" }
 itertools = "0.14.0"
 log = "0.4.28"
+parking_lot = "0.12.5"
 postcard = { version = "1.0.8", features = ["use-std"] }
 replace_with = { version = "0.1.8" }
 serde = { version = "1.0.164", features = ["derive"] }

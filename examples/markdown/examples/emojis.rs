@@ -18,9 +18,9 @@ use inlyne::{
 use log::info;
 use winit::dpi::LogicalSize;
 
-use massive_geometry::{Camera, SizeI, Vector3};
+use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
-use massive_shell::{ApplicationContext, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,
@@ -46,42 +46,15 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
-    let font_system = {
-        // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
-
-        // The default NotoColorEmoji does not render. Use the one from the github repository that
-        // contains CBDT and CBLT tables.
-
-        #[cfg(false)]
-        {
-            const DEFAULT_LOCALE: &str = "en-US";
-            let mut font_db = cosmic_text::fontdb::Database::new();
-            let noto_color_emoji = include_bytes!("fonts/NotoColorEmoji.ttf");
-            let source = cosmic_text::fontdb::Source::Binary(Arc::new(noto_color_emoji));
-            font_db.load_font_source(source);
-            FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
-        }
-
-        // or just the system fonts.
-
-        FontSystem::new()
-    };
+    let fonts = FontManager::system();
+    // Need an equivalent FontSystem for inlyne.
+    let font_system = Arc::new(Mutex::new(FontSystem::new()));
 
     let initial_size = LogicalSize::new(1280., 800.);
 
-    let font_system = Arc::new(Mutex::new(font_system));
-
     let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
 
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
-
-    let mut renderer = window
-        .new_renderer(font_system.clone(), camera, window.inner_size())
-        .await?;
+    let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     let hidpi_scale = window.scale_factor();
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
@@ -119,7 +92,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         elements.into_iter().map(Positioned::new).collect();
 
     let mut text_system = TextSystem {
-        font_system,
+        font_system: font_system.clone(),
         text_cache: text_cache.clone(),
     };
 
