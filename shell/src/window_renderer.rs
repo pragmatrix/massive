@@ -62,6 +62,8 @@ impl WindowRenderer {
     /// Apply all changes to the renderer and prepare the presentation.
     ///
     /// This is separate from render_and_present.
+    ///
+    /// Detail: This blocks in VSync modes until the previous frame is presented.
     pub(crate) fn apply_scene_changes_and_prepare_presentation(
         &mut self,
     ) -> Result<wgpu::SurfaceTexture> {
@@ -71,7 +73,6 @@ impl WindowRenderer {
 
         self.renderer.prepare()?;
 
-        // Important: This blocks in VSync modes until the previous frame is presented.
         // Robustness: Learn about how to recover from specific `SurfaceError`s errors here
         // `get_current_texture()` tries once.
         let texture = self

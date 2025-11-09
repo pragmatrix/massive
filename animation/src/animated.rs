@@ -92,11 +92,12 @@ impl<T: Interpolatable + Send> Animated<T> {
         let mut inner = self.inner.lock().expect("poisoned");
         if inner.animation.is_active() {
             // Detail: Don't retrieve the animation_tick if there is no animation active, because
-            // this marks informs the update cycle tha an animation is active.
+            // this informs the update cycle than an animation is active.
             //
-            // Contract: **But** If the animation would return no value at the given instant, we
-            // would not need to subscribe to further ticks. So there is always one more tick to
-            // process, which may have unintended side effects and clients relying on that behavior.
+            // Contract: **But** If the animation would return no value at the given instant (i.e.
+            // it stopped), we would not need to subscribe to further ticks. So there is always one
+            // more tick to process, which may have unintended side effects and clients relying on
+            // that behavior.
             let instant = self.tickery.animation_tick();
             if let Some(new_value) = inner.animation.proceed(instant) {
                 inner.value = new_value;
