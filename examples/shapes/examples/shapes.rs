@@ -162,8 +162,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     let _visual = scene.stage(Visual::new(location.clone(), shapes));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
+        let event = ctx.wait_for_shell_event().await?;
 
         if let Some(window_event) = event.window_event_for_id(window.id()) {
             match application.update(window_event) {
@@ -172,5 +171,6 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             }
             matrix.update_if_changed(application.matrix((page_width, page_height)));
         }
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }

@@ -1,13 +1,9 @@
 //! A wrapper around a regular Scene that adds animation support.
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use derive_more::Deref;
-use log::{error, info, warn};
-use massive_geometry::Camera;
+use log::info;
 use winit::event::WindowEvent;
 
 use crate::{AsyncWindowRenderer, RenderPacing, ShellEvent};
@@ -103,7 +99,7 @@ impl Scene {
                     WindowEvent::Resized(size) => {
                         resize = Some((size.width, size.height));
                         // Robustness: Is this needed. Doesn't the system always send a redraw
-                        // anyways after each resize?
+                        // anyway after each resize?
                         redraw = true
                     }
                     _ => {}

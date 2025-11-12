@@ -53,7 +53,7 @@ impl FontManager {
     }
 
     /// Adds the font and return its font ids.
-    /// Ergonomics: May rename to `add_font`?
+    /// Ergonomics: Rename to `add_font`?
     pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FontId> {
         self.lock()
             .db_mut()

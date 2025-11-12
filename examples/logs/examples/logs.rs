@@ -2,7 +2,7 @@ use std::{collections::VecDeque, io, time::Duration};
 
 use anyhow::Result;
 use cosmic_text::FontSystem;
-use log::{debug, info, warn};
+use log::{debug, warn};
 use termwiz::escape;
 use tokio::{
     select,

@@ -103,11 +103,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     ));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
+        let event = ctx.wait_for_shell_event().await?;
 
         let window_id = renderer.window_id();
-
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
 
         if let Some(window_event) = event.window_event_for_id(window_id) {
             info!("Window Event: {window_event:?}");
@@ -122,6 +120,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
             matrix.update_if_changed(application.matrix(page_size));
         }
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }
 

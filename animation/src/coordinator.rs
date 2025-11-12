@@ -16,7 +16,7 @@
 //!       was presented.
 //!   - The current timestamp is reset at the time the changes are pushed to the renderer.
 //!
-//! ## ADR Log
+//! # ADR Log
 //!   - 202511: Decided to switch to the new model of just tracking the ending time, because
 //!     deciding based on polling the value() about the render pacing felt too brittle. We don't
 //!     want to a client to constrain when it is recommended to update derived values from animated

@@ -269,8 +269,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     ));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
+        let event = ctx.wait_for_shell_event().await?;
 
         info!("Event: {event:?}");
 
@@ -286,6 +285,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
         matrix.update_if_changed(application.matrix(page_size));
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }
 

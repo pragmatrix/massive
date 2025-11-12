@@ -88,13 +88,6 @@ impl<T: Interpolatable + Send> Animated<T> {
     pub fn value(&self) -> T {
         let mut inner = self.inner.lock().expect("poisoned");
         if inner.animation.is_active() {
-            // Detail: Don't retrieve the animation_tick if there is no animation active, because
-            // this informs the update cycle than an animation is active.
-            //
-            // Contract: **But** If the animation would return no value at the given instant (i.e.
-            // it stopped), we would not need to subscribe to further ticks. So there is always one
-            // more tick to process, which may have unintended side effects and clients relying on
-            // that behavior.
             let instant = self.coordinator.current_time();
             if let Some(new_value) = inner.animation.proceed(instant) {
                 inner.value = new_value;

@@ -10,10 +10,7 @@ use tokio::{
 };
 use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{
-    AsyncWindowRenderer, PresentationTimestamp, RenderPacing, ShellEvent, ShellWindow,
-    message_filter, shell::ShellRequest,
-};
+use crate::{PresentationTimestamp, ShellEvent, ShellWindow, message_filter, shell::ShellRequest};
 
 /// The [`ApplicationContext`] is the connection to the runtime. It allows the application to poll
 /// for events while also forwarding events to the renderer.

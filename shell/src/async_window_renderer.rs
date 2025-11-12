@@ -8,12 +8,9 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Context, Result, bail};
-use env_logger::fmt::Timestamp;
+use anyhow::{Context, Result};
 use log::{error, info};
-use tokio::sync::mpsc::{
-    UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel,
-};
+use tokio::sync::mpsc::UnboundedSender;
 use winit::window::WindowId;
 
 use crate::{message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
@@ -36,7 +33,9 @@ pub struct AsyncWindowRenderer {
 
 #[derive(Debug, Copy, Clone)]
 pub struct PresentationTimestamp {
+    #[allow(unused)]
     window_id: WindowId,
+    #[allow(unused)]
     timestamp: Instant,
 }
 
