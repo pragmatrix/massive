@@ -2,7 +2,7 @@
 //!
 //! This includes it's surface size up to the pixel view projection.
 // Architecture: Might need move this up to the shell where the AsyncWindowRenderer uses it first.
-// Architecture: This is slighly overengineered. Depedency tracking is probably not worth it.
+// Architecture: This is slightly over-engineered. Dependency tracking is probably not worth it.
 use std::cell::RefCell;
 
 use massive_geometry::{Camera, DepthRange, PerspectiveDivide, Plane, Point, Point3, Ray, Vector4};
@@ -100,7 +100,7 @@ impl RenderGeometry {
             * Matrix::from_scale(1.0 / surface_height as f64 * 2.0)
     }
 
-    /// Unprojects a screen-space pixel position into model space at z==0 (the matrix describing a
+    /// Un-projects a screen-space pixel position into model space at z==0 (the matrix describing a
     /// plane to hit).
     ///
     /// Returns the hit point in model-local coordinates or None if the ray is parallel or

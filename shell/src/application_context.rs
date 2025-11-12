@@ -192,7 +192,7 @@ impl ApplicationContext {
     ///
     /// Robustness: Filter by WindowId
     /// Architecture: May use watch channel for this?
-    pub async fn wait_for_most_recent_presentation(
+    async fn wait_for_most_recent_presentation(
         receiver: &mut UnboundedReceiver<PresentationTimestamp>,
     ) -> Result<PresentationTimestamp> {
         let most_recent = receiver.recv().await;
