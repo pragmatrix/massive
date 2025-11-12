@@ -1,9 +1,10 @@
 use std::{
     any::TypeId,
-    sync::{Arc, Mutex},
+    sync::{Arc, LazyLock},
 };
 
 use anyhow::Result;
+use parking_lot::Mutex;
 
 use crate::{
     Change, ChangeCollector, Handle, Object, SceneChange, type_id_generator::TypeIdGenerator,
@@ -16,14 +17,10 @@ use crate::{
 /// objects onto it.
 #[derive(Debug, Default)]
 pub struct Scene {
-    // Each type requires its own id generator to ensure that the generated ids are contiguous
-    // within that type.
+    // This tracks all changes from staging, changing the the values in the handles, and dropping
+    // them.
     //
-    // Robustness: Id generation should probably be done somewhere else to enable multiple scenes?
-    id_generator: Mutex<TypeIdGenerator>,
-    // This tracks all changes from staging, changing the the values in the handles, and dropping them.
-    //
-    // `Arc` because Handles need to push changes when dropped.
+    // Shared because handles need to push changes when dropped.
     change_tracker: Arc<ChangeCollector>,
 }
 
@@ -38,9 +35,7 @@ impl Scene {
         SceneChange: From<Change<T::Change>>,
     {
         let tid = TypeId::of::<T>();
-        // Architecture: Can't we put the TypeIdGenerator and the ChangeTracker together to remove
-        // the two locks here (second one is in Handle::new)?
-        let id = self.id_generator.lock().unwrap().acquire(tid);
+        let id = global_id_generator().lock().acquire(tid);
         Handle::new(id, value, self.change_tracker.clone())
     }
 
@@ -53,17 +48,25 @@ impl Scene {
             return Ok(Vec::new());
         }
 
-        // Optimization: May not lock the id generator if there are no destructive changes.
-        let mut id_gen = self.id_generator.lock().unwrap();
+        // Performance: May not lock the id generator if there are no destructive changes.
+        let mut id_gen = global_id_generator().lock();
 
         // Free up all deleted ids (this is done immediately for now, but may be later done in the
         // renderer, for example to keep ids alive until animations are finished or cached resources
         // are cleaned up)
         for (type_id, id) in changes.iter().flat_map(|sc| sc.destructive_change()) {
-            // TODO: order by TypeId first?
+            // Performance: Order by TypeId first to prevent expensive HashMap lookups?
             id_gen.release(type_id, id);
         }
 
         Ok(changes)
     }
+}
+
+/// ADR: Decided to use a global id generator, so that we can have multiple scenes per renderer.
+fn global_id_generator() -> &'static Mutex<TypeIdGenerator> {
+    static ID_GEN: LazyLock<Mutex<TypeIdGenerator>> =
+        LazyLock::new(|| TypeIdGenerator::default().into());
+
+    &ID_GEN
 }

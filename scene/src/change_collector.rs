@@ -1,4 +1,6 @@
-use std::{mem, ops::DerefMut, sync::Mutex};
+use std::mem;
+
+use parking_lot::Mutex;
 
 use crate::SceneChange;
 
@@ -8,14 +10,14 @@ pub struct ChangeCollector(Mutex<Vec<SceneChange>>);
 impl ChangeCollector {
     pub fn push(&self, change: impl Into<SceneChange>) {
         let change = change.into();
-        self.0.lock().unwrap().push(change);
+        self.0.lock().push(change);
     }
 
     pub fn push_many(&self, changes: Vec<SceneChange>) {
-        self.0.lock().unwrap().extend(changes);
+        self.0.lock().extend(changes);
     }
 
     pub fn take_all(&self) -> Vec<SceneChange> {
-        mem::take(self.0.lock().unwrap().deref_mut())
+        mem::take(&mut self.0.lock())
     }
 }
