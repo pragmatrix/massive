@@ -1,23 +1,19 @@
 //! A wrapper around a regular Scene that adds animation support.
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use derive_more::Deref;
-use log::{error, info};
-use massive_geometry::Camera;
+use log::info;
 use winit::event::WindowEvent;
 
 use crate::{AsyncWindowRenderer, RenderPacing, ShellEvent};
-use massive_animation::{Animated, Interpolatable, Interpolation, Tickery, TimeScale};
+use massive_animation::{Animated, AnimationCoordinator, Interpolatable, Interpolation, TimeScale};
 
 #[derive(Debug, Deref)]
 pub struct Scene {
     #[deref]
     inner: massive_scene::Scene,
-    pub(crate) tickery: Arc<Tickery>,
+    pub(crate) animation_coordinator: AnimationCoordinator,
 }
 
 impl Default for Scene {
@@ -30,13 +26,13 @@ impl Scene {
     pub fn new() -> Self {
         Self {
             inner: Default::default(),
-            tickery: Tickery::new(Instant::now()).into(),
+            animation_coordinator: AnimationCoordinator::new(),
         }
     }
 
     /// Create an [`Animated`] with an initial value.
     pub fn animated<T: Interpolatable + Send>(&self, value: T) -> Animated<T> {
-        self.tickery.animated(value)
+        self.animation_coordinator.animated(value)
     }
 
     /// Create a animated value that is animating from a starting value to a target value.
@@ -47,7 +43,7 @@ impl Scene {
         duration: Duration,
         interpolation: Interpolation,
     ) -> Animated<T> {
-        let mut animated = self.tickery.animated(value);
+        let mut animated = self.animation_coordinator.animated(value);
         animated.animate_to(target_value, duration, interpolation);
         animated
     }
@@ -61,151 +57,101 @@ impl Scene {
     /// As long as a TimeScale is asked to scale values, the system stays in "animation mode"
     /// (attempts to re-render every frame) and sends regular  [`ShellEvent::ApplyAnimations`]s.
     pub fn time_scale(&self) -> TimeScale {
-        self.tickery.time_scale()
+        self.animation_coordinator.time_scale()
     }
 
-    /// Begin an update cycle.
-    ///
-    /// The update cycle is used at a time the scene changes and the renderer needs to be informed
-    /// at the end of the update cycle about the changes.
-    pub fn begin_update_cycle<'a>(
-        // Not only do we need &mut self in the Drop handler, but this also prevents users to
-        // start a second update cycle in parallel. But this may be allowed?
-        // (right now, only .animation is used, which needs only the tickery).
-        &'a self,
-        renderer: &'a mut AsyncWindowRenderer,
-        event: Option<&ShellEvent>,
-    ) -> Result<UpdateCycle<'a>> {
-        // Handle the window event.
-        let mode = if let Some(event) = event {
-            match event {
-                ShellEvent::WindowEvent(window_id, window_event)
-                    if *window_id == renderer.window_id() =>
-                {
-                    match window_event {
-                        WindowEvent::Resized(size) => {
-                            // A resize is sent to the renderer first, so that we can prepare it for the right size
-                            // as soon as possible.
-                            //
-                            // Performance: Does a resize block inside the async renderer if there is a pending
-                            // presentation?
-                            renderer.resize((size.width, size.height))?;
-                            UpdateCycleMode::WindowResize
-                        }
-                        WindowEvent::RedrawRequested => UpdateCycleMode::RedrawRequested,
-                        _ => UpdateCycleMode::ExternalOrInteractionEvent,
-                    }
-                }
-                ShellEvent::WindowEvent(_, _) => {
-                    bail!("Received an event from another window");
-                }
-
-                ShellEvent::ApplyAnimations => {
-                    // Optimization: This Instant::now() should not be used for animation cycles,
-                    // (Apply Animations could really carry the previous presentation time)
-                    UpdateCycleMode::ApplyAnimations
-                }
-            }
-        } else {
-            UpdateCycleMode::ExternalOrInteractionEvent
-        };
-
-        let apply_animations = mode == UpdateCycleMode::ApplyAnimations;
-        self.tickery
-            .begin_update_cycle(Instant::now(), apply_animations);
-
-        Ok(UpdateCycle {
-            mode,
-            scene: self,
-            renderer,
-        })
-    }
-
-    fn end_update_cycle(cycle: &mut UpdateCycle) -> Result<()> {
-        // Push scene changes to the renderer.
-
-        let changes = cycle.scene.take_changes()?;
-        let any_scene_changes = !changes.is_empty();
+    // Render all the current scene changes.
+    //
+    // Pass in the current shell event if you need to handle redraw requests without scene changes
+    // and automatic resizing of the renderer.
+    pub fn render_to(
+        &self,
+        renderer: &mut AsyncWindowRenderer,
+        event: Option<ShellEvent>,
+    ) -> Result<()> {
+        let animations_active = self.animation_coordinator.end_cycle();
+        let changes = self.take_changes()?;
+        let mut redraw = false;
 
         // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
-        // may asynchronously overtake the subsequent redraw request if a previous was pending.
+        // may asynchronously overtake the subsequent redraw / resize requests if a previous one is
+        // currently on its way.
         //
         // Architecture: We could send this through the RendererMessage::Redraw, which may cause
         // other problems (increased latency and the need for combining changes if Redraws are
         // pending).
-        if any_scene_changes {
-            cycle.renderer.change_collector().push_many(changes);
+        //
+        // Robustness: This should probably threaded through the redraw pipeline?
+        if !changes.is_empty() {
+            renderer.change_collector().push_many(changes);
+            redraw = true;
         }
 
-        // Issue a redraw before potentially changing the render pacing.
-        if any_scene_changes || cycle.mode == UpdateCycleMode::RedrawRequested {
-            cycle.renderer.redraw()?;
+        let window_id = renderer.window_id();
+        let mut resize = None;
+        let mut animations_applied = false;
+        match event {
+            Some(ShellEvent::WindowEvent(id, window_event)) if id == window_id => {
+                match window_event {
+                    WindowEvent::RedrawRequested => {
+                        redraw = true;
+                    }
+                    WindowEvent::Resized(size) => {
+                        resize = Some((size.width, size.height));
+                        // Robustness: Is this needed. Doesn't the system always send a redraw
+                        // anyway after each resize?
+                        redraw = true
+                    }
+                    _ => {}
+                }
+            }
+            Some(ShellEvent::ApplyAnimations) => {
+                // Even if nothing changed in apply animations, we have to redraw to get a new presentation timestamp.
+                redraw = true;
+                animations_applied = true;
+            }
+            _ => {}
+        };
+
+        let animations_before = renderer.pacing() == RenderPacing::Smooth;
+
+        let new_render_pacing = match (animations_before, animations_active, animations_applied) {
+            (false, true, _) => {
+                // Changing from Fast to Smooth requires presentation timestamps to follow. So redraw.
+                redraw = true;
+                Some(RenderPacing::Smooth)
+            }
+            // Detail: Changing from Smooth to fast is only possible in response to
+            // ApplyAnimations: Only then we know that animations are actually applied to the
+            // scene and pushed to the renderer with this update.
+            (true, false, true) => Some(RenderPacing::Fast),
+            _ => None,
+        };
+
+        //
+        // Sync with the renderer.
+        //
+
+        // Resize first and follow up with a complete redraw.
+
+        if let Some(new_size) = resize {
+            renderer.resize(new_size)?;
         }
 
-        // Update render pacing depending on if there are active animations.
+        // Update render pacing before a redraw:
+        // - from instant to smooth: We force a redraw _afterwards_ to get VSync based presentation
+        //   timestamps and cause ApplyAnimations.
+        // - from smooth to instant: Redraw only when something changed afterwards, but instantly
+        //   without VSync.
+        if let Some(new_render_pacing) = new_render_pacing {
+            info!("Changing render pacing to: {new_render_pacing:?}");
+            renderer.update_render_pacing(new_render_pacing)?;
+        }
 
-        let animations_before = cycle.renderer.pacing() == RenderPacing::Smooth;
-        let animations_now = cycle.scene.tickery.animation_ticks_needed();
-
-        match cycle.mode {
-            UpdateCycleMode::ExternalOrInteractionEvent
-            | UpdateCycleMode::WindowResize
-            | UpdateCycleMode::RedrawRequested => {
-                // For these cycle modes, we only allow upgrades to the Smooth render pacing
-                if !animations_before && animations_now {
-                    info!("Enabling smooth rendering (animations on)");
-                    debug_assert_eq!(cycle.renderer.pacing(), RenderPacing::Fast);
-                    cycle.renderer.update_render_pacing(RenderPacing::Smooth)?;
-                    debug_assert_eq!(cycle.renderer.pacing(), RenderPacing::Smooth);
-                }
-            }
-            UpdateCycleMode::ApplyAnimations => {
-                assert!(animations_before);
-                if !animations_now {
-                    info!("Disabling smooth rendering (animations off)");
-                    debug_assert_eq!(cycle.renderer.pacing(), RenderPacing::Smooth);
-                    cycle.renderer.update_render_pacing(RenderPacing::Fast)?;
-                    debug_assert_eq!(cycle.renderer.pacing(), RenderPacing::Fast);
-                }
-            }
+        if redraw {
+            renderer.redraw()?;
         }
 
         Ok(())
-    }
-}
-
-#[derive(Debug, PartialEq, Eq)]
-enum UpdateCycleMode {
-    ExternalOrInteractionEvent,
-    WindowResize,
-    RedrawRequested,
-    ApplyAnimations,
-}
-
-#[derive(Debug)]
-pub struct UpdateCycle<'a> {
-    mode: UpdateCycleMode,
-    /// The scene, so that we can push the changes at the end of the cycle to the renderer.
-    scene: &'a Scene,
-    renderer: &'a mut AsyncWindowRenderer,
-}
-
-impl UpdateCycle<'_> {
-    /// Ergonomics: Since Scene can only stage here, what about implementing the stage() function directly on
-    /// UpdateCycle?
-    pub fn scene(&self) -> &Scene {
-        self.scene
-    }
-
-    pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
-        self.renderer.update_camera(camera)
-    }
-}
-
-impl Drop for UpdateCycle<'_> {
-    fn drop(&mut self) {
-        if let Err(e) = Scene::end_update_cycle(self) {
-            error!("Error while ending the update cycle: {e:?}")
-        }
     }
 }

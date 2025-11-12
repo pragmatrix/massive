@@ -20,10 +20,10 @@ use log::info;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use winit::dpi::PhysicalSize;
 
-use massive_geometry::{Camera, SizeI, Vector3};
+use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-use massive_shell::{ApplicationContext, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
@@ -59,24 +59,16 @@ async fn main() -> Result<()> {
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
-    let font_system = {
-        // In wasm the system locale can't be acquired. `sys_locale::get_locale()`
-        const DEFAULT_LOCALE: &str = "en-US";
+    let fonts = FontManager::bare("en-US").with_font(fonts::MONTSERRAT_REGULAR);
 
+    // Need an equivalent font_system for inlyne.
+    let font_system = {
         // Don't load system fonts for now, this way we get the same result on wasm and local runs.
         let mut font_db = fontdb::Database::new();
         let montserrat = fonts::MONTSERRAT_REGULAR;
         let source = fontdb::Source::Binary(Arc::new(montserrat));
         font_db.load_font_source(source);
-        FontSystem::new_with_locale_and_db(DEFAULT_LOCALE.into(), font_db)
-    };
-
-    // Camera
-
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
+        FontSystem::new_with_locale_and_db("en-US".into(), font_db)
     };
 
     let initial_size = winit::dpi::LogicalSize::new(960, 800);
@@ -86,13 +78,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let mut renderer = window
-        .new_renderer(
-            font_system.clone(),
-            camera,
-            initial_size.to_physical(scale_factor),
-        )
-        .await?;
+    let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     let markdown = include_str!("replicator.org.md");
 
@@ -117,11 +103,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     ));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
+        let event = ctx.wait_for_shell_event().await?;
 
         let window_id = renderer.window_id();
-
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
 
         if let Some(window_event) = event.window_event_for_id(window_id) {
             info!("Window Event: {window_event:?}");
@@ -136,6 +120,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
             matrix.update_if_changed(application.matrix(page_size));
         }
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }
 

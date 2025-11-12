@@ -3,13 +3,11 @@ use std::{
     env, fs,
     io::{self, Write},
     path::Path,
-    sync::{Arc, Mutex},
 };
 
 use anyhow::Result;
 use base_db::{RootQueryDb, SourceDatabase};
 use chrono::{DateTime, Local};
-use cosmic_text::{FontSystem, fontdb};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use winit::dpi::LogicalSize;
@@ -24,10 +22,10 @@ use project_model::CargoConfig;
 use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
-use massive_geometry::{Camera, Color, SizeI};
+use massive_geometry::{Color, SizeI};
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText, TextAttribute},
@@ -70,19 +68,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .unwrap()
         .join(Path::new("examples/code/examples"));
 
-    // FontSystem
-
-    let mut font_system = {
-        let mut db = fontdb::Database::new();
-        // let font_dir = example_dir.join("JetBrainsMono-2.304/fonts/ttf");
-        // db.load_fonts_dir(font_dir);
-
-        db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
-        // Use an invariant locale.
-        FontSystem::new_with_locale_and_db("en-US".into(), db)
-    };
-
-    println!("Loaded {} font faces.", font_system.db().faces().count());
+    let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
 
     let cargo_config = CargoConfig {
         // need to be able to look up examples.
@@ -250,7 +236,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let line_height = 20.;
 
     let (glyph_runs, height) = attributed_text::shape_text(
-        &mut font_system,
+        &mut fonts.lock(),
         text,
         &attributes,
         font_size,
@@ -261,28 +247,15 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // Window
 
     let window = ctx.new_window(LogicalSize::new(1024, 800), None).await?;
-    let initial_size = window.inner_size();
-
-    // Camera
-
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
 
     // Application
 
     let page_size = SizeI::new(1280, height as u64);
     let mut application = Application::default();
 
-    let font_system = Arc::new(Mutex::new(font_system));
-
     let scene = Scene::default();
 
-    let mut renderer = window
-        .new_renderer(font_system, camera, initial_size)
-        .await?;
+    let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     let matrix = scene.stage(application.matrix(page_size));
     let location = scene.stage(matrix.clone().into());
@@ -296,8 +269,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     ));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
+        let event = ctx.wait_for_shell_event().await?;
 
         info!("Event: {event:?}");
 
@@ -313,6 +285,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
         matrix.update_if_changed(application.matrix(page_size));
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }
 

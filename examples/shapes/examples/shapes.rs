@@ -1,10 +1,7 @@
-use std::sync::{Arc, Mutex};
-
 use anyhow::Result;
-use cosmic_text::{FontSystem, fontdb};
 use winit::dpi::LogicalSize;
 
-use massive_geometry::{Camera, Color, Rect, Size};
+use massive_geometry::{Color, Rect, Size};
 use massive_scene::Visual;
 use massive_shapes::{
     ChamferRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
@@ -20,28 +17,11 @@ async fn main() -> Result<()> {
 }
 
 async fn run(mut ctx: ApplicationContext) -> Result<()> {
-    // Font system (required by renderer even if no text shown)
-    let font_system = {
-        let mut db = fontdb::Database::new();
-        db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
-        FontSystem::new_with_locale_and_db("en-US".into(), db)
-    };
-    let font_system = Arc::new(Mutex::new(font_system));
-
-    // Camera
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
-
     // Window
     let window_size = LogicalSize::new(1024.0, 768.0);
     let window = ctx.new_window(window_size, Some(CANVAS_ID)).await?;
 
-    let mut renderer = window
-        .new_renderer(font_system, camera, window.inner_size())
-        .await?;
+    let mut renderer = window.renderer().with_shapes().build().await?;
 
     // Scene & application
     let mut application = Application::default();
@@ -129,7 +109,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     let page_width = bounds.size().width.ceil() as u32;
     let page_height = bounds.size().height.ceil() as u32;
 
-    // Center shapes: we shift by -bounds.origin then let Application matrix recenters page
+    // Center shapes: we shift by -bounds.origin then let Application matrix re-centers page
     // (Application::matrix already centers by half the page size). So we translate shapes so that
     // their local coordinates start at (0,0) relative to bounds.
     let offset_x = -bounds.left;
@@ -182,8 +162,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     let _visual = scene.stage(Visual::new(location.clone(), shapes));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
+        let event = ctx.wait_for_shell_event().await?;
 
         if let Some(window_event) = event.window_event_for_id(window.id()) {
             match application.update(window_event) {
@@ -192,5 +171,6 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             }
             matrix.update_if_changed(application.matrix((page_width, page_height)));
         }
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }

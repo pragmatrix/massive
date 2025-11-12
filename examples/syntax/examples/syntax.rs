@@ -1,7 +1,4 @@
-use std::sync::{Arc, Mutex};
-
 use anyhow::Result;
-use cosmic_text::{FontSystem, fontdb};
 use syntect::{
     easy::HighlightLines,
     highlighting::{FontStyle, Style, ThemeSet},
@@ -10,10 +7,10 @@ use syntect::{
 };
 use winit::dpi::LogicalSize;
 
-use massive_geometry::{Camera, Color};
+use massive_geometry::Color;
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},
@@ -62,27 +59,13 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let mut font_system = {
-        let mut db = fontdb::Database::new();
-        // let font_dir = example_dir.join("JetBrainsMono-2.304/fonts/ttf");
-        // db.load_fonts_dir(font_dir);
-
-        db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
-        // Use an invariant locale.
-        FontSystem::new_with_locale_and_db("en-US".into(), db)
-    };
-
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
+    let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
 
     let font_size = 32.;
     let line_height = 40.;
 
     let (glyph_runs, height) = attributed_text::shape_text(
-        &mut font_system,
+        &mut fonts.lock(),
         &final_text,
         &text_attributes,
         font_size,
@@ -90,16 +73,12 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         None,
     );
 
-    let font_system = Arc::new(Mutex::new(font_system));
-
     // Window
 
     let inner_size = LogicalSize::new(800., 800.);
     let window = ctx.new_window(inner_size, Some(CANVAS_ID)).await?;
     let scene = Scene::new();
-    let mut renderer = window
-        .new_renderer(font_system, camera, window.inner_size())
-        .await?;
+    let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     // Application
 
@@ -118,8 +97,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     ));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
+        let event = ctx.wait_for_shell_event().await?;
 
         if let Some(window_event) = event.window_event_for_id(window.id()) {
             match application.update(window_event) {
@@ -131,5 +109,6 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
         matrix.update_if_changed(application.matrix(page_size));
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }

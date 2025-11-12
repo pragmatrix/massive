@@ -4,15 +4,13 @@ use anyhow::{Result, anyhow, bail};
 use tokio::{
     select,
     sync::{
-        mpsc::{UnboundedReceiver, error::TryRecvError},
+        mpsc::{UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel},
         oneshot,
     },
 };
 use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{
-    AsyncWindowRenderer, RenderPacing, ShellEvent, ShellWindow, message_filter, shell::ShellRequest,
-};
+use crate::{PresentationTimestamp, ShellEvent, ShellWindow, message_filter, shell::ShellRequest};
 
 /// The [`ApplicationContext`] is the connection to the runtime. It allows the application to poll
 /// for events while also forwarding events to the renderer.
@@ -30,6 +28,11 @@ pub struct ApplicationContext {
 
     /// Pending events received but not yet delivered.
     pending_events: VecDeque<ShellEvent>,
+
+    /// ADR: Decided to collect all presentation timestamps globally, so that we don't have to pass
+    /// a renderer to the `wait_for_shell_event` function.
+    presentation_timestamps_receiver: UnboundedReceiver<PresentationTimestamp>,
+    presentation_timestamps_sender: UnboundedSender<PresentationTimestamp>,
 }
 
 impl ApplicationContext {
@@ -38,11 +41,15 @@ impl ApplicationContext {
         event_loop_proxy: EventLoopProxy<ShellRequest>,
         monitor_scale_factor: Option<f64>,
     ) -> Self {
+        let (presentation_timestamps_sender, presentation_timestamps_receiver) =
+            unbounded_channel();
         Self {
             event_receiver,
             event_loop_proxy,
             monitor_scale_factor,
             pending_events: Default::default(),
+            presentation_timestamps_receiver,
+            presentation_timestamps_sender,
         }
     }
 
@@ -75,7 +82,11 @@ impl ApplicationContext {
             .map_err(|e| anyhow!(e.to_string()))?;
 
         let window = when_created.await??;
-        Ok(ShellWindow::new(window, self.event_loop_proxy.clone()))
+        Ok(ShellWindow::new(
+            window,
+            self.event_loop_proxy.clone(),
+            self.presentation_timestamps_sender.clone(),
+        ))
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -116,10 +127,7 @@ impl ApplicationContext {
     ///
     /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
     /// [`ShellEvent::ApplyAnimations`] can be produced.
-    pub async fn wait_for_shell_event(
-        &mut self,
-        renderer: &mut AsyncWindowRenderer,
-    ) -> Result<ShellEvent> {
+    pub async fn wait_for_shell_event(&mut self) -> Result<ShellEvent> {
         loop {
             // Pull in every event we can get.
             loop {
@@ -160,17 +168,48 @@ impl ApplicationContext {
                     self.pending_events.push_back(event);
                 }
 
-                _instant = renderer.wait_for_most_recent_presentation() => {
-                    if renderer.pacing() == RenderPacing::Smooth {
-                        // Robustness: If applyAnimations will come to fast, we probably should push
-                        // them into pending_events.
-                        //
-                        // Detail: The renderer returns only the latest one.
-                        return Ok(ShellEvent::ApplyAnimations);
-                    }
-                    // else: Not in a animation cycle: loop and wait for an input event.
+                _instant = Self::wait_for_most_recent_presentation(&mut self.presentation_timestamps_receiver) => {
+                    // Robustness: If applyAnimations will come to fast, we probably should push
+                    // them into pending_events.
+                    //
+                    // Robustness: The render pacing (as seen from the client or the renderer)
+                    // may not currently match Smooth pacing when the event is processed. Not
+                    // sure what can be done about this yet and even if it's a problem.
+                    //
+                    // Feature: Does it make sense to forward the timestamp itself or the window id?
+                    return Ok(ShellEvent::ApplyAnimations);
                 }
+                // else: Not in a animation cycle: loop and wait for an input event.
             };
+        }
+    }
+
+    /// Wait for the most recent presentation.
+    ///
+    /// If multiple presentation Instants are available, the most recent one is returned.
+    ///
+    /// This is cancel safe.
+    ///
+    /// Robustness: Filter by WindowId
+    /// Architecture: May use watch channel for this?
+    pub async fn wait_for_most_recent_presentation(
+        receiver: &mut UnboundedReceiver<PresentationTimestamp>,
+    ) -> Result<PresentationTimestamp> {
+        let most_recent = receiver.recv().await;
+        let Some(mut most_recent) = most_recent else {
+            bail!("Presentation sender vanished (thread got terminated?)");
+        };
+
+        // Get the most recent one available.
+        loop {
+            match receiver.try_recv() {
+                Ok(instant) => most_recent = instant,
+                Err(TryRecvError::Empty) => return Ok(most_recent),
+                Err(TryRecvError::Disconnected) => {
+                    // This should never happen I guess, since we keep one sender here all the time.
+                    bail!("Presentation sender vanished!");
+                }
+            }
         }
     }
 }

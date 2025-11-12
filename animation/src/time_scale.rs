@@ -1,9 +1,6 @@
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
-use crate::Tickery;
+use crate::AnimationCoordinator;
 
 /// TimeScale computes durations from one update cycle to the next.
 ///
@@ -11,16 +8,16 @@ use crate::Tickery;
 /// one?
 #[derive(Debug)]
 pub struct TimeScale {
-    tickery: Arc<Tickery>,
+    coordinator: AnimationCoordinator,
     now: Instant,
     duration_since: Duration,
 }
 
 impl TimeScale {
-    pub fn new(tickery: Arc<Tickery>) -> Self {
-        let latest_tick = tickery.animation_tick();
+    pub fn new(coordinator: AnimationCoordinator) -> Self {
+        let latest_tick = coordinator.current_time();
         Self {
-            tickery,
+            coordinator,
             now: latest_tick,
             duration_since: Duration::ZERO,
         }
@@ -37,7 +34,7 @@ impl TimeScale {
     /// generated).
     pub fn duration_passed(&mut self) -> Duration {
         // Find out if we are in a new update cycle first.
-        let current_tick = self.tickery.animation_tick();
+        let current_tick = self.coordinator.current_time();
         if current_tick > self.now {
             self.duration_since = current_tick - self.now;
             self.now = current_tick;

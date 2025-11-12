@@ -1,42 +1,69 @@
 //! The renderer's configuration
 
-use std::{
-    ops::Range,
-    sync::{Arc, Mutex},
-};
+use std::ops::Range;
 
 use anyhow::Result;
-use cosmic_text::FontSystem;
 use derive_more::Debug;
+use massive_geometry::Color;
 use massive_shapes::Shape;
 
 use crate::{
+    FontManager,
     renderer::{PreparationContext, RenderBatch},
     shape_renderer::{self, ShapeRenderer},
     text_layer::TextLayerRenderer,
 };
 
-// Naming: Somehow this is more than a config, batch produces may contain caches values.
+pub const DEFAULT_BACKGROUND_COLOR: Color = Color::WHITE;
+
+// Naming: Somehow this is more than a config, batch producers may contain caches.
 #[derive(Debug)]
 pub struct RendererConfig {
+    pub surface_format: wgpu::TextureFormat,
+    pub background_color: Option<Color>,
     pub measure: bool,
     pub batch_producers: Vec<BatchProducerInstance>,
 }
 
 impl RendererConfig {
-    pub fn default_batch_producers(
-        device: &wgpu::Device,
-        font_system: Arc<Mutex<FontSystem>>,
-        format: wgpu::TextureFormat,
-    ) -> Vec<BatchProducerInstance> {
-        let text_layer_renderer = TextLayerRenderer::new(device, font_system, format);
-        let shape_renderer = ShapeRenderer::new::<shape_renderer::Vertex>(device, format);
+    pub fn new(surface_format: wgpu::TextureFormat) -> Self {
+        Self {
+            surface_format,
+            background_color: Some(DEFAULT_BACKGROUND_COLOR),
+            batch_producers: Vec::new(),
+            measure: false,
+        }
+    }
 
-        // Shapes are always rendered before (and therefore below) the text (for now).
-        vec![
-            BatchProducerInstance::new(Box::new(shape_renderer), 0..1),
-            BatchProducerInstance::new(Box::new(text_layer_renderer), 1..3),
-        ]
+    pub fn with_default_batch_producers(
+        device: &wgpu::Device,
+        fonts: FontManager,
+        surface_format: wgpu::TextureFormat,
+    ) -> Self {
+        let mut config = Self::new(surface_format);
+        config.add_batch_producer(
+            ShapeRenderer::new::<shape_renderer::Vertex>(device, surface_format),
+            1,
+        );
+        config.add_batch_producer(TextLayerRenderer::new(device, fonts, surface_format), 2);
+        config
+    }
+
+    pub fn add_batch_producer(
+        &mut self,
+        batch_producer: impl BatchProducer + 'static,
+        pipelines_count: usize,
+    ) {
+        let pipeline_start_index = self
+            .batch_producers
+            .last()
+            .map(|i| i.pipeline_range.end)
+            .unwrap_or(0usize);
+
+        self.batch_producers.push(BatchProducerInstance {
+            producer: Box::new(batch_producer),
+            pipeline_range: pipeline_start_index..pipeline_start_index + pipelines_count,
+        })
     }
 
     /// Returns all pipelines for all batch producers.

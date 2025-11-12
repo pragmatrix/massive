@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-log = { workspace = true }
+log.workspace = true
+parking_lot.workspace = true
 
 [dev-dependencies]
 # Enable bitmap backend and encoder so `BitMapBackend::new` is available, plus TTF for font rendering.

@@ -14,6 +14,12 @@ pub struct Camera {
 impl Camera {
     pub const DEFAULT_FOVY: f64 = 45.0;
 
+    /// A pixel aligned camera in which each unit a z 0 maps to a single pixel on the screen.
+    pub fn pixel_aligned(fovy: f64) -> Self {
+        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
+        Self::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
+    }
+
     pub fn new(eye: impl Into<Point3>, target: impl Into<Point3>) -> Self {
         Self {
             eye: eye.into(),

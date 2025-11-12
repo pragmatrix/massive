@@ -1,13 +1,10 @@
-use std::sync::{Arc, Mutex};
-
 use anyhow::Result;
-use cosmic_text::{FontSystem, fontdb};
 use tracing::info;
 use winit::dpi::LogicalSize;
 
-use massive_geometry::{Camera, SizeI};
+use massive_geometry::SizeI;
 use massive_scene::Visual;
-use massive_shell::{ApplicationContext, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText},
@@ -42,16 +39,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     //     // .with(chrome_layer)
     //     .init();
 
-    // FontSystem
-
-    let mut font_system = {
-        let mut db = fontdb::Database::new();
-        db.load_font_data(shared::fonts::JETBRAINS_MONO.to_vec());
-        // Use an invariant locale.
-        FontSystem::new_with_locale_and_db("en-US".into(), db)
-    };
-
-    println!("Loaded {} font faces.", font_system.db().faces().count());
+    let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
 
     // Load code.
 
@@ -67,7 +55,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let line_height = 20.;
 
     let (glyph_runs, height) = attributed_text::shape_text(
-        &mut font_system,
+        &mut fonts.lock(),
         &code.text,
         &code.attributes,
         font_size,
@@ -75,26 +63,16 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         None,
     );
 
-    // Camera
-
-    let camera = {
-        let fovy: f64 = 45.0;
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Camera::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
-    };
-
     // Application
 
     let initial_size = LogicalSize::new(800., 800.);
 
     let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
-    // Using inner size screws up the renderer initialization, because the window is not sized yet.
+    // Using inner size screws up the renderer initialization, because the window has no size yet.
     // So we compute the proper physical for now.
-    let physical_size = initial_size.to_physical(window.scale_factor());
+    // let physical_size = initial_size.to_physical(window.scale_factor());
     let scene = Scene::default();
-    let mut renderer = window
-        .new_renderer(Arc::new(Mutex::new(font_system)), camera, physical_size)
-        .await?;
+    let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     let page_size = SizeI::new(1280, height as u64);
     let mut application = Application::default();
@@ -108,8 +86,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     ));
 
     loop {
-        let event = ctx.wait_for_shell_event(&mut renderer).await?;
-        let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
+        let event = ctx.wait_for_shell_event().await?;
 
         info!("Event: {event:?}");
 
@@ -121,5 +98,6 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         }
 
         matrix.update_if_changed(application.matrix(page_size));
+        scene.render_to(&mut renderer, Some(event))?;
     }
 }
