@@ -1,15 +1,15 @@
 mod animated;
 mod blended_animation;
+mod coordinator;
 mod interpolatable;
 mod interpolation;
-mod tickery;
 mod time_scale;
 
 pub use animated::*;
 pub use blended_animation::*;
+pub use coordinator::*;
 pub use interpolatable::*;
 pub use interpolation::*;
-pub use tickery::*;
 pub use time_scale::*;
 
 mod time {

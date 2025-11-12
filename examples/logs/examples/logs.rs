@@ -2,7 +2,7 @@ use std::{collections::VecDeque, io, time::Duration};
 
 use anyhow::Result;
 use cosmic_text::FontSystem;
-use log::{debug, warn};
+use log::{debug, info, warn};
 use termwiz::escape;
 use tokio::{
     select,
@@ -92,16 +92,16 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     loop {
         select! {
             Some(bytes) = receiver.recv() => {
-                let _cycle = scene.begin_update_cycle(&mut renderer, None)?;
                 logs.add_line(&scene, &bytes);
                 logs.update_layout()?;
+                scene.render_to(&mut renderer, None)?;
             },
 
-            Ok(event) = ctx.wait_for_shell_event(&mut renderer) => {
-                let _cycle = scene.begin_update_cycle(&mut renderer, Some(&event))?;
-                if logs.handle_shell_event(event, &window) == UpdateResponse::Exit {
+            Ok(event) = ctx.wait_for_shell_event() => {
+                if logs.handle_shell_event(&event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }
+                scene.render_to(&mut renderer, Some(event))?;
             }
         }
     }
@@ -224,7 +224,7 @@ impl Logs {
 
     fn handle_shell_event(
         &mut self,
-        shell_event: ShellEvent,
+        shell_event: &ShellEvent,
         window: &ShellWindow,
     ) -> UpdateResponse {
         if shell_event.apply_animations() {

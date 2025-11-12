@@ -55,6 +55,10 @@ impl WindowRenderer {
         self.renderer.resize_surface(new_size)
     }
 
+    pub(crate) fn present_mode(&self) -> PresentMode {
+        self.renderer.present_mode()
+    }
+
     pub(crate) fn set_present_mode(&mut self, present_mode: PresentMode) {
         self.renderer.set_present_mode(present_mode);
     }

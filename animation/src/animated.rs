@@ -1,9 +1,6 @@
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
+use std::{sync::Mutex, time::Duration};
 
-use crate::{BlendedAnimation, Interpolatable, Interpolation, Tickery};
+use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolation};
 
 /// `Animated` represents an animated value over time.
 ///
@@ -11,7 +8,7 @@ use crate::{BlendedAnimation, Interpolatable, Interpolation, Tickery};
 /// trajectory of previous animations.
 #[derive(Debug)]
 pub struct Animated<T: Send> {
-    tickery: Arc<Tickery>,
+    coordinator: AnimationCoordinator,
     /// The current value and the current state of the animation.
     ///
     /// Mutex, because we want to access it through `&self` but modify it through the animator.
@@ -19,9 +16,9 @@ pub struct Animated<T: Send> {
 }
 
 impl<T: Interpolatable + Send> Animated<T> {
-    pub(crate) fn new(tickery: Arc<Tickery>, value: T) -> Self {
+    pub(crate) fn new(coordinator: AnimationCoordinator, value: T) -> Self {
         Self {
-            tickery,
+            coordinator,
             inner: AnimatedInner {
                 value,
                 animation: Default::default(),
@@ -45,7 +42,7 @@ impl<T: Interpolatable + Send> Animated<T> {
         if *inner.final_value() == target_value {
             return;
         }
-        let instant = self.tickery.animation_tick();
+        let instant = self.coordinator.allocate_animation_time(duration);
         let value = inner.value.clone();
         inner
             .animation
@@ -62,7 +59,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     where
         T: 'static,
     {
-        let instant = self.tickery.animation_tick();
+        let instant = self.coordinator.allocate_animation_time(duration);
 
         let mut inner = self.inner.lock().expect("poisoned");
         let value = inner.value.clone();
@@ -98,7 +95,7 @@ impl<T: Interpolatable + Send> Animated<T> {
             // it stopped), we would not need to subscribe to further ticks. So there is always one
             // more tick to process, which may have unintended side effects and clients relying on
             // that behavior.
-            let instant = self.tickery.animation_tick();
+            let instant = self.coordinator.current_time();
             if let Some(new_value) = inner.animation.proceed(instant) {
                 inner.value = new_value;
             }

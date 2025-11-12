@@ -2,7 +2,7 @@ use std::{mem, ops::Deref, result, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use log::error;
-use tokio::sync::oneshot;
+use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use wgpu::rwh;
 use winit::{
     dpi::PhysicalSize,
@@ -10,7 +10,7 @@ use winit::{
     window::{CursorIcon, Window, WindowId},
 };
 
-use crate::{WindowRendererBuilder, shell::ShellRequest};
+use crate::{PresentationTimestamp, WindowRendererBuilder, shell::ShellRequest};
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
@@ -29,18 +29,26 @@ impl Deref for ShellWindow {
 }
 
 impl ShellWindow {
-    pub(crate) fn new(window: Window, event_loop_proxy: EventLoopProxy<ShellRequest>) -> Self {
+    pub(crate) fn new(
+        window: Window,
+        event_loop_proxy: EventLoopProxy<ShellRequest>,
+        presentation_timestamps: UnboundedSender<PresentationTimestamp>,
+    ) -> Self {
+        // We retrieve the window id early on, because retrieving seem to run on the main thread?
+        let window_id = window.id();
         Self {
             shared: ShellWindowShared {
+                window_id,
                 window: Some(window),
                 event_loop_proxy,
+                presentation_timestamps,
             }
             .into(),
         }
     }
 
     pub fn id(&self) -> WindowId {
-        self.shared.id()
+        self.window_id
     }
 
     pub fn set_title(&self, title: &str) {
@@ -59,10 +67,13 @@ impl ShellWindow {
 
 #[derive(Debug)]
 pub struct ShellWindowShared {
+    window_id: WindowId,
     // ADR: Option, because we have to send it back to the event loop for closing.
     window: Option<Window>,
     // For creating surfaces, we need to communicate with the Shell.
     event_loop_proxy: EventLoopProxy<ShellRequest>,
+    /// Where to send presentation timestamps to.
+    pub(crate) presentation_timestamps: UnboundedSender<PresentationTimestamp>,
 }
 
 impl Drop for ShellWindowShared {

@@ -9,6 +9,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, bail};
+use env_logger::fmt::Timestamp;
 use log::{error, info};
 use tokio::sync::mpsc::{
     UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel,
@@ -26,12 +27,17 @@ pub struct AsyncWindowRenderer {
     // For pushing changes directly to the renderer.
     change_collector: Arc<ChangeCollector>,
     msg_sender: Sender<RendererMessage>,
-    presentation_receiver: UnboundedReceiver<Instant>,
     thread_handle: Option<JoinHandle<()>>,
     geometry: RenderGeometry,
     /// The current render pacing as seen from the client. This may not reflect reality, as it is
     /// synchronized with the renderer asynchronously.
     pacing: RenderPacing,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub struct PresentationTimestamp {
+    window_id: WindowId,
+    timestamp: Instant,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -54,13 +60,16 @@ enum RendererMessage {
 
 impl AsyncWindowRenderer {
     // Architecture: Camera does not feel to belong here. It already moved from the Renderer to here.
-    pub fn new(mut window_renderer: WindowRenderer, geometry: RenderGeometry) -> Self {
+    pub fn new(
+        mut window_renderer: WindowRenderer,
+        geometry: RenderGeometry,
+        // Robustness: Limiting this channel's size, so that we could detect rendering lag?
+        presentation_timestamp_sender: Option<UnboundedSender<PresentationTimestamp>>,
+    ) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
 
         let (msg_sender, msg_receiver) = mpsc::channel();
-        // Robustness: Limiting this channel's size, we could detect rendering lag.
-        let (presentation_sender, presentation_receiver) = unbounded_channel();
 
         let thread_handle = thread::spawn(move || {
             while let Ok(first_message) = msg_receiver.recv() {
@@ -74,9 +83,11 @@ impl AsyncWindowRenderer {
                 let latest_messages = keep_last_per_variant(messages, |_| true);
 
                 for message in latest_messages {
-                    if let Err(e) =
-                        Self::dispatch(&mut window_renderer, &presentation_sender, message)
-                    {
+                    if let Err(e) = Self::dispatch(
+                        &mut window_renderer,
+                        &presentation_timestamp_sender,
+                        message,
+                    ) {
                         // Robustness: What to do here, we need to inform the application, don't we?
                         log::error!("Render error: {e:?}");
                     }
@@ -88,7 +99,6 @@ impl AsyncWindowRenderer {
             window_id: id,
             change_collector,
             msg_sender,
-            presentation_receiver,
             thread_handle: Some(thread_handle),
             geometry,
             pacing: Default::default(),
@@ -97,7 +107,7 @@ impl AsyncWindowRenderer {
 
     fn dispatch(
         renderer: &mut WindowRenderer,
-        presentation_timestamps: &UnboundedSender<Instant>,
+        presentation_timestamps: &Option<UnboundedSender<PresentationTimestamp>>,
         message: RendererMessage,
     ) -> Result<()> {
         match message {
@@ -111,7 +121,15 @@ impl AsyncWindowRenderer {
             }
             RendererMessage::Redraw { view_projection } => {
                 let texture = renderer.apply_scene_changes_and_prepare_presentation()?;
-                presentation_timestamps.send(Instant::now())?;
+                // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
+                if let Some(presentation_timestamps) = presentation_timestamps
+                    && renderer.present_mode() == wgpu::PresentMode::AutoVsync
+                {
+                    presentation_timestamps.send(PresentationTimestamp {
+                        window_id: renderer.window_id(),
+                        timestamp: Instant::now(),
+                    })?;
+                }
                 renderer.render_and_present(view_projection, texture);
             }
             RendererMessage::SetBackgroundColor(color) => {
@@ -146,7 +164,7 @@ impl AsyncWindowRenderer {
         self.pacing
     }
 
-    /// Synchronizes the render pacing suggested by the current state of the tickery with the renderer.
+    /// Changes the render pacing.
     pub fn update_render_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
         if pacing == self.pacing {
             return Ok(());
@@ -187,29 +205,6 @@ impl AsyncWindowRenderer {
             .send(message)
             .context("Sending renderer message")?;
         Ok(())
-    }
-
-    /// Wait for the most recent presentation.
-    ///
-    /// If multiple presentation Instants are available, the most recent one is returned.
-    ///
-    /// This is cancel safe.
-    pub async fn wait_for_most_recent_presentation(&mut self) -> Result<Instant> {
-        let most_recent = self.presentation_receiver.recv().await;
-        let Some(mut most_recent) = most_recent else {
-            bail!("Presentation sender vanished (thread got terminated?)");
-        };
-
-        // Get the most recent one available.
-        loop {
-            match self.presentation_receiver.try_recv() {
-                Ok(instant) => most_recent = instant,
-                Err(TryRecvError::Empty) => return Ok(most_recent),
-                Err(TryRecvError::Disconnected) => {
-                    bail!("Presentation sender vanished (thread got terminated?)");
-                }
-            }
-        }
     }
 }
 
