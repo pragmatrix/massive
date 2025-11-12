@@ -23,8 +23,9 @@ pub struct ApplicationContext {
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
     pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
 
-    /// ADR: currently here, but should probably be an EventLoop query.
-    monitor_scale_factor: Option<f64>,
+    // Robustness: Should probably an event loop query. May be different for different windows and
+    // or when a window is moved?
+    monitor_scale_factor: f64,
 
     /// Pending events received but not yet delivered.
     pending_events: VecDeque<ShellEvent>,
@@ -39,7 +40,7 @@ impl ApplicationContext {
     pub(crate) fn new(
         event_receiver: UnboundedReceiver<ShellEvent>,
         event_loop_proxy: EventLoopProxy<ShellRequest>,
-        monitor_scale_factor: Option<f64>,
+        monitor_scale_factor: f64,
     ) -> Self {
         let (presentation_timestamps_sender, presentation_timestamps_receiver) =
             unbounded_channel();
@@ -53,7 +54,7 @@ impl ApplicationContext {
         }
     }
 
-    pub fn primary_monitor_scale_factor(&self) -> Option<f64> {
+    pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.monitor_scale_factor
     }
 

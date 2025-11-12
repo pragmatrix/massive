@@ -1,7 +1,7 @@
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
-use log::{error, info};
+use log::{error, info, warn};
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use wgpu::{Surface, SurfaceTarget};
 use winit::{
@@ -12,6 +12,8 @@ use winit::{
 };
 
 use crate::{ApplicationContext, ShellWindow, shell_window::ShellWindowShared};
+
+const FALLBACK_SCALE_FACTOR: f64 = 1.;
 
 /// Starts the shell.
 ///
@@ -203,7 +205,13 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
 
         let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 
-        let scale_factor = event_loop.primary_monitor().map(|pm| pm.scale_factor());
+        let scale_factor = event_loop
+            .primary_monitor()
+            .map(|pm| pm.scale_factor())
+            .unwrap_or_else(|| {
+                warn!("Failed to query the current monitor's scale factor, setting to {FALLBACK_SCALE_FACTOR}");
+                FALLBACK_SCALE_FACTOR 
+            });
 
         let application_context =
             ApplicationContext::new(event_receiver, proxy.clone(), scale_factor);
