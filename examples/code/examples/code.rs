@@ -25,7 +25,7 @@ use vfs::VfsPath;
 use massive_geometry::{Color, SizeI};
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, FontManager, Scene, shell};
+use massive_shell::{ShellContext, FontManager, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText, TextAttribute},
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     shell::run(application)
 }
 
-async fn application(mut ctx: ApplicationContext) -> Result<()> {
+async fn application(mut ctx: ShellContext) -> Result<()> {
     // let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
     let root_path = env::current_dir().unwrap().join(Path::new("Cargo.toml"));
 

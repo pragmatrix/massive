@@ -12,13 +12,13 @@ use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
 use crate::{PresentationTimestamp, ShellEvent, ShellWindow, message_filter, shell::ShellRequest};
 
-/// The [`ApplicationContext`] is the connection to the runtime. It allows the application to poll
-/// for events while also forwarding events to the renderer.
+/// The [`ShellContext`] is the connection to the runtime. It allows it to create new windows and to
+/// wait for events while also forwarding scene changes to the renderer.
 ///
-/// In addition to that it provides an animator that is updated with each event (mostly ticks)
-/// coming from the shell.
+/// In addition to that it provides an animator that is updated with each event coming from the
+/// shell.
 #[derive(Debug)]
-pub struct ApplicationContext {
+pub struct ShellContext {
     event_receiver: UnboundedReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
     pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
@@ -36,7 +36,7 @@ pub struct ApplicationContext {
     presentation_timestamps_sender: UnboundedSender<PresentationTimestamp>,
 }
 
-impl ApplicationContext {
+impl ShellContext {
     pub(crate) fn new(
         event_receiver: UnboundedReceiver<ShellEvent>,
         event_loop_proxy: EventLoopProxy<ShellRequest>,

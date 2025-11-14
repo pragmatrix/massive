@@ -1,4 +1,4 @@
-pub mod application_context;
+pub mod shell_context;
 pub mod async_window_renderer;
 // mod font_system_builder;
 mod message_filter;
@@ -8,7 +8,7 @@ pub mod shell_window;
 pub mod window_renderer;
 mod window_renderer_builder;
 
-pub use application_context::ApplicationContext;
+pub use shell_context::ShellContext;
 pub use async_window_renderer::*;
 // pub use font_system_builder::FontSystemBuilder;
 pub use scene::Scene;

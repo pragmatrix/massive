@@ -10,7 +10,7 @@ use winit::dpi::LogicalSize;
 use massive_geometry::Color;
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, FontManager, Scene, shell};
+use massive_shell::{ShellContext, FontManager, Scene, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},
@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
     shell::run(syntax)
 }
 
-async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
+async fn syntax(mut ctx: ShellContext) -> Result<()> {
     let mut final_text = String::new();
     let mut text_attributes = Vec::new();
     {

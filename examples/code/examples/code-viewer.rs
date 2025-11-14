@@ -4,7 +4,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::SizeI;
 use massive_scene::Visual;
-use massive_shell::{ApplicationContext, FontManager, Scene, shell};
+use massive_shell::{FontManager, Scene, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText},
@@ -17,7 +17,7 @@ async fn main() -> Result<()> {
     shell::run(code_viewer)
 }
 
-async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
+async fn code_viewer(mut ctx: ShellContext) -> Result<()> {
     // let env_filter = EnvFilter::from_default_env();
     // let console_formatter = tracing_subscriber::fmt::Layer::default();
     // // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
