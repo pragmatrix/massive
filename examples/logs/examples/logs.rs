@@ -21,7 +21,7 @@ use massive_geometry::{Identity, Vector3};
 use massive_scene::{Handle, Location, Matrix, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
-    ApplicationContext, FontManager, Scene, ShellWindow,
+    ShellContext, FontManager, Scene, ShellWindow,
     shell::{self, ShellEvent},
 };
 
@@ -73,7 +73,7 @@ impl io::Write for Sender {
     }
 }
 
-async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
+async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ShellContext) -> Result<()> {
     let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
 
     // Window
