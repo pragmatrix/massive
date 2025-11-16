@@ -2,39 +2,39 @@ use anyhow::Result;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use crate::{
-    PersistenceId,
+    InstanceId,
     application_context::ApplicationRequest,
-    presence::{Presence, PresenceClient, PresenceRole},
+    view::{View, ViewClient, ViewRole},
 };
 use massive_geometry::Color;
 
 #[derive(Debug)]
-pub struct PresenceBuilder {
+pub struct ViewBuilder {
     shell: UnboundedSender<ApplicationRequest>,
-    persistence: PersistenceId,
+    instance: InstanceId,
 
-    role: PresenceRole,
+    role: ViewRole,
     size: (u32, u32),
 
     background_color: Option<Color>,
 }
 
-impl PresenceBuilder {
+impl ViewBuilder {
     pub(crate) fn new(
         application: UnboundedSender<ApplicationRequest>,
-        persistence: PersistenceId,
+        instance: InstanceId,
         size: (u32, u32),
     ) -> Self {
         Self {
             shell: application,
-            persistence,
+            instance,
             size,
-            role: PresenceRole::default(),
+            role: ViewRole::default(),
             background_color: None,
         }
     }
 
-    pub fn with_role(mut self, role: PresenceRole) -> Self {
+    pub fn with_role(mut self, role: ViewRole) -> Self {
         self.role = role;
         self
     }
@@ -44,10 +44,10 @@ impl PresenceBuilder {
         self
     }
 
-    pub fn build(self) -> Result<Presence> {
+    pub fn build(self) -> Result<View> {
         let (event_tx, event_rx) = unbounded_channel();
-        let client = PresenceClient::new(self.persistence, self.role, event_tx);
+        let client = ViewClient::new(self.instance, self.role, event_tx);
         self.shell.send(ApplicationRequest::Present(client))?;
-        Ok(Presence::new(self.shell, event_rx))
+        Ok(View::new(self.shell, event_rx))
     }
 }

@@ -4,8 +4,8 @@ use anyhow::Result;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    persistence::Persistence,
-    presence::{PresenceClient, PresenceRequest},
+    instance::Instance,
+    view::{ViewClient, ViewRequest},
 };
 
 #[derive(Debug)]
@@ -22,11 +22,11 @@ impl ApplicationContext {
 
 #[derive(Debug)]
 enum ApplicationEvent {
-    Materialize(Persistence),
+    Materialize(Instance),
     Exit,
 }
 
 pub enum ApplicationRequest {
-    Present(PresenceClient),
-    Presence(PresenceRequest),
+    Present(ViewClient),
+    View(ViewRequest),
 }

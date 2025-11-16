@@ -1,31 +1,31 @@
 use anyhow::{Result, anyhow};
-use derive_more::Constructor;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use massive_scene::SceneChange;
 
-use crate::{PersistenceId, application_context::ApplicationRequest, persistence};
+use crate::{InstanceId, application_context::ApplicationRequest, instance};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// Some ideas for roles.
-pub enum PresenceRole {
+pub enum ViewRole {
     #[default]
     Primary,
     Assistant,
-    PersistentNotification,
-    TemporaryNotification,
+    Notification {
+        persistent: bool,
+    },
 }
 
 #[derive(Debug)]
-pub struct Presence {
+pub struct View {
     shell: UnboundedSender<ApplicationRequest>,
-    events: UnboundedReceiver<PresenceEvent>,
+    events: UnboundedReceiver<ViewEvent>,
 }
 
-impl Presence {
+impl View {
     pub(crate) fn new(
         application: UnboundedSender<ApplicationRequest>,
-        receiver: UnboundedReceiver<PresenceEvent>,
+        receiver: UnboundedReceiver<ViewEvent>,
     ) -> Self {
         Self {
             shell: application,
@@ -33,18 +33,19 @@ impl Presence {
         }
     }
 
-    pub async fn wait_for_event(&mut self) -> Result<PresenceEvent> {
-        self.events.recv().await.ok_or(anyhow!(
-            "Internal error: Presence client vanished unexpectedly"
-        ))
+    pub async fn wait_for_event(&mut self) -> Result<ViewEvent> {
+        self.events
+            .recv()
+            .await
+            .ok_or(anyhow!("Internal error: View client vanished unexpectedly"))
     }
 }
 
 #[derive(Debug)]
-pub enum PresenceEvent {}
+pub enum ViewEvent {}
 
 #[derive(Debug)]
-pub enum PresenceRequest {
+pub enum ViewRequest {
     /// Detail: Empty changes should not be possible. It should create an error. Compared to a
     /// window environment, there is no redraw needed when there are no changes.
     Redraw(Vec<SceneChange>),
@@ -54,22 +55,22 @@ pub enum PresenceRequest {
     ChangePacing(),
 }
 
-/// The side of a presence the shell sees.
+/// The side of a view the shell sees.
 #[derive(Debug)]
-pub struct PresenceClient {
-    persistence: PersistenceId,
-    role: PresenceRole,
-    events: UnboundedSender<PresenceEvent>,
+pub struct ViewClient {
+    instance: InstanceId,
+    role: ViewRole,
+    events: UnboundedSender<ViewEvent>,
 }
 
-impl PresenceClient {
+impl ViewClient {
     pub(crate) fn new(
-        persistence: PersistenceId,
-        role: PresenceRole,
-        events: UnboundedSender<PresenceEvent>,
+        instance: InstanceId,
+        role: ViewRole,
+        events: UnboundedSender<ViewEvent>,
     ) -> Self {
         Self {
-            persistence,
+            instance,
             role,
             events,
         }
