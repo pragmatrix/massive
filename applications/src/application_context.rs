@@ -4,14 +4,16 @@ use anyhow::Result;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
+    ApplicationId,
     instance::Instance,
     view::{ViewClient, ViewRequest},
 };
 
 #[derive(Debug)]
-struct ApplicationContext {
+pub struct ApplicationContext {
+    id: ApplicationId,
     events: UnboundedReceiver<ApplicationEvent>,
-    requests: UnboundedSender<ApplicationRequest>,
+    requests: UnboundedSender<(ApplicationId, ApplicationRequest)>,
 }
 
 impl ApplicationContext {

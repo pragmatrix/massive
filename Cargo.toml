@@ -10,7 +10,8 @@ members = [
     "shell",
     "scene",
     "applications",
-    "examples/*",
+    "desktop",
+    "examples/*", 
 ]
 
 exclude = [
@@ -36,6 +37,7 @@ massive-scene = { path = "scene" }
 massive-shapes = { path = "shapes" }
 massive-shell = { path = "shell" }
 massive-modules = { path = "modules" }
+massive-applications = { path = "applications" }
 
 anyhow = "1.0.71"
 approx = "0.5.1"
