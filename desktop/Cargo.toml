@@ -9,4 +9,5 @@ massive-applications.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true
+tokio.workspace = true
 uuid.workspace = true

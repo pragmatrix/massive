@@ -1,0 +1,25 @@
+# Copilot Instructions
+
+This file serves as the evolving knowledge base for working with this codebase.
+Update it whenever you learn something new about the project's patterns, conventions, or receive feedback that should guide future behavior.
+
+## Project
+- Follow the existing project structure and idioms.
+- Prefer small, self-contained changes unless explicitly asked for broader refactors.
+
+## Code Style
+- Match the surrounding code style.
+- Keep functions small, clear, and deterministic.
+- Avoid unnecessary dependencies.
+- Do not add obvious comments that restate what the code clearly expresses.
+- Only comment to explain non-obvious reasoning or intent.
+- Before implementing a manual `Debug` trait, prefer using `derive_more`'s `Debug` with `#[debug(skip)]` attributes when appropriate.
+
+## Safety & Quality
+- Avoid unsafe or experimental APIs unless required.
+- Add or update tests when modifying behavior.
+- Preserve backwards compatibility unless instructed otherwise.
+
+## Communication
+- Explanations should be concise and strictly relevant.
+- When unsure, ask clarifying questions before making assumptions.

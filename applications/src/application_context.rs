@@ -17,17 +17,39 @@ pub struct ApplicationContext {
 }
 
 impl ApplicationContext {
-    pub fn wait_for_event() -> Result<ApplicationEvent> {
-        todo!();
+    pub fn new(
+        id: ApplicationId,
+        requests: UnboundedSender<(ApplicationId, ApplicationRequest)>,
+        events: UnboundedReceiver<ApplicationEvent>,
+    ) -> Self {
+        Self {
+            id,
+            events,
+            requests,
+        }
+    }
+
+    pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent> {
+        self.events
+            .recv()
+            .await
+            .ok_or_else(|| anyhow::anyhow!("Application event channel closed"))
+    }
+
+    fn send_request(&self, request: ApplicationRequest) -> Result<()> {
+        self.requests
+            .send((self.id, request))
+            .map_err(|_| anyhow::anyhow!("Request channel closed"))
     }
 }
 
 #[derive(Debug)]
-enum ApplicationEvent {
+pub enum ApplicationEvent {
     Materialize(Instance),
     Exit,
 }
 
+#[derive(Debug)]
 pub enum ApplicationRequest {
     Present(ViewClient),
     View(ViewRequest),

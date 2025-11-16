@@ -1,10 +1,16 @@
-use std::pin::Pin;
-use std::{collections::HashMap, future::Future};
+use std::{collections::HashMap, future::Future, pin::Pin};
 
 use derive_more::Debug;
-use massive_applications::{ApplicationContext, ApplicationId};
-use massive_shell::{Result, ShellContext};
+use tokio::{
+    sync::mpsc::{UnboundedSender, unbounded_channel},
+    task::JoinSet,
+};
 use uuid::Uuid;
+
+use massive_applications::{
+    ApplicationContext, ApplicationEvent, ApplicationId, ApplicationRequest,
+};
+use massive_shell::{Result, ShellContext};
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -18,9 +24,47 @@ impl Desktop {
         }
     }
 
-    pub async fn run(_context: ShellContext) -> Result<()> {
-        // TODO: Wire up application lifecycle and shell integration.
-        Ok(())
+    pub async fn run(mut self, mut context: ShellContext) -> Result<()> {
+        let (requests_tx, mut requests_rx) =
+            unbounded_channel::<(ApplicationId, ApplicationRequest)>();
+
+        let mut event_senders: HashMap<ApplicationId, UnboundedSender<ApplicationEvent>> =
+            HashMap::new();
+
+        let mut join_set = JoinSet::new();
+
+        for (app_id, app) in self.applications.drain() {
+            let (events_tx, events_rx) = unbounded_channel::<ApplicationEvent>();
+            event_senders.insert(app_id, events_tx);
+
+            let app_context = ApplicationContext::new(app_id, requests_tx.clone(), events_rx);
+            join_set.spawn((app.run)(app_context));
+        }
+
+        drop(requests_tx);
+
+        loop {
+            tokio::select! {
+                Some((app_id, request)) = requests_rx.recv() => {
+                    // TODO: Process ApplicationRequest variants
+                    eprintln!("Received request from app {:?}: {:?}", app_id, request);
+                }
+
+                shell_event = context.wait_for_shell_event() => {
+                    let _event = shell_event?;
+                    // TODO: Process ShellEvent variants
+                }
+
+                Some(result) = join_set.join_next() => {
+                    let app_result = result.unwrap_or_else(|e| Err(anyhow::anyhow!("Application failed: {}", e)));
+                    return app_result;
+                }
+
+                else => {
+                    return Ok(());
+                }
+            }
+        }
     }
 }
 
@@ -60,5 +104,3 @@ impl Application {
         }
     }
 }
-
-// Debug derived via derive_more with run skipped

@@ -68,7 +68,7 @@ tracing-flame = "0.2.0"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 wgpu = "26.0.1"
 winit = { version = "0.30.12", features = ["rwh_06"] }
-uuid = { version = "1.18.1" }
+uuid = { version = "1.18.1", features = ["v4"] }
 
 # rt-multi-thread is not supported on wasm
 tokio = { version = "1.36.0", features = ["macros", "sync"] }
