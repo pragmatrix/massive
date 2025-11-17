@@ -3,14 +3,14 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
 use crate::{
     InstanceId,
-    application_context::ApplicationRequest,
+    instance_context::InstanceRequest,
     view::{View, ViewClient, ViewRole},
 };
 use massive_geometry::Color;
 
 #[derive(Debug)]
 pub struct ViewBuilder {
-    shell: UnboundedSender<ApplicationRequest>,
+    requests: UnboundedSender<InstanceRequest>,
     instance: InstanceId,
 
     role: ViewRole,
@@ -21,12 +21,12 @@ pub struct ViewBuilder {
 
 impl ViewBuilder {
     pub(crate) fn new(
-        application: UnboundedSender<ApplicationRequest>,
+        requests: UnboundedSender<InstanceRequest>,
         instance: InstanceId,
         size: (u32, u32),
     ) -> Self {
         Self {
-            shell: application,
+            requests,
             instance,
             size,
             role: ViewRole::default(),
@@ -47,7 +47,7 @@ impl ViewBuilder {
     pub fn build(self) -> Result<View> {
         let (event_tx, event_rx) = unbounded_channel();
         let client = ViewClient::new(self.instance, self.role, event_tx);
-        self.shell.send(ApplicationRequest::Present(client))?;
-        Ok(View::new(self.shell, event_rx))
+        self.requests.send(InstanceRequest::Present(client))?;
+        Ok(View::new(self.requests, event_rx))
     }
 }

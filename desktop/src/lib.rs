@@ -1,59 +1,57 @@
 use std::{collections::HashMap, future::Future, pin::Pin};
 
 use derive_more::Debug;
-use tokio::{
-    sync::mpsc::{UnboundedSender, unbounded_channel},
-    task::JoinSet,
-};
+use tokio::{sync::mpsc::unbounded_channel, task::JoinSet};
 use uuid::Uuid;
 use winit::dpi::LogicalSize;
 
-use massive_applications::{
-    ApplicationContext, ApplicationEvent, ApplicationId, ApplicationRequest,
-};
+use massive_applications::{CreationMode, InstanceContext, InstanceId, InstanceRequest};
 use massive_shell::{Result, Scene, ShellContext};
 
 #[derive(Debug)]
 pub struct Desktop {
-    applications: HashMap<ApplicationId, Application>,
+    applications: HashMap<String, Application>,
 }
 
 impl Desktop {
     pub fn new(applications: Vec<Application>) -> Self {
         Self {
-            applications: HashMap::from_iter(applications.into_iter().map(|a| (a.id, a))),
+            applications: HashMap::from_iter(applications.into_iter().map(|a| (a.name.clone(), a))),
         }
     }
 
-    pub async fn run(mut self, mut context: ShellContext) -> Result<()> {
+    pub async fn run(self, mut context: ShellContext) -> Result<()> {
         // Create a window and renderer
         let window = context.new_window(LogicalSize::new(1024, 768)).await?;
         let _renderer = window.renderer().build().await?;
         let _scene = Scene::new();
 
-        let (requests_tx, mut requests_rx) =
-            unbounded_channel::<(ApplicationId, ApplicationRequest)>();
-
-        let mut event_senders: HashMap<ApplicationId, UnboundedSender<ApplicationEvent>> =
-            HashMap::new();
+        let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceRequest)>();
 
         let mut join_set = JoinSet::new();
 
-        for (app_id, app) in self.applications.drain() {
-            let (events_tx, events_rx) = unbounded_channel();
-            event_senders.insert(app_id, events_tx);
+        // Start one instance of the first registered application
+        if let Some(app) = self.applications.values().next() {
+            let instance_id = InstanceId::from(Uuid::new_v4());
+            let (_events_tx, events_rx) = unbounded_channel();
 
-            let app_context = ApplicationContext::new(app_id, requests_tx.clone(), events_rx);
-            join_set.spawn((app.run)(app_context));
+            let instance_context = InstanceContext::new(
+                instance_id,
+                CreationMode::New,
+                requests_tx.clone(),
+                events_rx,
+            );
+
+            join_set.spawn((app.run)(instance_context));
         }
 
         drop(requests_tx);
 
         loop {
             tokio::select! {
-                Some((app_id, request)) = requests_rx.recv() => {
-                    // TODO: Process ApplicationRequest variants
-                    eprintln!("Received request from app {:?}: {:?}", app_id, request);
+                Some((instance_id, request)) = requests_rx.recv() => {
+                    // TODO: Process InstanceRequest variants
+                    eprintln!("Received request from instance {:?}: {:?}", instance_id, request);
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -62,8 +60,8 @@ impl Desktop {
                 }
 
                 Some(result) = join_set.join_next() => {
-                    let app_result = result.unwrap_or_else(|e| Err(anyhow::anyhow!("Application ended with error: {}", e)));
-                    return app_result;
+                    let instance_result = result.unwrap_or_else(|e| Err(anyhow::anyhow!("Instance ended with error: {}", e)));
+                    return instance_result;
                 }
 
                 else => {
@@ -77,14 +75,12 @@ impl Desktop {
 #[derive(Debug)]
 pub struct Application {
     name: String,
-    /// This is the process local id for the application (not visible to the outside for now)
-    id: ApplicationId,
     #[debug(skip)]
-    run: ApplicationRunBox,
+    run: RunInstanceBox,
 }
 
-type ApplicationRunBox = Box<
-    dyn Fn(ApplicationContext) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
+type RunInstanceBox = Box<
+    dyn Fn(InstanceContext) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
         + Send
         + Sync
         + 'static,
@@ -93,18 +89,17 @@ type ApplicationRunBox = Box<
 impl Application {
     pub fn new<F, R>(name: impl Into<String>, run: F) -> Self
     where
-        F: Fn(ApplicationContext) -> R + Send + Sync + 'static,
+        F: Fn(InstanceContext) -> R + Send + Sync + 'static,
         R: Future<Output = Result<()>> + Send + 'static,
     {
         let name = name.into();
         let run_boxed = Box::new(
-            move |ctx: ApplicationContext| -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
+            move |ctx: InstanceContext| -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
                 Box::pin(run(ctx))
             },
         );
 
         Self {
-            id: Uuid::new_v4().into(),
             name,
             run: run_boxed,
         }

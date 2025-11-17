@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use massive_scene::SceneChange;
 use winit::event::{self, DeviceId};
 
-use crate::{InstanceId, application_context::ApplicationRequest, instance};
+use crate::{InstanceId, instance_context::InstanceRequest, instance};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// Some ideas for roles.
@@ -21,17 +21,17 @@ pub enum ViewRole {
 
 #[derive(Debug)]
 pub struct View {
-    shell: UnboundedSender<ApplicationRequest>,
+    requests: UnboundedSender<InstanceRequest>,
     events: UnboundedReceiver<ViewEvent>,
 }
 
 impl View {
     pub(crate) fn new(
-        application: UnboundedSender<ApplicationRequest>,
+        requests: UnboundedSender<InstanceRequest>,
         receiver: UnboundedReceiver<ViewEvent>,
     ) -> Self {
         Self {
-            shell: application,
+            requests,
             events: receiver,
         }
     }

@@ -2,7 +2,7 @@ use anyhow::Result;
 use desktop::{Application, Desktop};
 use tokio::sync::mpsc;
 
-use massive_applications::ApplicationContext;
+use massive_applications::InstanceContext;
 use massive_shell::{ShellContext, shell};
 
 #[tokio::main]
@@ -11,13 +11,17 @@ async fn main() -> Result<()> {
 }
 
 async fn run(ctx: ShellContext) -> Result<()> {
-    let applications = vec![Application::new("Hello Application", hello_app)];
+    let applications = vec![Application::new("Hello Application", hello_instance)];
     let desktop = Desktop::new(applications);
     desktop.run(ctx).await
 }
 
-async fn hello_app(_ctx: ApplicationContext) -> Result<()> {
-    println!("Hello from the application!");
+async fn hello_instance(ctx: InstanceContext) -> Result<()> {
+    println!(
+        "Hello from the application instance {:?} with creation mode {:?}!",
+        ctx.id(),
+        ctx.creation_mode()
+    );
 
     // Keep the application running indefinitely
     let (_tx, mut rx) = mpsc::channel::<()>(1);
