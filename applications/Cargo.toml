@@ -11,3 +11,4 @@ anyhow.workspace = true
 uuid.workspace = true
 tokio.workspace = true
 derive_more.workspace = true
+winit.workspace = true
