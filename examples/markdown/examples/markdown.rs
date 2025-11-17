@@ -23,14 +23,11 @@ use winit::dpi::PhysicalSize;
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-use massive_shell::{ShellContext, FontManager, Scene, shell};
+use massive_shell::{FontManager, Scene, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
 };
-
-// Explicitly provide the id of the canvas to use (don't like this hidden magic with data-raw-handle)
-const CANVAS_ID: &str = "massive-markdown";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -72,7 +69,7 @@ async fn application(mut ctx: ShellContext) -> Result<()> {
     };
 
     let initial_size = winit::dpi::LogicalSize::new(960, 800);
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(initial_size).await?;
     let scale_factor = window.scale_factor();
     let physical_size = initial_size.to_physical(scale_factor);
 

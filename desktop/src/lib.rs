@@ -6,11 +6,12 @@ use tokio::{
     task::JoinSet,
 };
 use uuid::Uuid;
+use winit::dpi::LogicalSize;
 
 use massive_applications::{
     ApplicationContext, ApplicationEvent, ApplicationId, ApplicationRequest,
 };
-use massive_shell::{Result, ShellContext};
+use massive_shell::{Result, Scene, ShellContext};
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -25,6 +26,11 @@ impl Desktop {
     }
 
     pub async fn run(mut self, mut context: ShellContext) -> Result<()> {
+        // Create a window and renderer
+        let window = context.new_window(LogicalSize::new(1024, 768)).await?;
+        let _renderer = window.renderer().build().await?;
+        let _scene = Scene::new();
+
         let (requests_tx, mut requests_rx) =
             unbounded_channel::<(ApplicationId, ApplicationRequest)>();
 
@@ -34,7 +40,7 @@ impl Desktop {
         let mut join_set = JoinSet::new();
 
         for (app_id, app) in self.applications.drain() {
-            let (events_tx, events_rx) = unbounded_channel::<ApplicationEvent>();
+            let (events_tx, events_rx) = unbounded_channel();
             event_senders.insert(app_id, events_tx);
 
             let app_context = ApplicationContext::new(app_id, requests_tx.clone(), events_rx);

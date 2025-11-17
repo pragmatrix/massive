@@ -9,8 +9,6 @@ use massive_shapes::{
 use massive_shell::{Scene, ShellContext, shell};
 use shared::application::{Application, UpdateResponse};
 
-const CANVAS_ID: &str = "massive-shapes";
-
 #[tokio::main]
 async fn main() -> Result<()> {
     shell::run(run)
@@ -19,7 +17,7 @@ async fn main() -> Result<()> {
 async fn run(mut ctx: ShellContext) -> Result<()> {
     // Window
     let window_size = LogicalSize::new(1024.0, 768.0);
-    let window = ctx.new_window(window_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(window_size).await?;
 
     let mut renderer = window.renderer().with_shapes().build().await?;
 

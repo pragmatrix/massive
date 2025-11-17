@@ -25,7 +25,7 @@ use vfs::VfsPath;
 use massive_geometry::{Color, SizeI};
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ShellContext, FontManager, Scene, shell};
+use massive_shell::{FontManager, Scene, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText, TextAttribute},
@@ -246,7 +246,7 @@ async fn application(mut ctx: ShellContext) -> Result<()> {
 
     // Window
 
-    let window = ctx.new_window(LogicalSize::new(1024, 800), None).await?;
+    let window = ctx.new_window(LogicalSize::new(1024, 800)).await?;
 
     // Application
 

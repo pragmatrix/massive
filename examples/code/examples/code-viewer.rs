@@ -10,8 +10,6 @@ use shared::{
     attributed_text::{self, AttributedText},
 };
 
-const CANVAS_ID: &str = "massive-code";
-
 #[tokio::main]
 async fn main() -> Result<()> {
     shell::run(code_viewer)
@@ -67,7 +65,7 @@ async fn code_viewer(mut ctx: ShellContext) -> Result<()> {
 
     let initial_size = LogicalSize::new(800., 800.);
 
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(initial_size).await?;
     // Using inner size screws up the renderer initialization, because the window has no size yet.
     // So we compute the proper physical for now.
     // let physical_size = initial_size.to_physical(window.scale_factor());

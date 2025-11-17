@@ -66,13 +66,7 @@ impl ShellContext {
         &self,
         // Ergonomics: Use a massive-geometry size type here.
         inner_size: impl Into<dpi::Size>,
-        _canvas_id: Option<&str>,
     ) -> Result<ShellWindow> {
-        #[cfg(target_arch = "wasm32")]
-        assert!(
-            _canvas_id.is_none(),
-            "Rendering to a canvas isn't support yet"
-        );
         let (on_created, when_created) = oneshot::channel();
         let attributes = WindowAttributes::default().with_inner_size(inner_size);
         self.event_loop_proxy
@@ -88,40 +82,6 @@ impl ShellContext {
             self.event_loop_proxy.clone(),
             self.presentation_timestamps_sender.clone(),
         ))
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    fn new_window_ev(
-        &self,
-        event_loop: &ActiveEventLoop,
-        // We don't set inner size, the canvas defines how large we render.
-        _inner_size: impl Into<dpi::Size>,
-        canvas_id: Option<&str>,
-    ) -> Result<ShellWindow> {
-        use wasm_bindgen::JsCast;
-        use winit::platform::web::WindowAttributesExtWebSys;
-
-        let canvas_id = canvas_id.expect("Canvas id is needed for wasm targets");
-
-        let canvas = web_sys::window()
-            .expect("No Window")
-            .document()
-            .expect("No document")
-            .query_selector(&format!("#{canvas_id}"))
-            // what a shit-show here, why is the error not compatible with anyhow.
-            .map_err(|err| anyhow::anyhow!(err.as_string().unwrap()))?
-            .expect("No Canvas with a matching id found");
-
-        let canvas: web_sys::HtmlCanvasElement = canvas
-            .dyn_into()
-            .map_err(|_| anyhow::anyhow!("Failed to cast to HtmlCanvasElement"))?;
-
-        let window =
-            event_loop.create_window(WindowAttributes::default().with_canvas(Some(canvas)))?;
-
-        Ok(ShellWindow {
-            window: Rc::new(window),
-        })
     }
 
     /// Wait for the next shell event.

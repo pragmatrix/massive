@@ -20,7 +20,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
-use massive_shell::{ShellContext, FontManager, Scene, shell};
+use massive_shell::{FontManager, Scene, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,
@@ -52,7 +52,7 @@ async fn emojis(mut ctx: ShellContext) -> Result<()> {
 
     let initial_size = LogicalSize::new(1280., 800.);
 
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(initial_size).await?;
 
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
