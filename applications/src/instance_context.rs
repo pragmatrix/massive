@@ -53,7 +53,7 @@ impl InstanceContext {
             .ok_or_else(|| anyhow::anyhow!("Instance event channel closed"))
     }
 
-    pub fn new_view(&self, size: (u32, u32)) -> ViewBuilder {
+    pub fn view(&self, size: (u32, u32)) -> ViewBuilder {
         ViewBuilder::new(self.requests.clone(), self.id, size)
     }
 
