@@ -8,9 +8,9 @@ use winit::dpi::LogicalSize;
 use massive_applications::{CreationMode, InstanceContext, InstanceId, InstanceRequest};
 use massive_shell::{Result, Scene, ShellContext};
 
-mod application_manager;
+mod instance_manager;
 
-use application_manager::ApplicationManager;
+use instance_manager::InstanceManager;
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -31,7 +31,7 @@ impl Desktop {
         let _scene = Scene::new();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceRequest)>();
-        let mut app_manager = ApplicationManager::new(requests_tx);
+        let mut app_manager = InstanceManager::new(requests_tx);
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {

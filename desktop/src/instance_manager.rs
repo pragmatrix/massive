@@ -16,7 +16,7 @@ use crate::Application;
 
 /// Manages running application instances with lifecycle control.
 #[derive(Debug)]
-pub(crate) struct ApplicationManager {
+pub struct InstanceManager {
     instances: HashMap<InstanceId, RunningInstance>,
     pub(crate) join_set: JoinSet<(InstanceId, Result<()>)>,
     requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>,
@@ -31,8 +31,8 @@ struct RunningInstance {
     events_tx: UnboundedSender<InstanceEvent>,
 }
 
-impl ApplicationManager {
-    pub(crate) fn new(requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>) -> Self {
+impl InstanceManager {
+    pub fn new(requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>) -> Self {
         Self {
             instances: HashMap::new(),
             join_set: JoinSet::new(),
@@ -43,7 +43,7 @@ impl ApplicationManager {
     /// Restore an instance (spawn it with CreationMode::Restore).
     /// This would typically be called after stopping an instance that needs to be restarted.
     #[allow(dead_code)]
-    pub(crate) fn restore(&mut self, application: &Application) -> Result<InstanceId> {
+    pub fn restore(&mut self, application: &Application) -> Result<InstanceId> {
         // Note: Each spawn creates a new instance with a new ID.
         // Applications should handle state restoration via CreationMode::Restore.
         self.spawn(application, CreationMode::Restore)
@@ -52,7 +52,7 @@ impl ApplicationManager {
     /// Stop an instance gracefully by sending an Exit event.
     /// Returns immediately after sending the event; use wait_for_instance to wait for completion.
     #[allow(dead_code)]
-    pub(crate) fn stop(&mut self, instance_id: InstanceId) -> Result<()> {
+    pub fn stop(&mut self, instance_id: InstanceId) -> Result<()> {
         let instance = self
             .instances
             .get(&instance_id)
@@ -65,7 +65,7 @@ impl ApplicationManager {
     }
 
     /// Spawn a new instance of an application.
-    pub(crate) fn spawn(
+    pub fn spawn(
         &mut self,
         application: &Application,
         creation_mode: CreationMode,
@@ -100,7 +100,7 @@ impl ApplicationManager {
 
     /// Wait for a specific instance to complete.
     #[allow(dead_code)]
-    pub(crate) async fn wait_for_instance(&mut self, target_id: InstanceId) -> Result<()> {
+    pub async fn wait_for_instance(&mut self, target_id: InstanceId) -> Result<()> {
         while let Some(join_result) = self.join_set.join_next().await {
             let (instance_id, result) = join_result
                 .unwrap_or_else(|e| (target_id, Err(anyhow!("Instance stopped: {}", e))));
@@ -114,11 +114,11 @@ impl ApplicationManager {
         Err(anyhow!("Instance {:?} not found in join set", target_id))
     }
 
-    pub(crate) fn remove_instance(&mut self, instance_id: InstanceId) {
+    pub fn remove_instance(&mut self, instance_id: InstanceId) {
         self.instances.remove(&instance_id);
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.instances.is_empty()
     }
 }
