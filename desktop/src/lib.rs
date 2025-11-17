@@ -56,7 +56,7 @@ impl Desktop {
                 }
 
                 Some(result) = join_set.join_next() => {
-                    let app_result = result.unwrap_or_else(|e| Err(anyhow::anyhow!("Application failed: {}", e)));
+                    let app_result = result.unwrap_or_else(|e| Err(anyhow::anyhow!("Application ended with error: {}", e)));
                     return app_result;
                 }
 

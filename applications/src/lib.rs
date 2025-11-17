@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 mod application_context;
 mod instance;
-mod instance_context;
+mod instance_client;
 mod view;
 mod view_builder;
 
