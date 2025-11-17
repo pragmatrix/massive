@@ -1,12 +1,16 @@
 use std::{collections::HashMap, future::Future, pin::Pin};
 
 use derive_more::Debug;
-use tokio::{sync::mpsc::unbounded_channel, task::JoinSet};
+use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
 use winit::dpi::LogicalSize;
 
 use massive_applications::{CreationMode, InstanceContext, InstanceId, InstanceRequest};
 use massive_shell::{Result, Scene, ShellContext};
+
+mod application_manager;
+
+use application_manager::ApplicationManager;
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -27,25 +31,12 @@ impl Desktop {
         let _scene = Scene::new();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceRequest)>();
-
-        let mut join_set = JoinSet::new();
+        let mut app_manager = ApplicationManager::new(requests_tx);
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {
-            let instance_id = InstanceId::from(Uuid::new_v4());
-            let (_events_tx, events_rx) = unbounded_channel();
-
-            let instance_context = InstanceContext::new(
-                instance_id,
-                CreationMode::New,
-                requests_tx.clone(),
-                events_rx,
-            );
-
-            join_set.spawn((app.run)(instance_context));
+            app_manager.spawn(app, CreationMode::New)?;
         }
-
-        drop(requests_tx);
 
         loop {
             tokio::select! {
@@ -59,9 +50,19 @@ impl Desktop {
                     // TODO: Process ShellEvent variants
                 }
 
-                Some(result) = join_set.join_next() => {
-                    let instance_result = result.unwrap_or_else(|e| Err(anyhow::anyhow!("Instance ended with error: {}", e)));
-                    return instance_result;
+                Some(join_result) = app_manager.join_set.join_next() => {
+                    let (instance_id, instance_result) = join_result
+                        .unwrap_or_else(|e| (InstanceId::from(Uuid::nil()), Err(anyhow::anyhow!("Instance panicked: {}", e))));
+
+                    app_manager.remove_instance(instance_id);
+
+                    // If any instance fails, return the error
+                    instance_result?;
+
+                    // If all instances have finished, exit
+                    if app_manager.is_empty() {
+                        return Ok(());
+                    }
                 }
 
                 else => {

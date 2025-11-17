@@ -13,6 +13,6 @@ massive-applications.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
 winit.workspace = true

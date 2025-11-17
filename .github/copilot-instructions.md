@@ -16,6 +16,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Before implementing a manual `Debug` trait, prefer using `derive_more`'s `Debug` with `#[debug(skip)]` attributes when appropriate.
 - Limit qualification paths to at most 2 module levels (e.g., `mpsc::channel` not `tokio::sync::mpsc::channel`).
 - Import types and modules to reduce path qualification in code.
+- Order functions so that they call functions defined further down in the file (higher-level functions first, lower-level utilities last).
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
