@@ -6,6 +6,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use crate::{
     InstanceId,
     view::{ViewClient, ViewRequest},
+    view_builder::ViewBuilder,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -50,6 +51,10 @@ impl InstanceContext {
             .recv()
             .await
             .ok_or_else(|| anyhow::anyhow!("Instance event channel closed"))
+    }
+
+    pub fn new_view(&self, size: (u32, u32)) -> ViewBuilder {
+        ViewBuilder::new(self.requests.clone(), self.id, size)
     }
 
     fn send_request(&self, request: InstanceRequest) -> Result<()> {

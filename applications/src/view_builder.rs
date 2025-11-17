@@ -10,7 +10,7 @@ use massive_geometry::Color;
 
 #[derive(Debug)]
 pub struct ViewBuilder {
-    requests: UnboundedSender<InstanceRequest>,
+    requests: UnboundedSender<(InstanceId, InstanceRequest)>,
     instance: InstanceId,
 
     role: ViewRole,
@@ -21,7 +21,7 @@ pub struct ViewBuilder {
 
 impl ViewBuilder {
     pub(crate) fn new(
-        requests: UnboundedSender<InstanceRequest>,
+        requests: UnboundedSender<(InstanceId, InstanceRequest)>,
         instance: InstanceId,
         size: (u32, u32),
     ) -> Self {
@@ -47,7 +47,8 @@ impl ViewBuilder {
     pub fn build(self) -> Result<View> {
         let (event_tx, event_rx) = unbounded_channel();
         let client = ViewClient::new(self.instance, self.role, event_tx);
-        self.requests.send(InstanceRequest::Present(client))?;
+        self.requests
+            .send((self.instance, InstanceRequest::Present(client)))?;
         Ok(View::new(self.requests, event_rx))
     }
 }
