@@ -14,6 +14,8 @@ Update it whenever you learn something new about the project's patterns, convent
 - Do not add obvious comments that restate what the code clearly expresses.
 - Only comment to explain non-obvious reasoning or intent.
 - Before implementing a manual `Debug` trait, prefer using `derive_more`'s `Debug` with `#[debug(skip)]` attributes when appropriate.
+- Limit qualification paths to at most 2 module levels (e.g., `mpsc::channel` not `tokio::sync::mpsc::channel`).
+- Import types and modules to reduce path qualification in code.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
@@ -23,3 +25,7 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Communication
 - Explanations should be concise and strictly relevant.
 - When unsure, ask clarifying questions before making assumptions.
+
+## Documentation
+- Markdown documentation updates to existing files are fine.
+- Ask before creating new Markdown documentation files.

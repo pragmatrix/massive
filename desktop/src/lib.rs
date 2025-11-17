@@ -75,7 +75,7 @@ impl Desktop {
 }
 
 #[derive(Debug)]
-struct Application {
+pub struct Application {
     name: String,
     /// This is the process local id for the application (not visible to the outside for now)
     id: ApplicationId,

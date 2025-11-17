@@ -3,6 +3,10 @@ name = "desktop"
 version = "0.1.0"
 edition.workspace = true
 
+[[example]]
+name = "hello"
+path = "examples/hello.rs"
+
 [dependencies]
 massive-shell.workspace = true
 massive-applications.workspace = true
