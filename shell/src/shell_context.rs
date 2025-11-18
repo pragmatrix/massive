@@ -10,7 +10,10 @@ use tokio::{
 };
 use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{PresentationTimestamp, ShellEvent, ShellWindow, message_filter, shell::ShellRequest};
+use crate::{
+    PresentationTimestamp, Scene, ShellEvent, ShellWindow, message_filter, shell::ShellRequest,
+};
+use massive_animation::AnimationCoordinator;
 
 /// The [`ShellContext`] is the connection to the runtime. It allows it to create new windows and to
 /// wait for events while also forwarding scene changes to the renderer.
@@ -34,6 +37,8 @@ pub struct ShellContext {
     /// a renderer to the `wait_for_shell_event` function.
     presentation_timestamps_receiver: UnboundedReceiver<PresentationTimestamp>,
     presentation_timestamps_sender: UnboundedSender<PresentationTimestamp>,
+
+    animation_coordinator: AnimationCoordinator,
 }
 
 impl ShellContext {
@@ -51,11 +56,17 @@ impl ShellContext {
             pending_events: Default::default(),
             presentation_timestamps_receiver,
             presentation_timestamps_sender,
+            animation_coordinator: AnimationCoordinator::new(),
         }
     }
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.monitor_scale_factor
+    }
+
+    /// Creates a new scene with the shared animation coordinator.
+    pub fn new_scene(&self) -> Scene {
+        Scene::new(self.animation_coordinator.clone())
     }
 
     /// Creates a new window.

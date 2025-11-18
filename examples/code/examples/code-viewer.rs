@@ -4,7 +4,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::SizeI;
 use massive_scene::Visual;
-use massive_shell::{FontManager, Scene, ShellContext, shell};
+use massive_shell::{FontManager, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText},
@@ -69,7 +69,7 @@ async fn code_viewer(mut ctx: ShellContext) -> Result<()> {
     // Using inner size screws up the renderer initialization, because the window has no size yet.
     // So we compute the proper physical for now.
     // let physical_size = initial_size.to_physical(window.scale_factor());
-    let scene = Scene::default();
+    let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     let page_size = SizeI::new(1280, height as u64);

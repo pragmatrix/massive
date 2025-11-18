@@ -13,20 +13,14 @@ use massive_animation::{Animated, AnimationCoordinator, Interpolatable, Interpol
 pub struct Scene {
     #[deref]
     inner: massive_scene::Scene,
-    pub(crate) animation_coordinator: AnimationCoordinator,
-}
-
-impl Default for Scene {
-    fn default() -> Self {
-        Self::new()
-    }
+    animation_coordinator: AnimationCoordinator,
 }
 
 impl Scene {
-    pub fn new() -> Self {
+    pub(crate) fn new(animation_coordinator: AnimationCoordinator) -> Self {
         Self {
             inner: Default::default(),
-            animation_coordinator: AnimationCoordinator::new(),
+            animation_coordinator,
         }
     }
 

@@ -23,6 +23,8 @@ Update it whenever you learn something new about the project's patterns, convent
 - Avoid unsafe or experimental APIs unless required.
 - Add or update tests when modifying behavior.
 - Preserve backwards compatibility unless instructed otherwise.
+- When refactoring, don't add trait implementations (Clone, Debug, Default, etc.) that weren't present in the original code.
+- If a trait can't be derived due to field constraints, investigate whether the trait is actually needed before implementing it manually.
 
 ## Communication
 - Explanations should be concise and strictly relevant.

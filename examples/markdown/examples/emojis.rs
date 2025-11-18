@@ -20,7 +20,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
-use massive_shell::{FontManager, Scene, ShellContext, shell};
+use massive_shell::{FontManager, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,
@@ -142,7 +142,7 @@ async fn emojis(mut ctx: ShellContext) -> Result<()> {
 
     let page_size = SizeI::new(page_width as _, page_height);
     let mut application = Application::default();
-    let scene = Scene::new();
+    let scene = ctx.new_scene();
     let matrix = scene.stage(application.matrix(page_size));
     let location = scene.stage(matrix.clone().into());
 

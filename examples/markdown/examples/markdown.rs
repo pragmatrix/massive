@@ -23,7 +23,7 @@ use winit::dpi::PhysicalSize;
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-use massive_shell::{FontManager, Scene, ShellContext, shell};
+use massive_shell::{FontManager, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
@@ -83,7 +83,7 @@ async fn application(mut ctx: ShellContext) -> Result<()> {
         markdown_to_glyph_runs(scale_factor, physical_size, font_system.clone(), markdown)?;
 
     let mut application = Application::default();
-    let scene = Scene::new();
+    let scene = ctx.new_scene();
     let page_matrix = application.matrix(page_size);
 
     let matrix = scene.stage(page_matrix);

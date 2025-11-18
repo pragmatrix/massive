@@ -23,7 +23,7 @@ async fn run(mut ctx: ShellContext) -> Result<()> {
 
     // Scene & application
     let mut application = Application::default();
-    let scene = Scene::new();
+    let scene = ctx.new_scene();
 
     // Logical page size based on layout of shapes (we adjust after computing bounds)
     // We'll build shapes around (0,0) then center them by translating the matrix to the page center.

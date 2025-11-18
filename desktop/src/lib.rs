@@ -6,7 +6,7 @@ use uuid::Uuid;
 use winit::dpi::LogicalSize;
 
 use massive_applications::{CreationMode, InstanceContext, InstanceId, InstanceRequest};
-use massive_shell::{Result, Scene, ShellContext};
+use massive_shell::{Result, ShellContext};
 
 mod instance_manager;
 
@@ -28,7 +28,7 @@ impl Desktop {
         // Create a window and renderer
         let window = context.new_window(LogicalSize::new(1024, 768)).await?;
         let _renderer = window.renderer().build().await?;
-        let _scene = Scene::new();
+        let _scene = context.new_scene();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceRequest)>();
         let mut app_manager = InstanceManager::new(requests_tx);

@@ -10,7 +10,7 @@ use winit::dpi::LogicalSize;
 use massive_geometry::Color;
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{FontManager, Scene, ShellContext, shell};
+use massive_shell::{FontManager, ShellContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},
@@ -75,7 +75,8 @@ async fn syntax(mut ctx: ShellContext) -> Result<()> {
 
     let inner_size = LogicalSize::new(800., 800.);
     let window = ctx.new_window(inner_size).await?;
-    let scene = Scene::new();
+
+    let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     // Application

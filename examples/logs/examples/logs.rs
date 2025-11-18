@@ -80,7 +80,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ShellContext) -
 
     let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
-    let scene = Scene::new();
+    let scene = ctx.new_scene();
     let mut logs = Logs::new(&scene, fonts);
 
     // Application
