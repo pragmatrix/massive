@@ -46,7 +46,7 @@ struct Inner {
     /// The current time.
     current_time: Option<Instant>,
 
-    /// The time when all animations end, or None if no animations are active.
+    /// The time when all animations end.
     ending_time: Instant,
 }
 
