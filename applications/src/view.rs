@@ -51,8 +51,6 @@ pub enum ViewRequest {
     Redraw(Vec<SceneChange>),
     /// Feature: This should probably specify a depth too.
     Resize((u32, u32)),
-    /// Can't we do this automatically through the Scene?
-    ChangePacing(),
 }
 
 /// The side of a view the shell sees.

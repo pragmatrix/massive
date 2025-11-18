@@ -10,13 +10,14 @@ use std::{
 
 use anyhow::{Context, Result};
 use log::{error, info};
+use massive_applications::RenderTarget;
 use tokio::sync::mpsc::UnboundedSender;
-use winit::window::WindowId;
+use winit::{event::WindowEvent, window::WindowId};
 
-use crate::{message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
+use crate::{ShellEvent, message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
 use massive_geometry::{Camera, Color};
 use massive_renderer::RenderGeometry;
-use massive_scene::{ChangeCollector, Matrix};
+use massive_scene::{ChangeCollector, Matrix, SceneChange};
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {
@@ -219,5 +220,99 @@ impl Drop for AsyncWindowRenderer {
         {
             error!("Error joining AsyncWindowRenderer thread: {e:?}");
         }
+    }
+}
+
+impl RenderTarget for AsyncWindowRenderer {
+    type Event = ShellEvent;
+
+    fn render(
+        &mut self,
+        changes: Vec<SceneChange>,
+        animations_active: bool,
+        event: Option<Self::Event>,
+    ) -> Result<()> {
+        let mut redraw = false;
+
+        // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
+        // may asynchronously overtake the subsequent redraw / resize requests if a previous one is
+        // currently on its way.
+        //
+        // Architecture: We could send this through the RendererMessage::Redraw, which may cause
+        // other problems (increased latency and the need for combining changes if Redraws are
+        // pending).
+        //
+        // Robustness: This should probably threaded through the redraw pipeline?
+        if !changes.is_empty() {
+            self.change_collector().push_many(changes);
+            redraw = true;
+        }
+
+        let window_id = self.window_id();
+        let mut resize = None;
+        let mut animations_applied = false;
+        match event {
+            Some(ShellEvent::WindowEvent(id, window_event)) if id == window_id => {
+                match window_event {
+                    WindowEvent::RedrawRequested => {
+                        redraw = true;
+                    }
+                    WindowEvent::Resized(size) => {
+                        resize = Some((size.width, size.height));
+                        // Robustness: Is this needed. Doesn't the system always send a redraw
+                        // anyway after each resize?
+                        redraw = true
+                    }
+                    _ => {}
+                }
+            }
+            Some(ShellEvent::ApplyAnimations) => {
+                // Even if nothing changed in apply animations, we have to redraw to get a new presentation timestamp.
+                redraw = true;
+                animations_applied = true;
+            }
+            _ => {}
+        };
+
+        let animations_before = self.pacing() == RenderPacing::Smooth;
+
+        let new_render_pacing = match (animations_before, animations_active, animations_applied) {
+            (false, true, _) => {
+                // Changing from Fast to Smooth requires presentation timestamps to follow. So redraw.
+                redraw = true;
+                Some(RenderPacing::Smooth)
+            }
+            // Detail: Changing from Smooth to fast is only possible in response to
+            // ApplyAnimations: Only then we know that animations are actually applied to the
+            // scene and pushed to the renderer with this update.
+            (true, false, true) => Some(RenderPacing::Fast),
+            _ => None,
+        };
+
+        //
+        // Sync with the renderer.
+        //
+
+        // Resize first and follow up with a complete redraw.
+
+        if let Some(new_size) = resize {
+            self.resize(new_size)?;
+        }
+
+        // Update render pacing before a redraw:
+        // - from instant to smooth: We force a redraw _afterwards_ to get VSync based presentation
+        //   timestamps and cause ApplyAnimations.
+        // - from smooth to instant: Redraw only when something changed afterwards, but instantly
+        //   without VSync.
+        if let Some(new_render_pacing) = new_render_pacing {
+            info!("Changing render pacing to: {new_render_pacing:?}");
+            self.update_render_pacing(new_render_pacing)?;
+        }
+
+        if redraw {
+            self.redraw()?;
+        }
+
+        Ok(())
     }
 }

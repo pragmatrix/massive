@@ -6,7 +6,7 @@ use massive_scene::Visual;
 use massive_shapes::{
     ChamferRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
-use massive_shell::{Scene, ShellContext, shell};
+use massive_shell::{ShellContext, shell};
 use shared::application::{Application, UpdateResponse};
 
 #[tokio::main]

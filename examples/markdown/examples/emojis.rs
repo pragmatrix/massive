@@ -26,8 +26,6 @@ use shared::{
     positioning,
 };
 
-const CANVAS_ID: &str = "massive-emojis";
-
 #[tokio::main]
 async fn main() -> Result<()> {
     shell::run(emojis)

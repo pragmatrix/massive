@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::anyhow;
+use massive_animation::AnimationCoordinator;
 use tokio::{
     sync::mpsc::{UnboundedSender, unbounded_channel},
     task::JoinSet,
@@ -17,6 +18,7 @@ use crate::Application;
 /// Manages running application instances with lifecycle control.
 #[derive(Debug)]
 pub struct InstanceManager {
+    animation_coordinator: AnimationCoordinator,
     instances: HashMap<InstanceId, RunningInstance>,
     pub(crate) join_set: JoinSet<(InstanceId, Result<()>)>,
     requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>,
@@ -32,8 +34,12 @@ struct RunningInstance {
 }
 
 impl InstanceManager {
-    pub fn new(requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>) -> Self {
+    pub fn new(
+        animation_coordinator: AnimationCoordinator,
+        requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>,
+    ) -> Self {
         Self {
+            animation_coordinator,
             instances: HashMap::new(),
             join_set: JoinSet::new(),
             requests_tx,
@@ -74,6 +80,7 @@ impl InstanceManager {
         let (events_tx, events_rx) = unbounded_channel();
 
         let instance_context = InstanceContext::new(
+            self.animation_coordinator.clone(),
             instance_id,
             creation_mode,
             self.requests_tx.clone(),

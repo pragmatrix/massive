@@ -10,6 +10,7 @@ path = "examples/hello.rs"
 [dependencies]
 massive-shell.workspace = true
 massive-applications.workspace = true
+massive-animation.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true

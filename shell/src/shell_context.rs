@@ -30,6 +30,8 @@ pub struct ShellContext {
     // or when a window is moved?
     monitor_scale_factor: f64,
 
+    animation_coordinator: AnimationCoordinator,
+
     /// Pending events received but not yet delivered.
     pending_events: VecDeque<ShellEvent>,
 
@@ -37,8 +39,6 @@ pub struct ShellContext {
     /// a renderer to the `wait_for_shell_event` function.
     presentation_timestamps_receiver: UnboundedReceiver<PresentationTimestamp>,
     presentation_timestamps_sender: UnboundedSender<PresentationTimestamp>,
-
-    animation_coordinator: AnimationCoordinator,
 }
 
 impl ShellContext {
@@ -53,15 +53,19 @@ impl ShellContext {
             event_receiver,
             event_loop_proxy,
             monitor_scale_factor,
+            animation_coordinator: AnimationCoordinator::new(),
             pending_events: Default::default(),
             presentation_timestamps_receiver,
             presentation_timestamps_sender,
-            animation_coordinator: AnimationCoordinator::new(),
         }
     }
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.monitor_scale_factor
+    }
+
+    pub fn animation_coordinator(&self) -> &AnimationCoordinator {
+        &self.animation_coordinator
     }
 
     /// Creates a new scene with the shared animation coordinator.

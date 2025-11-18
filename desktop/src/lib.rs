@@ -31,7 +31,8 @@ impl Desktop {
         let _scene = context.new_scene();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceRequest)>();
-        let mut app_manager = InstanceManager::new(requests_tx);
+        let mut app_manager =
+            InstanceManager::new(context.animation_coordinator().clone(), requests_tx);
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {

@@ -1,10 +1,11 @@
 //! The context for an instance.
 
 use anyhow::Result;
+use massive_animation::AnimationCoordinator;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    InstanceId,
+    InstanceId, Scene,
     view::{ViewClient, ViewRequest},
     view_builder::ViewBuilder,
 };
@@ -17,6 +18,8 @@ pub enum CreationMode {
 
 #[derive(Debug)]
 pub struct InstanceContext {
+    /// ... to create new scenes.
+    animation_coordinator: AnimationCoordinator,
     id: InstanceId,
     creation_mode: CreationMode,
     events: UnboundedReceiver<InstanceEvent>,
@@ -25,12 +28,14 @@ pub struct InstanceContext {
 
 impl InstanceContext {
     pub fn new(
+        animation_coordinator: AnimationCoordinator,
         id: InstanceId,
         creation_mode: CreationMode,
         requests: UnboundedSender<(InstanceId, InstanceRequest)>,
         events: UnboundedReceiver<InstanceEvent>,
     ) -> Self {
         Self {
+            animation_coordinator,
             id,
             creation_mode,
             events,
@@ -44,6 +49,10 @@ impl InstanceContext {
 
     pub fn creation_mode(&self) -> CreationMode {
         self.creation_mode
+    }
+
+    pub fn new_scene(&self) -> Scene {
+        Scene::new(self.animation_coordinator.clone())
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {
