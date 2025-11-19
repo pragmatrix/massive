@@ -20,7 +20,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
-use massive_shell::{FontManager, ShellContext, shell};
+use massive_shell::{FontManager, ApplicationContext, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,
@@ -31,7 +31,7 @@ async fn main() -> Result<()> {
     shell::run(emojis)
 }
 
-async fn emojis(mut ctx: ShellContext) -> Result<()> {
+async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     let markdown = include_str!("emojis.md");
     // The concepts of a current dir does not exist in wasm I guess.
     // let current_dir = env::current_dir().expect("Failed to get current directory");

@@ -11,7 +11,7 @@ use winit::{
     window::{Window, WindowAttributes, WindowId},
 };
 
-use crate::{ShellContext, ShellWindow, shell_window::ShellWindowShared};
+use crate::{ApplicationContext, ShellWindow, shell_window::ShellWindowShared};
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
 
@@ -21,7 +21,7 @@ const FALLBACK_SCALE_FACTOR: f64 = 1.;
 /// completion. It also executes the winit event loop and blocks until it returns. This gives
 /// clients the option to run the event loop on the main thread, which some platforms require.
 pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
-    application: impl FnOnce(ShellContext) -> R + 'static + Send,
+    application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
 ) -> Result<()> {
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
@@ -47,7 +47,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
 }
 
 fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
-    application: impl FnOnce(ShellContext) -> R + 'static + Send,
+    application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
 ) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
 
@@ -56,7 +56,7 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
 
-    let spawn_application = |application_context: ShellContext| {
+    let spawn_application = |application_context: ApplicationContext| {
         let _application_task = tokio::spawn(async move {
             let event_loop_proxy = application_context.event_loop_proxy.clone();
             let r = application(application_context).await;
@@ -195,7 +195,7 @@ enum WinitApplicationHandler {
 }
 
 /// Type alias for the application spawner closure.
-type ApplicationSpawner = Box<dyn FnOnce(ShellContext)>;
+type ApplicationSpawner = Box<dyn FnOnce(ApplicationContext)>;
 
 impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
@@ -214,7 +214,7 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
             });
 
         let application_context =
-            ShellContext::new(event_receiver, proxy.clone(), scale_factor);
+            ApplicationContext::new(event_receiver, proxy.clone(), scale_factor);
 
         (spawner.take().unwrap())(application_context);
         *self = Self::Running { event_sender }

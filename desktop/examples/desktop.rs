@@ -3,14 +3,14 @@ use desktop::{Application, Desktop};
 use tokio::sync::mpsc;
 
 use massive_applications::InstanceContext;
-use massive_shell::{ShellContext, shell};
+use massive_shell::{ApplicationContext, shell};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     shell::run(run)
 }
 
-async fn run(ctx: ShellContext) -> Result<()> {
+async fn run(ctx: ApplicationContext) -> Result<()> {
     let applications = vec![Application::new("Hello Application", hello_instance)];
     let desktop = Desktop::new(applications);
     desktop.run(ctx).await

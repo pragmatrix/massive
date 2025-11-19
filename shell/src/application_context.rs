@@ -15,13 +15,13 @@ use crate::{
 };
 use massive_animation::AnimationCoordinator;
 
-/// The [`ShellContext`] is the connection to the runtime. It allows it to create new windows and to
-/// wait for events while also forwarding scene changes to the renderer.
+/// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
+/// new windows and to wait for events while also forwarding scene changes to the renderer.
 ///
 /// In addition to that it provides an animator that is updated with each event coming from the
 /// shell.
 #[derive(Debug)]
-pub struct ShellContext {
+pub struct ApplicationContext {
     event_receiver: UnboundedReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
     pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
@@ -41,7 +41,7 @@ pub struct ShellContext {
     presentation_timestamps_sender: UnboundedSender<PresentationTimestamp>,
 }
 
-impl ShellContext {
+impl ApplicationContext {
     pub(crate) fn new(
         event_receiver: UnboundedReceiver<ShellEvent>,
         event_loop_proxy: EventLoopProxy<ShellRequest>,

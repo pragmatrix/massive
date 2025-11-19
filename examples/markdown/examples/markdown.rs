@@ -23,7 +23,7 @@ use winit::dpi::PhysicalSize;
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
-use massive_shell::{FontManager, ShellContext, shell};
+use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
     fonts, positioning,
@@ -55,7 +55,7 @@ async fn main() -> Result<()> {
     shell::run(application)
 }
 
-async fn application(mut ctx: ShellContext) -> Result<()> {
+async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let fonts = FontManager::bare("en-US").with_font(fonts::MONTSERRAT_REGULAR);
 
     // Need an equivalent font_system for inlyne.

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use winit::dpi::LogicalSize;
 
 use massive_applications::{CreationMode, InstanceContext, InstanceId, InstanceRequest};
-use massive_shell::{Result, ShellContext};
+use massive_shell::{ApplicationContext, Result};
 
 mod instance_manager;
 
@@ -24,7 +24,7 @@ impl Desktop {
         }
     }
 
-    pub async fn run(self, mut context: ShellContext) -> Result<()> {
+    pub async fn run(self, mut context: ApplicationContext) -> Result<()> {
         // Create a window and renderer
         let window = context.new_window(LogicalSize::new(1024, 768)).await?;
         let _renderer = window.renderer().build().await?;

@@ -6,7 +6,7 @@ use massive_scene::Visual;
 use massive_shapes::{
     ChamferRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
-use massive_shell::{ShellContext, shell};
+use massive_shell::{ApplicationContext, shell};
 use shared::application::{Application, UpdateResponse};
 
 #[tokio::main]
@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
     shell::run(run)
 }
 
-async fn run(mut ctx: ShellContext) -> Result<()> {
+async fn run(mut ctx: ApplicationContext) -> Result<()> {
     // Window
     let window_size = LogicalSize::new(1024.0, 768.0);
     let window = ctx.new_window(window_size).await?;
