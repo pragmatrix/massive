@@ -233,8 +233,8 @@ impl RenderTarget for AsyncWindowRenderer {
         animation_coordinator: &AnimationCoordinator,
         event: Option<Self::Event>,
     ) -> Result<()> {
-        let animations_active = animation_coordinator.end_cycle();
-        
+        let animations_active = animation_coordinator.animations_active_at(Instant::now());
+
         let mut redraw = false;
 
         // Push the changes _directly_ to the renderer which picks it up in the next redraw. This

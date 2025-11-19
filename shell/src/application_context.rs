@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use anyhow::{Result, anyhow, bail};
+use log::{error, warn};
 use tokio::{
     select,
     sync::{
@@ -101,9 +102,26 @@ impl ApplicationContext {
 
     /// Wait for the next shell event.
     ///
+    /// This function is cancel safe _and_ must be used in a atomic fashion (i.e. not preserved in a
+    /// select! loop with &mut reference to the returning future).
+    ///
     /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
     /// [`ShellEvent::ApplyAnimations`] can be produced.
     pub async fn wait_for_shell_event(&mut self) -> Result<ShellEvent> {
+        // Animation cycle resets as soon we wait for another event.
+        //
+        // ADR: This was moved from the render_to() function to here, because we want may want to push
+        // scene changes multiple times per frame (for example in the desktop renderer).
+        self.animation_coordinator.end_cycle();
+
+        let exit = |ev| {
+            // For now we want to find out if that happens.
+            if self.animation_coordinator.current_time_opt().is_some() {
+                bail!("Animations were used while waiting for a shell event");
+            }
+            Ok(ev)
+        };
+
         loop {
             // Pull in every event we can get.
             loop {
@@ -118,7 +136,9 @@ impl ApplicationContext {
                 }
             }
 
-            // Skip by key. This is to reduce the resizes, redraws and others.
+            // Skip Window events by key. This is to remove the lagging of resizes, redraws and
+            // other events that are considered safe to skip without causing side effects.
+            //
             // Robustness: Going from VecDequeue to Vec and back is a mess.
             {
                 let events: Vec<ShellEvent> = message_filter::keep_last_per_key(
@@ -131,7 +151,7 @@ impl ApplicationContext {
 
             // Robustness: If the main application can't process events fast enough, ApplyAnimations will never come.
             if let Some(pending) = self.pending_events.pop_front() {
-                return Ok(pending);
+                return exit(pending);
             }
 
             select! {
@@ -145,15 +165,16 @@ impl ApplicationContext {
                 }
 
                 _instant = Self::wait_for_most_recent_presentation(&mut self.presentation_timestamps_receiver) => {
-                    // Robustness: If applyAnimations will come to fast, we probably should push
+                    // Robustness: If ApplyAnimations comes to fast, we probably should push
                     // them into pending_events.
                     //
                     // Robustness: The render pacing (as seen from the client or the renderer)
                     // may not currently match Smooth pacing when the event is processed. Not
                     // sure what can be done about this yet and even if it's a problem.
+                    // **Update** Now that we end the cycle here, it's possible to filter the event.
                     //
                     // Feature: Does it make sense to forward the timestamp itself or the window id?
-                    return Ok(ShellEvent::ApplyAnimations);
+                    return exit(ShellEvent::ApplyAnimations);
                 }
                 // else: Not in a animation cycle: loop and wait for an input event.
             };

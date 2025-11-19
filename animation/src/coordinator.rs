@@ -83,11 +83,21 @@ impl AnimationCoordinator {
         current_time < inner.ending_time
     }
 
+    pub fn animations_active_at(&self, when: Instant) -> bool {
+        let inner = self.inner.lock();
+        when < inner.ending_time
+    }
+
     /// Returns the current animation time.
     ///
     /// If not set, it's initialized to the current time.
     pub(crate) fn current_time(&self) -> Instant {
         self.inner.lock().current_time()
+    }
+
+    /// Returns the current time, or `None` if it did not got set yet.
+    pub fn current_time_opt(&self) -> Option<Instant> {
+        self.inner.lock().current_time
     }
 
     /// Allocate an animation range for the given duration and return it's starting time.
