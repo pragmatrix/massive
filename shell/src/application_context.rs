@@ -1,19 +1,13 @@
 use std::collections::VecDeque;
 
 use anyhow::{Result, anyhow, bail};
-use log::{error, warn};
-use tokio::{
-    select,
-    sync::{
-        mpsc::{UnboundedReceiver, UnboundedSender, error::TryRecvError, unbounded_channel},
-        oneshot,
-    },
+use tokio::sync::{
+    mpsc::{UnboundedReceiver, WeakUnboundedSender, error::TryRecvError},
+    oneshot,
 };
 use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{
-    PresentationTimestamp, Scene, ShellEvent, ShellWindow, message_filter, shell::ShellRequest,
-};
+use crate::{Scene, ShellEvent, ShellWindow, message_filter, shell::ShellRequest};
 use massive_animation::AnimationCoordinator;
 
 /// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
@@ -23,6 +17,8 @@ use massive_animation::AnimationCoordinator;
 /// shell.
 #[derive(Debug)]
 pub struct ApplicationContext {
+    // We use this to send ApplyAnimations from the renderers.
+    event_sender: WeakUnboundedSender<ShellEvent>,
     event_receiver: UnboundedReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
     pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
@@ -35,29 +31,22 @@ pub struct ApplicationContext {
 
     /// Pending events received but not yet delivered.
     pending_events: VecDeque<ShellEvent>,
-
-    /// ADR: Decided to collect all presentation timestamps globally, so that we don't have to pass
-    /// a renderer to the `wait_for_shell_event` function.
-    presentation_timestamps_receiver: UnboundedReceiver<PresentationTimestamp>,
-    presentation_timestamps_sender: UnboundedSender<PresentationTimestamp>,
 }
 
 impl ApplicationContext {
     pub(crate) fn new(
+        event_sender: WeakUnboundedSender<ShellEvent>,
         event_receiver: UnboundedReceiver<ShellEvent>,
         event_loop_proxy: EventLoopProxy<ShellRequest>,
         monitor_scale_factor: f64,
     ) -> Self {
-        let (presentation_timestamps_sender, presentation_timestamps_receiver) =
-            unbounded_channel();
         Self {
+            event_sender,
             event_receiver,
             event_loop_proxy,
             monitor_scale_factor,
             animation_coordinator: AnimationCoordinator::new(),
             pending_events: Default::default(),
-            presentation_timestamps_receiver,
-            presentation_timestamps_sender,
         }
     }
 
@@ -96,7 +85,7 @@ impl ApplicationContext {
         Ok(ShellWindow::new(
             window,
             self.event_loop_proxy.clone(),
-            self.presentation_timestamps_sender.clone(),
+            self.event_sender.clone(),
         ))
     }
 
@@ -113,14 +102,6 @@ impl ApplicationContext {
         // ADR: This was moved from the render_to() function to here, because we want may want to push
         // scene changes multiple times per frame (for example in the desktop renderer).
         self.animation_coordinator.end_cycle();
-
-        let exit = |ev| {
-            // For now we want to find out if that happens.
-            if self.animation_coordinator.current_time_opt().is_some() {
-                bail!("Animations were used while waiting for a shell event");
-            }
-            Ok(ev)
-        };
 
         loop {
             // Pull in every event we can get.
@@ -151,61 +132,19 @@ impl ApplicationContext {
 
             // Robustness: If the main application can't process events fast enough, ApplyAnimations will never come.
             if let Some(pending) = self.pending_events.pop_front() {
-                return exit(pending);
+                // For now we want to find out if that happens.
+                if self.animation_coordinator.current_time_opt().is_some() {
+                    bail!("Animations were applied while waiting for a shell event");
+                }
+
+                return Ok(pending);
             }
 
-            select! {
-                event = self.event_receiver.recv() => {
-                    let Some(event) = event else {
-                        // This means that the shell stopped before the application ended, this should not
-                        // happen in normal situations.
-                        bail!("Internal Error: Shell shut down, no more events")
-                    };
-                    self.pending_events.push_back(event);
-                }
-
-                _instant = Self::wait_for_most_recent_presentation(&mut self.presentation_timestamps_receiver) => {
-                    // Robustness: If ApplyAnimations comes to fast, we probably should push
-                    // them into pending_events.
-                    //
-                    // Robustness: The render pacing (as seen from the client or the renderer)
-                    // may not currently match Smooth pacing when the event is processed. Not
-                    // sure what can be done about this yet and even if it's a problem.
-                    // **Update** Now that we end the cycle here, it's possible to filter the event.
-                    //
-                    // Feature: Does it make sense to forward the timestamp itself or the window id?
-                    return exit(ShellEvent::ApplyAnimations);
-                }
-                // else: Not in a animation cycle: loop and wait for an input event.
-            };
-        }
-    }
-
-    /// Wait for the most recent presentation.
-    ///
-    /// If multiple presentation Instants are available, the most recent one is returned.
-    ///
-    /// This is cancel safe.
-    ///
-    /// Robustness: Filter by WindowId
-    /// Architecture: May use watch channel for this?
-    async fn wait_for_most_recent_presentation(
-        receiver: &mut UnboundedReceiver<PresentationTimestamp>,
-    ) -> Result<PresentationTimestamp> {
-        let most_recent = receiver.recv().await;
-        let Some(mut most_recent) = most_recent else {
-            bail!("Presentation sender vanished (thread got terminated?)");
-        };
-
-        // Get the most recent one available.
-        loop {
-            match receiver.try_recv() {
-                Ok(instant) => most_recent = instant,
-                Err(TryRecvError::Empty) => return Ok(most_recent),
-                Err(TryRecvError::Disconnected) => {
-                    // This should never happen I guess, since we keep one sender here all the time.
-                    bail!("Presentation sender vanished!");
-                }
+            // No events yet, wait.
+            if let Some(event) = self.event_receiver.recv().await {
+                self.pending_events.push_back(event);
+            } else {
+                bail!("Internal Error: Shell shut down, no more events")
             }
         }
     }

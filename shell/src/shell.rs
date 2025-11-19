@@ -94,7 +94,7 @@ pub enum ShellEvent {
     // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
     // as a event pathway from the WinitApplicationHandler anymore.
     WindowEvent(WindowId, WindowEvent),
-    ApplyAnimations,
+    ApplyAnimations(WindowId),
 }
 
 #[derive(Debug)]
@@ -135,7 +135,7 @@ impl ShellEvent {
 
     #[must_use]
     pub fn apply_animations(&self) -> bool {
-        matches!(self, Self::ApplyAnimations)
+        matches!(self, Self::ApplyAnimations(_))
     }
 
     pub(crate) fn skip_key(&self) -> Option<ShellEventSkipKey> {
@@ -155,14 +155,14 @@ impl ShellEvent {
                 )),
                 _ => None,
             },
-            ShellEvent::ApplyAnimations => Some(ShellEventSkipKey::ApplyAnimations),
+            ShellEvent::ApplyAnimations(window_id) => Some(ShellEventSkipKey::ApplyAnimations(*window_id)),
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ShellEventSkipKey {
-    ApplyAnimations,
+    ApplyAnimations(WindowId),
     WindowEvent(WindowId, Option<DeviceId>, mem::Discriminant<WindowEvent>),
 }
 
@@ -214,7 +214,7 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
             });
 
         let application_context =
-            ApplicationContext::new(event_receiver, proxy.clone(), scale_factor);
+            ApplicationContext::new(event_sender.downgrade(), event_receiver, proxy.clone(), scale_factor);
 
         (spawner.take().unwrap())(application_context);
         *self = Self::Running { event_sender }

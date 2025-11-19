@@ -8,11 +8,11 @@ use std::{
     time::Instant,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use log::{error, info};
 use massive_animation::AnimationCoordinator;
 use massive_applications::RenderTarget;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event::WindowEvent, window::WindowId};
 
 use crate::{ShellEvent, message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
@@ -31,14 +31,6 @@ pub struct AsyncWindowRenderer {
     /// The current render pacing as seen from the client. This may not reflect reality, as it is
     /// synchronized with the renderer asynchronously.
     pacing: RenderPacing,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct PresentationTimestamp {
-    #[allow(unused)]
-    window_id: WindowId,
-    #[allow(unused)]
-    timestamp: Instant,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -64,8 +56,7 @@ impl AsyncWindowRenderer {
     pub fn new(
         mut window_renderer: WindowRenderer,
         geometry: RenderGeometry,
-        // Robustness: Limiting this channel's size, so that we could detect rendering lag?
-        presentation_timestamp_sender: Option<UnboundedSender<PresentationTimestamp>>,
+        shell_events: Option<WeakUnboundedSender<ShellEvent>>,
     ) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
@@ -84,11 +75,7 @@ impl AsyncWindowRenderer {
                 let latest_messages = keep_last_per_variant(messages, |_| true);
 
                 for message in latest_messages {
-                    if let Err(e) = Self::dispatch(
-                        &mut window_renderer,
-                        &presentation_timestamp_sender,
-                        message,
-                    ) {
+                    if let Err(e) = Self::dispatch(&mut window_renderer, &shell_events, message) {
                         // Robustness: What to do here, we need to inform the application, don't we?
                         log::error!("Render error: {e:?}");
                     }
@@ -108,7 +95,7 @@ impl AsyncWindowRenderer {
 
     fn dispatch(
         renderer: &mut WindowRenderer,
-        presentation_timestamps: &Option<UnboundedSender<PresentationTimestamp>>,
+        apply_animations_to: &Option<WeakUnboundedSender<ShellEvent>>,
         message: RendererMessage,
     ) -> Result<()> {
         match message {
@@ -123,13 +110,14 @@ impl AsyncWindowRenderer {
             RendererMessage::Redraw { view_projection } => {
                 let texture = renderer.apply_scene_changes_and_prepare_presentation()?;
                 // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
-                if let Some(presentation_timestamps) = presentation_timestamps
+                if let Some(apply_animations_to) = apply_animations_to
                     && renderer.present_mode() == wgpu::PresentMode::AutoVsync
                 {
-                    presentation_timestamps.send(PresentationTimestamp {
-                        window_id: renderer.window_id(),
-                        timestamp: Instant::now(),
-                    })?;
+                    let sender = apply_animations_to
+                    .upgrade()
+                    .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
+
+                    sender.send(ShellEvent::ApplyAnimations(renderer.window_id()))?;
                 }
                 renderer.render_and_present(view_projection, texture);
             }
@@ -269,7 +257,9 @@ impl RenderTarget for AsyncWindowRenderer {
                     _ => {}
                 }
             }
-            Some(ShellEvent::ApplyAnimations) => {
+            // ADR: Decided to consider all ApplyAnimations, even the ones coming from other
+            // windows. I.e. animations may be applied and visible on another window.
+            Some(ShellEvent::ApplyAnimations(_)) => {
                 // Even if nothing changed in apply animations, we have to redraw to get a new presentation timestamp.
                 redraw = true;
                 animations_applied = true;
@@ -286,7 +276,7 @@ impl RenderTarget for AsyncWindowRenderer {
                 Some(RenderPacing::Smooth)
             }
             // Detail: Changing from Smooth to fast is only possible in response to
-            // ApplyAnimations: Only then we know that animations are actually applied to the
+            // `ApplyAnimations`: Only then we know that animations are actually applied to the
             // scene and pushed to the renderer with this update.
             (true, false, true) => Some(RenderPacing::Fast),
             _ => None,
