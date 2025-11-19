@@ -62,8 +62,6 @@ impl Scene {
         render_target: &mut dyn RenderTarget<Event = E>,
         event: Option<E>,
     ) -> Result<()> {
-        let animations_active = self.animation_coordinator.end_cycle();
-        let changes = self.take_changes()?;
-        render_target.render(changes, animations_active, event)
+        render_target.render(self.take_changes()?, &self.animation_coordinator, event)
     }
 }

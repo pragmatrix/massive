@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use massive_animation::AnimationCoordinator;
 use massive_scene::SceneChange;
 
 pub trait RenderTarget {
@@ -8,7 +9,7 @@ pub trait RenderTarget {
     fn render(
         &mut self,
         changes: Vec<SceneChange>,
-        animations_active: bool,
+        animation_coordinator: &AnimationCoordinator,
         event: Option<Self::Event>,
     ) -> Result<()>;
 }

@@ -49,6 +49,6 @@ impl ViewBuilder {
         let client = ViewClient::new(self.instance, self.role, event_tx);
         self.requests
             .send((self.instance, InstanceRequest::Present(client)))?;
-        Ok(View::new(self.requests, event_rx))
+        Ok(View::new(self.instance, self.requests, event_rx))
     }
 }

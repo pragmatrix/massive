@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow};
+use massive_animation::AnimationCoordinator;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use massive_scene::SceneChange;
 use winit::event::{self, DeviceId};
 
-use crate::{InstanceId, instance_context::InstanceRequest};
+use crate::{InstanceId, RenderTarget, instance_context::InstanceRequest};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// Some ideas for roles.
@@ -21,16 +22,19 @@ pub enum ViewRole {
 
 #[derive(Debug)]
 pub struct View {
+    instance: InstanceId,
     requests: UnboundedSender<(InstanceId, InstanceRequest)>,
     events: UnboundedReceiver<ViewEvent>,
 }
 
 impl View {
     pub(crate) fn new(
+        instance: InstanceId,
         requests: UnboundedSender<(InstanceId, InstanceRequest)>,
         receiver: UnboundedReceiver<ViewEvent>,
     ) -> Self {
         Self {
+            instance,
             requests,
             events: receiver,
         }
@@ -121,6 +125,29 @@ pub enum ViewEvent {
     // Feature: PinchGesture, PanGesture, DoubleTapGesture, RotationGesture, TouchpadPressure,
     // AxisMotion, Touch
 
-    // Detail: ScaleFactorChanged may not be needed. If it happens, the system should take care of it.
+    // Detail: ScaleFactorChanged may not be needed. If it happens, the instance manager should take
+    // care of it.
     ApplyAnimations,
+}
+
+impl RenderTarget for View {
+    type Event = ViewEvent;
+
+    fn render(
+        &mut self,
+        changes: Vec<SceneChange>,
+        _animation_coordinator: &AnimationCoordinator,
+        _event: Option<Self::Event>,
+    ) -> Result<()> {
+        if changes.is_empty() {
+            return Ok(());
+        }
+
+        self.requests
+            .send((
+                self.instance,
+                InstanceRequest::View(ViewRequest::Redraw(changes)),
+            ))
+            .context("Failed to send a redraw request")
+    }
 }

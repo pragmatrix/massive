@@ -10,6 +10,7 @@ use std::{
 
 use anyhow::{Context, Result};
 use log::{error, info};
+use massive_animation::AnimationCoordinator;
 use massive_applications::RenderTarget;
 use tokio::sync::mpsc::UnboundedSender;
 use winit::{event::WindowEvent, window::WindowId};
@@ -229,9 +230,11 @@ impl RenderTarget for AsyncWindowRenderer {
     fn render(
         &mut self,
         changes: Vec<SceneChange>,
-        animations_active: bool,
+        animation_coordinator: &AnimationCoordinator,
         event: Option<Self::Event>,
     ) -> Result<()> {
+        let animations_active = animation_coordinator.end_cycle();
+        
         let mut redraw = false;
 
         // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
