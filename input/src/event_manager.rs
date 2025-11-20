@@ -1,27 +1,28 @@
 use std::time::Duration;
 
 use crate::{
-    AggregationReport, Event, EventAggregator, ExternalEvent, event_history::EventHistory,
+    AggregationReport, Event, EventAggregator, ExternalEvent, InputEvent,
+    event_history::EventHistory,
 };
 
 // Naming: GestureDetector?
 #[derive(Debug)]
-pub struct EventManager {
+pub struct EventManager<E: InputEvent> {
     aggregator: EventAggregator,
-    history: EventHistory,
+    history: EventHistory<E>,
 }
 
 /// The maximum time needed for detecting a gesture. This currently equals to the maximum time we
 /// store past events.
 const DEFAULT_MAXIMUM_DETECTION_DURATION: Duration = Duration::from_secs(10);
 
-impl Default for EventManager {
+impl<E: InputEvent> Default for EventManager<E> {
     fn default() -> Self {
         Self::new(DEFAULT_MAXIMUM_DETECTION_DURATION)
     }
 }
 
-impl EventManager {
+impl<E: InputEvent> EventManager<E> {
     pub fn new(max_detection_duration: Duration) -> Self {
         Self {
             aggregator: Default::default(),
@@ -36,8 +37,8 @@ impl EventManager {
     /// is changed, for example.
     ///
     /// Architecture: Even aggregation and event queries should be part of the massive shell.
-    pub fn add_event(&mut self, event: ExternalEvent) -> Option<Event<'_>> {
-        if self.aggregator.update(&event) == AggregationReport::Redundant {
+    pub fn add_event(&mut self, event: ExternalEvent<E>) -> Option<Event<'_, E>> {
+        if self.aggregator.update(&event.event, event.time) == AggregationReport::Redundant {
             return None;
         }
 

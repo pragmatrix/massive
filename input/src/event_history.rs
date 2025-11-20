@@ -1,23 +1,24 @@
 use std::{
     collections::VecDeque,
+    fmt,
     time::{Duration, Instant},
 };
 
-use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
+use winit::event::{DeviceId, ElementState, MouseButton};
 
 use super::ExternalEvent;
-use crate::event_aggregator::DeviceStates;
+use crate::{AggregationEvent, InputEvent, event_aggregator::DeviceStates};
 use massive_geometry::Point;
 
 #[derive(Debug)]
-pub struct EventHistory {
+pub struct EventHistory<E: InputEvent> {
     max_duration: Duration,
     current_id: u64,
     /// The event records, most recent first.
-    records: VecDeque<EventRecord>,
+    records: VecDeque<EventRecord<E>>,
 }
 
-impl EventHistory {
+impl<E: InputEvent> EventHistory<E> {
     pub fn new(max_duration: Duration) -> Self {
         Self {
             max_duration,
@@ -26,7 +27,7 @@ impl EventHistory {
         }
     }
 
-    pub fn push(&mut self, event: ExternalEvent, states: DeviceStates) {
+    pub fn push(&mut self, event: ExternalEvent<E>, states: DeviceStates) {
         let time = event.time();
         if let Some(front) = self.records.front()
             && front.time() > time
@@ -46,17 +47,17 @@ impl EventHistory {
     }
 
     /// The current record.
-    pub fn current(&self) -> Option<&EventRecord> {
+    pub fn current(&self) -> Option<&EventRecord<E>> {
         self.records.front()
     }
 
     /// The previous record.
-    pub fn previous(&self) -> Option<&EventRecord> {
+    pub fn previous(&self) -> Option<&EventRecord<E>> {
         self.records.get(1)
     }
 
     /// An iterator over all events, including the most recent one including.
-    pub fn iter(&self) -> impl Iterator<Item = &EventRecord> {
+    pub fn iter(&self) -> impl Iterator<Item = &EventRecord<E>> {
         // Can't use HistoryIterator as return type:
         // <https://github.com/rust-lang/rust-analyzer/issues/9881>
         self.records.iter()
@@ -64,14 +65,14 @@ impl EventHistory {
 
     /// An iterator over historic events. These are all events that came before, starting with the
     /// event that came before the current / most recent one.
-    pub fn historic(&self) -> impl Iterator<Item = &EventRecord> {
+    pub fn historic(&self) -> impl Iterator<Item = &EventRecord<E>> {
         // Can't use HistoryIterator as return type:
         // <https://github.com/rust-lang/rust-analyzer/issues/9881>
         self.iter().skip(1)
     }
 
     /// Returns the Record at the `point` or the one that is newer.
-    pub fn at_or_newer(&self, point: impl Into<RecordPoint>) -> Option<&EventRecord> {
+    pub fn at_or_newer(&self, point: impl Into<RecordPoint>) -> Option<&EventRecord<E>> {
         // TODO: optimize this by using binary searches.
         self.iter().from(point).next()
     }
@@ -98,45 +99,41 @@ impl EventHistory {
 
 /// A record of an [`Event`] and all device states at that time.
 #[derive(Debug)]
-pub struct EventRecord {
+pub struct EventRecord<E: InputEvent> {
     pub id: u64,
-    pub event: ExternalEvent,
+    pub event: ExternalEvent<E>,
     // TODO: may recycle states if they don't change (use `Rc`).
     pub states: DeviceStates,
 }
 
-impl EventRecord {
+impl<E: InputEvent> EventRecord<E> {
     pub fn is_mouse_event(
         &self,
         element_state: ElementState,
         mouse_button: MouseButton,
     ) -> Option<DeviceId> {
-        match &self.event {
-            ExternalEvent::Window {
-                event:
-                    WindowEvent::MouseInput {
-                        device_id,
-                        state,
-                        button,
-                        ..
-                    },
-                ..
-            } if *state == element_state && *button == mouse_button => Some(*device_id),
+        match self.event().to_aggregation_event()? {
+            AggregationEvent::MouseInput {
+                device_id,
+                state,
+                button,
+            } if state == element_state && button == mouse_button => Some(device_id),
             _ => None,
         }
     }
 
     pub fn is_cursor_moved_event(&self) -> Option<DeviceId> {
-        if let WindowEvent::CursorMoved { device_id, .. } = self.window_event()? {
-            Some(*device_id)
+        if let AggregationEvent::CursorMoved { device_id, .. } =
+            self.event().to_aggregation_event()?
+        {
+            Some(device_id)
         } else {
             None
         }
     }
 
-    pub fn window_event(&self) -> Option<&WindowEvent> {
-        let ExternalEvent::Window { event, .. } = &self.event;
-        Some(event)
+    pub fn event(&self) -> &E {
+        &self.event.event
     }
 
     pub fn time(&self) -> Instant {
@@ -144,14 +141,14 @@ impl EventRecord {
     }
 }
 
-pub trait HistoryIterator<'a>: Iterator<Item = &'a EventRecord> {
+pub trait HistoryIterator<'a, E: InputEvent>: Iterator<Item = &'a EventRecord<E>> {
     /// Skips over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn from<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, Self>
+    fn from<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord<E>> + use<'a, P, E, Self>
     where
         P: Into<RecordPoint>;
 
     /// Iterates over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn until<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, Self>
+    fn until<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord<E>> + use<'a, P, E, Self>
     where
         P: Into<RecordPoint>;
 
@@ -160,11 +157,12 @@ pub trait HistoryIterator<'a>: Iterator<Item = &'a EventRecord> {
     fn max_distance_moved(self, device_id: DeviceId, pos: Point) -> f64;
 }
 
-impl<'a, T> HistoryIterator<'a> for T
+impl<'a, T, E> HistoryIterator<'a, E> for T
 where
-    T: Iterator<Item = &'a EventRecord> + 'a,
+    T: Iterator<Item = &'a EventRecord<E>> + 'a,
+    E: InputEvent,
 {
-    fn from<P>(self, point: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, T>
+    fn from<P>(self, point: P) -> impl Iterator<Item = &'a EventRecord<E>> + use<'a, P, E, T>
     where
         P: Into<RecordPoint>,
     {
@@ -172,7 +170,7 @@ where
         self.skip_while(move |record| record.received_after(point))
     }
 
-    fn until<P>(self, point: P) -> impl Iterator<Item = &'a EventRecord> + use<'a, P, T>
+    fn until<P>(self, point: P) -> impl Iterator<Item = &'a EventRecord<E>> + use<'a, P, E, T>
     where
         P: Into<RecordPoint>,
     {
@@ -206,13 +204,13 @@ impl From<Instant> for RecordPoint {
     }
 }
 
-impl From<&EventRecord> for RecordPoint {
-    fn from(e: &EventRecord) -> Self {
+impl<E: InputEvent> From<&EventRecord<E>> for RecordPoint {
+    fn from(e: &EventRecord<E>) -> Self {
         RecordPoint::EntryId(e.id)
     }
 }
 
-impl EventRecord {
+impl<E: InputEvent> EventRecord<E> {
     /// Was the record received after the given `p` point.
     fn received_after(&self, p: RecordPoint) -> bool {
         use RecordPoint::*;

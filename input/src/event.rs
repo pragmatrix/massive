@@ -1,33 +1,36 @@
 use std::time::{Duration, Instant};
 
-use winit::event::{DeviceId, ElementState, MouseButton, WindowEvent};
+use winit::event::{DeviceId, ElementState, MouseButton};
 
-use super::{ButtonSensor, WindowEventExtensions, event_history::EventRecord, tracker::Movement};
-use crate::{MouseGesture, event_aggregator::DeviceStates, event_history::EventHistory};
+use super::{ButtonSensor, event_history::EventRecord, tracker::Movement};
+use crate::{
+    AggregationEvent, InputEvent, MouseGesture, event_aggregator::DeviceStates,
+    event_history::EventHistory,
+};
 use massive_geometry::{Point, Vector};
 
 #[derive(Clone, Debug)]
-pub struct Event<'history> {
+pub struct Event<'history, E: InputEvent> {
     /// The event history, including this as the most recent event.
-    history: &'history EventHistory,
+    history: &'history EventHistory<E>,
 }
 
-impl<'history> Event<'history> {
-    pub fn new(history: &'history EventHistory) -> Self {
+impl<'history, E: InputEvent> Event<'history, E> {
+    pub fn new(history: &'history EventHistory<E>) -> Self {
         assert!(history.current().is_some());
         Self { history }
     }
 
     pub fn pressed(&self, sensor: ButtonSensor) -> bool {
-        matches!(self.window_event(), Some(WindowEvent::MouseInput {
+        matches!(self.to_aggregation_event(), Some(AggregationEvent::MouseInput {
                 device_id, state, ..
-            }) if *device_id == sensor.device && *state == ElementState::Pressed)
+            }) if device_id == sensor.device && state == ElementState::Pressed)
     }
 
     pub fn released(&self, sensor: ButtonSensor) -> bool {
-        matches!(self.window_event(), Some(WindowEvent::MouseInput {
+        matches!(self.to_aggregation_event(), Some(AggregationEvent::MouseInput {
                 device_id, state, ..
-            }) if *device_id == sensor.device && *state == ElementState::Released)
+            }) if device_id == sensor.device && state == ElementState::Released)
     }
 
     /// Returns the physical coordinates if the event was caused by a pointer device and the device
@@ -38,7 +41,7 @@ impl<'history> Event<'history> {
 
     /// Returns the device that is associated with the event.
     pub fn device(&self) -> Option<DeviceId> {
-        self.window_event()?.device()
+        self.event().device()
     }
 
     pub fn mouse_pressed(&self) -> Option<ButtonSensor> {
@@ -55,13 +58,13 @@ impl<'history> Event<'history> {
 
     /// If this is a mouse button event, return its sensor and state.
     pub fn button_sensor_and_state(&self) -> Option<(ButtonSensor, ElementState)> {
-        match self.window_event()? {
-            WindowEvent::MouseInput {
+        match self.event().to_aggregation_event() {
+            Some(AggregationEvent::MouseInput {
                 device_id,
                 state,
                 button,
                 ..
-            } => Some((ButtonSensor::new(*device_id, *button), *state)),
+            }) => Some((ButtonSensor::new(device_id, button), state)),
             _ => None,
         }
     }
@@ -69,16 +72,16 @@ impl<'history> Event<'history> {
     /// Returns the [`DeviceId`] of the event if this is a
     /// [`winit::event::WindowEvent::CursorMoved`] event.
     pub fn cursor_moved(&self) -> Option<DeviceId> {
-        match self.window_event()? {
-            WindowEvent::CursorMoved { device_id, .. } => Some(*device_id),
+        match self.to_aggregation_event()? {
+            AggregationEvent::CursorMoved { device_id, .. } => Some(device_id),
             _ => None,
         }
     }
 
     pub fn detect_click(&self, mouse_button: MouseButton) -> Option<Point> {
-        match self.window_event()? {
-            WindowEvent::MouseInput { state, button, .. }
-                if *button == mouse_button && *state == ElementState::Pressed =>
+        match self.to_aggregation_event()? {
+            AggregationEvent::MouseInput { state, button, .. }
+                if button == mouse_button && state == ElementState::Pressed =>
             {
                 Some(self.pos().unwrap())
             }
@@ -88,9 +91,9 @@ impl<'history> Event<'history> {
 
     // This return the point where the mouse button was released, this way users can undo the click.
     pub fn detect_clicked(&self, mouse_button: MouseButton) -> Option<Point> {
-        match self.window_event()? {
-            WindowEvent::MouseInput { state, button, .. }
-                if *button == mouse_button && *state == ElementState::Released =>
+        match self.to_aggregation_event()? {
+            AggregationEvent::MouseInput { state, button, .. }
+                if button == mouse_button && state == ElementState::Released =>
             {
                 Some(self.pos().unwrap())
             }
@@ -186,12 +189,19 @@ impl<'history> Event<'history> {
         self.record().event.time()
     }
 
-    fn record(&self) -> &EventRecord {
+    fn record(&self) -> &EventRecord<E> {
         self.history.current().unwrap()
     }
 
-    pub fn window_event(&self) -> Option<&WindowEvent> {
-        self.record().window_event()
+    /// The actual underlying event.
+    ///
+    /// Idea: What about implementing Deref for that?
+    pub fn event(&self) -> &E {
+        self.record().event()
+    }
+
+    pub(crate) fn to_aggregation_event(&self) -> Option<AggregationEvent> {
+        self.record().event().to_aggregation_event()
     }
 
     pub fn states(&self) -> &DeviceStates {
