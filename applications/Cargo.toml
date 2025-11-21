@@ -9,7 +9,8 @@ massive-geometry.workspace = true
 massive-animation.workspace = true
 
 anyhow.workspace = true
-uuid.workspace = true
-tokio.workspace = true
 derive_more.workspace = true
+log.workspace = true
+tokio.workspace = true
+uuid.workspace = true
 winit.workspace = true

@@ -1,16 +1,17 @@
 use anyhow::Result;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+use tokio::sync::mpsc::UnboundedSender;
+
+use massive_geometry::Color;
 
 use crate::{
-    InstanceId,
-    instance_context::InstanceRequest,
-    view::{View, ViewClient, ViewRole},
+    InstanceId, Scene,
+    instance_context::InstanceCommand,
+    view::{View, ViewRole},
 };
-use massive_geometry::Color;
 
 #[derive(Debug)]
 pub struct ViewBuilder {
-    requests: UnboundedSender<(InstanceId, InstanceRequest)>,
+    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
     instance: InstanceId,
 
     role: ViewRole,
@@ -21,12 +22,12 @@ pub struct ViewBuilder {
 
 impl ViewBuilder {
     pub(crate) fn new(
-        requests: UnboundedSender<(InstanceId, InstanceRequest)>,
+        requests: UnboundedSender<(InstanceId, InstanceCommand)>,
         instance: InstanceId,
         size: (u32, u32),
     ) -> Self {
         Self {
-            requests,
+            command_sender: requests,
             instance,
             size,
             role: ViewRole::default(),
@@ -44,11 +45,13 @@ impl ViewBuilder {
         self
     }
 
-    pub fn build(self) -> Result<View> {
-        let (event_tx, event_rx) = unbounded_channel();
-        let client = ViewClient::new(self.instance, self.role, event_tx);
-        self.requests
-            .send((self.instance, InstanceRequest::Present(client)))?;
-        Ok(View::new(self.instance, self.requests, event_rx))
+    pub fn build(self, scene: &Scene) -> Result<View> {
+        View::new(
+            self.instance,
+            self.command_sender,
+            self.role,
+            self.size,
+            scene,
+        )
     }
 }

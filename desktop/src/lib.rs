@@ -5,7 +5,7 @@ use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
 use winit::dpi::LogicalSize;
 
-use massive_applications::{CreationMode, InstanceContext, InstanceId, InstanceRequest};
+use massive_applications::{CreationMode, InstanceCommand, InstanceContext, InstanceId};
 use massive_shell::{ApplicationContext, Result};
 
 mod instance_manager;
@@ -30,7 +30,7 @@ impl Desktop {
         let _renderer = window.renderer().build().await?;
         let _scene = context.new_scene();
 
-        let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceRequest)>();
+        let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut app_manager =
             InstanceManager::new(context.animation_coordinator().clone(), requests_tx);
 

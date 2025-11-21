@@ -9,7 +9,7 @@ use tokio::{
 use uuid::Uuid;
 
 use massive_applications::{
-    CreationMode, InstanceContext, InstanceEvent, InstanceId, InstanceRequest,
+    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId,
 };
 use massive_shell::Result;
 
@@ -21,7 +21,7 @@ pub struct InstanceManager {
     animation_coordinator: AnimationCoordinator,
     instances: HashMap<InstanceId, RunningInstance>,
     pub(crate) join_set: JoinSet<(InstanceId, Result<()>)>,
-    requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>,
+    requests_tx: UnboundedSender<(InstanceId, InstanceCommand)>,
 }
 
 #[derive(Debug)]
@@ -36,7 +36,7 @@ struct RunningInstance {
 impl InstanceManager {
     pub fn new(
         animation_coordinator: AnimationCoordinator,
-        requests_tx: UnboundedSender<(InstanceId, InstanceRequest)>,
+        requests_tx: UnboundedSender<(InstanceId, InstanceCommand)>,
     ) -> Self {
         Self {
             animation_coordinator,
@@ -66,8 +66,13 @@ impl InstanceManager {
 
         instance
             .events_tx
-            .send(InstanceEvent::Exit)
-            .map_err(|_| anyhow!("Failed to send exit event to instance {:?}", instance_id))
+            .send(InstanceEvent::Shutdown)
+            .map_err(|_| {
+                anyhow!(
+                    "Failed to send shutdown event to instance {:?}",
+                    instance_id
+                )
+            })
     }
 
     /// Spawn a new instance of an application.

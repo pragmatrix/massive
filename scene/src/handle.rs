@@ -5,17 +5,9 @@ use std::{
 
 use crate::{Change, ChangeCollector, Id, SceneChange};
 
-pub trait Object: Sized + fmt::Debug
-where
-    SceneChange: From<Change<Self::Change>>,
-{
-    /// The type of the change the renderer needs to receive.
-    type Change;
-
-    /// Convert the current value to something that can be uploaded.
-    fn to_change(&self) -> Self::Change;
-}
-
+/// A handle is a mutable representation of an object staged on a scene.
+///
+/// Although all scenes share a common id space, a handle can only be staged on one scene.
 #[derive(Debug)]
 pub struct Handle<T: Object>
 where
@@ -101,6 +93,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
+    /// This is effectively the connection to the scene it was staged in.
     change_tracker: Arc<ChangeCollector>,
     // OO: Some values might be too large to be duplicated between the application and the renderer.
     value: Mutex<T>,
@@ -130,4 +123,15 @@ where
     fn drop(&mut self) {
         self.change_tracker.push(Change::Delete(self.id));
     }
+}
+
+pub trait Object: Sized + fmt::Debug
+where
+    SceneChange: From<Change<Self::Change>>,
+{
+    /// The type of the change the renderer needs to receive.
+    type Change;
+
+    /// Convert the current value to something that can be uploaded.
+    fn to_change(&self) -> Self::Change;
 }

@@ -1,6 +1,5 @@
 use std::{
     collections::VecDeque,
-    fmt,
     time::{Duration, Instant},
 };
 

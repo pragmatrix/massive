@@ -1,13 +1,13 @@
 //! The context for an instance.
 
 use anyhow::Result;
+use anyhow::anyhow;
 use massive_animation::AnimationCoordinator;
+use massive_scene::{Handle, Location};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    InstanceId, Scene,
-    view::{ViewClient, ViewRequest},
-    view_builder::ViewBuilder,
+    InstanceId, Scene, ViewEvent, ViewId, ViewRole, view::ViewCommand, view_builder::ViewBuilder,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -23,7 +23,7 @@ pub struct InstanceContext {
     id: InstanceId,
     creation_mode: CreationMode,
     events: UnboundedReceiver<InstanceEvent>,
-    requests: UnboundedSender<(InstanceId, InstanceRequest)>,
+    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
 }
 
 impl InstanceContext {
@@ -31,7 +31,7 @@ impl InstanceContext {
         animation_coordinator: AnimationCoordinator,
         id: InstanceId,
         creation_mode: CreationMode,
-        requests: UnboundedSender<(InstanceId, InstanceRequest)>,
+        requests: UnboundedSender<(InstanceId, InstanceCommand)>,
         events: UnboundedReceiver<InstanceEvent>,
     ) -> Self {
         Self {
@@ -39,7 +39,7 @@ impl InstanceContext {
             id,
             creation_mode,
             events,
-            requests,
+            command_sender: requests,
         }
     }
 
@@ -59,27 +59,35 @@ impl InstanceContext {
         self.events
             .recv()
             .await
-            .ok_or_else(|| anyhow::anyhow!("Instance event channel closed"))
+            .ok_or_else(|| anyhow!("Instance event channel closed"))
     }
 
     pub fn view(&self, size: (u32, u32)) -> ViewBuilder {
-        ViewBuilder::new(self.requests.clone(), self.id, size)
+        ViewBuilder::new(self.command_sender.clone(), self.id, size)
     }
 
-    fn send_request(&self, request: InstanceRequest) -> Result<()> {
-        self.requests
+    fn send_request(&self, request: InstanceCommand) -> Result<()> {
+        self.command_sender
             .send((self.id, request))
-            .map_err(|_| anyhow::anyhow!("Request channel closed"))
+            .map_err(|_| anyhow!("Command channel closed"))
     }
 }
 
 #[derive(Debug)]
 pub enum InstanceEvent {
-    Exit,
+    View(ViewId, ViewEvent),
+    /// Destroy the whole instance.
+    Shutdown,
 }
 
 #[derive(Debug)]
-pub enum InstanceRequest {
-    Present(ViewClient),
-    View(ViewRequest),
+pub enum InstanceCommand {
+    CreateView {
+        id: ViewId,
+        location: Handle<Location>,
+        role: ViewRole,
+        size: (u32, u32),
+    },
+    DestroyView(ViewId),
+    View(ViewId, ViewCommand),
 }

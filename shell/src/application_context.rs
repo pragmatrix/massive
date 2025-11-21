@@ -7,7 +7,7 @@ use tokio::sync::{
 };
 use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
 
-use crate::{Scene, ShellEvent, ShellWindow, message_filter, shell::ShellRequest};
+use crate::{Scene, ShellEvent, ShellWindow, message_filter, shell::ShellCommand};
 use massive_animation::AnimationCoordinator;
 
 /// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
@@ -21,7 +21,7 @@ pub struct ApplicationContext {
     event_sender: WeakUnboundedSender<ShellEvent>,
     event_receiver: UnboundedReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
-    pub(crate) event_loop_proxy: EventLoopProxy<ShellRequest>,
+    pub(crate) event_loop_proxy: EventLoopProxy<ShellCommand>,
 
     // Robustness: Should probably an event loop query. May be different for different windows and
     // or when a window is moved?
@@ -37,7 +37,7 @@ impl ApplicationContext {
     pub(crate) fn new(
         event_sender: WeakUnboundedSender<ShellEvent>,
         event_receiver: UnboundedReceiver<ShellEvent>,
-        event_loop_proxy: EventLoopProxy<ShellRequest>,
+        event_loop_proxy: EventLoopProxy<ShellCommand>,
         monitor_scale_factor: f64,
     ) -> Self {
         Self {
@@ -75,7 +75,7 @@ impl ApplicationContext {
         let (on_created, when_created) = oneshot::channel();
         let attributes = WindowAttributes::default().with_inner_size(inner_size);
         self.event_loop_proxy
-            .send_event(ShellRequest::CreateWindow {
+            .send_event(ShellCommand::CreateWindow {
                 attributes: attributes.into(),
                 on_created,
             })

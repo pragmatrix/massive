@@ -1,13 +1,73 @@
 use std::path::PathBuf;
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
+use log::error;
 use massive_animation::AnimationCoordinator;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use massive_geometry::Identity;
+use tokio::sync::mpsc::UnboundedSender;
 
-use massive_scene::SceneChange;
-use winit::event::{self, DeviceId};
+use massive_scene::{Handle, Location, Matrix, SceneChange};
+use uuid::Uuid;
+use winit::event::{self};
 
-use crate::{InstanceId, RenderTarget, instance_context::InstanceRequest};
+use crate::{InstanceId, RenderTarget, Scene, ViewId, instance_context::InstanceCommand};
+
+#[derive(Debug)]
+pub struct View {
+    instance: InstanceId,
+    id: ViewId,
+    location: Handle<Location>,
+    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
+}
+
+impl Drop for View {
+    fn drop(&mut self) {
+        if let Err(e) = self
+            .command_sender
+            .send((self.instance, InstanceCommand::DestroyView(self.id)))
+        {
+            error!(
+                "Failed to send DestroyView command (is the instance command receiver gone?): {e:?}"
+            )
+        }
+    }
+}
+
+impl View {
+    pub(crate) fn new(
+        instance: InstanceId,
+        command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
+        role: ViewRole,
+        size: (u32, u32),
+        scene: &Scene,
+    ) -> Result<Self> {
+        let id = ViewId(Uuid::new_v4());
+
+        let view_matrix = scene.stage(Matrix::identity());
+        let location = scene.stage(Location::new(None, view_matrix));
+
+        command_sender.send((
+            instance,
+            InstanceCommand::CreateView {
+                id,
+                location: location.clone(),
+                role,
+                size,
+            },
+        ))?;
+
+        Ok(Self {
+            instance,
+            id,
+            location,
+            command_sender,
+        })
+    }
+
+    pub fn location(&self) -> &Handle<Location> {
+        &self.location
+    }
+}
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// Some ideas for roles.
@@ -21,64 +81,38 @@ pub enum ViewRole {
 }
 
 #[derive(Debug)]
-pub struct View {
-    instance: InstanceId,
-    requests: UnboundedSender<(InstanceId, InstanceRequest)>,
-    events: UnboundedReceiver<ViewEvent>,
-}
-
-impl View {
-    pub(crate) fn new(
-        instance: InstanceId,
-        requests: UnboundedSender<(InstanceId, InstanceRequest)>,
-        receiver: UnboundedReceiver<ViewEvent>,
-    ) -> Self {
-        Self {
-            instance,
-            requests,
-            events: receiver,
-        }
-    }
-
-    pub async fn wait_for_event(&mut self) -> Result<ViewEvent> {
-        self.events
-            .recv()
-            .await
-            .ok_or(anyhow!("Internal error: View client vanished unexpectedly"))
-    }
-}
-
-#[derive(Debug)]
-pub enum ViewRequest {
-    /// Detail: Empty changes should not be possible. It should create an error. Compared to a
+pub enum ViewCommand {
+    /// Detail: Empty changes should not be possible and cause an error. Compared to a
     /// window environment, there is no redraw needed when there are no changes.
     Redraw(Vec<SceneChange>),
     /// Feature: This should probably specify a depth too.
     Resize((u32, u32)),
 }
 
-/// The side of a view the shell sees.
-#[derive(Debug)]
-pub struct ViewClient {
-    instance: InstanceId,
-    role: ViewRole,
-    events: UnboundedSender<ViewEvent>,
-}
+impl RenderTarget for View {
+    type Event = ViewEvent;
 
-impl ViewClient {
-    pub(crate) fn new(
-        instance: InstanceId,
-        role: ViewRole,
-        events: UnboundedSender<ViewEvent>,
-    ) -> Self {
-        Self {
-            instance,
-            role,
-            events,
+    fn render(
+        &mut self,
+        changes: Vec<SceneChange>,
+        _animation_coordinator: &AnimationCoordinator,
+        _event: Option<Self::Event>,
+    ) -> Result<()> {
+        if changes.is_empty() {
+            return Ok(());
         }
+
+        self.command_sender
+            .send((
+                self.instance,
+                InstanceCommand::View(self.id, ViewCommand::Redraw(changes)),
+            ))
+            .context("Failed to send a redraw request")
     }
 }
 
+/// The events a view can receive.
+///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
 #[derive(Debug)]
 pub enum ViewEvent {
@@ -128,26 +162,4 @@ pub enum ViewEvent {
     // Detail: ScaleFactorChanged may not be needed. If it happens, the instance manager should take
     // care of it.
     ApplyAnimations,
-}
-
-impl RenderTarget for View {
-    type Event = ViewEvent;
-
-    fn render(
-        &mut self,
-        changes: Vec<SceneChange>,
-        _animation_coordinator: &AnimationCoordinator,
-        _event: Option<Self::Event>,
-    ) -> Result<()> {
-        if changes.is_empty() {
-            return Ok(());
-        }
-
-        self.requests
-            .send((
-                self.instance,
-                InstanceRequest::View(ViewRequest::Redraw(changes)),
-            ))
-            .context("Failed to send a redraw request")
-    }
 }

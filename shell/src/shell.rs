@@ -60,8 +60,8 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
         let _application_task = tokio::spawn(async move {
             let event_loop_proxy = application_context.event_loop_proxy.clone();
             let r = application(application_context).await;
-            if let Err(EventLoopClosed(ShellRequest::ApplicationEnded(r))) =
-                event_loop_proxy.send_event(ShellRequest::ApplicationEnded(r))
+            if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(r))) =
+                event_loop_proxy.send_event(ShellCommand::ApplicationEnded(r))
             {
                 error!("Application ended after the event loop exited: {r:?}");
             }
@@ -98,7 +98,7 @@ pub enum ShellEvent {
 }
 
 #[derive(Debug)]
-pub(crate) enum ShellRequest {
+pub(crate) enum ShellCommand {
     CreateWindow {
         // Box because of large size.
         attributes: Box<WindowAttributes>,
@@ -178,7 +178,7 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 /// - Because we need to scale_factor() to be passed _to_ application. This does not work on Wayland.
 enum WinitApplicationHandler {
     Initializing {
-        proxy: EventLoopProxy<ShellRequest>,
+        proxy: EventLoopProxy<ShellCommand>,
         // ADR: Option because we need to move it out.
         // Robustness: use a replace_with variant, so that we don't need an Option<Box<..>> here.
         spawner: Option<ApplicationSpawner>,
@@ -197,7 +197,7 @@ enum WinitApplicationHandler {
 /// Type alias for the application spawner closure.
 type ApplicationSpawner = Box<dyn FnOnce(ApplicationContext)>;
 
-impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
+impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let Self::Initializing { proxy, spawner } = self else {
             panic!("Resumed called in an invalid state");
@@ -220,9 +220,9 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
         *self = Self::Running { event_sender }
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellRequest) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {
         match event {
-            ShellRequest::CreateWindow {
+            ShellCommand::CreateWindow {
                 attributes,
                 on_created,
             } => {
@@ -231,10 +231,10 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
-            ShellRequest::DestroyWindow { window } => {
+            ShellCommand::DestroyWindow { window } => {
                 drop(window);
             }
-            ShellRequest::CreateSurface {
+            ShellCommand::CreateSurface {
                 instance,
                 window,
                 on_created,
@@ -245,7 +245,7 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
-            ShellRequest::ApplicationEnded(r) => {
+            ShellCommand::ApplicationEnded(r) => {
                 *self = Self::Ended {
                     application_result: r,
                 };
