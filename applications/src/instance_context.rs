@@ -65,12 +65,6 @@ impl InstanceContext {
     pub fn view(&self, size: (u32, u32)) -> ViewBuilder {
         ViewBuilder::new(self.command_sender.clone(), self.id, size)
     }
-
-    fn send_request(&self, request: InstanceCommand) -> Result<()> {
-        self.command_sender
-            .send((self.id, request))
-            .map_err(|_| anyhow!("Command channel closed"))
-    }
 }
 
 #[derive(Debug)]
