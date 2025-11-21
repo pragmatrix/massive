@@ -1,5 +1,5 @@
 [package]
-name = "desktop"
+name = "massive-desktop"
 version = "0.1.0"
 edition.workspace = true
 
@@ -11,6 +11,7 @@ path = "examples/hello.rs"
 massive-shell.workspace = true
 massive-applications.workspace = true
 massive-animation.workspace = true
+massive-scene.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true

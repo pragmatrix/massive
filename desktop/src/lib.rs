@@ -9,8 +9,10 @@ use massive_applications::{CreationMode, InstanceCommand, InstanceContext, Insta
 use massive_shell::{ApplicationContext, Result};
 
 mod instance_manager;
+mod view_manager;
 
 use instance_manager::InstanceManager;
+use view_manager::ViewManager;
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -33,6 +35,7 @@ impl Desktop {
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut app_manager =
             InstanceManager::new(context.animation_coordinator().clone(), requests_tx);
+        let mut view_manager = ViewManager::new();
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {
@@ -42,8 +45,17 @@ impl Desktop {
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    // TODO: Process InstanceRequest variants
-                    eprintln!("Received request from instance {:?}: {:?}", instance_id, request);
+                    match request {
+                        InstanceCommand::CreateView(info) => {
+                            view_manager.add_view(instance_id, info);
+                        }
+                        InstanceCommand::DestroyView(id) => {
+                            view_manager.remove_view(instance_id, id);
+                        }
+                        InstanceCommand::View(_id, _command) => {
+                            // TODO: Handle view commands (Redraw, Resize)
+                        }
+                    }
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -56,6 +68,7 @@ impl Desktop {
                         .unwrap_or_else(|e| (InstanceId::from(Uuid::nil()), Err(anyhow::anyhow!("Instance panicked: {}", e))));
 
                     app_manager.remove_instance(instance_id);
+                    view_manager.remove_instance_views(instance_id);
 
                     // If any instance fails, return the error
                     instance_result?;

@@ -48,12 +48,12 @@ impl View {
 
         command_sender.send((
             instance,
-            InstanceCommand::CreateView {
+            InstanceCommand::CreateView(ViewCreationInfo {
                 id,
                 location: location.clone(),
                 role,
                 size,
-            },
+            }),
         ))?;
 
         Ok(Self {
@@ -78,6 +78,14 @@ pub enum ViewRole {
     Notification {
         persistent: bool,
     },
+}
+
+#[derive(Debug)]
+pub struct ViewCreationInfo {
+    pub id: ViewId,
+    pub location: Handle<Location>,
+    pub role: ViewRole,
+    pub size: (u32, u32),
 }
 
 #[derive(Debug)]

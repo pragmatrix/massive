@@ -3,11 +3,11 @@
 use anyhow::Result;
 use anyhow::anyhow;
 use massive_animation::AnimationCoordinator;
-use massive_scene::{Handle, Location};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
-    InstanceId, Scene, ViewEvent, ViewId, ViewRole, view::ViewCommand, view_builder::ViewBuilder,
+    InstanceId, Scene, ViewEvent, ViewId, view::ViewCommand, view::ViewCreationInfo,
+    view_builder::ViewBuilder,
 };
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -76,12 +76,7 @@ pub enum InstanceEvent {
 
 #[derive(Debug)]
 pub enum InstanceCommand {
-    CreateView {
-        id: ViewId,
-        location: Handle<Location>,
-        role: ViewRole,
-        size: (u32, u32),
-    },
+    CreateView(ViewCreationInfo),
     DestroyView(ViewId),
     View(ViewId, ViewCommand),
 }
