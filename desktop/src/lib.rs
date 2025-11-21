@@ -1,15 +1,15 @@
-use std::{collections::HashMap, future::Future, pin::Pin};
+use std::{collections::HashMap, future::Future, pin::Pin, time::Instant};
 
 use derive_more::Debug;
 use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, ViewEvent,
+    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, ViewEvent, ViewId,
 };
-use massive_geometry::Point;
+use massive_geometry::{Point, Point3};
+use massive_input::{EventManager, ExternalEvent};
 use massive_shell::{ApplicationContext, Result, ShellEvent};
 
 mod instance_manager;
@@ -40,6 +40,7 @@ impl Desktop {
         let mut app_manager =
             InstanceManager::new(context.animation_coordinator().clone(), requests_tx);
         let mut view_manager = ViewManager::new();
+        let mut event_manager = EventManager::<winit::event::WindowEvent>::default();
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {
@@ -66,11 +67,17 @@ impl Desktop {
                     let event = shell_event?;
 
                     match event {
-                        ShellEvent::WindowEvent(_window_id, window_event) => {
-                            if let Some((instance_id, view_id, view_event)) =
-                                Self::handle_window_event(&window_event, &view_manager, &mut renderer)
-                            {
-                                app_manager.send_event(instance_id, InstanceEvent::View(view_id, view_event))?;
+                        ShellEvent::WindowEvent(window_id, window_event) => {
+                            // Process through EventManager
+                            if let Some(input_event) = event_manager.add_event(
+                                ExternalEvent::from_window_event(window_id, window_event, Instant::now())
+                            ) {
+                                Self::handle_input_event(
+                                    &input_event,
+                                    &view_manager,
+                                    &mut renderer,
+                                    &app_manager,
+                                )?;
                             }
                         }
                         ShellEvent::ApplyAnimations(_) => {
@@ -102,62 +109,110 @@ impl Desktop {
         }
     }
 
-    fn handle_window_event(
-        window_event: &WindowEvent,
+    /// Hit test at a 2D screen point and return the topmost view with its local position.
+    fn hit_test_at_point(
+        screen_pos: Point,
         view_manager: &ViewManager,
         renderer: &mut massive_shell::AsyncWindowRenderer,
-    ) -> Option<(InstanceId, massive_applications::ViewId, ViewEvent)> {
+    ) -> Option<(ViewId, InstanceId, Point3)> {
+        let mut hits = Vec::new();
+
+        for (view_id, view_info) in view_manager.views() {
+            let location = view_info.location.value();
+            let matrix = location.matrix.value();
+            let size = view_info.size;
+
+            if let Some(local_pos) = renderer
+                .geometry()
+                .unproject_to_model_z0(screen_pos, &matrix)
+            {
+                // Check if the local position is within the view bounds
+                if local_pos.x >= 0.0
+                    && local_pos.x <= size.0 as f64
+                    && local_pos.y >= 0.0
+                    && local_pos.y <= size.1 as f64
+                {
+                    hits.push((*view_id, view_info.instance_id, local_pos));
+                }
+            }
+        }
+
+        // Sort by z (descending) to get topmost view first
+        hits.sort_by(|a, b| {
+            b.2.z
+                .partial_cmp(&a.2.z)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        hits.first().copied()
+    }
+
+    /// Hit test using the cursor position from the input event.
+    fn hit_test_from_event(
+        input_event: &massive_input::Event<winit::event::WindowEvent>,
+        view_manager: &ViewManager,
+        renderer: &mut massive_shell::AsyncWindowRenderer,
+    ) -> Option<(ViewId, InstanceId, Point3)> {
+        let pos = input_event.pos()?;
+        Self::hit_test_at_point(pos, view_manager, renderer)
+    }
+
+    fn handle_input_event(
+        input_event: &massive_input::Event<winit::event::WindowEvent>,
+        view_manager: &ViewManager,
+        renderer: &mut massive_shell::AsyncWindowRenderer,
+        app_manager: &InstanceManager,
+    ) -> Result<()> {
         use winit::event::WindowEvent;
 
+        // For events that need hit testing, use position from input_event
+        let send_to_view = |view_id: ViewId, instance_id: InstanceId, event: ViewEvent| {
+            app_manager.send_event(instance_id, InstanceEvent::View(view_id, event))
+        };
+
+        // Get the underlying WindowEvent
+        let window_event = input_event.event();
+
         match window_event {
-            WindowEvent::CursorMoved {
-                position,
-                device_id,
-                ..
-            } => {
-                let cursor_pos = Point::new(position.x, position.y);
-
-                // Collect all hits with their z-depth
-                let mut hits = Vec::new();
-
+            WindowEvent::CursorMoved { device_id, .. } => {
+                // Use position from input_event which tracks it
+                if let Some((view_id, instance_id, local_pos)) =
+                    Self::hit_test_from_event(input_event, view_manager, renderer)
+                {
+                    send_to_view(
+                        view_id,
+                        instance_id,
+                        ViewEvent::CursorMoved {
+                            device_id: *device_id,
+                            position: (local_pos.x, local_pos.y),
+                        },
+                    )?;
+                }
+            }
+            WindowEvent::CursorEntered { device_id } => {
+                if let Some((view_id, instance_id, _)) =
+                    Self::hit_test_from_event(input_event, view_manager, renderer)
+                {
+                    send_to_view(
+                        view_id,
+                        instance_id,
+                        ViewEvent::CursorEntered {
+                            device_id: *device_id,
+                        },
+                    )?;
+                }
+            }
+            WindowEvent::CursorLeft { device_id } => {
+                // Send to all views since we don't know which view the cursor left
                 for (view_id, view_info) in view_manager.views() {
-                    let location = view_info.location.value();
-                    let matrix = location.matrix.value();
-                    let size = view_info.size;
-
-                    if let Some(local_pos) = renderer
-                        .geometry()
-                        .unproject_to_model_z0(cursor_pos, &matrix)
-                    {
-                        // Check if the local position is within the view bounds
-                        if local_pos.x >= 0.0
-                            && local_pos.x <= size.0 as f64
-                            && local_pos.y >= 0.0
-                            && local_pos.y <= size.1 as f64
-                        {
-                            hits.push((view_id, view_info, local_pos));
-                        }
-                    }
+                    send_to_view(
+                        *view_id,
+                        view_info.instance_id,
+                        ViewEvent::CursorLeft {
+                            device_id: *device_id,
+                        },
+                    )?;
                 }
-
-                // Sort by z (descending) to get topmost view first
-                hits.sort_by(|a, b| {
-                    b.2.z
-                        .partial_cmp(&a.2.z)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-
-                // Return the topmost view
-                if let Some((view_id, view_info, local_pos)) = hits.first() {
-                    let event = ViewEvent::CursorMoved {
-                        device_id: *device_id,
-                        position: (local_pos.x, local_pos.y),
-                    };
-
-                    return Some((view_info.instance_id, **view_id, event));
-                }
-
-                None
             }
             WindowEvent::MouseInput {
                 device_id,
@@ -165,12 +220,99 @@ impl Desktop {
                 button,
                 ..
             } => {
-                // TODO: Track cursor position and use it for hit testing
-                let _ = (device_id, state, button);
-                None
+                if let Some((view_id, instance_id, _)) =
+                    Self::hit_test_from_event(input_event, view_manager, renderer)
+                {
+                    send_to_view(
+                        view_id,
+                        instance_id,
+                        ViewEvent::MouseInput {
+                            device_id: *device_id,
+                            state: *state,
+                            button: *button,
+                        },
+                    )?;
+                }
             }
-            _ => None,
+            WindowEvent::MouseWheel {
+                device_id,
+                delta,
+                phase,
+                ..
+            } => {
+                if let Some((view_id, instance_id, _)) =
+                    Self::hit_test_from_event(input_event, view_manager, renderer)
+                {
+                    send_to_view(
+                        view_id,
+                        instance_id,
+                        ViewEvent::MouseWheel {
+                            device_id: *device_id,
+                            delta: *delta,
+                            phase: *phase,
+                        },
+                    )?;
+                }
+            }
+            WindowEvent::KeyboardInput {
+                device_id,
+                event,
+                is_synthetic,
+            } => {
+                // TODO: Send to focused view when focus management is implemented
+                // For now, send to all views or skip
+                let _ = (device_id, event, is_synthetic);
+            }
+            WindowEvent::ModifiersChanged(modifiers) => {
+                // Send modifiers to all views
+                for (view_id, view_info) in view_manager.views() {
+                    send_to_view(
+                        *view_id,
+                        view_info.instance_id,
+                        ViewEvent::ModifiersChanged(*modifiers),
+                    )?;
+                }
+            }
+            WindowEvent::Ime(ime) => {
+                // TODO: Send to focused view when focus management is implemented
+                let _ = ime;
+            }
+            WindowEvent::DroppedFile(path) => {
+                if let Some((view_id, instance_id, _)) =
+                    Self::hit_test_from_event(input_event, view_manager, renderer)
+                {
+                    send_to_view(view_id, instance_id, ViewEvent::DroppedFile(path.clone()))?;
+                }
+            }
+            WindowEvent::HoveredFile(path) => {
+                if let Some((view_id, instance_id, _)) =
+                    Self::hit_test_from_event(input_event, view_manager, renderer)
+                {
+                    send_to_view(view_id, instance_id, ViewEvent::HoveredFile(path.clone()))?;
+                }
+            }
+            WindowEvent::HoveredFileCancelled => {
+                // Send to all views
+                for (view_id, view_info) in view_manager.views() {
+                    send_to_view(
+                        *view_id,
+                        view_info.instance_id,
+                        ViewEvent::HoveredFileCancelled,
+                    )?;
+                }
+            }
+            WindowEvent::CloseRequested => {
+                // Send to all views
+                for (view_id, view_info) in view_manager.views() {
+                    send_to_view(*view_id, view_info.instance_id, ViewEvent::CloseRequested)?;
+                }
+            }
+            _ => {
+                // Ignore other events
+            }
         }
+
+        Ok(())
     }
 }
 
