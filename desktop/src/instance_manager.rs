@@ -133,4 +133,16 @@ impl InstanceManager {
     pub fn is_empty(&self) -> bool {
         self.instances.is_empty()
     }
+
+    pub fn send_event(&self, instance_id: InstanceId, event: InstanceEvent) -> Result<()> {
+        let instance = self
+            .instances
+            .get(&instance_id)
+            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
+
+        instance
+            .events_tx
+            .send(event)
+            .map_err(|_| anyhow!("Failed to send event to instance {:?}", instance_id))
+    }
 }

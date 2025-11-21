@@ -7,6 +7,7 @@ use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 pub struct ViewInfo {
     #[deref]
     pub creation_info: ViewCreationInfo,
+    pub instance_id: InstanceId,
 }
 
 #[derive(Debug, Default)]
@@ -22,7 +23,10 @@ impl ViewManager {
 
     pub fn add_view(&mut self, instance_id: InstanceId, creation_info: ViewCreationInfo) {
         let id = creation_info.id;
-        let info = ViewInfo { creation_info };
+        let info = ViewInfo {
+            creation_info,
+            instance_id,
+        };
         self.views.insert(id, info);
         self.instance_views.entry(instance_id).or_default().push(id);
     }
@@ -47,5 +51,9 @@ impl ViewManager {
     #[allow(dead_code)]
     pub fn get(&self, id: ViewId) -> Option<&ViewInfo> {
         self.views.get(&id)
+    }
+
+    pub fn views(&self) -> impl Iterator<Item = (&ViewId, &ViewInfo)> {
+        self.views.iter()
     }
 }

@@ -12,6 +12,7 @@ massive-shell.workspace = true
 massive-applications.workspace = true
 massive-animation.workspace = true
 massive-scene.workspace = true
+massive-geometry.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true
