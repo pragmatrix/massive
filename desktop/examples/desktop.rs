@@ -1,5 +1,5 @@
 use anyhow::Result;
-use desktop::{Application, Desktop};
+use massive_desktop::{Application, Desktop};
 use tokio::sync::mpsc;
 
 use massive_applications::InstanceContext;

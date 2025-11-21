@@ -22,19 +22,17 @@ impl ViewManager {
 
     pub fn add_view(&mut self, instance_id: InstanceId, creation_info: ViewCreationInfo) {
         let id = creation_info.id;
-        let info = ViewInfo {
-            creation_info,
-        };
+        let info = ViewInfo { creation_info };
         self.views.insert(id, info);
         self.instance_views.entry(instance_id).or_default().push(id);
     }
 
     pub fn remove_view(&mut self, instance_id: InstanceId, id: ViewId) {
-        if let Some(views) = self.instance_views.get_mut(&instance_id) {
-            if let Some(pos) = views.iter().position(|v| *v == id) {
-                views.remove(pos);
-                self.views.remove(&id);
-            }
+        if let Some(views) = self.instance_views.get_mut(&instance_id)
+            && let Some(pos) = views.iter().position(|v| *v == id)
+        {
+            views.remove(pos);
+            self.views.remove(&id);
         }
     }
 
