@@ -130,7 +130,6 @@ impl ApplicationContext {
                 self.pending_events = events.into_iter().collect();
             }
 
-            // Robustness: If the main application can't process events fast enough, ApplyAnimations will never come.
             if let Some(pending) = self.pending_events.pop_front() {
                 // For now we want to find out if that happens.
                 if self.animation_coordinator.current_time_opt().is_some() {

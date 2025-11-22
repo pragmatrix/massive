@@ -1,7 +1,6 @@
-use std::{
-    fmt,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::{fmt, sync::Arc};
+
+use parking_lot::{Mutex, MutexGuard};
 
 use crate::{Change, ChangeCollector, Id, SceneChange};
 
@@ -78,11 +77,11 @@ where
     }
 
     pub fn value(&self) -> MutexGuard<'_, T> {
-        self.inner.value.lock().unwrap()
+        self.inner.value.lock()
     }
 
     fn value_mut(&self) -> MutexGuard<'_, T> {
-        self.inner.value.lock().unwrap()
+        self.inner.value.lock()
     }
 }
 
@@ -107,11 +106,11 @@ where
         let change = T::to_change(&value);
         self.change_tracker.push(Change::Update(self.id, change));
 
-        *self.value.lock().unwrap() = value;
+        *self.value.lock() = value;
     }
 
     pub fn updated(&self) {
-        let change = T::to_change(&*self.value.lock().unwrap());
+        let change = T::to_change(&*self.value.lock());
         self.change_tracker.push(Change::Update(self.id, change));
     }
 }

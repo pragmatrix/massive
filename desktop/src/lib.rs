@@ -113,12 +113,12 @@ impl Desktop {
         input_event: &massive_input::Event<winit::event::WindowEvent>,
         view_manager: &ViewManager,
         renderer: &mut massive_shell::AsyncWindowRenderer,
-        app_manager: &InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<()> {
         use winit::event::WindowEvent;
 
         let send_to_view = |view_id: ViewId, instance_id: InstanceId, event: ViewEvent| {
-            app_manager.send_event(instance_id, InstanceEvent::View(view_id, event))
+            instance_manager.send_event(instance_id, InstanceEvent::View(view_id, event))
         };
 
         let window_event = input_event.event();
