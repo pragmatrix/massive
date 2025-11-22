@@ -19,32 +19,7 @@ pub use progress::*;
 pub use sensor::*;
 pub use tracker::*;
 
-use winit::event::{DeviceId, MouseButton, Touch, WindowEvent};
-
-pub trait WindowEventExtensions {
-    fn device(&self) -> Option<DeviceId>;
-}
-
-impl WindowEventExtensions for WindowEvent {
-    fn device(&self) -> Option<DeviceId> {
-        match self {
-            WindowEvent::KeyboardInput { device_id, .. }
-            | WindowEvent::CursorMoved { device_id, .. }
-            | WindowEvent::CursorEntered { device_id }
-            | WindowEvent::CursorLeft { device_id }
-            | WindowEvent::MouseWheel { device_id, .. }
-            | WindowEvent::MouseInput { device_id, .. }
-            | WindowEvent::PinchGesture { device_id, .. }
-            | WindowEvent::PanGesture { device_id, .. }
-            | WindowEvent::DoubleTapGesture { device_id, .. }
-            | WindowEvent::RotationGesture { device_id, .. }
-            | WindowEvent::TouchpadPressure { device_id, .. }
-            | WindowEvent::AxisMotion { device_id, .. }
-            | WindowEvent::Touch(Touch { device_id, .. }) => Some(*device_id),
-            _ => None,
-        }
-    }
-}
+use winit::event::{DeviceId, MouseButton, WindowEvent};
 
 pub trait DeviceIdExtensions {
     fn sensor(self, button: MouseButton) -> ButtonSensor;

@@ -6,6 +6,7 @@ edition.workspace = true
 [dependencies]
 massive-shapes = { workspace = true }
 massive-geometry = { workspace = true }
+
 derive_more = { workspace = true }
 anyhow = { workspace = true }
 parking_lot = { workspace = true }

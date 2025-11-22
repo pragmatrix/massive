@@ -15,6 +15,7 @@ massive-renderer.workspace = true
 massive-shapes.workspace = true
 massive-scene.workspace = true
 massive-animation.workspace = true
+massive-applications.workspace = true
 
 anyhow.workspace = true
 cgmath.workspace = true

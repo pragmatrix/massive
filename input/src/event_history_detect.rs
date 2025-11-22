@@ -2,14 +2,15 @@ use std::time::{Duration, Instant};
 
 use winit::event::{DeviceId, ElementState, MouseButton};
 
+use massive_geometry::Point;
+
 use crate::{
-    ButtonSensor, DeviceIdExtensions,
+    ButtonSensor, DeviceIdExtensions, InputEvent,
     event_history::{EventHistory, HistoryIterator},
     tracker::Movement,
 };
-use massive_geometry::Point;
 
-impl EventHistory {
+impl<E: InputEvent> EventHistory<E> {
     pub fn detect_double_click(
         &self,
         button: MouseButton,
@@ -20,7 +21,7 @@ impl EventHistory {
         let record = self.current()?;
 
         let device = record.is_mouse_event(ElementState::Pressed, button)?;
-        let pos: Point = record.states.pos(device)?;
+        let pos = record.states.pos(device)?;
 
         let previous_press = self
             .historic()

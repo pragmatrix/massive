@@ -1,9 +1,9 @@
 use std::time::{Duration, Instant};
 
 use log::error;
-use winit::event::{ElementState, WindowEvent};
+use winit::event::ElementState;
 
-use crate::{ButtonSensor, Event, Progress};
+use crate::{AggregationEvent, ButtonSensor, Event, InputEvent, Progress};
 use massive_geometry::{Point, Vector};
 
 // `Clone` because of the borrow checker.
@@ -27,18 +27,18 @@ pub struct Movement {
 }
 
 impl Movement {
-    pub fn track_delta(&mut self, event: &Event) -> Option<Progress<Vector>> {
+    pub fn track_delta<E: InputEvent>(&mut self, event: &Event<E>) -> Option<Progress<Vector>> {
         self.track(event).map(|p| p.map(|m| m.delta))
     }
 
-    pub fn track_to(&mut self, event: &Event) -> Option<Progress<Point>> {
+    pub fn track_to<E: InputEvent>(&mut self, event: &Event<E>) -> Option<Progress<Point>> {
         self.track(event).map(|p| p.map(|m| m.to()))
     }
 
     /// Tracks movements. Updates `movement` if current position changed.
     ///
     /// `None` if the event was unrelated to the movement and it stays active.
-    pub fn track(&mut self, event: &Event) -> Option<Progress<&Movement>> {
+    pub fn track<E: InputEvent>(&mut self, event: &Event<E>) -> Option<Progress<&Movement>> {
         if self.cancels(event) {
             self.delta = Vector::default();
             return Some(Progress::Cancel);
@@ -72,13 +72,13 @@ impl Movement {
         self.from + self.delta
     }
 
-    fn cancels(&self, event: &Event) -> bool {
+    fn cancels<E: InputEvent>(&self, event: &Event<E>) -> bool {
         // Cancellation of a movement that involves the mouse happens when _any_ mouse button is
         // pressed.
         // Feature: May react on the Escape key?
         matches!(
-            event.window_event(),
-            Some(WindowEvent::MouseInput {
+            event.event().to_aggregation_event(),
+            Some(AggregationEvent::MouseInput {
                 state: ElementState::Pressed,
                 ..
             })

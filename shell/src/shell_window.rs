@@ -2,7 +2,7 @@ use std::{mem, ops::Deref, result, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use log::error;
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
+use tokio::sync::{mpsc::WeakUnboundedSender, oneshot};
 use wgpu::rwh;
 use winit::{
     dpi::PhysicalSize,
@@ -10,7 +10,7 @@ use winit::{
     window::{CursorIcon, Window, WindowId},
 };
 
-use crate::{PresentationTimestamp, WindowRendererBuilder, shell::ShellRequest};
+use crate::{ShellEvent, WindowRendererBuilder, shell::ShellCommand};
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
@@ -31,8 +31,8 @@ impl Deref for ShellWindow {
 impl ShellWindow {
     pub(crate) fn new(
         window: Window,
-        event_loop_proxy: EventLoopProxy<ShellRequest>,
-        presentation_timestamps: UnboundedSender<PresentationTimestamp>,
+        event_loop_proxy: EventLoopProxy<ShellCommand>,
+        event_sender: WeakUnboundedSender<ShellEvent>,
     ) -> Self {
         // We retrieve the window id early on, because retrieving seem to run on the main thread?
         let window_id = window.id();
@@ -41,7 +41,7 @@ impl ShellWindow {
                 window_id,
                 window: Some(window),
                 event_loop_proxy,
-                presentation_timestamps,
+                event_sender,
             }
             .into(),
         }
@@ -71,9 +71,9 @@ pub struct ShellWindowShared {
     // ADR: Option, because we have to send it back to the event loop for closing.
     window: Option<Window>,
     // For creating surfaces, we need to communicate with the Shell.
-    event_loop_proxy: EventLoopProxy<ShellRequest>,
-    /// Where to send presentation timestamps to.
-    pub(crate) presentation_timestamps: UnboundedSender<PresentationTimestamp>,
+    event_loop_proxy: EventLoopProxy<ShellCommand>,
+    /// For Sending out ApplyAnimations
+    pub(crate) event_sender: WeakUnboundedSender<ShellEvent>,
 }
 
 impl Drop for ShellWindowShared {
@@ -81,7 +81,7 @@ impl Drop for ShellWindowShared {
         let window = self.window.take().unwrap();
         if let Err(e) = self
             .event_loop_proxy
-            .send_event(ShellRequest::DestroyWindow { window })
+            .send_event(ShellCommand::DestroyWindow { window })
         {
             error!("Failed to send back Window to the event loop (Event loop closed)");
             // Dropping it here would most likely block this thread indefinitely, so we forget the
@@ -125,7 +125,7 @@ impl ShellWindowShared {
         let (on_created, when_created) = oneshot::channel();
 
         self.event_loop_proxy
-            .send_event(ShellRequest::CreateSurface {
+            .send_event(ShellCommand::CreateSurface {
                 instance: instance.clone(),
                 window,
                 on_created,

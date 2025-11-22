@@ -21,7 +21,7 @@ use massive_geometry::{Identity, Vector3};
 use massive_scene::{Handle, Location, Matrix, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
-    ApplicationContext, FontManager, Scene, ShellWindow,
+    FontManager, Scene, ApplicationContext, ShellWindow,
     shell::{self, ShellEvent},
 };
 
@@ -30,8 +30,6 @@ use shared::{
     application::{Application, UpdateResponse},
     attributed_text,
 };
-
-const CANVAS_ID: &str = "massive-logs";
 
 const FADE_DURATION: Duration = Duration::from_millis(400);
 const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
@@ -78,13 +76,11 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     // Window
 
-    let window_size = LogicalSize::new(1280., 800.);
-
-    let window = ctx.new_window(window_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(LogicalSize::new(1280., 800.)).await?;
 
     let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
-    let scene = Scene::new();
+    let scene = ctx.new_scene();
     let mut logs = Logs::new(&scene, fonts);
 
     // Application

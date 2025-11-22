@@ -138,14 +138,15 @@ impl WindowRendererBuilder {
             builder.build()
         };
 
-        let presentation_timestamps = self.window.presentation_timestamps.clone();
+        let event_sender = self.window.event_sender.clone();
         let window_renderer = WindowRenderer::new(self.window, renderer);
 
         let render_geometry = RenderGeometry::new(initial_size, self.camera);
+
         Ok(AsyncWindowRenderer::new(
             window_renderer,
             render_geometry,
-            Some(presentation_timestamps),
+            Some(event_sender),
         ))
     }
 }
