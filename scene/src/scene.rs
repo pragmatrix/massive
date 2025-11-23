@@ -7,7 +7,8 @@ use anyhow::Result;
 use parking_lot::Mutex;
 
 use crate::{
-    Change, ChangeCollector, Handle, Object, SceneChange, type_id_generator::TypeIdGenerator,
+    Change, ChangeCollector, Handle, Object, SceneChange, SceneChanges,
+    type_id_generator::TypeIdGenerator,
 };
 
 /// A scene is the only direct connection of actual contents to the renderer. It tracks all the
@@ -40,12 +41,12 @@ impl Scene {
     }
 
     // Take the changes that need to be sent to the renderer and release the ids in the process.
-    pub fn take_changes(&self) -> Result<Vec<SceneChange>> {
+    pub fn take_changes(&self) -> Result<SceneChanges> {
         let changes = self.change_tracker.take_all();
 
         // Short circuit, to prevent locking the id generator.
         if changes.is_empty() {
-            return Ok(Vec::new());
+            return Ok(changes);
         }
 
         // Performance: May not lock the id generator if there are no destructive changes.

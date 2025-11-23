@@ -1,4 +1,6 @@
 use std::sync::Arc;
+#[cfg(feature = "metrics")]
+use std::time::Instant;
 
 use anyhow::{Context, Result};
 use wgpu::{PresentMode, TextureFormat};
@@ -13,6 +15,8 @@ pub struct WindowRenderer {
     window: Arc<ShellWindowShared>,
     renderer: Renderer,
     change_collector: Arc<ChangeCollector>,
+    #[cfg(feature = "metrics")]
+    oldest_change: Option<Instant>,
 }
 
 impl WindowRenderer {
@@ -21,6 +25,8 @@ impl WindowRenderer {
             window,
             renderer,
             change_collector: ChangeCollector::default().into(),
+            #[cfg(feature = "metrics")]
+            oldest_change: None,
         }
     }
 
@@ -68,15 +74,7 @@ impl WindowRenderer {
     /// This is separate from render_and_present.
     ///
     /// Detail: This blocks in VSync modes until the previous frame is presented.
-    pub(crate) fn apply_scene_changes_and_prepare_presentation(
-        &mut self,
-    ) -> Result<wgpu::SurfaceTexture> {
-        let changes = self.change_collector.take_all();
-
-        self.renderer.apply_changes(changes)?;
-
-        self.renderer.prepare()?;
-
+    pub(crate) fn get_next_texture(&mut self) -> Result<wgpu::SurfaceTexture> {
         // Robustness: Learn about how to recover from specific `SurfaceError`s errors here
         // `get_current_texture()` tries once.
         let texture = self
@@ -87,12 +85,37 @@ impl WindowRenderer {
         Ok(texture)
     }
 
+    pub(crate) fn apply_scene_changes(&mut self) -> Result<()> {
+        let changes = self.change_collector.take_all();
+
+        if let Some((_time, changes)) = changes.into_inner() {
+            self.renderer.apply_changes(changes)?;
+            self.renderer.prepare()?;
+            #[cfg(feature = "metrics")]
+            {
+                self.oldest_change = Some(_time);
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn render_and_present(
         &mut self,
         view_projection_matrix: Matrix4,
         texture: wgpu::SurfaceTexture,
     ) {
         self.renderer
-            .render_and_present(&view_projection_matrix, texture)
+            .render_and_present(&view_projection_matrix, texture);
+
+        #[cfg(feature = "metrics")]
+        if let Some(oldest_change) = self.oldest_change {
+            {
+                let max_time_to_render = Instant::now() - oldest_change;
+
+                metrics::histogram!("massive_window_max_time_to_render")
+                    .record(max_time_to_render.as_secs_f64());
+            }
+            self.oldest_change = None;
+        }
     }
 }

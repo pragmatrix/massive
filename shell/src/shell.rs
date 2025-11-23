@@ -26,6 +26,26 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
 
+    #[cfg(feature = "metrics")]
+    if let Ok(push_gateway) = std::env::var("MASSIVE_METRICS_PUSHGATEWAY") {
+        use std::time::Duration;
+
+        match metrics_exporter_prometheus::PrometheusBuilder::new()
+            .with_push_gateway(push_gateway, Duration::from_secs(1), None, None, false)
+        {
+            Ok(builder) => {
+                if let Err(e) = builder.install() {
+                    log::warn!("Failed to install Prometheus metrics exporter: {}", e);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to create Prometheus metrics builder: {}", e);
+            }
+        }
+    } else {
+        log::info!("Metrics disabled: MASSIVE_METRICS_PUSHGATEWAY not set");
+    }
+
     // Power up a tokio runtime, if none is running yet.
 
     match tokio::runtime::Handle::try_current() {

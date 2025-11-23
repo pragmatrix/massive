@@ -18,7 +18,7 @@ use winit::{event::WindowEvent, window::WindowId};
 use crate::{ShellEvent, message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
 use massive_geometry::{Camera, Color};
 use massive_renderer::RenderGeometry;
-use massive_scene::{ChangeCollector, Matrix, SceneChange};
+use massive_scene::{ChangeCollector, Matrix, SceneChanges};
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {
@@ -105,10 +105,16 @@ impl AsyncWindowRenderer {
                 renderer.resize(new_size);
             }
             RendererMessage::SetPresentMode(present_mode) => {
+                // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
+                // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
                 renderer.set_present_mode(present_mode);
             }
             RendererMessage::Redraw { view_projection } => {
-                let texture = renderer.apply_scene_changes_and_prepare_presentation()?;
+                // Detail: In VSync presentation mode, this blocks until the next VSync beginning
+                // with the second frame after that. Therefore we apply scene changes afterwards.
+                // This improves time of first change to render time considerably.
+                let texture = renderer.get_next_texture()?;
+
                 // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
                 if let Some(apply_animations_to) = apply_animations_to
                     && renderer.present_mode() == wgpu::PresentMode::AutoVsync
@@ -119,6 +125,13 @@ impl AsyncWindowRenderer {
 
                     sender.send(ShellEvent::ApplyAnimations(renderer.window_id()))?;
                 }
+
+                // Apply scene changes after we retrieved the texture (because retrieving the
+                // texture may take time, we want to wait until the last moment before pulling
+                // changes), even though the time between retrieving the texture and final rendering
+                // takes longer.
+                renderer.apply_scene_changes()?;
+
                 renderer.render_and_present(view_projection, texture);
             }
             RendererMessage::SetBackgroundColor(color) => {
@@ -217,7 +230,7 @@ impl RenderTarget for AsyncWindowRenderer {
 
     fn render(
         &mut self,
-        changes: Vec<SceneChange>,
+        changes: SceneChanges,
         animation_coordinator: &AnimationCoordinator,
         event: Option<Self::Event>,
     ) -> Result<()> {

@@ -6,7 +6,7 @@ use massive_animation::AnimationCoordinator;
 use massive_geometry::Identity;
 use tokio::sync::mpsc::UnboundedSender;
 
-use massive_scene::{Handle, Location, Matrix, SceneChange};
+use massive_scene::{Handle, Location, Matrix, SceneChanges};
 use uuid::Uuid;
 use winit::event::{self};
 
@@ -92,7 +92,7 @@ pub struct ViewCreationInfo {
 pub enum ViewCommand {
     /// Detail: Empty changes should not be possible and cause an error. Compared to a
     /// window environment, there is no redraw needed when there are no changes.
-    Redraw(Vec<SceneChange>),
+    Redraw(SceneChanges),
     /// Feature: This should probably specify a depth too.
     Resize((u32, u32)),
 }
@@ -102,7 +102,7 @@ impl RenderTarget for View {
 
     fn render(
         &mut self,
-        changes: Vec<SceneChange>,
+        changes: SceneChanges,
         _animation_coordinator: &AnimationCoordinator,
         _event: Option<Self::Event>,
     ) -> Result<()> {
