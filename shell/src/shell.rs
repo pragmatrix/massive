@@ -30,9 +30,13 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     if let Ok(push_gateway) = std::env::var("MASSIVE_METRICS_PUSHGATEWAY") {
         use std::time::Duration;
 
-        match metrics_exporter_prometheus::PrometheusBuilder::new()
-            .with_push_gateway(push_gateway, Duration::from_secs(1), None, None, false)
-        {
+        match metrics_exporter_prometheus::PrometheusBuilder::new().with_push_gateway(
+            push_gateway,
+            Duration::from_secs(1),
+            None,
+            None,
+            false,
+        ) {
             Ok(builder) => {
                 if let Err(e) = builder.install() {
                     log::warn!("Failed to install Prometheus metrics exporter: {}", e);
@@ -175,7 +179,9 @@ impl ShellEvent {
                 )),
                 _ => None,
             },
-            ShellEvent::ApplyAnimations(window_id) => Some(ShellEventSkipKey::ApplyAnimations(*window_id)),
+            ShellEvent::ApplyAnimations(window_id) => {
+                Some(ShellEventSkipKey::ApplyAnimations(*window_id))
+            }
         }
     }
 }
@@ -230,11 +236,15 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             .map(|pm| pm.scale_factor())
             .unwrap_or_else(|| {
                 warn!("Failed to query the current monitor's scale factor, setting to {FALLBACK_SCALE_FACTOR}");
-                FALLBACK_SCALE_FACTOR 
+                FALLBACK_SCALE_FACTOR
             });
 
-        let application_context =
-            ApplicationContext::new(event_sender.downgrade(), event_receiver, proxy.clone(), scale_factor);
+        let application_context = ApplicationContext::new(
+            event_sender.downgrade(),
+            event_receiver,
+            proxy.clone(),
+            scale_factor,
+        );
 
         (spawner.take().unwrap())(application_context);
         *self = Self::Running { event_sender }

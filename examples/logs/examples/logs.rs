@@ -21,7 +21,7 @@ use massive_geometry::{Identity, Vector3};
 use massive_scene::{Handle, Location, Matrix, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
-    FontManager, Scene, ApplicationContext, ShellWindow,
+    ApplicationContext, FontManager, Scene, ShellWindow,
     shell::{self, ShellEvent},
 };
 

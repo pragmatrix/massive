@@ -5,7 +5,7 @@ edition.workspace = true
 
 [[example]]
 name = "hello"
-path = "examples/hello.rs"
+path = "examples/desktop.rs"
 
 [dependencies]
 massive-shell.workspace = true

@@ -124,10 +124,7 @@ impl Desktop {
         command: ViewCommand,
     ) {
         match command {
-            ViewCommand::Render { .. } => {
-                
-
-            }
+            ViewCommand::Render { .. } => {}
             ViewCommand::Resize(_) => {
                 todo!("Resize is unsupported");
             }

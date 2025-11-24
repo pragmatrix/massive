@@ -25,7 +25,7 @@ use vfs::VfsPath;
 use massive_geometry::{Color, SizeI};
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{FontManager, ApplicationContext, shell};
+use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText, TextAttribute},

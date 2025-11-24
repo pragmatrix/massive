@@ -20,7 +20,7 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
-use massive_shell::{FontManager, ApplicationContext, shell};
+use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,
