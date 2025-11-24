@@ -37,8 +37,7 @@ impl Desktop {
         let _scene = context.new_scene();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
-        let mut app_manager =
-            InstanceManager::new(context.animation_coordinator().clone(), requests_tx);
+        let mut app_manager = InstanceManager::new(requests_tx);
         let mut view_manager = ViewManager::new();
         let mut event_manager = EventManager::<winit::event::WindowEvent>::default();
 

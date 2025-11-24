@@ -28,14 +28,17 @@ pub struct InstanceContext {
 
 impl InstanceContext {
     pub fn new(
-        animation_coordinator: AnimationCoordinator,
         id: InstanceId,
         creation_mode: CreationMode,
         requests: UnboundedSender<(InstanceId, InstanceCommand)>,
         events: UnboundedReceiver<InstanceEvent>,
     ) -> Self {
+        // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
+        // the scene is rendered. This way, consistence can be preserved when animations are applied
+        // in several instances in parallel. Otherwise timestamps from one instance could affect the
+        // other.
         Self {
-            animation_coordinator,
+            animation_coordinator: AnimationCoordinator::new(),
             id,
             creation_mode,
             events,
