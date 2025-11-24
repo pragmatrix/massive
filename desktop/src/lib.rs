@@ -3,14 +3,15 @@ use std::{collections::HashMap, future::Future, pin::Pin, time::Instant};
 use derive_more::Debug;
 use tokio::sync::mpsc::unbounded_channel;
 use uuid::Uuid;
-use winit::dpi::LogicalSize;
+use winit::{dpi::LogicalSize, event::WindowEvent};
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, ViewEvent, ViewId,
+    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, ViewCommand,
+    ViewEvent, ViewId,
 };
 use massive_geometry::{Point, Point3};
-use massive_input::{EventManager, ExternalEvent};
-use massive_shell::{ApplicationContext, Result, ShellEvent};
+use massive_input::{Event, EventManager, ExternalEvent};
+use massive_shell::{ApplicationContext, AsyncWindowRenderer, Result, ShellEvent};
 
 mod instance_manager;
 mod view_manager;
@@ -37,29 +38,19 @@ impl Desktop {
         let _scene = context.new_scene();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
-        let mut app_manager = InstanceManager::new(requests_tx);
+        let mut instance_manager = InstanceManager::new(requests_tx);
         let mut view_manager = ViewManager::new();
         let mut event_manager = EventManager::<winit::event::WindowEvent>::default();
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {
-            app_manager.spawn(app, CreationMode::New)?;
+            instance_manager.spawn(app, CreationMode::New)?;
         }
 
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    match request {
-                        InstanceCommand::CreateView(info) => {
-                            view_manager.add_view(instance_id, info);
-                        }
-                        InstanceCommand::DestroyView(id) => {
-                            view_manager.remove_view(instance_id, id);
-                        }
-                        InstanceCommand::View(_id, _command) => {
-                            // TODO: Handle view commands (Redraw, Resize)
-                        }
-                    }
+                    Self::handle_instance_command(&mut view_manager, instance_id, request);
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -75,7 +66,7 @@ impl Desktop {
                                     &input_event,
                                     &view_manager,
                                     &mut renderer,
-                                    &app_manager,
+                                    &instance_manager,
                                 )?;
                             }
                         }
@@ -85,18 +76,18 @@ impl Desktop {
                     }
                 }
 
-                Some(join_result) = app_manager.join_set.join_next() => {
+                Some(join_result) = instance_manager.join_set.join_next() => {
                     let (instance_id, instance_result) = join_result
                         .unwrap_or_else(|e| (InstanceId::from(Uuid::nil()), Err(anyhow::anyhow!("Instance panicked: {}", e))));
 
-                    app_manager.remove_instance(instance_id);
+                    instance_manager.remove_instance(instance_id);
                     view_manager.remove_instance_views(instance_id);
 
                     // If any instance fails, return the error
                     instance_result?;
 
                     // If all instances have finished, exit
-                    if app_manager.is_empty() {
+                    if instance_manager.is_empty() {
                         return Ok(());
                     }
                 }
@@ -108,14 +99,47 @@ impl Desktop {
         }
     }
 
+    fn handle_instance_command(
+        view_manager: &mut ViewManager,
+        instance_id: InstanceId,
+        command: InstanceCommand,
+    ) {
+        match command {
+            InstanceCommand::CreateView(info) => {
+                view_manager.add_view(instance_id, info);
+            }
+            InstanceCommand::DestroyView(id) => {
+                view_manager.remove_view(instance_id, id);
+            }
+            InstanceCommand::View(view_id, command) => {
+                Self::handle_view_command(view_manager, instance_id, view_id, command);
+            }
+        }
+    }
+
+    fn handle_view_command(
+        _view_manager: &mut ViewManager,
+        _instance_id: InstanceId,
+        _view_id: ViewId,
+        command: ViewCommand,
+    ) {
+        match command {
+            ViewCommand::Render { .. } => {
+                
+
+            }
+            ViewCommand::Resize(_) => {
+                todo!("Resize is unsupported");
+            }
+        }
+    }
+
     fn handle_input_event(
-        input_event: &massive_input::Event<winit::event::WindowEvent>,
+        input_event: &Event<WindowEvent>,
         view_manager: &ViewManager,
-        renderer: &mut massive_shell::AsyncWindowRenderer,
+        renderer: &mut AsyncWindowRenderer,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        use winit::event::WindowEvent;
-
         let send_to_view = |view_id: ViewId, instance_id: InstanceId, event: ViewEvent| {
             instance_manager.send_event(instance_id, InstanceEvent::View(view_id, event))
         };
@@ -166,9 +190,9 @@ impl Desktop {
     }
 
     fn hit_test_from_event(
-        input_event: &massive_input::Event<winit::event::WindowEvent>,
+        input_event: &Event<WindowEvent>,
         view_manager: &ViewManager,
-        renderer: &mut massive_shell::AsyncWindowRenderer,
+        renderer: &mut AsyncWindowRenderer,
     ) -> Option<(ViewId, InstanceId, Point3)> {
         let pos = input_event.pos()?;
         Self::hit_test_at_point(pos, view_manager, renderer)
@@ -177,7 +201,7 @@ impl Desktop {
     fn hit_test_at_point(
         screen_pos: Point,
         view_manager: &ViewManager,
-        renderer: &mut massive_shell::AsyncWindowRenderer,
+        renderer: &mut AsyncWindowRenderer,
     ) -> Option<(ViewId, InstanceId, Point3)> {
         let mut hits = Vec::new();
 
@@ -212,11 +236,9 @@ impl Desktop {
     }
 
     fn convert_window_event_to_view_event(
-        window_event: &winit::event::WindowEvent,
+        window_event: &WindowEvent,
         pos: Option<Point3>,
     ) -> Option<ViewEvent> {
-        use winit::event::WindowEvent;
-
         match window_event {
             WindowEvent::CursorMoved { device_id, .. } => {
                 let local_pos = pos?;

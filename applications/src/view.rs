@@ -90,9 +90,14 @@ pub struct ViewCreationInfo {
 
 #[derive(Debug)]
 pub enum ViewCommand {
-    /// Detail: Empty changes should not be possible and cause an error. Compared to a
-    /// window environment, there is no redraw needed when there are no changes.
-    Redraw(SceneChanges),
+    /// Detail: Empty changes are possible because animations active might change.
+    Render {
+        changes: SceneChanges,
+        /// Are animation active currently.
+        animations_active: bool,
+        /// Was this caused by an ApplyAnimations request?
+        applied_animations: bool,
+    },
     /// Feature: This should probably specify a depth too.
     Resize((u32, u32)),
 }
@@ -103,17 +108,24 @@ impl RenderTarget for View {
     fn render(
         &mut self,
         changes: SceneChanges,
-        _animation_coordinator: &AnimationCoordinator,
-        _event: Option<Self::Event>,
+        animation_coordinator: &AnimationCoordinator,
+        event: Option<Self::Event>,
     ) -> Result<()> {
-        if changes.is_empty() {
-            return Ok(());
-        }
+        let animations_active = animation_coordinator.end_cycle();
+
+        let applied_animations = matches!(event, Some(ViewEvent::ApplyAnimations));
 
         self.command_sender
             .send((
                 self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Redraw(changes)),
+                InstanceCommand::View(
+                    self.id,
+                    ViewCommand::Render {
+                        changes,
+                        animations_active,
+                        applied_animations,
+                    },
+                ),
             ))
             .context("Failed to send a redraw request")
     }
