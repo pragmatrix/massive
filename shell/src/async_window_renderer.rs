@@ -53,7 +53,7 @@ enum RendererMessage {
 impl AsyncWindowRenderer {
     // Architecture: Camera does not feel to belong here. It already moved from the Renderer to here.
     pub fn new(
-        mut window_renderer: WindowRenderer,
+        window_renderer: WindowRenderer,
         geometry: RenderGeometry,
         shell_events: Option<WeakUnboundedSender<ShellEvent>>,
     ) -> Self {
@@ -63,23 +63,7 @@ impl AsyncWindowRenderer {
         let (msg_sender, msg_receiver) = mpsc::channel();
 
         let thread_handle = thread::spawn(move || {
-            while let Ok(first_message) = msg_receiver.recv() {
-                // Collect all pending messages without blocking
-                let mut messages = vec![first_message];
-                while let Ok(message) = msg_receiver.try_recv() {
-                    messages.push(message);
-                }
-
-                // Process only the latest message of each variant
-                let latest_messages = keep_last_per_variant(messages, |_| true);
-
-                for message in latest_messages {
-                    if let Err(e) = Self::dispatch(&mut window_renderer, &shell_events, message) {
-                        // Robustness: What to do here, we need to inform the application, don't we?
-                        log::error!("Render error: {e:?}");
-                    }
-                }
-            }
+            Self::render_loop(msg_receiver, window_renderer, shell_events);
         });
 
         Self {
@@ -89,6 +73,30 @@ impl AsyncWindowRenderer {
             thread_handle: Some(thread_handle),
             geometry,
             pacing: Default::default(),
+        }
+    }
+
+    fn render_loop(
+        msg_receiver: mpsc::Receiver<RendererMessage>,
+        mut window_renderer: WindowRenderer,
+        shell_events: Option<WeakUnboundedSender<ShellEvent>>,
+    ) {
+        while let Ok(first_message) = msg_receiver.recv() {
+            // Collect all pending messages without blocking
+            let mut messages = vec![first_message];
+            while let Ok(message) = msg_receiver.try_recv() {
+                messages.push(message);
+            }
+
+            // Process only the latest message of each variant
+            let latest_messages = keep_last_per_variant(messages, |_| true);
+
+            for message in latest_messages {
+                if let Err(e) = Self::dispatch(&mut window_renderer, &shell_events, message) {
+                    // Robustness: What to do here, we need to inform the application, don't we?
+                    log::error!("Render error: {e:?}");
+                }
+            }
         }
     }
 
