@@ -1,0 +1,16 @@
+[package]
+name = "massive-applications"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+massive-scene.workspace = true
+massive-geometry.workspace = true
+massive-animation.workspace = true
+
+anyhow.workspace = true
+derive_more.workspace = true
+log.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+winit.workspace = true

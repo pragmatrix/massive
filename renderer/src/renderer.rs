@@ -185,6 +185,7 @@ impl Renderer {
     ///
     /// The prepare step should run before get_current_texture(), because it would block, and wait
     /// for the next VSync. If we run prepare steps before, we can utilize CPU time more.
+    /// **Update:** Yes, but this would delay output for 16ms, so prepare now runs after that.
     pub fn prepare(&mut self) -> Result<()> {
         self.prepare_batches()?;
 

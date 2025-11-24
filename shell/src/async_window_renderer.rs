@@ -5,18 +5,19 @@ use std::{
         mpsc::{self, Sender},
     },
     thread::{self, JoinHandle},
-    time::Instant,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use log::{error, info};
-use tokio::sync::mpsc::UnboundedSender;
-use winit::window::WindowId;
+use massive_animation::AnimationCoordinator;
+use massive_applications::RenderTarget;
+use tokio::sync::mpsc::WeakUnboundedSender;
+use winit::{event::WindowEvent, window::WindowId};
 
-use crate::{message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
+use crate::{ShellEvent, message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
 use massive_geometry::{Camera, Color};
 use massive_renderer::RenderGeometry;
-use massive_scene::{ChangeCollector, Matrix};
+use massive_scene::{ChangeCollector, Matrix, SceneChanges};
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {
@@ -29,14 +30,6 @@ pub struct AsyncWindowRenderer {
     /// The current render pacing as seen from the client. This may not reflect reality, as it is
     /// synchronized with the renderer asynchronously.
     pacing: RenderPacing,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct PresentationTimestamp {
-    #[allow(unused)]
-    window_id: WindowId,
-    #[allow(unused)]
-    timestamp: Instant,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -62,8 +55,7 @@ impl AsyncWindowRenderer {
     pub fn new(
         mut window_renderer: WindowRenderer,
         geometry: RenderGeometry,
-        // Robustness: Limiting this channel's size, so that we could detect rendering lag?
-        presentation_timestamp_sender: Option<UnboundedSender<PresentationTimestamp>>,
+        shell_events: Option<WeakUnboundedSender<ShellEvent>>,
     ) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
@@ -82,11 +74,7 @@ impl AsyncWindowRenderer {
                 let latest_messages = keep_last_per_variant(messages, |_| true);
 
                 for message in latest_messages {
-                    if let Err(e) = Self::dispatch(
-                        &mut window_renderer,
-                        &presentation_timestamp_sender,
-                        message,
-                    ) {
+                    if let Err(e) = Self::dispatch(&mut window_renderer, &shell_events, message) {
                         // Robustness: What to do here, we need to inform the application, don't we?
                         log::error!("Render error: {e:?}");
                     }
@@ -106,7 +94,7 @@ impl AsyncWindowRenderer {
 
     fn dispatch(
         renderer: &mut WindowRenderer,
-        presentation_timestamps: &Option<UnboundedSender<PresentationTimestamp>>,
+        apply_animations_to: &Option<WeakUnboundedSender<ShellEvent>>,
         message: RendererMessage,
     ) -> Result<()> {
         match message {
@@ -116,19 +104,33 @@ impl AsyncWindowRenderer {
                 renderer.resize(new_size);
             }
             RendererMessage::SetPresentMode(present_mode) => {
+                // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
+                // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
                 renderer.set_present_mode(present_mode);
             }
             RendererMessage::Redraw { view_projection } => {
-                let texture = renderer.apply_scene_changes_and_prepare_presentation()?;
+                // Detail: In VSync presentation mode, this blocks until the next VSync beginning
+                // with the second frame after that. Therefore we apply scene changes afterwards.
+                // This improves time of first change to render time considerably.
+                let texture = renderer.get_next_texture()?;
+
                 // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
-                if let Some(presentation_timestamps) = presentation_timestamps
+                if let Some(apply_animations_to) = apply_animations_to
                     && renderer.present_mode() == wgpu::PresentMode::AutoVsync
                 {
-                    presentation_timestamps.send(PresentationTimestamp {
-                        window_id: renderer.window_id(),
-                        timestamp: Instant::now(),
-                    })?;
+                    let sender = apply_animations_to
+                    .upgrade()
+                    .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
+
+                    sender.send(ShellEvent::ApplyAnimations(renderer.window_id()))?;
                 }
+
+                // Apply scene changes after we retrieved the texture (because retrieving the
+                // texture may take time, we want to wait until the last moment before pulling
+                // changes), even though the time between retrieving the texture and final rendering
+                // takes longer.
+                renderer.apply_scene_changes()?;
+
                 renderer.render_and_present(view_projection, texture);
             }
             RendererMessage::SetBackgroundColor(color) => {
@@ -219,5 +221,124 @@ impl Drop for AsyncWindowRenderer {
         {
             error!("Error joining AsyncWindowRenderer thread: {e:?}");
         }
+    }
+}
+
+/// Preliminary, not used yet.
+#[derive(Debug)]
+pub enum RenderMode {
+    /// Nothing special, just render the changes if any.
+    Default,
+    /// Independent o the changes, just force a redraw.
+    ForceRedraw,
+    /// All animations for the current tick of the associated AnimationCoordinator were applied.
+    /// This also forces a redraw to get a new presentation timestamp and in response a new
+    /// ApplyAnimations.
+    ///
+    /// Architecture: It's perhaps wrong to make this dependent on a prior ApplyAnimations event. In
+    /// Smooth mode we should perhaps render every frame completely autonomously in the render
+    /// thread. A kind of pull mode.
+    ///
+    /// But then: When do we know that there are no new
+    AnimationsApplied,
+    /// Resize, no redraw is forced if there are no actual changes, because the windowing system is
+    /// expected to issue a redraw event afterwards that ends up here with a ForceRedraw.
+    Resize(u32, u32),
+}
+
+impl RenderTarget for AsyncWindowRenderer {
+    type Event = ShellEvent;
+
+    fn render(
+        &mut self,
+        changes: SceneChanges,
+        animation_coordinator: &AnimationCoordinator,
+        event: Option<Self::Event>,
+    ) -> Result<()> {
+        // End the current animation and see if animations are active.
+        let animations_active = animation_coordinator.end_cycle();
+
+        let mut redraw = false;
+
+        // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
+        // may asynchronously overtake the subsequent redraw / resize requests if a previous one is
+        // currently on its way.
+        //
+        // Architecture: We could send this through the RendererMessage::Redraw, which may cause
+        // other problems (increased latency and the need for combining changes if Redraws are
+        // pending).
+        //
+        // Robustness: This should probably threaded through the redraw pipeline?
+        if !changes.is_empty() {
+            self.change_collector().push_many(changes);
+            redraw = true;
+        }
+
+        let window_id = self.window_id();
+        let mut resize = None;
+        let mut animations_applied = false;
+        match event {
+            Some(ShellEvent::WindowEvent(id, window_event)) if id == window_id => {
+                match window_event {
+                    WindowEvent::Resized(size) => {
+                        resize = Some((size.width, size.height));
+                        // Detail: We don't need to set a redraw here, there will _always_ be a
+                        // redraw event afterwards after a resize event (winit 0.30, macos).
+                    }
+                    WindowEvent::RedrawRequested => {
+                        redraw = true;
+                    }
+                    _ => {}
+                }
+            }
+            // ADR: Decided to consider all ApplyAnimations, even the ones coming from other
+            // windows. I.e. animations may be applied and visible on another window.
+            Some(ShellEvent::ApplyAnimations(_)) => {
+                // Even if nothing changed in apply animations, we have to redraw to get a new presentation timestamp.
+                redraw = true;
+                animations_applied = true;
+            }
+            _ => {}
+        };
+
+        let animations_before = self.pacing() == RenderPacing::Smooth;
+
+        let new_render_pacing = match (animations_before, animations_active, animations_applied) {
+            (false, true, _) => {
+                // Changing from Fast to Smooth requires presentation timestamps to follow. So redraw.
+                redraw = true;
+                Some(RenderPacing::Smooth)
+            }
+            // Detail: Changing from Smooth to fast is only possible in response to
+            // `ApplyAnimations`: Only then we know that animations are actually applied to the
+            // scene and pushed to the renderer with this update.
+            (true, false, true) => Some(RenderPacing::Fast),
+            _ => None,
+        };
+
+        //
+        // Sync with the renderer.
+        //
+
+        // Resize first
+        if let Some(new_size) = resize {
+            self.resize(new_size)?;
+        }
+
+        // Update render pacing before a redraw:
+        // - from instant to smooth: We force a redraw _afterwards_ to get VSync based presentation
+        //   timestamps and cause ApplyAnimations.
+        // - from smooth to instant: Redraw only when something changed afterwards, but instantly
+        //   without VSync.
+        if let Some(new_render_pacing) = new_render_pacing {
+            info!("Changing render pacing to: {new_render_pacing:?}");
+            self.update_render_pacing(new_render_pacing)?;
+        }
+
+        if redraw {
+            self.redraw()?;
+        }
+
+        Ok(())
     }
 }

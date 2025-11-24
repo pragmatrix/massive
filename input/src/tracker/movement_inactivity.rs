@@ -6,7 +6,7 @@ use derive_more::{Constructor, Deref};
 use winit::event::DeviceId;
 
 use super::Movement;
-use crate::{Event, Progress};
+use crate::{Event, InputEvent, Progress};
 use massive_geometry::{UnitInterval, Vector};
 
 #[derive(Debug, Clone, Deref)]
@@ -41,7 +41,10 @@ impl MovementInactivity {
         }
     }
 
-    pub fn track(&mut self, event: &Event) -> Option<Progress<InactivityProgress>> {
+    pub fn track<E: InputEvent>(
+        &mut self,
+        event: &Event<E>,
+    ) -> Option<Progress<InactivityProgress>> {
         if let Some(progress) = self.movement.track_delta(event) {
             return Some(progress.map(|delta| InactivityProgress {
                 delta,
@@ -61,7 +64,7 @@ impl MovementInactivity {
     }
 
     /// `true` if the user is currently inactive.
-    pub fn is_inactive(&self, event: &Event) -> bool {
+    pub fn is_inactive<E: InputEvent>(&self, event: &Event<E>) -> bool {
         if let Some(duration) = event.detect_movement_inactivity(
             self.device(),
             self.inactivity_duration,
@@ -74,7 +77,7 @@ impl MovementInactivity {
     }
 
     /// Return the current state of inactivity.
-    pub fn inactivity_state(&self, event: &Event) -> InactivityState {
+    pub fn inactivity_state<E: InputEvent>(&self, event: &Event<E>) -> InactivityState {
         if let Some(inactivity) = event.detect_movement_inactivity(
             self.device(),
             self.inactivity_duration,

@@ -4,13 +4,11 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::SizeI;
 use massive_scene::Visual;
-use massive_shell::{ApplicationContext, FontManager, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, AttributedText},
 };
-
-const CANVAS_ID: &str = "massive-code";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -67,11 +65,11 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     let initial_size = LogicalSize::new(800., 800.);
 
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(initial_size).await?;
     // Using inner size screws up the renderer initialization, because the window has no size yet.
     // So we compute the proper physical for now.
     // let physical_size = initial_size.to_physical(window.scale_factor());
-    let scene = Scene::default();
+    let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     let page_size = SizeI::new(1280, height as u64);

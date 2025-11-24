@@ -6,10 +6,8 @@ use massive_scene::Visual;
 use massive_shapes::{
     ChamferRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
-use massive_shell::{ApplicationContext, Scene, shell};
+use massive_shell::{ApplicationContext, shell};
 use shared::application::{Application, UpdateResponse};
-
-const CANVAS_ID: &str = "massive-shapes";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -19,13 +17,13 @@ async fn main() -> Result<()> {
 async fn run(mut ctx: ApplicationContext) -> Result<()> {
     // Window
     let window_size = LogicalSize::new(1024.0, 768.0);
-    let window = ctx.new_window(window_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(window_size).await?;
 
     let mut renderer = window.renderer().with_shapes().build().await?;
 
     // Scene & application
     let mut application = Application::default();
-    let scene = Scene::new();
+    let scene = ctx.new_scene();
 
     // Logical page size based on layout of shapes (we adjust after computing bounds)
     // We'll build shapes around (0,0) then center them by translating the matrix to the page center.

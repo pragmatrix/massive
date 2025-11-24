@@ -10,13 +10,11 @@ use winit::dpi::LogicalSize;
 use massive_geometry::Color;
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, FontManager, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text::{self, TextAttribute},
 };
-
-const CANVAS_ID: &str = "massive-syntax";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -76,8 +74,9 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     // Window
 
     let inner_size = LogicalSize::new(800., 800.);
-    let window = ctx.new_window(inner_size, Some(CANVAS_ID)).await?;
-    let scene = Scene::new();
+    let window = ctx.new_window(inner_size).await?;
+
+    let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     // Application

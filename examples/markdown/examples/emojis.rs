@@ -20,13 +20,11 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizeI, Vector3};
 use massive_scene::Visual;
-use massive_shell::{ApplicationContext, FontManager, Scene, shell};
+use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
     positioning,
 };
-
-const CANVAS_ID: &str = "massive-emojis";
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -52,7 +50,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let initial_size = LogicalSize::new(1280., 800.);
 
-    let window = ctx.new_window(initial_size, Some(CANVAS_ID)).await?;
+    let window = ctx.new_window(initial_size).await?;
 
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
@@ -142,7 +140,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let page_size = SizeI::new(page_width as _, page_height);
     let mut application = Application::default();
-    let scene = Scene::new();
+    let scene = ctx.new_scene();
     let matrix = scene.stage(application.matrix(page_size));
     let location = scene.stage(matrix.clone().into());
 

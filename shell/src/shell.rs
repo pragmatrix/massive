@@ -26,6 +26,30 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
 
+    #[cfg(feature = "metrics")]
+    if let Ok(push_gateway) = std::env::var("MASSIVE_METRICS_PUSHGATEWAY") {
+        use std::time::Duration;
+
+        match metrics_exporter_prometheus::PrometheusBuilder::new().with_push_gateway(
+            push_gateway,
+            Duration::from_secs(1),
+            None,
+            None,
+            false,
+        ) {
+            Ok(builder) => {
+                if let Err(e) = builder.install() {
+                    log::warn!("Failed to install Prometheus metrics exporter: {}", e);
+                }
+            }
+            Err(e) => {
+                log::warn!("Failed to create Prometheus metrics builder: {}", e);
+            }
+        }
+    } else {
+        log::info!("Metrics disabled: MASSIVE_METRICS_PUSHGATEWAY not set");
+    }
+
     // Power up a tokio runtime, if none is running yet.
 
     match tokio::runtime::Handle::try_current() {
@@ -60,8 +84,8 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
         let _application_task = tokio::spawn(async move {
             let event_loop_proxy = application_context.event_loop_proxy.clone();
             let r = application(application_context).await;
-            if let Err(EventLoopClosed(ShellRequest::ApplicationEnded(r))) =
-                event_loop_proxy.send_event(ShellRequest::ApplicationEnded(r))
+            if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(r))) =
+                event_loop_proxy.send_event(ShellCommand::ApplicationEnded(r))
             {
                 error!("Application ended after the event loop exited: {r:?}");
             }
@@ -94,11 +118,11 @@ pub enum ShellEvent {
     // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
     // as a event pathway from the WinitApplicationHandler anymore.
     WindowEvent(WindowId, WindowEvent),
-    ApplyAnimations,
+    ApplyAnimations(WindowId),
 }
 
 #[derive(Debug)]
-pub(crate) enum ShellRequest {
+pub(crate) enum ShellCommand {
     CreateWindow {
         // Box because of large size.
         attributes: Box<WindowAttributes>,
@@ -135,7 +159,7 @@ impl ShellEvent {
 
     #[must_use]
     pub fn apply_animations(&self) -> bool {
-        matches!(self, Self::ApplyAnimations)
+        matches!(self, Self::ApplyAnimations(_))
     }
 
     pub(crate) fn skip_key(&self) -> Option<ShellEventSkipKey> {
@@ -155,14 +179,16 @@ impl ShellEvent {
                 )),
                 _ => None,
             },
-            ShellEvent::ApplyAnimations => Some(ShellEventSkipKey::ApplyAnimations),
+            ShellEvent::ApplyAnimations(window_id) => {
+                Some(ShellEventSkipKey::ApplyAnimations(*window_id))
+            }
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub(crate) enum ShellEventSkipKey {
-    ApplyAnimations,
+    ApplyAnimations(WindowId),
     WindowEvent(WindowId, Option<DeviceId>, mem::Discriminant<WindowEvent>),
 }
 
@@ -178,7 +204,7 @@ pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
 /// - Because we need to scale_factor() to be passed _to_ application. This does not work on Wayland.
 enum WinitApplicationHandler {
     Initializing {
-        proxy: EventLoopProxy<ShellRequest>,
+        proxy: EventLoopProxy<ShellCommand>,
         // ADR: Option because we need to move it out.
         // Robustness: use a replace_with variant, so that we don't need an Option<Box<..>> here.
         spawner: Option<ApplicationSpawner>,
@@ -197,7 +223,7 @@ enum WinitApplicationHandler {
 /// Type alias for the application spawner closure.
 type ApplicationSpawner = Box<dyn FnOnce(ApplicationContext)>;
 
-impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
+impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let Self::Initializing { proxy, spawner } = self else {
             panic!("Resumed called in an invalid state");
@@ -210,19 +236,23 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
             .map(|pm| pm.scale_factor())
             .unwrap_or_else(|| {
                 warn!("Failed to query the current monitor's scale factor, setting to {FALLBACK_SCALE_FACTOR}");
-                FALLBACK_SCALE_FACTOR 
+                FALLBACK_SCALE_FACTOR
             });
 
-        let application_context =
-            ApplicationContext::new(event_receiver, proxy.clone(), scale_factor);
+        let application_context = ApplicationContext::new(
+            event_sender.downgrade(),
+            event_receiver,
+            proxy.clone(),
+            scale_factor,
+        );
 
         (spawner.take().unwrap())(application_context);
         *self = Self::Running { event_sender }
     }
 
-    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellRequest) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {
         match event {
-            ShellRequest::CreateWindow {
+            ShellCommand::CreateWindow {
                 attributes,
                 on_created,
             } => {
@@ -231,10 +261,10 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
-            ShellRequest::DestroyWindow { window } => {
+            ShellCommand::DestroyWindow { window } => {
                 drop(window);
             }
-            ShellRequest::CreateSurface {
+            ShellCommand::CreateSurface {
                 instance,
                 window,
                 on_created,
@@ -245,7 +275,7 @@ impl ApplicationHandler<ShellRequest> for WinitApplicationHandler {
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
-            ShellRequest::ApplicationEnded(r) => {
+            ShellCommand::ApplicationEnded(r) => {
                 *self = Self::Ended {
                     application_result: r,
                 };

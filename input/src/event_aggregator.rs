@@ -8,13 +8,13 @@ use std::{collections::HashMap, time::Instant};
 use itertools::Itertools;
 use massive_geometry::Point;
 use winit::{
-    event::{ElementState, MouseButton, WindowEvent},
+    event::{ElementState, MouseButton},
     keyboard::ModifiersState,
 };
 
-use crate::ButtonSensor;
+use crate::{AggregationEvent, ButtonSensor, InputEvent};
 
-use super::{DeviceId, ExternalEvent};
+use super::DeviceId;
 
 #[derive(Debug, Clone, Default)]
 pub struct EventAggregator {
@@ -37,28 +37,27 @@ pub enum AggregationReport {
 }
 
 impl EventAggregator {
-    pub fn update(&mut self, event: &ExternalEvent) -> AggregationReport {
-        let ExternalEvent::Window {
-            event: window_event,
-            time,
-            ..
-        } = event;
+    pub fn update<E: InputEvent>(&mut self, event: &E, time: Instant) -> AggregationReport {
+        let Some(event) = event.to_aggregation_event() else {
+            return AggregationReport::Ignored;
+        };
 
-        match *window_event {
-            WindowEvent::CursorMoved {
+        match event {
+            AggregationEvent::CursorMoved {
                 device_id,
                 position,
-            } => self.cursor_moved(device_id, (position.x, position.y).into()),
-            WindowEvent::CursorEntered { device_id } => self.cursor_entered(device_id),
-            WindowEvent::CursorLeft { device_id } => self.cursor_left(device_id),
-            WindowEvent::MouseInput {
+            } => self.cursor_moved(device_id, position),
+            AggregationEvent::CursorEntered { device_id } => self.cursor_entered(device_id),
+            AggregationEvent::CursorLeft { device_id } => self.cursor_left(device_id),
+            AggregationEvent::MouseInput {
                 device_id,
                 state,
                 button,
                 ..
-            } => self.mouse_button_state_changed(*time, device_id, button, state),
-            WindowEvent::ModifiersChanged(modifiers) => self.modifiers_changed(modifiers.state()),
-            _ => AggregationReport::Ignored,
+            } => self.mouse_button_state_changed(time, device_id, button, state),
+            AggregationEvent::ModifiersChanged(modifiers) => {
+                self.modifiers_changed(modifiers.state())
+            }
         }
     }
 
@@ -81,12 +80,12 @@ impl EventAggregator {
     }
 
     fn cursor_moved(&mut self, device_id: DeviceId, pos: Point) -> AggregationReport {
-        let device = self.pointing_device_mut(device_id);
+        let device_state = self.pointing_device_mut(device_id);
         let pos = Some(pos);
-        if device.pos == pos {
+        if device_state.pos == pos {
             return AggregationReport::Redundant;
         }
-        device.pos = pos;
+        device_state.pos = pos;
         AggregationReport::Integrated
     }
 

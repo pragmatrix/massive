@@ -1,7 +1,22 @@
 [package]
-name = "desktop"
+name = "massive-desktop"
 version = "0.1.0"
 edition.workspace = true
 
+[[example]]
+name = "hello"
+path = "examples/desktop.rs"
+
 [dependencies]
 massive-shell.workspace = true
+massive-applications.workspace = true
+massive-animation.workspace = true
+massive-scene.workspace = true
+massive-geometry.workspace = true
+massive-input.workspace = true
+
+anyhow.workspace = true
+derive_more.workspace = true
+tokio = { workspace = true, features = ["time"] }
+uuid.workspace = true
+winit.workspace = true

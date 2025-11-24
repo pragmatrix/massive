@@ -3,6 +3,9 @@ name = "massive-shell"
 version = "0.1.0"
 edition.workspace = true
 
+[features]
+metrics = ["dep:metrics", "dep:metrics-exporter-prometheus"]
+
 [profile.release]
 panic = "abort"
 
@@ -15,6 +18,7 @@ massive-renderer.workspace = true
 massive-shapes.workspace = true
 massive-scene.workspace = true
 massive-animation.workspace = true
+massive-applications.workspace = true
 
 anyhow.workspace = true
 cgmath.workspace = true
@@ -26,6 +30,9 @@ log.workspace = true
 replace_with.workspace = true
 wgpu.workspace = true
 winit.workspace = true
+
+metrics = { version = "0.24.2", optional = true }
+metrics-exporter-prometheus = { version = "0.17.2", features = ["push-gateway"], optional = true }
 
 sys-locale = { version = "0.3.2" }
 
