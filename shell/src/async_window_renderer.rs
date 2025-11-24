@@ -224,6 +224,28 @@ impl Drop for AsyncWindowRenderer {
     }
 }
 
+/// Preliminary, not used yet.
+#[derive(Debug)]
+pub enum RenderMode {
+    /// Nothing special, just render the changes if any.
+    Default,
+    /// Independent o the changes, just force a redraw.
+    ForceRedraw,
+    /// All animations for the current tick of the associated AnimationCoordinator were applied.
+    /// This also forces a redraw to get a new presentation timestamp and in response a new
+    /// ApplyAnimations.
+    ///
+    /// Architecture: It's perhaps wrong to make this dependent on a prior ApplyAnimations event. In
+    /// Smooth mode we should perhaps render every frame completely autonomously in the render
+    /// thread. A kind of pull mode.
+    ///
+    /// But then: When do we know that there are no new
+    AnimationsApplied,
+    /// Resize, no redraw is forced if there are no actual changes, because the windowing system is
+    /// expected to issue a redraw event afterwards that ends up here with a ForceRedraw.
+    Resize(u32, u32),
+}
+
 impl RenderTarget for AsyncWindowRenderer {
     type Event = ShellEvent;
 
@@ -234,9 +256,6 @@ impl RenderTarget for AsyncWindowRenderer {
         event: Option<Self::Event>,
     ) -> Result<()> {
         // End the current animation and see if animations are active.
-        //
-        // ADR: This was moved from the render_to() function to here, because we want may want to push
-        // scene changes multiple times per frame (for example in the desktop renderer).
         let animations_active = animation_coordinator.end_cycle();
 
         let mut redraw = false;
@@ -261,14 +280,13 @@ impl RenderTarget for AsyncWindowRenderer {
         match event {
             Some(ShellEvent::WindowEvent(id, window_event)) if id == window_id => {
                 match window_event {
-                    WindowEvent::RedrawRequested => {
-                        redraw = true;
-                    }
                     WindowEvent::Resized(size) => {
                         resize = Some((size.width, size.height));
-                        // Robustness: Is this needed. Doesn't the system always send a redraw
-                        // anyway after each resize?
-                        redraw = true
+                        // Detail: We don't need to set a redraw here, there will _always_ be a
+                        // redraw event afterwards after a resize event (winit 0.30, macos).
+                    }
+                    WindowEvent::RedrawRequested => {
+                        redraw = true;
                     }
                     _ => {}
                 }
@@ -302,8 +320,7 @@ impl RenderTarget for AsyncWindowRenderer {
         // Sync with the renderer.
         //
 
-        // Resize first and follow up with a complete redraw.
-
+        // Resize first
         if let Some(new_size) = resize {
             self.resize(new_size)?;
         }
