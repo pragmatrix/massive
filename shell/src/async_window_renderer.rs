@@ -5,7 +5,6 @@ use std::{
         mpsc::{self, Sender},
     },
     thread::{self, JoinHandle},
-    time::Instant,
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -234,7 +233,11 @@ impl RenderTarget for AsyncWindowRenderer {
         animation_coordinator: &AnimationCoordinator,
         event: Option<Self::Event>,
     ) -> Result<()> {
-        let animations_active = animation_coordinator.animations_active_at(Instant::now());
+        // End the current animation and see if animations are active.
+        //
+        // ADR: This was moved from the render_to() function to here, because we want may want to push
+        // scene changes multiple times per frame (for example in the desktop renderer).
+        let animations_active = animation_coordinator.end_cycle();
 
         let mut redraw = false;
 

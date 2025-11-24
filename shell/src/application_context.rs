@@ -97,12 +97,6 @@ impl ApplicationContext {
     /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
     /// [`ShellEvent::ApplyAnimations`] can be produced.
     pub async fn wait_for_shell_event(&mut self) -> Result<ShellEvent> {
-        // Animation cycle resets as soon we wait for another event.
-        //
-        // ADR: This was moved from the render_to() function to here, because we want may want to push
-        // scene changes multiple times per frame (for example in the desktop renderer).
-        self.animation_coordinator.end_cycle();
-
         loop {
             // Pull in every event we can get.
             loop {
@@ -131,11 +125,6 @@ impl ApplicationContext {
             }
 
             if let Some(pending) = self.pending_events.pop_front() {
-                // For now we want to find out if that happens.
-                if self.animation_coordinator.current_time_opt().is_some() {
-                    bail!("Animations were applied while waiting for a shell event");
-                }
-
                 return Ok(pending);
             }
 
