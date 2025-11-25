@@ -145,7 +145,7 @@ impl AsyncWindowRenderer {
 
     /// Wait until events are available. Blocks if none available.
     ///
-    /// Does not return if there are no events.
+    /// Blocks until at least one event is available.
     fn wait_for_events(
         msg_receiver: &mpsc::Receiver<RendererMessage>,
         events: &mut Vec<RendererMessage>,
