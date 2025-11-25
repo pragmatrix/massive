@@ -101,11 +101,11 @@ impl WindowRenderer {
 
     pub(crate) fn render_and_present(
         &mut self,
-        view_projection_matrix: Matrix4,
+        view_projection_matrix: &Matrix4,
         texture: wgpu::SurfaceTexture,
     ) {
         self.renderer
-            .render_and_present(&view_projection_matrix, texture);
+            .render_and_present(view_projection_matrix, texture);
 
         #[cfg(feature = "metrics")]
         if let Some(oldest_change) = self.oldest_change {

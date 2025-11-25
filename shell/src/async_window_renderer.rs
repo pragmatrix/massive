@@ -8,7 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use log::{error, info};
+use log::{error, info, warn};
 use massive_animation::AnimationCoordinator;
 use massive_applications::RenderTarget;
 use tokio::sync::mpsc::WeakUnboundedSender;
@@ -59,11 +59,16 @@ impl AsyncWindowRenderer {
     ) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
+        let view_projection = geometry.view_projection();
 
         let (msg_sender, msg_receiver) = mpsc::channel();
 
         let thread_handle = thread::spawn(move || {
-            Self::render_loop(msg_receiver, window_renderer, shell_events);
+            if let Err(e) =
+                Self::render_loop(msg_receiver, window_renderer, shell_events, view_projection)
+            {
+                error!("Render loop crashed with {e:?}");
+            }
         });
 
         Self {
@@ -80,71 +85,116 @@ impl AsyncWindowRenderer {
         msg_receiver: mpsc::Receiver<RendererMessage>,
         mut window_renderer: WindowRenderer,
         shell_events: Option<WeakUnboundedSender<ShellEvent>>,
-    ) {
-        while let Ok(first_message) = msg_receiver.recv() {
-            // Collect all pending messages without blocking
-            let mut messages = vec![first_message];
-            while let Ok(message) = msg_receiver.try_recv() {
-                messages.push(message);
+        mut view_projection: Matrix,
+    ) -> Result<()> {
+        let mut messages = Vec::new();
+
+        loop {
+            // Detail: Because the previous event may take some time to process, there might be some
+            // additional messages pending, but we don't pull them to avoid getting into a situation
+            // in smooth rendering that there is never a rendering.
+
+            let smooth = window_renderer.present_mode() == wgpu::PresentMode::AutoVsync;
+            if messages.is_empty() {
+                // blocking path.
+                if smooth {
+                    // smooth. This may block.
+                    Self::render_frame(&mut window_renderer, &shell_events, &view_projection)?;
+                } else {
+                    // fast mode.
+                    Self::wait_for_events(&msg_receiver, &mut messages)?;
+                }
             }
 
-            // Process only the latest message of each variant
-            let latest_messages = keep_last_per_variant(messages, |_| true);
+            // Non-blocking.
+            Self::retrieve_pending_events(&msg_receiver, &mut messages)?;
+            messages = keep_last_per_variant(messages, |_| true);
 
-            for message in latest_messages {
-                if let Err(e) = Self::dispatch(&mut window_renderer, &shell_events, message) {
-                    // Robustness: What to do here, we need to inform the application, don't we?
-                    log::error!("Render error: {e:?}");
+            if messages.is_empty() {
+                continue;
+            }
+            // Detail: I think there could only be 4 events in there because of keep_last_per_variant?
+            match messages.remove(0) {
+                RendererMessage::Resize(new_size) => {
+                    // Optimization: If we resize and change present mode the same time, we would only need to reconfigure
+                    // the surface once. Renderer might even reconfigure lazily.
+                    window_renderer.resize(new_size);
+                }
+                RendererMessage::SetPresentMode(present_mode) => {
+                    // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
+                    // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
+                    window_renderer.set_present_mode(present_mode);
+                }
+                RendererMessage::Redraw {
+                    view_projection: new_view_projection,
+                } => {
+                    view_projection = new_view_projection;
+                    // In smooth mode, we ignore explicit redraw requests.
+                    if !smooth {
+                        Self::render_frame(&mut window_renderer, &shell_events, &view_projection)?;
+                    } else {
+                        warn!("Explicit redraw in smooth rendering mode");
+                    }
+                }
+                RendererMessage::SetBackgroundColor(color) => {
+                    window_renderer.set_background_color(color);
                 }
             }
         }
     }
 
-    fn dispatch(
+    /// Wait until events are available. Blocks if none available.
+    ///
+    /// Does not return if there are no events.
+    fn wait_for_events(
+        msg_receiver: &mpsc::Receiver<RendererMessage>,
+        events: &mut Vec<RendererMessage>,
+    ) -> Result<()> {
+        if events.is_empty() {
+            events.push(msg_receiver.recv()?);
+        }
+        Ok(())
+    }
+
+    /// Retrieve all pending events. Non blocking.
+    fn retrieve_pending_events(
+        msg_receiver: &mpsc::Receiver<RendererMessage>,
+        events: &mut Vec<RendererMessage>,
+    ) -> Result<()> {
+        while let Ok(event) = msg_receiver.try_recv() {
+            events.push(event);
+        }
+        Ok(())
+    }
+
+    fn render_frame(
         renderer: &mut WindowRenderer,
         apply_animations_to: &Option<WeakUnboundedSender<ShellEvent>>,
-        message: RendererMessage,
+        view_projection: &Matrix,
     ) -> Result<()> {
-        match message {
-            // Optimization: If we resize and change present mode the same time, we would only need to reconfigure
-            // the surface once. Renderer might even reconfigure lazily.
-            RendererMessage::Resize(new_size) => {
-                renderer.resize(new_size);
-            }
-            RendererMessage::SetPresentMode(present_mode) => {
-                // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
-                // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
-                renderer.set_present_mode(present_mode);
-            }
-            RendererMessage::Redraw { view_projection } => {
-                // Detail: In VSync presentation mode, this blocks until the next VSync beginning
-                // with the second frame after that. Therefore we apply scene changes afterwards.
-                // This improves time of first change to render time considerably.
-                let texture = renderer.get_next_texture()?;
+        // Detail: In VSync presentation mode, this blocks until the next VSync beginning
+        // with the second frame after that. Therefore we apply scene changes afterwards.
+        // This improves time of first change to render time considerably.
+        let texture = renderer.get_next_texture()?;
 
-                // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
-                if let Some(apply_animations_to) = apply_animations_to
-                    && renderer.present_mode() == wgpu::PresentMode::AutoVsync
-                {
-                    let sender = apply_animations_to
-                    .upgrade()
-                    .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
+        // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
+        if let Some(apply_animations_to) = apply_animations_to
+            && renderer.present_mode() == wgpu::PresentMode::AutoVsync
+        {
+            let sender = apply_animations_to
+                .upgrade()
+                .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
 
-                    sender.send(ShellEvent::ApplyAnimations(renderer.window_id()))?;
-                }
-
-                // Apply scene changes after we retrieved the texture (because retrieving the
-                // texture may take time, we want to wait until the last moment before pulling
-                // changes), even though the time between retrieving the texture and final rendering
-                // takes longer.
-                renderer.apply_scene_changes()?;
-
-                renderer.render_and_present(view_projection, texture);
-            }
-            RendererMessage::SetBackgroundColor(color) => {
-                renderer.set_background_color(color);
-            }
+            sender.send(ShellEvent::ApplyAnimations(renderer.window_id()))?;
         }
+
+        // Apply scene changes after we retrieved the texture (because retrieving the
+        // texture may take time, we want to wait until the last moment before pulling
+        // changes), even though the time between retrieving the texture and final rendering
+        // takes longer.
+        renderer.apply_scene_changes()?;
+
+        renderer.render_and_present(view_projection, texture);
         Ok(())
     }
 
@@ -343,7 +393,9 @@ impl RenderTarget for AsyncWindowRenderer {
             self.update_render_pacing(new_render_pacing)?;
         }
 
-        if redraw {
+        // Only in fast render pacing we issue a redraw request. Otherwise the renderer
+        // automatically takes care of it.
+        if redraw && self.pacing() == RenderPacing::Fast {
             self.redraw()?;
         }
 

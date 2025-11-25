@@ -49,6 +49,7 @@ pub trait Contains<Other> {
     fn contains(&self, other: Other) -> bool;
 }
 
+// Performance: This should probably not Copy!
 pub type Matrix4 = cgmath::Matrix4<f64>;
 pub type Point3 = cgmath::Point3<f64>;
 pub type Vector3 = cgmath::Vector3<f64>;
