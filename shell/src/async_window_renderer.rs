@@ -334,7 +334,6 @@ impl RenderTarget for AsyncWindowRenderer {
 
         let window_id = self.window_id();
         let mut resize = None;
-        let mut animations_applied = false;
         match event {
             Some(ShellEvent::WindowEvent(id, window_event)) if id == window_id => {
                 match window_event {
@@ -349,28 +348,18 @@ impl RenderTarget for AsyncWindowRenderer {
                     _ => {}
                 }
             }
-            // ADR: Decided to consider all ApplyAnimations, even the ones coming from other
-            // windows. I.e. animations may be applied and visible on another window.
-            Some(ShellEvent::ApplyAnimations(_)) => {
-                // Even if nothing changed in apply animations, we have to redraw to get a new presentation timestamp.
-                redraw = true;
-                animations_applied = true;
-            }
             _ => {}
         };
 
         let animations_before = self.pacing() == RenderPacing::Smooth;
 
-        let new_render_pacing = match (animations_before, animations_active, animations_applied) {
-            (false, true, _) => {
+        let new_render_pacing = match (animations_before, animations_active) {
+            (false, true) => {
                 // Changing from Fast to Smooth requires presentation timestamps to follow. So redraw.
                 redraw = true;
                 Some(RenderPacing::Smooth)
             }
-            // Detail: Changing from Smooth to fast is only possible in response to
-            // `ApplyAnimations`: Only then we know that animations are actually applied to the
-            // scene and pushed to the renderer with this update.
-            (true, false, true) => Some(RenderPacing::Fast),
+            (true, false) => Some(RenderPacing::Fast),
             _ => None,
         };
 
