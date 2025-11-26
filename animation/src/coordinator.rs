@@ -93,11 +93,6 @@ impl AnimationCoordinator {
         inner.animating
     }
 
-    pub fn animations_active_at(&self, when: Instant) -> bool {
-        let inner = self.inner.lock();
-        when < inner.ending_time
-    }
-
     /// Returns the current animation time.
     ///
     /// If not set, the current time is set and the cycle to implicit.
