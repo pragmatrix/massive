@@ -125,6 +125,12 @@ impl ApplicationContext {
             }
 
             if let Some(pending) = self.pending_events.pop_front() {
+                // If this is an apply animations event, we have to upgrade the cycle we are in so
+                // that the renderer know when this is finished, it can switch back to fast
+                // rendering.
+                if matches!(pending, ShellEvent::ApplyAnimations(..)) {
+                    self.animation_coordinator.upgrade_to_apply_animations();
+                }
                 return Ok(pending);
             }
 
