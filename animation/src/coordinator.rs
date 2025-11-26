@@ -141,7 +141,7 @@ struct AnimationCycle {
 }
 
 impl AnimationCycle {
-    pub fn new(time: Instant) -> Self {
+    fn new(time: Instant) -> Self {
         Self {
             time,
             mode: CycleMode::Implicit,
