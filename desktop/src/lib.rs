@@ -6,8 +6,8 @@ use uuid::Uuid;
 use winit::{dpi::LogicalSize, event::WindowEvent};
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, ViewCommand,
-    ViewEvent, ViewId,
+    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, RenderTarget,
+    ViewCommand, ViewEvent, ViewId,
 };
 use massive_geometry::{Point, Point3};
 use massive_input::{Event, EventManager, ExternalEvent};
@@ -50,7 +50,7 @@ impl Desktop {
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    Self::handle_instance_command(&mut view_manager, instance_id, request);
+                    Self::handle_instance_command(&mut view_manager, &mut renderer, instance_id, request)?;
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -101,9 +101,10 @@ impl Desktop {
 
     fn handle_instance_command(
         view_manager: &mut ViewManager,
+        renderer: &mut AsyncWindowRenderer,
         instance_id: InstanceId,
         command: InstanceCommand,
-    ) {
+    ) -> Result<()> {
         match command {
             InstanceCommand::CreateView(info) => {
                 view_manager.add_view(instance_id, info);
@@ -112,23 +113,29 @@ impl Desktop {
                 view_manager.remove_view(instance_id, id);
             }
             InstanceCommand::View(view_id, command) => {
-                Self::handle_view_command(view_manager, instance_id, view_id, command);
+                Self::handle_view_command(view_manager, renderer, instance_id, view_id, command)?;
             }
         }
+        Ok(())
     }
 
     fn handle_view_command(
-        _view_manager: &mut ViewManager,
+        view_manager: &mut ViewManager,
+        renderer: &mut AsyncWindowRenderer,
         _instance_id: InstanceId,
-        _view_id: ViewId,
+        view_id: ViewId,
         command: ViewCommand,
-    ) {
+    ) -> Result<()> {
         match command {
-            ViewCommand::Render { .. } => {}
+            ViewCommand::Render { changes, pacing } => {
+                view_manager.update_pacing(view_id, pacing)?;
+                renderer.render(changes, pacing)?;
+            }
             ViewCommand::Resize(_) => {
                 todo!("Resize is unsupported");
             }
         }
+        Ok(())
     }
 
     fn handle_input_event(

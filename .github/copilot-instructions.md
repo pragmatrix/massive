@@ -18,6 +18,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Import types and modules to reduce path qualification in code.
 - Order functions so that they call functions defined further down in the file (higher-level functions first, lower-level utilities last).
 - Use `pub` visibility by default. Only use `pub(crate)` to limit visibility when the entire containing module is already crate-public.
+- When adding new data that relates to an existing entity, prefer adding fields to the existing struct rather than creating parallel data structures (e.g., separate HashMaps keyed by the same ID).
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.

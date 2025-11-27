@@ -1,13 +1,15 @@
 use std::collections::HashMap;
 
+use anyhow::{Result, bail};
 use derive_more::Deref;
-use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
+use massive_applications::{InstanceId, RenderPacing, ViewCreationInfo, ViewId};
 
 #[derive(Debug, Deref)]
 pub struct ViewInfo {
     #[deref]
     pub creation_info: ViewCreationInfo,
     pub instance_id: InstanceId,
+    pub pacing: RenderPacing,
 }
 
 #[derive(Debug, Default)]
@@ -26,6 +28,7 @@ impl ViewManager {
         let info = ViewInfo {
             creation_info,
             instance_id,
+            pacing: RenderPacing::default(),
         };
         self.views.insert(id, info);
         self.instance_views.entry(instance_id).or_default().push(id);
@@ -55,5 +58,27 @@ impl ViewManager {
 
     pub fn views(&self) -> impl Iterator<Item = (&ViewId, &ViewInfo)> {
         self.views.iter()
+    }
+
+    pub fn update_pacing(&mut self, id: ViewId, pacing: RenderPacing) -> Result<()> {
+        let Some(info) = self.views.get_mut(&id) else {
+            bail!("view {id:?} does not exist");
+        };
+        info.pacing = pacing;
+        Ok(())
+    }
+
+    /// Returns the effective pacing across all views.
+    /// If at least one view has Smooth pacing, returns Smooth; otherwise returns Fast.
+    pub fn effective_pacing(&self) -> RenderPacing {
+        if self
+            .views
+            .values()
+            .any(|info| info.pacing == RenderPacing::Smooth)
+        {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        }
     }
 }
