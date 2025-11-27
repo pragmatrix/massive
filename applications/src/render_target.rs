@@ -1,14 +1,16 @@
 use anyhow::Result;
 
-use massive_animation::AnimationCoordinator;
 use massive_scene::SceneChanges;
 
 pub trait RenderTarget {
-    fn resize(&mut self, new_size: (u32, u32)) -> Result<()>;
+    fn render(&mut self, changes: SceneChanges, pacing: RenderPacing) -> Result<()>;
+}
 
-    fn render(
-        &mut self,
-        changes: SceneChanges,
-        animation_coordinator: &AnimationCoordinator,
-    ) -> Result<()>;
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum RenderPacing {
+    #[default]
+    // Render as fast as possible to be able to represent input changes.
+    Fast,
+    // Render as smooth as possible so that animations are synced to the frame rate.
+    Smooth,
 }

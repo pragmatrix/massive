@@ -9,8 +9,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use log::{error, info, warn};
-use massive_animation::AnimationCoordinator;
-use massive_applications::RenderTarget;
+use massive_applications::{RenderPacing, RenderTarget};
 use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
@@ -30,15 +29,6 @@ pub struct AsyncWindowRenderer {
     /// The current render pacing as seen from the client. This may not reflect reality, as it is
     /// synchronized with the renderer asynchronously.
     pacing: RenderPacing,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub enum RenderPacing {
-    #[default]
-    // Render as fast as possible to be able to represent input changes.
-    Fast,
-    // Render a smooth as possible so that animations are synced to the frame rate.
-    Smooth,
 }
 
 #[derive(Debug)]
@@ -188,10 +178,10 @@ impl AsyncWindowRenderer {
             sender.send(ShellEvent::ApplyAnimations(renderer.window_id()))?;
         }
 
-        // Apply scene changes after we retrieved the texture (because retrieving the
-        // texture may take time, we want to wait until the last moment before pulling
-        // changes), even though the time between retrieving the texture and final rendering
-        // takes longer.
+        // Apply scene changes after we retrieved the texture (because retrieving the texture may
+        // take time, we want to wait until the last moment before pulling changes), even though the
+        // time between retrieving the texture and final rendering takes longer. This reduces lag
+        // noticeably (for example in the logs example while smooth rendering).
         renderer.apply_scene_changes()?;
 
         renderer.render_and_present(view_projection, texture);
@@ -332,33 +322,11 @@ pub enum RenderMode {
 }
 
 impl RenderTarget for AsyncWindowRenderer {
-    fn resize(&mut self, new_size: (u32, u32)) -> Result<()> {
-        self.resize(new_size)
-    }
-
-    fn render(
-        &mut self,
-        changes: SceneChanges,
-        animation_coordinator: &AnimationCoordinator,
-    ) -> Result<()> {
-        // End the current animation and see if animations are active.
-        let animations_active = animation_coordinator.end_cycle();
-
-        let animations_before = self.pacing() == RenderPacing::Smooth;
-        let new_render_pacing = match (animations_before, animations_active) {
-            (false, true) => Some(RenderPacing::Smooth),
-            (true, false) => Some(RenderPacing::Fast),
-            _ => None,
-        };
-
+    fn render(&mut self, changes: SceneChanges, pacing: RenderPacing) -> Result<()> {
         // Update render pacing before a redraw:
-        // - from instant to smooth: We force a redraw _afterwards_ to get VSync based presentation
-        //   timestamps and cause ApplyAnimations.
-        // - from smooth to instant: Redraw only when something changed afterwards, but instantly
-        //   without VSync.
-        if let Some(new_render_pacing) = new_render_pacing {
-            info!("Changing render pacing to: {new_render_pacing:?}");
-            self.update_render_pacing(new_render_pacing)?;
+        if pacing != self.pacing {
+            info!("Changing render pacing to: {pacing:?}");
+            self.update_render_pacing(pacing)?;
         }
 
         // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
