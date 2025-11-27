@@ -124,7 +124,7 @@ impl RenderTarget for View {
 /// The events a view can receive.
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ViewEvent {
     Resized(u32, u32),
     CloseRequested,

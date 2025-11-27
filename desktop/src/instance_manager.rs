@@ -138,4 +138,10 @@ impl InstanceManager {
             .send(event)
             .map_err(|_| anyhow!("Failed to send event to instance {:?}", instance_id))
     }
+
+    pub fn broadcast_event(&self, event: InstanceEvent) {
+        for instance in self.instances.values() {
+            let _ = instance.events_tx.send(event.clone());
+        }
+    }
 }

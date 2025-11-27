@@ -71,7 +71,7 @@ impl Desktop {
                             }
                         }
                         ShellEvent::ApplyAnimations(_) => {
-                            // TODO: Handle animation updates
+                            instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
                         }
                     }
                 }

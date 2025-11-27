@@ -76,7 +76,7 @@ impl InstanceContext {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InstanceEvent {
     View(ViewId, ViewEvent),
     /// Destroy the whole instance.
