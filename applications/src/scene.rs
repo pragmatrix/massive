@@ -57,11 +57,7 @@ impl Scene {
     //
     // Pass in the current shell event if you need to handle redraw requests without scene changes
     // and automatic resizing of the renderer.
-    pub fn render_to<E>(
-        &self,
-        render_target: &mut dyn RenderTarget<Event = E>,
-        event: Option<E>,
-    ) -> Result<()> {
-        render_target.render(self.take_changes()?, &self.animation_coordinator, event)
+    pub fn render_to(&self, render_target: &mut dyn RenderTarget) -> Result<()> {
+        render_target.render(self.take_changes()?, &self.animation_coordinator)
     }
 }

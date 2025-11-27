@@ -108,6 +108,8 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
         matrix.update_if_changed(application.matrix(page_size));
-        scene.render_to(&mut renderer, Some(event))?;
+
+        renderer.resize_redraw(&event)?;
+        scene.render_to(&mut renderer)?;
     }
 }

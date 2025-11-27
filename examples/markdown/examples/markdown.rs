@@ -117,7 +117,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
             matrix.update_if_changed(application.matrix(page_size));
         }
-        scene.render_to(&mut renderer, Some(event))?;
+
+        renderer.resize_redraw(&event)?;
+        scene.render_to(&mut renderer)?;
     }
 }
 

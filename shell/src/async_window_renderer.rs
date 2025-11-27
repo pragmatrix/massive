@@ -12,7 +12,7 @@ use log::{error, info, warn};
 use massive_animation::AnimationCoordinator;
 use massive_applications::RenderTarget;
 use tokio::sync::mpsc::WeakUnboundedSender;
-use winit::{event::WindowEvent, window::WindowId};
+use winit::{event, window::WindowId};
 
 use crate::{ShellEvent, message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
 use massive_geometry::{Camera, Color};
@@ -219,12 +219,12 @@ impl AsyncWindowRenderer {
         self.redraw()
     }
 
-    pub fn pacing(&self) -> RenderPacing {
+    fn pacing(&self) -> RenderPacing {
         self.pacing
     }
 
     /// Changes the render pacing.
-    pub fn update_render_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
+    fn update_render_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
         if pacing == self.pacing {
             return Ok(());
         }
@@ -243,6 +243,33 @@ impl AsyncWindowRenderer {
 
     fn set_present_mode(&self, new_present_mode: wgpu::PresentMode) -> Result<()> {
         self.post_msg(RendererMessage::SetPresentMode(new_present_mode))
+    }
+
+    pub fn resize_redraw(&mut self, rrr: impl Into<ResizeRedrawRequest>) -> Result<()> {
+        let rrr = rrr.into();
+
+        if let Some(window) = rrr.window
+            && window != self.window_id
+        {
+            return Ok(());
+        }
+
+        match rrr.mode {
+            ResizeRedrawMode::Resize(wh) => {
+                self.resize(wh)?;
+                // We immediately issue a redraw after a resize. Usually, when a WindowEvent is used
+                // to generate Resize / Redraw requests, another redraw will follow, but this takes
+                // too long for smooth resizing.
+                //
+                // Robustness: Do this only in fast pacing mode?
+                self.redraw()
+            }
+            ResizeRedrawMode::Redraw => {
+                // Robustness: Do this only in fast pacing mode?
+                self.redraw()
+            }
+            ResizeRedrawMode::None => Ok(()),
+        }
     }
 
     pub fn resize(&mut self, surface_size: (u32, u32)) -> Result<()> {
@@ -305,18 +332,34 @@ pub enum RenderMode {
 }
 
 impl RenderTarget for AsyncWindowRenderer {
-    type Event = ShellEvent;
+    fn resize(&mut self, new_size: (u32, u32)) -> Result<()> {
+        self.resize(new_size)
+    }
 
     fn render(
         &mut self,
         changes: SceneChanges,
         animation_coordinator: &AnimationCoordinator,
-        event: Option<Self::Event>,
     ) -> Result<()> {
         // End the current animation and see if animations are active.
         let animations_active = animation_coordinator.end_cycle();
 
-        let mut redraw = false;
+        let animations_before = self.pacing() == RenderPacing::Smooth;
+        let new_render_pacing = match (animations_before, animations_active) {
+            (false, true) => Some(RenderPacing::Smooth),
+            (true, false) => Some(RenderPacing::Fast),
+            _ => None,
+        };
+
+        // Update render pacing before a redraw:
+        // - from instant to smooth: We force a redraw _afterwards_ to get VSync based presentation
+        //   timestamps and cause ApplyAnimations.
+        // - from smooth to instant: Redraw only when something changed afterwards, but instantly
+        //   without VSync.
+        if let Some(new_render_pacing) = new_render_pacing {
+            info!("Changing render pacing to: {new_render_pacing:?}");
+            self.update_render_pacing(new_render_pacing)?;
+        }
 
         // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
         // may asynchronously overtake the subsequent redraw / resize requests if a previous one is
@@ -329,65 +372,56 @@ impl RenderTarget for AsyncWindowRenderer {
         // Robustness: This should probably threaded through the redraw pipeline?
         if !changes.is_empty() {
             self.change_collector().push_many(changes);
-            redraw = true;
-        }
-
-        let window_id = self.window_id();
-        let mut resize = None;
-        match event {
-            Some(ShellEvent::WindowEvent(id, window_event)) if id == window_id => {
-                match window_event {
-                    WindowEvent::Resized(size) => {
-                        resize = Some((size.width, size.height));
-                        // Detail: We don't need to set a redraw here, there will _always_ be a
-                        // redraw event afterwards after a resize event (winit 0.30, macos).
-                    }
-                    WindowEvent::RedrawRequested => {
-                        redraw = true;
-                    }
-                    _ => {}
-                }
+            // Only in fast render pacing we issue a redraw request. Otherwise the renderer
+            // takes care of it.
+            if self.pacing() == RenderPacing::Fast {
+                self.redraw()?;
             }
-            _ => {}
-        };
-
-        let animations_before = self.pacing() == RenderPacing::Smooth;
-
-        let new_render_pacing = match (animations_before, animations_active) {
-            (false, true) => {
-                // Changing from Fast to Smooth requires presentation timestamps to follow. So redraw.
-                redraw = true;
-                Some(RenderPacing::Smooth)
-            }
-            (true, false) => Some(RenderPacing::Fast),
-            _ => None,
-        };
-
-        //
-        // Sync with the renderer.
-        //
-
-        // Resize first
-        if let Some(new_size) = resize {
-            self.resize(new_size)?;
-        }
-
-        // Update render pacing before a redraw:
-        // - from instant to smooth: We force a redraw _afterwards_ to get VSync based presentation
-        //   timestamps and cause ApplyAnimations.
-        // - from smooth to instant: Redraw only when something changed afterwards, but instantly
-        //   without VSync.
-        if let Some(new_render_pacing) = new_render_pacing {
-            info!("Changing render pacing to: {new_render_pacing:?}");
-            self.update_render_pacing(new_render_pacing)?;
-        }
-
-        // Only in fast render pacing we issue a redraw request. Otherwise the renderer
-        // automatically takes care of it.
-        if redraw && self.pacing() == RenderPacing::Fast {
-            self.redraw()?;
         }
 
         Ok(())
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct ResizeRedrawRequest {
+    window: Option<WindowId>,
+    mode: ResizeRedrawMode,
+}
+
+/// Request to the renderer to resize and / or redraw.
+#[derive(Debug, Default)]
+pub enum ResizeRedrawMode {
+    Resize((u32, u32)),
+    Redraw,
+    #[default]
+    None,
+}
+
+impl From<&event::WindowEvent> for ResizeRedrawRequest {
+    fn from(window_event: &event::WindowEvent) -> Self {
+        use event::WindowEvent;
+        let mode = match window_event {
+            WindowEvent::Resized(physical_size) => {
+                ResizeRedrawMode::Resize((physical_size.width, physical_size.height))
+            }
+            WindowEvent::RedrawRequested => ResizeRedrawMode::Redraw,
+            _ => ResizeRedrawMode::None,
+        };
+
+        ResizeRedrawRequest { window: None, mode }
+    }
+}
+
+impl From<&ShellEvent> for ResizeRedrawRequest {
+    fn from(value: &ShellEvent) -> Self {
+        match value {
+            ShellEvent::WindowEvent(window_id, window_event) => {
+                let mut request: ResizeRedrawRequest = window_event.into();
+                request.window = (*window_id).into();
+                request
+            }
+            _ => Self::default(),
+        }
     }
 }
