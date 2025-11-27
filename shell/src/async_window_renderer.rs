@@ -324,10 +324,6 @@ pub enum RenderMode {
 impl RenderTarget for AsyncWindowRenderer {
     fn render(&mut self, changes: SceneChanges, pacing: RenderPacing) -> Result<()> {
         // Update render pacing before a redraw:
-        // - from instant to smooth: We force a redraw _afterwards_ to get VSync based presentation
-        //   timestamps and cause ApplyAnimations.
-        // - from smooth to instant: Redraw only when something changed afterwards, but instantly
-        //   without VSync.
         if pacing != self.pacing {
             info!("Changing render pacing to: {pacing:?}");
             self.update_render_pacing(pacing)?;
