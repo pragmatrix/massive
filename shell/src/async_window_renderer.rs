@@ -256,6 +256,10 @@ impl AsyncWindowRenderer {
             }
             ResizeRedrawMode::Redraw => {
                 // Robustness: Do this only in fast pacing mode?
+                //
+                // Robustness: This does not seem necessary on macOS at all. The explicit redraw
+                // requests seem to be sent only after a resize event, which we handle above. I've
+                // tested sleep / minimizing, etc.
                 self.redraw()
             }
             ResizeRedrawMode::None => Ok(()),

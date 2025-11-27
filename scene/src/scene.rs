@@ -40,6 +40,11 @@ impl Scene {
         Handle::new(id, value, self.change_tracker.clone())
     }
 
+    /// Push external changes into this scene.
+    pub fn push_changes(&self, changes: SceneChanges) {
+        self.change_tracker.push_many(changes);
+    }
+
     // Take the changes that need to be sent to the renderer and release the ids in the process.
     pub fn take_changes(&self) -> Result<SceneChanges> {
         let changes = self.change_tracker.take_all();

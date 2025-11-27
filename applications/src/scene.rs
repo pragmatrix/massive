@@ -53,6 +53,11 @@ impl Scene {
         self.animation_coordinator.time_scale()
     }
 
+    /// Push external changes into this scene.
+    pub fn push_changes(&self, changes: massive_scene::SceneChanges) {
+        self.inner.push_changes(changes);
+    }
+
     // Render all the current scene changes.
     //
     // Pass in the current shell event if you need to handle redraw requests without scene changes

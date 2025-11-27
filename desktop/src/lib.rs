@@ -1,11 +1,14 @@
 use std::{collections::HashMap, time::Instant};
 
 use tokio::sync::mpsc::unbounded_channel;
-use winit::{dpi::LogicalSize, event::WindowEvent};
+use winit::{
+    dpi::LogicalSize,
+    event::{self, WindowEvent},
+};
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceEvent, InstanceId, RenderTarget, ViewCommand, ViewEvent,
-    ViewId,
+    CreationMode, InstanceCommand, InstanceEvent, InstanceId, Options, RenderPacing, Scene,
+    ViewCommand, ViewEvent, ViewId,
 };
 use massive_geometry::{Point, Point3};
 use massive_input::{Event, EventManager, ExternalEvent};
@@ -32,11 +35,11 @@ impl Desktop {
         // Create a window and renderer
         let window = context.new_window(LogicalSize::new(1024, 768)).await?;
         let mut renderer = window.renderer().build().await?;
-        let _scene = context.new_scene();
+        let scene = context.new_scene();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut instance_manager = InstanceManager::new(requests_tx);
-        let mut event_manager = EventManager::<winit::event::WindowEvent>::default();
+        let mut event_manager = EventManager::<event::WindowEvent>::default();
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {
@@ -46,7 +49,7 @@ impl Desktop {
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    Self::handle_instance_command(&mut instance_manager, &mut renderer, instance_id, request)?;
+                    Self::handle_instance_command(&mut instance_manager, &scene, instance_id, request)?;
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -86,12 +89,20 @@ impl Desktop {
                     return Ok(());
                 }
             }
+
+            // Render all accumulated changes with the appropriate pacing
+            let options = if instance_manager.effective_pacing() == RenderPacing::Smooth {
+                Some(Options::ForceSmoothRendering)
+            } else {
+                None
+            };
+            scene.render_to_with_options(&mut renderer, options)?;
         }
     }
 
     fn handle_instance_command(
         instance_manager: &mut InstanceManager,
-        renderer: &mut AsyncWindowRenderer,
+        scene: &Scene,
         instance_id: InstanceId,
         command: InstanceCommand,
     ) -> Result<()> {
@@ -103,13 +114,7 @@ impl Desktop {
                 instance_manager.remove_view(instance_id, id);
             }
             InstanceCommand::View(view_id, command) => {
-                Self::handle_view_command(
-                    instance_manager,
-                    renderer,
-                    instance_id,
-                    view_id,
-                    command,
-                )?;
+                Self::handle_view_command(instance_manager, scene, instance_id, view_id, command)?;
             }
         }
         Ok(())
@@ -117,7 +122,7 @@ impl Desktop {
 
     fn handle_view_command(
         instance_manager: &mut InstanceManager,
-        renderer: &mut AsyncWindowRenderer,
+        scene: &Scene,
         instance_id: InstanceId,
         view_id: ViewId,
         command: ViewCommand,
@@ -125,7 +130,7 @@ impl Desktop {
         match command {
             ViewCommand::Render { changes, pacing } => {
                 instance_manager.update_view_pacing(instance_id, view_id, pacing)?;
-                renderer.render(changes, pacing)?;
+                scene.push_changes(changes);
             }
             ViewCommand::Resize(_) => {
                 todo!("Resize is unsupported");
