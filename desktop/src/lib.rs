@@ -1,23 +1,20 @@
-use std::{collections::HashMap, future::Future, pin::Pin, time::Instant};
+use std::{collections::HashMap, time::Instant};
 
-use derive_more::Debug;
 use tokio::sync::mpsc::unbounded_channel;
-use uuid::Uuid;
 use winit::{dpi::LogicalSize, event::WindowEvent};
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, RenderTarget,
-    ViewCommand, ViewEvent, ViewId,
+    CreationMode, InstanceCommand, InstanceEvent, InstanceId, RenderTarget, ViewCommand, ViewEvent,
+    ViewId,
 };
 use massive_geometry::{Point, Point3};
 use massive_input::{Event, EventManager, ExternalEvent};
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, Result, ShellEvent};
 
 mod instance_manager;
-mod view_manager;
 
+pub use instance_manager::Application;
 use instance_manager::InstanceManager;
-use view_manager::ViewManager;
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -39,7 +36,6 @@ impl Desktop {
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut instance_manager = InstanceManager::new(requests_tx);
-        let mut view_manager = ViewManager::new();
         let mut event_manager = EventManager::<winit::event::WindowEvent>::default();
 
         // Start one instance of the first registered application
@@ -50,7 +46,7 @@ impl Desktop {
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    Self::handle_instance_command(&mut view_manager, &mut renderer, instance_id, request)?;
+                    Self::handle_instance_command(&mut instance_manager, &mut renderer, instance_id, request)?;
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -64,7 +60,6 @@ impl Desktop {
                             ) {
                                 Self::handle_input_event(
                                     &input_event,
-                                    &view_manager,
                                     &mut renderer,
                                     &instance_manager,
                                 )?;
@@ -76,12 +71,7 @@ impl Desktop {
                     }
                 }
 
-                Some(join_result) = instance_manager.join_set.join_next() => {
-                    let (instance_id, instance_result) = join_result
-                        .unwrap_or_else(|e| (InstanceId::from(Uuid::nil()), Err(anyhow::anyhow!("Instance panicked: {}", e))));
-
-                    instance_manager.remove_instance(instance_id);
-                    view_manager.remove_instance_views(instance_id);
+                Ok((_instance_id, instance_result)) = instance_manager.join_next() => {
 
                     // If any instance fails, return the error
                     instance_result?;
@@ -100,35 +90,41 @@ impl Desktop {
     }
 
     fn handle_instance_command(
-        view_manager: &mut ViewManager,
+        instance_manager: &mut InstanceManager,
         renderer: &mut AsyncWindowRenderer,
         instance_id: InstanceId,
         command: InstanceCommand,
     ) -> Result<()> {
         match command {
             InstanceCommand::CreateView(info) => {
-                view_manager.add_view(instance_id, info);
+                instance_manager.add_view(instance_id, info);
             }
             InstanceCommand::DestroyView(id) => {
-                view_manager.remove_view(instance_id, id);
+                instance_manager.remove_view(instance_id, id);
             }
             InstanceCommand::View(view_id, command) => {
-                Self::handle_view_command(view_manager, renderer, instance_id, view_id, command)?;
+                Self::handle_view_command(
+                    instance_manager,
+                    renderer,
+                    instance_id,
+                    view_id,
+                    command,
+                )?;
             }
         }
         Ok(())
     }
 
     fn handle_view_command(
-        view_manager: &mut ViewManager,
+        instance_manager: &mut InstanceManager,
         renderer: &mut AsyncWindowRenderer,
-        _instance_id: InstanceId,
+        instance_id: InstanceId,
         view_id: ViewId,
         command: ViewCommand,
     ) -> Result<()> {
         match command {
             ViewCommand::Render { changes, pacing } => {
-                view_manager.update_pacing(view_id, pacing)?;
+                instance_manager.update_view_pacing(instance_id, view_id, pacing)?;
                 renderer.render(changes, pacing)?;
             }
             ViewCommand::Resize(_) => {
@@ -140,7 +136,6 @@ impl Desktop {
 
     fn handle_input_event(
         input_event: &Event<WindowEvent>,
-        view_manager: &ViewManager,
         renderer: &mut AsyncWindowRenderer,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
@@ -149,7 +144,7 @@ impl Desktop {
         };
 
         let window_event = input_event.event();
-        let hit_result = Self::hit_test_from_event(input_event, view_manager, renderer);
+        let hit_result = Self::hit_test_from_event(input_event, instance_manager, renderer);
 
         match window_event {
             WindowEvent::CursorMoved { .. }
@@ -169,11 +164,11 @@ impl Desktop {
             | WindowEvent::ModifiersChanged(_)
             | WindowEvent::HoveredFileCancelled
             | WindowEvent::CloseRequested => {
-                for (view_id, view_info) in view_manager.views() {
+                for (instance_id, view_id, _view_info) in instance_manager.views() {
                     if let Some(view_event) =
                         Self::convert_window_event_to_view_event(window_event, None)
                     {
-                        send_to_view(*view_id, view_info.instance_id, view_event)?;
+                        send_to_view(*view_id, instance_id, view_event)?;
                     }
                 }
             }
@@ -195,21 +190,21 @@ impl Desktop {
 
     fn hit_test_from_event(
         input_event: &Event<WindowEvent>,
-        view_manager: &ViewManager,
+        instance_manager: &InstanceManager,
         renderer: &mut AsyncWindowRenderer,
     ) -> Option<(ViewId, InstanceId, Point3)> {
         let pos = input_event.pos()?;
-        Self::hit_test_at_point(pos, view_manager, renderer)
+        Self::hit_test_at_point(pos, instance_manager, renderer)
     }
 
     fn hit_test_at_point(
         screen_pos: Point,
-        view_manager: &ViewManager,
+        instance_manager: &InstanceManager,
         renderer: &mut AsyncWindowRenderer,
     ) -> Option<(ViewId, InstanceId, Point3)> {
         let mut hits = Vec::new();
 
-        for (view_id, view_info) in view_manager.views() {
+        for (instance_id, view_id, view_info) in instance_manager.views() {
             let location = view_info.location.value();
             let matrix = location.matrix.value();
             let size = view_info.size;
@@ -224,7 +219,7 @@ impl Desktop {
                     && local_pos.y >= 0.0
                     && local_pos.y <= size.1 as f64
                 {
-                    hits.push((*view_id, view_info.instance_id, local_pos));
+                    hits.push((*view_id, instance_id, local_pos));
                 }
             }
         }
@@ -285,40 +280,6 @@ impl Desktop {
             WindowEvent::HoveredFileCancelled => Some(ViewEvent::HoveredFileCancelled),
             WindowEvent::CloseRequested => Some(ViewEvent::CloseRequested),
             _ => None,
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Application {
-    name: String,
-    #[debug(skip)]
-    run: RunInstanceBox,
-}
-
-type RunInstanceBox = Box<
-    dyn Fn(InstanceContext) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
-        + Send
-        + Sync
-        + 'static,
->;
-
-impl Application {
-    pub fn new<F, R>(name: impl Into<String>, run: F) -> Self
-    where
-        F: Fn(InstanceContext) -> R + Send + Sync + 'static,
-        R: Future<Output = Result<()>> + Send + 'static,
-    {
-        let name = name.into();
-        let run_boxed = Box::new(
-            move |ctx: InstanceContext| -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
-                Box::pin(run(ctx))
-            },
-        );
-
-        Self {
-            name,
-            run: run_boxed,
         }
     }
 }
