@@ -6,7 +6,7 @@ use derive_more::Deref;
 
 use massive_animation::{Animated, AnimationCoordinator, Interpolatable, Interpolation, TimeScale};
 
-use crate::RenderTarget;
+use crate::{RenderPacing, RenderTarget};
 
 #[derive(Debug, Deref)]
 pub struct Scene {
@@ -58,6 +58,29 @@ impl Scene {
     // Pass in the current shell event if you need to handle redraw requests without scene changes
     // and automatic resizing of the renderer.
     pub fn render_to(&self, render_target: &mut dyn RenderTarget) -> Result<()> {
-        render_target.render(self.take_changes()?, &self.animation_coordinator)
+        self.render_to_with_options(render_target, None)
     }
+
+    /// Render all the current scene changes, but keep smooth render active if needed.
+    pub fn render_to_with_options(
+        &self,
+        render_target: &mut dyn RenderTarget,
+        options: impl Into<Option<Options>>,
+    ) -> Result<()> {
+        let force_smooth_rendering = options.into() == Some(Options::ForceSmoothRendering);
+        let animations_active = self.animation_coordinator.end_cycle();
+
+        let pacing = if animations_active || force_smooth_rendering {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        };
+
+        render_target.render(self.take_changes()?, pacing)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Options {
+    ForceSmoothRendering,
 }

@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use log::error;
-use massive_animation::AnimationCoordinator;
 use massive_geometry::Identity;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -10,7 +9,9 @@ use massive_scene::{Handle, Location, Matrix, SceneChanges};
 use uuid::Uuid;
 use winit::event::{self};
 
-use crate::{InstanceId, RenderTarget, Scene, ViewId, instance_context::InstanceCommand};
+use crate::{
+    InstanceId, RenderPacing, RenderTarget, Scene, ViewId, instance_context::InstanceCommand,
+};
 
 #[derive(Debug)]
 pub struct View {
@@ -67,6 +68,16 @@ impl View {
     pub fn location(&self) -> &Handle<Location> {
         &self.location
     }
+
+    #[allow(unused)]
+    fn resize(&mut self, new_size: (u32, u32)) -> Result<()> {
+        self.command_sender
+            .send((
+                self.instance,
+                InstanceCommand::View(self.id, ViewCommand::Resize(new_size)),
+            ))
+            .context("Failed to send a resize request")
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -93,40 +104,18 @@ pub enum ViewCommand {
     /// Detail: Empty changes are possible because animations active might change.
     Render {
         changes: SceneChanges,
-        /// Are animation active currently.
-        animations_active: bool,
+        pacing: RenderPacing,
     },
     /// Feature: This should probably specify a depth too.
     Resize((u32, u32)),
 }
 
 impl RenderTarget for View {
-    fn resize(&mut self, new_size: (u32, u32)) -> Result<()> {
+    fn render(&mut self, changes: SceneChanges, pacing: RenderPacing) -> Result<()> {
         self.command_sender
             .send((
                 self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Resize(new_size)),
-            ))
-            .context("Failed to send a resize request")
-    }
-
-    fn render(
-        &mut self,
-        changes: SceneChanges,
-        animation_coordinator: &AnimationCoordinator,
-    ) -> Result<()> {
-        let animations_active = animation_coordinator.end_cycle();
-
-        self.command_sender
-            .send((
-                self.instance,
-                InstanceCommand::View(
-                    self.id,
-                    ViewCommand::Render {
-                        changes,
-                        animations_active,
-                    },
-                ),
+                InstanceCommand::View(self.id, ViewCommand::Render { changes, pacing }),
             ))
             .context("Failed to send a redraw request")
     }
