@@ -11,6 +11,6 @@ pub enum RenderPacing {
     #[default]
     // Render as fast as possible to be able to represent input changes.
     Fast,
-    // Render a smooth as possible so that animations are synced to the frame rate.
+    // Render as smooth as possible so that animations are synced to the frame rate.
     Smooth,
 }
