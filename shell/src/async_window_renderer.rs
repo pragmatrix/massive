@@ -389,7 +389,7 @@ pub struct ResizeRedrawRequest {
     mode: ResizeRedrawMode,
 }
 
-/// Request to the renderer to resize and / or  redraw.
+/// Request to the renderer to resize and / or redraw.
 #[derive(Debug, Default)]
 pub enum ResizeRedrawMode {
     Resize((u32, u32)),
