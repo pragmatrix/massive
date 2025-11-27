@@ -63,6 +63,12 @@ impl InstanceContext {
             .recv()
             .await
             .ok_or_else(|| anyhow!("Instance event channel closed"))
+            .map(|e| {
+                if matches!(e, InstanceEvent::ApplyAnimations) {
+                    self.animation_coordinator.upgrade_to_apply_animations();
+                }
+                e
+            })
     }
 
     pub fn view(&self, size: (u32, u32)) -> ViewBuilder {
@@ -75,6 +81,7 @@ pub enum InstanceEvent {
     View(ViewId, ViewEvent),
     /// Destroy the whole instance.
     Shutdown,
+    ApplyAnimations,
 }
 
 #[derive(Debug)]

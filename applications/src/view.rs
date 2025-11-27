@@ -95,25 +95,27 @@ pub enum ViewCommand {
         changes: SceneChanges,
         /// Are animation active currently.
         animations_active: bool,
-        /// Was this caused by an ApplyAnimations request?
-        applied_animations: bool,
     },
     /// Feature: This should probably specify a depth too.
     Resize((u32, u32)),
 }
 
 impl RenderTarget for View {
-    type Event = ViewEvent;
+    fn resize(&mut self, new_size: (u32, u32)) -> Result<()> {
+        self.command_sender
+            .send((
+                self.instance,
+                InstanceCommand::View(self.id, ViewCommand::Resize(new_size)),
+            ))
+            .context("Failed to send a resize request")
+    }
 
     fn render(
         &mut self,
         changes: SceneChanges,
         animation_coordinator: &AnimationCoordinator,
-        event: Option<Self::Event>,
     ) -> Result<()> {
         let animations_active = animation_coordinator.end_cycle();
-
-        let applied_animations = matches!(event, Some(ViewEvent::ApplyAnimations));
 
         self.command_sender
             .send((
@@ -123,7 +125,6 @@ impl RenderTarget for View {
                     ViewCommand::Render {
                         changes,
                         animations_active,
-                        applied_animations,
                     },
                 ),
             ))
@@ -181,5 +182,4 @@ pub enum ViewEvent {
 
     // Detail: ScaleFactorChanged may not be needed. If it happens, the instance manager should take
     // care of it.
-    ApplyAnimations,
 }

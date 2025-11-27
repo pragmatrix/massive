@@ -90,14 +90,15 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             Some(bytes) = receiver.recv() => {
                 logs.add_line(&scene, &bytes);
                 logs.update_layout()?;
-                scene.render_to(&mut renderer, None)?;
+                scene.render_to(&mut renderer)?;
             },
 
             Ok(event) = ctx.wait_for_shell_event() => {
                 if logs.handle_shell_event(&event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }
-                scene.render_to(&mut renderer, Some(event))?;
+                renderer.resize_redraw(&event)?;
+                scene.render_to(&mut renderer)?;
             }
         }
     }
