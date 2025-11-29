@@ -68,6 +68,12 @@ impl View {
         })
     }
 
+    /// The location's matrix.
+    pub fn matrix(&self) -> Handle<Matrix> {
+        self.location().value().matrix.clone()
+    }
+
+    /// A reference to the location that is used to position the view in the parent desktop space.
     pub fn location(&self) -> &Handle<Location> {
         &self.location
     }
