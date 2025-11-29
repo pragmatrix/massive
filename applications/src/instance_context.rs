@@ -3,6 +3,7 @@
 use anyhow::Result;
 use anyhow::anyhow;
 use massive_animation::AnimationCoordinator;
+use massive_renderer::FontManager;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::{
@@ -24,6 +25,7 @@ pub struct InstanceContext {
     creation_mode: CreationMode,
     events: UnboundedReceiver<InstanceEvent>,
     command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
+    fonts: FontManager,
 }
 
 impl InstanceContext {
@@ -32,6 +34,7 @@ impl InstanceContext {
         creation_mode: CreationMode,
         requests: UnboundedSender<(InstanceId, InstanceCommand)>,
         events: UnboundedReceiver<InstanceEvent>,
+        fonts: FontManager,
     ) -> Self {
         // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
         // the scene is rendered. This way, consistence can be preserved when animations are applied
@@ -43,6 +46,7 @@ impl InstanceContext {
             creation_mode,
             events,
             command_sender: requests,
+            fonts,
         }
     }
 
@@ -52,6 +56,10 @@ impl InstanceContext {
 
     pub fn creation_mode(&self) -> CreationMode {
         self.creation_mode
+    }
+
+    pub fn fonts(&self) -> &FontManager {
+        &self.fonts
     }
 
     pub fn new_scene(&self) -> Scene {

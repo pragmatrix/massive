@@ -14,10 +14,12 @@ massive-animation.workspace = true
 massive-scene.workspace = true
 massive-geometry.workspace = true
 massive-input.workspace = true
+massive-renderer.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true
 futures.workspace = true
+log.workspace = true
 tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
 winit.workspace = true

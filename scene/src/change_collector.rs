@@ -55,6 +55,8 @@ impl SceneChanges {
         }
     }
 
+    /// This converts SceneChanges into their vec representation and frees all ids that are not used
+    /// anymore.
     pub fn into_inner(self) -> Option<(Instant, Vec<SceneChange>)> {
         self.time_of_oldest_change.map(|time| {
             assert!(!self.is_empty());
