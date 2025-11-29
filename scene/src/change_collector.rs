@@ -3,7 +3,7 @@ use std::{mem, time::Instant};
 use derive_more::Deref;
 use parking_lot::Mutex;
 
-use crate::SceneChange;
+use crate::{SceneChange, id_generator};
 
 #[derive(Debug, Default)]
 pub struct ChangeCollector {
@@ -57,9 +57,10 @@ impl SceneChanges {
 
     /// This converts SceneChanges into their vec representation and frees all ids that are not used
     /// anymore.
-    pub fn into_inner(self) -> Option<(Instant, Vec<SceneChange>)> {
+    pub fn release(self) -> Option<(Instant, Vec<SceneChange>)> {
         self.time_of_oldest_change.map(|time| {
             assert!(!self.is_empty());
+            id_generator::gc(&self.changes);
             (time, self.changes)
         })
     }

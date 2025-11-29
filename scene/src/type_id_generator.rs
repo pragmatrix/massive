@@ -21,6 +21,10 @@ impl TypeIdGenerator {
     }
 }
 
+/// The global ID Generator.
+///
+/// ADR: Decided to use a global id generator, so that we can support multiple scenes per renderer
+/// all sharing the same id space.
 pub mod id_generator {
     use std::{any::TypeId, sync::LazyLock};
 
@@ -32,8 +36,6 @@ pub mod id_generator {
         global_id_generator().lock().acquire(TypeId::of::<T>())
     }
 
-    /// ADR: Decided to use a global id generator, so that we can support multiple scenes per renderer
-    /// all sharing the same id space.
     pub fn global_id_generator() -> &'static Mutex<TypeIdGenerator> {
         static ID_GEN: LazyLock<Mutex<TypeIdGenerator>> =
             LazyLock::new(|| TypeIdGenerator::default().into());
