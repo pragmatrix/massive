@@ -40,3 +40,4 @@ pub use handle::*;
 pub use id::Id;
 pub use objects::*;
 pub use scene::Scene;
+pub use type_id_generator::id_generator;

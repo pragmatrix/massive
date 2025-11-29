@@ -13,6 +13,7 @@ use massive_applications::{
     CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, RenderPacing,
     ViewCreationInfo, ViewId,
 };
+use massive_renderer::FontManager;
 use massive_shell::Result;
 
 /// Manages running application instances with lifecycle control.
@@ -52,10 +53,10 @@ impl InstanceManager {
     /// Restore an instance (spawn it with CreationMode::Restore).
     /// This would typically be called after stopping an instance that needs to be restarted.
     #[allow(dead_code)]
-    pub fn restore(&mut self, application: &Application) -> Result<InstanceId> {
+    pub fn restore(&mut self, application: &Application, fonts: FontManager) -> Result<InstanceId> {
         // Note: Each spawn creates a new instance with a new ID.
         // Applications should handle state restoration via CreationMode::Restore.
-        self.spawn(application, CreationMode::Restore)
+        self.spawn(application, CreationMode::Restore, fonts)
     }
 
     /// Stop an instance gracefully by sending an Exit event.
@@ -83,6 +84,7 @@ impl InstanceManager {
         &mut self,
         application: &Application,
         creation_mode: CreationMode,
+        fonts: FontManager,
     ) -> Result<InstanceId> {
         let instance_id = InstanceId::from(Uuid::new_v4());
         let (events_tx, events_rx) = unbounded_channel();
@@ -92,6 +94,7 @@ impl InstanceManager {
             creation_mode,
             self.requests_tx.clone(),
             events_rx,
+            fonts,
         );
 
         let instance_future = (application.run)(instance_context);

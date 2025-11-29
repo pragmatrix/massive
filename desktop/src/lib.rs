@@ -12,7 +12,8 @@ use massive_applications::{
 };
 use massive_geometry::{Point, Point3};
 use massive_input::{Event, EventManager, ExternalEvent};
-use massive_shell::{ApplicationContext, AsyncWindowRenderer, Result, ShellEvent};
+use massive_renderer::FontManager;
+use massive_shell::{ApplicationContext, AsyncWindowRenderer, Result, ShellEvent, ShellWindow};
 
 mod instance_manager;
 
@@ -32,9 +33,18 @@ impl Desktop {
     }
 
     pub async fn run(self, mut context: ApplicationContext) -> Result<()> {
+        // Create fonts manager - shared between desktop and instances
+        let fonts = FontManager::system();
+
         // Create a window and renderer
         let window = context.new_window(LogicalSize::new(1024, 768)).await?;
-        let mut renderer = window.renderer().build().await?;
+        let mut renderer = window
+            .renderer()
+            .with_shapes()
+            .with_text(fonts.clone())
+            .with_background_color(massive_geometry::Color::BLACK)
+            .build()
+            .await?;
         let scene = context.new_scene();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
@@ -43,13 +53,13 @@ impl Desktop {
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {
-            instance_manager.spawn(app, CreationMode::New)?;
+            instance_manager.spawn(app, CreationMode::New, fonts.clone())?;
         }
 
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    Self::handle_instance_command(&mut instance_manager, &scene, instance_id, request)?;
+                    Self::handle_instance_command(&mut instance_manager, &scene, &window, instance_id, request)?;
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -59,7 +69,7 @@ impl Desktop {
                         ShellEvent::WindowEvent(window_id, window_event) => {
                             // Process through EventManager
                             if let Some(input_event) = event_manager.add_event(
-                                ExternalEvent::from_window_event(window_id, window_event, Instant::now())
+                                ExternalEvent::from_window_event(window_id, window_event.clone(), Instant::now())
                             ) {
                                 Self::handle_input_event(
                                     &input_event,
@@ -67,6 +77,8 @@ impl Desktop {
                                     &instance_manager,
                                 )?;
                             }
+
+                            renderer.resize_redraw(&window_event)?;
                         }
                         ShellEvent::ApplyAnimations(_) => {
                             instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
@@ -103,18 +115,33 @@ impl Desktop {
     fn handle_instance_command(
         instance_manager: &mut InstanceManager,
         scene: &Scene,
+        window: &ShellWindow,
         instance_id: InstanceId,
         command: InstanceCommand,
     ) -> Result<()> {
         match command {
             InstanceCommand::CreateView(info) => {
+                let view_id = info.id;
                 instance_manager.add_view(instance_id, info);
+                // Send initial resize event with actual window size
+                let size = window.inner_size();
+                instance_manager.send_event(
+                    instance_id,
+                    InstanceEvent::View(view_id, ViewEvent::Resized(size.width, size.height)),
+                )?;
             }
             InstanceCommand::DestroyView(id) => {
                 instance_manager.remove_view(instance_id, id);
             }
             InstanceCommand::View(view_id, command) => {
-                Self::handle_view_command(instance_manager, scene, instance_id, view_id, command)?;
+                Self::handle_view_command(
+                    instance_manager,
+                    scene,
+                    window,
+                    instance_id,
+                    view_id,
+                    command,
+                )?;
             }
         }
         Ok(())
@@ -123,6 +150,7 @@ impl Desktop {
     fn handle_view_command(
         instance_manager: &mut InstanceManager,
         scene: &Scene,
+        window: &ShellWindow,
         instance_id: InstanceId,
         view_id: ViewId,
         command: ViewCommand,
@@ -134,6 +162,12 @@ impl Desktop {
             }
             ViewCommand::Resize(_) => {
                 todo!("Resize is unsupported");
+            }
+            ViewCommand::SetTitle(title) => {
+                window.set_title(&title);
+            }
+            ViewCommand::SetCursor(icon) => {
+                window.set_cursor(icon);
             }
         }
         Ok(())
@@ -168,7 +202,11 @@ impl Desktop {
             WindowEvent::CursorLeft { .. }
             | WindowEvent::ModifiersChanged(_)
             | WindowEvent::HoveredFileCancelled
-            | WindowEvent::CloseRequested => {
+            | WindowEvent::CloseRequested
+            | WindowEvent::KeyboardInput { .. }
+            | WindowEvent::Ime(_)
+            | WindowEvent::Focused(_)
+            | WindowEvent::Resized(_) => {
                 for (instance_id, view_id, _view_info) in instance_manager.views() {
                     if let Some(view_event) =
                         Self::convert_window_event_to_view_event(window_event, None)
@@ -176,16 +214,6 @@ impl Desktop {
                         send_to_view(*view_id, instance_id, view_event)?;
                     }
                 }
-            }
-            WindowEvent::KeyboardInput {
-                device_id,
-                event,
-                is_synthetic,
-            } => {
-                let _ = (device_id, event, is_synthetic);
-            }
-            WindowEvent::Ime(ime) => {
-                let _ = ime;
             }
             _ => {}
         }
@@ -284,6 +312,18 @@ impl Desktop {
             WindowEvent::HoveredFile(path) => Some(ViewEvent::HoveredFile(path.clone())),
             WindowEvent::HoveredFileCancelled => Some(ViewEvent::HoveredFileCancelled),
             WindowEvent::CloseRequested => Some(ViewEvent::CloseRequested),
+            WindowEvent::KeyboardInput {
+                device_id,
+                event,
+                is_synthetic,
+            } => Some(ViewEvent::KeyboardInput {
+                device_id: *device_id,
+                event: event.clone(),
+                is_synthetic: *is_synthetic,
+            }),
+            WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
+            WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
+            WindowEvent::Resized(size) => Some(ViewEvent::Resized(size.width, size.height)),
             _ => None,
         }
     }

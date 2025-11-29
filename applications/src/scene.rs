@@ -81,7 +81,7 @@ impl Scene {
             RenderPacing::Fast
         };
 
-        render_target.render(self.take_changes()?, pacing)
+        render_target.render(self.take_changes(), pacing)
     }
 }
 

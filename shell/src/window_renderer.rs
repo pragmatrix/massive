@@ -88,7 +88,7 @@ impl WindowRenderer {
     pub(crate) fn apply_scene_changes(&mut self) -> Result<()> {
         let changes = self.change_collector.take_all();
 
-        if let Some((_time, changes)) = changes.into_inner() {
+        if let Some((_time, changes)) = changes.release() {
             self.renderer.apply_changes(changes)?;
             self.renderer.prepare()?;
             #[cfg(feature = "metrics")]
