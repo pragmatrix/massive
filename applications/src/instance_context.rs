@@ -19,34 +19,39 @@ pub enum CreationMode {
 
 #[derive(Debug)]
 pub struct InstanceContext {
-    /// ... to create new scenes.
-    animation_coordinator: AnimationCoordinator,
     id: InstanceId,
     creation_mode: CreationMode,
+    primary_monitor_scale_factor: f64,
+    fonts: FontManager,
+
+    /// The AnimationCoordinator is here to create new scenes. There is one per instance for now.
+    animation_coordinator: AnimationCoordinator,
     events: UnboundedReceiver<InstanceEvent>,
     command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
-    fonts: FontManager,
 }
 
 impl InstanceContext {
     pub fn new(
         id: InstanceId,
         creation_mode: CreationMode,
+        // Robustness: This might change on runtime.
+        primary_monitor_scale_factor: f64,
+        fonts: FontManager,
         requests: UnboundedSender<(InstanceId, InstanceCommand)>,
         events: UnboundedReceiver<InstanceEvent>,
-        fonts: FontManager,
     ) -> Self {
         // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
         // the scene is rendered. This way, consistence can be preserved when animations are applied
         // in several instances in parallel. Otherwise timestamps from one instance could affect the
         // other.
         Self {
-            animation_coordinator: AnimationCoordinator::new(),
             id,
             creation_mode,
+            primary_monitor_scale_factor,
+            fonts,
+            animation_coordinator: AnimationCoordinator::new(),
             events,
             command_sender: requests,
-            fonts,
         }
     }
 
@@ -56,6 +61,10 @@ impl InstanceContext {
 
     pub fn creation_mode(&self) -> CreationMode {
         self.creation_mode
+    }
+
+    pub fn primary_monitor_scale_factor(&self) -> f64 {
+        self.primary_monitor_scale_factor
     }
 
     pub fn fonts(&self) -> &FontManager {

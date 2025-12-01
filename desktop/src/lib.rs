@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Instant};
 use anyhow::bail;
 use tokio::sync::mpsc::unbounded_channel;
 use winit::{
-    dpi::{LogicalSize, PhysicalSize},
+    dpi::PhysicalSize,
     event::{self, WindowEvent},
 };
 
@@ -43,7 +43,12 @@ impl Desktop {
 
         // Start one instance of the first registered application
         if let Some(app) = self.applications.values().next() {
-            instance_manager.spawn(app, CreationMode::New, fonts.clone())?;
+            instance_manager.spawn(
+                app,
+                CreationMode::New,
+                context.primary_monitor_scale_factor(),
+                fonts.clone(),
+            )?;
         }
 
         // First wait for the initial view that's being create.
