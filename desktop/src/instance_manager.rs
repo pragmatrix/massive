@@ -102,7 +102,7 @@ impl InstanceManager {
             let result = AssertUnwindSafe(instance_future).catch_unwind().await;
             let result = match result {
                 Ok(r) => r,
-                Err(_) => Err(anyhow!("Instance panicked")),
+                Err(e) => Err(anyhow!("Instance panicked : {e:?}")),
             };
             (instance_id, result)
         });
@@ -120,24 +120,10 @@ impl InstanceManager {
         Ok(instance_id)
     }
 
-    /// Wait for a specific instance to complete.
-    #[allow(dead_code)]
-    pub async fn wait_for_instance(&mut self, target_id: InstanceId) -> Result<()> {
-        while let Some(join_result) = self.join_set.join_next().await {
-            let (instance_id, result) = join_result
-                .unwrap_or_else(|e| (target_id, Err(anyhow!("Instance stopped: {}", e))));
-
-            self.instances.remove(&instance_id);
-
-            if instance_id == target_id {
-                return result;
-            }
-        }
-        Err(anyhow!("Instance {:?} not found in join set", target_id))
-    }
-
     /// Wait for the next instance to complete and handle cleanup.
-    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was cancelled or the JoinSet is empty.
+    ///
+    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
+    /// cancelled or the JoinSet is empty.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result
@@ -160,7 +146,7 @@ impl InstanceManager {
         instance
             .events_tx
             .send(event)
-            .map_err(|_| anyhow!("Failed to send event to instance {:?}", instance_id))
+            .with_context(|| format!("Failed to send event to instance {:?}", instance_id))
     }
 
     pub fn broadcast_event(&self, event: InstanceEvent) {
