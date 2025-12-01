@@ -1,8 +1,9 @@
 use std::{collections::HashMap, time::Instant};
 
+use anyhow::bail;
 use tokio::sync::mpsc::unbounded_channel;
 use winit::{
-    dpi::LogicalSize,
+    dpi::{LogicalSize, PhysicalSize},
     event::{self, WindowEvent},
 };
 
@@ -36,17 +37,6 @@ impl Desktop {
         // Create fonts manager - shared between desktop and instances
         let fonts = FontManager::system();
 
-        // Create a window and renderer
-        let window = context.new_window(LogicalSize::new(1024, 768)).await?;
-        let mut renderer = window
-            .renderer()
-            .with_shapes()
-            .with_text(fonts.clone())
-            .with_background_color(massive_geometry::Color::BLACK)
-            .build()
-            .await?;
-        let scene = context.new_scene();
-
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut instance_manager = InstanceManager::new(requests_tx);
         let mut event_manager = EventManager::<event::WindowEvent>::default();
@@ -55,6 +45,27 @@ impl Desktop {
         if let Some(app) = self.applications.values().next() {
             instance_manager.spawn(app, CreationMode::New, fonts.clone())?;
         }
+
+        // First wait for the initial view that's being create.
+
+        let Some((instance_id, InstanceCommand::CreateView(creation_info))) =
+            requests_rx.recv().await
+        else {
+            bail!("Did not or received an unexpected request from the application");
+        };
+        instance_manager.add_view(instance_id, creation_info.clone());
+
+        let (width, height) = creation_info.size;
+        // Create a window and renderer
+        let window = context.new_window(PhysicalSize::new(width, height)).await?;
+        let mut renderer = window
+            .renderer()
+            .with_shapes()
+            .with_text(fonts.clone())
+            .with_background_color(massive_geometry::Color::BLACK)
+            .build()
+            .await?;
+        let scene = context.new_scene();
 
         loop {
             tokio::select! {
@@ -121,14 +132,7 @@ impl Desktop {
     ) -> Result<()> {
         match command {
             InstanceCommand::CreateView(info) => {
-                let view_id = info.id;
                 instance_manager.add_view(instance_id, info);
-                // Send initial resize event with actual window size
-                let size = window.inner_size();
-                instance_manager.send_event(
-                    instance_id,
-                    InstanceEvent::View(view_id, ViewEvent::Resized(size.width, size.height)),
-                )?;
             }
             InstanceCommand::DestroyView(id) => {
                 instance_manager.remove_view(instance_id, id);

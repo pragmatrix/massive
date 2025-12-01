@@ -118,7 +118,7 @@ pub enum ViewRole {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ViewCreationInfo {
     pub id: ViewId,
     pub location: Handle<Location>,
