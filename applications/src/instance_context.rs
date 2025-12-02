@@ -1,10 +1,14 @@
 //! The context for an instance.
 
+use std::mem;
+
 use anyhow::Result;
-use anyhow::anyhow;
-use massive_animation::AnimationCoordinator;
 use massive_renderer::FontManager;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use winit::event::DeviceId;
+
+use massive_animation::AnimationCoordinator;
+use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::{
     InstanceId, Scene, ViewEvent, ViewId, view::ViewCommand, view::ViewCreationInfo,
@@ -26,7 +30,7 @@ pub struct InstanceContext {
 
     /// The AnimationCoordinator is here to create new scenes. There is one per instance for now.
     animation_coordinator: AnimationCoordinator,
-    events: UnboundedReceiver<InstanceEvent>,
+    events: CoalescingReceiver<InstanceEvent>,
     command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
 }
 
@@ -50,7 +54,7 @@ impl InstanceContext {
             primary_monitor_scale_factor,
             fonts,
             animation_coordinator: AnimationCoordinator::new(),
-            events,
+            events: events.into(),
             command_sender: requests,
         }
     }
@@ -76,16 +80,13 @@ impl InstanceContext {
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {
-        self.events
-            .recv()
-            .await
-            .ok_or_else(|| anyhow!("Instance event channel closed"))
-            .map(|e| {
-                if matches!(e, InstanceEvent::ApplyAnimations) {
-                    self.animation_coordinator.upgrade_to_apply_animations();
-                }
-                e
-            })
+        let event = self.events.recv().await?;
+
+        if matches!(event, InstanceEvent::ApplyAnimations) {
+            self.animation_coordinator.upgrade_to_apply_animations();
+        }
+
+        Ok(event)
     }
 
     pub fn view(&self, size: (u32, u32)) -> ViewBuilder {
@@ -106,4 +107,34 @@ pub enum InstanceCommand {
     CreateView(ViewCreationInfo),
     DestroyView(ViewId),
     View(ViewId, ViewCommand),
+}
+
+impl CoalescingKey for InstanceEvent {
+    type Key = InstanceEventSkipKey;
+
+    fn coalescing_key(&self) -> Option<InstanceEventSkipKey> {
+        match self {
+            InstanceEvent::View(view_id, view_event) => match view_event {
+                ViewEvent::Resized(..) => Some(InstanceEventSkipKey::ViewEvent(
+                    *view_id,
+                    None,
+                    mem::discriminant(view_event),
+                )),
+                ViewEvent::CursorMoved { device_id, .. } => Some(InstanceEventSkipKey::ViewEvent(
+                    *view_id,
+                    Some(*device_id),
+                    mem::discriminant(view_event),
+                )),
+                _ => None,
+            },
+            InstanceEvent::ApplyAnimations => Some(InstanceEventSkipKey::ApplyAnimations),
+            InstanceEvent::Shutdown => None,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Hash)]
+pub enum InstanceEventSkipKey {
+    ApplyAnimations,
+    ViewEvent(ViewId, Option<DeviceId>, mem::Discriminant<ViewEvent>),
 }

@@ -3,10 +3,11 @@
 use std::time::Duration;
 
 use derive_more::{Constructor, Deref};
+use massive_util::Progress;
 use winit::event::DeviceId;
 
 use super::Movement;
-use crate::{Event, InputEvent, Progress};
+use crate::{Event, InputEvent};
 use massive_geometry::{UnitInterval, Vector};
 
 #[derive(Debug, Clone, Deref)]

@@ -2,6 +2,7 @@ use std::{future::Future, mem, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 use log::{error, info, warn};
+use massive_util::CoalescingKey;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use wgpu::{Surface, SurfaceTarget};
 use winit::{
@@ -161,8 +162,12 @@ impl ShellEvent {
     pub fn apply_animations(&self) -> bool {
         matches!(self, Self::ApplyAnimations(_))
     }
+}
 
-    pub(crate) fn skip_key(&self) -> Option<ShellEventSkipKey> {
+impl CoalescingKey for ShellEvent {
+    type Key = ShellEventSkipKey;
+
+    fn coalescing_key(&self) -> Option<ShellEventSkipKey> {
         match self {
             ShellEvent::WindowEvent(window_id, window_event) => match window_event {
                 WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::RedrawRequested => {
@@ -187,7 +192,7 @@ impl ShellEvent {
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub(crate) enum ShellEventSkipKey {
+pub enum ShellEventSkipKey {
     ApplyAnimations(WindowId),
     WindowEvent(WindowId, Option<DeviceId>, mem::Discriminant<WindowEvent>),
 }

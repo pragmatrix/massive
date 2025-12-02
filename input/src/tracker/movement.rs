@@ -1,9 +1,10 @@
 use std::time::{Duration, Instant};
 
 use log::error;
+use massive_util::Progress;
 use winit::event::ElementState;
 
-use crate::{AggregationEvent, ButtonSensor, Event, InputEvent, Progress};
+use crate::{AggregationEvent, ButtonSensor, Event, InputEvent};
 use massive_geometry::{Point, Vector};
 
 // `Clone` because of the borrow checker.

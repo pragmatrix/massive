@@ -10,10 +10,11 @@ use std::{
 use anyhow::{Context, Result, anyhow};
 use log::{error, info, warn};
 use massive_applications::{RenderPacing, RenderTarget};
+use massive_util::message_filter;
 use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
-use crate::{ShellEvent, message_filter::keep_last_per_variant, window_renderer::WindowRenderer};
+use crate::{ShellEvent, window_renderer::WindowRenderer};
 use massive_geometry::{Camera, Color};
 use massive_renderer::RenderGeometry;
 use massive_scene::{ChangeCollector, Matrix, SceneChanges};
@@ -98,7 +99,7 @@ impl AsyncWindowRenderer {
 
             // Non-blocking.
             Self::retrieve_pending_events(&msg_receiver, &mut messages)?;
-            messages = keep_last_per_variant(messages, |_| true);
+            messages = message_filter::keep_last_per_variant(messages, |_| true);
 
             if messages.is_empty() {
                 continue;
