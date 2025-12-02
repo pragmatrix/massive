@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, RenderPacing,
-    ViewCreationInfo, ViewId,
+    ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
 use massive_renderer::FontManager;
 use massive_shell::Result;
@@ -149,11 +149,17 @@ impl InstanceManager {
         self.instances.is_empty()
     }
 
+    pub fn send_view_event(
+        &self,
+        instance_id: InstanceId,
+        view_id: ViewId,
+        event: ViewEvent,
+    ) -> Result<()> {
+        self.send_event(instance_id, InstanceEvent::View(view_id, event))
+    }
+
     pub fn send_event(&self, instance_id: InstanceId, event: InstanceEvent) -> Result<()> {
-        let instance = self
-            .instances
-            .get(&instance_id)
-            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
+        let instance = self.get_instance(instance_id)?;
 
         instance
             .events_tx
@@ -190,10 +196,7 @@ impl InstanceManager {
         view_id: ViewId,
         pacing: RenderPacing,
     ) -> Result<()> {
-        let instance = self
-            .instances
-            .get_mut(&instance_id)
-            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
+        let instance = self.mut_instance(instance_id)?;
         let view = instance
             .views
             .get_mut(&view_id)
@@ -212,10 +215,40 @@ impl InstanceManager {
     }
 
     #[allow(dead_code)]
-    pub fn get_view(&self, instance_id: InstanceId, view_id: ViewId) -> Option<&ViewInfo> {
+    pub fn get_view(&self, instance_id: InstanceId, view_id: ViewId) -> Result<&ViewInfo> {
+        self.get_instance(instance_id).and_then(|instance| {
+            instance
+                .views
+                .get(&view_id)
+                .ok_or_else(|| anyhow!("View not found"))
+        })
+    }
+
+    /// Returns the first view with the given role. Returns `None` if no view with that role is
+    /// found and an error if the instance does not exist.
+    pub fn get_view_by_role(
+        &self,
+        instance_id: InstanceId,
+        role: ViewRole,
+    ) -> Result<Option<ViewId>> {
+        Ok(self
+            .get_instance(instance_id)?
+            .views
+            .iter()
+            .find(|(_, info)| info.role == role)
+            .map(|(id, _)| *id))
+    }
+
+    fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {
         self.instances
-            .get(&instance_id)
-            .and_then(|instance| instance.views.get(&view_id))
+            .get(&instance)
+            .ok_or_else(|| anyhow!("Internal error: Instance {:?} does not exist", instance))
+    }
+
+    fn mut_instance(&mut self, instance: InstanceId) -> Result<&mut RunningInstance> {
+        self.instances
+            .get_mut(&instance)
+            .ok_or_else(|| anyhow!("Internal error: Instance {:?} does not exist", instance))
     }
 
     /// Returns the effective pacing across all views.

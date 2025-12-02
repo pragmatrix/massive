@@ -16,10 +16,14 @@ use massive_input::{Event, EventManager, ExternalEvent};
 use massive_renderer::FontManager;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, Result, ShellEvent, ShellWindow};
 
+pub mod focus_manager;
 mod instance_manager;
+mod ui;
 
+pub use focus_manager::*;
 pub use instance_manager::Application;
 use instance_manager::InstanceManager;
+pub use ui::*;
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -38,6 +42,7 @@ impl Desktop {
         let fonts = FontManager::system();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
+        let mut ui = UI::new();
         let mut instance_manager = InstanceManager::new(requests_tx);
         let mut event_manager = EventManager::<event::WindowEvent>::default();
 
@@ -53,12 +58,14 @@ impl Desktop {
 
         // First wait for the initial view that's being create.
 
-        let Some((instance_id, InstanceCommand::CreateView(creation_info))) =
+        let Some((primary_instance, InstanceCommand::CreateView(creation_info))) =
             requests_rx.recv().await
         else {
             bail!("Did not or received an unexpected request from the application");
         };
-        instance_manager.add_view(instance_id, creation_info.clone());
+        instance_manager.add_view(primary_instance, creation_info.clone());
+
+        // Then create the window, renderer, and scene.
 
         let (width, height) = creation_info.size;
         // Create a window and renderer
@@ -89,8 +96,10 @@ impl Desktop {
                             ) {
                                 Self::handle_input_event(
                                     &input_event,
+                                    primary_instance,
+                                    &mut ui,
+                                    &mut instance_manager,
                                     &mut renderer,
-                                    &instance_manager,
                                 )?;
                             }
 
@@ -184,10 +193,12 @@ impl Desktop {
 
     fn handle_input_event(
         input_event: &Event<WindowEvent>,
+        primary_instance: InstanceId,
+        ui: &mut UI,
+        instance_manager: &mut InstanceManager,
         renderer: &mut AsyncWindowRenderer,
-        instance_manager: &InstanceManager,
     ) -> Result<()> {
-        let send_to_view = |view_id: ViewId, instance_id: InstanceId, event: ViewEvent| {
+        let send_to_view = |instance_id: InstanceId, view_id: ViewId, event: ViewEvent| {
             instance_manager.send_event(instance_id, InstanceEvent::View(view_id, event))
         };
 
@@ -205,7 +216,7 @@ impl Desktop {
                     && let Some(view_event) =
                         Self::convert_window_event_to_view_event(window_event, Some(local_pos))
                 {
-                    send_to_view(view_id, instance_id, view_event)?;
+                    send_to_view(instance_id, view_id, view_event)?;
                 }
             }
             WindowEvent::CursorLeft { .. }
@@ -214,15 +225,17 @@ impl Desktop {
             | WindowEvent::CloseRequested
             | WindowEvent::KeyboardInput { .. }
             | WindowEvent::Ime(_)
-            | WindowEvent::Focused(_)
             | WindowEvent::Resized(_) => {
                 for (instance_id, view_id, _view_info) in instance_manager.views() {
                     if let Some(view_event) =
                         Self::convert_window_event_to_view_event(window_event, None)
                     {
-                        send_to_view(*view_id, instance_id, view_event)?;
+                        send_to_view(instance_id, *view_id, view_event)?;
                     }
                 }
+            }
+            WindowEvent::Focused(window_focused) => {
+                ui.make_foreground(primary_instance, *window_focused, instance_manager)?;
             }
             _ => {}
         }
