@@ -7,8 +7,6 @@ use massive_applications::{InstanceId, ViewId};
 ///
 /// Initially no instance is focused.
 ///
-/// Conceptual: Isn't there some generic system. This looks like something resembling an hierarchical
-/// switch.
 /// Architecture: This type applies changes while it generates their effects. We could just
 #[derive(Debug, Default)]
 pub struct FocusManager {
