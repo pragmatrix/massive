@@ -1,6 +1,6 @@
 use massive_applications::{InstanceId, ViewId};
 
-/// The focus manager organizes Instances an views in a focus hierarchy.
+/// The focus manager organizes Instances and views in a focus hierarchy.
 ///
 /// A view can only be focused if the containing instance is focused. But an instance can be focused
 /// without a focused view. E.g. when the whole window gets unfocused.
