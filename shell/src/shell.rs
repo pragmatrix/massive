@@ -165,34 +165,36 @@ impl ShellEvent {
 }
 
 impl CoalescingKey for ShellEvent {
-    type Key = ShellEventSkipKey;
+    type Key = ShellEventCoalescingKey;
 
-    fn coalescing_key(&self) -> Option<ShellEventSkipKey> {
+    fn coalescing_key(&self) -> Option<ShellEventCoalescingKey> {
         match self {
             ShellEvent::WindowEvent(window_id, window_event) => match window_event {
                 WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::RedrawRequested => {
-                    Some(ShellEventSkipKey::WindowEvent(
+                    Some(ShellEventCoalescingKey::WindowEvent(
                         *window_id,
                         None,
                         mem::discriminant(window_event),
                     ))
                 }
-                WindowEvent::CursorMoved { device_id, .. } => Some(ShellEventSkipKey::WindowEvent(
-                    *window_id,
-                    Some(*device_id),
-                    mem::discriminant(window_event),
-                )),
+                WindowEvent::CursorMoved { device_id, .. } => {
+                    Some(ShellEventCoalescingKey::WindowEvent(
+                        *window_id,
+                        Some(*device_id),
+                        mem::discriminant(window_event),
+                    ))
+                }
                 _ => None,
             },
             ShellEvent::ApplyAnimations(window_id) => {
-                Some(ShellEventSkipKey::ApplyAnimations(*window_id))
+                Some(ShellEventCoalescingKey::ApplyAnimations(*window_id))
             }
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum ShellEventSkipKey {
+pub enum ShellEventCoalescingKey {
     ApplyAnimations(WindowId),
     WindowEvent(WindowId, Option<DeviceId>, mem::Discriminant<WindowEvent>),
 }

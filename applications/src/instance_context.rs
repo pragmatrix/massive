@@ -110,31 +110,33 @@ pub enum InstanceCommand {
 }
 
 impl CoalescingKey for InstanceEvent {
-    type Key = InstanceEventSkipKey;
+    type Key = InstanceEventCoalescingKey;
 
-    fn coalescing_key(&self) -> Option<InstanceEventSkipKey> {
+    fn coalescing_key(&self) -> Option<InstanceEventCoalescingKey> {
         match self {
             InstanceEvent::View(view_id, view_event) => match view_event {
-                ViewEvent::Resized(..) => Some(InstanceEventSkipKey::ViewEvent(
+                ViewEvent::Resized(..) => Some(InstanceEventCoalescingKey::ViewEvent(
                     *view_id,
                     None,
                     mem::discriminant(view_event),
                 )),
-                ViewEvent::CursorMoved { device_id, .. } => Some(InstanceEventSkipKey::ViewEvent(
-                    *view_id,
-                    Some(*device_id),
-                    mem::discriminant(view_event),
-                )),
+                ViewEvent::CursorMoved { device_id, .. } => {
+                    Some(InstanceEventCoalescingKey::ViewEvent(
+                        *view_id,
+                        Some(*device_id),
+                        mem::discriminant(view_event),
+                    ))
+                }
                 _ => None,
             },
-            InstanceEvent::ApplyAnimations => Some(InstanceEventSkipKey::ApplyAnimations),
+            InstanceEvent::ApplyAnimations => Some(InstanceEventCoalescingKey::ApplyAnimations),
             InstanceEvent::Shutdown => None,
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub enum InstanceEventSkipKey {
+pub enum InstanceEventCoalescingKey {
     ApplyAnimations,
     ViewEvent(ViewId, Option<DeviceId>, mem::Discriminant<ViewEvent>),
 }
