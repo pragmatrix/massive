@@ -55,7 +55,7 @@ impl Desktop {
             )?;
         }
 
-        // First wait for the initial view that's being create.
+        // First wait for the initial view that's being created.
 
         let Some((primary_instance, InstanceCommand::CreateView(creation_info))) =
             requests_rx.recv().await
