@@ -210,7 +210,7 @@ impl InstanceManager {
             instance
                 .views
                 .iter()
-                .map(move |(view_id, info)| (*instance_id, *view_id, info))
+                .map(|(view_id, info)| (*instance_id, *view_id, info))
         })
     }
 
