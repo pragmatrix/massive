@@ -2,12 +2,15 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use log::error;
-use massive_geometry::Identity;
 use tokio::sync::mpsc::UnboundedSender;
 
-use massive_scene::{Handle, Location, Matrix, SceneChanges};
 use uuid::Uuid;
-use winit::event::{self};
+use winit::event::{self, DeviceId};
+use winit::window::CursorIcon;
+
+use massive_geometry::Identity;
+use massive_input::{AggregationEvent, InputEvent};
+use massive_scene::{Handle, Location, Matrix, SceneChanges};
 
 use crate::{
     InstanceId, RenderPacing, RenderTarget, Scene, ViewId, instance_context::InstanceCommand,
@@ -65,6 +68,12 @@ impl View {
         })
     }
 
+    /// The location's matrix.
+    pub fn matrix(&self) -> Handle<Matrix> {
+        self.location().value().matrix.clone()
+    }
+
+    /// A reference to the location that is used to position the view in the parent desktop space.
     pub fn location(&self) -> &Handle<Location> {
         &self.location
     }
@@ -77,6 +86,24 @@ impl View {
                 InstanceCommand::View(self.id, ViewCommand::Resize(new_size)),
             ))
             .context("Failed to send a resize request")
+    }
+
+    pub fn set_title(&self, title: impl Into<String>) -> Result<()> {
+        self.command_sender
+            .send((
+                self.instance,
+                InstanceCommand::View(self.id, ViewCommand::SetTitle(title.into())),
+            ))
+            .context("Failed to send a set title request")
+    }
+
+    pub fn set_cursor(&self, icon: CursorIcon) -> Result<()> {
+        self.command_sender
+            .send((
+                self.instance,
+                InstanceCommand::View(self.id, ViewCommand::SetCursor(icon)),
+            ))
+            .context("Failed to send a set cursor request")
     }
 }
 
@@ -91,7 +118,7 @@ pub enum ViewRole {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ViewCreationInfo {
     pub id: ViewId,
     pub location: Handle<Location>,
@@ -108,6 +135,10 @@ pub enum ViewCommand {
     },
     /// Feature: This should probably specify a depth too.
     Resize((u32, u32)),
+    /// Set the title of the view. The desktop decides how to display it.
+    SetTitle(String),
+    /// Set the cursor icon for the view.
+    SetCursor(CursorIcon),
 }
 
 impl RenderTarget for View {
@@ -171,4 +202,52 @@ pub enum ViewEvent {
 
     // Detail: ScaleFactorChanged may not be needed. If it happens, the instance manager should take
     // care of it.
+}
+
+impl InputEvent for ViewEvent {
+    type ScopeId = ViewId;
+
+    fn to_aggregation_event(&self) -> Option<AggregationEvent> {
+        match self {
+            ViewEvent::CursorMoved {
+                device_id,
+                position,
+            } => Some(AggregationEvent::CursorMoved {
+                device_id: *device_id,
+                position: (*position).into(),
+            }),
+            ViewEvent::CursorEntered { device_id } => Some(AggregationEvent::CursorEntered {
+                device_id: *device_id,
+            }),
+            ViewEvent::CursorLeft { device_id } => Some(AggregationEvent::CursorLeft {
+                device_id: *device_id,
+            }),
+            ViewEvent::MouseInput {
+                device_id,
+                state,
+                button,
+                ..
+            } => Some(AggregationEvent::MouseInput {
+                device_id: *device_id,
+                state: *state,
+                button: *button,
+            }),
+            ViewEvent::ModifiersChanged(modifiers) => {
+                Some(AggregationEvent::ModifiersChanged(*modifiers))
+            }
+            _ => None,
+        }
+    }
+
+    fn device(&self) -> Option<DeviceId> {
+        match self {
+            ViewEvent::KeyboardInput { device_id, .. }
+            | ViewEvent::CursorMoved { device_id, .. }
+            | ViewEvent::CursorEntered { device_id }
+            | ViewEvent::CursorLeft { device_id }
+            | ViewEvent::MouseWheel { device_id, .. }
+            | ViewEvent::MouseInput { device_id, .. } => Some(*device_id),
+            _ => None,
+        }
+    }
 }

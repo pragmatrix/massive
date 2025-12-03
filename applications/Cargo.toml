@@ -7,6 +7,10 @@ edition.workspace = true
 massive-scene.workspace = true
 massive-geometry.workspace = true
 massive-animation.workspace = true
+massive-util.workspace = true
+# Only here for the FontManager?
+massive-renderer.workspace = true
+massive-input.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true

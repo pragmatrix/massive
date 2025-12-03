@@ -2,6 +2,7 @@ use std::{future::Future, mem, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
 use log::{error, info, warn};
+use massive_util::CoalescingKey;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use wgpu::{Surface, SurfaceTarget};
 use winit::{
@@ -161,33 +162,39 @@ impl ShellEvent {
     pub fn apply_animations(&self) -> bool {
         matches!(self, Self::ApplyAnimations(_))
     }
+}
 
-    pub(crate) fn skip_key(&self) -> Option<ShellEventSkipKey> {
+impl CoalescingKey for ShellEvent {
+    type Key = ShellEventCoalescingKey;
+
+    fn coalescing_key(&self) -> Option<ShellEventCoalescingKey> {
         match self {
             ShellEvent::WindowEvent(window_id, window_event) => match window_event {
                 WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::RedrawRequested => {
-                    Some(ShellEventSkipKey::WindowEvent(
+                    Some(ShellEventCoalescingKey::WindowEvent(
                         *window_id,
                         None,
                         mem::discriminant(window_event),
                     ))
                 }
-                WindowEvent::CursorMoved { device_id, .. } => Some(ShellEventSkipKey::WindowEvent(
-                    *window_id,
-                    Some(*device_id),
-                    mem::discriminant(window_event),
-                )),
+                WindowEvent::CursorMoved { device_id, .. } => {
+                    Some(ShellEventCoalescingKey::WindowEvent(
+                        *window_id,
+                        Some(*device_id),
+                        mem::discriminant(window_event),
+                    ))
+                }
                 _ => None,
             },
             ShellEvent::ApplyAnimations(window_id) => {
-                Some(ShellEventSkipKey::ApplyAnimations(*window_id))
+                Some(ShellEventCoalescingKey::ApplyAnimations(*window_id))
             }
         }
     }
 }
 
 #[derive(Debug, PartialEq, Eq, Hash)]
-pub(crate) enum ShellEventSkipKey {
+pub enum ShellEventCoalescingKey {
     ApplyAnimations(WindowId),
     WindowEvent(WindowId, Option<DeviceId>, mem::Discriminant<WindowEvent>),
 }

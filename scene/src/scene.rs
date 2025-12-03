@@ -1,14 +1,8 @@
-use std::{
-    any::TypeId,
-    sync::{Arc, LazyLock},
-};
-
-use anyhow::Result;
-use parking_lot::Mutex;
+use std::sync::Arc;
 
 use crate::{
     Change, ChangeCollector, Handle, Object, SceneChange, SceneChanges,
-    type_id_generator::TypeIdGenerator,
+    id_generator::{self},
 };
 
 /// A scene is the only direct connection of actual contents to the renderer. It tracks all the
@@ -35,8 +29,7 @@ impl Scene {
     where
         SceneChange: From<Change<T::Change>>,
     {
-        let tid = TypeId::of::<T>();
-        let id = global_id_generator().lock().acquire(tid);
+        let id = id_generator::acquire::<T>();
         Handle::new(id, value, self.change_tracker.clone())
     }
 
@@ -45,35 +38,8 @@ impl Scene {
         self.change_tracker.push_many(changes);
     }
 
-    // Take the changes that need to be sent to the renderer and release the ids in the process.
-    pub fn take_changes(&self) -> Result<SceneChanges> {
-        let changes = self.change_tracker.take_all();
-
-        // Short circuit, to prevent locking the id generator.
-        if changes.is_empty() {
-            return Ok(changes);
-        }
-
-        // Performance: May not lock the id generator if there are no destructive changes.
-        let mut id_gen = global_id_generator().lock();
-
-        // Free up all deleted ids (this is done immediately for now, but may be later done in the
-        // renderer, for example to keep ids alive until animations are finished or cached resources
-        // are cleaned up)
-        for (type_id, id) in changes.iter().flat_map(|sc| sc.destructive_change()) {
-            // Performance: Order by TypeId first to prevent expensive HashMap lookups?
-            id_gen.release(type_id, id);
-        }
-
-        Ok(changes)
+    // Take the changes that need to be sent to the renderer.
+    pub fn take_changes(&self) -> SceneChanges {
+        self.change_tracker.take_all()
     }
-}
-
-/// ADR: Decided to use a global id generator, so that we can support multiple scenes per renderer
-/// all sharing the same id space.
-fn global_id_generator() -> &'static Mutex<TypeIdGenerator> {
-    static ID_GEN: LazyLock<Mutex<TypeIdGenerator>> =
-        LazyLock::new(|| TypeIdGenerator::default().into());
-
-    &ID_GEN
 }

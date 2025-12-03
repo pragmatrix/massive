@@ -1,6 +1,6 @@
 use std::{collections::HashMap, future::Future, panic::AssertUnwindSafe, pin::Pin};
 
-use anyhow::anyhow;
+use anyhow::{Context, anyhow};
 use derive_more::{Debug, Deref};
 use futures::FutureExt;
 use tokio::{
@@ -11,8 +11,9 @@ use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, RenderPacing,
-    ViewCreationInfo, ViewId,
+    ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
+use massive_renderer::FontManager;
 use massive_shell::Result;
 
 /// Manages running application instances with lifecycle control.
@@ -52,10 +53,20 @@ impl InstanceManager {
     /// Restore an instance (spawn it with CreationMode::Restore).
     /// This would typically be called after stopping an instance that needs to be restarted.
     #[allow(dead_code)]
-    pub fn restore(&mut self, application: &Application) -> Result<InstanceId> {
+    pub fn restore(
+        &mut self,
+        application: &Application,
+        monitor_scale_factor: f64,
+        fonts: FontManager,
+    ) -> Result<InstanceId> {
         // Note: Each spawn creates a new instance with a new ID.
         // Applications should handle state restoration via CreationMode::Restore.
-        self.spawn(application, CreationMode::Restore)
+        self.spawn(
+            application,
+            CreationMode::Restore,
+            monitor_scale_factor,
+            fonts,
+        )
     }
 
     /// Stop an instance gracefully by sending an Exit event.
@@ -83,6 +94,8 @@ impl InstanceManager {
         &mut self,
         application: &Application,
         creation_mode: CreationMode,
+        monitor_scale_factor: f64,
+        fonts: FontManager,
     ) -> Result<InstanceId> {
         let instance_id = InstanceId::from(Uuid::new_v4());
         let (events_tx, events_rx) = unbounded_channel();
@@ -90,6 +103,8 @@ impl InstanceManager {
         let instance_context = InstanceContext::new(
             instance_id,
             creation_mode,
+            monitor_scale_factor,
+            fonts,
             self.requests_tx.clone(),
             events_rx,
         );
@@ -99,7 +114,7 @@ impl InstanceManager {
             let result = AssertUnwindSafe(instance_future).catch_unwind().await;
             let result = match result {
                 Ok(r) => r,
-                Err(_) => Err(anyhow!("Instance panicked")),
+                Err(e) => Err(anyhow!("Instance panicked : {e:?}")),
             };
             (instance_id, result)
         });
@@ -117,24 +132,10 @@ impl InstanceManager {
         Ok(instance_id)
     }
 
-    /// Wait for a specific instance to complete.
-    #[allow(dead_code)]
-    pub async fn wait_for_instance(&mut self, target_id: InstanceId) -> Result<()> {
-        while let Some(join_result) = self.join_set.join_next().await {
-            let (instance_id, result) = join_result
-                .unwrap_or_else(|e| (target_id, Err(anyhow!("Instance stopped: {}", e))));
-
-            self.instances.remove(&instance_id);
-
-            if instance_id == target_id {
-                return result;
-            }
-        }
-        Err(anyhow!("Instance {:?} not found in join set", target_id))
-    }
-
     /// Wait for the next instance to complete and handle cleanup.
-    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was cancelled or the JoinSet is empty.
+    ///
+    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
+    /// cancelled or the JoinSet is empty.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result
@@ -148,16 +149,22 @@ impl InstanceManager {
         self.instances.is_empty()
     }
 
+    pub fn send_view_event(
+        &self,
+        instance_id: InstanceId,
+        view_id: ViewId,
+        event: ViewEvent,
+    ) -> Result<()> {
+        self.send_event(instance_id, InstanceEvent::View(view_id, event))
+    }
+
     pub fn send_event(&self, instance_id: InstanceId, event: InstanceEvent) -> Result<()> {
-        let instance = self
-            .instances
-            .get(&instance_id)
-            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
+        let instance = self.get_instance(instance_id)?;
 
         instance
             .events_tx
             .send(event)
-            .map_err(|_| anyhow!("Failed to send event to instance {:?}", instance_id))
+            .with_context(|| format!("Failed to send event to instance {:?}", instance_id))
     }
 
     pub fn broadcast_event(&self, event: InstanceEvent) {
@@ -189,10 +196,7 @@ impl InstanceManager {
         view_id: ViewId,
         pacing: RenderPacing,
     ) -> Result<()> {
-        let instance = self
-            .instances
-            .get_mut(&instance_id)
-            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
+        let instance = self.mut_instance(instance_id)?;
         let view = instance
             .views
             .get_mut(&view_id)
@@ -201,25 +205,54 @@ impl InstanceManager {
         Ok(())
     }
 
-    pub fn views(&self) -> impl Iterator<Item = (InstanceId, &ViewId, &ViewInfo)> {
+    pub fn views(&self) -> impl Iterator<Item = (InstanceId, ViewId, &ViewInfo)> {
         self.instances.iter().flat_map(|(instance_id, instance)| {
             instance
                 .views
                 .iter()
-                .map(move |(view_id, info)| (*instance_id, view_id, info))
+                .map(|(view_id, info)| (*instance_id, *view_id, info))
         })
     }
 
-    #[allow(dead_code)]
-    pub fn get_view(&self, instance_id: InstanceId, view_id: ViewId) -> Option<&ViewInfo> {
+    /// Returns the ViewInfo of a view if it's instance and the view exists.
+    pub fn get_view(&self, instance_id: InstanceId, view_id: ViewId) -> Result<&ViewInfo> {
+        self.get_instance(instance_id).and_then(|instance| {
+            instance
+                .views
+                .get(&view_id)
+                .ok_or_else(|| anyhow!("View not found"))
+        })
+    }
+
+    /// Returns the first view with the given role. Returns `None` if no view with that role is
+    /// found and an error if the instance does not exist.
+    pub fn get_view_by_role(
+        &self,
+        instance_id: InstanceId,
+        role: ViewRole,
+    ) -> Result<Option<ViewId>> {
+        Ok(self
+            .get_instance(instance_id)?
+            .views
+            .iter()
+            .find(|(_, info)| info.role == role)
+            .map(|(id, _)| *id))
+    }
+
+    fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {
         self.instances
-            .get(&instance_id)
-            .and_then(|instance| instance.views.get(&view_id))
+            .get(&instance)
+            .ok_or_else(|| anyhow!("Internal error: Instance {:?} does not exist", instance))
+    }
+
+    fn mut_instance(&mut self, instance: InstanceId) -> Result<&mut RunningInstance> {
+        self.instances
+            .get_mut(&instance)
+            .ok_or_else(|| anyhow!("Internal error: Instance {:?} does not exist", instance))
     }
 
     /// Returns the effective pacing across all views.
     /// If at least one view has Smooth pacing, returns Smooth; otherwise returns Fast.
-    #[allow(dead_code)]
     pub fn effective_pacing(&self) -> RenderPacing {
         if self
             .instances

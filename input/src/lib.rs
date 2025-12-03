@@ -6,7 +6,6 @@ mod event_history_detect;
 mod event_manager;
 mod external_event;
 mod mouse_gesture;
-mod progress;
 mod sensor;
 mod tracker;
 
@@ -15,7 +14,6 @@ pub use event_aggregator::*;
 pub use event_manager::*;
 pub use external_event::*;
 pub use mouse_gesture::*;
-pub use progress::*;
 pub use sensor::*;
 pub use tracker::*;
 

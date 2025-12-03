@@ -223,6 +223,14 @@ pub struct PointingDeviceState {
     pub buttons: HashMap<MouseButton, MouseButtonState>,
 }
 
+impl PointingDeviceState {
+    pub fn any_button_pressed(&self) -> bool {
+        self.buttons
+            .values()
+            .any(|button_state| button_state.element.is_pressed())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct MouseButtonState {
     pub element: ElementState,

@@ -5,10 +5,12 @@ edition.workspace = true
 
 [dependencies]
 massive-geometry = { workspace = true }
+massive-util = { workspace = true }
 
 anyhow = { workspace = true }
 derive_more = { workspace = true }
 euclid = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+tokio = { workspace = true }
 winit = { workspace = true }
