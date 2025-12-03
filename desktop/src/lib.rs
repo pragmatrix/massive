@@ -1,4 +1,4 @@
-use std::{collections::HashMap, time::Instant};
+use std::{cmp::Ordering, collections::HashMap, time::Instant};
 
 use anyhow::bail;
 use tokio::sync::mpsc::unbounded_channel;
@@ -212,7 +212,7 @@ impl Desktop {
             | WindowEvent::MouseWheel { .. }
             | WindowEvent::DroppedFile(_)
             | WindowEvent::HoveredFile(_) => {
-                if let Some((view_id, instance_id, local_pos)) = hit_result
+                if let Some((instance_id, view_id, local_pos)) = hit_result
                     && let Some(view_event) =
                         Self::convert_window_event_to_view_event(window_event, Some(local_pos))
                 {
@@ -247,7 +247,7 @@ impl Desktop {
         input_event: &Event<WindowEvent>,
         instance_manager: &InstanceManager,
         renderer: &mut AsyncWindowRenderer,
-    ) -> Option<(ViewId, InstanceId, Point3)> {
+    ) -> Option<(InstanceId, ViewId, Point3)> {
         let pos = input_event.pos()?;
         Self::hit_test_at_point(pos, instance_manager, renderer)
     }
@@ -256,7 +256,7 @@ impl Desktop {
         screen_pos: Point,
         instance_manager: &InstanceManager,
         renderer: &mut AsyncWindowRenderer,
-    ) -> Option<(ViewId, InstanceId, Point3)> {
+    ) -> Option<(InstanceId, ViewId, Point3)> {
         let mut hits = Vec::new();
 
         for (instance_id, view_id, view_info) in instance_manager.views() {
@@ -274,17 +274,13 @@ impl Desktop {
                     && local_pos.y >= 0.0
                     && local_pos.y <= size.1 as f64
                 {
-                    hits.push((*view_id, instance_id, local_pos));
+                    hits.push((instance_id, *view_id, local_pos));
                 }
             }
         }
 
         // Sort by z (descending) to get topmost view first
-        hits.sort_by(|a, b| {
-            b.2.z
-                .partial_cmp(&a.2.z)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        hits.sort_by(|a, b| b.2.z.partial_cmp(&a.2.z).unwrap_or(Ordering::Equal));
 
         hits.first().copied()
     }
