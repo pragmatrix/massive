@@ -193,7 +193,7 @@ impl UI {
 
     /// Specifically hit tests on a view without considering its boundaries.
     ///
-    ///  Meaning that the hit test result may be out of bounds.
+    /// Meaning that the hit test result may be out of bounds.
     fn hit_test_on_view(
         screen_pos: Point,
         instance_manager: &InstanceManager,

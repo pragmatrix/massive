@@ -52,7 +52,7 @@ impl<T: CoalescingKey> CoalescingReceiver<T> {
             // This is to remove the lagging of resizes, redraws and
             // other events that are considered safe to skip without causing side effects.
             //
-            // Robustness: Going from VecDequeue to Vec and back is a mess.
+            // Robustness: Going from VecDeque to Vec and back is a mess.
             //
             // Performance: Reuse capacity?
             {

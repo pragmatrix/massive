@@ -6,8 +6,6 @@ use massive_applications::{InstanceId, ViewId};
 /// without a focused view. E.g. when the whole window gets unfocused.
 ///
 /// Initially no instance is focused.
-///
-/// Architecture: This type applies changes while it generates their effects. We could just
 #[derive(Debug, Default)]
 pub struct FocusManager {
     instance: Option<FocusedInstance>,
