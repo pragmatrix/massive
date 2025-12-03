@@ -35,6 +35,16 @@ impl FocusManager {
         Self::default()
     }
 
+    pub fn focused_instance(&self) -> Option<InstanceId> {
+        self.instance.as_ref().map(|instance| instance.id)
+    }
+
+    pub fn focused_view(&self) -> Option<(InstanceId, ViewId)> {
+        self.instance
+            .as_ref()
+            .and_then(|instance| instance.focused_view.map(|view| (instance.id, view)))
+    }
+
     #[must_use]
     /// Focus the instance, and optionally a view.
     pub fn focus(&mut self, instance_id: InstanceId, view: Option<ViewId>) -> Vec<FocusTransition> {

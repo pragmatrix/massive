@@ -1,20 +1,19 @@
-use std::{cmp::Ordering, collections::HashMap, time::Instant};
+use std::{collections::HashMap, time::Instant};
 
 use anyhow::bail;
 use tokio::sync::mpsc::unbounded_channel;
 use winit::{
     dpi::PhysicalSize,
-    event::{self, WindowEvent},
+    event::{self},
 };
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEvent, InstanceId, Options, RenderPacing, Scene,
-    ViewCommand, ViewEvent, ViewId,
+    ViewCommand, ViewId,
 };
-use massive_geometry::{Point, Point3};
-use massive_input::{Event, EventManager, ExternalEvent};
+use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
-use massive_shell::{ApplicationContext, AsyncWindowRenderer, Result, ShellEvent, ShellWindow};
+use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
 
 pub mod focus_manager;
 mod instance_manager;
@@ -94,12 +93,11 @@ impl Desktop {
                             if let Some(input_event) = event_manager.add_event(
                                 ExternalEvent::from_window_event(window_id, window_event.clone(), Instant::now())
                             ) {
-                                Self::handle_input_event(
+                                ui.handle_input_event(
                                     &input_event,
                                     primary_instance,
-                                    &mut ui,
                                     &mut instance_manager,
-                                    &mut renderer,
+                                    renderer.geometry(),
                                 )?;
                             }
 
@@ -189,160 +187,5 @@ impl Desktop {
             }
         }
         Ok(())
-    }
-
-    fn handle_input_event(
-        input_event: &Event<WindowEvent>,
-        primary_instance: InstanceId,
-        ui: &mut UI,
-        instance_manager: &mut InstanceManager,
-        renderer: &mut AsyncWindowRenderer,
-    ) -> Result<()> {
-        let send_to_view = |instance_id: InstanceId, view_id: ViewId, event: ViewEvent| {
-            instance_manager.send_event(instance_id, InstanceEvent::View(view_id, event))
-        };
-
-        let window_event = input_event.event();
-        let hit_result = Self::hit_test_from_event(input_event, instance_manager, renderer);
-
-        match window_event {
-            WindowEvent::CursorMoved { .. }
-            | WindowEvent::CursorEntered { .. }
-            | WindowEvent::MouseInput { .. }
-            | WindowEvent::MouseWheel { .. }
-            | WindowEvent::DroppedFile(_)
-            | WindowEvent::HoveredFile(_) => {
-                if let Some((instance_id, view_id, local_pos)) = hit_result
-                    && let Some(view_event) =
-                        Self::convert_window_event_to_view_event(window_event, Some(local_pos))
-                {
-                    send_to_view(instance_id, view_id, view_event)?;
-                }
-            }
-            WindowEvent::CursorLeft { .. }
-            | WindowEvent::ModifiersChanged(_)
-            | WindowEvent::HoveredFileCancelled
-            | WindowEvent::CloseRequested
-            | WindowEvent::KeyboardInput { .. }
-            | WindowEvent::Ime(_)
-            | WindowEvent::Resized(_) => {
-                for (instance_id, view_id, _view_info) in instance_manager.views() {
-                    if let Some(view_event) =
-                        Self::convert_window_event_to_view_event(window_event, None)
-                    {
-                        send_to_view(instance_id, *view_id, view_event)?;
-                    }
-                }
-            }
-            WindowEvent::Focused(window_focused) => {
-                ui.make_foreground(primary_instance, *window_focused, instance_manager)?;
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
-    fn hit_test_from_event(
-        input_event: &Event<WindowEvent>,
-        instance_manager: &InstanceManager,
-        renderer: &mut AsyncWindowRenderer,
-    ) -> Option<(InstanceId, ViewId, Point3)> {
-        let pos = input_event.pos()?;
-        Self::hit_test_at_point(pos, instance_manager, renderer)
-    }
-
-    fn hit_test_at_point(
-        screen_pos: Point,
-        instance_manager: &InstanceManager,
-        renderer: &mut AsyncWindowRenderer,
-    ) -> Option<(InstanceId, ViewId, Point3)> {
-        let mut hits = Vec::new();
-
-        for (instance_id, view_id, view_info) in instance_manager.views() {
-            let location = view_info.location.value();
-            let matrix = location.matrix.value();
-            let size = view_info.size;
-
-            if let Some(local_pos) = renderer
-                .geometry()
-                .unproject_to_model_z0(screen_pos, &matrix)
-            {
-                // Check if the local position is within the view bounds
-                if local_pos.x >= 0.0
-                    && local_pos.x <= size.0 as f64
-                    && local_pos.y >= 0.0
-                    && local_pos.y <= size.1 as f64
-                {
-                    hits.push((instance_id, *view_id, local_pos));
-                }
-            }
-        }
-
-        // Sort by z (descending) to get topmost view first
-        hits.sort_by(|a, b| b.2.z.partial_cmp(&a.2.z).unwrap_or(Ordering::Equal));
-
-        hits.first().copied()
-    }
-
-    fn convert_window_event_to_view_event(
-        window_event: &WindowEvent,
-        pos: Option<Point3>,
-    ) -> Option<ViewEvent> {
-        match window_event {
-            WindowEvent::CursorMoved { device_id, .. } => {
-                let local_pos = pos?;
-                Some(ViewEvent::CursorMoved {
-                    device_id: *device_id,
-                    position: (local_pos.x, local_pos.y),
-                })
-            }
-            WindowEvent::CursorEntered { device_id } => Some(ViewEvent::CursorEntered {
-                device_id: *device_id,
-            }),
-            WindowEvent::CursorLeft { device_id } => Some(ViewEvent::CursorLeft {
-                device_id: *device_id,
-            }),
-            WindowEvent::MouseInput {
-                device_id,
-                state,
-                button,
-                ..
-            } => Some(ViewEvent::MouseInput {
-                device_id: *device_id,
-                state: *state,
-                button: *button,
-            }),
-            WindowEvent::MouseWheel {
-                device_id,
-                delta,
-                phase,
-                ..
-            } => Some(ViewEvent::MouseWheel {
-                device_id: *device_id,
-                delta: *delta,
-                phase: *phase,
-            }),
-            WindowEvent::ModifiersChanged(modifiers) => {
-                Some(ViewEvent::ModifiersChanged(*modifiers))
-            }
-            WindowEvent::DroppedFile(path) => Some(ViewEvent::DroppedFile(path.clone())),
-            WindowEvent::HoveredFile(path) => Some(ViewEvent::HoveredFile(path.clone())),
-            WindowEvent::HoveredFileCancelled => Some(ViewEvent::HoveredFileCancelled),
-            WindowEvent::CloseRequested => Some(ViewEvent::CloseRequested),
-            WindowEvent::KeyboardInput {
-                device_id,
-                event,
-                is_synthetic,
-            } => Some(ViewEvent::KeyboardInput {
-                device_id: *device_id,
-                event: event.clone(),
-                is_synthetic: *is_synthetic,
-            }),
-            WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
-            WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
-            WindowEvent::Resized(size) => Some(ViewEvent::Resized(size.width, size.height)),
-            _ => None,
-        }
     }
 }

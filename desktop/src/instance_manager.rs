@@ -205,16 +205,16 @@ impl InstanceManager {
         Ok(())
     }
 
-    pub fn views(&self) -> impl Iterator<Item = (InstanceId, &ViewId, &ViewInfo)> {
+    pub fn views(&self) -> impl Iterator<Item = (InstanceId, ViewId, &ViewInfo)> {
         self.instances.iter().flat_map(|(instance_id, instance)| {
             instance
                 .views
                 .iter()
-                .map(move |(view_id, info)| (*instance_id, view_id, info))
+                .map(move |(view_id, info)| (*instance_id, *view_id, info))
         })
     }
 
-    #[allow(dead_code)]
+    /// Returns the ViewInfo of a view if it's instance and the view exists.
     pub fn get_view(&self, instance_id: InstanceId, view_id: ViewId) -> Result<&ViewInfo> {
         self.get_instance(instance_id).and_then(|instance| {
             instance

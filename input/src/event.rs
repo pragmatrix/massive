@@ -4,8 +4,8 @@ use winit::event::{DeviceId, ElementState, MouseButton};
 
 use super::{ButtonSensor, event_history::EventRecord, tracker::Movement};
 use crate::{
-    AggregationEvent, InputEvent, MouseGesture, event_aggregator::DeviceStates,
-    event_history::EventHistory,
+    AggregationEvent, InputEvent, MouseGesture, PointingDeviceState,
+    event_aggregator::DeviceStates, event_history::EventHistory,
 };
 use massive_geometry::{Point, Vector};
 
@@ -202,6 +202,10 @@ impl<'history, E: InputEvent> Event<'history, E> {
 
     pub(crate) fn to_aggregation_event(&self) -> Option<AggregationEvent> {
         self.record().event().to_aggregation_event()
+    }
+
+    pub fn pointing_device_state(&self) -> Option<&PointingDeviceState> {
+        self.states().pointing_device(self.device()?)
     }
 
     pub fn states(&self) -> &DeviceStates {
