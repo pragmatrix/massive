@@ -6,7 +6,7 @@ use std::{
 use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;
 
-use massive_geometry::{Point3, Vector3};
+use massive_geometry::Vector3;
 use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
 // We need this for Rust to store our data correctly for the shaders
@@ -69,16 +69,9 @@ impl From<(f32, f32, f32)> for Vertex {
     }
 }
 
-impl From<Point3> for Vertex {
-    fn from(v: Point3) -> Self {
-        let v = v.cast::<f32>().expect("Failed to cast Point3 to f32");
-        Self::new(v.x, v.y, v.z)
-    }
-}
-
 impl From<Vector3> for Vertex {
     fn from(v: Vector3) -> Self {
-        let v = v.cast::<f32>().expect("Failed to cast Point3 to f32");
+        let v = v.as_vec3();
         Self::new(v.x, v.y, v.z)
     }
 }
@@ -186,18 +179,18 @@ impl<T: Pod> AsBytes for T {
     }
 }
 
-pub mod cgmath {
+pub mod glam_impl {
     use crate::pods;
 
     use super::ToPod;
-    use cgmath::Matrix4;
+    use glam::DMat4;
 
-    impl ToPod for Matrix4<f64> {
+    impl ToPod for DMat4 {
         type Pod = super::Matrix4;
 
         fn to_pod(&self) -> Self::Pod {
-            let m: Matrix4<f32> = self.cast().expect("Cast to Matrix4<f32>");
-            pods::Matrix4(m.into())
+            let m = self.as_mat4();
+            pods::Matrix4(m.to_cols_array_2d())
         }
     }
 }

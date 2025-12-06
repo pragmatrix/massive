@@ -1,12 +1,12 @@
-use crate::{Matrix4, Point3, Projection, Vector3};
+use crate::{Matrix4, Projection, Vector3};
 
 // TODO: May use yaw / pitch based camera?
 // <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
 
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Camera {
-    pub eye: Point3,
-    pub target: Point3,
+    pub eye: Vector3,
+    pub target: Vector3,
     pub up: Vector3,
     pub fovy: f64,
 }
@@ -20,11 +20,11 @@ impl Camera {
         Self::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
     }
 
-    pub fn new(eye: impl Into<Point3>, target: impl Into<Point3>) -> Self {
+    pub fn new(eye: impl Into<Vector3>, target: impl Into<Vector3>) -> Self {
         Self {
             eye: eye.into(),
             target: target.into(),
-            up: Vector3::unit_y(),
+            up: Vector3::Y,
             fovy: Self::DEFAULT_FOVY,
         }
     }
@@ -50,9 +50,9 @@ pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matri
 // coordinate system (WGPU).
 // <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
 #[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Matrix4 = Matrix4::new(
+pub const OPENGL_TO_WGPU_MATRIX: Matrix4 = Matrix4::from_cols_array(&[
     1.0, 0.0, 0.0, 0.0,
     0.0, 1.0, 0.0, 0.0,
     0.0, 0.0, 0.5, 0.0,
     0.0, 0.0, 0.5, 1.0,
-);
+]);

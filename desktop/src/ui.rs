@@ -5,7 +5,7 @@ use anyhow::Result;
 use winit::event::WindowEvent;
 
 use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
-use massive_geometry::{Point, Point3};
+use massive_geometry::{Point, Vector3};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
@@ -27,7 +27,7 @@ pub struct UI {
 struct CursorFocus {
     instance: InstanceId,
     view: ViewId,
-    hit_on_view: Point3,
+    hit_on_view: Vector3,
 }
 
 impl UI {
@@ -156,7 +156,7 @@ impl UI {
         input_event: &Event<WindowEvent>,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Option<(InstanceId, ViewId, Point3)> {
+    ) -> Option<(InstanceId, ViewId, Vector3)> {
         let pos = input_event.pos()?;
         Self::hit_test_at_point(pos, instance_manager, render_geometry)
     }
@@ -165,7 +165,7 @@ impl UI {
         screen_pos: Point,
         instance_manager: &InstanceManager,
         geometry: &RenderGeometry,
-    ) -> Option<(InstanceId, ViewId, Point3)> {
+    ) -> Option<(InstanceId, ViewId, Vector3)> {
         let mut hits = Vec::new();
 
         for (instance_id, view_id, view_info) in instance_manager.views() {
@@ -200,7 +200,7 @@ impl UI {
         render_geometry: &RenderGeometry,
         instance_id: InstanceId,
         view_id: ViewId,
-    ) -> Option<Point3> {
+    ) -> Option<Vector3> {
         let view_info = instance_manager.get_view(instance_id, view_id).ok()?;
         let location = view_info.location.value();
         let matrix = location.matrix.value();

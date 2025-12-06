@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 use approx::{abs_diff_eq, ulps_eq};
-use massive_geometry::Point3;
+use massive_geometry::Vector3;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum GlyphClass {
@@ -34,7 +34,7 @@ impl GlyphClass {
     /// The quad is clockwise, starting from the left top corner of the glyph as rendered.
     ///
     /// The 4 points are guaranteed to be in the same plane.
-    pub fn from_transformed_pixel(quad: &[Point3; 4]) -> Self {
+    pub fn from_transformed_pixel(quad: &[Vector3; 4]) -> Self {
         // TODO: 3 Points might be enough.
 
         // TODO: may compare z for quad[3]?

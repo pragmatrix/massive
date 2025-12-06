@@ -1,5 +1,5 @@
 use bytemuck::{Pod, Zeroable};
-use massive_geometry::Point3;
+use massive_geometry::Vector3;
 
 use super::atlas_renderer::AtlasInstance;
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
 #[derive(Debug)]
 pub struct Instance {
     pub atlas_rect: glyph_atlas::Rectangle,
-    pub vertices: [Point3; 4],
+    pub vertices: [Vector3; 4],
 }
 
 impl AtlasInstance for Instance {

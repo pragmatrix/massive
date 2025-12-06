@@ -23,7 +23,6 @@ mod unit_interval;
 pub use bounds::*;
 pub use bounds3::*;
 pub use camera::*;
-use cgmath::One;
 pub use color::*;
 pub use cubic_bezier::*;
 pub use depth_range::*;
@@ -50,33 +49,22 @@ pub trait Contains<Other> {
 }
 
 // Performance: This should probably not Copy!
-pub type Matrix4 = cgmath::Matrix4<f64>;
-pub type Point3 = cgmath::Point3<f64>;
-pub type Vector3 = cgmath::Vector3<f64>;
-pub type Vector4 = cgmath::Vector4<f64>;
-
-pub trait Identity {
-    fn identity() -> Self;
-}
-
-impl Identity for Matrix4 {
-    fn identity() -> Self {
-        cgmath::Matrix4::one()
-    }
-}
+pub type Matrix4 = glam::DMat4;
+pub type Vector3 = glam::DVec3;
+pub type Vector4 = glam::DVec4;
 
 pub trait PerspectiveDivide {
-    fn perspective_divide(&self) -> Option<Point3>;
+    fn perspective_divide(&self) -> Option<Vector3>;
 }
 
 impl PerspectiveDivide for Vector4 {
-    // Perspective divide helper: converts homogeneous Vector4 (x,y,z,w) into Point3 (x/w,y/w,z/w)
+    // Perspective divide helper: converts homogeneous Vector4 (x,y,z,w) into Vector3 (x/w,y/w,z/w)
     // returning None if w is too close to zero.
-    fn perspective_divide(&self) -> Option<Point3> {
+    fn perspective_divide(&self) -> Option<Vector3> {
         let w = self.w;
         if w.abs() < EPSILON {
             return None;
         }
-        Some(Point3::new(self.x / w, self.y / w, self.z / w))
+        Some(Vector3::new(self.x / w, self.y / w, self.z / w))
     }
 }

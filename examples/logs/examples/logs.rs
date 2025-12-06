@@ -17,7 +17,7 @@ use winit::{
 };
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Identity, Vector3};
+use massive_geometry::Vector3;
 use massive_scene::{Handle, Location, Matrix, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
@@ -131,7 +131,7 @@ impl Logs {
         let vertical_center = scene.animated(0.0);
 
         // We move up the lines by their top position.
-        let vertical_center_matrix = scene.stage(Matrix::identity());
+        let vertical_center_matrix = scene.stage(Matrix::IDENTITY);
 
         // Final position for all lines (runs are y-translated, but only increasing).
         let location = scene.stage(Location {

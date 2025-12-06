@@ -10,6 +10,6 @@ cosmic-text = { workspace = true }
 # TODO: This is needed for Weight.
 swash = { workspace = true }
 derive_more = { workspace = true }
-cgmath = { workspace = true }
+glam = { workspace = true }
 serde = { workspace = true }
 smallbox.workspace = true

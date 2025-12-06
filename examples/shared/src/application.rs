@@ -204,11 +204,11 @@ impl Application {
             )
                 .into(),
         );
-        let angle_x = cgmath::Rad((self.rotation.x as f64 / 10.).to_radians());
-        let angle_y = cgmath::Rad((-self.rotation.y as f64 / 10.).to_radians());
+        let angle_x = (self.rotation.x as f64 / 10.).to_radians();
+        let angle_y = (-self.rotation.y as f64 / 10.).to_radians();
 
-        let x_rotation = Matrix4::from_angle_y(angle_x);
-        let y_rotation = Matrix4::from_angle_x(angle_y);
+        let x_rotation = Matrix4::from_rotation_y(angle_x);
+        let y_rotation = Matrix4::from_rotation_x(angle_y);
 
         current_translation * y_rotation * x_rotation * center_transformation
     }

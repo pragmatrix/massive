@@ -1,13 +1,13 @@
-use crate::{Point3, Size3};
+use crate::{Size3, Vector3};
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Bounds3 {
-    pub min: Point3,
-    pub max: Point3,
+    pub min: Vector3,
+    pub max: Vector3,
 }
 
 impl Bounds3 {
-    pub fn new(min: impl Into<Point3>, max: impl Into<Point3>) -> Self {
+    pub fn new(min: impl Into<Vector3>, max: impl Into<Vector3>) -> Self {
         Self {
             min: min.into(),
             max: max.into(),

@@ -2,7 +2,7 @@ use std::{collections::HashSet, fmt};
 
 use anyhow::Result;
 use cosmic_text::{self as text};
-use massive_geometry::{Point, Point3};
+use massive_geometry::{Point, Vector3};
 use massive_shapes::{GlyphRun, RunGlyph};
 use swash::scale::ScaleContext;
 use text::SwashContent;
@@ -212,7 +212,7 @@ impl TextLayerRenderer {
         run: &GlyphRun,
         glyph: &RunGlyph,
         placement: &text::Placement,
-    ) -> [Point3; 4] {
+    ) -> [Vector3; 4] {
         let (lt, rb) = run.place_glyph(glyph, placement);
 
         // Convert the pixel rect to 3D Points.

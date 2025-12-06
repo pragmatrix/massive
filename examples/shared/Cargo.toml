@@ -9,7 +9,7 @@ massive-geometry = { workspace = true }
 massive-shapes = { workspace = true }
 massive-shell = { workspace = true }
 winit = { workspace = true }
-cgmath = { workspace = true }
+glam = { workspace = true }
 serde = { workspace = true }
 serde_tuple = { workspace = true }
 cosmic-text = { workspace = true }

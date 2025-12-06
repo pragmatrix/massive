@@ -43,21 +43,21 @@ massive-util = { path = "util" }
 
 anyhow = "1.0.71"
 approx = "0.5.1"
-bitflags = { version = "2.9.1" }
+bitflags = "2.9.1"
 bytemuck = { version = "1.13.1", features = ["derive"] }
-cgmath = "0.18.0"
 chrono = "0.4.38"
 cosmic-text = { version = "0.15.0", features = ["swash"] }
 derive_more = { version = "2.0.1", features = ["full"] }
 env_logger = "0.11.3"
-euclid = { version = "0.22.11" }
+euclid = "0.22.11"
 flo_curves = "0.8.0"
-futures = { version = "0.3.30" }
+futures = "0.3.30"
+glam = "0.30.9"
 itertools = "0.14.0"
 log = "0.4.28"
 parking_lot = "0.12.5"
 postcard = { version = "1.0.8", features = ["use-std"] }
-replace_with = { version = "0.1.8" }
+replace_with = "0.1.8"
 serde = { version = "1.0.164", features = ["derive"] }
 serde_json = "1.0.116"
 serde_tuple = "1.1.2"

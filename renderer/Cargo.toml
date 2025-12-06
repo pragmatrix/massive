@@ -21,7 +21,7 @@ anyhow = { workspace = true }
 approx = { workspace = true }
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
-cgmath = { workspace = true }
+glam = { workspace = true }
 cosmic-text = { workspace = true }
 derive_more = { workspace = true }
 itertools = { workspace = true }

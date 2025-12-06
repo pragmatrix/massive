@@ -14,7 +14,7 @@ use crate::{
     stats::MeasureSeries,
     tools::QuadIndexBuffer,
 };
-use massive_geometry::{Color, Matrix4};
+use massive_geometry::{Color, Matrix4, Vector3};
 use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
@@ -417,7 +417,7 @@ impl Renderer {
             // Architecture: We may go multiple times over the same visual and compute the
             //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
             //   lazy table here.
-            let matrix = context.view_projection_matrix * matrices.get(visual.location_id);
+            let matrix = context.view_projection_matrix * *matrices.get(visual.location_id);
 
             let pass = &mut context.pass;
 
@@ -442,8 +442,11 @@ impl Renderer {
     /// A Matrix that translates from the WGPU coordinate system to surface coordinates.
     pub fn surface_matrix(&self) -> Matrix4 {
         let (width, height) = self.surface_size();
-        Matrix4::from_nonuniform_scale(width as f64 / 2.0, -(height as f64 / 2.0), 1.0)
-            * Matrix4::from_translation(cgmath::Vector3::new(1.0, -1.0, 0.0))
+        Matrix4::from_scale(Vector3::new(
+            width as f64 / 2.0,
+            -(height as f64 / 2.0),
+            1.0,
+        )) * Matrix4::from_translation(Vector3::new(1.0, -1.0, 0.0))
     }
 
     /// Resizes the surface, if necessary.

@@ -22,7 +22,7 @@ massive-applications.workspace = true
 massive-util.workspace = true
 
 anyhow.workspace = true
-cgmath.workspace = true
+glam.workspace = true
 cosmic-text.workspace = true
 derive_more.workspace = true
 env_logger.workspace = true
