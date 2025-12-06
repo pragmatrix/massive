@@ -110,9 +110,9 @@ impl RenderGeometry {
     pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix) -> Option<Vector3> {
         let depth_range = self.depth_range();
         let mvp = self.view_projection() * *model;
-        if mvp.determinant().abs() < 1e-6 {
-            return None;
-        }
+        // Note: The determinant can be very small (e.g., 1e-10) due to the coordinate system
+        // scaling, but the matrix is still invertible. We rely on downstream checks
+        // (perspective_divide, Ray::from_points, intersect_plane) to handle degenerate cases.
         let inverted_mvp = mvp.inverse();
 
         // Screen -> NDC (flip Y)
