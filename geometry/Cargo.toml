@@ -9,5 +9,5 @@ serde = { workspace = true }
 serde_tuple = { workspace = true }
 derive_more = { workspace = true }
 log = { workspace = true }
-cgmath = { workspace = true }
+glam = { workspace = true }
 euclid = { workspace = true }

@@ -30,7 +30,6 @@ log = { workspace = true }
 winit = { workspace = true }
 swash = { workspace = true }
 
-cgmath = { workspace =  true }
 
 # Specify a random generator to use for wasm targets
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]

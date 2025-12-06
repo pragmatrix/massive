@@ -1,5 +1,5 @@
-use cgmath::Point2;
 use cosmic_text as text;
+use glam::IVec2;
 use massive_geometry::{Color, Vector3};
 use serde::{Deserialize, Serialize};
 
@@ -40,11 +40,7 @@ impl GlyphRun {
     }
 
     /// Translate a rasterized glyph's position to the coordinate system of the run.
-    pub fn place_glyph(
-        &self,
-        glyph: &RunGlyph,
-        placement: &text::Placement,
-    ) -> (Point2<i32>, Point2<i32>) {
+    pub fn place_glyph(&self, glyph: &RunGlyph, placement: &text::Placement) -> (IVec2, IVec2) {
         let max_ascent = self.metrics.max_ascent;
         let pos = glyph.pos;
 

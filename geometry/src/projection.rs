@@ -14,6 +14,6 @@ impl Projection {
 
     /// Create a perspective projection matrix.
     pub fn perspective_matrix(&self, fovy: f64) -> Matrix4 {
-        cgmath::perspective(cgmath::Deg(fovy), self.aspect, self.near, self.far)
+        Matrix4::perspective_rh_gl(fovy.to_radians(), self.aspect, self.near, self.far)
     }
 }

@@ -1,36 +1,33 @@
-use cgmath::InnerSpace;
-
-use crate::{Plane, Point3, Vector3, EPSILON};
+use crate::{Plane, Vector3, EPSILON};
 
 // Ray in 3D space.
 #[derive(Debug, Clone)]
 pub struct Ray {
-    pub origin: Point3,
+    pub origin: Vector3,
     pub dir: Vector3,
 }
 
 impl Ray {
-    pub fn new(origin: impl Into<Point3>, dir: impl Into<Vector3>) -> Self {
+    pub fn new(origin: impl Into<Vector3>, dir: impl Into<Vector3>) -> Self {
         Self {
             origin: origin.into(),
             dir: dir.into(),
         }
     }
 
-    pub fn from_points(origin: impl Into<Point3>, target: impl Into<Point3>) -> Option<Self> {
+    pub fn from_points(origin: impl Into<Vector3>, target: impl Into<Vector3>) -> Option<Self> {
         let origin = origin.into();
         let target = target.into();
 
         let mut dir = target - origin;
-        if dir.magnitude2() < EPSILON * 1e-6 {
+        if dir.length_squared() < EPSILON * 1e-6 {
             return None;
         }
         dir = dir.normalize();
         Some(Self::new(origin, dir))
     }
 
-    pub fn intersect_plane(&self, plane: &Plane) -> Option<Point3> {
-        use cgmath::InnerSpace;
+    pub fn intersect_plane(&self, plane: &Plane) -> Option<Vector3> {
         let denom = plane.normal.dot(self.dir);
         if denom.abs() < EPSILON {
             return None;

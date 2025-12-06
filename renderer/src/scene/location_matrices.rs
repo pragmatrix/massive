@@ -1,4 +1,3 @@
-use euclid::num::Zero;
 use massive_geometry::Matrix4;
 use massive_scene::{Id, LocationRenderObj};
 
@@ -101,7 +100,7 @@ impl DependencyResolver for VisualMatrix {
         let local_matrix = &**scene.matrices.get_unwrapped(matrix_id);
         parent_id.map_or_else(
             || *local_matrix,
-            |parent_id| *caches.location_matrix[parent_id] * local_matrix,
+            |parent_id| *caches.location_matrix[parent_id] * *local_matrix,
         )
     }
 }
@@ -112,9 +111,7 @@ impl Default for Computed<Matrix4> {
         Self {
             validated_at: 0,
             max_deps_version: 0,
-            // OO: is there a way to use `::ZERO` / the trait `ConstZero` from num_traits for
-            // example?
-            value: Matrix4::zero(),
+            value: Matrix4::ZERO,
         }
     }
 }

@@ -2,7 +2,7 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
-use crate::Point3;
+use crate::Vector3;
 
 #[derive(Debug, Copy, Clone, PartialEq, Default, Serialize_tuple, Deserialize_tuple)]
 pub struct Point {
@@ -41,8 +41,8 @@ impl Point {
         self.x * self.x + self.y * self.y
     }
 
-    pub fn with_z(self, z: f64) -> Point3 {
-        Point3::new(self.x, self.y, z)
+    pub fn with_z(self, z: f64) -> Vector3 {
+        Vector3::new(self.x, self.y, z)
     }
 }
 

@@ -8,7 +8,6 @@ use uuid::Uuid;
 use winit::event::{self, DeviceId};
 use winit::window::CursorIcon;
 
-use massive_geometry::Identity;
 use massive_input::{AggregationEvent, InputEvent};
 use massive_scene::{Handle, Location, Matrix, SceneChanges};
 
@@ -47,7 +46,7 @@ impl View {
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
-        let view_matrix = scene.stage(Matrix::identity());
+        let view_matrix = scene.stage(Matrix::IDENTITY);
         let location = scene.stage(Location::new(None, view_matrix));
 
         command_sender.send((

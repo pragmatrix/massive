@@ -5,7 +5,9 @@
 // Architecture: This is slightly over-engineered. Dependency tracking is probably not worth it.
 use std::cell::RefCell;
 
-use massive_geometry::{Camera, DepthRange, PerspectiveDivide, Plane, Point, Point3, Ray, Vector4};
+use massive_geometry::{
+    Camera, DepthRange, PerspectiveDivide, Plane, Point, Ray, Vector3, Vector4,
+};
 use massive_scene::Matrix;
 
 use crate::{Version, tools::Versioned};
@@ -44,7 +46,7 @@ impl RenderGeometry {
     pub fn screen_to_ndc_matrix(&self) -> Matrix {
         let size = self.surface_size();
         let (w, h) = (size.0 as f64, size.1 as f64);
-        Matrix::new(
+        Matrix::from_cols_array(&[
             2.0 / w,
             0.0,
             0.0,
@@ -61,7 +63,7 @@ impl RenderGeometry {
             0.0,
             0.0,
             1.0,
-        )
+        ])
     }
 
     pub fn camera(&self) -> &Camera {
@@ -96,8 +98,8 @@ impl RenderGeometry {
     /// Precision: When the surface height changes, the whole perspective gets skewed
     fn pixel_matrix(surface_size: (u32, u32)) -> Matrix {
         let (_, surface_height) = surface_size;
-        Matrix::from_nonuniform_scale(1.0, -1.0, 1.0)
-            * Matrix::from_scale(1.0 / surface_height as f64 * 2.0)
+        Matrix::from_scale(Vector3::new(1.0, -1.0, 1.0))
+            * Matrix::from_scale(Vector3::splat(1.0 / surface_height as f64 * 2.0))
     }
 
     /// Un-projects a screen-space pixel position into model space at z==0 (the matrix describing a
@@ -105,10 +107,13 @@ impl RenderGeometry {
     ///
     /// Returns the hit point in model-local coordinates or None if the ray is parallel or
     /// numerically unstable.
-    pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix) -> Option<Point3> {
-        use cgmath::SquareMatrix;
+    pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix) -> Option<Vector3> {
         let depth_range = self.depth_range();
-        let inverted_mvp = (self.view_projection() * model).invert()?;
+        let mvp = self.view_projection() * *model;
+        if mvp.determinant().abs() < 1e-6 {
+            return None;
+        }
+        let inverted_mvp = mvp.inverse();
 
         // Screen -> NDC (flip Y)
         let (ndc_x, ndc_y) = self.screen_to_ndc(pos_px).into();
@@ -160,7 +165,7 @@ impl DerivedCache {
                 camera.view_projection_matrix(CAMERA_Z_RANGE, surface_size)
             });
 
-            camera_projection * pixel_matrix
+            *camera_projection * *pixel_matrix
         })
     }
 }

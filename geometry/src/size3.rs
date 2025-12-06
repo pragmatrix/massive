@@ -1,6 +1,6 @@
 use std::ops;
 
-use crate::{Point3, Vector3};
+use crate::Vector3;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub struct Size3(Vector3);
@@ -55,19 +55,19 @@ impl ops::Sub<Size3> for Size3 {
     }
 }
 
-impl ops::Add<Size3> for Point3 {
+impl ops::Add<Size3> for Vector3 {
     type Output = Self;
 
     fn add(self, rhs: Size3) -> Self::Output {
-        self + rhs.0
+        Self::new(self.x + rhs.0.x, self.y + rhs.0.y, self.z + rhs.0.z)
     }
 }
 
-impl ops::Sub<Size3> for Point3 {
+impl ops::Sub<Size3> for Vector3 {
     type Output = Self;
 
     fn sub(self, rhs: Size3) -> Self::Output {
-        self - rhs.0
+        Self::new(self.x - rhs.0.x, self.y - rhs.0.y, self.z - rhs.0.z)
     }
 }
 
