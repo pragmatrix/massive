@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, hash::Hash};
+use std::{collections::VecDeque, fmt, hash::Hash};
 
 use anyhow::{Result, bail};
 use tokio::sync::mpsc::{UnboundedReceiver, error::TryRecvError};
@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, error::TryRecvError};
 use crate::message_filter;
 
 #[derive(Debug)]
-pub struct CoalescingReceiver<T: CoalescingKey> {
+pub struct CoalescingReceiver<T: CoalescingKey + fmt::Debug> {
     receiver: UnboundedReceiver<T>,
     pending: VecDeque<T>,
 }
@@ -17,13 +17,13 @@ pub trait CoalescingKey {
     fn coalescing_key(&self) -> Option<Self::Key>;
 }
 
-impl<T: CoalescingKey> From<UnboundedReceiver<T>> for CoalescingReceiver<T> {
+impl<T: CoalescingKey + fmt::Debug> From<UnboundedReceiver<T>> for CoalescingReceiver<T> {
     fn from(receiver: UnboundedReceiver<T>) -> Self {
         Self::new(receiver)
     }
 }
 
-impl<T: CoalescingKey> CoalescingReceiver<T> {
+impl<T: CoalescingKey + fmt::Debug> CoalescingReceiver<T> {
     pub fn new(receiver: UnboundedReceiver<T>) -> Self {
         Self {
             receiver,
