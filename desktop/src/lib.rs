@@ -1,6 +1,6 @@
-use std::{collections::HashMap, time::Instant};
+use std::time::Instant;
 
-use anyhow::bail;
+use anyhow::{anyhow, bail};
 use tokio::sync::mpsc::unbounded_channel;
 use winit::{
     dpi::PhysicalSize,
@@ -8,52 +8,64 @@ use winit::{
 };
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceEvent, InstanceId, Options, RenderPacing, Scene,
-    ViewCommand, ViewId,
+    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
+    RenderPacing, Scene, ViewCommand, ViewId,
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
 use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
 
-pub mod focus_manager;
+mod application_registry;
+mod focus_manager;
 mod instance_manager;
 mod ui;
 
+pub use application_registry::Application;
 pub use focus_manager::*;
-pub use instance_manager::Application;
-use instance_manager::InstanceManager;
 pub use ui::*;
+
+use crate::application_registry::ApplicationRegistry;
+use instance_manager::InstanceManager;
 
 #[derive(Debug)]
 pub struct Desktop {
-    applications: HashMap<String, Application>,
+    primary_application: String,
+    applications: ApplicationRegistry,
 }
 
 impl Desktop {
     pub fn new(applications: Vec<Application>) -> Self {
         Self {
-            applications: HashMap::from_iter(applications.into_iter().map(|a| (a.name.clone(), a))),
+            primary_application: applications
+                .first()
+                .expect("No primary application")
+                .name
+                .clone(),
+            applications: ApplicationRegistry::new(applications),
         }
     }
 
     pub async fn run(self, mut context: ApplicationContext) -> Result<()> {
-        // Create fonts manager - shared between desktop and instances
+        // Create the font manager - shared between desktop and instances
         let fonts = FontManager::system();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut ui = UI::new();
-        let mut instance_manager = InstanceManager::new(requests_tx);
+        let environment = InstanceEnvironment::new(
+            requests_tx,
+            context.primary_monitor_scale_factor(),
+            fonts.clone(),
+        );
+        let mut instance_manager = InstanceManager::new(environment);
         let mut event_manager = EventManager::<event::WindowEvent>::default();
 
         // Start one instance of the first registered application
-        if let Some(app) = self.applications.values().next() {
-            instance_manager.spawn(
-                app,
-                CreationMode::New,
-                context.primary_monitor_scale_factor(),
-                fonts.clone(),
-            )?;
-        }
+        let primary_application = self
+            .applications
+            .get_named(&self.primary_application)
+            .expect("No primary application");
+
+        instance_manager.spawn(primary_application, CreationMode::New)?;
 
         // First wait for the initial view that's being created.
 
@@ -93,12 +105,14 @@ impl Desktop {
                             if let Some(input_event) = event_manager.add_event(
                                 ExternalEvent::from_window_event(window_id, window_event.clone(), Instant::now())
                             ) {
-                                ui.handle_input_event(
+                                let cmd = ui.handle_input_event(
                                     &input_event,
                                     primary_instance,
                                     &mut instance_manager,
                                     renderer.geometry(),
                                 )?;
+
+                                self.handle_ui_command(&mut instance_manager, cmd)?;
                             }
 
                             renderer.resize_redraw(&window_event)?;
@@ -133,6 +147,27 @@ impl Desktop {
             };
             scene.render_to_with_options(&mut renderer, options)?;
         }
+    }
+
+    fn handle_ui_command(
+        &self,
+        instance_manager: &mut InstanceManager,
+        cmd: UiCommand,
+    ) -> Result<()> {
+        match cmd {
+            UiCommand::None => {}
+            UiCommand::NewInstance { application } => {
+                let application = self
+                    .applications
+                    .get_named(&application)
+                    .ok_or(anyhow!("Internal error, application not registered"))?;
+
+                instance_manager.spawn(application, CreationMode::New)?;
+            }
+            UiCommand::CloseInstance { instance } => instance_manager.stop(instance)?,
+        }
+
+        Ok(())
     }
 
     fn handle_instance_command(
