@@ -2,7 +2,10 @@ use std::cmp::Ordering;
 
 use anyhow::Result;
 
-use winit::event::WindowEvent;
+use winit::{
+    event::{ElementState, WindowEvent},
+    keyboard::Key,
+};
 
 use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
 use massive_geometry::{Point, Vector3};
@@ -19,7 +22,8 @@ pub struct UI {
     /// The ids may not exist.
     cursor_focus: Option<CursorFocus>,
 
-    /// Basically the keyboard focus.
+    /// This decides to which view and instance the keyboard events are delivered. Basically the
+    /// keyboard focus.
     focus_manager: FocusManager,
 }
 
@@ -41,7 +45,7 @@ impl UI {
         primary_instance: InstanceId,
         instance_manager: &mut InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<()> {
+    ) -> Result<UiCommand> {
         let send_to_view = |instance_id: InstanceId, view_id: ViewId, event: ViewEvent| {
             instance_manager.send_view_event(instance_id, view_id, event)
         };
@@ -131,7 +135,36 @@ impl UI {
             }
 
             // Keyboard focus
-            WindowEvent::KeyboardInput { .. } | WindowEvent::Ime(_) => {
+            WindowEvent::KeyboardInput {
+                event: key_event, ..
+            } => {
+                let focused_view = self.focus_manager.focused_view();
+
+                if key_event.state == ElementState::Pressed
+                    && !key_event.repeat
+                    && input_event.states().is_command()
+                    && let Some((instance, _)) = focused_view
+                {
+                    match &key_event.logical_key {
+                        Key::Character(c) if c.as_str() == "t" => {
+                            let application = instance_manager.get_application_name(instance)?;
+                            return Ok(UiCommand::NewInstance {
+                                application: application.to_string(),
+                            });
+                        }
+                        Key::Character(c) if c.as_str() == "w" => {
+                            return Ok(UiCommand::CloseInstance { instance });
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some((instance, view)) = focused_view {
+                    send_window_event(instance, view, window_event)?;
+                }
+            }
+
+            WindowEvent::Ime(_) => {
                 if let Some((instance, view)) = self.focus_manager.focused_view() {
                     send_window_event(instance, view, window_event)?;
                 }
@@ -149,7 +182,7 @@ impl UI {
             _ => {}
         }
 
-        Ok(())
+        Ok(UiCommand::None)
     }
 
     fn hit_test_from_event(
@@ -297,4 +330,11 @@ impl UI {
         }
         Ok(())
     }
+}
+
+#[must_use]
+pub enum UiCommand {
+    None,
+    NewInstance { application: String },
+    CloseInstance { instance: InstanceId },
 }

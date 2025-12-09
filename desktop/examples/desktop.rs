@@ -1,8 +1,8 @@
 use anyhow::Result;
-use massive_desktop::{Application, Desktop};
 use tokio::sync::mpsc;
 
 use massive_applications::InstanceContext;
+use massive_desktop::{Application, Desktop};
 use massive_shell::{ApplicationContext, shell};
 
 #[tokio::main]

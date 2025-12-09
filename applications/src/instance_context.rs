@@ -4,14 +4,15 @@ use std::mem;
 
 use anyhow::Result;
 use massive_renderer::FontManager;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::UnboundedReceiver;
 use winit::event::DeviceId;
 
 use massive_animation::AnimationCoordinator;
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::{
-    InstanceId, Scene, ViewEvent, ViewId, view::ViewCommand, view::ViewCreationInfo,
+    InstanceEnvironment, InstanceId, Scene, ViewEvent, ViewId,
+    view::{ViewCommand, ViewCreationInfo},
     view_builder::ViewBuilder,
 };
 
@@ -25,23 +26,18 @@ pub enum CreationMode {
 pub struct InstanceContext {
     id: InstanceId,
     creation_mode: CreationMode,
-    primary_monitor_scale_factor: f64,
-    fonts: FontManager,
+    environment: InstanceEnvironment,
 
     /// The AnimationCoordinator is here to create new scenes. There is one per instance for now.
     animation_coordinator: AnimationCoordinator,
     events: CoalescingReceiver<InstanceEvent>,
-    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
 }
 
 impl InstanceContext {
     pub fn new(
         id: InstanceId,
         creation_mode: CreationMode,
-        // Robustness: This might change on runtime.
-        primary_monitor_scale_factor: f64,
-        fonts: FontManager,
-        requests: UnboundedSender<(InstanceId, InstanceCommand)>,
+        environment: InstanceEnvironment,
         events: UnboundedReceiver<InstanceEvent>,
     ) -> Self {
         // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
@@ -51,11 +47,9 @@ impl InstanceContext {
         Self {
             id,
             creation_mode,
-            primary_monitor_scale_factor,
-            fonts,
+            environment,
             animation_coordinator: AnimationCoordinator::new(),
             events: events.into(),
-            command_sender: requests,
         }
     }
 
@@ -68,11 +62,11 @@ impl InstanceContext {
     }
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
-        self.primary_monitor_scale_factor
+        self.environment.primary_monitor_scale_factor
     }
 
     pub fn fonts(&self) -> &FontManager {
-        &self.fonts
+        &self.environment.font_manager
     }
 
     pub fn new_scene(&self) -> Scene {
@@ -90,7 +84,7 @@ impl InstanceContext {
     }
 
     pub fn view(&self, size: (u32, u32)) -> ViewBuilder {
-        ViewBuilder::new(self.command_sender.clone(), self.id, size)
+        ViewBuilder::new(self.environment.command_sender.clone(), self.id, size)
     }
 }
 

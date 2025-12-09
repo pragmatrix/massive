@@ -47,11 +47,6 @@ impl<T: CoalescingKey + fmt::Debug> CoalescingReceiver<T> {
                 }
             }
 
-            // Skip Window events by key.
-            //
-            // This is to remove the lagging of resizes, redraws and
-            // other events that are considered safe to skip without causing side effects.
-            //
             // Robustness: Going from VecDeque to Vec and back is a mess.
             //
             // Performance: Reuse capacity?
