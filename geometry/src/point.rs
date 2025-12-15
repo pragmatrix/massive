@@ -33,10 +33,6 @@ impl Point {
         Self::new(x * c - y * s, y * c + x * s)
     }
 
-    pub fn scaled(&self, scaling: f64) -> Self {
-        *self * scaling
-    }
-
     pub fn squared_length(&self) -> f64 {
         self.x * self.x + self.y * self.y
     }
