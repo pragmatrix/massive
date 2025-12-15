@@ -43,7 +43,7 @@ impl UI {
         &mut self,
         input_event: &Event<WindowEvent>,
         primary_instance: InstanceId,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<UiCommand> {
         let send_to_view = |instance_id: InstanceId, view_id: ViewId, event: ViewEvent| {
@@ -148,12 +148,13 @@ impl UI {
                     match &key_event.logical_key {
                         Key::Character(c) if c.as_str() == "t" => {
                             let application = instance_manager.get_application_name(instance)?;
-                            return Ok(UiCommand::NewInstance {
+                            return Ok(UiCommand::StartInstance {
                                 application: application.to_string(),
+                                caused_by: instance,
                             });
                         }
                         Key::Character(c) if c.as_str() == "w" => {
-                            return Ok(UiCommand::CloseInstance { instance });
+                            return Ok(UiCommand::StopInstance { instance });
                         }
                         _ => {}
                     }
@@ -209,9 +210,9 @@ impl UI {
             if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
                 // Check if the local position is within the view bounds
                 if local_pos.x >= 0.0
-                    && local_pos.x <= size.0 as f64
+                    && local_pos.x <= size.width as f64
                     && local_pos.y >= 0.0
-                    && local_pos.y <= size.1 as f64
+                    && local_pos.y <= size.height as f64
                 {
                     hits.push((instance_id, view_id, local_pos));
                 }
@@ -287,7 +288,9 @@ impl UI {
             }),
             WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
             WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
-            WindowEvent::Resized(size) => Some(ViewEvent::Resized(size.width, size.height)),
+            WindowEvent::Resized(size) => {
+                Some(ViewEvent::Resized((size.width, size.height).into()))
+            }
             _ => None,
         }
     }
@@ -296,7 +299,7 @@ impl UI {
         &mut self,
         instance: InstanceId,
         window_focused: bool,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance, but not the view for now.
 
@@ -314,7 +317,7 @@ impl UI {
 
     fn transition(
         transitions: Vec<FocusTransition>,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<()> {
         for transition in transitions {
             match transition {
@@ -335,6 +338,11 @@ impl UI {
 #[must_use]
 pub enum UiCommand {
     None,
-    NewInstance { application: String },
-    CloseInstance { instance: InstanceId },
+    StartInstance {
+        application: String,
+        caused_by: InstanceId,
+    },
+    StopInstance {
+        instance: InstanceId,
+    },
 }

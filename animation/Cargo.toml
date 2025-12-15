@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+# For implementing Interpolatable on geometry types.
+massive-geometry.workspace = true
+
 log.workspace = true
 parking_lot.workspace = true
 

@@ -150,11 +150,11 @@ impl InstanceManager {
         }
     }
 
-    pub fn add_view(&mut self, instance_id: InstanceId, creation_info: ViewCreationInfo) {
+    pub fn add_view(&mut self, instance_id: InstanceId, creation_info: &ViewCreationInfo) {
         if let Some(instance) = self.instances.get_mut(&instance_id) {
             let id = creation_info.id;
             let info = ViewInfo {
-                creation_info,
+                creation_info: creation_info.clone(),
                 pacing: RenderPacing::default(),
             };
             instance.views.insert(id, info);
