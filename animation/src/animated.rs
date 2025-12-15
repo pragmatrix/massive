@@ -1,4 +1,6 @@
-use std::{sync::Mutex, time::Duration};
+use std::time::Duration;
+
+use parking_lot::Mutex;
 
 use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolation};
 
@@ -38,7 +40,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     ) where
         T: 'static + PartialEq,
     {
-        let mut inner = self.inner.lock().expect("poisoned");
+        let mut inner = self.inner.lock();
         if *inner.final_value() == target_value {
             return;
         }
@@ -61,7 +63,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     {
         let instant = self.coordinator.allocate_animation_time(duration);
 
-        let mut inner = self.inner.lock().expect("poisoned");
+        let mut inner = self.inner.lock();
         let value = inner.value.clone();
         inner
             .animation
@@ -75,7 +77,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Does nothing when no animation is active.
     pub fn finalize(&mut self) {
-        let mut inner = self.inner.lock().expect("poisoned");
+        let mut inner = self.inner.lock();
         if let Some(final_value) = inner.animation.commit() {
             inner.value = final_value
         }
@@ -86,7 +88,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     /// If an animation is active, this computes the current value from the animation and also
     /// subscribes for further ticks in the future.
     pub fn value(&self) -> T {
-        let mut inner = self.inner.lock().expect("poisoned");
+        let mut inner = self.inner.lock();
         if inner.animation.is_active() {
             let instant = self.coordinator.current_time();
             if let Some(new_value) = inner.animation.proceed(instant) {
@@ -98,9 +100,9 @@ impl<T: Interpolatable + Send> Animated<T> {
     }
 
     /// The final value of this animated value after all current animations ran through or the
-    /// current one if no animations are active.
+    /// current value one if no animations are active.
     pub fn final_value(&self) -> T {
-        self.inner.lock().expect("poisoned").final_value().clone()
+        self.inner.lock().final_value().clone()
     }
 
     /// `true` if this is currently animating.
@@ -114,12 +116,12 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Ergonomics: Foolproof!
     pub fn is_animating(&self) -> bool {
-        self.inner.lock().expect("poisoned").animation.is_active()
+        self.inner.lock().animation.is_active()
     }
 
     /// Returns the number of active animation blendings.
     pub fn animation_count(&self) -> usize {
-        self.inner.lock().expect("poisoned").animation.count()
+        self.inner.lock().animation.count()
     }
 }
 
