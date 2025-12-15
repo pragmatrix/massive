@@ -104,8 +104,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         bounds = Some(if let Some(b) = bounds { b.joined(r) } else { r });
     }
     let bounds = bounds.unwrap_or_else(|| Rect::new((0.0, 0.0), Size::new(1.0, 1.0)));
-    let page_width = bounds.size().width.ceil() as u32;
-    let page_height = bounds.size().height.ceil() as u32;
+    let page_width = bounds.size().width.ceil() as u64;
+    let page_height = bounds.size().height.ceil() as u64;
 
     // Center shapes: we shift by -bounds.origin then let Application matrix re-centers page
     // (Application::matrix already centers by half the page size). So we translate shapes so that

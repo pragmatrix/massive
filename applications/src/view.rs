@@ -5,9 +5,12 @@ use log::error;
 use tokio::sync::mpsc::UnboundedSender;
 
 use uuid::Uuid;
-use winit::event::{self, DeviceId};
-use winit::window::CursorIcon;
+use winit::{
+    event::{self, DeviceId},
+    window::CursorIcon,
+};
 
+use massive_geometry::SizePx;
 use massive_input::{AggregationEvent, InputEvent};
 use massive_scene::{Handle, Location, Matrix, SceneChanges};
 
@@ -41,7 +44,7 @@ impl View {
         instance: InstanceId,
         command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
         role: ViewRole,
-        size: (u32, u32),
+        size: SizePx,
         scene: &Scene,
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
@@ -122,7 +125,7 @@ pub struct ViewCreationInfo {
     pub id: ViewId,
     pub location: Handle<Location>,
     pub role: ViewRole,
-    pub size: (u32, u32),
+    pub size: SizePx,
 }
 
 #[derive(Debug)]
@@ -156,7 +159,7 @@ impl RenderTarget for View {
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
-    Resized(u32, u32),
+    Resized(SizePx),
     CloseRequested,
     DroppedFile(PathBuf),
     HoveredFile(PathBuf),

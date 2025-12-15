@@ -1,9 +1,10 @@
 use anyhow::{Result, anyhow};
+use massive_geometry::SizePx;
 use tokio::sync::{
     mpsc::{UnboundedReceiver, WeakUnboundedSender},
     oneshot,
 };
-use winit::{dpi, event_loop::EventLoopProxy, window::WindowAttributes};
+use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy, window::WindowAttributes};
 
 use crate::{Scene, ShellEvent, ShellWindow, shell::ShellCommand};
 
@@ -63,13 +64,11 @@ impl ApplicationContext {
     ///
     /// Async because it needs to communicate with the application's main thread on which the window
     /// is actually created.
-    pub async fn new_window(
-        &self,
-        // Ergonomics: Use a massive-geometry size type here.
-        inner_size: impl Into<dpi::Size>,
-    ) -> Result<ShellWindow> {
+    pub async fn new_window(&self, inner_size: impl Into<SizePx>) -> Result<ShellWindow> {
         let (on_created, when_created) = oneshot::channel();
-        let attributes = WindowAttributes::default().with_inner_size(inner_size);
+        let inner_size = inner_size.into();
+        let attributes = WindowAttributes::default()
+            .with_inner_size(PhysicalSize::new(inner_size.width, inner_size.height));
         self.event_loop_proxy
             .send_event(ShellCommand::CreateWindow {
                 attributes: attributes.into(),

@@ -3,11 +3,12 @@
 use std::mem;
 
 use anyhow::Result;
-use massive_renderer::FontManager;
 use tokio::sync::mpsc::UnboundedReceiver;
 use winit::event::DeviceId;
 
 use massive_animation::AnimationCoordinator;
+use massive_geometry::SizePx;
+use massive_renderer::FontManager;
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::{
@@ -83,7 +84,7 @@ impl InstanceContext {
         Ok(event)
     }
 
-    pub fn view(&self, size: (u32, u32)) -> ViewBuilder {
+    pub fn view(&self, size: impl Into<SizePx>) -> ViewBuilder {
         ViewBuilder::new(self.environment.command_sender.clone(), self.id, size)
     }
 }

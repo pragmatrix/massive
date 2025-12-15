@@ -111,7 +111,7 @@ struct Logs {
 
     page_matrix: Handle<Matrix>,
 
-    page_width: u32,
+    page_width: u64,
     page_height: Animated<f64>,
     vertical_center: Animated<f64>,
     vertical_center_matrix: Handle<Matrix>,
@@ -122,7 +122,7 @@ struct Logs {
 
 impl Logs {
     fn new(scene: &Scene, fonts: FontManager) -> Self {
-        let page_width = 1280u32;
+        let page_width = 1280;
         let application = Application::default();
         let current_matrix = application.matrix((page_width, page_width));
         let page_matrix = scene.stage(current_matrix);
@@ -292,7 +292,7 @@ impl Logs {
         // it needs to redraw.
         let new_matrix = self
             .application
-            .matrix((self.page_width, self.page_height.value() as u32));
+            .matrix((self.page_width, self.page_height.value() as u64));
         self.page_matrix.update_if_changed(new_matrix);
     }
 }

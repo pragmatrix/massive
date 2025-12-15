@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Matrix4, PointI, SizeI};
+use massive_geometry::{Matrix4, SizeI, VectorI};
 use winit::{
     event::{
         DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
@@ -19,24 +19,24 @@ pub struct Application {
     gesture: Option<ActiveGesture>,
 
     /// Tracked positions of all devices.
-    positions: HashMap<DeviceId, PointI>,
+    positions: HashMap<DeviceId, VectorI>,
     modifiers: Modifiers,
 
     /// Current x / y Translation.
-    translation: PointI,
+    translation: VectorI,
     translation_z: i32,
     /// Rotation in discrete degrees.
-    rotation: PointI,
+    rotation: VectorI,
 }
 
 struct MovementGesture {
-    origin: PointI,
-    translation_origin: PointI,
+    origin: VectorI,
+    translation_origin: VectorI,
 }
 
 struct RotationGesture {
-    origin: PointI,
-    rotation_origin: PointI,
+    origin: VectorI,
+    rotation_origin: VectorI,
 }
 
 const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
@@ -70,7 +70,7 @@ impl Application {
                 // Track positions.
                 //
                 // These positions aren't discrete / integral on macOS, but why?
-                let current = PointI::new(position.x.round() as _, position.y.round() as _);
+                let current = VectorI::new(position.x.round() as _, position.y.round() as _);
                 self.positions.insert(*device_id, current);
 
                 // Is there an ongoing movement on the left mouse button?
@@ -140,7 +140,7 @@ impl Application {
                 button: MouseButton::Right,
                 ..
             } => {
-                self.rotation = PointI::default();
+                self.rotation = VectorI::default();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 if self.modifiers != *modifiers {
@@ -192,8 +192,8 @@ impl Application {
     pub fn matrix(&self, page_size: impl Into<SizeI>) -> Matrix4 {
         let page_size = page_size.into();
 
-        let page_x_center: f64 = -((page_size.width / 2) as f64);
-        let page_y_center: f64 = -((page_size.height / 2) as f64);
+        let page_x_center: f64 = -((page_size.x / 2) as f64);
+        let page_y_center: f64 = -((page_size.y / 2) as f64);
         let center_transformation =
             Matrix4::from_translation((page_x_center, page_y_center, 0.0).into());
         let current_translation = Matrix4::from_translation(

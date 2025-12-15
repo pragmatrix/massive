@@ -214,7 +214,7 @@ fn markdown_to_glyph_runs(
         }
     }
 
-    Ok((glyph_runs, (page_width, page_height).into()))
+    Ok((glyph_runs, (page_width as u64, page_height).into()))
 }
 
 // #[derive(Debug)]
