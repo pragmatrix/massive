@@ -95,22 +95,20 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
 
     // Event loop
 
-    {
-        let mut winit_context = WinitApplicationHandler::Initializing {
-            proxy: event_loop_proxy,
-            spawner: Some(Box::new(spawn_application)),
-        };
+    let mut winit_context = WinitApplicationHandler::Initializing {
+        proxy: event_loop_proxy,
+        spawner: Some(Box::new(spawn_application)),
+    };
 
-        info!("Entering event loop");
-        event_loop.run_app(&mut winit_context)?;
-        info!("Exited event loop");
+    info!("Entering event loop");
+    event_loop.run_app(&mut winit_context)?;
+    info!("Exited event loop");
 
-        let WinitApplicationHandler::Exited { final_result } = winit_context else {
-            bail!("Internal error: Exited event loop, but it was never actually exiting");
-        };
+    let WinitApplicationHandler::Exited { final_result } = winit_context else {
+        bail!("Internal error: Exited event loop, but it was never actually exiting");
+    };
 
-        final_result
-    }
+    final_result
 }
 
 // Robustness: Try to remove Clone.
