@@ -78,6 +78,7 @@ impl DesktopPresenter {
             .ordered
             .iter()
             .position(|i| *i == originating_from)
+            .map(|i| i + 1)
             .unwrap_or(self.ordered.len());
 
         // Even though it's not yet visible, make place for it.
@@ -134,7 +135,7 @@ impl DesktopPresenter {
     }
 
     /// Compute the current layout and animate the views to their positions.
-    pub fn layout(&mut self) {
+    pub fn layout(&mut self, animate: bool) {
         let mut max_panel_size = SizePx::zero();
 
         for instance in &self.ordered {
@@ -157,15 +158,24 @@ impl DesktopPresenter {
                 0.0,
             );
 
-            self.instances
+            let instance = self
+                .instances
                 .get_mut(instance)
-                .expect("Internal error: Instance does not exist")
-                .translation_animation
-                .animate_to_if_changed(
+                .expect("Internal error: Instance does not exist");
+
+            if animate {
+                instance.translation_animation.animate_to_if_changed(
                     translation.into(),
                     Duration::from_secs(1),
                     Interpolation::CubicOut,
                 );
+            } else {
+                instance.translation_animation.animate_to(
+                    translation.into(),
+                    Duration::ZERO,
+                    Interpolation::Linear,
+                );
+            }
         }
     }
 

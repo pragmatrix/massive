@@ -78,6 +78,7 @@ impl Desktop {
         let scene = context.new_scene();
 
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
+        presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
 
         loop {
@@ -160,7 +161,7 @@ impl Desktop {
 
                 let id = instance_manager.spawn(application, CreationMode::New)?;
                 presenter.present_instance(id, originating_from, scene)?;
-                presenter.layout();
+                presenter.layout(true);
             }
             UiCommand::StopInstance { instance } => instance_manager.stop(instance)?,
         }
