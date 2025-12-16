@@ -65,11 +65,7 @@ impl Desktop {
         else {
             bail!("Did not or received an unexpected request from the application");
         };
-        instance_manager.add_view(primary_instance, &creation_info);
 
-        // Then create the window, renderer, and scene.
-
-        // Create a window and renderer
         let window = context.new_window(creation_info.size).await?;
         let mut renderer = window
             .renderer()
@@ -78,7 +74,11 @@ impl Desktop {
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;
+
         let scene = context.new_scene();
+
+        presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
+        instance_manager.add_view(primary_instance, &creation_info);
 
         loop {
             tokio::select! {
@@ -151,7 +151,7 @@ impl Desktop {
             UiCommand::None => {}
             UiCommand::StartInstance {
                 application,
-                caused_by,
+                originating_from,
             } => {
                 let application = self
                     .applications
@@ -159,7 +159,8 @@ impl Desktop {
                     .ok_or(anyhow!("Internal error, application not registered"))?;
 
                 let id = instance_manager.spawn(application, CreationMode::New)?;
-                presenter.present_instance(id, caused_by, scene)?;
+                presenter.present_instance(id, originating_from, scene)?;
+                presenter.layout();
             }
             UiCommand::StopInstance { instance } => instance_manager.stop(instance)?,
         }

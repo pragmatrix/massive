@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use log::error;
-use tokio::sync::mpsc::UnboundedSender;
+use log::{debug, error};
+use tokio::sync::mpsc::{UnboundedSender, error::SendError};
 
 use uuid::Uuid;
 use winit::{
@@ -28,13 +28,11 @@ pub struct View {
 
 impl Drop for View {
     fn drop(&mut self) {
-        if let Err(e) = self
+        if let Err(SendError { .. }) = self
             .command_sender
             .send((self.instance, InstanceCommand::DestroyView(self.id)))
         {
-            error!(
-                "Failed to send DestroyView command (is the instance command receiver gone?): {e:?}"
-            )
+            debug!("Ignored DestroyView command because the command receiver is gone")
         }
     }
 }

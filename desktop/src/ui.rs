@@ -150,7 +150,7 @@ impl UI {
                             let application = instance_manager.get_application_name(instance)?;
                             return Ok(UiCommand::StartInstance {
                                 application: application.to_string(),
-                                caused_by: instance,
+                                originating_from: instance,
                             });
                         }
                         Key::Character(c) if c.as_str() == "w" => {
@@ -340,7 +340,7 @@ pub enum UiCommand {
     None,
     StartInstance {
         application: String,
-        caused_by: InstanceId,
+        originating_from: InstanceId,
     },
     StopInstance {
         instance: InstanceId,

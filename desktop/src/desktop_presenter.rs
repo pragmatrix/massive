@@ -18,6 +18,39 @@ pub struct DesktopPresenter {
 }
 
 impl DesktopPresenter {
+    /// Present the primary instance and its primary role view.
+    ///
+    /// For now this can not be done by separately presenting an instance and a view because we
+    /// don't support creating an instance with an undefined panel size.
+    ///
+    /// This is also only possible if there are no other instances yet present.
+    pub fn present_primary_instance(
+        &mut self,
+        instance: InstanceId,
+        view_creation_info: &ViewCreationInfo,
+        scene: &Scene,
+    ) -> Result<()> {
+        if !self.instances.is_empty() {
+            bail!("Primary instance is already presenting");
+        }
+
+        let view_presenter = PrimaryViewPresenter {
+            view: view_creation_info.clone(),
+        };
+
+        let presenter = InstancePresenter {
+            state: InstancePresenterState::Appearing,
+            panel_size: view_creation_info.size,
+            translation_animation: scene.animated(Default::default()),
+            view: Some(view_presenter),
+        };
+
+        self.instances.insert(instance, presenter);
+        self.ordered.push(instance);
+
+        Ok(())
+    }
+
     /// Present an instance originating from another.
     pub fn present_instance(
         &mut self,
@@ -25,7 +58,7 @@ impl DesktopPresenter {
         originating_from: InstanceId,
         scene: &Scene,
     ) -> Result<()> {
-        let Some(originating_presenter) = self.instances.get(&instance) else {
+        let Some(originating_presenter) = self.instances.get(&originating_from) else {
             bail!("Originating presenter does not exist");
         };
 
@@ -69,8 +102,12 @@ impl DesktopPresenter {
         Ok(())
     }
 
-    pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
-        if view.role != ViewRole::Primary {
+    pub fn present_view(
+        &mut self,
+        instance: InstanceId,
+        view_creation_info: &ViewCreationInfo,
+    ) -> Result<()> {
+        if view_creation_info.role != ViewRole::Primary {
             todo!("Only primary views are supported yet");
         }
 
@@ -83,8 +120,10 @@ impl DesktopPresenter {
         }
 
         // Feature: Add a alpha animation just for the view.
-        presenter.panel_size = view.size;
-        presenter.view = Some(PrimaryViewPresenter { view: view.clone() });
+        presenter.panel_size = view_creation_info.size;
+        presenter.view = Some(PrimaryViewPresenter {
+            view: view_creation_info.clone(),
+        });
         presenter.state = InstancePresenterState::Presenting;
 
         Ok(())
@@ -92,23 +131,6 @@ impl DesktopPresenter {
 
     pub fn hide_view(&mut self, _id: ViewId) -> Result<()> {
         bail!("Hiding views is not supported yet");
-    }
-
-    pub fn apply_animations(&self) {
-        for presenter in self.instances.values() {
-            if let Some(view) = &presenter.view {
-                // Performance: Why build a matrix, if it might not need to update.
-                //
-                // Architecture: This would resolve itself when we would replace Matrix by a more
-                // granular Translation / Rotation / Quaternion, etc. type.
-                let new_matrix = Matrix::from_translation(presenter.translation_animation.value());
-                view.view
-                    .location
-                    .value()
-                    .matrix
-                    .update_if_changed(new_matrix);
-            }
-        }
     }
 
     /// Compute the current layout and animate the views to their positions.
@@ -130,7 +152,7 @@ impl DesktopPresenter {
 
         for (i, instance) in self.ordered.iter().enumerate() {
             let translation = (
-                (lt.x + field_size.width as i32 * i as i32) as f64,
+                (lt.x + max_panel_size.width as i32 * i as i32) as f64,
                 lt.y as f64,
                 0.0,
             );
@@ -144,6 +166,25 @@ impl DesktopPresenter {
                     Duration::from_secs(1),
                     Interpolation::CubicOut,
                 );
+        }
+    }
+
+    pub fn apply_animations(&self) {
+        for presenter in self.instances.values() {
+            if let Some(view) = &presenter.view {
+                // Performance: Why build a matrix, if it might not need to update.
+                //
+                // Architecture: This would resolve itself when we would replace Matrix by a more
+                // granular Translation / Rotation / Quaternion, etc. type.
+
+                let translation = presenter.translation_animation.value();
+                let new_matrix = Matrix::from_translation(translation);
+                view.view
+                    .location
+                    .value()
+                    .matrix
+                    .update_if_changed(new_matrix);
+            }
         }
     }
 }
