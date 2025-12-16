@@ -43,16 +43,5 @@ impl Camera {
 pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
     let view = camera.view_matrix();
     let proj = projection.perspective_matrix(camera.fovy);
-    OPENGL_TO_WGPU_MATRIX * proj * view
+    proj * view
 }
-
-// Convert from a projection (OpenGL) from a left handed coordinate system to a right handed
-// coordinate system (WGPU).
-// <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: Matrix4 = Matrix4::from_cols_array(&[
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-]);
