@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use log::{debug, error};
+use log::debug;
 use tokio::sync::mpsc::{UnboundedSender, error::SendError};
 
 use uuid::Uuid;

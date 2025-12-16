@@ -87,6 +87,7 @@ impl DesktopPresenter {
         Ok(())
     }
 
+    #[allow(unused)]
     pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
         let Some(presenter) = self.instances.get_mut(&instance) else {
             bail!("Instance not found");
