@@ -147,8 +147,8 @@ impl CubicBezier {
         let influence_scale2 = influence_factor2 / influence2;
 
         // This is the delta of the two points.
-        let delta1 = delta.scaled(influence_scale1);
-        let delta2 = delta.scaled(influence_scale2);
+        let delta1 = delta * influence_scale1;
+        let delta2 = delta * influence_scale2;
 
         CubicBezier::new(
             self.start,
@@ -333,13 +333,11 @@ impl NormalizationParameters {
     }
 
     pub fn normalize(&self, p: Point) -> Point {
-        (p - self.center)
-            .rotated_right(-self.rotation)
-            .scaled(1.0 / self.scaling)
+        (p - self.center).rotated_right(-self.rotation) / self.scaling
     }
 
     pub fn denormalize(&self, p: Point) -> Point {
-        p.scaled(self.scaling).rotated_right(self.rotation) + self.center
+        (p * self.scaling).rotated_right(self.rotation) + self.center
     }
 }
 

@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::info;
 use winit::dpi::LogicalSize;
 
-use massive_geometry::SizeI;
+use massive_geometry::SizePx;
 use massive_scene::Visual;
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
@@ -63,16 +63,18 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     // Application
 
-    let initial_size = LogicalSize::new(800., 800.);
+    let initial_size = LogicalSize::new(800., 800.).to_physical(ctx.primary_monitor_scale_factor());
 
-    let window = ctx.new_window(initial_size).await?;
+    let window = ctx
+        .new_window((initial_size.width, initial_size.height))
+        .await?;
     // Using inner size screws up the renderer initialization, because the window has no size yet.
     // So we compute the proper physical for now.
     // let physical_size = initial_size.to_physical(window.scale_factor());
     let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
-    let page_size = SizeI::new(1280, height as u64);
+    let page_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
     let matrix = scene.stage(application.matrix(page_size));
     let location = scene.stage(matrix.clone().into());

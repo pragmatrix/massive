@@ -18,7 +18,7 @@ use inlyne::{
 use log::info;
 use winit::dpi::LogicalSize;
 
-use massive_geometry::{SizeI, Vector3};
+use massive_geometry::{SizePx, Vector3};
 use massive_scene::Visual;
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
@@ -48,9 +48,12 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     // Need an equivalent FontSystem for inlyne.
     let font_system = Arc::new(Mutex::new(FontSystem::new()));
 
-    let initial_size = LogicalSize::new(1280., 800.);
+    let initial_size =
+        LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
 
-    let window = ctx.new_window(initial_size).await?;
+    let window = ctx
+        .new_window((initial_size.width, initial_size.height))
+        .await?;
 
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
@@ -138,7 +141,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     // Application
 
-    let page_size = SizeI::new(page_width as _, page_height);
+    let page_size = SizePx::new(page_width as _, page_height);
     let mut application = Application::default();
     let scene = ctx.new_scene();
     let matrix = scene.stage(application.matrix(page_size));

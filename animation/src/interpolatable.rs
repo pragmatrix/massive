@@ -1,5 +1,7 @@
 use std::time::Instant;
 
+use massive_geometry::Vector3;
+
 /// For now we have to support `Clone`.
 ///
 /// Other options: We pass 1.0 here and expect Self to return a clone for `to`, but can then never
@@ -26,5 +28,14 @@ impl Interpolatable for Instant {
             return *from + to.duration_since(*from).mul_f64(t);
         }
         *to + from.duration_since(*to).mul_f64(t)
+    }
+}
+
+impl Interpolatable for Vector3 {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        let x = f64::interpolate(&from.x, &to.x, t);
+        let y = f64::interpolate(&from.y, &to.y, t);
+        let z = f64::interpolate(&from.z, &to.z, t);
+        (x, y, z).into()
     }
 }

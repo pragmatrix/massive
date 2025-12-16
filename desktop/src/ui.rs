@@ -2,7 +2,10 @@ use std::cmp::Ordering;
 
 use anyhow::Result;
 
-use winit::event::WindowEvent;
+use winit::{
+    event::{ElementState, WindowEvent},
+    keyboard::Key,
+};
 
 use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
 use massive_geometry::{Point, Vector3};
@@ -19,7 +22,8 @@ pub struct UI {
     /// The ids may not exist.
     cursor_focus: Option<CursorFocus>,
 
-    /// Basically the keyboard focus.
+    /// This decides to which view and instance the keyboard events are delivered. Basically the
+    /// keyboard focus.
     focus_manager: FocusManager,
 }
 
@@ -39,9 +43,9 @@ impl UI {
         &mut self,
         input_event: &Event<WindowEvent>,
         primary_instance: InstanceId,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<()> {
+    ) -> Result<UiCommand> {
         let send_to_view = |instance_id: InstanceId, view_id: ViewId, event: ViewEvent| {
             instance_manager.send_view_event(instance_id, view_id, event)
         };
@@ -131,7 +135,37 @@ impl UI {
             }
 
             // Keyboard focus
-            WindowEvent::KeyboardInput { .. } | WindowEvent::Ime(_) => {
+            WindowEvent::KeyboardInput {
+                event: key_event, ..
+            } => {
+                let focused_view = self.focus_manager.focused_view();
+
+                if key_event.state == ElementState::Pressed
+                    && !key_event.repeat
+                    && input_event.states().is_command()
+                    && let Some((instance, _)) = focused_view
+                {
+                    match &key_event.logical_key {
+                        Key::Character(c) if c.as_str() == "t" => {
+                            let application = instance_manager.get_application_name(instance)?;
+                            return Ok(UiCommand::StartInstance {
+                                application: application.to_string(),
+                                originating_from: instance,
+                            });
+                        }
+                        Key::Character(c) if c.as_str() == "w" => {
+                            return Ok(UiCommand::StopInstance { instance });
+                        }
+                        _ => {}
+                    }
+                }
+
+                if let Some((instance, view)) = focused_view {
+                    send_window_event(instance, view, window_event)?;
+                }
+            }
+
+            WindowEvent::Ime(_) => {
                 if let Some((instance, view)) = self.focus_manager.focused_view() {
                     send_window_event(instance, view, window_event)?;
                 }
@@ -149,7 +183,7 @@ impl UI {
             _ => {}
         }
 
-        Ok(())
+        Ok(UiCommand::None)
     }
 
     fn hit_test_from_event(
@@ -176,9 +210,9 @@ impl UI {
             if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
                 // Check if the local position is within the view bounds
                 if local_pos.x >= 0.0
-                    && local_pos.x <= size.0 as f64
+                    && local_pos.x <= size.width as f64
                     && local_pos.y >= 0.0
-                    && local_pos.y <= size.1 as f64
+                    && local_pos.y <= size.height as f64
                 {
                     hits.push((instance_id, view_id, local_pos));
                 }
@@ -254,7 +288,9 @@ impl UI {
             }),
             WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
             WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
-            WindowEvent::Resized(size) => Some(ViewEvent::Resized(size.width, size.height)),
+            WindowEvent::Resized(size) => {
+                Some(ViewEvent::Resized((size.width, size.height).into()))
+            }
             _ => None,
         }
     }
@@ -263,7 +299,7 @@ impl UI {
         &mut self,
         instance: InstanceId,
         window_focused: bool,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance, but not the view for now.
 
@@ -281,7 +317,7 @@ impl UI {
 
     fn transition(
         transitions: Vec<FocusTransition>,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<()> {
         for transition in transitions {
             match transition {
@@ -297,4 +333,16 @@ impl UI {
         }
         Ok(())
     }
+}
+
+#[must_use]
+pub enum UiCommand {
+    None,
+    StartInstance {
+        application: String,
+        originating_from: InstanceId,
+    },
+    StopInstance {
+        instance: InstanceId,
+    },
 }

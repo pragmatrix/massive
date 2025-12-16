@@ -1,4 +1,4 @@
-use std::{collections::HashMap, future::Future, panic::AssertUnwindSafe, pin::Pin};
+use std::{collections::HashMap, panic::AssertUnwindSafe};
 
 use anyhow::{Context, anyhow};
 use derive_more::{Debug, Deref};
@@ -10,23 +10,23 @@ use tokio::{
 use uuid::Uuid;
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceContext, InstanceEvent, InstanceId, RenderPacing,
+    CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId, RenderPacing,
     ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
-use massive_renderer::FontManager;
 use massive_shell::Result;
+
+use crate::application_registry::Application;
 
 /// Manages running application instances with lifecycle control.
 #[derive(Debug)]
 pub struct InstanceManager {
     instances: HashMap<InstanceId, RunningInstance>,
+    environment: InstanceEnvironment,
     join_set: JoinSet<(InstanceId, Result<()>)>,
-    requests_tx: UnboundedSender<(InstanceId, InstanceCommand)>,
 }
 
 #[derive(Debug)]
 struct RunningInstance {
-    #[allow(dead_code)]
     application_name: String,
     #[allow(dead_code)]
     creation_mode: CreationMode,
@@ -42,31 +42,12 @@ pub struct ViewInfo {
 }
 
 impl InstanceManager {
-    pub fn new(requests_tx: UnboundedSender<(InstanceId, InstanceCommand)>) -> Self {
+    pub fn new(environment: InstanceEnvironment) -> Self {
         Self {
+            environment,
             instances: HashMap::new(),
             join_set: JoinSet::new(),
-            requests_tx,
         }
-    }
-
-    /// Restore an instance (spawn it with CreationMode::Restore).
-    /// This would typically be called after stopping an instance that needs to be restarted.
-    #[allow(dead_code)]
-    pub fn restore(
-        &mut self,
-        application: &Application,
-        monitor_scale_factor: f64,
-        fonts: FontManager,
-    ) -> Result<InstanceId> {
-        // Note: Each spawn creates a new instance with a new ID.
-        // Applications should handle state restoration via CreationMode::Restore.
-        self.spawn(
-            application,
-            CreationMode::Restore,
-            monitor_scale_factor,
-            fonts,
-        )
     }
 
     /// Stop an instance gracefully by sending an Exit event.
@@ -94,8 +75,6 @@ impl InstanceManager {
         &mut self,
         application: &Application,
         creation_mode: CreationMode,
-        monitor_scale_factor: f64,
-        fonts: FontManager,
     ) -> Result<InstanceId> {
         let instance_id = InstanceId::from(Uuid::new_v4());
         let (events_tx, events_rx) = unbounded_channel();
@@ -103,9 +82,7 @@ impl InstanceManager {
         let instance_context = InstanceContext::new(
             instance_id,
             creation_mode,
-            monitor_scale_factor,
-            fonts,
-            self.requests_tx.clone(),
+            self.environment.clone(),
             events_rx,
         );
 
@@ -173,11 +150,11 @@ impl InstanceManager {
         }
     }
 
-    pub fn add_view(&mut self, instance_id: InstanceId, creation_info: ViewCreationInfo) {
+    pub fn add_view(&mut self, instance_id: InstanceId, creation_info: &ViewCreationInfo) {
         if let Some(instance) = self.instances.get_mut(&instance_id) {
             let id = creation_info.id;
             let info = ViewInfo {
-                creation_info,
+                creation_info: creation_info.clone(),
                 pacing: RenderPacing::default(),
             };
             instance.views.insert(id, info);
@@ -239,6 +216,11 @@ impl InstanceManager {
             .map(|(id, _)| *id))
     }
 
+    pub fn get_application_name(&self, instance: InstanceId) -> Result<&str> {
+        self.get_instance(instance)
+            .map(|ri| ri.application_name.as_str())
+    }
+
     fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {
         self.instances
             .get(&instance)
@@ -263,40 +245,6 @@ impl InstanceManager {
             RenderPacing::Smooth
         } else {
             RenderPacing::Fast
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Application {
-    pub(crate) name: String,
-    #[debug(skip)]
-    pub(crate) run: RunInstanceBox,
-}
-
-type RunInstanceBox = Box<
-    dyn Fn(InstanceContext) -> Pin<Box<dyn Future<Output = Result<()>> + Send + 'static>>
-        + Send
-        + Sync
-        + 'static,
->;
-
-impl Application {
-    pub fn new<F, R>(name: impl Into<String>, run: F) -> Self
-    where
-        F: Fn(InstanceContext) -> R + Send + Sync + 'static,
-        R: Future<Output = Result<()>> + Send + 'static,
-    {
-        let name = name.into();
-        let run_boxed = Box::new(
-            move |ctx: InstanceContext| -> Pin<Box<dyn Future<Output = Result<()>> + Send>> {
-                Box::pin(run(ctx))
-            },
-        );
-
-        Self {
-            name,
-            run: run_boxed,
         }
     }
 }

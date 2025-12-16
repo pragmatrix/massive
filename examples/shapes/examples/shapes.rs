@@ -16,8 +16,11 @@ async fn main() -> Result<()> {
 
 async fn run(mut ctx: ApplicationContext) -> Result<()> {
     // Window
-    let window_size = LogicalSize::new(1024.0, 768.0);
-    let window = ctx.new_window(window_size).await?;
+    let window_size =
+        LogicalSize::new(1024.0, 768.0).to_physical(ctx.primary_monitor_scale_factor());
+    let window = ctx
+        .new_window((window_size.width, window_size.height))
+        .await?;
 
     let mut renderer = window.renderer().with_shapes().build().await?;
 

@@ -167,7 +167,13 @@ impl DeviceStates {
     }
 
     /// `true` if the Windows key on Windows or the Command key on a Mac is pressed.
+    #[deprecated(note = "use is_command()")]
     pub fn is_logo(&self) -> bool {
+        self.keyboard_modifiers.contains(ModifiersState::SUPER)
+    }
+
+    /// `true` if the Windows key on Windows or the Command key on a Mac is pressed.
+    pub fn is_command(&self) -> bool {
         self.keyboard_modifiers.contains(ModifiersState::SUPER)
     }
 

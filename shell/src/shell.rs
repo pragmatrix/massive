@@ -1,7 +1,7 @@
 use std::{future::Future, mem, sync::Arc};
 
 use anyhow::{Result, anyhow, bail};
-use log::{error, info, warn};
+use log::{debug, error, info, warn};
 use massive_util::CoalescingKey;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
 use wgpu::{Surface, SurfaceTarget};
@@ -95,22 +95,20 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
 
     // Event loop
 
-    {
-        let mut winit_context = WinitApplicationHandler::Initializing {
-            proxy: event_loop_proxy,
-            spawner: Some(Box::new(spawn_application)),
-        };
+    let mut winit_context = WinitApplicationHandler::Initializing {
+        proxy: event_loop_proxy,
+        spawner: Some(Box::new(spawn_application)),
+    };
 
-        info!("Entering event loop");
-        event_loop.run_app(&mut winit_context)?;
-        info!("Exited event loop");
+    info!("Entering event loop");
+    event_loop.run_app(&mut winit_context)?;
+    info!("Exited event loop");
 
-        let WinitApplicationHandler::Exited { final_result } = winit_context else {
-            bail!("Internal error: Exited event loop, but it was never actually exiting");
-        };
+    let WinitApplicationHandler::Exited { final_result } = winit_context else {
+        bail!("Internal error: Exited event loop, but it was never actually exiting");
+    };
 
-        final_result
-    }
+    final_result
 }
 
 // Robustness: Try to remove Clone.
@@ -269,6 +267,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                     .expect("oneshot can send");
             }
             ShellCommand::DestroyWindow { window } => {
+                info!("Destroying window");
                 drop(window);
             }
             ShellCommand::CreateSurface {
@@ -298,17 +297,28 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         event: WindowEvent,
     ) {
         if event != WindowEvent::RedrawRequested {
-            info!("{event:?}");
+            debug!("Received: {event:?}");
         }
 
-        self.send_event(event_loop, ShellEvent::WindowEvent(window_id, event))
+        // Don't send Window destroyed events for now, the Window is already gone, no need to handle
+        // this. This might also happen when the system is winding down (i.e. we are already not
+        // anymore in the Running state)
+        if event != WindowEvent::Destroyed {
+            self.send_event(event_loop, ShellEvent::WindowEvent(window_id, event))
+        }
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
         replace_with::replace_with_or_abort(self, |state| {
             let final_result: Result<()> = if let Self::Ended { application_result } = state {
                 // Detail: Don't output the error here. We'll do this later anyway.
-                info!("Application ended");
+                //
+                // Robustness: We have to output the error here because the application may hang?.
+                if let Err(e) = &application_result {
+                    error!("Application ended: {e:?}");
+                } else {
+                    info!("Application ended");
+                }
                 application_result
             } else {
                 Err(anyhow!("Event loop exited, but application did not end"))
@@ -322,7 +332,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 impl WinitApplicationHandler {
     fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
         let Self::Running { event_sender, .. } = self else {
-            error!("Cannot send event: application handler not in running state.");
+            error!("Cannot send shell event: application handler must be in the running state.");
             return;
         };
 

@@ -22,7 +22,7 @@ use project_model::CargoConfig;
 use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
-use massive_geometry::{Color, SizeI};
+use massive_geometry::{Color, SizePx};
 use massive_scene::Visual;
 use massive_shapes::TextWeight;
 use massive_shell::{ApplicationContext, FontManager, shell};
@@ -246,11 +246,12 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     // Window
 
-    let window = ctx.new_window(LogicalSize::new(1024, 800)).await?;
+    let size = LogicalSize::new(1024, 800).to_physical(ctx.primary_monitor_scale_factor());
+    let window = ctx.new_window((size.width, size.height)).await?;
 
     // Application
 
-    let page_size = SizeI::new(1280, height as u64);
+    let page_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
 
     let scene = ctx.new_scene();

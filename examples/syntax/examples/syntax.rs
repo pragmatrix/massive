@@ -73,15 +73,17 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
     // Window
 
-    let inner_size = LogicalSize::new(800., 800.);
-    let window = ctx.new_window(inner_size).await?;
+    let inner_size = LogicalSize::new(800., 800.).to_physical(ctx.primary_monitor_scale_factor());
+    let window = ctx
+        .new_window((inner_size.width, inner_size.height))
+        .await?;
 
     let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
     // Application
 
-    let page_size = (1280, height as u64);
+    let page_size = (1280, height as u32);
     let mut application = Application::default();
     let matrix = scene.stage(application.matrix(page_size));
     let position = scene.stage(matrix.clone().into());

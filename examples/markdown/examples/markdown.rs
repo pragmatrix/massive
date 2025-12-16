@@ -18,9 +18,9 @@ use inlyne::{
 };
 use log::info;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
-use winit::dpi::PhysicalSize;
+use winit::dpi::{LogicalSize, PhysicalSize};
 
-use massive_geometry::{SizeI, Vector3};
+use massive_geometry::{SizePx, Vector3};
 use massive_scene::Visual;
 use massive_shapes::GlyphRun;
 use massive_shell::{ApplicationContext, FontManager, shell};
@@ -68,10 +68,11 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         FontSystem::new_with_locale_and_db("en-US".into(), font_db)
     };
 
-    let initial_size = winit::dpi::LogicalSize::new(960, 800);
-    let window = ctx.new_window(initial_size).await?;
-    let scale_factor = window.scale_factor();
-    let physical_size = initial_size.to_physical(scale_factor);
+    let scale_factor = ctx.primary_monitor_scale_factor();
+    let physical_size = LogicalSize::new(960, 800).to_physical(scale_factor);
+    let window = ctx
+        .new_window((physical_size.width, physical_size.height))
+        .await?;
 
     let font_system = Arc::new(Mutex::new(font_system));
 
@@ -128,7 +129,7 @@ fn markdown_to_glyph_runs(
     page_size: PhysicalSize<u32>,
     font_system: Arc<Mutex<FontSystem>>,
     markdown: &str,
-) -> Result<(Vec<GlyphRun>, SizeI)> {
+) -> Result<(Vec<GlyphRun>, SizePx)> {
     let theme = Theme::light_default();
     let html = markdown_to_html(markdown, theme.code_highlighter.clone());
 

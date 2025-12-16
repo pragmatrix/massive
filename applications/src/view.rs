@@ -1,13 +1,16 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use log::error;
-use tokio::sync::mpsc::UnboundedSender;
+use log::debug;
+use tokio::sync::mpsc::{UnboundedSender, error::SendError};
 
 use uuid::Uuid;
-use winit::event::{self, DeviceId};
-use winit::window::CursorIcon;
+use winit::{
+    event::{self, DeviceId},
+    window::CursorIcon,
+};
 
+use massive_geometry::SizePx;
 use massive_input::{AggregationEvent, InputEvent};
 use massive_scene::{Handle, Location, Matrix, SceneChanges};
 
@@ -25,13 +28,11 @@ pub struct View {
 
 impl Drop for View {
     fn drop(&mut self) {
-        if let Err(e) = self
+        if let Err(SendError { .. }) = self
             .command_sender
             .send((self.instance, InstanceCommand::DestroyView(self.id)))
         {
-            error!(
-                "Failed to send DestroyView command (is the instance command receiver gone?): {e:?}"
-            )
+            debug!("Ignored DestroyView command because the command receiver is gone")
         }
     }
 }
@@ -41,7 +42,7 @@ impl View {
         instance: InstanceId,
         command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
         role: ViewRole,
-        size: (u32, u32),
+        size: SizePx,
         scene: &Scene,
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
@@ -122,7 +123,7 @@ pub struct ViewCreationInfo {
     pub id: ViewId,
     pub location: Handle<Location>,
     pub role: ViewRole,
-    pub size: (u32, u32),
+    pub size: SizePx,
 }
 
 #[derive(Debug)]
@@ -156,7 +157,7 @@ impl RenderTarget for View {
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
-    Resized(u32, u32),
+    Resized(SizePx),
     CloseRequested,
     DroppedFile(PathBuf),
     HoveredFile(PathBuf),

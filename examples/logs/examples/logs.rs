@@ -76,7 +76,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     // Window
 
-    let window = ctx.new_window(LogicalSize::new(1280., 800.)).await?;
+    let size = LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
+    let window = ctx.new_window((size.width, size.height)).await?;
 
     let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
@@ -122,7 +123,7 @@ struct Logs {
 
 impl Logs {
     fn new(scene: &Scene, fonts: FontManager) -> Self {
-        let page_width = 1280u32;
+        let page_width = 1280;
         let application = Application::default();
         let current_matrix = application.matrix((page_width, page_width));
         let page_matrix = scene.stage(current_matrix);

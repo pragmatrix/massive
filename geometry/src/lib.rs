@@ -11,13 +11,12 @@ mod flo_curves;
 mod line;
 mod plane;
 mod point;
-mod point_i;
+pub mod prelude;
 mod projection;
 mod ray;
 mod rect;
 mod size;
 mod size3;
-mod size_i;
 mod unit_interval;
 
 pub use bounds::*;
@@ -29,13 +28,11 @@ pub use depth_range::*;
 pub use line::*;
 pub use plane::*;
 pub use point::*;
-pub use point_i::*;
 pub use projection::*;
 pub use ray::*;
 pub use rect::*;
 pub use size::*;
 pub use size3::*;
-pub use size_i::*;
 pub use unit_interval::*;
 
 pub trait Centered {
@@ -66,5 +63,23 @@ impl PerspectiveDivide for Vector4 {
             return None;
         }
         Some(Vector3::new(self.x / w, self.y / w, self.z / w))
+    }
+}
+
+pub struct PixelUnit;
+pub type SizePx = euclid::Size2D<u32, PixelUnit>;
+pub type VectorPx = euclid::Vector2D<i32, PixelUnit>;
+
+pub trait Signed {
+    type SignedType;
+
+    fn signed(&self) -> Self::SignedType;
+}
+
+impl<U> Signed for euclid::Size2D<u32, U> {
+    type SignedType = euclid::Vector2D<i32, U>;
+
+    fn signed(&self) -> Self::SignedType {
+        self.cast().to_vector()
     }
 }

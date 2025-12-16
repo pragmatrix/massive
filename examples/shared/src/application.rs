@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Matrix4, PointI, SizeI};
+use massive_geometry::{Matrix4, SizePx, VectorPx};
 use winit::{
     event::{
         DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
@@ -19,24 +19,24 @@ pub struct Application {
     gesture: Option<ActiveGesture>,
 
     /// Tracked positions of all devices.
-    positions: HashMap<DeviceId, PointI>,
+    positions: HashMap<DeviceId, VectorPx>,
     modifiers: Modifiers,
 
     /// Current x / y Translation.
-    translation: PointI,
+    translation: VectorPx,
     translation_z: i32,
     /// Rotation in discrete degrees.
-    rotation: PointI,
+    rotation: VectorPx,
 }
 
 struct MovementGesture {
-    origin: PointI,
-    translation_origin: PointI,
+    origin: VectorPx,
+    translation_origin: VectorPx,
 }
 
 struct RotationGesture {
-    origin: PointI,
-    rotation_origin: PointI,
+    origin: VectorPx,
+    rotation_origin: VectorPx,
 }
 
 const MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS: f64 = 0.25;
@@ -70,7 +70,7 @@ impl Application {
                 // Track positions.
                 //
                 // These positions aren't discrete / integral on macOS, but why?
-                let current = PointI::new(position.x.round() as _, position.y.round() as _);
+                let current = VectorPx::new(position.x.round() as _, position.y.round() as _);
                 self.positions.insert(*device_id, current);
 
                 // Is there an ongoing movement on the left mouse button?
@@ -140,7 +140,7 @@ impl Application {
                 button: MouseButton::Right,
                 ..
             } => {
-                self.rotation = PointI::default();
+                self.rotation = VectorPx::default();
             }
             WindowEvent::ModifiersChanged(modifiers) => {
                 if self.modifiers != *modifiers {
@@ -189,7 +189,7 @@ impl Application {
         UpdateResponse::Continue
     }
 
-    pub fn matrix(&self, page_size: impl Into<SizeI>) -> Matrix4 {
+    pub fn matrix(&self, page_size: impl Into<SizePx>) -> Matrix4 {
         let page_size = page_size.into();
 
         let page_x_center: f64 = -((page_size.width / 2) as f64);
