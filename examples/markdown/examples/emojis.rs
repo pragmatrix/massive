@@ -16,7 +16,6 @@ use inlyne::{
     utils::{Rect, markdown_to_html},
 };
 use log::info;
-use tracing_subscriber::fmt::init;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizePx, Vector3};
