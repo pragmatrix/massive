@@ -2,7 +2,7 @@ use std::{
     mem,
     sync::{
         Arc,
-        mpsc::{self, Sender},
+        mpsc::{self, Sender, TryRecvError},
     },
     thread::{self, JoinHandle},
 };
@@ -55,10 +55,13 @@ impl AsyncWindowRenderer {
         let (msg_sender, msg_receiver) = mpsc::channel();
 
         let thread_handle = thread::spawn(move || {
-            if let Err(e) =
-                Self::render_loop(msg_receiver, window_renderer, shell_events, view_projection)
-            {
-                error!("Render loop crashed with {e:?}");
+            match Self::render_loop(msg_receiver, window_renderer, shell_events, view_projection) {
+                Ok(()) => {
+                    info!("Render loop ended because the sender disconnected");
+                }
+                Err(e) => {
+                    error!("Render loop ended because of an error: {e:?}");
+                }
             }
         });
 
@@ -72,6 +75,8 @@ impl AsyncWindowRenderer {
         }
     }
 
+    // Detail: The render loop will only end regularly if the channel that sends renderer messages
+    // is closed.
     fn render_loop(
         msg_receiver: mpsc::Receiver<RendererMessage>,
         mut window_renderer: WindowRenderer,
@@ -89,16 +94,22 @@ impl AsyncWindowRenderer {
             if messages.is_empty() {
                 // blocking path.
                 if smooth {
-                    // smooth. This may block.
+                    // Smooth rendering. This may block.
                     Self::render_frame(&mut window_renderer, &shell_events, &view_projection)?;
                 } else {
-                    // fast mode.
-                    Self::wait_for_events(&msg_receiver, &mut messages)?;
+                    // Fast mode. Wait until at least one event is there.
+                    if Self::wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue
+                    {
+                        return Ok(());
+                    };
                 }
             }
 
-            // Non-blocking.
-            Self::retrieve_pending_events(&msg_receiver, &mut messages)?;
+            // Pull _all_ events so that we can coalesce them.
+            if Self::retrieve_pending_events(&msg_receiver, &mut messages) != FlowControl::Continue
+            {
+                return Ok(());
+            };
             messages = message_filter::keep_last_per_variant(messages, |_| true);
 
             if messages.is_empty() {
@@ -140,22 +151,33 @@ impl AsyncWindowRenderer {
     fn wait_for_events(
         msg_receiver: &mpsc::Receiver<RendererMessage>,
         events: &mut Vec<RendererMessage>,
-    ) -> Result<()> {
-        if events.is_empty() {
-            events.push(msg_receiver.recv()?);
+    ) -> FlowControl {
+        if !events.is_empty() {
+            return FlowControl::Continue;
         }
-        Ok(())
+
+        let Ok(msg) = msg_receiver.recv() else {
+            return FlowControl::Disconnected;
+        };
+
+        events.push(msg);
+        FlowControl::Continue
     }
 
-    /// Retrieve all pending events. Non blocking.
+    /// Retrieve all pending events. Non blocking. Ignores when the channel gets closed.
     fn retrieve_pending_events(
         msg_receiver: &mpsc::Receiver<RendererMessage>,
         events: &mut Vec<RendererMessage>,
-    ) -> Result<()> {
-        while let Ok(event) = msg_receiver.try_recv() {
-            events.push(event);
+    ) -> FlowControl {
+        loop {
+            match msg_receiver.try_recv() {
+                Ok(event) => {
+                    events.push(event);
+                }
+                Err(TryRecvError::Disconnected) => return FlowControl::Disconnected,
+                Err(TryRecvError::Empty) => return FlowControl::Continue,
+            }
         }
-        Ok(())
     }
 
     fn render_frame(
@@ -287,6 +309,13 @@ impl AsyncWindowRenderer {
             .context("Sending renderer message")?;
         Ok(())
     }
+}
+
+#[must_use]
+#[derive(Debug, PartialEq, Eq)]
+enum FlowControl {
+    Continue,
+    Disconnected,
 }
 
 impl Drop for AsyncWindowRenderer {
