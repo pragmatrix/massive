@@ -76,7 +76,8 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     // Window
 
-    let window = ctx.new_window(LogicalSize::new(1280., 800.)).await?;
+    let size = LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
+    let window = ctx.new_window((size.width, size.height)).await?;
 
     let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
@@ -111,7 +112,7 @@ struct Logs {
 
     page_matrix: Handle<Matrix>,
 
-    page_width: u64,
+    page_width: u32,
     page_height: Animated<f64>,
     vertical_center: Animated<f64>,
     vertical_center_matrix: Handle<Matrix>,
@@ -292,7 +293,7 @@ impl Logs {
         // it needs to redraw.
         let new_matrix = self
             .application
-            .matrix((self.page_width, self.page_height.value() as u64));
+            .matrix((self.page_width, self.page_height.value() as u32));
         self.page_matrix.update_if_changed(new_matrix);
     }
 }
