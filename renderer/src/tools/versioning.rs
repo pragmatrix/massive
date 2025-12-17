@@ -39,7 +39,7 @@ impl<T> Versioned<T> {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Computed<V> {
     /// This is last the time the `max_deps_version` and computed value was validated to be
     /// consistent with its dependencies.
@@ -47,25 +47,35 @@ pub struct Computed<V> {
     /// If `validated_at` is less than the latest version, `max_deps_version` and `value` may be
     /// outdated.
     pub validated_at: Version,
-    /// The maximum version of all its dependencies. May be outdated if `validated_at` does not
-    /// equal the latest version.
+
+    /// The computed value at `max_deps_version`. This value is computed on demand and may not be up
+    /// to date. but it always represents the result of a computation matching the dependencies at
+    /// `max_deps_version`.
     ///
-    /// This is also equivalent to the updated_at in the [`Versioned`], because it describes that
-    /// version the value was last updated.
-    ///
-    pub max_deps_version: Version,
-    /// The value computed value at `max_deps_version`. This value is computed on demand and may not
-    /// be up to date. but it always represents the result of a computation matching the
-    /// dependencies at `max_deps_version`.
-    ///
-    /// Idea: Use Versioned here (max_deps_version is equivalent to updated_at).
-    pub value: V,
+    /// The `updated_at` version is equivalent to the maximum version of all the dependencies
+    /// (including transitives).
+
+    /// The `updated_at` and the value may be outdated if `validated_at` does not equal the latest
+    /// version.
+    pub versioned: Versioned<V>,
 }
 
 impl<T> Deref for Computed<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.value
+        &self.versioned.deref()
+    }
+}
+
+impl<T> Default for Computed<T>
+where
+    Versioned<T>: Default,
+{
+    fn default() -> Self {
+        Self {
+            validated_at: 0,
+            versioned: Versioned::default(),
+        }
     }
 }

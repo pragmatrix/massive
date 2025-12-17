@@ -30,9 +30,9 @@ where
     //
     // This is the only situation in which the id might make the underlying storage to resize.
     let computed = Resolver::computed_mut(computed_storage, id);
-    let computed_max_deps = computed.max_deps_version;
+    let current_max_deps = computed.versioned.updated_at;
     if computed.validated_at == head_version {
-        return computed_max_deps;
+        return current_max_deps;
     }
 
     let source = Resolver::get_source(shared_storage, id);
@@ -41,17 +41,16 @@ where
 
     // If the max_deps_version is smaller or equal to the one of the computed value, the value is ok
     // and can be marked as validated at `head_version`.
-    if max_deps_version <= computed_max_deps {
+    if max_deps_version <= current_max_deps {
         Resolver::computed_mut(computed_storage, id).validated_at = head_version;
-        return computed_max_deps;
+        return current_max_deps;
     }
 
     // Compute a new value and store it.
     let new_value = Resolver::compute(shared_storage, computed_storage, source);
     *Resolver::computed_mut(computed_storage, id) = Computed {
         validated_at: head_version,
-        max_deps_version,
-        value: new_value,
+        versioned: Versioned::new(new_value, max_deps_version),
     };
     max_deps_version
 }

@@ -120,3 +120,9 @@ impl DependencyResolver for VisualLocation {
         )
     }
 }
+
+impl Default for Versioned<Transform> {
+    fn default() -> Self {
+        Versioned::new(Transform::default(), 0)
+    }
+}
