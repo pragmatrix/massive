@@ -17,6 +17,7 @@ mod ray;
 mod rect;
 mod size;
 mod size3;
+mod transform;
 mod unit_interval;
 
 pub use bounds::*;
@@ -33,6 +34,7 @@ pub use ray::*;
 pub use rect::*;
 pub use size::*;
 pub use size3::*;
+pub use transform::*;
 pub use unit_interval::*;
 
 pub trait Centered {
@@ -49,6 +51,7 @@ pub trait Contains<Other> {
 pub type Matrix4 = glam::DMat4;
 pub type Vector3 = glam::DVec3;
 pub type Vector4 = glam::DVec4;
+pub type Quaternion = glam::DQuat;
 
 pub trait PerspectiveDivide {
     fn perspective_divide(&self) -> Option<Vector3>;
