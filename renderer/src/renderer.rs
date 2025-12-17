@@ -10,7 +10,7 @@ use crate::{
     config::RendererConfig,
     pods::{AsBytes, ToPod},
     render_batches::RenderBatches,
-    scene::{LocationMatrices, Scene},
+    scene::{LocationTransforms, Scene},
     stats::MeasureSeries,
     tools::QuadIndexBuffer,
 };
@@ -41,7 +41,7 @@ pub struct Renderer {
     /// The changed visuals since the previous draw call.
     changed_visuals: ChangedIds,
 
-    visual_matrices: LocationMatrices,
+    visual_locations: LocationTransforms,
     batches: RenderBatches,
 }
 
@@ -144,7 +144,7 @@ impl Renderer {
             transaction_manager: Default::default(),
             scene: Default::default(),
             changed_visuals: Default::default(),
-            visual_matrices: Default::default(),
+            visual_locations: Default::default(),
             batches: Default::default(),
         };
 
@@ -223,8 +223,11 @@ impl Renderer {
             .render_visuals()
             .map(|v| v.location_id)
             .unique();
-        self.visual_matrices
-            .compute_matrices(&self.scene, transaction, location_ids);
+        self.visual_locations.resolve_locations_and_matrices(
+            &self.scene,
+            transaction,
+            location_ids,
+        );
     }
 
     fn prepare_batches(&mut self) -> Result<()> {
@@ -401,7 +404,7 @@ impl Renderer {
         select_batch: impl Fn(&PipelineBatches) -> Option<&RenderBatch>,
         context: &mut RenderContext,
     ) {
-        let matrices = &self.visual_matrices;
+        let locations = &self.visual_locations;
         let mut pipeline_set = false;
 
         for visual in visuals {
@@ -417,7 +420,7 @@ impl Renderer {
             // Architecture: We may go multiple times over the same visual and compute the
             //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
             //   lazy table here.
-            let matrix = context.view_projection_matrix * *matrices.get(visual.location_id);
+            let matrix = context.view_projection_matrix * *locations.get_matrix(visual.location_id);
 
             let pass = &mut context.pass;
 

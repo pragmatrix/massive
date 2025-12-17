@@ -41,3 +41,7 @@ pub use id::Id;
 pub use objects::*;
 pub use scene::Scene;
 pub use type_id_generator::id_generator;
+
+// Re-exports
+
+pub use massive_geometry::Transform;

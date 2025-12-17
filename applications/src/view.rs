@@ -12,7 +12,7 @@ use winit::{
 
 use massive_geometry::SizePx;
 use massive_input::{AggregationEvent, InputEvent};
-use massive_scene::{Handle, Location, Matrix, SceneChanges};
+use massive_scene::{Handle, Location, SceneChanges, Transform};
 
 use crate::{
     InstanceId, RenderPacing, RenderTarget, Scene, ViewId, instance_context::InstanceCommand,
@@ -47,8 +47,8 @@ impl View {
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
-        let view_matrix = scene.stage(Matrix::IDENTITY);
-        let location = scene.stage(Location::new(None, view_matrix));
+        let view_transform = scene.stage(Transform::IDENTITY);
+        let location = scene.stage(Location::new(None, view_transform));
 
         command_sender.send((
             instance,
@@ -68,9 +68,9 @@ impl View {
         })
     }
 
-    /// The location's matrix.
-    pub fn matrix(&self) -> Handle<Matrix> {
-        self.location().value().matrix.clone()
+    /// The location's transform.
+    pub fn transform(&self) -> Handle<Transform> {
+        self.location().value().transform.clone()
     }
 
     /// A reference to the location that is used to position the view in the parent desktop space.

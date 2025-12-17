@@ -1,5 +1,4 @@
-use massive_geometry::Matrix4;
-use massive_scene::{Change, Id, LocationRenderObj, SceneChange, VisualRenderObj};
+use massive_scene::{Change, Id, LocationRenderObj, SceneChange, Transform, VisualRenderObj};
 
 use crate::{Transaction, Version, tools::Versioned};
 
@@ -8,16 +7,14 @@ mod id_table;
 mod location_matrices;
 
 pub use id_table::IdTable;
-pub use location_matrices::LocationMatrices;
+pub use location_matrices::LocationTransforms;
 
 #[derive(Debug, Default)]
 pub struct Scene {
     // Option: Because setting the values to None deletes then.
     //
-    // Optimization: Defaults could be used here, too, but Matrix4 currently does not define a
-    // default(), and using defaults has the drawback, that referential errors may lead to confusing
-    // render results instead of a panic.
-    matrices: IdTable<Option<Versioned<Matrix4>>>,
+    // Optimization: Defaults could be used here.
+    transforms: IdTable<Option<Versioned<Transform>>>,
     locations: IdTable<Option<Versioned<LocationRenderObj>>>,
     visuals: IdTable<Option<VisualRenderObj>>,
 }
@@ -30,7 +27,9 @@ impl Scene {
     pub fn apply(&mut self, change: &SceneChange, transaction: &Transaction) {
         let current_version = transaction.current_version();
         match change.clone() {
-            SceneChange::Matrix(change) => self.matrices.apply_versioned(change, current_version),
+            SceneChange::Transform(change) => {
+                self.transforms.apply_versioned(change, current_version)
+            }
             SceneChange::Location(change) => {
                 self.locations.apply_versioned(change, current_version)
             }

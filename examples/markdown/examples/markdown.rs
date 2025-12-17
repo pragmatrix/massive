@@ -85,10 +85,10 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut application = Application::default();
     let scene = ctx.new_scene();
-    let page_matrix = application.matrix(page_size);
+    let page_transform = application.transform(page_size);
 
-    let matrix = scene.stage(page_matrix);
-    let location = scene.stage(matrix.clone().into());
+    let transform = scene.stage(page_transform);
+    let location = scene.stage(transform.clone().into());
 
     // Hold the staged visual, otherwise it will disappear.
     let _visual = scene.stage(Visual::new(
@@ -116,7 +116,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                 UpdateResponse::Continue => {}
             }
 
-            matrix.update_if_changed(application.matrix(page_size));
+            transform.update_if_changed(application.transform(page_size));
         }
 
         renderer.resize_redraw(&event)?;

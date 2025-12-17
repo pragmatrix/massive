@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Matrix4, SizePx, VectorPx};
+use massive_geometry::{Matrix4, SizePx, Transform, VectorPx};
 use winit::{
     event::{
         DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
@@ -189,7 +189,12 @@ impl Application {
         UpdateResponse::Continue
     }
 
-    pub fn matrix(&self, page_size: impl Into<SizePx>) -> Matrix4 {
+    pub fn transform(&self, page_size: impl Into<SizePx>) -> Transform {
+        // Optimization: Generate the transform directly.
+        Transform::from_matrix4(self.matrix(page_size))
+    }
+
+    fn matrix(&self, page_size: impl Into<SizePx>) -> Matrix4 {
         let page_size = page_size.into();
 
         let page_x_center: f64 = -((page_size.width / 2) as f64);

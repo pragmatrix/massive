@@ -3,6 +3,7 @@ use std::{collections::VecDeque, io, time::Duration};
 use anyhow::Result;
 use cosmic_text::FontSystem;
 use log::{debug, warn};
+use logs::terminal::{self, color_schemes};
 use termwiz::escape;
 use tokio::{
     select,
@@ -18,14 +19,13 @@ use winit::{
 
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::Vector3;
-use massive_scene::{Handle, Location, Matrix, Visual};
+use massive_scene::{Handle, Location, Transform, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
     ApplicationContext, FontManager, Scene, ShellWindow,
     shell::{self, ShellEvent},
 };
 
-use logs::terminal::{self, color_schemes};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text,
@@ -110,12 +110,12 @@ struct Logs {
 
     application: Application,
 
-    page_matrix: Handle<Matrix>,
+    page_transform: Handle<Transform>,
 
     page_width: u32,
     page_height: Animated<f64>,
     vertical_center: Animated<f64>,
-    vertical_center_matrix: Handle<Matrix>,
+    vertical_center_transform: Handle<Transform>,
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
     next_line_top: f64,
@@ -125,19 +125,19 @@ impl Logs {
     fn new(scene: &Scene, fonts: FontManager) -> Self {
         let page_width = 1280;
         let application = Application::default();
-        let current_matrix = application.matrix((page_width, page_width));
-        let page_matrix = scene.stage(current_matrix);
-        let page_location = scene.stage(Location::from(page_matrix.clone()));
+        let current_transform = application.transform((page_width, page_width));
+        let page_transform = scene.stage(current_transform);
+        let page_location = scene.stage(Location::from(page_transform.clone()));
 
         let vertical_center = scene.animated(0.0);
 
         // We move up the lines by their top position.
-        let vertical_center_matrix = scene.stage(Matrix::IDENTITY);
+        let vertical_center_transform = scene.stage(Transform::IDENTITY);
 
         // Final position for all lines (runs are y-translated, but only increasing).
         let location = scene.stage(Location {
             parent: Some(page_location),
-            matrix: vertical_center_matrix.clone(),
+            transform: vertical_center_transform.clone(),
         });
 
         let page_height = scene.animated(0.0);
@@ -145,11 +145,11 @@ impl Logs {
         Self {
             fonts,
             application,
-            page_matrix,
+            page_transform,
             page_width,
             page_height,
             vertical_center,
-            vertical_center_matrix,
+            vertical_center_transform,
             location,
             lines: VecDeque::new(),
             next_line_top: 0.,
@@ -251,16 +251,17 @@ impl Logs {
                 UpdateResponse::Continue => {}
             }
 
-            self.update_page_matrix();
+            self.update_page_transform();
         }
 
         UpdateResponse::Continue
     }
 
     fn apply_animations(&mut self) {
-        self.vertical_center_matrix.update(Matrix::from_translation(
-            (0., self.vertical_center.value(), 0.).into(),
-        ));
+        self.vertical_center_transform
+            .update(Transform::from_translation(
+                (0., self.vertical_center.value(), 0.).into(),
+            ));
 
         // Remove all lines that finished fading out from top to bottom.
 
@@ -280,21 +281,18 @@ impl Logs {
             self.update_vertical_alignment();
         }
 
-        // DI: there is a director.action in update_page_matrix().
-        self.update_page_matrix();
+        self.update_page_transform();
 
         for line in &mut self.lines {
             line.apply_animations();
         }
     }
 
-    fn update_page_matrix(&mut self) {
-        // DI: This check has to be done in the renderer and the renderer has to decide when
-        // it needs to redraw.
-        let new_matrix = self
+    fn update_page_transform(&mut self) {
+        let new_transform = self
             .application
-            .matrix((self.page_width, self.page_height.value() as u32));
-        self.page_matrix.update_if_changed(new_matrix);
+            .transform((self.page_width, self.page_height.value() as u32));
+        self.page_transform.update_if_changed(new_transform);
     }
 }
 

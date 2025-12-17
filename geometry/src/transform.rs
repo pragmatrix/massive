@@ -30,6 +30,18 @@ impl Transform {
         }
     }
 
+    pub fn from_translation(translation: Vector3) -> Self {
+        translation.into()
+    }
+
+    pub fn from_rotation(rotation: Quaternion) -> Self {
+        rotation.into()
+    }
+
+    pub fn from_scale(scale: f64) -> Self {
+        scale.into()
+    }
+
     pub fn to_matrix4(&self) -> Matrix4 {
         // Fast path for translation-only transforms
         if self.is_translation_only() {

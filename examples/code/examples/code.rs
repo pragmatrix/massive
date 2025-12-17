@@ -258,8 +258,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
-    let matrix = scene.stage(application.matrix(page_size));
-    let location = scene.stage(matrix.clone().into());
+    let transform = scene.stage(application.transform(page_size));
+    let location = scene.stage(transform.clone().into());
 
     let _visual = scene.stage(Visual::new(
         location.clone(),
@@ -285,7 +285,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        matrix.update_if_changed(application.matrix(page_size));
+        transform.update_if_changed(application.transform(page_size));
 
         renderer.resize_redraw(&event)?;
         scene.render_to(&mut renderer)?;

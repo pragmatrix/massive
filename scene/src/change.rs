@@ -1,13 +1,13 @@
 use std::any::TypeId;
 
 use derive_more::From;
-use massive_geometry::Matrix4;
+use massive_geometry::Transform;
 
 use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
 
 #[derive(Debug, From, Clone)]
 pub enum SceneChange {
-    Matrix(Change<Matrix4>),
+    Transform(Change<Transform>),
     Location(Change<LocationRenderObj>),
     Visual(Change<VisualRenderObj>),
 }
@@ -15,11 +15,11 @@ pub enum SceneChange {
 impl SceneChange {
     pub fn destructive_change(&self) -> Option<(TypeId, Id)> {
         match self {
-            SceneChange::Matrix(Change::Delete(id)) => Some((TypeId::of::<Matrix4>(), *id)),
+            SceneChange::Transform(Change::Delete(id)) => Some((TypeId::of::<Transform>(), *id)),
             SceneChange::Visual(Change::Delete(id)) => Some((TypeId::of::<Visual>(), *id)),
             SceneChange::Location(Change::Delete(id)) => Some((TypeId::of::<Location>(), *id)),
             // .. match exhaustive.
-            SceneChange::Matrix(_) | SceneChange::Location(_) | SceneChange::Visual(_) => None,
+            SceneChange::Transform(_) | SceneChange::Location(_) | SceneChange::Visual(_) => None,
         }
     }
 }

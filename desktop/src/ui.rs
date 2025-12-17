@@ -204,9 +204,11 @@ impl UI {
 
         for (instance_id, view_id, view_info) in instance_manager.views() {
             let location = view_info.location.value();
-            let matrix = location.matrix.value();
+            let transform = location.transform.value();
             let size = view_info.size;
 
+            // Feature: Support parent transforms (and cache?)!
+            let matrix = transform.to_matrix4();
             if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
                 // Check if the local position is within the view bounds
                 if local_pos.x >= 0.0
@@ -237,7 +239,7 @@ impl UI {
     ) -> Option<Vector3> {
         let view_info = instance_manager.get_view(instance_id, view_id).ok()?;
         let location = view_info.location.value();
-        let matrix = location.matrix.value();
+        let matrix = location.transform.value().to_matrix4();
         render_geometry.unproject_to_model_z0(screen_pos, &matrix)
     }
 

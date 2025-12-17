@@ -5,7 +5,6 @@ use anyhow::{Result, bail};
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Signed, SizePx, Vector3};
-use massive_scene::Matrix;
 use massive_shell::Scene;
 
 #[derive(Debug, Default)]
@@ -183,18 +182,12 @@ impl DesktopPresenter {
     pub fn apply_animations(&self) {
         for presenter in self.instances.values() {
             if let Some(view) = &presenter.view {
-                // Performance: Why build a matrix, if it might not need to update.
-                //
-                // Architecture: This would resolve itself when we would replace Matrix by a more
-                // granular Translation / Rotation / Quaternion, etc. type.
-
                 let translation = presenter.translation_animation.value();
-                let new_matrix = Matrix::from_translation(translation);
                 view.view
                     .location
                     .value()
-                    .matrix
-                    .update_if_changed(new_matrix);
+                    .transform
+                    .update_if_changed(translation.into());
             }
         }
     }
