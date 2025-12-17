@@ -143,9 +143,9 @@ impl RenderGeometry {
 
 #[derive(Debug, Default)]
 struct DerivedCache {
-    pixel_matrix: Derived<Matrix4>,
-    camera_projection: Derived<Matrix4>,
-    view_projection: Derived<Matrix4>,
+    pixel_matrix: Versioned<Matrix4>,
+    camera_projection: Versioned<Matrix4>,
+    view_projection: Versioned<Matrix4>,
 }
 
 impl DerivedCache {
@@ -166,28 +166,5 @@ impl DerivedCache {
 
             *camera_projection * *pixel_matrix
         })
-    }
-}
-
-// Optimization: If we could implement a Default for Versioned<Matrix> we could get rid of this and just use versioned.
-#[derive(Debug)]
-pub struct Derived<T> {
-    inner: Option<Versioned<T>>,
-}
-
-impl<T> Default for Derived<T> {
-    fn default() -> Self {
-        Self { inner: None }
-    }
-}
-
-impl<T> Derived<T> {
-    pub fn resolve(&mut self, head_version: Version, mut resolver: impl FnMut() -> T) -> &T {
-        if self.inner.is_none() {
-            self.inner = Some(Versioned::new(resolver(), head_version));
-            self.inner.as_deref().unwrap()
-        } else {
-            self.inner.as_mut().unwrap().resolve(head_version, resolver)
-        }
     }
 }
