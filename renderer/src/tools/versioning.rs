@@ -64,7 +64,7 @@ impl<T> Deref for Computed<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
-        &self.versioned.deref()
+        self.versioned.deref()
     }
 }
 

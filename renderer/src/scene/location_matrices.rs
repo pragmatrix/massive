@@ -77,7 +77,7 @@ impl DependencyResolver for VisualLocation {
     }
 
     fn resolve_dependencies(
-        current_version: Version,
+        head_version: Version,
         source: &Versioned<Self::Source>,
         scene: &Scene,
         caches: &mut LocationTransforms,
@@ -92,12 +92,12 @@ impl DependencyResolver for VisualLocation {
         // c) The computed transform of the parent (representing all its dependencies).
         let max_deps_version = source
             .updated_at
-            .max(scene.transforms.get_unwrapped(transform_id).updated_at);
+            .max(scene.transforms[transform_id].updated_at);
 
         // Combine with the optional parent location.
         if let Some(parent_id) = parent_id {
             // Make sure the parent is up to date and combine its max_deps_version.
-            resolve::<Self>(current_version, scene, caches, parent_id).max(max_deps_version)
+            resolve::<Self>(head_version, scene, caches, parent_id).max(max_deps_version)
         } else {
             max_deps_version
         }
@@ -113,7 +113,7 @@ impl DependencyResolver for VisualLocation {
         source: &Self::Source,
     ) -> Self::Computed {
         let (parent_id, transform_id) = (source.parent, source.transform);
-        let local_transform = &**scene.transforms.get_unwrapped(transform_id);
+        let local_transform = &*scene.transforms[transform_id];
         parent_id.map_or_else(
             || *local_transform,
             |parent_id| *caches.location_transforms[parent_id] * *local_transform,

@@ -14,7 +14,7 @@ pub struct Scene {
     // Option: Because setting the values to None deletes then.
     //
     // Optimization: Defaults could be used here.
-    transforms: IdTable<Option<Versioned<Transform>>>,
+    transforms: IdTable<Versioned<Transform>>,
     locations: IdTable<Option<Versioned<LocationRenderObj>>>,
     visuals: IdTable<Option<VisualRenderObj>>,
 }
@@ -52,21 +52,25 @@ impl<T> IdTable<Option<Versioned<T>>> {
     }
 }
 
-impl<T> IdTable<Option<T>> {
-    /// Iterate through all existing (non-`None`) values.
-    #[allow(unused)]
-    pub fn iter_some(&self) -> impl Iterator<Item = &T> {
-        self.iter().filter_map(|v| v.as_ref())
+impl<T> IdTable<Versioned<T>>
+where
+    Versioned<T>: Default,
+{
+    pub fn apply_versioned(&mut self, change: Change<T>, version: Version) {
+        match change {
+            Change::Create(id, value) => self.insert(id, Versioned::new(value, version)),
+            Change::Delete(id) => self[id] = Versioned::default(),
+            Change::Update(id, value) => self[id] = Versioned::new(value, version),
+        }
     }
+}
 
+impl<T> IdTable<Option<T>> {
     pub fn apply(&mut self, change: Change<T>) {
         match change {
             Change::Create(id, value) => self.insert(id, Some(value)),
             Change::Delete(id) => self[id] = None,
-            Change::Update(id, value) => {
-                // A value at this index must exist, so use `rows_mut()` here.
-                self[id] = Some(value)
-            }
+            Change::Update(id, value) => self[id] = Some(value),
         }
     }
 
