@@ -37,7 +37,7 @@ impl Scene {
         interpolation: Interpolation,
     ) -> Animated<T> {
         let mut animated = self.animation_coordinator.animated(value);
-        animated.animate_to(target_value, duration, interpolation);
+        animated.animate(target_value, duration, interpolation);
         animated
     }
 
