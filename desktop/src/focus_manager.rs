@@ -99,6 +99,7 @@ impl FocusManager {
 }
 
 impl FocusedInstance {
+    #[must_use]
     pub fn focus_view(&mut self, new_view: Option<ViewId>) -> Vec<FocusTransition> {
         if self.focused_view == new_view {
             return Vec::new();
@@ -112,6 +113,7 @@ impl FocusedInstance {
         transitions
     }
 
+    #[must_use]
     pub fn unfocus_view(&mut self) -> Vec<FocusTransition> {
         self.focused_view
             .take()
