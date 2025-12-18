@@ -39,30 +39,6 @@ impl Camera {
         Self::new(Transform::new(eye, rotate, 1.0), fovy)
     }
 
-    /// Create a camera positioned at `eye` looking towards `target`.
-    /// The camera's up direction is aligned with the world's Y axis.
-    pub fn looking_at(eye: impl Into<Vector3>, target: impl Into<Vector3>, fovy: f64) -> Self {
-        let eye = eye.into();
-        let target = target.into();
-        let forward = (target - eye).normalize();
-
-        // First rotate from -Z to forward direction
-        let rotate_to_forward = Quaternion::from_rotation_arc(-Vector3::Z, forward);
-
-        // Calculate the actual up direction after this rotation
-        let current_up = rotate_to_forward * Vector3::Y;
-
-        // Project world Y onto the plane perpendicular to forward to get desired up
-        let desired_up = (Vector3::Y - forward * forward.dot(Vector3::Y)).normalize();
-
-        // Rotate around forward axis to align up directions
-        let twist = Quaternion::from_rotation_arc(current_up, desired_up);
-
-        let rotate = twist * rotate_to_forward;
-
-        Self::new(Transform::new(eye, rotate, 1.0), fovy)
-    }
-
     pub fn eye(&self) -> Vector3 {
         self.transform.translate
     }
@@ -78,18 +54,6 @@ impl Camera {
 
     pub fn view_matrix(&self) -> Matrix4 {
         self.transform.inverse().to_matrix4()
-    }
-
-    /// Create a camera from a transform (camera-to-world) and field of view.
-    /// The camera's position is the transform's translation, and the camera looks along the negative Z axis of the transform.
-    pub fn from_transform(transform: Transform, fovy: f64) -> Self {
-        Self { transform, fovy }
-    }
-
-    /// Convert the camera to a transform (camera-to-world).
-    /// The transform's translation is the camera position, and its rotation orients the camera to look at the target.
-    pub fn to_transform(&self) -> Transform {
-        self.transform
     }
 
     pub fn view_projection_matrix(

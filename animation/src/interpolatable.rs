@@ -54,6 +54,6 @@ impl Interpolatable for Camera {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
         let interpolated_transform = Transform::interpolate(&from.transform, &to.transform, t);
         let fovy = f64::interpolate(&from.fovy, &to.fovy, t);
-        Camera::from_transform(interpolated_transform, fovy)
+        Camera::new(interpolated_transform, fovy)
     }
 }
