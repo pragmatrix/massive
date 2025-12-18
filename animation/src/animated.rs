@@ -85,12 +85,11 @@ impl<T: Interpolatable + Send> Animated<T> {
 
     /// The current value of this animated value.
     ///
-    /// If an animation is active, this computes the current value from the animation and also
-    /// subscribes for further ticks in the future.
+    /// If an animation is active, this computes the current value from the animation.
     pub fn value(&self) -> T {
         let mut inner = self.inner.lock();
         if inner.animation.is_active() {
-            let instant = self.coordinator.current_time();
+            let instant = self.coordinator.current_cycle_time();
             if let Some(new_value) = inner.animation.proceed(instant) {
                 inner.value = new_value;
             }
@@ -125,7 +124,6 @@ impl<T: Interpolatable + Send> Animated<T> {
     }
 }
 
-/// Shared by the animated value and the tickery.
 #[derive(Debug)]
 struct AnimatedInner<T>
 where
