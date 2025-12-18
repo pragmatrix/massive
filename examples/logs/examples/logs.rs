@@ -110,10 +110,10 @@ struct Logs {
 
     application: Application,
 
-    page_transform: Handle<Transform>,
+    content_transform: Handle<Transform>,
 
-    page_width: u32,
-    page_height: Animated<f64>,
+    content_width: u32,
+    content_height: Animated<f64>,
     vertical_center: Animated<f64>,
     vertical_center_transform: Handle<Transform>,
     location: Handle<Location>,
@@ -123,11 +123,11 @@ struct Logs {
 
 impl Logs {
     fn new(scene: &Scene, fonts: FontManager) -> Self {
-        let page_width = 1280;
+        let content_width = 1280;
         let application = Application::default();
-        let current_transform = application.transform((page_width, page_width));
-        let page_transform = scene.stage(current_transform);
-        let page_location = scene.stage(Location::from(page_transform.clone()));
+        let current_transform = application.get_transform((content_width, content_width));
+        let content_transform = scene.stage(current_transform);
+        let content_location = scene.stage(Location::from(content_transform.clone()));
 
         let vertical_center = scene.animated(0.0);
 
@@ -136,18 +136,18 @@ impl Logs {
 
         // Final position for all lines (runs are y-translated, but only increasing).
         let location = scene.stage(Location {
-            parent: Some(page_location),
+            parent: Some(content_location),
             transform: vertical_center_transform.clone(),
         });
 
-        let page_height = scene.animated(0.0);
+        let content_height = scene.animated(0.0);
 
         Self {
             fonts,
             application,
-            page_transform,
-            page_width,
-            page_height,
+            content_transform,
+            content_width,
+            content_height,
             vertical_center,
             vertical_center_transform,
             location,
@@ -212,8 +212,11 @@ impl Logs {
             Interpolation::CubicOut,
         );
 
-        let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
-        self.page_height.animate_to(
+        let new_height = self.lines.len().min(MAX_LINES) as u32 * LINE_HEIGHT;
+        // Final value should always a multiple of two so that we snap on the pixels when centering.
+        // While a size animation runs, it's fine that we don't.
+        assert!(new_height.is_multiple_of(2));
+        self.content_height.animate_to(
             new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
@@ -251,17 +254,17 @@ impl Logs {
                 UpdateResponse::Continue => {}
             }
 
-            self.update_page_transform();
+            self.update_content_transform();
         }
 
         UpdateResponse::Continue
     }
 
     fn apply_animations(&mut self) {
+        let v_center = self.vertical_center.value();
+        dbg!(v_center);
         self.vertical_center_transform
-            .update(Transform::from_translation(
-                (0., self.vertical_center.value(), 0.).into(),
-            ));
+            .update(Transform::from_translation((0., v_center, 0.).into()));
 
         // Remove all lines that finished fading out from top to bottom.
 
@@ -281,22 +284,22 @@ impl Logs {
             self.update_vertical_alignment();
         }
 
-        self.update_page_transform();
+        self.update_content_transform();
 
         for line in &mut self.lines {
             line.apply_animations();
         }
     }
 
-    fn update_page_transform(&mut self) {
+    fn update_content_transform(&mut self) {
         let new_transform = self
             .application
-            .transform((self.page_width, self.page_height.value() as u32));
-        self.page_transform.update_if_changed(new_transform);
+            .get_transform((self.content_width, self.content_height.value() as u32));
+        self.content_transform.update_if_changed(new_transform);
     }
 }
 
-const LINE_HEIGHT: f32 = 40.;
+const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
     bytes: &[u8],
@@ -322,7 +325,7 @@ fn shape_log_line(
         &text,
         &attributes,
         font_size,
-        LINE_HEIGHT,
+        LINE_HEIGHT as f32,
         Vector3::new(0., y, 0.),
     );
     (runs, height)

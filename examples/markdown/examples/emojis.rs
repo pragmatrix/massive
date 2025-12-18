@@ -141,10 +141,10 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     // Application
 
-    let page_size = SizePx::new(page_width as _, page_height);
+    let content_size = SizePx::new(page_width as _, page_height);
     let mut application = Application::default();
     let scene = ctx.new_scene();
-    let transform = scene.stage(application.transform(page_size));
+    let transform = scene.stage(application.get_transform(content_size));
     let location = scene.stage(transform.clone().into());
 
     // Hold the staged visual, otherwise it will disappear.
@@ -168,7 +168,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        transform.update_if_changed(application.transform(page_size));
+        transform.update_if_changed(application.get_transform(content_size));
 
         renderer.resize_redraw(&event)?;
         scene.render_to(&mut renderer)?;

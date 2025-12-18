@@ -157,7 +157,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let transform = scene.stage(application.transform((page_width, page_height)));
+    let transform = scene.stage(application.get_transform((page_width, page_height)));
     let location = scene.stage(transform.clone().into());
 
     let _visual = scene.stage(Visual::new(location.clone(), shapes));
@@ -170,7 +170,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                 UpdateResponse::Exit => return Ok(()),
                 UpdateResponse::Continue => {}
             }
-            transform.update_if_changed(application.transform((page_width, page_height)));
+            transform.update_if_changed(application.get_transform((page_width, page_height)));
         }
 
         renderer.resize_redraw(&event)?;

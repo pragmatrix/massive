@@ -189,13 +189,11 @@ impl Application {
         UpdateResponse::Continue
     }
 
-    pub fn transform(&self, page_size: impl Into<SizePx>) -> Transform {
-        let page_size = page_size.into();
+    pub fn get_transform(&self, content_size: impl Into<SizePx>) -> Transform {
+        let content_size = content_size.into();
 
-        assert!(page_size.width.is_multiple_of(2) && page_size.height.is_multiple_of(2));
-
-        let page_x_center = -((page_size.width / 2) as f64);
-        let page_y_center = -((page_size.height / 2) as f64);
+        let x_center = -((content_size.width / 2) as f64);
+        let y_center = -((content_size.height / 2) as f64);
 
         let angle_x = (self.rotation.x as f64 / 10.).to_radians();
         let angle_y = (-self.rotation.y as f64 / 10.).to_radians();
@@ -206,7 +204,7 @@ impl Application {
         let rotation = quat_y * quat_x;
 
         // Apply rotation to center offset, then add translation
-        let center_offset = Vector3::new(page_x_center, page_y_center, 0.0);
+        let center_offset = Vector3::new(x_center, y_center, 0.0);
         let rotated_center = rotation * center_offset;
         let translation = Vector3::new(
             rotated_center.x + self.translation.x as f64,

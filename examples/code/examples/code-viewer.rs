@@ -74,9 +74,9 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
-    let page_size = SizePx::new(1280, height as u32);
+    let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
-    let transform = application.transform(page_size);
+    let transform = application.get_transform(content_size);
     let transform = scene.stage(transform);
     let location = scene.stage(transform.clone().into());
 
@@ -98,7 +98,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        transform.update_if_changed(application.transform(page_size));
+        transform.update_if_changed(application.get_transform(content_size));
 
         renderer.resize_redraw(&event)?;
         scene.render_to(&mut renderer)?;
