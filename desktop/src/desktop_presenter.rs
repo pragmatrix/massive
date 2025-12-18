@@ -143,20 +143,8 @@ impl DesktopPresenter {
             max_panel_size = max_panel_size.max(instance.panel_size);
         }
 
-        let field_size: SizePx = (
-            max_panel_size.width * self.ordered.len() as u32,
-            max_panel_size.height,
-        )
-            .into();
-        let field_center = field_size / 2;
-        let lt = -field_center.signed();
-
         for (i, instance) in self.ordered.iter().enumerate() {
-            let translation = (
-                (lt.x + max_panel_size.width as i32 * i as i32) as f64,
-                lt.y as f64,
-                0.0,
-            );
+            let translation = ((max_panel_size.width as i32 * i as i32) as f64, 0.0, 0.0);
 
             let instance = self
                 .instances
@@ -164,17 +152,15 @@ impl DesktopPresenter {
                 .expect("Internal error: Instance does not exist");
 
             if animate {
-                instance.translation_animation.animate_to_if_changed(
+                instance.translation_animation.animate_if_changed(
                     translation.into(),
-                    Duration::from_secs(1),
+                    Duration::from_millis(500),
                     Interpolation::CubicOut,
                 );
             } else {
-                instance.translation_animation.animate_to(
-                    translation.into(),
-                    Duration::ZERO,
-                    Interpolation::Linear,
-                );
+                instance
+                    .translation_animation
+                    .set_immediately(translation.into());
             }
         }
     }
