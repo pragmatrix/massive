@@ -34,6 +34,7 @@ impl Camera {
 
         // Camera looks back at target with same orientation
         let forward = -camera_offset.normalize();
+        // First rotate camera's -Z to point along `forward`, then apply target's orientation.
         let rotate = Quaternion::from_rotation_arc(-Vector3::Z, forward) * target.rotate;
 
         Self::new(Transform::new(eye, rotate, 1.0), fovy)
