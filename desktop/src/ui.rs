@@ -219,18 +219,13 @@ impl UI {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
-        let focused_view = {
-            let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
+        let mut focused_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
 
-            match &mut self.window_focus_state {
-                WindowFocusState::Unfocused { focused_previously } => {
-                    // If the window state is unfocused, we want it to focus the view of the new
-                    // foreground instance when focus comes back.
-                    *focused_previously = primary_view;
-                    None
-                }
-                WindowFocusState::Focused => primary_view,
-            }
+        // If the window state is unfocused, we don't want to focus the primary view but want it to
+        // focus when window focus comes back.
+        if let WindowFocusState::Unfocused { focused_previously } = &mut self.window_focus_state {
+            *focused_previously = focused_view;
+            focused_view = None;
         };
 
         set_focus(
