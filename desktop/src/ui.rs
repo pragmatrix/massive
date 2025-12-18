@@ -224,8 +224,7 @@ impl UI {
         // If the window state is unfocused, we don't want to focus the primary view but want it to
         // focus when window focus comes back.
         if let WindowFocusState::Unfocused { focused_previously } = &mut self.window_focus_state {
-            *focused_previously = focused_view;
-            focused_view = None;
+            *focused_previously = focused_view.take();
         };
 
         set_focus(
