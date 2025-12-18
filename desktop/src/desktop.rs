@@ -80,7 +80,7 @@ impl Desktop {
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
-        let mut ui = UI::new(primary_instance, primary_view, &mut instance_manager)?;
+        let mut ui = UI::new(primary_instance, primary_view, &instance_manager)?;
 
         loop {
             tokio::select! {

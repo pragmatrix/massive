@@ -55,7 +55,7 @@ impl UI {
     pub fn new(
         primary_instance: InstanceId,
         primary_view: ViewId,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<Self> {
         let mut focus_manager = FocusManager::new();
         let transitions = focus_manager.focus(primary_instance, Some(primary_view));
