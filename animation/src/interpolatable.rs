@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use massive_geometry::Vector3;
+use massive_geometry::{Camera, Transform, Vector3};
 
 /// For now we have to support `Clone`.
 ///
@@ -37,5 +37,23 @@ impl Interpolatable for Vector3 {
         let y = f64::interpolate(&from.y, &to.y, t);
         let z = f64::interpolate(&from.z, &to.z, t);
         (x, y, z).into()
+    }
+}
+
+impl Interpolatable for Transform {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        Transform {
+            translate: Vector3::interpolate(&from.translate, &to.translate, t),
+            rotate: from.rotate.slerp(to.rotate, t),
+            scale: f64::interpolate(&from.scale, &to.scale, t),
+        }
+    }
+}
+
+impl Interpolatable for Camera {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        let interpolated_transform = Transform::interpolate(&from.transform, &to.transform, t);
+        let fovy = f64::interpolate(&from.fovy, &to.fovy, t);
+        Camera::from_transform(interpolated_transform, fovy)
     }
 }

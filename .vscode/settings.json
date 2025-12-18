@@ -37,6 +37,7 @@
         "rpass",
         "rsqrt",
         "shortcodes",
+        "slerp",
         "SSEDT",
         "stdvec",
         "stdx",
