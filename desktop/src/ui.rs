@@ -238,12 +238,13 @@ impl UI {
             // All views
             WindowEvent::ModifiersChanged(_)
             | WindowEvent::HoveredFileCancelled
-            | WindowEvent::CloseRequested
-            | WindowEvent::Resized(_) => {
+            | WindowEvent::CloseRequested => {
                 for (instance, view, _view_info) in instance_manager.views() {
                     send_window_event(instance, view, window_event)?;
                 }
             }
+
+            WindowEvent::Resized(_) => {}
             _ => {}
         }
 
