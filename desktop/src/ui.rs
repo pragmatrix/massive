@@ -218,18 +218,27 @@ impl UI {
         instance: InstanceId,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        // If the window is not focus, we just focus the instance, but not the view for now.
-
+        // If the window is not focus, we just focus the instance.
         let focused_view = {
-            match self.window_focus_state {
-                WindowFocusState::Unfocused { .. } => None,
-                WindowFocusState::Focused => {
-                    instance_manager.get_view_by_role(instance, ViewRole::Primary)?
+            let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
+
+            match &mut self.window_focus_state {
+                WindowFocusState::Unfocused { focused_previously } => {
+                    // If the window state is unfocused, we want it to focus the view of the new
+                    // foreground instance when focus comes back.
+                    *focused_previously = primary_view;
+                    None
                 }
+                WindowFocusState::Focused => primary_view,
             }
         };
 
-        self.set_focus(instance, focused_view, instance_manager)?;
+        set_focus(
+            &mut self.focus_manager,
+            instance,
+            focused_view,
+            instance_manager,
+        )?;
         Ok(())
     }
 
@@ -246,7 +255,12 @@ impl UI {
                     && let Some(instance) = self.focus_manager.focused_instance()
                     && instance_manager.exists(instance, Some(view))
                 {
-                    self.set_focus(instance, Some(view), instance_manager)?;
+                    set_focus(
+                        &mut self.focus_manager,
+                        instance,
+                        Some(view),
+                        instance_manager,
+                    )?;
                 }
                 self.window_focus_state = WindowFocusState::Focused
             }
@@ -264,17 +278,17 @@ impl UI {
         }
         Ok(())
     }
+}
 
-    fn set_focus(
-        &mut self,
-        instance: InstanceId,
-        view: Option<ViewId>,
-        instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        assert!(instance_manager.exists(instance, view));
-        let transitions = self.focus_manager.focus(instance, view);
-        transition(transitions, instance_manager)
-    }
+fn set_focus(
+    focus_manager: &mut FocusManager,
+    instance: InstanceId,
+    view: Option<ViewId>,
+    instance_manager: &InstanceManager,
+) -> Result<()> {
+    assert!(instance_manager.exists(instance, view));
+    let transitions = focus_manager.focus(instance, view);
+    transition(transitions, instance_manager)
 }
 
 fn transition(transitions: Vec<FocusTransition>, instance_manager: &InstanceManager) -> Result<()> {
