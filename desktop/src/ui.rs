@@ -67,6 +67,33 @@ impl UI {
         })
     }
 
+    pub fn focused_instance(&self) -> Option<InstanceId> {
+        self.focus_manager.focused_instance()
+    }
+
+    pub fn make_foreground(
+        &mut self,
+        instance: InstanceId,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
+        // If the window is not focus, we just focus the instance.
+        let mut focused_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
+
+        // If the window state is unfocused, we don't want to focus the primary view but want it to
+        // focus when window focus comes back.
+        if let WindowFocusState::Unfocused { focused_previously } = &mut self.window_focus_state {
+            *focused_previously = focused_view.take();
+        };
+
+        set_focus(
+            &mut self.focus_manager,
+            instance,
+            focused_view,
+            instance_manager,
+        )?;
+        Ok(())
+    }
+
     pub fn handle_input_event(
         &mut self,
         input_event: &Event<WindowEvent>,
@@ -211,29 +238,6 @@ impl UI {
         }
 
         Ok(UiCommand::None)
-    }
-
-    pub fn make_foreground(
-        &mut self,
-        instance: InstanceId,
-        instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        // If the window is not focus, we just focus the instance.
-        let mut focused_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-
-        // If the window state is unfocused, we don't want to focus the primary view but want it to
-        // focus when window focus comes back.
-        if let WindowFocusState::Unfocused { focused_previously } = &mut self.window_focus_state {
-            *focused_previously = focused_view.take();
-        };
-
-        set_focus(
-            &mut self.focus_manager,
-            instance,
-            focused_view,
-            instance_manager,
-        )?;
-        Ok(())
     }
 
     fn set_window_focus(

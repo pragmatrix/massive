@@ -6,7 +6,7 @@ use winit::event;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
-    RenderPacing, Scene, ViewCommand, ViewId,
+    RenderPacing, Scene, ViewCommand, ViewId, ViewRole,
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
@@ -85,7 +85,7 @@ impl Desktop {
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    Self::handle_instance_command(&mut instance_manager, &mut presenter, &scene, &window, instance_id, request)?;
+                    Self::handle_instance_command(&mut instance_manager, &mut presenter, &mut ui, &scene, &window, instance_id, request)?;
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -175,26 +175,32 @@ impl Desktop {
     fn handle_instance_command(
         instance_manager: &mut InstanceManager,
         presenter: &mut DesktopPresenter,
+        ui: &mut UI,
         scene: &Scene,
         window: &ShellWindow,
-        instance_id: InstanceId,
+        instance: InstanceId,
         command: InstanceCommand,
     ) -> Result<()> {
         match command {
             InstanceCommand::CreateView(info) => {
-                instance_manager.add_view(instance_id, &info);
-                presenter.present_view(instance_id, &info)?;
+                instance_manager.add_view(instance, &info);
+                presenter.present_view(instance, &info)?;
+                // If this instance is currently focused and this is a primary view, make it
+                // foreground so that the view is focused.
+                if ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
+                    ui.make_foreground(instance, instance_manager)?;
+                }
             }
             InstanceCommand::DestroyView(id) => {
                 presenter.hide_view(id)?;
-                instance_manager.remove_view(instance_id, id);
+                instance_manager.remove_view(instance, id);
             }
             InstanceCommand::View(view_id, command) => {
                 Self::handle_view_command(
                     instance_manager,
                     scene,
                     window,
-                    instance_id,
+                    instance,
                     view_id,
                     command,
                 )?;
