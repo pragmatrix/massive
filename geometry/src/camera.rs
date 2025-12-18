@@ -1,40 +1,55 @@
-use crate::{Matrix4, Projection, Vector3};
+use crate::{Matrix4, Projection, Quaternion, SizePx, Transform, Vector3};
 
-// TODO: May use yaw / pitch based camera?
-// <https://sotrh.github.io/learn-wgpu/intermediate/tutorial12-camera/#the-camera>
-
+/// A camera backed by a Transform (camera-to-world).
+/// The camera looks along the negative Z axis of the transform.
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct Camera {
-    pub eye: Vector3,
-    pub target: Vector3,
-    pub up: Vector3,
+    pub transform: Transform,
     pub fovy: f64,
 }
 
 impl Camera {
     pub const DEFAULT_FOVY: f64 = 45.0;
 
-    /// A pixel aligned camera in which each unit a z 0 maps to a single pixel on the screen.
-    pub fn pixel_aligned(fovy: f64) -> Self {
-        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
-        Self::new((0.0, 0.0, camera_distance), (0.0, 0.0, 0.0))
+    /// Create a new camera from a transform and field of view.
+    pub fn new(transform: Transform, fovy: f64) -> Self {
+        Self { transform, fovy }
     }
 
-    pub fn new(eye: impl Into<Vector3>, target: impl Into<Vector3>) -> Self {
-        Self {
-            eye: eye.into(),
-            target: target.into(),
-            up: Vector3::Y,
-            fovy: Self::DEFAULT_FOVY,
-        }
+    /// A pixel aligned camera in which each unit at z=0 maps to a single pixel on the screen.
+    pub fn pixel_aligned(fovy: f64) -> Self {
+        Self::pixel_aligned_looking_at(Transform::IDENTITY, fovy)
+    }
+
+    /// Create a pixel-aligned camera looking at another transform's position.
+    /// The camera is positioned so that the target's center is pixel-aligned at the camera's center.
+    /// The camera's roll is aligned with the target transform's coordinate system.
+    pub fn pixel_aligned_looking_at(target: Transform, fovy: f64) -> Self {
+        let camera_distance = 1.0 / (fovy / 2.0).to_radians().tan();
+        let target_position = target.translate;
+
+        // Position camera along the target's Z axis
+        let camera_offset = target.rotate * Vector3::new(0.0, 0.0, camera_distance);
+        let eye = target_position + camera_offset;
+
+        // Camera looks back at target with same orientation
+        let forward = -camera_offset.normalize();
+        // First rotate camera's -Z to point along `forward`, then apply target's orientation.
+        let rotate = Quaternion::from_rotation_arc(-Vector3::Z, forward) * target.rotate;
+
+        Self::new(Transform::new(eye, rotate, 1.0), fovy)
     }
 
     pub fn view_matrix(&self) -> Matrix4 {
-        Matrix4::look_at_rh(self.eye, self.target, self.up)
+        self.transform.inverse().to_matrix4()
     }
 
-    pub fn view_projection_matrix(&self, z_range: (f64, f64), surface_size: (u32, u32)) -> Matrix4 {
-        let (width, height) = surface_size;
+    pub fn view_projection_matrix(
+        &self,
+        z_range: (f64, f64),
+        surface_size: impl Into<SizePx>,
+    ) -> Matrix4 {
+        let (width, height) = surface_size.into().into();
         let projection = Projection::new(width as f64 / height as f64, z_range.0, z_range.1);
         view_projection_matrix(self, &projection)
     }
