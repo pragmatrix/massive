@@ -184,6 +184,16 @@ impl UI {
             | WindowEvent::DroppedFile(_)
             | WindowEvent::HoveredFile(_) => {
                 if let Some(CursorFocus { instance, view, .. }) = self.cursor_focus {
+                    // Does this event cause a focusing of the view?
+                    if causes_focus(window_event) {
+                        set_focus(
+                            &mut self.focus_manager,
+                            instance,
+                            Some(view),
+                            instance_manager,
+                        )?;
+                    }
+
                     send_window_event(instance, view, window_event)?;
                 }
             }
@@ -276,6 +286,16 @@ impl UI {
         }
         Ok(())
     }
+}
+
+fn causes_focus(e: &WindowEvent) -> bool {
+    matches!(
+        e,
+        WindowEvent::MouseInput {
+            state: ElementState::Pressed,
+            ..
+        } | WindowEvent::DroppedFile(..)
+    )
 }
 
 fn set_focus(
