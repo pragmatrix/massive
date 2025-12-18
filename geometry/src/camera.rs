@@ -40,19 +40,6 @@ impl Camera {
         Self::new(Transform::new(eye, rotate, 1.0), fovy)
     }
 
-    pub fn eye(&self) -> Vector3 {
-        self.transform.translate
-    }
-
-    pub fn target(&self) -> Vector3 {
-        let forward = self.transform.rotate * -Vector3::Z;
-        self.transform.translate + forward
-    }
-
-    pub fn up(&self) -> Vector3 {
-        self.transform.rotate * Vector3::Y
-    }
-
     pub fn view_matrix(&self) -> Matrix4 {
         self.transform.inverse().to_matrix4()
     }
