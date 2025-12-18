@@ -80,15 +80,15 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let markdown = include_str!("replicator.org.md");
 
-    let (glyph_runs, page_size) =
+    let (glyph_runs, content_size) =
         markdown_to_glyph_runs(scale_factor, physical_size, font_system.clone(), markdown)?;
 
     let mut application = Application::default();
     let scene = ctx.new_scene();
-    let page_matrix = application.matrix(page_size);
+    let page_transform = application.get_transform(content_size);
 
-    let matrix = scene.stage(page_matrix);
-    let location = scene.stage(matrix.clone().into());
+    let transform = scene.stage(page_transform);
+    let location = scene.stage(transform.clone().into());
 
     // Hold the staged visual, otherwise it will disappear.
     let _visual = scene.stage(Visual::new(
@@ -116,7 +116,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
                 UpdateResponse::Continue => {}
             }
 
-            matrix.update_if_changed(application.matrix(page_size));
+            transform.update_if_changed(application.get_transform(content_size));
         }
 
         renderer.resize_redraw(&event)?;
@@ -126,7 +126,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
 fn markdown_to_glyph_runs(
     window_scale_factor: f64,
-    page_size: PhysicalSize<u32>,
+    content_size: PhysicalSize<u32>,
     font_system: Arc<Mutex<FontSystem>>,
     markdown: &str,
 ) -> Result<(Vec<GlyphRun>, SizePx)> {
@@ -153,7 +153,7 @@ fn markdown_to_glyph_runs(
         mem::take(&mut *elements_queue)
     };
 
-    let initial_size = page_size;
+    let initial_size = content_size;
     let width = initial_size.width;
     let page_width = width;
 

@@ -6,9 +6,8 @@
 use std::cell::RefCell;
 
 use massive_geometry::{
-    Camera, DepthRange, PerspectiveDivide, Plane, Point, Ray, Vector3, Vector4,
+    Camera, DepthRange, Matrix4, PerspectiveDivide, Plane, Point, Ray, Vector3, Vector4,
 };
-use massive_scene::Matrix;
 
 use crate::{Version, tools::Versioned};
 
@@ -43,10 +42,10 @@ impl RenderGeometry {
     }
 
     /// Helper to transform screen coordinates to NDC coordinates.
-    pub fn screen_to_ndc_matrix(&self) -> Matrix {
+    pub fn screen_to_ndc_matrix(&self) -> Matrix4 {
         let size = self.surface_size();
         let (w, h) = (size.0 as f64, size.1 as f64);
-        Matrix::from_cols_array(&[
+        Matrix4::from_cols_array(&[
             2.0 / w,
             0.0,
             0.0,
@@ -85,7 +84,7 @@ impl RenderGeometry {
     }
 
     /// Compute the final view projection. From pixel (3D) coordinate system to the final surface pixels.
-    pub fn view_projection(&self) -> Matrix {
+    pub fn view_projection(&self) -> Matrix4 {
         let version = self.head_version;
         let mut derived = self.derived.borrow_mut();
         let vp = derived.view_projection(version, &self.camera, self.surface_size);
@@ -96,10 +95,10 @@ impl RenderGeometry {
     /// 1.0 in each axis. Also flips y.
     ///
     /// Precision: When the surface height changes, the whole perspective gets skewed
-    fn pixel_matrix(surface_size: (u32, u32)) -> Matrix {
+    fn pixel_matrix(surface_size: (u32, u32)) -> Matrix4 {
         let (_, surface_height) = surface_size;
-        Matrix::from_scale(Vector3::new(1.0, -1.0, 1.0))
-            * Matrix::from_scale(Vector3::splat(1.0 / surface_height as f64 * 2.0))
+        Matrix4::from_scale(Vector3::new(1.0, -1.0, 1.0))
+            * Matrix4::from_scale(Vector3::splat(1.0 / surface_height as f64 * 2.0))
     }
 
     /// Un-projects a screen-space pixel position into model space at z==0 (the matrix describing a
@@ -107,7 +106,7 @@ impl RenderGeometry {
     ///
     /// Returns the hit point in model-local coordinates or None if the ray is parallel or
     /// numerically unstable.
-    pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix) -> Option<Vector3> {
+    pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix4) -> Option<Vector3> {
         let depth_range = self.depth_range();
         let mvp = self.view_projection() * *model;
         // Note: The determinant can be very small (e.g., 1e-10) due to the coordinate system
@@ -144,9 +143,9 @@ impl RenderGeometry {
 
 #[derive(Debug, Default)]
 struct DerivedCache {
-    pixel_matrix: Derived<Matrix>,
-    camera_projection: Derived<Matrix>,
-    view_projection: Derived<Matrix>,
+    pixel_matrix: Versioned<Matrix4>,
+    camera_projection: Versioned<Matrix4>,
+    view_projection: Versioned<Matrix4>,
 }
 
 impl DerivedCache {
@@ -155,7 +154,7 @@ impl DerivedCache {
         version: Version,
         camera: &Camera,
         surface_size: (u32, u32),
-    ) -> &Matrix {
+    ) -> &Matrix4 {
         self.view_projection.resolve(version, || {
             let pixel_matrix = self
                 .pixel_matrix
@@ -167,27 +166,5 @@ impl DerivedCache {
 
             *camera_projection * *pixel_matrix
         })
-    }
-}
-
-#[derive(Debug)]
-pub struct Derived<T> {
-    inner: Option<Versioned<T>>,
-}
-
-impl<T> Default for Derived<T> {
-    fn default() -> Self {
-        Self { inner: None }
-    }
-}
-
-impl<T> Derived<T> {
-    pub fn resolve(&mut self, head_version: Version, mut resolver: impl FnMut() -> T) -> &T {
-        if self.inner.is_none() {
-            self.inner = Some(Versioned::new(resolver(), head_version));
-            self.inner.as_deref().unwrap()
-        } else {
-            self.inner.as_mut().unwrap().resolve(head_version, resolver)
-        }
     }
 }

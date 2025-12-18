@@ -93,10 +93,10 @@ impl AnimationCoordinator {
         inner.animating
     }
 
-    /// Returns the current animation time.
+    /// Returns the current cycle time that should be used for animated values.
     ///
-    /// If not set, the current time is set and the cycle to implicit.
-    pub(crate) fn current_time(&self) -> Instant {
+    /// If not set, the now is set and the cycle mode is set to implicit.
+    pub(crate) fn current_cycle_time(&self) -> Instant {
         self.inner.lock().current_cycle().time
     }
 

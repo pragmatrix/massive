@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
-use crate::{Handle, Id, Object};
-use massive_geometry as geometry;
+use massive_geometry::Transform;
 use massive_shapes::{GlyphRun, Shape};
+
+use crate::{Handle, Id, Object};
 
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
@@ -76,21 +77,21 @@ impl Object for Visual {
 #[derive(Debug, Clone)]
 pub struct Location {
     pub parent: Option<Handle<Location>>,
-    pub matrix: Handle<Matrix>,
+    pub transform: Handle<Transform>,
 }
 
-impl From<Handle<Matrix>> for Location {
-    fn from(matrix: Handle<Matrix>) -> Self {
+impl From<Handle<Transform>> for Location {
+    fn from(transform: Handle<Transform>) -> Self {
         Self {
             parent: None,
-            matrix,
+            transform,
         }
     }
 }
 
 impl Location {
-    pub fn new(parent: Option<Handle<Location>>, matrix: Handle<Matrix>) -> Self {
-        Self { parent, matrix }
+    pub fn new(parent: Option<Handle<Location>>, transform: Handle<Transform>) -> Self {
+        Self { parent, transform }
     }
 }
 
@@ -99,20 +100,18 @@ impl Object for Location {
 
     fn to_change(&self) -> Self::Change {
         let parent = self.parent.as_ref().map(|p| p.id());
-        let matrix = self.matrix.id();
-        LocationRenderObj { parent, matrix }
+        let transform = self.transform.id();
+        LocationRenderObj { parent, transform }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct LocationRenderObj {
     pub parent: Option<Id>,
-    pub matrix: Id,
+    pub transform: Id,
 }
 
-pub type Matrix = geometry::Matrix4;
-
-impl Object for Matrix {
+impl Object for Transform {
     type Change = Self;
 
     fn to_change(&self) -> Self::Change {

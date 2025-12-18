@@ -3,6 +3,7 @@ use std::{collections::VecDeque, io, time::Duration};
 use anyhow::Result;
 use cosmic_text::FontSystem;
 use log::{debug, warn};
+use logs::terminal::{self, color_schemes};
 use termwiz::escape;
 use tokio::{
     select,
@@ -18,14 +19,13 @@ use winit::{
 
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::Vector3;
-use massive_scene::{Handle, Location, Matrix, Visual};
+use massive_scene::{Handle, Location, Transform, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
     ApplicationContext, FontManager, Scene, ShellWindow,
     shell::{self, ShellEvent},
 };
 
-use logs::terminal::{self, color_schemes};
 use shared::{
     application::{Application, UpdateResponse},
     attributed_text,
@@ -110,12 +110,12 @@ struct Logs {
 
     application: Application,
 
-    page_matrix: Handle<Matrix>,
+    content_transform: Handle<Transform>,
 
-    page_width: u32,
-    page_height: Animated<f64>,
+    content_width: u32,
+    content_height: Animated<f64>,
     vertical_center: Animated<f64>,
-    vertical_center_matrix: Handle<Matrix>,
+    vertical_center_transform: Handle<Transform>,
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
     next_line_top: f64,
@@ -123,33 +123,33 @@ struct Logs {
 
 impl Logs {
     fn new(scene: &Scene, fonts: FontManager) -> Self {
-        let page_width = 1280;
+        let content_width = 1280;
         let application = Application::default();
-        let current_matrix = application.matrix((page_width, page_width));
-        let page_matrix = scene.stage(current_matrix);
-        let page_location = scene.stage(Location::from(page_matrix.clone()));
+        let current_transform = application.get_transform((content_width, content_width));
+        let content_transform = scene.stage(current_transform);
+        let content_location = scene.stage(Location::from(content_transform.clone()));
 
         let vertical_center = scene.animated(0.0);
 
         // We move up the lines by their top position.
-        let vertical_center_matrix = scene.stage(Matrix::IDENTITY);
+        let vertical_center_transform = scene.stage(Transform::IDENTITY);
 
         // Final position for all lines (runs are y-translated, but only increasing).
         let location = scene.stage(Location {
-            parent: Some(page_location),
-            matrix: vertical_center_matrix.clone(),
+            parent: Some(content_location),
+            transform: vertical_center_transform.clone(),
         });
 
-        let page_height = scene.animated(0.0);
+        let content_height = scene.animated(0.0);
 
         Self {
             fonts,
             application,
-            page_matrix,
-            page_width,
-            page_height,
+            content_transform,
+            content_width,
+            content_height,
             vertical_center,
-            vertical_center_matrix,
+            vertical_center_transform,
             location,
             lines: VecDeque::new(),
             next_line_top: 0.,
@@ -212,8 +212,11 @@ impl Logs {
             Interpolation::CubicOut,
         );
 
-        let new_height = self.lines.len().min(MAX_LINES) as f32 * LINE_HEIGHT;
-        self.page_height.animate_to(
+        let new_height = self.lines.len().min(MAX_LINES) as u32 * LINE_HEIGHT;
+        // Final value should always a multiple of two so that we snap on the pixels when centering.
+        // While a size animation runs, it's fine that we don't.
+        assert!(new_height.is_multiple_of(2));
+        self.content_height.animate_to(
             new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
@@ -251,16 +254,17 @@ impl Logs {
                 UpdateResponse::Continue => {}
             }
 
-            self.update_page_matrix();
+            self.update_content_transform();
         }
 
         UpdateResponse::Continue
     }
 
     fn apply_animations(&mut self) {
-        self.vertical_center_matrix.update(Matrix::from_translation(
-            (0., self.vertical_center.value(), 0.).into(),
-        ));
+        let v_center = self.vertical_center.value();
+        dbg!(v_center);
+        self.vertical_center_transform
+            .update(Transform::from_translation((0., v_center, 0.).into()));
 
         // Remove all lines that finished fading out from top to bottom.
 
@@ -280,25 +284,22 @@ impl Logs {
             self.update_vertical_alignment();
         }
 
-        // DI: there is a director.action in update_page_matrix().
-        self.update_page_matrix();
+        self.update_content_transform();
 
         for line in &mut self.lines {
             line.apply_animations();
         }
     }
 
-    fn update_page_matrix(&mut self) {
-        // DI: This check has to be done in the renderer and the renderer has to decide when
-        // it needs to redraw.
-        let new_matrix = self
+    fn update_content_transform(&mut self) {
+        let new_transform = self
             .application
-            .matrix((self.page_width, self.page_height.value() as u32));
-        self.page_matrix.update_if_changed(new_matrix);
+            .get_transform((self.content_width, self.content_height.value() as u32));
+        self.content_transform.update_if_changed(new_transform);
     }
 }
 
-const LINE_HEIGHT: f32 = 40.;
+const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
     bytes: &[u8],
@@ -324,7 +325,7 @@ fn shape_log_line(
         &text,
         &attributes,
         font_size,
-        LINE_HEIGHT,
+        LINE_HEIGHT as f32,
         Vector3::new(0., y, 0.),
     );
     (runs, height)

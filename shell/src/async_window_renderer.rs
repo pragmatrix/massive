@@ -14,10 +14,11 @@ use massive_util::message_filter;
 use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
-use crate::{ShellEvent, window_renderer::WindowRenderer};
-use massive_geometry::{Camera, Color};
+use massive_geometry::{Camera, Color, Matrix4};
 use massive_renderer::RenderGeometry;
-use massive_scene::{ChangeCollector, Matrix, SceneChanges};
+use massive_scene::{ChangeCollector, SceneChanges};
+
+use crate::{ShellEvent, window_renderer::WindowRenderer};
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {
@@ -35,7 +36,7 @@ pub struct AsyncWindowRenderer {
 #[derive(Debug)]
 enum RendererMessage {
     Resize((u32, u32)),
-    Redraw { view_projection: Matrix },
+    Redraw { view_projection: Matrix4 },
     SetPresentMode(wgpu::PresentMode),
     SetBackgroundColor(Option<Color>),
     // Protocol: When adding a new RenderMessage, consider filter_latest_messages().
@@ -81,7 +82,7 @@ impl AsyncWindowRenderer {
         msg_receiver: mpsc::Receiver<RendererMessage>,
         mut window_renderer: WindowRenderer,
         shell_events: Option<WeakUnboundedSender<ShellEvent>>,
-        mut view_projection: Matrix,
+        mut view_projection: Matrix4,
     ) -> Result<()> {
         let mut messages = Vec::new();
 
@@ -183,7 +184,7 @@ impl AsyncWindowRenderer {
     fn render_frame(
         renderer: &mut WindowRenderer,
         apply_animations_to: &Option<WeakUnboundedSender<ShellEvent>>,
-        view_projection: &Matrix,
+        view_projection: &Matrix4,
     ) -> Result<()> {
         // Detail: In VSync presentation mode, this blocks until the next VSync beginning
         // with the second frame after that. Therefore we apply scene changes afterwards.
@@ -223,7 +224,7 @@ impl AsyncWindowRenderer {
         &self.geometry
     }
 
-    pub fn view_projection(&mut self) -> Matrix {
+    pub fn view_projection(&mut self) -> Matrix4 {
         self.geometry.view_projection()
     }
 

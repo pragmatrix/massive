@@ -74,10 +74,11 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
-    let page_size = SizePx::new(1280, height as u32);
+    let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
-    let matrix = scene.stage(application.matrix(page_size));
-    let location = scene.stage(matrix.clone().into());
+    let transform = application.get_transform(content_size);
+    let transform = scene.stage(transform);
+    let location = scene.stage(transform.clone().into());
 
     // Hold the visual in this context, otherwise it will disappear.
     let _visual = scene.stage(Visual::new(
@@ -97,7 +98,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        matrix.update_if_changed(application.matrix(page_size));
+        transform.update_if_changed(application.get_transform(content_size));
 
         renderer.resize_redraw(&event)?;
         scene.render_to(&mut renderer)?;

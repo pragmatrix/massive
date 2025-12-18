@@ -83,10 +83,10 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
     // Application
 
-    let page_size = (1280, height as u32);
+    let content_size = (1280, height as u32);
     let mut application = Application::default();
-    let matrix = scene.stage(application.matrix(page_size));
-    let position = scene.stage(matrix.clone().into());
+    let transform = scene.stage(application.get_transform(content_size));
+    let position = scene.stage(transform.clone().into());
 
     // Hold the staged visual, otherwise it will disappear.
     let _visual = scene.stage(Visual::new(
@@ -109,7 +109,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
         // DI: This check has to be done in the renderer and the renderer has to decide when it
         // needs to redraw.
-        matrix.update_if_changed(application.matrix(page_size));
+        transform.update_if_changed(application.get_transform(content_size));
 
         renderer.resize_redraw(&event)?;
         scene.render_to(&mut renderer)?;

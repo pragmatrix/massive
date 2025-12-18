@@ -1,5 +1,5 @@
 use massive_geometry::Matrix4;
-use massive_scene::{Id, LocationRenderObj};
+use massive_scene::{Id, LocationRenderObj, Transform};
 
 use crate::{
     Transaction, Version,
@@ -12,106 +12,117 @@ use crate::{
 
 /// Computed matrices of all the visuals.
 #[derive(Debug, Default)]
-pub struct LocationMatrices {
+pub struct LocationTransforms {
     // The result of a location matrix computation.
-    location_matrix: IdTable<Computed<Matrix4>>,
+    location_transforms: IdTable<Computed<Transform>>,
+    location_matrices: IdTable<Versioned<Matrix4>>,
 }
 
-impl LocationMatrices {
-    pub fn compute_matrices(
+impl LocationTransforms {
+    pub fn resolve_locations_and_matrices(
         &mut self,
         scene: &Scene,
         transaction: &Transaction,
         locations: impl Iterator<Item = Id>,
     ) {
         locations.for_each(|id| {
-            self.compute_visual_matrix(scene, id, transaction);
+            self.resolve_location_and_matrix(scene, id, transaction);
         });
     }
 
-    /// Returns a reference to a matrix of the location.
-    pub fn get(&self, location_id: Id) -> &Matrix4 {
-        &self.location_matrix[location_id]
-    }
-
-    /// Compute - if needed - the matrix of a location.
+    /// Compute - if needed - the location and its final matrix.
     ///
     /// When this function returns the matrix at `location_id` is up to date with the current
     /// version and can be used for rendering.
-    fn compute_visual_matrix(
+    fn resolve_location_and_matrix(
         &mut self,
         scene: &Scene,
         location_id: Id,
         current_version: &Transaction,
     ) {
-        resolve::<VisualMatrix>(current_version.current_version(), scene, self, location_id);
+        let updated_at =
+            resolve::<VisualLocation>(current_version.current_version(), scene, self, location_id);
+
+        self.location_matrices
+            .mut_or_default(location_id)
+            .resolve(updated_at, || {
+                self.location_transforms[location_id].to_matrix4()
+            });
+    }
+
+    pub fn get_matrix(&self, location_id: Id) -> &Matrix4 {
+        &self.location_matrices[location_id]
     }
 }
 
-/// The dependency resolver for final matrix of a [`Visual`].
-struct VisualMatrix;
+// Quick hack to prevent the use of Option<Versioned>
+impl Default for Versioned<Matrix4> {
+    fn default() -> Self {
+        Self::new(Matrix4::ZERO, 0)
+    }
+}
 
-impl DependencyResolver for VisualMatrix {
-    type SharedStorage = Scene;
-    type ComputedStorage = LocationMatrices;
+/// The dependency resolver for final location of a [`Visual`].
+struct VisualLocation;
+
+impl DependencyResolver for VisualLocation {
+    type SourceStorage = Scene;
     type Source = LocationRenderObj;
-    type Computed = Matrix4;
 
-    fn source(scene: &Scene, id: Id) -> &Versioned<Self::Source> {
+    type ComputedStorage = LocationTransforms;
+    type Computed = Transform;
+
+    fn get_source(scene: &Scene, id: Id) -> &Versioned<Self::Source> {
         scene.locations.get_unwrapped(id)
     }
 
     fn resolve_dependencies(
-        current_version: Version,
+        head_version: Version,
         source: &Versioned<Self::Source>,
         scene: &Scene,
-        caches: &mut LocationMatrices,
+        caches: &mut LocationTransforms,
     ) -> Version {
-        let (parent_id, matrix_id) = (source.parent, source.matrix);
+        let (parent_id, transform_id) = (source.parent, source.transform);
 
         // Find out the max version of all the immediate and (indirect / computed) dependencies.
 
         // Get the _three_ versions of the elements this one is computed on.
         // a) The self location's version.
-        // b) The local matrix's version.
-        // c) The computed matrix of the parent (representing all its dependencies).
+        // b) The local transform's version.
+        // c) The computed transform of the parent (representing all its dependencies).
         let max_deps_version = source
             .updated_at
-            .max(scene.matrices.get_unwrapped(matrix_id).updated_at);
+            .max(scene.transforms[transform_id].updated_at);
 
         // Combine with the optional parent location.
         if let Some(parent_id) = parent_id {
-            // Make sure the parent is up to date.
-            resolve::<Self>(current_version, scene, caches, parent_id);
-            caches.location_matrix[parent_id]
-                .max_deps_version
-                .max(max_deps_version)
+            // Make sure the parent is up to date and combine its max_deps_version.
+            resolve::<Self>(head_version, scene, caches, parent_id).max(max_deps_version)
         } else {
             max_deps_version
         }
     }
 
-    fn computed_mut(caches: &mut LocationMatrices, id: Id) -> &mut Computed<Self::Computed> {
-        caches.location_matrix.mut_or_default(id)
+    fn computed_mut(caches: &mut LocationTransforms, id: Id) -> &mut Computed<Self::Computed> {
+        caches.location_transforms.mut_or_default(id)
     }
 
-    fn compute(scene: &Scene, caches: &LocationMatrices, source: &Self::Source) -> Self::Computed {
-        let (parent_id, matrix_id) = (source.parent, source.matrix);
-        let local_matrix = &**scene.matrices.get_unwrapped(matrix_id);
+    fn compute(
+        scene: &Scene,
+        caches: &LocationTransforms,
+        source: &Self::Source,
+    ) -> Self::Computed {
+        let (parent_id, transform_id) = (source.parent, source.transform);
+        let local_transform = &*scene.transforms[transform_id];
         parent_id.map_or_else(
-            || *local_matrix,
-            |parent_id| *caches.location_matrix[parent_id] * *local_matrix,
+            || *local_transform,
+            |parent_id| *caches.location_transforms[parent_id] * *local_transform,
         )
     }
 }
 
-/// This is here to avoid using `Option` in the computed IdTable.
-impl Default for Computed<Matrix4> {
+impl Default for Versioned<Transform> {
     fn default() -> Self {
-        Self {
-            validated_at: 0,
-            max_deps_version: 0,
-            value: Matrix4::ZERO,
-        }
+        Versioned::new(Transform::default(), 0)
     }
 }

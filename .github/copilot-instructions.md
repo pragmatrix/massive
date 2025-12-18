@@ -17,8 +17,11 @@ Update it whenever you learn something new about the project's patterns, convent
 - Limit qualification paths to at most 2 module levels (e.g., `mpsc::channel` not `tokio::sync::mpsc::channel`).
 - Import types and modules to reduce path qualification in code.
 - Order functions so that they call functions defined further down in the file (higher-level functions first, lower-level utilities last).
+- Order types and structs by importance: public API first, then implementations, then private helper types last.
 - Use `pub` visibility by default. Only use `pub(crate)` to limit visibility when the entire containing module is already crate-public.
 - When adding new data that relates to an existing entity, prefer adding fields to the existing struct rather than creating parallel data structures (e.g., separate HashMaps keyed by the same ID).
+- When multiple `Mutex` fields protect related data, consider consolidating them into a single `Mutex` around a state struct to reduce lock overhead and ensure atomic access.
+- Look for opportunities to eliminate unnecessary wrapper types when they no longer serve a purpose.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.

@@ -15,10 +15,10 @@ pub struct TimeScale {
 
 impl TimeScale {
     pub fn new(coordinator: AnimationCoordinator) -> Self {
-        let latest_tick = coordinator.current_time();
+        let current_time = coordinator.current_cycle_time();
         Self {
             coordinator,
-            now: latest_tick,
+            now: current_time,
             duration_since: Duration::ZERO,
         }
     }
@@ -34,10 +34,10 @@ impl TimeScale {
     /// generated).
     pub fn duration_passed(&mut self) -> Duration {
         // Find out if we are in a new update cycle first.
-        let current_tick = self.coordinator.current_time();
-        if current_tick > self.now {
-            self.duration_since = current_tick - self.now;
-            self.now = current_tick;
+        let current_time = self.coordinator.current_cycle_time();
+        if current_time > self.now {
+            self.duration_since = current_time - self.now;
+            self.now = current_time;
         }
         self.duration_since
     }

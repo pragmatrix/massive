@@ -1,5 +1,4 @@
-use massive_geometry::Matrix4;
-use massive_scene::{Change, Id, LocationRenderObj, SceneChange, VisualRenderObj};
+use massive_scene::{Change, Id, LocationRenderObj, SceneChange, Transform, VisualRenderObj};
 
 use crate::{Transaction, Version, tools::Versioned};
 
@@ -8,16 +7,14 @@ mod id_table;
 mod location_matrices;
 
 pub use id_table::IdTable;
-pub use location_matrices::LocationMatrices;
+pub use location_matrices::LocationTransforms;
 
 #[derive(Debug, Default)]
 pub struct Scene {
     // Option: Because setting the values to None deletes then.
     //
-    // Optimization: Defaults could be used here, too, but Matrix4 currently does not define a
-    // default(), and using defaults has the drawback, that referential errors may lead to confusing
-    // render results instead of a panic.
-    matrices: IdTable<Option<Versioned<Matrix4>>>,
+    // Optimization: Defaults could be used here.
+    transforms: IdTable<Versioned<Transform>>,
     locations: IdTable<Option<Versioned<LocationRenderObj>>>,
     visuals: IdTable<Option<VisualRenderObj>>,
 }
@@ -30,7 +27,9 @@ impl Scene {
     pub fn apply(&mut self, change: &SceneChange, transaction: &Transaction) {
         let current_version = transaction.current_version();
         match change.clone() {
-            SceneChange::Matrix(change) => self.matrices.apply_versioned(change, current_version),
+            SceneChange::Transform(change) => {
+                self.transforms.apply_versioned(change, current_version)
+            }
             SceneChange::Location(change) => {
                 self.locations.apply_versioned(change, current_version)
             }
@@ -53,21 +52,25 @@ impl<T> IdTable<Option<Versioned<T>>> {
     }
 }
 
-impl<T> IdTable<Option<T>> {
-    /// Iterate through all existing (non-`None`) values.
-    #[allow(unused)]
-    pub fn iter_some(&self) -> impl Iterator<Item = &T> {
-        self.iter().filter_map(|v| v.as_ref())
+impl<T> IdTable<Versioned<T>>
+where
+    Versioned<T>: Default,
+{
+    pub fn apply_versioned(&mut self, change: Change<T>, version: Version) {
+        match change {
+            Change::Create(id, value) => self.insert(id, Versioned::new(value, version)),
+            Change::Delete(id) => self[id] = Versioned::default(),
+            Change::Update(id, value) => self[id] = Versioned::new(value, version),
+        }
     }
+}
 
+impl<T> IdTable<Option<T>> {
     pub fn apply(&mut self, change: Change<T>) {
         match change {
             Change::Create(id, value) => self.insert(id, Some(value)),
             Change::Delete(id) => self[id] = None,
-            Change::Update(id, value) => {
-                // A value at this index must exist, so use `rows_mut()` here.
-                self[id] = Some(value)
-            }
+            Change::Update(id, value) => self[id] = Some(value),
         }
     }
 
