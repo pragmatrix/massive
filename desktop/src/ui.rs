@@ -14,7 +14,8 @@ use massive_renderer::RenderGeometry;
 
 use crate::{FocusManager, FocusTransition, instance_manager::InstanceManager};
 
-// Architecture: This is all about focus so far.
+// Architecture: This is all about focus so far. May rename it to DesktopInput or DesktopFocus?
+// Architecture: Every function here needs &InstanceManager.
 #[derive(Debug)]
 pub struct UI {
     /// The recently touched view with the cursor / mouse, None if it's the desktop background.
@@ -35,9 +36,7 @@ pub struct UI {
 
 #[derive(Debug)]
 enum WindowFocusState {
-    Unfocused {
-        focused_previously: Option<(InstanceId, Option<ViewId>)>,
-    },
+    Unfocused { focused_previously: Option<ViewId> },
     Focused,
 }
 
@@ -241,17 +240,20 @@ impl UI {
     ) -> Result<()> {
         match (&self.window_focus_state, focused) {
             (WindowFocusState::Unfocused { focused_previously }, true) => {
-                if let Some((instance, view)) = *focused_previously
-                    && instance_manager.exists(instance, view)
+                // Refocus if the current instance is the instance of the previous view and it does
+                // exist anymore.
+                if let Some(view) = *focused_previously
+                    && let Some(instance) = self.focus_manager.focused_instance()
+                    && instance_manager.exists(instance, Some(view))
                 {
-                    self.set_focus(instance, view, instance_manager)?;
+                    self.set_focus(instance, Some(view), instance_manager)?;
                 }
                 self.window_focus_state = WindowFocusState::Focused
             }
             (WindowFocusState::Focused, false) => {
-                let current_focus = self.focus_manager.focused();
+                let focused_view = self.focus_manager.focused_view().map(|(_, v)| v);
                 self.window_focus_state = WindowFocusState::Unfocused {
-                    focused_previously: current_focus,
+                    focused_previously: focused_view,
                 };
                 let transitions = self.focus_manager.unfocus_view();
                 transition(transitions, instance_manager)?;
