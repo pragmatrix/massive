@@ -31,6 +31,10 @@ impl FocusManager {
         Self::default()
     }
 
+    pub fn focused(&self) -> Option<(InstanceId, Option<ViewId>)> {
+        self.instance.as_ref().map(|i| (i.id, i.focused_view))
+    }
+
     pub fn focused_instance(&self) -> Option<InstanceId> {
         self.instance.as_ref().map(|instance| instance.id)
     }

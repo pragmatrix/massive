@@ -126,6 +126,13 @@ impl InstanceManager {
         self.instances.is_empty()
     }
 
+    /// Is the instance, or the combination of instance / view valid right now?
+    pub fn exists(&self, instance: InstanceId, view: Option<ViewId>) -> bool {
+        self.instances
+            .get(&instance)
+            .is_some_and(|i| view.is_none_or(|v| i.views.contains_key(&v)))
+    }
+
     pub fn send_view_event(
         &self,
         instance_id: InstanceId,

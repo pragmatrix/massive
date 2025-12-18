@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use anyhow::Result;
-
+use log::warn;
 use winit::{
     event::{ElementState, WindowEvent},
     keyboard::Key,
@@ -14,10 +14,10 @@ use massive_renderer::RenderGeometry;
 
 use crate::{FocusManager, FocusTransition, instance_manager::InstanceManager};
 
-#[derive(Debug, Default)]
+// Architecture: This is all about focus so far.
+#[derive(Debug)]
 pub struct UI {
     /// The recently touched view with the cursor / mouse, None if it's the desktop background.
-    /// Let's call this mouse focus for now.
     ///
     /// The ids may not exist.
     cursor_focus: Option<CursorFocus>,
@@ -25,6 +25,20 @@ pub struct UI {
     /// This decides to which view and instance the keyboard events are delivered. Basically the
     /// keyboard focus.
     focus_manager: FocusManager,
+
+    /// The current state of the window.
+    ///
+    /// This is used to remember the previously focused view, because we do unfocus the view.
+    /// Architecture: May be the focus-manager should do that.
+    window_focus_state: WindowFocusState,
+}
+
+#[derive(Debug)]
+enum WindowFocusState {
+    Unfocused {
+        focused_previously: Option<(InstanceId, Option<ViewId>)>,
+    },
+    Focused,
 }
 
 #[derive(Debug)]
@@ -35,14 +49,28 @@ struct CursorFocus {
 }
 
 impl UI {
-    pub fn new() -> Self {
-        Self::default()
+    // Detail: We need a primary instance and view to initialize the UI for now.
+    //
+    // Detail: This function assumes that the window is focused right now.
+    pub fn new(
+        primary_instance: InstanceId,
+        primary_view: ViewId,
+        instance_manager: &mut InstanceManager,
+    ) -> Result<Self> {
+        let mut focus_manager = FocusManager::new();
+        let transitions = focus_manager.focus(primary_instance, Some(primary_view));
+        transition(transitions, instance_manager)?;
+
+        Ok(Self {
+            cursor_focus: None,
+            focus_manager,
+            window_focus_state: WindowFocusState::Focused,
+        })
     }
 
     pub fn handle_input_event(
         &mut self,
         input_event: &Event<WindowEvent>,
-        primary_instance: InstanceId,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<UiCommand> {
@@ -51,7 +79,7 @@ impl UI {
         };
 
         let send_window_event = |instance_id, view_id, window_event| {
-            if let Some(view_event) = Self::convert_window_event_to_view_event(window_event) {
+            if let Some(view_event) = convert_window_event_to_view_event(window_event) {
                 send_to_view(instance_id, view_id, view_event)
             } else {
                 Ok(())
@@ -62,7 +90,7 @@ impl UI {
 
         match window_event {
             WindowEvent::Focused(window_focused) => {
-                self.make_foreground(primary_instance, *window_focused, instance_manager)?;
+                self.set_window_focus(*window_focused, instance_manager)?;
             }
 
             WindowEvent::CursorMoved { device_id, .. } => {
@@ -76,7 +104,7 @@ impl UI {
                 // Robustness: There might be a change of the device here.
                 if !any_pressed {
                     let hit_result =
-                        Self::hit_test_from_event(input_event, instance_manager, render_geometry);
+                        hit_test_from_event(input_event, instance_manager, render_geometry);
                     self.cursor_focus = hit_result.map(|(instance, view, point)| CursorFocus {
                         instance,
                         view,
@@ -88,7 +116,7 @@ impl UI {
                         let screen_pos = input_event
                             .pos()
                             .expect("A cursor moved event must have a position");
-                        if let Some(hit_result) = Self::hit_test_on_view(
+                        if let Some(hit_result) = hit_test_on_view(
                             screen_pos,
                             instance_manager,
                             render_geometry,
@@ -150,7 +178,7 @@ impl UI {
                             let application = instance_manager.get_application_name(instance)?;
                             return Ok(UiCommand::StartInstance {
                                 application: application.to_string(),
-                                originating_from: instance,
+                                originating_instance: instance,
                             });
                         }
                         Key::Character(c) if c.as_str() == "w" => {
@@ -186,154 +214,191 @@ impl UI {
         Ok(UiCommand::None)
     }
 
-    fn hit_test_from_event(
-        input_event: &Event<WindowEvent>,
-        instance_manager: &InstanceManager,
-        render_geometry: &RenderGeometry,
-    ) -> Option<(InstanceId, ViewId, Vector3)> {
-        let pos = input_event.pos()?;
-        Self::hit_test_at_point(pos, instance_manager, render_geometry)
-    }
-
-    fn hit_test_at_point(
-        screen_pos: Point,
-        instance_manager: &InstanceManager,
-        geometry: &RenderGeometry,
-    ) -> Option<(InstanceId, ViewId, Vector3)> {
-        let mut hits = Vec::new();
-
-        for (instance_id, view_id, view_info) in instance_manager.views() {
-            let location = view_info.location.value();
-            let transform = location.transform.value();
-            let size = view_info.size;
-
-            // Feature: Support parent transforms (and cache?)!
-            let matrix = transform.to_matrix4();
-            if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
-                // Check if the local position is within the view bounds
-                if local_pos.x >= 0.0
-                    && local_pos.x <= size.width as f64
-                    && local_pos.y >= 0.0
-                    && local_pos.y <= size.height as f64
-                {
-                    hits.push((instance_id, view_id, local_pos));
-                }
-            }
-        }
-
-        // Sort by z (descending) to get topmost view first
-        hits.sort_by(|a, b| b.2.z.partial_cmp(&a.2.z).unwrap_or(Ordering::Equal));
-
-        hits.first().copied()
-    }
-
-    /// Specifically hit tests on a view without considering its boundaries.
-    ///
-    /// Meaning that the hit test result may be out of bounds.
-    fn hit_test_on_view(
-        screen_pos: Point,
-        instance_manager: &InstanceManager,
-        render_geometry: &RenderGeometry,
-        instance_id: InstanceId,
-        view_id: ViewId,
-    ) -> Option<Vector3> {
-        let view_info = instance_manager.get_view(instance_id, view_id).ok()?;
-        let location = view_info.location.value();
-        let matrix = location.transform.value().to_matrix4();
-        render_geometry.unproject_to_model_z0(screen_pos, &matrix)
-    }
-
-    /// Convert all window events to a matching view event if available, except cursor moved.
-    fn convert_window_event_to_view_event(window_event: &WindowEvent) -> Option<ViewEvent> {
-        match window_event {
-            WindowEvent::CursorEntered { device_id } => Some(ViewEvent::CursorEntered {
-                device_id: *device_id,
-            }),
-            WindowEvent::CursorLeft { device_id } => Some(ViewEvent::CursorLeft {
-                device_id: *device_id,
-            }),
-            WindowEvent::MouseInput {
-                device_id,
-                state,
-                button,
-                ..
-            } => Some(ViewEvent::MouseInput {
-                device_id: *device_id,
-                state: *state,
-                button: *button,
-            }),
-            WindowEvent::MouseWheel {
-                device_id,
-                delta,
-                phase,
-                ..
-            } => Some(ViewEvent::MouseWheel {
-                device_id: *device_id,
-                delta: *delta,
-                phase: *phase,
-            }),
-            WindowEvent::ModifiersChanged(modifiers) => {
-                Some(ViewEvent::ModifiersChanged(*modifiers))
-            }
-            WindowEvent::DroppedFile(path) => Some(ViewEvent::DroppedFile(path.clone())),
-            WindowEvent::HoveredFile(path) => Some(ViewEvent::HoveredFile(path.clone())),
-            WindowEvent::HoveredFileCancelled => Some(ViewEvent::HoveredFileCancelled),
-            WindowEvent::CloseRequested => Some(ViewEvent::CloseRequested),
-            WindowEvent::KeyboardInput {
-                device_id,
-                event,
-                is_synthetic,
-            } => Some(ViewEvent::KeyboardInput {
-                device_id: *device_id,
-                event: event.clone(),
-                is_synthetic: *is_synthetic,
-            }),
-            WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
-            WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
-            WindowEvent::Resized(size) => {
-                Some(ViewEvent::Resized((size.width, size.height).into()))
-            }
-            _ => None,
-        }
-    }
-
     pub fn make_foreground(
         &mut self,
         instance: InstanceId,
-        window_focused: bool,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance, but not the view for now.
 
         let focused_view = {
-            if window_focused {
-                instance_manager.get_view_by_role(instance, ViewRole::Primary)?
-            } else {
-                None
+            match self.window_focus_state {
+                WindowFocusState::Unfocused { .. } => None,
+                WindowFocusState::Focused => {
+                    instance_manager.get_view_by_role(instance, ViewRole::Primary)?
+                }
             }
         };
 
-        let transitions = self.focus_manager.focus(instance, focused_view);
-        Self::transition(transitions, instance_manager)
+        self.set_focus(instance, focused_view, instance_manager)?;
+        Ok(())
     }
 
-    fn transition(
-        transitions: Vec<FocusTransition>,
+    fn set_window_focus(
+        &mut self,
+        focused: bool,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        for transition in transitions {
-            match transition {
-                FocusTransition::UnfocusView(instance, view) => {
-                    instance_manager.send_view_event(instance, view, ViewEvent::Focused(false))?;
+        match (&self.window_focus_state, focused) {
+            (WindowFocusState::Unfocused { focused_previously }, true) => {
+                if let Some((instance, view)) = *focused_previously
+                    && instance_manager.exists(instance, view)
+                {
+                    self.set_focus(instance, view, instance_manager)?;
                 }
-                FocusTransition::FocusView(instance, view) => {
-                    instance_manager.send_view_event(instance, view, ViewEvent::Focused(true))?;
-                }
-                FocusTransition::UnfocusInstance(_instance_id) => {}
-                FocusTransition::FocusInstance(_instance_id) => {}
+                self.window_focus_state = WindowFocusState::Focused
+            }
+            (WindowFocusState::Focused, false) => {
+                let current_focus = self.focus_manager.focused();
+                self.window_focus_state = WindowFocusState::Unfocused {
+                    focused_previously: current_focus,
+                };
+                let transitions = self.focus_manager.unfocus_view();
+                transition(transitions, instance_manager)?;
+            }
+            _ => {
+                warn!("Redundant Window focus change")
             }
         }
         Ok(())
+    }
+
+    fn set_focus(
+        &mut self,
+        instance: InstanceId,
+        view: Option<ViewId>,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
+        assert!(instance_manager.exists(instance, view));
+        let transitions = self.focus_manager.focus(instance, view);
+        transition(transitions, instance_manager)
+    }
+}
+
+fn transition(transitions: Vec<FocusTransition>, instance_manager: &InstanceManager) -> Result<()> {
+    for transition in transitions {
+        match transition {
+            FocusTransition::UnfocusView(instance, view) => {
+                instance_manager.send_view_event(instance, view, ViewEvent::Focused(false))?;
+            }
+            FocusTransition::FocusView(instance, view) => {
+                instance_manager.send_view_event(instance, view, ViewEvent::Focused(true))?;
+            }
+            FocusTransition::UnfocusInstance(_instance_id) => {}
+            FocusTransition::FocusInstance(_instance_id) => {}
+        }
+    }
+    Ok(())
+}
+
+//
+// Hit testing
+//
+
+fn hit_test_from_event(
+    input_event: &Event<WindowEvent>,
+    instance_manager: &InstanceManager,
+    render_geometry: &RenderGeometry,
+) -> Option<(InstanceId, ViewId, Vector3)> {
+    let pos = input_event.pos()?;
+    hit_test_at_point(pos, instance_manager, render_geometry)
+}
+
+fn hit_test_at_point(
+    screen_pos: Point,
+    instance_manager: &InstanceManager,
+    geometry: &RenderGeometry,
+) -> Option<(InstanceId, ViewId, Vector3)> {
+    let mut hits = Vec::new();
+
+    for (instance_id, view_id, view_info) in instance_manager.views() {
+        let location = view_info.location.value();
+        let transform = location.transform.value();
+        let size = view_info.size;
+
+        // Feature: Support parent transforms (and cache?)!
+        let matrix = transform.to_matrix4();
+        if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
+            // Check if the local position is within the view bounds
+            if local_pos.x >= 0.0
+                && local_pos.x <= size.width as f64
+                && local_pos.y >= 0.0
+                && local_pos.y <= size.height as f64
+            {
+                hits.push((instance_id, view_id, local_pos));
+            }
+        }
+    }
+
+    // Sort by z (descending) to get topmost view first
+    hits.sort_by(|a, b| b.2.z.partial_cmp(&a.2.z).unwrap_or(Ordering::Equal));
+
+    hits.first().copied()
+}
+
+/// Specifically hit tests on a view without considering its boundaries.
+///
+/// Meaning that the hit test result may be out of bounds.
+fn hit_test_on_view(
+    screen_pos: Point,
+    instance_manager: &InstanceManager,
+    render_geometry: &RenderGeometry,
+    instance_id: InstanceId,
+    view_id: ViewId,
+) -> Option<Vector3> {
+    let view_info = instance_manager.get_view(instance_id, view_id).ok()?;
+    let location = view_info.location.value();
+    let matrix = location.transform.value().to_matrix4();
+    render_geometry.unproject_to_model_z0(screen_pos, &matrix)
+}
+
+/// Convert all window events to a matching view event if available, except cursor moved.
+fn convert_window_event_to_view_event(window_event: &WindowEvent) -> Option<ViewEvent> {
+    match window_event {
+        WindowEvent::CursorEntered { device_id } => Some(ViewEvent::CursorEntered {
+            device_id: *device_id,
+        }),
+        WindowEvent::CursorLeft { device_id } => Some(ViewEvent::CursorLeft {
+            device_id: *device_id,
+        }),
+        WindowEvent::MouseInput {
+            device_id,
+            state,
+            button,
+            ..
+        } => Some(ViewEvent::MouseInput {
+            device_id: *device_id,
+            state: *state,
+            button: *button,
+        }),
+        WindowEvent::MouseWheel {
+            device_id,
+            delta,
+            phase,
+            ..
+        } => Some(ViewEvent::MouseWheel {
+            device_id: *device_id,
+            delta: *delta,
+            phase: *phase,
+        }),
+        WindowEvent::ModifiersChanged(modifiers) => Some(ViewEvent::ModifiersChanged(*modifiers)),
+        WindowEvent::DroppedFile(path) => Some(ViewEvent::DroppedFile(path.clone())),
+        WindowEvent::HoveredFile(path) => Some(ViewEvent::HoveredFile(path.clone())),
+        WindowEvent::HoveredFileCancelled => Some(ViewEvent::HoveredFileCancelled),
+        WindowEvent::CloseRequested => Some(ViewEvent::CloseRequested),
+        WindowEvent::KeyboardInput {
+            device_id,
+            event,
+            is_synthetic,
+        } => Some(ViewEvent::KeyboardInput {
+            device_id: *device_id,
+            event: event.clone(),
+            is_synthetic: *is_synthetic,
+        }),
+        WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
+        WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
+        WindowEvent::Resized(size) => Some(ViewEvent::Resized((size.width, size.height).into())),
+        _ => None,
     }
 }
 
@@ -342,7 +407,7 @@ pub enum UiCommand {
     None,
     StartInstance {
         application: String,
-        originating_from: InstanceId,
+        originating_instance: InstanceId,
     },
     StopInstance {
         instance: InstanceId,

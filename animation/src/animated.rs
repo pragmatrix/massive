@@ -77,7 +77,7 @@ impl<T: Interpolatable + Send> Animated<T> {
         inner.value = value;
     }
 
-    /// End all animations.
+    /// Finish all animations.
     ///
     /// This sets the current animated value to the final animation target value and stops all
     /// animations.

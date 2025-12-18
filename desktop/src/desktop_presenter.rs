@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Signed, SizePx, Vector3};
+use massive_geometry::{SizePx, Vector3};
 use massive_shell::Scene;
 
 #[derive(Debug, Default)]

@@ -41,7 +41,6 @@ impl Desktop {
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut presenter = DesktopPresenter::default();
-        let mut ui = UI::new();
         let environment = InstanceEnvironment::new(
             requests_tx,
             context.primary_monitor_scale_factor(),
@@ -65,6 +64,7 @@ impl Desktop {
         else {
             bail!("Did not or received an unexpected request from the application");
         };
+        let primary_view = creation_info.id;
 
         let window = context.new_window(creation_info.size).await?;
         let mut renderer = window
@@ -80,6 +80,7 @@ impl Desktop {
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
+        let mut ui = UI::new(primary_instance, primary_view, &mut instance_manager)?;
 
         loop {
             tokio::select! {
@@ -98,12 +99,11 @@ impl Desktop {
                             ) {
                                 let cmd = ui.handle_input_event(
                                     &input_event,
-                                    primary_instance,
                                     &instance_manager,
                                     renderer.geometry(),
                                 )?;
 
-                                self.handle_ui_command(cmd, &mut instance_manager, &mut presenter, &scene)?;
+                                self.handle_ui_command(cmd, &mut instance_manager, &mut presenter, &mut ui, &scene)?;
                             }
 
                             renderer.resize_redraw(&window_event)?;
@@ -146,21 +146,24 @@ impl Desktop {
         cmd: UiCommand,
         instance_manager: &mut InstanceManager,
         presenter: &mut DesktopPresenter,
+        ui: &mut UI,
         scene: &Scene,
     ) -> Result<()> {
         match cmd {
             UiCommand::None => {}
             UiCommand::StartInstance {
                 application,
-                originating_from,
+                originating_instance,
             } => {
                 let application = self
                     .applications
                     .get_named(&application)
                     .ok_or(anyhow!("Internal error, application not registered"))?;
 
-                let id = instance_manager.spawn(application, CreationMode::New)?;
-                presenter.present_instance(id, originating_from, scene)?;
+                let instance = instance_manager.spawn(application, CreationMode::New)?;
+                presenter.present_instance(instance, originating_instance, scene)?;
+                // Window focus is faked here.
+                ui.make_foreground(instance, instance_manager)?;
                 presenter.layout(true);
             }
             UiCommand::StopInstance { instance } => instance_manager.stop(instance)?,
