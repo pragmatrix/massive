@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Matrix4, SizePx, Transform, VectorPx};
+use massive_geometry::{Quaternion, SizePx, Transform, Vector3, VectorPx};
 use winit::{
     event::{
         DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
@@ -190,31 +190,30 @@ impl Application {
     }
 
     pub fn transform(&self, page_size: impl Into<SizePx>) -> Transform {
-        // Optimization: Generate the transform directly.
-        Transform::from_matrix4(self.matrix(page_size))
-    }
-
-    fn matrix(&self, page_size: impl Into<SizePx>) -> Matrix4 {
         let page_size = page_size.into();
 
-        let page_x_center: f64 = -((page_size.width / 2) as f64);
-        let page_y_center: f64 = -((page_size.height / 2) as f64);
-        let center_transformation =
-            Matrix4::from_translation((page_x_center, page_y_center, 0.0).into());
-        let current_translation = Matrix4::from_translation(
-            (
-                self.translation.x as _,
-                self.translation.y as _,
-                self.translation_z as _,
-            )
-                .into(),
-        );
+        assert!(page_size.width.is_multiple_of(2) && page_size.height.is_multiple_of(2));
+
+        let page_x_center = -((page_size.width / 2) as f64);
+        let page_y_center = -((page_size.height / 2) as f64);
+
         let angle_x = (self.rotation.x as f64 / 10.).to_radians();
         let angle_y = (-self.rotation.y as f64 / 10.).to_radians();
 
-        let x_rotation = Matrix4::from_rotation_y(angle_x);
-        let y_rotation = Matrix4::from_rotation_x(angle_y);
+        // Create rotation quaternion (Y * X rotation order)
+        let quat_x = Quaternion::from_rotation_y(angle_x);
+        let quat_y = Quaternion::from_rotation_x(angle_y);
+        let rotation = quat_y * quat_x;
 
-        current_translation * y_rotation * x_rotation * center_transformation
+        // Apply rotation to center offset, then add translation
+        let center_offset = Vector3::new(page_x_center, page_y_center, 0.0);
+        let rotated_center = rotation * center_offset;
+        let translation = Vector3::new(
+            rotated_center.x + self.translation.x as f64,
+            rotated_center.y + self.translation.y as f64,
+            rotated_center.z + self.translation_z as f64,
+        );
+
+        Transform::new(translation, rotation, 1.0)
     }
 }
