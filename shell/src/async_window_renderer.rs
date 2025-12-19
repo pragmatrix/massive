@@ -130,11 +130,14 @@ impl AsyncWindowRenderer {
                     // Missing: When switching from smooth to fast here, it could be that there are
                     // some changes in the pipeline, which are not rendered then.
                     //
-                    // We log them first to see if that even happens.
+                    // We log them first to see if that happens.
+                    //
+                    // Detail: It does, but there was - so far - always a Redraw coming afterwards.
+                    // Not sure if we can rely on that.
                     if present_mode == wgpu::PresentMode::AutoNoVsync
                         && window_renderer.any_pending_changes()
                     {
-                        error!("Changes are pending")
+                        warn!("Changes are pending")
                     }
                 }
                 RendererMessage::Redraw {
