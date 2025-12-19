@@ -127,6 +127,15 @@ impl AsyncWindowRenderer {
                     // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
                     // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
                     window_renderer.set_present_mode(present_mode);
+                    // Missing: When switching from smooth to fast here, it could be that there are
+                    // some changes in the pipeline, which are not rendered then.
+                    //
+                    // We log them first to see if that even happens.
+                    if present_mode == wgpu::PresentMode::AutoNoVsync
+                        && window_renderer.any_pending_changes()
+                    {
+                        error!("Changes are pending")
+                    }
                 }
                 RendererMessage::Redraw {
                     view_projection: new_view_projection,
@@ -273,7 +282,7 @@ impl AsyncWindowRenderer {
                 self.resize(wh)?;
                 // We immediately issue a redraw after a resize. Usually, when a WindowEvent is used
                 // to generate Resize / Redraw requests, another redraw will follow, but this takes
-                // too long for smooth resizing.
+                // too long for resizing.
                 //
                 // Robustness: Do this only in fast pacing mode?
                 self.redraw()
@@ -375,8 +384,8 @@ impl RenderTarget for AsyncWindowRenderer {
         // Robustness: This should probably threaded through the redraw pipeline?
         if !changes.is_empty() {
             self.change_collector().push_many(changes);
-            // Only in fast render pacing we issue a redraw request. Otherwise the renderer
-            // takes care of it.
+            // Only in fast render pacing we issue a redraw request. Otherwise the renderer pulls
+            // the changes every frame.
             if self.pacing() == RenderPacing::Fast {
                 self.redraw()?;
             }

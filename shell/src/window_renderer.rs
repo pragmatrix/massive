@@ -85,6 +85,10 @@ impl WindowRenderer {
         Ok(texture)
     }
 
+    pub(crate) fn any_pending_changes(&self) -> bool {
+        self.change_collector.any_changes()
+    }
+
     pub(crate) fn apply_scene_changes(&mut self) -> Result<()> {
         let changes = self.change_collector.take_all();
 
