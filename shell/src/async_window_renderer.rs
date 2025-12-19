@@ -343,28 +343,6 @@ impl Drop for AsyncWindowRenderer {
     }
 }
 
-/// Preliminary, not used yet.
-#[derive(Debug)]
-pub enum RenderMode {
-    /// Nothing special, just render the changes if any.
-    Default,
-    /// Independent o the changes, just force a redraw.
-    ForceRedraw,
-    /// All animations for the current tick of the associated AnimationCoordinator were applied.
-    /// This also forces a redraw to get a new presentation timestamp and in response a new
-    /// ApplyAnimations.
-    ///
-    /// Architecture: It's perhaps wrong to make this dependent on a prior ApplyAnimations event. In
-    /// Smooth mode we should perhaps render every frame completely autonomously in the render
-    /// thread. A kind of pull mode.
-    ///
-    /// But then: When do we know that there are no new
-    AnimationsApplied,
-    /// Resize, no redraw is forced if there are no actual changes, because the windowing system is
-    /// expected to issue a redraw event afterwards that ends up here with a ForceRedraw.
-    Resize(u32, u32),
-}
-
 impl RenderTarget for AsyncWindowRenderer {
     fn render(&mut self, changes: SceneChanges, pacing: RenderPacing) -> Result<()> {
         // Update render pacing before a redraw:
@@ -372,6 +350,7 @@ impl RenderTarget for AsyncWindowRenderer {
             info!("Changing render pacing to: {pacing:?}");
             self.update_render_pacing(pacing)?;
         }
+        debug_assert_eq!(self.pacing(), pacing);
 
         // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
         // may asynchronously overtake the subsequent redraw / resize requests if a previous one is
@@ -386,7 +365,7 @@ impl RenderTarget for AsyncWindowRenderer {
             self.change_collector().push_many(changes);
             // Only in fast render pacing we issue a redraw request. Otherwise the renderer pulls
             // the changes every frame.
-            if self.pacing() == RenderPacing::Fast {
+            if pacing == RenderPacing::Fast {
                 self.redraw()?;
             }
         }
