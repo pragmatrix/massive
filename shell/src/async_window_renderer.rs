@@ -47,7 +47,7 @@ impl AsyncWindowRenderer {
     pub fn new(
         window_renderer: WindowRenderer,
         geometry: RenderGeometry,
-        shell_events: Option<WeakUnboundedSender<ShellEvent>>,
+        shell_events: WeakUnboundedSender<ShellEvent>,
     ) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
@@ -81,7 +81,7 @@ impl AsyncWindowRenderer {
     fn render_loop(
         msg_receiver: mpsc::Receiver<RendererMessage>,
         mut window_renderer: WindowRenderer,
-        shell_events: Option<WeakUnboundedSender<ShellEvent>>,
+        shell_events: WeakUnboundedSender<ShellEvent>,
         mut view_projection: Matrix4,
     ) -> Result<()> {
         let mut messages = Vec::new();
@@ -195,7 +195,7 @@ impl AsyncWindowRenderer {
 
     fn render_frame(
         renderer: &mut WindowRenderer,
-        apply_animations_to: &Option<WeakUnboundedSender<ShellEvent>>,
+        apply_animations_to: &WeakUnboundedSender<ShellEvent>,
         view_projection: &Matrix4,
     ) -> Result<()> {
         // Detail: In VSync presentation mode, this blocks until the next VSync beginning
@@ -204,9 +204,7 @@ impl AsyncWindowRenderer {
         let texture = renderer.get_next_texture()?;
 
         // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
-        if let Some(apply_animations_to) = apply_animations_to
-            && renderer.present_mode() == wgpu::PresentMode::AutoVsync
-        {
+        if renderer.present_mode() == wgpu::PresentMode::AutoVsync {
             let sender = apply_animations_to
                 .upgrade()
                 .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;

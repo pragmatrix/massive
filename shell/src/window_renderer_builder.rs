@@ -146,7 +146,7 @@ impl WindowRendererBuilder {
         Ok(AsyncWindowRenderer::new(
             window_renderer,
             render_geometry,
-            Some(event_sender),
+            event_sender,
         ))
     }
 }
