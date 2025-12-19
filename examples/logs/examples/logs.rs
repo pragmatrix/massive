@@ -264,7 +264,7 @@ impl Logs {
         let v_center = self.vertical_center.value();
         dbg!(v_center);
         self.vertical_center_transform
-            .update(Transform::from_translation((0., v_center, 0.).into()));
+            .update((0., v_center, 0.).into());
 
         // Remove all lines that finished fading out from top to bottom.
 

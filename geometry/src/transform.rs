@@ -22,16 +22,16 @@ impl Transform {
         scale: 1.0,
     };
 
-    pub fn new(translate: Vector3, rotate: Quaternion, scale: f64) -> Self {
+    pub fn new(translate: impl Into<Vector3>, rotate: Quaternion, scale: f64) -> Self {
         Self {
-            translate,
+            translate: translate.into(),
             rotate,
             scale,
         }
     }
 
-    pub fn from_translation(translation: Vector3) -> Self {
-        translation.into()
+    pub fn from_translation(translation: impl Into<Vector3>) -> Self {
+        translation.into().into()
     }
 
     pub fn from_rotation(rotation: Quaternion) -> Self {
@@ -122,6 +122,12 @@ impl Mul for Transform {
 impl MulAssign for Transform {
     fn mul_assign(&mut self, rhs: Transform) {
         *self = *self * rhs;
+    }
+}
+
+impl From<(f64, f64, f64)> for Transform {
+    fn from(value: (f64, f64, f64)) -> Self {
+        Self::from(Vector3::from(value))
     }
 }
 
