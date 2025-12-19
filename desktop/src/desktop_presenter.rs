@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{SizePx, Vector3};
+use massive_scene::Transform;
 use massive_shell::Scene;
 
 #[derive(Debug, Default)]
@@ -176,6 +177,15 @@ impl DesktopPresenter {
                     .update_if_changed(translation.into());
             }
         }
+    }
+
+    /// Return the primary's view's (final) transform.
+    ///
+    /// It's view might not yet visible.
+    pub fn instance_transform(&self, instance: InstanceId) -> Option<Transform> {
+        self.instances
+            .get(&instance)
+            .map(|instance| instance.translation_animation.final_value().into())
     }
 }
 

@@ -193,6 +193,7 @@ impl AsyncWindowRenderer {
         }
     }
 
+    // Detail: This always produces a new frame. Even if there are no changes.
     fn render_frame(
         renderer: &mut WindowRenderer,
         apply_animations_to: &WeakUnboundedSender<ShellEvent>,
@@ -240,6 +241,13 @@ impl AsyncWindowRenderer {
 
     pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
         self.geometry.set_camera(camera);
+        // Always need an explicit redraw here, even in smooth mode (the view projection is
+        // transferred with `RenderMessage::Redraw`).
+        //
+        // Architecture: I don't the camera position should be pushed this way to the render loop.
+        // May be as a side-channel like the changes. But: camera changes should be synchronized to
+        // the changes, otherwise we could have a frame with the updated camera, and then one with
+        // the changes (in fast mode).
         self.redraw()
     }
 
