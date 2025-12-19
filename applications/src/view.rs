@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use log::debug;
+use std::ops::Neg;
 use tokio::sync::mpsc::{UnboundedSender, error::SendError};
 
 use uuid::Uuid;
@@ -10,7 +11,7 @@ use winit::{
     window::CursorIcon,
 };
 
-use massive_geometry::SizePx;
+use massive_geometry::{CastSigned, SizePx};
 use massive_input::{AggregationEvent, InputEvent};
 use massive_scene::{Handle, Location, SceneChanges, Transform};
 
@@ -121,8 +122,7 @@ fn center_transform(size: SizePx, origin: ViewOrigin) -> Transform {
         ViewOrigin::LeftTop => {
             // Robustness: Can we somehow disallow odd sizes at all?
             // Detail: We need to make sure that we align at pixels. So compute the center in the u32 space.
-            let center = (size / 2).to_vector().cast::<i64>();
-            (-center.x as f64, -center.y as f64, 0 as f64).into()
+            (size / 2).cast_signed().neg().cast::<f64>().to_3d().into()
         }
     }
 }

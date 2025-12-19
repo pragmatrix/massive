@@ -73,16 +73,27 @@ pub struct PixelUnit;
 pub type SizePx = euclid::Size2D<u32, PixelUnit>;
 pub type VectorPx = euclid::Vector2D<i32, PixelUnit>;
 
-pub trait Signed {
+pub trait CastSigned {
     type SignedType;
 
-    fn signed(&self) -> Self::SignedType;
+    fn cast_signed(&self) -> Self::SignedType;
 }
 
-impl<U> Signed for euclid::Size2D<u32, U> {
+impl<U> CastSigned for euclid::Size2D<u32, U> {
     type SignedType = euclid::Vector2D<i32, U>;
 
-    fn signed(&self) -> Self::SignedType {
+    fn cast_signed(&self) -> Self::SignedType {
         self.cast().to_vector()
+    }
+}
+
+pub trait ToVector3 {
+    fn to_vector3(self) -> Vector3;
+}
+
+impl<U> ToVector3 for euclid::Vector3D<f64, U> {
+    fn to_vector3(self) -> Vector3 {
+        let (x, y, z) = self.into();
+        (x, y, z).into()
     }
 }

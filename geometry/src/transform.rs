@@ -1,6 +1,6 @@
 use std::ops::{Mul, MulAssign};
 
-use crate::{Matrix4, Quaternion, Vector3};
+use crate::{Matrix4, Quaternion, ToVector3, Vector3};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
@@ -137,6 +137,12 @@ impl From<Vector3> for Transform {
             translate,
             ..Default::default()
         }
+    }
+}
+
+impl<U> From<euclid::Vector3D<f64, U>> for Transform {
+    fn from(value: euclid::Vector3D<f64, U>) -> Self {
+        value.to_vector3().into()
     }
 }
 
