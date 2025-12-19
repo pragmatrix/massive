@@ -42,12 +42,14 @@ impl View {
         instance: InstanceId,
         command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
         role: ViewRole,
+        origin: ViewOrigin,
         size: SizePx,
         scene: &Scene,
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
-        let view_transform = scene.stage(Transform::IDENTITY);
+        // The view transform is the basic center transform.
+        let view_transform = scene.stage(center_transform(size, origin));
         let location = scene.stage(Location::new(None, view_transform));
 
         command_sender.send((
@@ -69,11 +71,16 @@ impl View {
     }
 
     /// The location's transform.
+    ///
+    /// This should not be modified
+    // Architecture: Introduce a kind of Immutable handle or read only Handle.
     pub fn transform(&self) -> Handle<Transform> {
         self.location().value().transform.clone()
     }
 
     /// A reference to the location that is used to position the view in the parent desktop space.
+    ///
+    /// This should not be modified.
     pub fn location(&self) -> &Handle<Location> {
         &self.location
     }
@@ -105,6 +112,28 @@ impl View {
             ))
             .context("Failed to send a set cursor request")
     }
+}
+
+/// Compute the center transform for the view.
+fn center_transform(size: SizePx, origin: ViewOrigin) -> Transform {
+    match origin {
+        ViewOrigin::Center => Transform::IDENTITY,
+        ViewOrigin::LeftTop => {
+            // Robustness: Can we somehow disallow odd sizes at all?
+            // Detail: We need to make sure that we align at pixels. So compute the center in the u32 space.
+            let center = (size / 2).to_vector().cast::<i64>();
+            (-center.x as f64, -center.y as f64, 0 as f64).into()
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum ViewOrigin {
+    /// The views coordinate system start at left / top 0,0.
+    #[default]
+    LeftTop,
+    /// The views pixels are centered. 0,0 is at the center relative to its size.
+    Center,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
