@@ -55,7 +55,7 @@ impl Camera {
     }
 }
 
-pub fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
+fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
     let view = camera.view_matrix();
     let proj = projection.perspective_matrix(camera.fovy);
     proj * view
