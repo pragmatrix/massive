@@ -5,6 +5,9 @@ use itertools::Itertools;
 use log::{info, warn};
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
+use massive_geometry::{Color, Matrix4, SizePx, Vector3};
+use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
+
 use crate::{
     RenderDevice, Transaction, TransactionManager,
     config::RendererConfig,
@@ -14,8 +17,6 @@ use crate::{
     stats::MeasureSeries,
     tools::QuadIndexBuffer,
 };
-use massive_geometry::{Color, Matrix4, Vector3};
-use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
@@ -101,7 +102,7 @@ impl Renderer {
     pub fn new(
         device: RenderDevice,
         surface: wgpu::Surface<'static>,
-        initial_size: (u32, u32),
+        initial_size: SizePx,
         config: RendererConfig,
     ) -> Self {
         let pipelines = config.create_pipelines(&device.device);
@@ -112,8 +113,8 @@ impl Renderer {
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: device.surface_format,
-            width: initial_size.0,
-            height: initial_size.1,
+            width: initial_size.width,
+            height: initial_size.height,
             // 20250721: Since the time we are rendering asynchronously, not bound to the main
             // thread, VSync seems to be fast enough on MacOS and also fixes the "wobbly" resizing.
             //
@@ -444,7 +445,7 @@ impl Renderer {
     ///
     /// A Matrix that translates from the WGPU coordinate system to surface coordinates.
     pub fn surface_matrix(&self) -> Matrix4 {
-        let (width, height) = self.surface_size();
+        let (width, height) = self.surface_size().into();
         Matrix4::from_scale(Vector3::new(
             width as f64 / 2.0,
             -(height as f64 / 2.0),
@@ -455,15 +456,15 @@ impl Renderer {
     /// Resizes the surface, if necessary.
     ///
     /// Keeps the minimum surface size at at least 1x1.
-    pub fn resize_surface(&mut self, new_size: (u32, u32)) {
-        let new_surface_size = (new_size.0.max(1), new_size.1.max(1));
+    pub fn resize_surface(&mut self, new_size: SizePx) {
+        let new_surface_size = (new_size.height.max(1), new_size.width.max(1)).into();
 
-        if new_surface_size == self.surface_size() {
+        if self.surface_size() == new_surface_size {
             return;
         }
         let config = &mut self.surface_config;
-        config.width = new_surface_size.0;
-        config.height = new_surface_size.1;
+        config.width = new_surface_size.width;
+        config.height = new_surface_size.height;
 
         self.reconfigure_surface();
     }
@@ -472,9 +473,9 @@ impl Renderer {
     ///
     /// It may not exactly match the window's size, for example if the window's size is 0,0, the
     /// surface's size will be 1x1.
-    pub fn surface_size(&self) -> (u32, u32) {
+    pub fn surface_size(&self) -> SizePx {
         let config = &self.surface_config;
-        (config.width, config.height)
+        (config.width, config.height).into()
     }
 
     pub fn present_mode(&self) -> PresentMode {

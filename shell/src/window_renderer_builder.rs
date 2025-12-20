@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use log::debug;
-use massive_geometry::{Camera, Color};
+use massive_geometry::{Camera, Color, SizePx};
 use massive_renderer::{FontManager, RenderDevice, RenderGeometry, RendererBuilder};
 
 use crate::{AsyncWindowRenderer, WindowRenderer, shell_window::ShellWindowShared};
@@ -12,9 +12,9 @@ use crate::{AsyncWindowRenderer, WindowRenderer, shell_window::ShellWindowShared
 pub struct WindowRendererBuilder {
     window: Arc<ShellWindowShared>,
     /// Default is window's inner size.
-    initial_size: Option<(u32, u32)>,
+    initial_size: Option<SizePx>,
 
-    camera: Camera,
+    camera: Option<Camera>,
     background_color: Option<Color>,
     shapes: bool,
     text: Option<FontManager>,
@@ -28,7 +28,7 @@ impl WindowRendererBuilder {
         Self {
             window,
             initial_size: None,
-            camera: Camera::pixel_aligned(Camera::DEFAULT_FOVY),
+            camera: None,
             background_color: None,
             shapes: false,
             text: None,
@@ -36,8 +36,8 @@ impl WindowRendererBuilder {
         }
     }
 
-    pub fn with_size(mut self, size: (u32, u32)) -> Self {
-        self.initial_size = Some(size);
+    pub fn with_size(mut self, size: impl Into<SizePx>) -> Self {
+        self.initial_size = Some(size.into());
         self
     }
 
@@ -52,7 +52,7 @@ impl WindowRendererBuilder {
     /// By default the camera is set so that the scene is rendered at z 0 at a depth so that one
     /// unit (one pixel) corresponds to one physical pixel on the screen.
     pub fn with_camera(mut self, camera: Camera) -> Self {
-        self.camera = camera;
+        self.camera = Some(camera);
         self
     }
 
@@ -110,10 +110,9 @@ impl WindowRendererBuilder {
 
         let device = RenderDevice::for_surface(instance, &surface).await?;
 
-        let initial_size = self.initial_size.unwrap_or_else(|| {
-            let ps = self.window.inner_size();
-            (ps.width, ps.height)
-        });
+        let initial_size = self
+            .initial_size
+            .unwrap_or_else(|| self.window.inner_size());
 
         // Robustness: This is here to see if the initial size got resolved properly from the
         // Window's inner size.
@@ -141,7 +140,11 @@ impl WindowRendererBuilder {
         let event_sender = self.window.event_sender.clone();
         let window_renderer = WindowRenderer::new(self.window, renderer);
 
-        let render_geometry = RenderGeometry::new(initial_size, self.camera);
+        let camera = self
+            .camera
+            .unwrap_or_else(|| Camera::pixel_aligned(Camera::DEFAULT_FOVY));
+
+        let render_geometry = RenderGeometry::new(initial_size, camera);
 
         Ok(AsyncWindowRenderer::new(
             window_renderer,

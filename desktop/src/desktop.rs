@@ -8,7 +8,7 @@ use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
     RenderPacing, Scene, ViewCommand, ViewId, ViewRole,
 };
-use massive_geometry::Camera;
+use massive_geometry::{Camera, SizePx};
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
 use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
@@ -133,7 +133,7 @@ impl Desktop {
             }
 
             // Update the camera.
-            if let Some(camera) = camera(&ui, &presenter) {
+            if let Some(camera) = camera(&ui, &presenter, renderer.geometry().surface_size()) {
                 renderer.update_camera(camera)?;
             }
 
@@ -243,8 +243,8 @@ impl Desktop {
 }
 
 /// Returns the (final) camera position.
-fn camera(ui: &UI, presenter: &DesktopPresenter) -> Option<Camera> {
+fn camera(ui: &UI, presenter: &DesktopPresenter, surface_size: SizePx) -> Option<Camera> {
     ui.focused_instance()
         .and_then(|instance| presenter.instance_transform(instance))
-        .map(|target| Camera::pixel_aligned_looking_at(target, Camera::DEFAULT_FOVY))
+        .map(|target| Camera::pixel_aligned_looking_at(target, Camera::DEFAULT_FOVY, surface_size))
 }

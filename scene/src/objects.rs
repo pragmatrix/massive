@@ -95,6 +95,22 @@ impl Location {
     }
 }
 
+impl Handle<Location> {
+    /// The final model transform to get shapes of this location on the screen.
+    ///
+    /// This is uncached and the Transforms are combined (multiplied) on every invocation.
+    pub fn model_transform(&self) -> Transform {
+        let value = self.value();
+
+        let parent = value
+            .parent
+            .as_ref()
+            .map(|p| p.model_transform())
+            .unwrap_or_default();
+        parent * *value.transform.value()
+    }
+}
+
 impl Object for Location {
     type Change = LocationRenderObj;
 

@@ -7,7 +7,7 @@ use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
 use crate::shell_window::ShellWindowShared;
-use massive_geometry::{Color, Matrix4};
+use massive_geometry::{Color, Matrix4, SizePx};
 use massive_renderer::Renderer;
 use massive_scene::ChangeCollector;
 
@@ -44,7 +44,7 @@ impl WindowRenderer {
     }
 
     // Surface size may not match the Window's size, for example if the window's size is 0,0.
-    pub fn surface_size(&self) -> (u32, u32) {
+    pub fn surface_size(&self) -> SizePx {
         self.renderer.surface_size()
     }
 
@@ -57,7 +57,7 @@ impl WindowRenderer {
 }
 
 impl WindowRenderer {
-    pub(crate) fn resize(&mut self, new_size: (u32, u32)) {
+    pub(crate) fn resize(&mut self, new_size: SizePx) {
         self.renderer.resize_surface(new_size)
     }
 

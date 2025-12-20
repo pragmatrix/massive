@@ -14,7 +14,7 @@ use massive_util::message_filter;
 use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
-use massive_geometry::{Camera, Color, Matrix4};
+use massive_geometry::{Camera, Color, Matrix4, SizePx};
 use massive_renderer::RenderGeometry;
 use massive_scene::{ChangeCollector, SceneChanges};
 
@@ -35,7 +35,7 @@ pub struct AsyncWindowRenderer {
 
 #[derive(Debug)]
 enum RendererMessage {
-    Resize((u32, u32)),
+    Resize(SizePx),
     Redraw { view_projection: Matrix4 },
     SetPresentMode(wgpu::PresentMode),
     SetBackgroundColor(Option<Color>),
@@ -231,6 +231,10 @@ impl AsyncWindowRenderer {
         &self.change_collector
     }
 
+    pub fn camera(&self) -> &Camera {
+        self.geometry.camera()
+    }
+
     pub fn geometry(&self) -> &RenderGeometry {
         &self.geometry
     }
@@ -308,7 +312,7 @@ impl AsyncWindowRenderer {
         }
     }
 
-    pub fn resize(&mut self, surface_size: (u32, u32)) -> Result<()> {
+    pub fn resize(&mut self, surface_size: SizePx) -> Result<()> {
         self.geometry.set_surface_size(surface_size);
         self.post_msg(RendererMessage::Resize(surface_size))
     }
@@ -392,7 +396,7 @@ pub struct ResizeRedrawRequest {
 /// Request to the renderer to resize and / or redraw.
 #[derive(Debug, Default)]
 pub enum ResizeRedrawMode {
-    Resize((u32, u32)),
+    Resize(SizePx),
     Redraw,
     #[default]
     None,
@@ -403,7 +407,7 @@ impl From<&event::WindowEvent> for ResizeRedrawRequest {
         use event::WindowEvent;
         let mode = match window_event {
             WindowEvent::Resized(physical_size) => {
-                ResizeRedrawMode::Resize((physical_size.width, physical_size.height))
+                ResizeRedrawMode::Resize((physical_size.width, physical_size.height).into())
             }
             WindowEvent::RedrawRequested => ResizeRedrawMode::Redraw,
             _ => ResizeRedrawMode::None,

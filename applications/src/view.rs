@@ -49,15 +49,20 @@ impl View {
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
+        // Create the parent location of the view. Ownership of that is transferred to the desktop.
+        let parent_transform = scene.stage(Transform::IDENTITY);
+        let parent_location = scene.stage(Location::new(None, parent_transform));
+
         // The view transform is the basic center transform.
         let view_transform = scene.stage(center_transform(size, origin));
-        let location = scene.stage(Location::new(None, view_transform));
+        let view_location =
+            scene.stage(Location::new(Some(parent_location.clone()), view_transform));
 
         command_sender.send((
             instance,
             InstanceCommand::CreateView(ViewCreationInfo {
                 id,
-                location: location.clone(),
+                location: parent_location,
                 role,
                 size,
             }),
@@ -66,7 +71,7 @@ impl View {
         Ok(Self {
             instance,
             id,
-            location,
+            location: view_location,
             command_sender,
         })
     }

@@ -347,8 +347,7 @@ fn hit_test_at_point(
     let mut hits = Vec::new();
 
     for (instance_id, view_id, view_info) in instance_manager.views() {
-        let location = view_info.location.value();
-        let transform = location.transform.value();
+        let transform = view_info.location.model_transform();
         let size = view_info.size;
 
         // Feature: Support parent transforms (and cache?)!
