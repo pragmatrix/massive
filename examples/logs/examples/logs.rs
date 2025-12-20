@@ -262,7 +262,6 @@ impl Logs {
 
     fn apply_animations(&mut self) {
         let v_center = self.vertical_center.value();
-        dbg!(v_center);
         self.vertical_center_transform
             .update((0., v_center, 0.).into());
 
