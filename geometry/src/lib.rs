@@ -3,7 +3,7 @@
 mod bezier_algorithms;
 mod bounds;
 mod bounds3;
-mod camera;
+mod pixel_camera;
 mod color;
 mod cubic_bezier;
 mod depth_range;
@@ -22,7 +22,7 @@ mod unit_interval;
 
 pub use bounds::*;
 pub use bounds3::*;
-pub use camera::*;
+pub use pixel_camera::*;
 pub use color::*;
 pub use cubic_bezier::*;
 pub use depth_range::*;

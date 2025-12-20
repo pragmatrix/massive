@@ -6,7 +6,7 @@
 use std::cell::RefCell;
 
 use massive_geometry::{
-    Camera, DepthRange, Matrix4, PerspectiveDivide, Plane, Point, Ray, Vector3, Vector4,
+    DepthRange, Matrix4, PerspectiveDivide, PixelCamera, Plane, Point, Ray, Vector3, Vector4,
 };
 
 use crate::{Version, tools::Versioned};
@@ -14,7 +14,7 @@ use crate::{Version, tools::Versioned};
 #[derive(Debug)]
 pub struct RenderGeometry {
     surface_size: (u32, u32),
-    camera: Camera,
+    camera: PixelCamera,
     /// Dependencies tree head version.
     head_version: Version,
     /// Aggregated derived values cache.
@@ -24,7 +24,7 @@ pub struct RenderGeometry {
 const CAMERA_Z_RANGE: (f64, f64) = (0.1, 100.0);
 
 impl RenderGeometry {
-    pub fn new(surface_size: (u32, u32), camera: Camera) -> Self {
+    pub fn new(surface_size: (u32, u32), camera: PixelCamera) -> Self {
         Self {
             surface_size,
             camera,
@@ -65,7 +65,7 @@ impl RenderGeometry {
         ])
     }
 
-    pub fn camera(&self) -> &Camera {
+    pub fn camera(&self) -> &PixelCamera {
         &self.camera
     }
 
@@ -76,7 +76,7 @@ impl RenderGeometry {
         }
     }
 
-    pub fn set_camera(&mut self, camera: Camera) {
+    pub fn set_camera(&mut self, camera: PixelCamera) {
         if self.camera != camera {
             self.camera = camera;
             self.head_version += 1;
@@ -87,7 +87,7 @@ impl RenderGeometry {
     pub fn view_projection(&self) -> Matrix4 {
         let version = self.head_version;
         let mut derived = self.derived.borrow_mut();
-        let vp = derived.view_projection(version, &self.camera, self.surface_size);
+        let vp = derived.model_to_surface(version, &self.camera, self.surface_size);
         *vp
     }
 
@@ -95,7 +95,7 @@ impl RenderGeometry {
     /// 1.0 in each axis. Also flips y.
     ///
     /// Precision: When the surface height changes, the whole perspective gets skewed
-    fn pixel_matrix(surface_size: (u32, u32)) -> Matrix4 {
+    fn model_to_ndc(surface_size: (u32, u32)) -> Matrix4 {
         let (_, surface_height) = surface_size;
         let scale = 2.0 / surface_height as f64;
         Matrix4::from_scale(Vector3::new(scale, -scale, scale))
@@ -143,30 +143,31 @@ impl RenderGeometry {
 
 #[derive(Debug, Default)]
 struct DerivedCache {
-    pixel_matrix: Versioned<Matrix4>,
+    model_to_camera_to_ndc: Versioned<Matrix4>,
     camera_projection: Versioned<Matrix4>,
     view_projection: Versioned<Matrix4>,
 }
 
 impl DerivedCache {
-    fn view_projection(
+    fn model_to_surface(
         &mut self,
         version: Version,
-        camera: &Camera,
+        camera: &PixelCamera,
         surface_size: (u32, u32),
     ) -> &Matrix4 {
         self.view_projection.resolve(version, || {
-            let pixel_matrix = self
-                .pixel_matrix
-                .resolve(version, || RenderGeometry::pixel_matrix(surface_size));
+            let model_to_camera_to_ndc_matrix =
+                self.model_to_camera_to_ndc.resolve(version, || {
+                    RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix()
+                });
 
             let camera_projection = self.camera_projection.resolve(version, || {
-                let view_matrix = camera.view_matrix();
+                let view_matrix = camera.ndc_camera_move();
                 let perspective_matrix = camera.perspective_matrix(CAMERA_Z_RANGE, surface_size);
                 perspective_matrix * view_matrix
             });
 
-            *camera_projection * *pixel_matrix
+            *camera_projection * *model_to_camera_to_ndc_matrix
         })
     }
 }

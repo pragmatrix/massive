@@ -14,7 +14,7 @@ use massive_util::message_filter;
 use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
-use massive_geometry::{Camera, Color, Matrix4};
+use massive_geometry::{Color, Matrix4, PixelCamera};
 use massive_renderer::RenderGeometry;
 use massive_scene::{ChangeCollector, SceneChanges};
 
@@ -239,7 +239,7 @@ impl AsyncWindowRenderer {
         self.geometry.view_projection()
     }
 
-    pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
+    pub fn update_camera(&mut self, camera: PixelCamera) -> Result<()> {
         self.geometry.set_camera(camera);
         // Always need an explicit redraw here, even in smooth mode (the view projection is
         // transferred with `RenderMessage::Redraw`).

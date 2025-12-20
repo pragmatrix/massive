@@ -8,7 +8,7 @@ use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
     RenderPacing, Scene, ViewCommand, ViewId, ViewRole,
 };
-use massive_geometry::Camera;
+use massive_geometry::PixelCamera;
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
 use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
@@ -243,8 +243,8 @@ impl Desktop {
 }
 
 /// Returns the (final) camera position.
-fn camera(ui: &UI, presenter: &DesktopPresenter) -> Option<Camera> {
+fn camera(ui: &UI, presenter: &DesktopPresenter) -> Option<PixelCamera> {
     ui.focused_instance()
         .and_then(|instance| presenter.instance_transform(instance))
-        .map(|target| Camera::pixel_aligned_looking_at(target, Camera::DEFAULT_FOVY))
+        .map(|target| PixelCamera::look_at(target, PixelCamera::DEFAULT_FOVY))
 }

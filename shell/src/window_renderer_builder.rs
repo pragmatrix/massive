@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use log::debug;
-use massive_geometry::{Camera, Color};
+use massive_geometry::{Color, PixelCamera};
 use massive_renderer::{FontManager, RenderDevice, RenderGeometry, RendererBuilder};
 
 use crate::{AsyncWindowRenderer, WindowRenderer, shell_window::ShellWindowShared};
@@ -14,7 +14,7 @@ pub struct WindowRendererBuilder {
     /// Default is window's inner size.
     initial_size: Option<(u32, u32)>,
 
-    camera: Camera,
+    camera: PixelCamera,
     background_color: Option<Color>,
     shapes: bool,
     text: Option<FontManager>,
@@ -28,7 +28,7 @@ impl WindowRendererBuilder {
         Self {
             window,
             initial_size: None,
-            camera: Camera::pixel_aligned(Camera::DEFAULT_FOVY),
+            camera: PixelCamera::default(),
             background_color: None,
             shapes: false,
             text: None,
@@ -51,7 +51,7 @@ impl WindowRendererBuilder {
     ///
     /// By default the camera is set so that the scene is rendered at z 0 at a depth so that one
     /// unit (one pixel) corresponds to one physical pixel on the screen.
-    pub fn with_camera(mut self, camera: Camera) -> Self {
+    pub fn with_camera(mut self, camera: PixelCamera) -> Self {
         self.camera = camera;
         self
     }
