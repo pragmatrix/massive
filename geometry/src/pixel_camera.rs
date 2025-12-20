@@ -1,4 +1,4 @@
-use crate::{Matrix4, Projection, Quaternion, SizePx, Transform, Vector3};
+use crate::{Matrix4, Projection, SizePx, Transform, Vector3};
 
 /// A pixel camera.
 ///
@@ -7,7 +7,7 @@ use crate::{Matrix4, Projection, Quaternion, SizePx, Transform, Vector3};
 ///
 /// Internally the (pixel) model is transformed so that pixel point the camera is looking at is at
 /// 0,0, then everything is projected in the NDC (normalized device coordinates), and then the world
-/// is moved back.
+/// is moved back so that the surface pixels match the original pixel space.
 #[derive(Debug, Clone, PartialEq, Copy)]
 pub struct PixelCamera {
     /// The point the camera points at in model / pixel space.
