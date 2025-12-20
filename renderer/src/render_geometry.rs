@@ -97,8 +97,8 @@ impl RenderGeometry {
     /// Precision: When the surface height changes, the whole perspective gets skewed
     fn pixel_matrix(surface_size: (u32, u32)) -> Matrix4 {
         let (_, surface_height) = surface_size;
-        Matrix4::from_scale(Vector3::new(1.0, -1.0, 1.0))
-            * Matrix4::from_scale(Vector3::splat(1.0 / surface_height as f64 * 2.0))
+        let scale = 2.0 / surface_height as f64;
+        Matrix4::from_scale(Vector3::new(scale, -scale, scale))
     }
 
     /// Un-projects a screen-space pixel position into model space at z==0 (the matrix describing a
