@@ -161,7 +161,9 @@ impl DerivedCache {
                 .resolve(version, || RenderGeometry::pixel_matrix(surface_size));
 
             let camera_projection = self.camera_projection.resolve(version, || {
-                camera.view_projection_matrix(CAMERA_Z_RANGE, surface_size)
+                let view_matrix = camera.view_matrix();
+                let perspective_matrix = camera.perspective_matrix(CAMERA_Z_RANGE, surface_size);
+                perspective_matrix * view_matrix
             });
 
             *camera_projection * *pixel_matrix

@@ -40,23 +40,22 @@ impl Camera {
         Self::new(Transform::new(eye, rotate, 1.0), fovy)
     }
 
+    /// The matrix that positions moves the model so that the camera is positioned at 0,0.
     pub fn view_matrix(&self) -> Matrix4 {
         self.transform.inverse().to_matrix4()
     }
 
-    pub fn view_projection_matrix(
+    /// The matrix that projects NDC 3D coordinates to the final surface coordinates 2D.
+    ///
+    /// Architecture: If we internally use pixel coordinates, then go through NDC and here back in
+    /// 2D. Is there a more direct way?
+    pub fn perspective_matrix(
         &self,
         z_range: (f64, f64),
         surface_size: impl Into<SizePx>,
     ) -> Matrix4 {
         let (width, height) = surface_size.into().into();
-        let projection = Projection::new(width as f64 / height as f64, z_range.0, z_range.1);
-        view_projection_matrix(self, &projection)
+        Projection::new(width as f64 / height as f64, z_range.0, z_range.1)
+            .perspective_matrix(self.fovy)
     }
-}
-
-fn view_projection_matrix(camera: &Camera, projection: &Projection) -> Matrix4 {
-    let view = camera.view_matrix();
-    let proj = projection.perspective_matrix(camera.fovy);
-    proj * view
 }
