@@ -110,6 +110,7 @@ impl Desktop {
                             renderer.resize_redraw(&window_event)?;
                         }
                         ShellEvent::ApplyAnimations(_) => {
+                            // Performance: Not every instance needs that, only the ones animating currently.
                             instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
                             presenter.apply_animations();
                         }

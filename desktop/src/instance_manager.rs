@@ -241,6 +241,7 @@ impl InstanceManager {
     }
 
     /// Returns the effective pacing across all views.
+    ///
     /// If at least one view has Smooth pacing, returns Smooth; otherwise returns Fast.
     pub fn effective_pacing(&self) -> RenderPacing {
         if self
