@@ -51,18 +51,26 @@ impl View {
 
         // The parent transform and location to send to the desktop so that it can freely position
         // this view.
-        let parent_transform = scene.stage(Transform::IDENTITY);
-        let parent_location = scene.stage(Location::new(None, parent_transform));
+        //
+        // This is to separate the positioning between this view and the desktop. 
+        // 
+        // Detail: This could be done also in the desktop, but for now we want to keep the local
+        // location here, so that the desktop can't modify it.
+        let desktop_transform = scene.stage(Transform::IDENTITY);
+        let desktop_location = scene.stage(Location::new(None, desktop_transform));
 
-        // The view transform is the basic center transform.
-        let view_transform = scene.stage(center_transform(size, origin));
-        let location = scene.stage(Location::new(Some(parent_location.clone()), view_transform));
+        // The local transform is the basic center transform.
+        let local_transform = scene.stage(center_transform(size, origin));
+        let location = scene.stage(Location::new(
+            Some(desktop_location.clone()),
+            local_transform,
+        ));
 
         command_sender.send((
             instance,
             InstanceCommand::CreateView(ViewCreationInfo {
                 id,
-                location: parent_location.clone(),
+                location: desktop_location.clone(),
                 role,
                 size,
             }),
