@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 
 use log::debug;
-use massive_geometry::{Color, PixelCamera};
+use massive_geometry::{Color, PixelCamera, SizePx};
 use massive_renderer::{FontManager, RenderDevice, RenderGeometry, RendererBuilder};
 
 use crate::{AsyncWindowRenderer, WindowRenderer, shell_window::ShellWindowShared};
@@ -12,7 +12,7 @@ use crate::{AsyncWindowRenderer, WindowRenderer, shell_window::ShellWindowShared
 pub struct WindowRendererBuilder {
     window: Arc<ShellWindowShared>,
     /// Default is window's inner size.
-    initial_size: Option<(u32, u32)>,
+    initial_size: Option<SizePx>,
 
     camera: PixelCamera,
     background_color: Option<Color>,
@@ -36,7 +36,7 @@ impl WindowRendererBuilder {
         }
     }
 
-    pub fn with_size(mut self, size: (u32, u32)) -> Self {
+    pub fn with_size(mut self, size: SizePx) -> Self {
         self.initial_size = Some(size);
         self
     }
@@ -110,10 +110,9 @@ impl WindowRendererBuilder {
 
         let device = RenderDevice::for_surface(instance, &surface).await?;
 
-        let initial_size = self.initial_size.unwrap_or_else(|| {
-            let ps = self.window.inner_size();
-            (ps.width, ps.height)
-        });
+        let initial_size = self
+            .initial_size
+            .unwrap_or_else(|| self.window.inner_size());
 
         // Robustness: This is here to see if the initial size got resolved properly from the
         // Window's inner size.

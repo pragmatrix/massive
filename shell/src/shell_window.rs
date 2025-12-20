@@ -2,10 +2,10 @@ use std::{mem, ops::Deref, result, sync::Arc};
 
 use anyhow::{Result, anyhow};
 use log::error;
+use massive_geometry::SizePx;
 use tokio::sync::{mpsc::WeakUnboundedSender, oneshot};
 use wgpu::rwh;
 use winit::{
-    dpi::PhysicalSize,
     event_loop::EventLoopProxy,
     window::{CursorIcon, Window, WindowId},
 };
@@ -104,8 +104,9 @@ impl ShellWindowShared {
         self.window().request_redraw()
     }
 
-    pub fn inner_size(&self) -> PhysicalSize<u32> {
-        self.window().inner_size()
+    pub fn inner_size(&self) -> SizePx {
+        let (w, h) = self.window().inner_size().into();
+        (w, h).into()
     }
 
     fn window(&self) -> &Window {

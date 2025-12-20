@@ -7,6 +7,7 @@ pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
 
+use massive_geometry::SizePx;
 use tracing::instrument;
 use wgpu::{
     Device, Extent3d, Origin3d, Queue, TexelCopyTextureInfo, Texture, TextureAspect,
@@ -55,9 +56,9 @@ impl GlyphAtlas {
     }
 
     #[allow(unused)]
-    pub fn size(&self) -> (u32, u32) {
+    pub fn size(&self) -> SizePx {
         let dim = self.texture.dim();
-        (dim, dim)
+        (dim, dim).into()
     }
 
     pub fn texture_view(&self) -> &TextureView {
@@ -132,7 +133,7 @@ impl GlyphAtlas {
             queue,
             self.texture.texture(),
             new_texture.texture(),
-            (current_dim, current_dim),
+            (current_dim, current_dim).into(),
         );
         self.texture = new_texture;
         // After growing, the allocated rectangles retain their position.
@@ -144,13 +145,7 @@ impl GlyphAtlas {
         Ok(())
     }
 
-    fn copy_texture(
-        device: &Device,
-        queue: &Queue,
-        from: &Texture,
-        to: &Texture,
-        size: (u32, u32),
-    ) {
+    fn copy_texture(device: &Device, queue: &Queue, from: &Texture, to: &Texture, size: SizePx) {
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("Atlas copy encoder"),
         });
@@ -168,8 +163,8 @@ impl GlyphAtlas {
                 aspect: TextureAspect::All,
             },
             Extent3d {
-                width: size.0,
-                height: size.1,
+                width: size.width,
+                height: size.height,
                 depth_or_array_layers: 1,
             },
         );

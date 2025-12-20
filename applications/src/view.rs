@@ -52,8 +52,8 @@ impl View {
         // The parent transform and location to send to the desktop so that it can freely position
         // this view.
         //
-        // This is to separate the positioning between this view and the desktop. 
-        // 
+        // This is to separate the positioning between this view and the desktop.
+        //
         // Detail: This could be done also in the desktop, but for now we want to keep the local
         // location here, so that the desktop can't modify it.
         let desktop_transform = scene.stage(Transform::IDENTITY);
@@ -100,11 +100,11 @@ impl View {
     }
 
     #[allow(unused)]
-    fn resize(&mut self, new_size: (u32, u32)) -> Result<()> {
+    fn resize(&mut self, new_size: impl Into<SizePx>) -> Result<()> {
         self.command_sender
             .send((
                 self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Resize(new_size)),
+                InstanceCommand::View(self.id, ViewCommand::Resize(new_size.into())),
             ))
             .context("Failed to send a resize request")
     }
@@ -176,7 +176,7 @@ pub enum ViewCommand {
         pacing: RenderPacing,
     },
     /// Feature: This should probably specify a depth too.
-    Resize((u32, u32)),
+    Resize(SizePx),
     /// Set the title of the view. The desktop decides how to display it.
     SetTitle(String),
     /// Set the cursor icon for the view.

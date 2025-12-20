@@ -1,13 +1,15 @@
 use wgpu::util::DeviceExt;
 
+use massive_geometry::SizePx;
+
 use crate::{pods, tools::AsBindingResource};
 
 #[derive(Debug)]
 pub struct SizeBuffer(wgpu::Buffer);
 
 impl SizeBuffer {
-    pub fn new(device: &wgpu::Device, size: (u32, u32)) -> Self {
-        let uniform = pods::TextureSize([size.0 as f32, size.1 as f32], [0, 0]);
+    pub fn new(device: &wgpu::Device, size: SizePx) -> Self {
+        let uniform = pods::TextureSize([size.width as f32, size.height as f32], [0, 0]);
 
         let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Texture Size Buffer"),

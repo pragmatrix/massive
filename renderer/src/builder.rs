@@ -1,4 +1,4 @@
-use massive_geometry::Color;
+use massive_geometry::{Color, SizePx};
 
 use crate::{
     FontManager, RenderDevice, Renderer, RendererConfig,
@@ -10,7 +10,7 @@ use crate::{
 pub struct RendererBuilder {
     pub device: RenderDevice,
     pub surface: wgpu::Surface<'static>,
-    pub initial_size: (u32, u32),
+    pub initial_size: SizePx,
     pub config: RendererConfig,
 }
 
@@ -18,7 +18,7 @@ impl RendererBuilder {
     pub fn new(
         device: RenderDevice,
         surface: wgpu::Surface<'static>,
-        initial_size: (u32, u32),
+        initial_size: SizePx,
     ) -> Self {
         let surface_format = device.surface_format;
         Self {

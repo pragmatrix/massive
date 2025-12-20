@@ -6,14 +6,15 @@
 use std::cell::RefCell;
 
 use massive_geometry::{
-    DepthRange, Matrix4, PerspectiveDivide, PixelCamera, Plane, Point, Ray, Vector3, Vector4,
+    DepthRange, Matrix4, PerspectiveDivide, PixelCamera, Plane, Point, Ray, SizePx, Vector3,
+    Vector4,
 };
 
 use crate::{Version, tools::Versioned};
 
 #[derive(Debug)]
 pub struct RenderGeometry {
-    surface_size: (u32, u32),
+    surface_size: SizePx,
     camera: PixelCamera,
     /// Dependencies tree head version.
     head_version: Version,
@@ -24,7 +25,7 @@ pub struct RenderGeometry {
 const CAMERA_Z_RANGE: (f64, f64) = (0.1, 100.0);
 
 impl RenderGeometry {
-    pub fn new(surface_size: (u32, u32), camera: PixelCamera) -> Self {
+    pub fn new(surface_size: SizePx, camera: PixelCamera) -> Self {
         Self {
             surface_size,
             camera,
@@ -33,7 +34,7 @@ impl RenderGeometry {
         }
     }
 
-    pub fn surface_size(&self) -> (u32, u32) {
+    pub fn surface_size(&self) -> SizePx {
         self.surface_size
     }
 
@@ -44,7 +45,7 @@ impl RenderGeometry {
     /// Helper to transform screen coordinates to NDC coordinates.
     pub fn screen_to_ndc_matrix(&self) -> Matrix4 {
         let size = self.surface_size();
-        let (w, h) = (size.0 as f64, size.1 as f64);
+        let (w, h) = (size.width as f64, size.height as f64);
         Matrix4::from_cols_array(&[
             2.0 / w,
             0.0,
@@ -69,7 +70,7 @@ impl RenderGeometry {
         &self.camera
     }
 
-    pub fn set_surface_size(&mut self, surface_size: (u32, u32)) {
+    pub fn set_surface_size(&mut self, surface_size: SizePx) {
         if self.surface_size != surface_size {
             self.surface_size = surface_size;
             self.head_version += 1;
@@ -95,8 +96,8 @@ impl RenderGeometry {
     /// 1.0 in each axis. Also flips y.
     ///
     /// Precision: When the surface height changes, the whole perspective gets skewed
-    fn model_to_ndc(surface_size: (u32, u32)) -> Matrix4 {
-        let (_, surface_height) = surface_size;
+    fn model_to_ndc(surface_size: SizePx) -> Matrix4 {
+        let (_, surface_height) = surface_size.into();
         let scale = 2.0 / surface_height as f64;
         Matrix4::from_scale(Vector3::new(scale, -scale, scale))
     }
@@ -135,8 +136,8 @@ impl RenderGeometry {
         let surface_size = self.surface_size();
 
         // Screen -> NDC (flip Y)
-        let ndc_x = (pos_px.x / surface_size.0 as f64) * 2.0 - 1.0;
-        let ndc_y = 1.0 - (pos_px.y / surface_size.1 as f64) * 2.0;
+        let ndc_x = (pos_px.x / surface_size.width as f64) * 2.0 - 1.0;
+        let ndc_y = 1.0 - (pos_px.y / surface_size.height as f64) * 2.0;
         (ndc_x, ndc_y).into()
     }
 }
@@ -153,7 +154,7 @@ impl DerivedCache {
         &mut self,
         version: Version,
         camera: &PixelCamera,
-        surface_size: (u32, u32),
+        surface_size: SizePx,
     ) -> &Matrix4 {
         self.view_projection.resolve(version, || {
             let model_to_camera_to_ndc_matrix =
