@@ -145,6 +145,8 @@ impl DesktopPresenter {
         }
 
         for (i, instance) in self.ordered.iter().enumerate() {
+            // Detail: This translation does not consider the View's local coordinate system. This
+            // is done when animations are actually applied and a primary view exists.
             let translation = ((max_panel_size.width as i32 * i as i32) as f64, 0.0, 0.0);
 
             let instance = self
@@ -159,17 +161,31 @@ impl DesktopPresenter {
                     Interpolation::CubicOut,
                 );
             } else {
+                // Robustness: I don't think this is the best way here to set the view transform.
+                // This also does not initiate the animation system, which might be expected (this
+                // is why we need to invoke apply_animations() below).
                 instance
                     .translation_animation
                     .set_immediately(translation.into());
             }
+        }
+
+        if !animate {
+            self.apply_animations();
         }
     }
 
     pub fn apply_animations(&self) {
         for presenter in self.instances.values() {
             if let Some(view) = &presenter.view {
-                let translation = presenter.translation_animation.value();
+                // Get the translation for the instance.
+                let mut translation = presenter.translation_animation.value();
+
+                // And correct the view's position.
+                // Since the centering uses i32, we snap to pixel here (what we want!).
+                let center = view.view.extents.center().to_f64();
+                translation -= Vector3::new(center.x, center.y, 0.0);
+
                 view.view
                     .location
                     .value()
