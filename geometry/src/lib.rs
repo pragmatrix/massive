@@ -72,8 +72,6 @@ impl PerspectiveDivide for Vector4 {
 pub struct PixelUnit;
 pub type SizePx = euclid::Size2D<u32, PixelUnit>;
 pub type VectorPx = euclid::Vector2D<i32, PixelUnit>;
-// This go introduced because Box2D::contains needs a Point and not a vector.
-pub type PointPx = euclid::Point2D<i32, PixelUnit>;
 pub type BoxPx = euclid::Box2D<i32, PixelUnit>;
 
 pub trait CastSigned {

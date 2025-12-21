@@ -8,7 +8,7 @@ use winit::{
 };
 
 use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
-use massive_geometry::{Point, PointPx, Vector3};
+use massive_geometry::{Point, Vector3, VectorPx};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
@@ -355,8 +355,8 @@ fn hit_test_at_point(
         let matrix = transform.to_matrix4();
         if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
             // Robustness: Are we leaving accuracy on the table here by converting from f64 to i32?
-            let v: PointPx = (local_pos.x as i32, local_pos.y as i32).into();
-            if extents.contains(v) {
+            let v: VectorPx = (local_pos.x as i32, local_pos.y as i32).into();
+            if extents.contains(v.to_point()) {
                 hits.push((instance_id, view_id, local_pos));
             }
         }
