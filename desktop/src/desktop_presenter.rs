@@ -8,6 +8,8 @@ use massive_geometry::{SizePx, Vector3};
 use massive_scene::Transform;
 use massive_shell::Scene;
 
+const INSTANCE_TRANSITION_DURATION: Duration = Duration::from_millis(500);
+
 #[derive(Debug, Default)]
 /// Manages the presentation of the desktop's user interface.
 pub struct DesktopPresenter {
@@ -41,7 +43,7 @@ impl DesktopPresenter {
         let presenter = InstancePresenter {
             state: InstancePresenterState::Appearing,
             panel_size: view_creation_info.size(),
-            translation_animation: scene.animated(Default::default()),
+            center_animation: scene.animated(Default::default()),
             view: Some(view_presenter),
         };
 
@@ -65,8 +67,7 @@ impl DesktopPresenter {
         let presenter = InstancePresenter {
             state: InstancePresenterState::Appearing,
             panel_size: originating_presenter.panel_size,
-            translation_animation: scene
-                .animated(originating_presenter.translation_animation.value()),
+            center_animation: scene.animated(originating_presenter.center_animation.value()),
             view: None,
         };
 
@@ -145,8 +146,13 @@ impl DesktopPresenter {
         }
 
         for (i, instance) in self.ordered.iter().enumerate() {
-            // Detail: This translation does not consider the View's local coordinate system. This
-            // is done when animations are actually applied and a primary view exists.
+            // Detail: This translation represents the center of the instance's panel. The first
+            // instance in the band is at 0,0 and does not consider the View's local coordinate.
+            // This translation is relative (irrelevant of its absolute location) because we just
+            // point the camera at it.
+            //
+            // The final translation, the one that considers the view, is done when animations are
+            // actually applied and a primary view exists.
             let translation = ((max_panel_size.width as i32 * i as i32) as f64, 0.0, 0.0);
 
             let instance = self
@@ -155,9 +161,9 @@ impl DesktopPresenter {
                 .expect("Internal error: Instance does not exist");
 
             if animate {
-                instance.translation_animation.animate_if_changed(
+                instance.center_animation.animate_if_changed(
                     translation.into(),
-                    Duration::from_millis(500),
+                    INSTANCE_TRANSITION_DURATION,
                     Interpolation::CubicOut,
                 );
             } else {
@@ -165,7 +171,7 @@ impl DesktopPresenter {
                 // This also does not initiate the animation system, which might be expected (this
                 // is why we need to invoke apply_animations() below).
                 instance
-                    .translation_animation
+                    .center_animation
                     .set_immediately(translation.into());
             }
         }
@@ -179,7 +185,7 @@ impl DesktopPresenter {
         for presenter in self.instances.values() {
             if let Some(view) = &presenter.view {
                 // Get the translation for the instance.
-                let mut translation = presenter.translation_animation.value();
+                let mut translation = presenter.center_animation.value();
 
                 // And correct the view's position.
                 // Since the centering uses i32, we snap to pixel here (what we want!).
@@ -201,7 +207,7 @@ impl DesktopPresenter {
     pub fn instance_transform(&self, instance: InstanceId) -> Option<Transform> {
         self.instances
             .get(&instance)
-            .map(|instance| instance.translation_animation.final_value().into())
+            .map(|instance| instance.center_animation.final_value().into())
     }
 }
 
@@ -210,8 +216,10 @@ struct InstancePresenter {
     state: InstancePresenterState,
     // The size of the panel. Including borders.
     panel_size: SizePx,
-    translation_animation: Animated<Vector3>,
-    // The view inside the panel.
+    /// The center of the instance's panel. This is also the point the camera should look at if its
+    /// at rest.
+    center_animation: Animated<Vector3>,
+    // The primary view inside the panel.
     view: Option<PrimaryViewPresenter>,
 }
 
