@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use derive_more::{From, Into};
 use log::debug;
-use std::ops::Neg;
 use tokio::sync::mpsc::{UnboundedSender, error::SendError};
 
 use uuid::Uuid;
@@ -11,7 +11,7 @@ use winit::{
     window::CursorIcon,
 };
 
-use massive_geometry::{CastSigned, SizePx};
+use massive_geometry::{BoxPx, SizePx};
 use massive_input::{AggregationEvent, InputEvent};
 use massive_scene::{Handle, Location, SceneChanges, Transform};
 
@@ -43,8 +43,7 @@ impl View {
         instance: InstanceId,
         command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
         role: ViewRole,
-        origin: ViewOrigin,
-        size: SizePx,
+        extents: BoxPx,
         scene: &Scene,
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
@@ -56,11 +55,17 @@ impl View {
         //
         // Detail: This could be done also in the desktop, but for now we want to keep the local
         // location here, so that the desktop can't modify it.
+        //
+        // Detail: The identity transform here is incorrect but will be adjusted by the desktop
+        // based on extents.
         let desktop_transform = scene.stage(Transform::IDENTITY);
         let desktop_location = scene.stage(Location::new(None, desktop_transform));
 
         // The local transform is the basic center transform.
-        let local_transform = scene.stage(center_transform(size, origin));
+        //
+        // Architecture: Do we need a local location anymore, if it does not make sense for the view
+        // to modify it now that a full extents can be provided?
+        let local_transform = scene.stage(Transform::IDENTITY);
         let location = scene.stage(Location::new(
             Some(desktop_location.clone()),
             local_transform,
@@ -72,7 +77,7 @@ impl View {
                 id,
                 location: desktop_location.clone(),
                 role,
-                size,
+                extents,
             }),
         ))?;
 
@@ -100,11 +105,11 @@ impl View {
     }
 
     #[allow(unused)]
-    fn resize(&mut self, new_size: impl Into<SizePx>) -> Result<()> {
+    fn resize(&mut self, new_extents: impl Into<ViewExtent>) -> Result<()> {
         self.command_sender
             .send((
                 self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Resize(new_size.into())),
+                InstanceCommand::View(self.id, ViewCommand::Resize(new_extents.into().into())),
             ))
             .context("Failed to send a resize request")
     }
@@ -128,27 +133,6 @@ impl View {
     }
 }
 
-/// Compute the center transform for the view.
-fn center_transform(size: SizePx, origin: ViewOrigin) -> Transform {
-    match origin {
-        ViewOrigin::Center => Transform::IDENTITY,
-        ViewOrigin::LeftTop => {
-            // Robustness: Can we somehow disallow odd sizes at all?
-            // Detail: We need to make sure that we align at pixels. So compute the center in the u32 space.
-            (size / 2).cast_signed().neg().cast::<f64>().to_3d().into()
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub enum ViewOrigin {
-    /// The views coordinate system start at left / top 0,0.
-    #[default]
-    LeftTop,
-    /// The views pixels are centered. 0,0 is at the center relative to its size.
-    Center,
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 /// Some ideas for roles.
 pub enum ViewRole {
@@ -165,7 +149,13 @@ pub struct ViewCreationInfo {
     pub id: ViewId,
     pub location: Handle<Location>,
     pub role: ViewRole,
-    pub size: SizePx,
+    pub extents: BoxPx,
+}
+
+impl ViewCreationInfo {
+    pub fn size(&self) -> SizePx {
+        self.extents.size().cast()
+    }
 }
 
 #[derive(Debug)]
@@ -176,7 +166,7 @@ pub enum ViewCommand {
         pacing: RenderPacing,
     },
     /// Feature: This should probably specify a depth too.
-    Resize(SizePx),
+    Resize(BoxPx),
     /// Set the title of the view. The desktop decides how to display it.
     SetTitle(String),
     /// Set the cursor icon for the view.
@@ -291,5 +281,21 @@ impl InputEvent for ViewEvent {
             | ViewEvent::MouseInput { device_id, .. } => Some(*device_id),
             _ => None,
         }
+    }
+}
+
+#[derive(Debug, From, Into)]
+pub struct ViewExtent(BoxPx);
+
+impl From<SizePx> for ViewExtent {
+    fn from(value: SizePx) -> Self {
+        Self(BoxPx::from_size(value.to_i32()))
+    }
+}
+
+impl From<(u32, u32)> for ViewExtent {
+    fn from(value: (u32, u32)) -> Self {
+        let sz: SizePx = value.into();
+        sz.into()
     }
 }

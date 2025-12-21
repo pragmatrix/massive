@@ -8,7 +8,7 @@ use winit::{
 };
 
 use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
-use massive_geometry::{Point, Vector3};
+use massive_geometry::{Point, PointPx, Vector3};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
@@ -349,17 +349,14 @@ fn hit_test_at_point(
     for (instance_id, view_id, view_info) in instance_manager.views() {
         let location = view_info.location.value();
         let transform = location.transform.value();
-        let size = view_info.size;
+        let extents = view_info.extents;
 
         // Feature: Support parent transforms (and cache?)!
         let matrix = transform.to_matrix4();
         if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
-            // Check if the local position is within the view bounds
-            if local_pos.x >= 0.0
-                && local_pos.x <= size.width as f64
-                && local_pos.y >= 0.0
-                && local_pos.y <= size.height as f64
-            {
+            // Robustness: Are we leaving accuracy on the table here by converting from f64 to i32?
+            let v: PointPx = (local_pos.x as i32, local_pos.y as i32).into();
+            if extents.contains(v) {
                 hits.push((instance_id, view_id, local_pos));
             }
         }

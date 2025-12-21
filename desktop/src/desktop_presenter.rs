@@ -40,7 +40,7 @@ impl DesktopPresenter {
 
         let presenter = InstancePresenter {
             state: InstancePresenterState::Appearing,
-            panel_size: view_creation_info.size,
+            panel_size: view_creation_info.size(),
             translation_animation: scene.animated(Default::default()),
             view: Some(view_presenter),
         };
@@ -113,20 +113,20 @@ impl DesktopPresenter {
             todo!("Only primary views are supported yet");
         }
 
-        let Some(presenter) = self.instances.get_mut(&instance) else {
+        let Some(instance_presenter) = self.instances.get_mut(&instance) else {
             bail!("Instance not found");
         };
 
-        if presenter.state != InstancePresenterState::Appearing {
+        if instance_presenter.state != InstancePresenterState::Appearing {
             bail!("Primary view is already presenting");
         }
 
         // Feature: Add a alpha animation just for the view.
-        presenter.panel_size = view_creation_info.size;
-        presenter.view = Some(PrimaryViewPresenter {
+        instance_presenter.panel_size = view_creation_info.size();
+        instance_presenter.view = Some(PrimaryViewPresenter {
             view: view_creation_info.clone(),
         });
-        presenter.state = InstancePresenterState::Presenting;
+        instance_presenter.state = InstancePresenterState::Presenting;
 
         Ok(())
     }

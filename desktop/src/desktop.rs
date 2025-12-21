@@ -67,7 +67,7 @@ impl Desktop {
         };
         let primary_view = creation_info.id;
 
-        let window = context.new_window(creation_info.size).await?;
+        let window = context.new_window(creation_info.size()).await?;
         let mut renderer = window
             .renderer()
             .with_shapes()
@@ -110,7 +110,7 @@ impl Desktop {
                             renderer.resize_redraw(&window_event)?;
                         }
                         ShellEvent::ApplyAnimations(_) => {
-                            // Performance: Not every instance needs that, only the ones animating currently.
+                            // Performance: Not every instance needs that, only the ones animating.
                             instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
                             presenter.apply_animations();
                         }

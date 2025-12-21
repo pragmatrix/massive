@@ -1,10 +1,10 @@
 use anyhow::Result;
 use tokio::sync::mpsc::UnboundedSender;
 
-use massive_geometry::{Color, SizePx};
+use massive_geometry::{BoxPx, Color};
 
 use crate::{
-    InstanceId, Scene, ViewOrigin,
+    InstanceId, Scene,
     instance_context::InstanceCommand,
     view::{View, ViewRole},
 };
@@ -16,8 +16,7 @@ pub struct ViewBuilder {
 
     role: ViewRole,
 
-    origin: ViewOrigin,
-    size: SizePx,
+    extent: BoxPx,
     background_color: Option<Color>,
 }
 
@@ -25,25 +24,19 @@ impl ViewBuilder {
     pub(crate) fn new(
         requests: UnboundedSender<(InstanceId, InstanceCommand)>,
         instance: InstanceId,
-        size: impl Into<SizePx>,
+        extent: BoxPx,
     ) -> Self {
         Self {
             command_sender: requests,
             instance,
             role: ViewRole::default(),
-            origin: ViewOrigin::default(),
-            size: size.into(),
+            extent,
             background_color: None,
         }
     }
 
     pub fn with_role(mut self, role: ViewRole) -> Self {
         self.role = role;
-        self
-    }
-
-    pub fn with_origin(mut self, origin: ViewOrigin) -> Self {
-        self.origin = origin;
         self
     }
 
@@ -57,8 +50,7 @@ impl ViewBuilder {
             self.instance,
             self.command_sender,
             self.role,
-            self.origin,
-            self.size,
+            self.extent,
             scene,
         )
     }
