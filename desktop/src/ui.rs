@@ -1,23 +1,33 @@
 use std::cmp::Ordering;
 
 use anyhow::Result;
-use log::{error, warn};
+use log::warn;
+use massive_animation::{Animated, Interpolation};
+use massive_shell::Scene;
 use winit::{
     event::{ElementState, WindowEvent},
     keyboard::Key,
 };
 
 use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
-use massive_geometry::{Point, Vector3, VectorPx};
+use massive_geometry::{PixelCamera, Point, Vector3, VectorPx};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
-use crate::{FocusManager, FocusTransition, instance_manager::InstanceManager};
+use crate::{
+    FocusManager, FocusTransition, desktop_presenter::DesktopPresenter,
+    instance_manager::InstanceManager,
+};
 
-// Architecture: This is all about focus so far. May rename it to DesktopInput or DesktopFocus?
+// Architecture: This is all about focus so far. May rename it to DesktopInput or DesktopFocus or
+// InputInterface?
+//
 // Architecture: Every function here needs &InstanceManager.
 #[derive(Debug)]
 pub struct UI {
+    /// The camera
+    camera: Animated<PixelCamera>,
+
     /// The recently touched view with the cursor / mouse, None if it's the desktop background.
     ///
     /// The ids may not exist.
@@ -52,15 +62,19 @@ impl UI {
     //
     // Detail: This function assumes that the window is focused right now.
     pub fn new(
-        primary_instance: InstanceId,
-        primary_view: ViewId,
+        (primary_instance, primary_view): (InstanceId, ViewId),
         instance_manager: &InstanceManager,
+        presenter: &DesktopPresenter,
+        scene: &Scene,
     ) -> Result<Self> {
         let mut focus_manager = FocusManager::new();
-        let transitions = focus_manager.focus(primary_instance, Some(primary_view));
-        transition(transitions, instance_manager)?;
+        let focus_transitions = focus_manager.focus(primary_instance, Some(primary_view));
+        forward_focus_transitions(focus_transitions, instance_manager)?;
+
+        let camera = camera(&focus_manager, presenter).expect("Internal error: No initial focus");
 
         Ok(Self {
+            camera: scene.animated(camera),
             cursor_focus: None,
             focus_manager,
             window_focus_state: WindowFocusState::Focused,
@@ -71,10 +85,15 @@ impl UI {
         self.focus_manager.focused_instance()
     }
 
+    pub fn camera(&self) -> PixelCamera {
+        self.camera.value()
+    }
+
     pub fn make_foreground(
         &mut self,
         instance: InstanceId,
         instance_manager: &InstanceManager,
+        presenter: &DesktopPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
         let mut focused_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
@@ -91,6 +110,16 @@ impl UI {
             focused_view,
             instance_manager,
         )?;
+
+        let camera = camera(&self.focus_manager, presenter);
+        if let Some(camera) = camera {
+            self.camera.animate_if_changed(
+                camera,
+                DesktopPresenter::INSTANCE_TRANSITION_DURATION,
+                Interpolation::CubicOut,
+            );
+        }
+
         Ok(())
     }
 
@@ -280,7 +309,7 @@ impl UI {
                     focused_previously: focused_view,
                 };
                 let transitions = self.focus_manager.unfocus_view();
-                transition(transitions, instance_manager)?;
+                forward_focus_transitions(transitions, instance_manager)?;
             }
             _ => {
                 warn!("Redundant Window focus change")
@@ -308,10 +337,13 @@ fn set_focus(
 ) -> Result<()> {
     assert!(instance_manager.exists(instance, view));
     let transitions = focus_manager.focus(instance, view);
-    transition(transitions, instance_manager)
+    forward_focus_transitions(transitions, instance_manager)
 }
 
-fn transition(transitions: Vec<FocusTransition>, instance_manager: &InstanceManager) -> Result<()> {
+fn forward_focus_transitions(
+    transitions: Vec<FocusTransition>,
+    instance_manager: &InstanceManager,
+) -> Result<()> {
     for transition in transitions {
         match transition {
             FocusTransition::UnfocusView(instance, view) => {
@@ -325,6 +357,14 @@ fn transition(transitions: Vec<FocusTransition>, instance_manager: &InstanceMana
         }
     }
     Ok(())
+}
+
+/// Returns the camera position it should target at.
+fn camera(focus_manager: &FocusManager, presenter: &DesktopPresenter) -> Option<PixelCamera> {
+    focus_manager
+        .focused_instance()
+        .and_then(|instance| presenter.instance_transform(instance))
+        .map(|target| PixelCamera::look_at(target, PixelCamera::DEFAULT_FOVY))
 }
 
 //

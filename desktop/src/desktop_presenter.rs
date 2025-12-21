@@ -8,8 +8,6 @@ use massive_geometry::{SizePx, Vector3};
 use massive_scene::Transform;
 use massive_shell::Scene;
 
-const INSTANCE_TRANSITION_DURATION: Duration = Duration::from_millis(500);
-
 #[derive(Debug, Default)]
 /// Manages the presentation of the desktop's user interface.
 pub struct DesktopPresenter {
@@ -20,6 +18,7 @@ pub struct DesktopPresenter {
 }
 
 impl DesktopPresenter {
+    pub const INSTANCE_TRANSITION_DURATION: Duration = Duration::from_millis(500);
     /// Present the primary instance and its primary role view.
     ///
     /// For now this can not be done by separately presenting an instance and a view because we
@@ -163,7 +162,7 @@ impl DesktopPresenter {
             if animate {
                 instance.center_animation.animate_if_changed(
                     translation.into(),
-                    INSTANCE_TRANSITION_DURATION,
+                    Self::INSTANCE_TRANSITION_DURATION,
                     Interpolation::CubicOut,
                 );
             } else {

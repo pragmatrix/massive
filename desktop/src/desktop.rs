@@ -8,7 +8,6 @@ use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
     RenderPacing, Scene, ViewCommand, ViewId, ViewRole,
 };
-use massive_geometry::PixelCamera;
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
 use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
@@ -81,7 +80,12 @@ impl Desktop {
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
-        let mut ui = UI::new(primary_instance, primary_view, &instance_manager)?;
+        let mut ui = UI::new(
+            (primary_instance, primary_view),
+            &instance_manager,
+            &presenter,
+            &scene,
+        )?;
 
         loop {
             tokio::select! {
@@ -134,9 +138,7 @@ impl Desktop {
             }
 
             // Update the camera.
-            if let Some(camera) = camera(&ui, &presenter) {
-                renderer.update_camera(camera)?;
-            }
+            renderer.update_camera(ui.camera())?;
 
             // Render all accumulated changes with the appropriate pacing
             let options = if instance_manager.effective_pacing() == RenderPacing::Smooth {
@@ -170,7 +172,7 @@ impl Desktop {
                 let instance = instance_manager.spawn(application, CreationMode::New)?;
                 presenter.present_instance(instance, originating_instance, scene)?;
                 // Window focus is faked here.
-                ui.make_foreground(instance, instance_manager)?;
+                ui.make_foreground(instance, instance_manager, presenter)?;
                 presenter.layout(true);
             }
             UiCommand::StopInstance { instance } => instance_manager.stop(instance)?,
@@ -195,7 +197,7 @@ impl Desktop {
                 // If this instance is currently focused and this is a primary view, make it
                 // foreground so that the view is focused.
                 if ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
-                    ui.make_foreground(instance, instance_manager)?;
+                    ui.make_foreground(instance, instance_manager, presenter)?;
                 }
             }
             InstanceCommand::DestroyView(id) => {
@@ -241,11 +243,4 @@ impl Desktop {
         }
         Ok(())
     }
-}
-
-/// Returns the (final) camera position.
-fn camera(ui: &UI, presenter: &DesktopPresenter) -> Option<PixelCamera> {
-    ui.focused_instance()
-        .and_then(|instance| presenter.instance_transform(instance))
-        .map(|target| PixelCamera::look_at(target, PixelCamera::DEFAULT_FOVY))
 }
