@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 
 use anyhow::Result;
-use log::warn;
+use log::{error, warn};
 use winit::{
     event::{ElementState, WindowEvent},
     keyboard::Key,
@@ -121,16 +121,20 @@ impl UI {
 
             WindowEvent::CursorMoved { device_id, .. } => {
                 let any_pressed = input_event
-                    .pointing_device_state()
+                    .pointing_device_state(*device_id)
                     .map(|d| d.any_button_pressed())
                     .unwrap_or(false);
+
+                let screen_pos = input_event
+                    .pos()
+                    .expect("Internal error, a CursorMoved event must support a position");
 
                 // Change the cursor focus only if there is no button pressed.
                 //
                 // Robustness: There might be a change of the device here.
                 if !any_pressed {
                     let hit_result =
-                        hit_test_from_event(input_event, instance_manager, render_geometry);
+                        hit_test_at_point(screen_pos, instance_manager, render_geometry);
                     self.cursor_focus = hit_result.map(|(instance, view, point)| CursorFocus {
                         instance,
                         view,
@@ -139,9 +143,6 @@ impl UI {
                 } else {
                     // Button is pressed, may update pos only.
                     if let Some(cursor_focus) = &mut self.cursor_focus {
-                        let screen_pos = input_event
-                            .pos()
-                            .expect("A cursor moved event must have a position");
                         if let Some(hit_result) = hit_test_on_view(
                             screen_pos,
                             instance_manager,
@@ -184,7 +185,7 @@ impl UI {
             | WindowEvent::DroppedFile(_)
             | WindowEvent::HoveredFile(_) => {
                 if let Some(CursorFocus { instance, view, .. }) = self.cursor_focus {
-                    // Does this event cause a focusing of the view?
+                    // Does this event cause a focusing of the view at the current cursor pos?
                     if causes_focus(window_event) {
                         set_focus(
                             &mut self.focus_manager,
@@ -329,15 +330,6 @@ fn transition(transitions: Vec<FocusTransition>, instance_manager: &InstanceMana
 //
 // Hit testing
 //
-
-fn hit_test_from_event(
-    input_event: &Event<WindowEvent>,
-    instance_manager: &InstanceManager,
-    render_geometry: &RenderGeometry,
-) -> Option<(InstanceId, ViewId, Vector3)> {
-    let pos = input_event.pos()?;
-    hit_test_at_point(pos, instance_manager, render_geometry)
-}
 
 fn hit_test_at_point(
     screen_pos: Point,

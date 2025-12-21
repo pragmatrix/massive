@@ -35,6 +35,9 @@ impl<'history, E: InputEvent> Event<'history, E> {
 
     /// Returns the physical coordinates if the event was caused by a pointer device and the device
     /// has reported a position yet.
+    ///
+    // Robustness: I think we should make this require the device() to be passed, this is otherwise
+    // too implicit.
     pub fn pos(&self) -> Option<Point> {
         self.states().pos(self.device()?)
     }
@@ -204,8 +207,8 @@ impl<'history, E: InputEvent> Event<'history, E> {
         self.record().event().to_aggregation_event()
     }
 
-    pub fn pointing_device_state(&self) -> Option<&PointingDeviceState> {
-        self.states().pointing_device(self.device()?)
+    pub fn pointing_device_state(&self, device: DeviceId) -> Option<&PointingDeviceState> {
+        self.states().pointing_device(device)
     }
 
     pub fn states(&self) -> &DeviceStates {
