@@ -34,7 +34,7 @@ impl PixelCamera {
         self.look_at.inverse().to_matrix4()
     }
 
-    /// Move the model further back in NDC coordinate space, so that it's pointing to position is visible.
+    /// Move the model further back in NDC coordinate space, so that its pointed-to position is visible.
     pub fn ndc_camera_move(&self) -> Matrix4 {
         let camera_distance = 1.0 / (self.fovy / 2.0).to_radians().tan();
         Matrix4::from_translation(-Vector3::new(0.0, 0.0, camera_distance))
