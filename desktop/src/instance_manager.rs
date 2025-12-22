@@ -10,9 +10,10 @@ use tokio::{
 use uuid::Uuid;
 
 use massive_applications::{
-    CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId, RenderPacing,
+    CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId,
     ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
+use massive_renderer::RenderPacing;
 use massive_shell::Result;
 
 use crate::application_registry::Application;

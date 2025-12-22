@@ -17,7 +17,7 @@ impl ChangeCollector {
     }
 
     pub fn push_many(&self, changes: impl Into<SceneChanges>) {
-        self.changes.lock().push_many(changes.into());
+        self.changes.lock().accumulate(changes.into());
     }
 
     pub fn take_all(&self) -> SceneChanges {
@@ -45,7 +45,7 @@ impl SceneChanges {
         self.changes.push(change);
     }
 
-    pub fn push_many(&mut self, changes: SceneChanges) {
+    pub fn accumulate(&mut self, changes: SceneChanges) {
         match (self.time_of_oldest_change, changes.time_of_oldest_change) {
             (None, _) => {
                 // Performance: Capacity

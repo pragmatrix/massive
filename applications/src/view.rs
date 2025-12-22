@@ -13,11 +13,10 @@ use winit::{
 
 use massive_geometry::{BoxPx, SizePx};
 use massive_input::{AggregationEvent, InputEvent};
-use massive_scene::{Handle, Location, SceneChanges, Transform};
+use massive_renderer::{RenderSubmission, RenderTarget};
+use massive_scene::{Handle, Location, Transform};
 
-use crate::{
-    InstanceId, RenderPacing, RenderTarget, Scene, ViewId, instance_context::InstanceCommand,
-};
+use crate::{InstanceId, Scene, ViewId, instance_context::InstanceCommand};
 
 #[derive(Debug)]
 pub struct View {
@@ -161,10 +160,7 @@ impl ViewCreationInfo {
 #[derive(Debug)]
 pub enum ViewCommand {
     /// Detail: Empty changes are possible because animations active might change.
-    Render {
-        changes: SceneChanges,
-        pacing: RenderPacing,
-    },
+    Render { submission: RenderSubmission },
     /// Feature: This should probably specify a depth too.
     Resize(BoxPx),
     /// Set the title of the view. The desktop decides how to display it.
@@ -174,13 +170,13 @@ pub enum ViewCommand {
 }
 
 impl RenderTarget for View {
-    fn render(&mut self, changes: SceneChanges, pacing: RenderPacing) -> Result<()> {
+    fn render(&mut self, submission: RenderSubmission) -> Result<()> {
         self.command_sender
             .send((
                 self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Render { changes, pacing }),
+                InstanceCommand::View(self.id, ViewCommand::Render { submission }),
             ))
-            .context("Failed to send a redraw request")
+            .context("Failed to send a render request")
     }
 }
 
