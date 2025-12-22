@@ -339,14 +339,19 @@ fn forward_focus_transitions(
 ) -> Result<()> {
     for transition in transitions {
         match transition {
-            FocusTransition::UnfocusView(view) => {
-                instance_manager.send_view_event(view, ViewEvent::Focused(false))?;
+            FocusTransition::Exit(FocusPath {
+                instance,
+                view: Some(view),
+            }) => {
+                instance_manager.send_view_event((instance, view), ViewEvent::Focused(false))?;
             }
-            FocusTransition::FocusView(view) => {
-                instance_manager.send_view_event(view, ViewEvent::Focused(true))?;
+            FocusTransition::Enter(FocusPath {
+                instance,
+                view: Some(view),
+            }) => {
+                instance_manager.send_view_event((instance, view), ViewEvent::Focused(true))?;
             }
-            FocusTransition::UnfocusInstance(_instance_id) => {}
-            FocusTransition::FocusInstance(_instance_id) => {}
+            _ => {}
         }
     }
     Ok(())

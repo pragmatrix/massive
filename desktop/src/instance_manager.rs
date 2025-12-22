@@ -140,8 +140,8 @@ impl InstanceManager {
             .is_some_and(|i| view.is_none_or(|v| i.views.contains_key(&v)))
     }
 
-    pub fn send_view_event(&self, path: ViewPath, event: ViewEvent) -> Result<()> {
-        let (instance, view) = path.into();
+    pub fn send_view_event(&self, path: impl Into<ViewPath>, event: ViewEvent) -> Result<()> {
+        let (instance, view) = path.into().into();
         self.send_event(instance, InstanceEvent::View(view, event))
     }
 

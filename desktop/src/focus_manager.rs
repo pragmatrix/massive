@@ -29,13 +29,16 @@ impl From<ViewPath> for FocusPath {
     }
 }
 
+impl From<InstanceId> for FocusPath {
+    fn from(value: InstanceId) -> Self {
+        (value, None).into()
+    }
+}
+
 #[derive(Debug)]
 pub enum FocusTransition {
-    // Architecture: InstanceId is redundant here, but it makes for simpler processing later.
-    UnfocusView(ViewPath),
-    FocusView(ViewPath),
-    UnfocusInstance(InstanceId),
-    FocusInstance(InstanceId),
+    Enter(FocusPath),
+    Exit(FocusPath),
 }
 
 impl FocusManager {
@@ -72,7 +75,7 @@ impl FocusManager {
             instance: focus_path.instance,
             view: None,
         };
-        transitions.push(FocusTransition::FocusInstance(focus_path.instance));
+        transitions.push(FocusTransition::Enter(focus_path.instance.into()));
         transitions.extend(new_path.focus_view(focus_path.view));
         self.current = Some(new_path);
         transitions
@@ -88,8 +91,8 @@ impl FocusManager {
         };
 
         if let Some(view) = instance.view.take() {
-            return vec![FocusTransition::UnfocusView(
-                (instance.instance, view).into(),
+            return vec![FocusTransition::Exit(
+                (instance.instance, Some(view)).into(),
             )];
         }
 
@@ -105,11 +108,11 @@ impl FocusManager {
         };
 
         if let Some(view) = instance.view {
-            transitions.push(FocusTransition::UnfocusView(
-                (instance.instance, view).into(),
+            transitions.push(FocusTransition::Exit(
+                (instance.instance, Some(view)).into(),
             ));
         }
-        transitions.push(FocusTransition::UnfocusInstance(instance.instance));
+        transitions.push(FocusTransition::Exit(instance.instance.into()));
         transitions
     }
 }
@@ -124,7 +127,9 @@ impl FocusPath {
         let mut transitions = self.unfocus_view();
         if let Some(new_view) = new_view {
             self.view = Some(new_view);
-            transitions.push(FocusTransition::FocusView((self.instance, new_view).into()));
+            transitions.push(FocusTransition::Enter(
+                (self.instance, Some(new_view)).into(),
+            ));
         }
         transitions
     }
@@ -133,7 +138,7 @@ impl FocusPath {
     fn unfocus_view(&mut self) -> Vec<FocusTransition> {
         self.view
             .take()
-            .map(|view| vec![FocusTransition::UnfocusView((self.instance, view).into())])
+            .map(|view| vec![FocusTransition::Exit((self.instance, Some(view)).into())])
             .unwrap_or_default()
     }
 }
