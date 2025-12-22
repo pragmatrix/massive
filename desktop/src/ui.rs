@@ -2,17 +2,17 @@ use std::cmp::Ordering;
 
 use anyhow::Result;
 use log::warn;
-use massive_animation::{Animated, Interpolation};
-use massive_shell::Scene;
 use winit::{
     event::{ElementState, WindowEvent},
     keyboard::Key,
 };
 
+use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
 use massive_geometry::{PixelCamera, Point, Vector3, VectorPx};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
+use massive_shell::Scene;
 
 use crate::{
     FocusManager, FocusPath, FocusTransition,
