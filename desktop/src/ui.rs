@@ -207,7 +207,8 @@ impl UI {
             | WindowEvent::HoveredFile(_) => {
                 if let Some(CursorFocus { view, .. }) = self.cursor_focus {
                     // Does this event cause a focusing of the view at the current cursor pos?
-                    if causes_focus(window_event) {
+                    if causes_focus(window_event) && self.focus_manager.focused_view() != Some(view)
+                    {
                         set_focus(
                             &mut self.focus_manager,
                             view.instance,
