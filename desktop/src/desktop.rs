@@ -6,15 +6,17 @@ use winit::event;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
-    RenderPacing, Scene, ViewCommand, ViewId,
+    RenderPacing, Scene, ViewCommand, ViewRole,
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
 use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
 
 use crate::{
-    Application, UI, UiCommand, application_registry::ApplicationRegistry,
-    desktop_presenter::DesktopPresenter, instance_manager::InstanceManager,
+    Application, UI, UiCommand,
+    application_registry::ApplicationRegistry,
+    desktop_presenter::DesktopPresenter,
+    instance_manager::{InstanceManager, ViewPath},
 };
 
 #[derive(Debug)]
@@ -41,7 +43,6 @@ impl Desktop {
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
         let mut presenter = DesktopPresenter::default();
-        let mut ui = UI::new();
         let environment = InstanceEnvironment::new(
             requests_tx,
             context.primary_monitor_scale_factor(),
@@ -65,8 +66,9 @@ impl Desktop {
         else {
             bail!("Did not or received an unexpected request from the application");
         };
+        let primary_view = creation_info.id;
 
-        let window = context.new_window(creation_info.size).await?;
+        let window = context.new_window(creation_info.size()).await?;
         let mut renderer = window
             .renderer()
             .with_shapes()
@@ -80,11 +82,17 @@ impl Desktop {
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
+        let mut ui = UI::new(
+            (primary_instance, primary_view),
+            &instance_manager,
+            &presenter,
+            &scene,
+        )?;
 
         loop {
             tokio::select! {
                 Some((instance_id, request)) = requests_rx.recv() => {
-                    Self::handle_instance_command(&mut instance_manager, &mut presenter, &scene, &window, instance_id, request)?;
+                    Self::handle_instance_command(&mut instance_manager, &mut presenter, &mut ui, &scene, &window, instance_id, request)?;
                 }
 
                 shell_event = context.wait_for_shell_event() => {
@@ -98,17 +106,17 @@ impl Desktop {
                             ) {
                                 let cmd = ui.handle_input_event(
                                     &input_event,
-                                    primary_instance,
                                     &instance_manager,
                                     renderer.geometry(),
                                 )?;
 
-                                self.handle_ui_command(cmd, &mut instance_manager, &mut presenter, &scene)?;
+                                self.handle_ui_command(cmd, &mut instance_manager, &mut presenter, &mut ui, &scene)?;
                             }
 
                             renderer.resize_redraw(&window_event)?;
                         }
                         ShellEvent::ApplyAnimations(_) => {
+                            // Performance: Not every instance needs that, only the ones animating.
                             instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
                             presenter.apply_animations();
                         }
@@ -131,6 +139,9 @@ impl Desktop {
                 }
             }
 
+            // Update the camera.
+            renderer.update_camera(ui.camera())?;
+
             // Render all accumulated changes with the appropriate pacing
             let options = if instance_manager.effective_pacing() == RenderPacing::Smooth {
                 Some(Options::ForceSmoothRendering)
@@ -146,22 +157,28 @@ impl Desktop {
         cmd: UiCommand,
         instance_manager: &mut InstanceManager,
         presenter: &mut DesktopPresenter,
+        ui: &mut UI,
         scene: &Scene,
     ) -> Result<()> {
         match cmd {
             UiCommand::None => {}
             UiCommand::StartInstance {
                 application,
-                originating_from,
+                originating_instance,
             } => {
                 let application = self
                     .applications
                     .get_named(&application)
                     .ok_or(anyhow!("Internal error, application not registered"))?;
 
-                let id = instance_manager.spawn(application, CreationMode::New)?;
-                presenter.present_instance(id, originating_from, scene)?;
+                let instance = instance_manager.spawn(application, CreationMode::New)?;
+                presenter.present_instance(instance, originating_instance, scene)?;
+                // Window focus is faked here.
+                ui.make_foreground(instance, instance_manager, presenter)?;
                 presenter.layout(true);
+            }
+            UiCommand::MakeForeground { instance } => {
+                ui.make_foreground(instance, instance_manager, presenter)?;
             }
             UiCommand::StopInstance { instance } => instance_manager.stop(instance)?,
         }
@@ -172,27 +189,32 @@ impl Desktop {
     fn handle_instance_command(
         instance_manager: &mut InstanceManager,
         presenter: &mut DesktopPresenter,
+        ui: &mut UI,
         scene: &Scene,
         window: &ShellWindow,
-        instance_id: InstanceId,
+        instance: InstanceId,
         command: InstanceCommand,
     ) -> Result<()> {
         match command {
             InstanceCommand::CreateView(info) => {
-                instance_manager.add_view(instance_id, &info);
-                presenter.present_view(instance_id, &info)?;
+                instance_manager.add_view(instance, &info);
+                presenter.present_view(instance, &info)?;
+                // If this instance is currently focused and this is a primary view, make it
+                // foreground so that the view is focused.
+                if ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
+                    ui.make_foreground(instance, instance_manager, presenter)?;
+                }
             }
             InstanceCommand::DestroyView(id) => {
                 presenter.hide_view(id)?;
-                instance_manager.remove_view(instance_id, id);
+                instance_manager.remove_view((instance, id).into());
             }
             InstanceCommand::View(view_id, command) => {
                 Self::handle_view_command(
                     instance_manager,
                     scene,
                     window,
-                    instance_id,
-                    view_id,
+                    (instance, view_id).into(),
                     command,
                 )?;
             }
@@ -204,13 +226,12 @@ impl Desktop {
         instance_manager: &mut InstanceManager,
         scene: &Scene,
         window: &ShellWindow,
-        instance_id: InstanceId,
-        view_id: ViewId,
+        view: ViewPath,
         command: ViewCommand,
     ) -> Result<()> {
         match command {
             ViewCommand::Render { changes, pacing } => {
-                instance_manager.update_view_pacing(instance_id, view_id, pacing)?;
+                instance_manager.update_view_pacing(view, pacing)?;
                 scene.push_changes(changes);
             }
             ViewCommand::Resize(_) => {

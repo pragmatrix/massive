@@ -7,12 +7,11 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use winit::event::DeviceId;
 
 use massive_animation::AnimationCoordinator;
-use massive_geometry::SizePx;
 use massive_renderer::FontManager;
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::{
-    InstanceEnvironment, InstanceId, Scene, ViewEvent, ViewId,
+    InstanceEnvironment, InstanceId, Scene, ViewEvent, ViewExtent, ViewId,
     view::{ViewCommand, ViewCreationInfo},
     view_builder::ViewBuilder,
 };
@@ -84,8 +83,12 @@ impl InstanceContext {
         Ok(event)
     }
 
-    pub fn view(&self, size: impl Into<SizePx>) -> ViewBuilder {
-        ViewBuilder::new(self.environment.command_sender.clone(), self.id, size)
+    pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
+        ViewBuilder::new(
+            self.environment.command_sender.clone(),
+            self.id,
+            extent.into().into(),
+        )
     }
 }
 

@@ -4,7 +4,8 @@ use anyhow::{Result, bail};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Signed, SizePx, Vector3};
+use massive_geometry::{SizePx, Vector3};
+use massive_scene::Transform;
 use massive_shell::Scene;
 
 #[derive(Debug, Default)]
@@ -17,6 +18,7 @@ pub struct DesktopPresenter {
 }
 
 impl DesktopPresenter {
+    pub const INSTANCE_TRANSITION_DURATION: Duration = Duration::from_millis(500);
     /// Present the primary instance and its primary role view.
     ///
     /// For now this can not be done by separately presenting an instance and a view because we
@@ -39,8 +41,8 @@ impl DesktopPresenter {
 
         let presenter = InstancePresenter {
             state: InstancePresenterState::Appearing,
-            panel_size: view_creation_info.size,
-            translation_animation: scene.animated(Default::default()),
+            panel_size: view_creation_info.size(),
+            center_animation: scene.animated(Default::default()),
             view: Some(view_presenter),
         };
 
@@ -64,8 +66,7 @@ impl DesktopPresenter {
         let presenter = InstancePresenter {
             state: InstancePresenterState::Appearing,
             panel_size: originating_presenter.panel_size,
-            translation_animation: scene
-                .animated(originating_presenter.translation_animation.value()),
+            center_animation: scene.animated(originating_presenter.center_animation.value()),
             view: None,
         };
 
@@ -112,20 +113,20 @@ impl DesktopPresenter {
             todo!("Only primary views are supported yet");
         }
 
-        let Some(presenter) = self.instances.get_mut(&instance) else {
+        let Some(instance_presenter) = self.instances.get_mut(&instance) else {
             bail!("Instance not found");
         };
 
-        if presenter.state != InstancePresenterState::Appearing {
+        if instance_presenter.state != InstancePresenterState::Appearing {
             bail!("Primary view is already presenting");
         }
 
         // Feature: Add a alpha animation just for the view.
-        presenter.panel_size = view_creation_info.size;
-        presenter.view = Some(PrimaryViewPresenter {
+        instance_presenter.panel_size = view_creation_info.size();
+        instance_presenter.view = Some(PrimaryViewPresenter {
             view: view_creation_info.clone(),
         });
-        presenter.state = InstancePresenterState::Presenting;
+        instance_presenter.state = InstancePresenterState::Presenting;
 
         Ok(())
     }
@@ -143,20 +144,15 @@ impl DesktopPresenter {
             max_panel_size = max_panel_size.max(instance.panel_size);
         }
 
-        let field_size: SizePx = (
-            max_panel_size.width * self.ordered.len() as u32,
-            max_panel_size.height,
-        )
-            .into();
-        let field_center = field_size / 2;
-        let lt = -field_center.signed();
-
         for (i, instance) in self.ordered.iter().enumerate() {
-            let translation = (
-                (lt.x + max_panel_size.width as i32 * i as i32) as f64,
-                lt.y as f64,
-                0.0,
-            );
+            // Detail: This translation represents the center of the instance's panel. The first
+            // instance in the band is at 0,0 and does not consider the View's local coordinate.
+            // This translation is relative (irrelevant of its absolute location) because we just
+            // point the camera at it.
+            //
+            // The final translation, the one that considers the view, is done when animations are
+            // actually applied and a primary view exists.
+            let translation = ((max_panel_size.width as i32 * i as i32) as f64, 0.0, 0.0);
 
             let instance = self
                 .instances
@@ -164,25 +160,37 @@ impl DesktopPresenter {
                 .expect("Internal error: Instance does not exist");
 
             if animate {
-                instance.translation_animation.animate_to_if_changed(
+                instance.center_animation.animate_if_changed(
                     translation.into(),
-                    Duration::from_secs(1),
+                    Self::INSTANCE_TRANSITION_DURATION,
                     Interpolation::CubicOut,
                 );
             } else {
-                instance.translation_animation.animate_to(
-                    translation.into(),
-                    Duration::ZERO,
-                    Interpolation::Linear,
-                );
+                // Robustness: I don't think this is the best way here to set the view transform.
+                // This also does not initiate the animation system, which might be expected (this
+                // is why we need to invoke apply_animations() below).
+                instance
+                    .center_animation
+                    .set_immediately(translation.into());
             }
+        }
+
+        if !animate {
+            self.apply_animations();
         }
     }
 
     pub fn apply_animations(&self) {
         for presenter in self.instances.values() {
             if let Some(view) = &presenter.view {
-                let translation = presenter.translation_animation.value();
+                // Get the translation for the instance.
+                let mut translation = presenter.center_animation.value();
+
+                // And correct the view's position.
+                // Since the centering uses i32, we snap to pixel here (what we want!).
+                let center = view.view.extents.center().to_f64();
+                translation -= Vector3::new(center.x, center.y, 0.0);
+
                 view.view
                     .location
                     .value()
@@ -191,6 +199,15 @@ impl DesktopPresenter {
             }
         }
     }
+
+    /// Return the primary's view's (final) transform.
+    ///
+    /// It's view might not yet visible.
+    pub fn instance_transform(&self, instance: InstanceId) -> Option<Transform> {
+        self.instances
+            .get(&instance)
+            .map(|instance| instance.center_animation.final_value().into())
+    }
 }
 
 #[derive(Debug)]
@@ -198,8 +215,10 @@ struct InstancePresenter {
     state: InstancePresenterState,
     // The size of the panel. Including borders.
     panel_size: SizePx,
-    translation_animation: Animated<Vector3>,
-    // The view inside the panel.
+    /// The center of the instance's panel. This is also the point the camera should look at if its
+    /// at rest.
+    center_animation: Animated<Vector3>,
+    // The primary view inside the panel.
     view: Option<PrimaryViewPresenter>,
 }
 

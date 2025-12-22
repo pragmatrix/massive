@@ -14,7 +14,7 @@ use massive_util::message_filter;
 use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
-use massive_geometry::{Camera, Color, Matrix4};
+use massive_geometry::{Color, Matrix4, PixelCamera, SizePx};
 use massive_renderer::RenderGeometry;
 use massive_scene::{ChangeCollector, SceneChanges};
 
@@ -35,7 +35,7 @@ pub struct AsyncWindowRenderer {
 
 #[derive(Debug)]
 enum RendererMessage {
-    Resize((u32, u32)),
+    Resize(SizePx),
     Redraw { view_projection: Matrix4 },
     SetPresentMode(wgpu::PresentMode),
     SetBackgroundColor(Option<Color>),
@@ -47,7 +47,7 @@ impl AsyncWindowRenderer {
     pub fn new(
         window_renderer: WindowRenderer,
         geometry: RenderGeometry,
-        shell_events: Option<WeakUnboundedSender<ShellEvent>>,
+        shell_events: WeakUnboundedSender<ShellEvent>,
     ) -> Self {
         let id = window_renderer.window_id();
         let change_collector = window_renderer.change_collector().clone();
@@ -81,7 +81,7 @@ impl AsyncWindowRenderer {
     fn render_loop(
         msg_receiver: mpsc::Receiver<RendererMessage>,
         mut window_renderer: WindowRenderer,
-        shell_events: Option<WeakUnboundedSender<ShellEvent>>,
+        shell_events: WeakUnboundedSender<ShellEvent>,
         mut view_projection: Matrix4,
     ) -> Result<()> {
         let mut messages = Vec::new();
@@ -127,6 +127,18 @@ impl AsyncWindowRenderer {
                     // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
                     // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
                     window_renderer.set_present_mode(present_mode);
+                    // Missing: When switching from smooth to fast here, it could be that there are
+                    // some changes in the pipeline, which are not rendered then.
+                    //
+                    // We log them first to see if that happens.
+                    //
+                    // Detail: It does, but there was - so far - always a Redraw coming afterwards.
+                    // Not sure if we can rely on that.
+                    if present_mode == wgpu::PresentMode::AutoNoVsync
+                        && window_renderer.any_pending_changes()
+                    {
+                        warn!("Changes are pending")
+                    }
                 }
                 RendererMessage::Redraw {
                     view_projection: new_view_projection,
@@ -181,9 +193,10 @@ impl AsyncWindowRenderer {
         }
     }
 
+    // Detail: This always produces a new frame. Even if there are no changes.
     fn render_frame(
         renderer: &mut WindowRenderer,
-        apply_animations_to: &Option<WeakUnboundedSender<ShellEvent>>,
+        apply_animations_to: &WeakUnboundedSender<ShellEvent>,
         view_projection: &Matrix4,
     ) -> Result<()> {
         // Detail: In VSync presentation mode, this blocks until the next VSync beginning
@@ -192,9 +205,7 @@ impl AsyncWindowRenderer {
         let texture = renderer.get_next_texture()?;
 
         // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
-        if let Some(apply_animations_to) = apply_animations_to
-            && renderer.present_mode() == wgpu::PresentMode::AutoVsync
-        {
+        if renderer.present_mode() == wgpu::PresentMode::AutoVsync {
             let sender = apply_animations_to
                 .upgrade()
                 .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
@@ -228,8 +239,15 @@ impl AsyncWindowRenderer {
         self.geometry.view_projection()
     }
 
-    pub fn update_camera(&mut self, camera: Camera) -> Result<()> {
+    pub fn update_camera(&mut self, camera: PixelCamera) -> Result<()> {
         self.geometry.set_camera(camera);
+        // Always need an explicit redraw here, even in smooth mode (the view projection is
+        // transferred with `RenderMessage::Redraw`).
+        //
+        // Architecture: I don't the camera position should be pushed this way to the render loop.
+        // May be as a side-channel like the changes. But: camera changes should be synchronized to
+        // the changes, otherwise we could have a frame with the updated camera, and then one with
+        // the changes (in fast mode).
         self.redraw()
     }
 
@@ -273,7 +291,7 @@ impl AsyncWindowRenderer {
                 self.resize(wh)?;
                 // We immediately issue a redraw after a resize. Usually, when a WindowEvent is used
                 // to generate Resize / Redraw requests, another redraw will follow, but this takes
-                // too long for smooth resizing.
+                // too long for resizing.
                 //
                 // Robustness: Do this only in fast pacing mode?
                 self.redraw()
@@ -290,7 +308,7 @@ impl AsyncWindowRenderer {
         }
     }
 
-    pub fn resize(&mut self, surface_size: (u32, u32)) -> Result<()> {
+    pub fn resize(&mut self, surface_size: SizePx) -> Result<()> {
         self.geometry.set_surface_size(surface_size);
         self.post_msg(RendererMessage::Resize(surface_size))
     }
@@ -334,28 +352,6 @@ impl Drop for AsyncWindowRenderer {
     }
 }
 
-/// Preliminary, not used yet.
-#[derive(Debug)]
-pub enum RenderMode {
-    /// Nothing special, just render the changes if any.
-    Default,
-    /// Independent o the changes, just force a redraw.
-    ForceRedraw,
-    /// All animations for the current tick of the associated AnimationCoordinator were applied.
-    /// This also forces a redraw to get a new presentation timestamp and in response a new
-    /// ApplyAnimations.
-    ///
-    /// Architecture: It's perhaps wrong to make this dependent on a prior ApplyAnimations event. In
-    /// Smooth mode we should perhaps render every frame completely autonomously in the render
-    /// thread. A kind of pull mode.
-    ///
-    /// But then: When do we know that there are no new
-    AnimationsApplied,
-    /// Resize, no redraw is forced if there are no actual changes, because the windowing system is
-    /// expected to issue a redraw event afterwards that ends up here with a ForceRedraw.
-    Resize(u32, u32),
-}
-
 impl RenderTarget for AsyncWindowRenderer {
     fn render(&mut self, changes: SceneChanges, pacing: RenderPacing) -> Result<()> {
         // Update render pacing before a redraw:
@@ -363,6 +359,7 @@ impl RenderTarget for AsyncWindowRenderer {
             info!("Changing render pacing to: {pacing:?}");
             self.update_render_pacing(pacing)?;
         }
+        debug_assert_eq!(self.pacing(), pacing);
 
         // Push the changes _directly_ to the renderer which picks it up in the next redraw. This
         // may asynchronously overtake the subsequent redraw / resize requests if a previous one is
@@ -375,9 +372,9 @@ impl RenderTarget for AsyncWindowRenderer {
         // Robustness: This should probably threaded through the redraw pipeline?
         if !changes.is_empty() {
             self.change_collector().push_many(changes);
-            // Only in fast render pacing we issue a redraw request. Otherwise the renderer
-            // takes care of it.
-            if self.pacing() == RenderPacing::Fast {
+            // Only in fast render pacing we issue a redraw request. Otherwise the renderer pulls
+            // the changes every frame.
+            if pacing == RenderPacing::Fast {
                 self.redraw()?;
             }
         }
@@ -395,7 +392,7 @@ pub struct ResizeRedrawRequest {
 /// Request to the renderer to resize and / or redraw.
 #[derive(Debug, Default)]
 pub enum ResizeRedrawMode {
-    Resize((u32, u32)),
+    Resize(SizePx),
     Redraw,
     #[default]
     None,
@@ -406,7 +403,7 @@ impl From<&event::WindowEvent> for ResizeRedrawRequest {
         use event::WindowEvent;
         let mode = match window_event {
             WindowEvent::Resized(physical_size) => {
-                ResizeRedrawMode::Resize((physical_size.width, physical_size.height))
+                ResizeRedrawMode::Resize((physical_size.width, physical_size.height).into())
             }
             WindowEvent::RedrawRequested => ResizeRedrawMode::Redraw,
             _ => ResizeRedrawMode::None,

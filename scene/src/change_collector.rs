@@ -24,6 +24,10 @@ impl ChangeCollector {
         // Performance: Preserve capacity here?
         mem::take(&mut self.changes.lock())
     }
+
+    pub fn any_changes(&self) -> bool {
+        !self.changes.lock().is_empty()
+    }
 }
 
 #[derive(Debug, Default, Deref)]

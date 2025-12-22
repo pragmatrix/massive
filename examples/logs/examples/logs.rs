@@ -186,7 +186,7 @@ impl Logs {
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
                     line.fader
-                        .animate_to(0., FADE_DURATION, Interpolation::CubicIn);
+                        .animate(0., FADE_DURATION, Interpolation::CubicIn);
                     line.fading_out = true;
                 }
             }
@@ -206,7 +206,7 @@ impl Logs {
             .find(|l| !l.is_fading())
             .unwrap_or(self.lines.front().unwrap());
 
-        self.vertical_center.animate_to(
+        self.vertical_center.animate(
             -top_line.top,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
@@ -216,7 +216,7 @@ impl Logs {
         // Final value should always a multiple of two so that we snap on the pixels when centering.
         // While a size animation runs, it's fine that we don't.
         assert!(new_height.is_multiple_of(2));
-        self.content_height.animate_to(
+        self.content_height.animate(
             new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
@@ -262,9 +262,8 @@ impl Logs {
 
     fn apply_animations(&mut self) {
         let v_center = self.vertical_center.value();
-        dbg!(v_center);
         self.vertical_center_transform
-            .update(Transform::from_translation((0., v_center, 0.).into()));
+            .update((0., v_center, 0.).into());
 
         // Remove all lines that finished fading out from top to bottom.
 

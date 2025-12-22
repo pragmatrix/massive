@@ -32,7 +32,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     /// Animate to a target value if its different from the current target value.
     ///
     /// Ergonomics: This should probably be the default behavior.
-    pub fn animate_to_if_changed(
+    pub fn animate_if_changed(
         &mut self,
         target_value: T,
         duration: Duration,
@@ -57,7 +57,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Animation starts on the next time the value is queried. This function does not change the
     /// current value, if it is currently not animating.
-    pub fn animate_to(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
+    pub fn animate(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
     where
         T: 'static,
     {
@@ -70,15 +70,22 @@ impl<T: Interpolatable + Send> Animated<T> {
             .animate_to(value, instant, target_value, duration, interpolation);
     }
 
-    /// Finalize all animations.
+    /// Stop all animations, and set the current value.
+    pub fn set_immediately(&mut self, value: T) {
+        let mut inner = self.inner.lock();
+        inner.animation.end();
+        inner.value = value;
+    }
+
+    /// Finish all animations.
     ///
     /// This sets the current animated value to the final animation target value and stops all
     /// animations.
     ///
     /// Does nothing when no animation is active.
-    pub fn finalize(&mut self) {
+    pub fn finish(&mut self) {
         let mut inner = self.inner.lock();
-        if let Some(final_value) = inner.animation.commit() {
+        if let Some(final_value) = inner.animation.end() {
             inner.value = final_value
         }
     }

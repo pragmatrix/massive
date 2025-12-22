@@ -1,7 +1,7 @@
 use std::{collections::HashMap, panic::AssertUnwindSafe};
 
 use anyhow::{Context, anyhow};
-use derive_more::{Debug, Deref};
+use derive_more::{Debug, Deref, From, Into};
 use futures::FutureExt;
 use tokio::{
     sync::mpsc::{UnboundedSender, unbounded_channel},
@@ -32,6 +32,12 @@ struct RunningInstance {
     creation_mode: CreationMode,
     events_tx: UnboundedSender<InstanceEvent>,
     views: HashMap<ViewId, ViewInfo>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into)]
+pub struct ViewPath {
+    pub instance: InstanceId,
+    pub view: ViewId,
 }
 
 #[derive(Debug, Deref)]
@@ -126,13 +132,16 @@ impl InstanceManager {
         self.instances.is_empty()
     }
 
-    pub fn send_view_event(
-        &self,
-        instance_id: InstanceId,
-        view_id: ViewId,
-        event: ViewEvent,
-    ) -> Result<()> {
-        self.send_event(instance_id, InstanceEvent::View(view_id, event))
+    /// Is the instance, or the combination of instance / view valid right now?
+    pub fn exists(&self, instance: InstanceId, view: Option<ViewId>) -> bool {
+        self.instances
+            .get(&instance)
+            .is_some_and(|i| view.is_none_or(|v| i.views.contains_key(&v)))
+    }
+
+    pub fn send_view_event(&self, path: ViewPath, event: ViewEvent) -> Result<()> {
+        let (instance, view) = path.into();
+        self.send_event(instance, InstanceEvent::View(view, event))
     }
 
     pub fn send_event(&self, instance_id: InstanceId, event: InstanceEvent) -> Result<()> {
@@ -161,42 +170,38 @@ impl InstanceManager {
         }
     }
 
-    pub fn remove_view(&mut self, instance_id: InstanceId, id: ViewId) {
+    pub fn remove_view(&mut self, path: ViewPath) {
+        let (instance_id, id) = path.into();
         if let Some(instance) = self.instances.get_mut(&instance_id) {
             instance.views.remove(&id);
         }
     }
 
-    pub fn update_view_pacing(
-        &mut self,
-        instance_id: InstanceId,
-        view_id: ViewId,
-        pacing: RenderPacing,
-    ) -> Result<()> {
-        let instance = self.mut_instance(instance_id)?;
+    pub fn update_view_pacing(&mut self, path: ViewPath, pacing: RenderPacing) -> Result<()> {
+        let instance = self.mut_instance(path.instance)?;
         let view = instance
             .views
-            .get_mut(&view_id)
-            .ok_or_else(|| anyhow!("View {:?} not found", view_id))?;
+            .get_mut(&path.view)
+            .ok_or_else(|| anyhow!("View {:?} not found", path.view))?;
         view.pacing = pacing;
         Ok(())
     }
 
-    pub fn views(&self) -> impl Iterator<Item = (InstanceId, ViewId, &ViewInfo)> {
+    pub fn views(&self) -> impl Iterator<Item = (ViewPath, &ViewInfo)> {
         self.instances.iter().flat_map(|(instance_id, instance)| {
             instance
                 .views
                 .iter()
-                .map(|(view_id, info)| (*instance_id, *view_id, info))
+                .map(|(view_id, info)| ((*instance_id, *view_id).into(), info))
         })
     }
 
     /// Returns the ViewInfo of a view if it's instance and the view exists.
-    pub fn get_view(&self, instance_id: InstanceId, view_id: ViewId) -> Result<&ViewInfo> {
-        self.get_instance(instance_id).and_then(|instance| {
+    pub fn get_view(&self, view: ViewPath) -> Result<&ViewInfo> {
+        self.get_instance(view.instance).and_then(|instance| {
             instance
                 .views
-                .get(&view_id)
+                .get(&view.view)
                 .ok_or_else(|| anyhow!("View not found"))
         })
     }
@@ -234,6 +239,7 @@ impl InstanceManager {
     }
 
     /// Returns the effective pacing across all views.
+    ///
     /// If at least one view has Smooth pacing, returns Smooth; otherwise returns Fast.
     pub fn effective_pacing(&self) -> RenderPacing {
         if self

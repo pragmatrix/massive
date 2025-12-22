@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use massive_geometry::{Camera, Transform, Vector3};
+use massive_geometry::{PixelCamera, Transform, Vector3};
 
 /// For now we have to support `Clone`.
 ///
@@ -50,10 +50,10 @@ impl Interpolatable for Transform {
     }
 }
 
-impl Interpolatable for Camera {
+impl Interpolatable for PixelCamera {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
-        let interpolated_transform = Transform::interpolate(&from.transform, &to.transform, t);
+        let interpolated_transform = Transform::interpolate(&from.look_at, &to.look_at, t);
         let fovy = f64::interpolate(&from.fovy, &to.fovy, t);
-        Camera::new(interpolated_transform, fovy)
+        PixelCamera::look_at(interpolated_transform, fovy)
     }
 }

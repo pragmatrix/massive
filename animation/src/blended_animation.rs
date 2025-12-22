@@ -105,7 +105,7 @@ impl<T> BlendedAnimation<T> {
     }
 
     /// Remove all animations and return the final value.
-    pub fn commit(&mut self) -> Option<T> {
+    pub fn end(&mut self) -> Option<T> {
         if let Some(last) = self.animations.pop() {
             self.animations.clear();
             return Some(last.to);

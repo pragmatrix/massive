@@ -12,8 +12,9 @@ impl View {
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         data: &[u8],
-        (width, height): (u32, u32),
+        size: SizePx,
     ) -> Self {
+        let (width, height) = size.into();
         let size = wgpu::Extent3d {
             width,
             height,

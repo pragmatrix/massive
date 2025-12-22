@@ -1,6 +1,6 @@
 use cosmic_text as text;
 use glam::IVec2;
-use massive_geometry::{Color, Vector3};
+use massive_geometry::{Color, SizePx, Vector3};
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::Bounds;
@@ -83,8 +83,8 @@ impl GlyphRunMetrics {
     ///
     /// Robustness: A run might start start at a negative pixel position, so size is probably not
     ///   enough. Perhaps a rectangle is needed here.
-    pub fn size(&self) -> (u32, u32) {
-        (self.width, self.max_ascent + self.max_descent)
+    pub fn size(&self) -> SizePx {
+        (self.width, self.max_ascent + self.max_descent).into()
     }
 }
 

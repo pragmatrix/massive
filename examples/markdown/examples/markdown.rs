@@ -39,9 +39,9 @@ async fn main() -> Result<()> {
     #[allow(unused)]
     let time_code = now.format("%Y%m%d%H%M").to_string();
 
-    let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
-        .file(format!("./massive-trace-{time_code}.json"))
-        .build();
+    // let (chrome_layer, _chrome_guard) = tracing_chrome::ChromeLayerBuilder::new()
+    //     .file(format!("./massive-trace-{time_code}.json"))
+    //     .build();
 
     Registry::default()
         // Filter seems to be applied globally, which is what we want.
@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
         // Console formatter currently captures only log::xxx! macros for some reason.
         .with(console_formatter)
         // .with(flame_layer)
-        .with(chrome_layer)
+        // .with(chrome_layer)
         .init();
 
     shell::run(application)

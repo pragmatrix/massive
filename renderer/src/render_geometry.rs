@@ -6,88 +6,65 @@
 use std::cell::RefCell;
 
 use massive_geometry::{
-    Camera, DepthRange, Matrix4, PerspectiveDivide, Plane, Point, Ray, Vector3, Vector4,
+    DepthRange, Matrix4, PerspectiveDivide, PixelCamera, Plane, Point, Ray, SizePx, Vector3,
+    Vector4,
 };
 
 use crate::{Version, tools::Versioned};
 
 #[derive(Debug)]
 pub struct RenderGeometry {
-    surface_size: (u32, u32),
-    camera: Camera,
+    surface_size: SizePx,
+    camera: PixelCamera,
     /// Dependencies tree head version.
-    head_version: Version,
-    /// Aggregated derived values cache.
+    version: Version,
+    /// Derived values.
     derived: RefCell<DerivedCache>,
 }
 
-const CAMERA_Z_RANGE: (f64, f64) = (0.1, 100.0);
+const CAMERA_CLIP_RANGE: (f64, f64) = (0.1, 100.0);
 
 impl RenderGeometry {
-    pub fn new(surface_size: (u32, u32), camera: Camera) -> Self {
+    pub fn new(surface_size: SizePx, camera: PixelCamera) -> Self {
         Self {
             surface_size,
             camera,
-            head_version: 1,
+            version: 1,
             derived: RefCell::new(DerivedCache::default()),
         }
     }
 
-    pub fn surface_size(&self) -> (u32, u32) {
+    pub fn surface_size(&self) -> SizePx {
         self.surface_size
     }
 
-    pub fn depth_range(&self) -> DepthRange {
+    pub fn ndc_depth_range(&self) -> DepthRange {
         (0.0, 1.0).into()
     }
 
-    /// Helper to transform screen coordinates to NDC coordinates.
-    pub fn screen_to_ndc_matrix(&self) -> Matrix4 {
-        let size = self.surface_size();
-        let (w, h) = (size.0 as f64, size.1 as f64);
-        Matrix4::from_cols_array(&[
-            2.0 / w,
-            0.0,
-            0.0,
-            -1.0,
-            0.0,
-            -2.0 / h,
-            0.0,
-            1.0,
-            0.0,
-            0.0,
-            2.0,
-            -1.0,
-            0.0,
-            0.0,
-            0.0,
-            1.0,
-        ])
-    }
-
-    pub fn camera(&self) -> &Camera {
+    pub fn camera(&self) -> &PixelCamera {
         &self.camera
     }
 
-    pub fn set_surface_size(&mut self, surface_size: (u32, u32)) {
+    pub fn set_surface_size(&mut self, surface_size: SizePx) {
         if self.surface_size != surface_size {
             self.surface_size = surface_size;
-            self.head_version += 1;
+            self.version += 1;
         }
     }
 
-    pub fn set_camera(&mut self, camera: Camera) {
+    pub fn set_camera(&mut self, camera: PixelCamera) {
         if self.camera != camera {
             self.camera = camera;
-            self.head_version += 1;
+            self.version += 1;
         }
     }
 
     /// Compute the final view projection. From pixel (3D) coordinate system to the final surface pixels.
     pub fn view_projection(&self) -> Matrix4 {
-        let version = self.head_version;
+        let version = self.version;
         let mut derived = self.derived.borrow_mut();
-        let vp = derived.view_projection(version, &self.camera, self.surface_size);
+        let vp = derived.model_to_surface(version, &self.camera, self.surface_size);
         *vp
     }
 
@@ -95,10 +72,10 @@ impl RenderGeometry {
     /// 1.0 in each axis. Also flips y.
     ///
     /// Precision: When the surface height changes, the whole perspective gets skewed
-    fn pixel_matrix(surface_size: (u32, u32)) -> Matrix4 {
-        let (_, surface_height) = surface_size;
-        Matrix4::from_scale(Vector3::new(1.0, -1.0, 1.0))
-            * Matrix4::from_scale(Vector3::splat(1.0 / surface_height as f64 * 2.0))
+    fn model_to_ndc(surface_size: SizePx) -> Matrix4 {
+        let (_, surface_height) = surface_size.into();
+        let scale = 2.0 / surface_height as f64;
+        Matrix4::from_scale(Vector3::new(scale, -scale, scale))
     }
 
     /// Un-projects a screen-space pixel position into model space at z==0 (the matrix describing a
@@ -107,7 +84,7 @@ impl RenderGeometry {
     /// Returns the hit point in model-local coordinates or None if the ray is parallel or
     /// numerically unstable.
     pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix4) -> Option<Vector3> {
-        let depth_range = self.depth_range();
+        let depth_range = self.ndc_depth_range();
         let mvp = self.view_projection() * *model;
         // Note: The determinant can be very small (e.g., 1e-10) due to the coordinate system
         // scaling, but the matrix is still invertible. We rely on downstream checks
@@ -135,36 +112,39 @@ impl RenderGeometry {
         let surface_size = self.surface_size();
 
         // Screen -> NDC (flip Y)
-        let ndc_x = (pos_px.x / surface_size.0 as f64) * 2.0 - 1.0;
-        let ndc_y = 1.0 - (pos_px.y / surface_size.1 as f64) * 2.0;
+        let ndc_x = (pos_px.x / surface_size.width as f64) * 2.0 - 1.0;
+        let ndc_y = 1.0 - (pos_px.y / surface_size.height as f64) * 2.0;
         (ndc_x, ndc_y).into()
     }
 }
 
 #[derive(Debug, Default)]
 struct DerivedCache {
-    pixel_matrix: Versioned<Matrix4>,
+    model_to_camera_to_ndc: Versioned<Matrix4>,
     camera_projection: Versioned<Matrix4>,
     view_projection: Versioned<Matrix4>,
 }
 
 impl DerivedCache {
-    fn view_projection(
+    fn model_to_surface(
         &mut self,
         version: Version,
-        camera: &Camera,
-        surface_size: (u32, u32),
+        camera: &PixelCamera,
+        surface_size: SizePx,
     ) -> &Matrix4 {
         self.view_projection.resolve(version, || {
-            let pixel_matrix = self
-                .pixel_matrix
-                .resolve(version, || RenderGeometry::pixel_matrix(surface_size));
+            let model_to_camera_to_ndc_matrix =
+                self.model_to_camera_to_ndc.resolve(version, || {
+                    RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix()
+                });
 
             let camera_projection = self.camera_projection.resolve(version, || {
-                camera.view_projection_matrix(CAMERA_Z_RANGE, surface_size)
+                let view_matrix = camera.ndc_camera_move();
+                let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);
+                perspective_matrix * view_matrix
             });
 
-            *camera_projection * *pixel_matrix
+            *camera_projection * *model_to_camera_to_ndc_matrix
         })
     }
 }
