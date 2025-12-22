@@ -13,7 +13,7 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
-use massive_geometry::{Color, Matrix4, SizePx};
+use massive_geometry::{Color, SizePx};
 use massive_renderer::{RenderGeometry, RenderPacing, RenderSubmission, RenderTarget};
 
 use crate::{
