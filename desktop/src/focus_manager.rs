@@ -1,3 +1,4 @@
+use derive_more::From;
 use massive_applications::{InstanceId, ViewId};
 
 use crate::instance_manager::ViewPath;
@@ -10,13 +11,22 @@ use crate::instance_manager::ViewPath;
 /// Initially no instance is focused.
 #[derive(Debug, Default)]
 pub struct FocusManager {
-    instance: Option<FocusedInstance>,
+    current: Option<FocusPath>,
 }
 
-#[derive(Debug)]
-struct FocusedInstance {
-    id: InstanceId,
-    focused_view: Option<ViewId>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, From)]
+pub struct FocusPath {
+    pub instance: InstanceId,
+    pub view: Option<ViewId>,
+}
+
+impl From<ViewPath> for FocusPath {
+    fn from(value: ViewPath) -> Self {
+        Self {
+            instance: value.instance,
+            view: Some(value.view),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -33,38 +43,38 @@ impl FocusManager {
         Self::default()
     }
 
-    pub fn focused(&self) -> Option<(InstanceId, Option<ViewId>)> {
-        self.instance.as_ref().map(|i| (i.id, i.focused_view))
-    }
-
     pub fn focused_instance(&self) -> Option<InstanceId> {
-        self.instance.as_ref().map(|instance| instance.id)
+        self.focused().map(|p| p.instance)
     }
 
     pub fn focused_view(&self) -> Option<ViewPath> {
-        self.instance
-            .as_ref()
-            .and_then(|instance| instance.focused_view.map(|view| (instance.id, view).into()))
+        self.focused()
+            .and_then(|path| path.view.map(|view| (path.instance, view).into()))
+    }
+
+    pub fn focused(&self) -> Option<FocusPath> {
+        self.current
     }
 
     #[must_use]
     /// Focus the instance, and optionally a view.
-    pub fn focus(&mut self, instance_id: InstanceId, view: Option<ViewId>) -> Vec<FocusTransition> {
-        if let Some(instance) = &mut self.instance
-            && instance.id == instance_id
+    pub fn focus(&mut self, focus_path: impl Into<FocusPath>) -> Vec<FocusTransition> {
+        let focus_path = focus_path.into();
+        if let Some(instance) = &mut self.current
+            && instance.instance == focus_path.instance
         {
-            return instance.focus_view(view);
+            return instance.focus_view(focus_path.view);
         }
 
         let mut transitions = self.unfocus();
 
-        let mut instance = FocusedInstance {
-            id: instance_id,
-            focused_view: None,
+        let mut new_path = FocusPath {
+            instance: focus_path.instance,
+            view: None,
         };
-        transitions.push(FocusTransition::FocusInstance(instance_id));
-        transitions.extend(instance.focus_view(view));
-        self.instance = Some(instance);
+        transitions.push(FocusTransition::FocusInstance(focus_path.instance));
+        transitions.extend(new_path.focus_view(focus_path.view));
+        self.current = Some(new_path);
         transitions
     }
 
@@ -73,12 +83,14 @@ impl FocusManager {
     /// This is useful when the whole desktop application gets unfocused.
     #[must_use]
     pub fn unfocus_view(&mut self) -> Vec<FocusTransition> {
-        let Some(instance) = &mut self.instance else {
+        let Some(instance) = &mut self.current else {
             return Vec::new();
         };
 
-        if let Some(view) = instance.focused_view.take() {
-            return vec![FocusTransition::UnfocusView((instance.id, view).into())];
+        if let Some(view) = instance.view.take() {
+            return vec![FocusTransition::UnfocusView(
+                (instance.instance, view).into(),
+            )];
         }
 
         Vec::new()
@@ -88,38 +100,40 @@ impl FocusManager {
     pub fn unfocus(&mut self) -> Vec<FocusTransition> {
         let mut transitions = Vec::new();
 
-        let Some(instance) = self.instance.take() else {
+        let Some(instance) = self.current.take() else {
             return transitions;
         };
 
-        if let Some(view) = instance.focused_view {
-            transitions.push(FocusTransition::UnfocusView((instance.id, view).into()));
+        if let Some(view) = instance.view {
+            transitions.push(FocusTransition::UnfocusView(
+                (instance.instance, view).into(),
+            ));
         }
-        transitions.push(FocusTransition::UnfocusInstance(instance.id));
+        transitions.push(FocusTransition::UnfocusInstance(instance.instance));
         transitions
     }
 }
 
-impl FocusedInstance {
+impl FocusPath {
     #[must_use]
-    pub fn focus_view(&mut self, new_view: Option<ViewId>) -> Vec<FocusTransition> {
-        if self.focused_view == new_view {
+    fn focus_view(&mut self, new_view: Option<ViewId>) -> Vec<FocusTransition> {
+        if self.view == new_view {
             return [].into();
         }
 
         let mut transitions = self.unfocus_view();
         if let Some(new_view) = new_view {
-            self.focused_view = Some(new_view);
-            transitions.push(FocusTransition::FocusView((self.id, new_view).into()));
+            self.view = Some(new_view);
+            transitions.push(FocusTransition::FocusView((self.instance, new_view).into()));
         }
         transitions
     }
 
     #[must_use]
-    pub fn unfocus_view(&mut self) -> Vec<FocusTransition> {
-        self.focused_view
+    fn unfocus_view(&mut self) -> Vec<FocusTransition> {
+        self.view
             .take()
-            .map(|view| vec![FocusTransition::UnfocusView((self.id, view).into())])
+            .map(|view| vec![FocusTransition::UnfocusView((self.instance, view).into())])
             .unwrap_or_default()
     }
 }

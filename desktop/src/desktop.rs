@@ -83,7 +83,7 @@ impl Desktop {
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
         let mut ui = UI::new(
-            (primary_instance, primary_view),
+            (primary_instance, primary_view).into(),
             &instance_manager,
             &presenter,
             &scene,

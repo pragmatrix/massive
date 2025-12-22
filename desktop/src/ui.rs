@@ -15,7 +15,7 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use crate::{
-    FocusManager, FocusTransition,
+    FocusManager, FocusPath, FocusTransition,
     desktop_presenter::DesktopPresenter,
     instance_manager::{InstanceManager, ViewPath},
 };
@@ -53,7 +53,7 @@ enum WindowFocusState {
 
 #[derive(Debug)]
 struct CursorFocus {
-    view: ViewPath,
+    path: ViewPath,
     hit_on_view: Vector3,
 }
 
@@ -62,13 +62,13 @@ impl UI {
     //
     // Detail: This function assumes that the window is focused right now.
     pub fn new(
-        (primary_instance, primary_view): (InstanceId, ViewId),
+        view_path: ViewPath,
         instance_manager: &InstanceManager,
         presenter: &DesktopPresenter,
         scene: &Scene,
     ) -> Result<Self> {
         let mut focus_manager = FocusManager::new();
-        let focus_transitions = focus_manager.focus(primary_instance, Some(primary_view));
+        let focus_transitions = focus_manager.focus(view_path);
         forward_focus_transitions(focus_transitions, instance_manager)?;
 
         let camera = camera(&focus_manager, presenter).expect("Internal error: No initial focus");
@@ -106,8 +106,7 @@ impl UI {
 
         set_focus(
             &mut self.focus_manager,
-            instance,
-            focused_view,
+            (instance, focused_view),
             instance_manager,
         )?;
 
@@ -163,7 +162,7 @@ impl UI {
                     let hit_result =
                         hit_test_at_point(screen_pos, instance_manager, render_geometry);
                     self.cursor_focus = hit_result.map(|(view, point)| CursorFocus {
-                        view,
+                        path: view,
                         hit_on_view: point,
                     });
                 } else {
@@ -173,7 +172,7 @@ impl UI {
                             screen_pos,
                             instance_manager,
                             render_geometry,
-                            cursor_focus.view,
+                            cursor_focus.path,
                         ) {
                             cursor_focus.hit_on_view = hit_result
                         } else {
@@ -185,7 +184,9 @@ impl UI {
 
                 // If there is a current cursor focus, forward the event.
                 if let Some(CursorFocus {
-                    view, hit_on_view, ..
+                    path: view,
+                    hit_on_view,
+                    ..
                 }) = self.cursor_focus
                 {
                     send_to_view(
@@ -205,23 +206,18 @@ impl UI {
             | WindowEvent::MouseWheel { .. }
             | WindowEvent::DroppedFile(_)
             | WindowEvent::HoveredFile(_) => {
-                if let Some(CursorFocus { view, .. }) = self.cursor_focus {
+                if let Some(CursorFocus { path, .. }) = self.cursor_focus {
                     // Does this event cause a focusing of the view at the current cursor pos?
-                    if causes_focus(window_event) && self.focus_manager.focused_view() != Some(view)
+                    if causes_focus(window_event) && self.focus_manager.focused_view() != Some(path)
                     {
-                        set_focus(
-                            &mut self.focus_manager,
-                            view.instance,
-                            Some(view.view),
-                            instance_manager,
-                        )?;
+                        set_focus(&mut self.focus_manager, path, instance_manager)?;
                         // Don't forward the event if the focus get changed, but tell the client that it should make the instance the foreground.
                         return Ok(UiCommand::MakeForeground {
-                            instance: view.instance,
+                            instance: path.instance,
                         });
                     }
 
-                    send_window_event(view, window_event)?;
+                    send_window_event(path, window_event)?;
                 }
             }
 
@@ -293,8 +289,7 @@ impl UI {
                 {
                     set_focus(
                         &mut self.focus_manager,
-                        instance,
-                        Some(view),
+                        (instance, Some(view)),
                         instance_manager,
                     )?;
                 }
@@ -329,12 +324,12 @@ fn causes_focus(e: &WindowEvent) -> bool {
 
 fn set_focus(
     focus_manager: &mut FocusManager,
-    instance: InstanceId,
-    view: Option<ViewId>,
+    path: impl Into<FocusPath>,
     instance_manager: &InstanceManager,
 ) -> Result<()> {
-    assert!(instance_manager.exists(instance, view));
-    let transitions = focus_manager.focus(instance, view);
+    let path = path.into();
+    assert!(instance_manager.exists(path.instance, path.view));
+    let transitions = focus_manager.focus(path);
     forward_focus_transitions(transitions, instance_manager)
 }
 
