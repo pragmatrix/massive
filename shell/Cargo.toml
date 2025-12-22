@@ -22,12 +22,13 @@ massive-applications.workspace = true
 massive-util.workspace = true
 
 anyhow.workspace = true
-glam.workspace = true
 cosmic-text.workspace = true
 derive_more.workspace = true
 env_logger.workspace = true
 futures.workspace = true
+glam.workspace = true
 log.workspace = true
+parking_lot.workspace = true
 replace_with.workspace = true
 wgpu.workspace = true
 winit.workspace = true

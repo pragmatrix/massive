@@ -5,8 +5,7 @@ use anyhow::Result;
 use derive_more::Deref;
 
 use massive_animation::{Animated, AnimationCoordinator, Interpolatable, Interpolation, TimeScale};
-
-use crate::{RenderPacing, RenderTarget};
+use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 
 #[derive(Debug, Deref)]
 pub struct Scene {
@@ -53,8 +52,8 @@ impl Scene {
         self.animation_coordinator.time_scale()
     }
 
-    /// Push external changes into this scene.
-    pub fn push_changes(&self, changes: massive_scene::SceneChanges) {
+    /// Accumulate external changes into this scene.
+    pub fn accumulate_changes(&self, changes: massive_scene::SceneChanges) {
         self.inner.push_changes(changes);
     }
 
@@ -63,29 +62,19 @@ impl Scene {
     // Pass in the current shell event if you need to handle redraw requests without scene changes
     // and automatic resizing of the renderer.
     pub fn render_to(&self, render_target: &mut dyn RenderTarget) -> Result<()> {
-        self.render_to_with_options(render_target, None)
+        render_target.render(self.begin_frame())
     }
 
-    /// Render all the current scene changes, but keep smooth render active if needed.
-    pub fn render_to_with_options(
-        &self,
-        render_target: &mut dyn RenderTarget,
-        options: impl Into<Option<Options>>,
-    ) -> Result<()> {
-        let force_smooth_rendering = options.into() == Some(Options::ForceSmoothRendering);
+    /// Take all changes from the Scene and return a RenderSubmission.
+    pub fn begin_frame(&self) -> RenderSubmission {
         let animations_active = self.animation_coordinator.end_cycle();
 
-        let pacing = if animations_active || force_smooth_rendering {
+        let pacing = if animations_active {
             RenderPacing::Smooth
         } else {
             RenderPacing::Fast
         };
 
-        render_target.render(self.take_changes(), pacing)
+        RenderSubmission::new(self.take_changes(), pacing)
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Options {
-    ForceSmoothRendering,
 }

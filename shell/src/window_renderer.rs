@@ -6,15 +6,15 @@ use anyhow::{Context, Result};
 use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
-use crate::shell_window::ShellWindowShared;
 use massive_geometry::{Color, Matrix4, SizePx};
 use massive_renderer::Renderer;
-use massive_scene::ChangeCollector;
+use massive_scene::SceneChanges;
+
+use crate::shell_window::ShellWindowShared;
 
 pub struct WindowRenderer {
     window: Arc<ShellWindowShared>,
     renderer: Renderer,
-    change_collector: Arc<ChangeCollector>,
     #[cfg(feature = "metrics")]
     oldest_change: Option<Instant>,
 }
@@ -24,7 +24,6 @@ impl WindowRenderer {
         Self {
             window,
             renderer,
-            change_collector: ChangeCollector::default().into(),
             #[cfg(feature = "metrics")]
             oldest_change: None,
         }
@@ -32,10 +31,6 @@ impl WindowRenderer {
 
     pub fn window_id(&self) -> WindowId {
         self.window.id()
-    }
-
-    pub fn change_collector(&self) -> &Arc<ChangeCollector> {
-        &self.change_collector
     }
 
     /// The format chosen for the swapchain.
@@ -85,13 +80,7 @@ impl WindowRenderer {
         Ok(texture)
     }
 
-    pub(crate) fn any_pending_changes(&self) -> bool {
-        self.change_collector.any_changes()
-    }
-
-    pub(crate) fn apply_scene_changes(&mut self) -> Result<()> {
-        let changes = self.change_collector.take_all();
-
+    pub(crate) fn apply_scene_changes(&mut self, changes: SceneChanges) -> Result<()> {
         if let Some((_time, changes)) = changes.release() {
             self.renderer.apply_changes(changes)?;
             self.renderer.prepare()?;

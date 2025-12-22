@@ -1,5 +1,6 @@
 pub mod application_context;
 pub mod async_window_renderer;
+mod render_thread;
 pub mod shell;
 pub mod shell_window;
 pub mod window_renderer;

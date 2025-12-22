@@ -5,11 +5,11 @@ use tokio::sync::mpsc::unbounded_channel;
 use winit::event;
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
-    RenderPacing, Scene, ViewCommand, ViewRole,
+    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Scene,
+    ViewCommand, ViewRole,
 };
 use massive_input::{EventManager, ExternalEvent};
-use massive_renderer::FontManager;
+use massive_renderer::{FontManager, RenderPacing};
 use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
 
 use crate::{
@@ -139,16 +139,11 @@ impl Desktop {
                 }
             }
 
-            // Update the camera.
-            renderer.update_camera(ui.camera())?;
-
-            // Render all accumulated changes with the appropriate pacing
-            let options = if instance_manager.effective_pacing() == RenderPacing::Smooth {
-                Some(Options::ForceSmoothRendering)
-            } else {
-                None
-            };
-            scene.render_to_with_options(&mut renderer, options)?;
+            let mut frame = scene.begin_frame().with_camera(ui.camera());
+            if instance_manager.effective_pacing() == RenderPacing::Smooth {
+                frame = frame.with_pacing(RenderPacing::Smooth);
+            }
+            frame.submit_to(&mut renderer)?;
         }
     }
 
@@ -230,9 +225,9 @@ impl Desktop {
         command: ViewCommand,
     ) -> Result<()> {
         match command {
-            ViewCommand::Render { changes, pacing } => {
-                instance_manager.update_view_pacing(view, pacing)?;
-                scene.push_changes(changes);
+            ViewCommand::Render { submission } => {
+                instance_manager.update_view_pacing(view, submission.pacing)?;
+                scene.accumulate_changes(submission.changes);
             }
             ViewCommand::Resize(_) => {
                 todo!("Resize is unsupported");
