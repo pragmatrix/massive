@@ -177,7 +177,6 @@ enum FlowControl {
 /// An extended accumulable submission structure that contains everything the renderer needs to know.
 #[derive(Debug)]
 pub struct RenderThreadSubmission {
-    // We basically ignore the camera in there.
     pub changes: SceneChanges,
     pub present_mode: wgpu::PresentMode,
     pub view_projection: Matrix4,
