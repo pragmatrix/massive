@@ -29,7 +29,7 @@ impl PixelCamera {
         Self { look_at, fovy }
     }
 
-    /// The matrix that positions moves the model so that the camera is positioned at 0,0.
+    /// The matrix that moves the model so that the camera is positioned at 0,0.
     pub fn model_camera_matrix(&self) -> Matrix4 {
         self.look_at.inverse().to_matrix4()
     }
