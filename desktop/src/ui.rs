@@ -68,8 +68,7 @@ impl UI {
         scene: &Scene,
     ) -> Result<Self> {
         let mut focus_manager = FocusManager::new();
-        let focus_transitions = focus_manager.focus(view_path);
-        forward_focus_transitions(focus_transitions, instance_manager)?;
+        set_focus(&mut focus_manager, view_path, instance_manager)?;
 
         let camera = camera(&focus_manager, presenter).expect("Internal error: No initial focus");
 
