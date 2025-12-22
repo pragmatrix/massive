@@ -26,7 +26,7 @@ impl ChangeCollector {
     }
 
     pub fn any_changes(&self) -> bool {
-        return !self.changes.lock().is_empty();
+        !self.changes.lock().is_empty()
     }
 }
 
