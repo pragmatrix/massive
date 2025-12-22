@@ -21,7 +21,7 @@ pub enum RendererMessage {
     Resize(SizePx),
     Redraw,
     SetBackgroundColor(Option<Color>),
-    // Protocol: When adding a new RenderMessage, consider filter_latest_messages().
+    // Protocol: When adding a new RenderMessage, consider message_filter::keep_last_per_variant().
 }
 
 // Detail: The render loop will only end regularly if the channel that sends renderer messages
