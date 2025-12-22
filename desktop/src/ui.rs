@@ -15,8 +15,9 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use crate::{
-    FocusManager, FocusTransition, desktop_presenter::DesktopPresenter,
-    instance_manager::InstanceManager,
+    FocusManager, FocusTransition,
+    desktop_presenter::DesktopPresenter,
+    instance_manager::{InstanceManager, ViewPath},
 };
 
 // Architecture: This is all about focus so far. May rename it to DesktopInput or DesktopFocus or
@@ -52,8 +53,7 @@ enum WindowFocusState {
 
 #[derive(Debug)]
 struct CursorFocus {
-    instance: InstanceId,
-    view: ViewId,
+    view: ViewPath,
     hit_on_view: Vector3,
 }
 
@@ -129,13 +129,11 @@ impl UI {
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<UiCommand> {
-        let send_to_view = |instance_id: InstanceId, view_id: ViewId, event: ViewEvent| {
-            instance_manager.send_view_event(instance_id, view_id, event)
-        };
+        let send_to_view = |view, event| instance_manager.send_view_event(view, event);
 
-        let send_window_event = |instance_id, view_id, window_event| {
+        let send_window_event = |view, window_event| {
             if let Some(view_event) = convert_window_event_to_view_event(window_event) {
-                send_to_view(instance_id, view_id, view_event)
+                send_to_view(view, view_event)
             } else {
                 Ok(())
             }
@@ -164,8 +162,7 @@ impl UI {
                 if !any_pressed {
                     let hit_result =
                         hit_test_at_point(screen_pos, instance_manager, render_geometry);
-                    self.cursor_focus = hit_result.map(|(instance, view, point)| CursorFocus {
-                        instance,
+                    self.cursor_focus = hit_result.map(|(view, point)| CursorFocus {
                         view,
                         hit_on_view: point,
                     });
@@ -176,7 +173,6 @@ impl UI {
                             screen_pos,
                             instance_manager,
                             render_geometry,
-                            cursor_focus.instance,
                             cursor_focus.view,
                         ) {
                             cursor_focus.hit_on_view = hit_result
@@ -189,14 +185,10 @@ impl UI {
 
                 // If there is a current cursor focus, forward the event.
                 if let Some(CursorFocus {
-                    instance,
-                    view,
-                    hit_on_view,
-                    ..
+                    view, hit_on_view, ..
                 }) = self.cursor_focus
                 {
                     send_to_view(
-                        instance,
                         view,
                         ViewEvent::CursorMoved {
                             device_id: *device_id,
@@ -213,18 +205,18 @@ impl UI {
             | WindowEvent::MouseWheel { .. }
             | WindowEvent::DroppedFile(_)
             | WindowEvent::HoveredFile(_) => {
-                if let Some(CursorFocus { instance, view, .. }) = self.cursor_focus {
+                if let Some(CursorFocus { view, .. }) = self.cursor_focus {
                     // Does this event cause a focusing of the view at the current cursor pos?
                     if causes_focus(window_event) {
                         set_focus(
                             &mut self.focus_manager,
-                            instance,
-                            Some(view),
+                            view.instance,
+                            Some(view.view),
                             instance_manager,
                         )?;
                     }
 
-                    send_window_event(instance, view, window_event)?;
+                    send_window_event(view, window_event)?;
                 }
             }
 
@@ -237,7 +229,7 @@ impl UI {
                 if key_event.state == ElementState::Pressed
                     && !key_event.repeat
                     && input_event.states().is_command()
-                    && let Some((instance, _)) = focused_view
+                    && let Some(ViewPath { instance, .. }) = focused_view
                 {
                     match &key_event.logical_key {
                         Key::Character(c) if c.as_str() == "t" => {
@@ -254,14 +246,14 @@ impl UI {
                     }
                 }
 
-                if let Some((instance, view)) = focused_view {
-                    send_window_event(instance, view, window_event)?;
+                if let Some(view) = focused_view {
+                    send_window_event(view, window_event)?;
                 }
             }
 
             WindowEvent::Ime(_) => {
-                if let Some((instance, view)) = self.focus_manager.focused_view() {
-                    send_window_event(instance, view, window_event)?;
+                if let Some(view) = self.focus_manager.focused_view() {
+                    send_window_event(view, window_event)?;
                 }
             }
 
@@ -269,8 +261,8 @@ impl UI {
             WindowEvent::ModifiersChanged(_)
             | WindowEvent::HoveredFileCancelled
             | WindowEvent::CloseRequested => {
-                for (instance, view, _view_info) in instance_manager.views() {
-                    send_window_event(instance, view, window_event)?;
+                for (view, _view_info) in instance_manager.views() {
+                    send_window_event(view, window_event)?;
                 }
             }
 
@@ -304,7 +296,7 @@ impl UI {
                 self.window_focus_state = WindowFocusState::Focused
             }
             (WindowFocusState::Focused, false) => {
-                let focused_view = self.focus_manager.focused_view().map(|(_, v)| v);
+                let focused_view = self.focus_manager.focused_view().map(|p| p.view);
                 self.window_focus_state = WindowFocusState::Unfocused {
                     focused_previously: focused_view,
                 };
@@ -346,11 +338,11 @@ fn forward_focus_transitions(
 ) -> Result<()> {
     for transition in transitions {
         match transition {
-            FocusTransition::UnfocusView(instance, view) => {
-                instance_manager.send_view_event(instance, view, ViewEvent::Focused(false))?;
+            FocusTransition::UnfocusView(view) => {
+                instance_manager.send_view_event(view, ViewEvent::Focused(false))?;
             }
-            FocusTransition::FocusView(instance, view) => {
-                instance_manager.send_view_event(instance, view, ViewEvent::Focused(true))?;
+            FocusTransition::FocusView(view) => {
+                instance_manager.send_view_event(view, ViewEvent::Focused(true))?;
             }
             FocusTransition::UnfocusInstance(_instance_id) => {}
             FocusTransition::FocusInstance(_instance_id) => {}
@@ -375,10 +367,10 @@ fn hit_test_at_point(
     screen_pos: Point,
     instance_manager: &InstanceManager,
     geometry: &RenderGeometry,
-) -> Option<(InstanceId, ViewId, Vector3)> {
+) -> Option<(ViewPath, Vector3)> {
     let mut hits = Vec::new();
 
-    for (instance_id, view_id, view_info) in instance_manager.views() {
+    for (view, view_info) in instance_manager.views() {
         let location = view_info.location.value();
         let transform = location.transform.value();
         let extents = view_info.extents;
@@ -389,13 +381,13 @@ fn hit_test_at_point(
             // Robustness: Are we leaving accuracy on the table here by converting from f64 to i32?
             let v: VectorPx = (local_pos.x as i32, local_pos.y as i32).into();
             if extents.contains(v.to_point()) {
-                hits.push((instance_id, view_id, local_pos));
+                hits.push((view, local_pos));
             }
         }
     }
 
     // Sort by z (descending) to get topmost view first
-    hits.sort_by(|a, b| b.2.z.partial_cmp(&a.2.z).unwrap_or(Ordering::Equal));
+    hits.sort_by(|a, b| b.1.z.partial_cmp(&a.1.z).unwrap_or(Ordering::Equal));
 
     hits.first().copied()
 }
@@ -407,10 +399,9 @@ fn hit_test_on_view(
     screen_pos: Point,
     instance_manager: &InstanceManager,
     render_geometry: &RenderGeometry,
-    instance_id: InstanceId,
-    view_id: ViewId,
+    view: ViewPath,
 ) -> Option<Vector3> {
-    let view_info = instance_manager.get_view(instance_id, view_id).ok()?;
+    let view_info = instance_manager.get_view(view).ok()?;
     let location = view_info.location.value();
     let matrix = location.transform.value().to_matrix4();
     render_geometry.unproject_to_model_z0(screen_pos, &matrix)

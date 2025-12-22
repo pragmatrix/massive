@@ -1,5 +1,7 @@
 use massive_applications::{InstanceId, ViewId};
 
+use crate::instance_manager::ViewPath;
+
 /// The focus manager organizes Instances and views in a focus hierarchy.
 ///
 /// A view can only be focused if the containing instance is focused. But an instance can be focused
@@ -20,8 +22,8 @@ struct FocusedInstance {
 #[derive(Debug)]
 pub enum FocusTransition {
     // Architecture: InstanceId is redundant here, but it makes for simpler processing later.
-    UnfocusView(InstanceId, ViewId),
-    FocusView(InstanceId, ViewId),
+    UnfocusView(ViewPath),
+    FocusView(ViewPath),
     UnfocusInstance(InstanceId),
     FocusInstance(InstanceId),
 }
@@ -39,10 +41,10 @@ impl FocusManager {
         self.instance.as_ref().map(|instance| instance.id)
     }
 
-    pub fn focused_view(&self) -> Option<(InstanceId, ViewId)> {
+    pub fn focused_view(&self) -> Option<ViewPath> {
         self.instance
             .as_ref()
-            .and_then(|instance| instance.focused_view.map(|view| (instance.id, view)))
+            .and_then(|instance| instance.focused_view.map(|view| (instance.id, view).into()))
     }
 
     #[must_use]
@@ -76,7 +78,7 @@ impl FocusManager {
         };
 
         if let Some(view) = instance.focused_view.take() {
-            return vec![FocusTransition::UnfocusView(instance.id, view)];
+            return vec![FocusTransition::UnfocusView((instance.id, view).into())];
         }
 
         Vec::new()
@@ -91,7 +93,7 @@ impl FocusManager {
         };
 
         if let Some(view) = instance.focused_view {
-            transitions.push(FocusTransition::UnfocusView(instance.id, view));
+            transitions.push(FocusTransition::UnfocusView((instance.id, view).into()));
         }
         transitions.push(FocusTransition::UnfocusInstance(instance.id));
         transitions
@@ -108,7 +110,7 @@ impl FocusedInstance {
         let mut transitions = self.unfocus_view();
         if let Some(new_view) = new_view {
             self.focused_view = Some(new_view);
-            transitions.push(FocusTransition::FocusView(self.id, new_view));
+            transitions.push(FocusTransition::FocusView((self.id, new_view).into()));
         }
         transitions
     }
@@ -117,7 +119,7 @@ impl FocusedInstance {
     pub fn unfocus_view(&mut self) -> Vec<FocusTransition> {
         self.focused_view
             .take()
-            .map(|view| vec![FocusTransition::UnfocusView(self.id, view)])
+            .map(|view| vec![FocusTransition::UnfocusView((self.id, view).into())])
             .unwrap_or_default()
     }
 }

@@ -6,15 +6,17 @@ use winit::event;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Options,
-    RenderPacing, Scene, ViewCommand, ViewId, ViewRole,
+    RenderPacing, Scene, ViewCommand, ViewRole,
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::FontManager;
 use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
 
 use crate::{
-    Application, UI, UiCommand, application_registry::ApplicationRegistry,
-    desktop_presenter::DesktopPresenter, instance_manager::InstanceManager,
+    Application, UI, UiCommand,
+    application_registry::ApplicationRegistry,
+    desktop_presenter::DesktopPresenter,
+    instance_manager::{InstanceManager, ViewPath},
 };
 
 #[derive(Debug)]
@@ -202,15 +204,14 @@ impl Desktop {
             }
             InstanceCommand::DestroyView(id) => {
                 presenter.hide_view(id)?;
-                instance_manager.remove_view(instance, id);
+                instance_manager.remove_view((instance, id).into());
             }
             InstanceCommand::View(view_id, command) => {
                 Self::handle_view_command(
                     instance_manager,
                     scene,
                     window,
-                    instance,
-                    view_id,
+                    (instance, view_id).into(),
                     command,
                 )?;
             }
@@ -222,13 +223,12 @@ impl Desktop {
         instance_manager: &mut InstanceManager,
         scene: &Scene,
         window: &ShellWindow,
-        instance_id: InstanceId,
-        view_id: ViewId,
+        view: ViewPath,
         command: ViewCommand,
     ) -> Result<()> {
         match command {
             ViewCommand::Render { changes, pacing } => {
-                instance_manager.update_view_pacing(instance_id, view_id, pacing)?;
+                instance_manager.update_view_pacing(view, pacing)?;
                 scene.push_changes(changes);
             }
             ViewCommand::Resize(_) => {
