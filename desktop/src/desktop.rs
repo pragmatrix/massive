@@ -177,6 +177,9 @@ impl Desktop {
                 ui.make_foreground(instance, instance_manager, presenter)?;
                 presenter.layout(true);
             }
+            UiCommand::MakeForeground { instance } => {
+                ui.make_foreground(instance, instance_manager, presenter)?;
+            }
             UiCommand::StopInstance { instance } => instance_manager.stop(instance)?,
         }
 

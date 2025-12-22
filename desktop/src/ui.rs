@@ -198,7 +198,7 @@ impl UI {
                 }
             }
 
-            // Cursor focus
+            // Forwarded to the view with cursor focus
             WindowEvent::CursorEntered { .. }
             | WindowEvent::CursorLeft { .. }
             | WindowEvent::MouseInput { .. }
@@ -214,6 +214,10 @@ impl UI {
                             Some(view.view),
                             instance_manager,
                         )?;
+                        // Don't forward the event if the focus get changed, but tell the client that it should make the instance the foreground.
+                        return Ok(UiCommand::MakeForeground {
+                            instance: view.instance,
+                        });
                     }
 
                     send_window_event(view, window_event)?;
@@ -311,13 +315,14 @@ impl UI {
     }
 }
 
+/// `true` if the WindowEvent causes focus and should be consumed.
 fn causes_focus(e: &WindowEvent) -> bool {
     matches!(
         e,
         WindowEvent::MouseInput {
             state: ElementState::Pressed,
             ..
-        } | WindowEvent::DroppedFile(..)
+        }
     )
 }
 
@@ -463,6 +468,9 @@ pub enum UiCommand {
     StartInstance {
         application: String,
         originating_instance: InstanceId,
+    },
+    MakeForeground {
+        instance: InstanceId,
     },
     StopInstance {
         instance: InstanceId,
