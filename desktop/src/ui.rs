@@ -412,7 +412,7 @@ fn hit_test_on_view(
     render_geometry.unproject_to_model_z0(screen_pos, &matrix)
 }
 
-/// Convert all window events to a matching view event if available, except cursor moved.
+/// Convert all window events to a matching view event if available.
 fn convert_window_event_to_view_event(window_event: &WindowEvent) -> Option<ViewEvent> {
     match window_event {
         WindowEvent::CursorEntered { device_id } => Some(ViewEvent::CursorEntered {
@@ -456,9 +456,31 @@ fn convert_window_event_to_view_event(window_event: &WindowEvent) -> Option<View
             is_synthetic: *is_synthetic,
         }),
         WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
+        WindowEvent::CursorMoved {
+            device_id,
+            position,
+        } => Some(ViewEvent::CursorMoved {
+            device_id: *device_id,
+            position: (position.x, position.y),
+        }),
         WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
         WindowEvent::Resized(size) => Some(ViewEvent::Resized((size.width, size.height).into())),
-        _ => None,
+
+        // Unhandled events
+        WindowEvent::ActivationTokenDone { .. } => None,
+        WindowEvent::Moved(..) => None,
+        WindowEvent::Destroyed => None,
+        WindowEvent::PinchGesture { .. } => None,
+        WindowEvent::PanGesture { .. } => None,
+        WindowEvent::DoubleTapGesture { .. } => None,
+        WindowEvent::RotationGesture { .. } => None,
+        WindowEvent::TouchpadPressure { .. } => None,
+        WindowEvent::AxisMotion { .. } => None,
+        WindowEvent::Touch(..) => None,
+        WindowEvent::ScaleFactorChanged { .. } => None,
+        WindowEvent::ThemeChanged(..) => None,
+        WindowEvent::Occluded(..) => None,
+        WindowEvent::RedrawRequested => None,
     }
 }
 
