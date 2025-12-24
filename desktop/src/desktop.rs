@@ -194,7 +194,7 @@ impl Desktop {
             InstanceCommand::CreateView(info) => {
                 instance_manager.add_view(instance, &info);
                 presenter.present_view(instance, &info)?;
-                // If this instance is currently focused and this is a primary view, make it
+                // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
                 if ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
                     ui.make_foreground(instance, instance_manager, presenter)?;

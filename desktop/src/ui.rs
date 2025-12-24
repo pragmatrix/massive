@@ -99,8 +99,8 @@ impl UI {
         presenter: &DesktopPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
-        let mut focused_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-        let mut focus_path: FocusPath = (instance, focused_view).into();
+        let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
+        let mut focus_path: FocusPath = (instance, primary_view).into();
 
         // If the window state is unfocused, we don't want to focus the primary view but want it to
         // focus when window focus comes back.
@@ -285,9 +285,9 @@ impl UI {
             (WindowFocusState::Unfocused { focused_previously }, true) => {
                 // Restore focus if nothing is focused.
                 //
-                // Detail: Focus might change while the Window is unfocused.
+                // Detail: Focus does not change while the Window is unfocused, see set_foreground.
                 if *self.focus_tree.focused() == FocusPath::EMPTY {
-                    // Robustness: We need to check if instances / views are valid here at
+                    // Robustness: We may need to check if instances / views are valid here at
                     // the latest, or event better while the Unfocused state is active.
                     set_focus(
                         &mut self.focus_tree,
@@ -323,18 +323,13 @@ fn causes_focus(e: &WindowEvent) -> bool {
     )
 }
 
-#[track_caller]
 fn set_focus(
     focus_tree: &mut FocusTree,
     path: impl Into<FocusPath>,
     instance_manager: &InstanceManager,
 ) -> Result<()> {
-    let caller = std::panic::Location::caller();
-    dbg!(caller);
-
     let path = path.into();
     let transitions = focus_tree.focus(path);
-    dbg!(&transitions);
     forward_focus_transitions(transitions, instance_manager)
 }
 
