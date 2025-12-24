@@ -1,6 +1,7 @@
 use std::cmp::Ordering;
 
 use anyhow::Result;
+use derive_more::From;
 use log::warn;
 use winit::{
     event::{ElementState, WindowEvent},
@@ -15,10 +16,13 @@ use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    FocusManager, FocusPath, FocusTransition,
     desktop_presenter::DesktopPresenter,
+    focus_tree::{self, FocusTransition, FocusTransitions},
     instance_manager::{InstanceManager, ViewPath},
 };
+
+type FocusTree = focus_tree::FocusTree<FocusTarget>;
+type FocusPath = focus_tree::FocusPath<FocusTarget>;
 
 // Architecture: This is all about focus so far. May rename it to DesktopInput or DesktopFocus or
 // InputInterface?
@@ -36,7 +40,7 @@ pub struct UI {
 
     /// This decides to which view and instance the keyboard events are delivered. Basically the
     /// keyboard focus.
-    focus_manager: FocusManager,
+    focus_tree: FocusTree,
 
     /// The current state of the window.
     ///
@@ -47,14 +51,14 @@ pub struct UI {
 
 #[derive(Debug)]
 enum WindowFocusState {
-    Unfocused { focused_previously: Option<ViewId> },
+    Unfocused { focused_previously: FocusPath },
     Focused,
 }
 
 #[derive(Debug)]
 struct CursorFocus {
     path: ViewPath,
-    hit_on_view: Vector3,
+    hit: Vector3,
 }
 
 impl UI {
@@ -67,21 +71,21 @@ impl UI {
         presenter: &DesktopPresenter,
         scene: &Scene,
     ) -> Result<Self> {
-        let mut focus_manager = FocusManager::new();
-        set_focus(&mut focus_manager, view_path, instance_manager)?;
+        let mut focus_tree = FocusTree::default();
+        set_focus(&mut focus_tree, view_path, instance_manager)?;
 
-        let camera = camera(&focus_manager, presenter).expect("Internal error: No initial focus");
+        let camera = camera(&focus_tree, presenter).expect("Internal error: No initial focus");
 
         Ok(Self {
             camera: scene.animated(camera),
             cursor_focus: None,
-            focus_manager,
+            focus_tree,
             window_focus_state: WindowFocusState::Focused,
         })
     }
 
     pub fn focused_instance(&self) -> Option<InstanceId> {
-        self.focus_manager.focused_instance()
+        self.focus_tree.focused().instance()
     }
 
     pub fn camera(&self) -> PixelCamera {
@@ -96,20 +100,17 @@ impl UI {
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
         let mut focused_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
+        let mut focus_path: FocusPath = (instance, focused_view).into();
 
         // If the window state is unfocused, we don't want to focus the primary view but want it to
         // focus when window focus comes back.
         if let WindowFocusState::Unfocused { focused_previously } = &mut self.window_focus_state {
-            *focused_previously = focused_view.take();
+            *focused_previously = focus_path.take();
         };
 
-        set_focus(
-            &mut self.focus_manager,
-            (instance, focused_view),
-            instance_manager,
-        )?;
+        set_focus(&mut self.focus_tree, focus_path, instance_manager)?;
 
-        let camera = camera(&self.focus_manager, presenter);
+        let camera = camera(&self.focus_tree, presenter);
         if let Some(camera) = camera {
             self.camera.animate_if_changed(
                 camera,
@@ -127,7 +128,8 @@ impl UI {
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<UiCommand> {
-        let send_to_view = |view, event| instance_manager.send_view_event(view, event);
+        let send_to_view =
+            |view_path: ViewPath, event| instance_manager.send_view_event(view_path, event);
 
         let send_window_event = |view, window_event| {
             if let Some(view_event) = convert_window_event_to_view_event(window_event) {
@@ -162,7 +164,7 @@ impl UI {
                         hit_test_at_point(screen_pos, instance_manager, render_geometry);
                     self.cursor_focus = hit_result.map(|(view, point)| CursorFocus {
                         path: view,
-                        hit_on_view: point,
+                        hit: point,
                     });
                 } else {
                     // Button is pressed, may update pos only.
@@ -173,7 +175,7 @@ impl UI {
                             render_geometry,
                             cursor_focus.path,
                         ) {
-                            cursor_focus.hit_on_view = hit_result
+                            cursor_focus.hit = hit_result
                         } else {
                             // Looks like the view vanished
                             self.cursor_focus = None;
@@ -183,13 +185,13 @@ impl UI {
 
                 // If there is a current cursor focus, forward the event.
                 if let Some(CursorFocus {
-                    path: view,
-                    hit_on_view,
+                    path,
+                    hit: hit_on_view,
                     ..
                 }) = self.cursor_focus
                 {
                     send_to_view(
-                        view,
+                        path,
                         ViewEvent::CursorMoved {
                             device_id: *device_id,
                             position: (hit_on_view.x, hit_on_view.y),
@@ -207,9 +209,10 @@ impl UI {
             | WindowEvent::HoveredFile(_) => {
                 if let Some(CursorFocus { path, .. }) = self.cursor_focus {
                     // Does this event cause a focusing of the view at the current cursor pos?
-                    if causes_focus(window_event) && self.focus_manager.focused_view() != Some(path)
+                    if causes_focus(window_event)
+                        && self.focus_tree.focused().view_path() != Some(path)
                     {
-                        set_focus(&mut self.focus_manager, path, instance_manager)?;
+                        set_focus(&mut self.focus_tree, path, instance_manager)?;
                         // Don't forward the event if the focus get changed, but tell the client that it should make the instance the foreground.
                         return Ok(UiCommand::MakeForeground {
                             instance: path.instance,
@@ -224,7 +227,7 @@ impl UI {
             WindowEvent::KeyboardInput {
                 event: key_event, ..
             } => {
-                let focused_view = self.focus_manager.focused_view();
+                let focused_view = self.focus_tree.focused().view_path();
 
                 if key_event.state == ElementState::Pressed
                     && !key_event.repeat
@@ -252,7 +255,7 @@ impl UI {
             }
 
             WindowEvent::Ime(_) => {
-                if let Some(view) = self.focus_manager.focused_view() {
+                if let Some(view) = self.focus_tree.focused().view_path() {
                     send_window_event(view, window_event)?;
                 }
             }
@@ -280,27 +283,26 @@ impl UI {
     ) -> Result<()> {
         match (&self.window_focus_state, focused) {
             (WindowFocusState::Unfocused { focused_previously }, true) => {
-                // Refocus if the current instance is the instance of the previous view and it does
-                // exist anymore.
-                if let Some(view) = *focused_previously
-                    && let Some(instance) = self.focus_manager.focused_instance()
-                    && instance_manager.exists(instance, Some(view))
-                {
+                // Restore focus if nothing is focused.
+                //
+                // Detail: Focus might change while the Window is unfocused.
+                if *self.focus_tree.focused() == FocusPath::EMPTY {
+                    // Robustness: We need to check if instances / views are valid here at
+                    // the latest, or event better while the Unfocused state is active.
                     set_focus(
-                        &mut self.focus_manager,
-                        (instance, Some(view)),
+                        &mut self.focus_tree,
+                        focused_previously.clone(),
                         instance_manager,
                     )?;
                 }
                 self.window_focus_state = WindowFocusState::Focused
             }
             (WindowFocusState::Focused, false) => {
-                let focused_view = self.focus_manager.focused_view().map(|p| p.view);
+                // Save and unfocus.
                 self.window_focus_state = WindowFocusState::Unfocused {
-                    focused_previously: focused_view,
+                    focused_previously: self.focus_tree.focused().clone(),
                 };
-                let transitions = self.focus_manager.unfocus_view();
-                forward_focus_transitions(transitions, instance_manager)?;
+                set_focus(&mut self.focus_tree, FocusPath::EMPTY, instance_manager)?;
             }
             _ => {
                 warn!("Redundant Window focus change")
@@ -321,45 +323,53 @@ fn causes_focus(e: &WindowEvent) -> bool {
     )
 }
 
+#[track_caller]
 fn set_focus(
-    focus_manager: &mut FocusManager,
+    focus_tree: &mut FocusTree,
     path: impl Into<FocusPath>,
     instance_manager: &InstanceManager,
 ) -> Result<()> {
+    let caller = std::panic::Location::caller();
+    dbg!(caller);
+
     let path = path.into();
-    assert!(instance_manager.exists(path.instance, path.view));
-    let transitions = focus_manager.focus(path);
+    let transitions = focus_tree.focus(path);
+    dbg!(&transitions);
     forward_focus_transitions(transitions, instance_manager)
 }
 
+#[derive(Debug, PartialEq, Clone, From)]
+enum FocusTarget {
+    Instance(InstanceId),
+    View(ViewId),
+}
+
 fn forward_focus_transitions(
-    transitions: Vec<FocusTransition>,
+    transitions: FocusTransitions<FocusTarget>,
     instance_manager: &InstanceManager,
 ) -> Result<()> {
     for transition in transitions {
         match transition {
-            FocusTransition::Exit(FocusPath {
-                instance,
-                view: Some(view),
-            }) => {
-                instance_manager.send_view_event((instance, view), ViewEvent::Focused(false))?;
+            FocusTransition::Exit(path) => {
+                if let Some(path) = path.view_path() {
+                    instance_manager.send_view_event(path, ViewEvent::Focused(false))?;
+                }
             }
-            FocusTransition::Enter(FocusPath {
-                instance,
-                view: Some(view),
-            }) => {
-                instance_manager.send_view_event((instance, view), ViewEvent::Focused(true))?;
+            FocusTransition::Enter(path) => {
+                if let Some(path) = path.view_path() {
+                    instance_manager.send_view_event(path, ViewEvent::Focused(true))?;
+                }
             }
-            _ => {}
         }
     }
     Ok(())
 }
 
 /// Returns the camera position it should target at.
-fn camera(focus_manager: &FocusManager, presenter: &DesktopPresenter) -> Option<PixelCamera> {
-    focus_manager
-        .focused_instance()
+fn camera(focus_tree: &FocusTree, presenter: &DesktopPresenter) -> Option<PixelCamera> {
+    focus_tree
+        .focused()
+        .instance()
         .and_then(|instance| presenter.instance_transform(instance))
         .map(|target| PixelCamera::look_at(target, PixelCamera::DEFAULT_FOVY))
 }
@@ -497,4 +507,46 @@ pub enum UiCommand {
     StopInstance {
         instance: InstanceId,
     },
+}
+
+impl focus_tree::FocusPath<FocusTarget> {
+    // Returns the instance that is currently focused.
+    pub fn instance(&self) -> Option<InstanceId> {
+        self.iter().rev().find_map(|t| t.instance())
+    }
+
+    pub fn view_path(&self) -> Option<ViewPath> {
+        match self.as_slice() {
+            [.., FocusTarget::Instance(instance), FocusTarget::View(view)] => {
+                Some((*instance, *view).into())
+            }
+            _ => None,
+        }
+    }
+}
+
+impl From<ViewPath> for FocusPath {
+    fn from(view_path: ViewPath) -> Self {
+        let (instance, view) = view_path.into();
+        vec![instance.into(), view.into()].into()
+    }
+}
+
+impl From<(InstanceId, Option<ViewId>)> for FocusPath {
+    fn from((instance, view): (InstanceId, Option<ViewId>)) -> Self {
+        if let Some(view) = view {
+            FocusPath::EMPTY.with(instance).with(view)
+        } else {
+            FocusPath::EMPTY.with(instance)
+        }
+    }
+}
+
+impl FocusTarget {
+    fn instance(&self) -> Option<InstanceId> {
+        match self {
+            FocusTarget::Instance(instance_id) => Some(*instance_id),
+            _ => None,
+        }
+    }
 }

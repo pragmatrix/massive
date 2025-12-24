@@ -23,6 +23,8 @@ Update it whenever you learn something new about the project's patterns, convent
 - When multiple `Mutex` fields protect related data, consider consolidating them into a single `Mutex` around a state struct to reduce lock overhead and ensure atomic access.
 - Look for opportunities to eliminate unnecessary wrapper types when they no longer serve a purpose.
 - Prefer using constructor functions over struct literals when constructing types.
+- For newtype patterns wrapping a single value (e.g., `struct Wrapper(T)`), use `derive_more::Deref` to enable ergonomic access instead of requiring `.0` everywhere.
+- When generating state transition events or similar sequences, include cumulative/complete state in each event rather than just the delta. This provides full context to event handlers.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
@@ -30,6 +32,9 @@ Update it whenever you learn something new about the project's patterns, convent
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations (Clone, Debug, Default, etc.) that weren't present in the original code.
 - If a trait can't be derived due to field constraints, investigate whether the trait is actually needed before implementing it manually.
+- When writing tests with similar structure, create helper functions that format results as strings and test multiple cases in a single test function with one-line assertions rather than writing many verbose test functions.
+- In tests, place test functions before helper functions they call to make the test structure immediately visible.
+- Prefer `std::fmt::Debug` over `Display` for test output formatting, as it's more universally available and provides good default representations.
 
 ## Communication
 - Explanations should be concise and strictly relevant.
