@@ -103,6 +103,8 @@ impl Desktop {
                         ShellEvent::WindowEvent(_window_id, window_event) => {
                             // Process through EventManager and convert to view event immediately.
                             if let Some(view_event) = ViewEvent::from_window_event(&window_event)
+                                // Use a nil ViewId as a global scope for raw window events; the UI
+                                // routing logic treats this as a non-specific view identifier.
                                 && let Some(input_event) = event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
