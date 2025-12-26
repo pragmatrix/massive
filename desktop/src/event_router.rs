@@ -285,7 +285,7 @@ pub enum EventTransition<T> {
 }
 
 pub trait HitTester<T> {
-    /// Return the topmost hist at screen_pos.
+    /// Return the topmost hit at screen_pos.
     fn hit_test(&self, screen_pos: Point) -> (FocusPath<T>, Vector3);
     /// Returns the position transformed on target, even if it's outside of it.
     fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<T>) -> Option<Vector3>;
