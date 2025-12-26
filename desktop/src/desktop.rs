@@ -2,11 +2,11 @@ use std::time::Instant;
 
 use anyhow::{anyhow, bail};
 use tokio::sync::mpsc::unbounded_channel;
-use winit::event;
+use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Scene,
-    ViewCommand, ViewRole,
+    ViewCommand, ViewEvent, ViewId, ViewRole,
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::{FontManager, RenderPacing};
@@ -49,7 +49,8 @@ impl Desktop {
             fonts.clone(),
         );
         let mut instance_manager = InstanceManager::new(environment);
-        let mut event_manager = EventManager::<event::WindowEvent>::default();
+        // We need to use ViewEvent early on, because the EventRouter isn't able to convert events.
+        let mut event_manager = EventManager::<ViewEvent>::default();
 
         // Start one instance of the first registered application
         let primary_application = self
@@ -99,10 +100,13 @@ impl Desktop {
                     let event = shell_event?;
 
                     match event {
-                        ShellEvent::WindowEvent(window_id, window_event) => {
-                            // Process through EventManager
-                            if let Some(input_event) = event_manager.add_event(
-                                ExternalEvent::from_window_event(window_id, window_event.clone(), Instant::now())
+                        ShellEvent::WindowEvent(_window_id, window_event) => {
+                            // Process through EventManager and convert to view event immediately.
+                            if let Some(view_event) = ViewEvent::from_window_event(&window_event)
+                                // Use a nil ViewId as a global scope for raw window events; the UI
+                                // routing logic treats this as a non-specific view identifier.
+                                && let Some(input_event) = event_manager.add_event(
+                                ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
                                 let cmd = ui.handle_input_event(
                                     &input_event,
@@ -168,7 +172,6 @@ impl Desktop {
 
                 let instance = instance_manager.spawn(application, CreationMode::New)?;
                 presenter.present_instance(instance, originating_instance, scene)?;
-                // Window focus is faked here.
                 ui.make_foreground(instance, instance_manager, presenter)?;
                 presenter.layout(true);
             }
@@ -194,7 +197,7 @@ impl Desktop {
             InstanceCommand::CreateView(info) => {
                 instance_manager.add_view(instance, &info);
                 presenter.present_view(instance, &info)?;
-                // If this instance is currently focused and this is a primary view, make it
+                // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
                 if ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
                     ui.make_foreground(instance, instance_manager, presenter)?;

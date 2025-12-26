@@ -17,4 +17,6 @@ derive_more.workspace = true
 log.workspace = true
 tokio.workspace = true
 uuid.workspace = true
+# Architecture: We should get rid of the winit dependency here. Current ViewEvent depends on it, 
+# and the converter does not seem to belong in this crate.
 winit.workspace = true

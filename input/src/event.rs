@@ -2,16 +2,17 @@ use std::time::{Duration, Instant};
 
 use winit::event::{DeviceId, ElementState, MouseButton};
 
+use massive_geometry::{Point, Vector};
+
 use super::{ButtonSensor, event_history::EventRecord, tracker::Movement};
 use crate::{
     AggregationEvent, InputEvent, MouseGesture, PointingDeviceState,
     event_aggregator::DeviceStates, event_history::EventHistory,
 };
-use massive_geometry::{Point, Vector};
 
 #[derive(Clone, Debug)]
 pub struct Event<'history, E: InputEvent> {
-    /// The event history, including this as the most recent event.
+    /// Gorilla: The event history, including the most recent event which represents this event.
     history: &'history EventHistory<E>,
 }
 
@@ -37,9 +38,12 @@ impl<'history, E: InputEvent> Event<'history, E> {
     /// has reported a position yet.
     ///
     // Robustness: I think we should make this require the device() to be passed, this is otherwise
-    // too implicit.
     pub fn pos(&self) -> Option<Point> {
         self.states().pos(self.device()?)
+    }
+
+    pub fn device_pos(&self, device: DeviceId) -> Option<Point> {
+        self.states().pos(device)
     }
 
     /// Returns the device that is associated with the event.
