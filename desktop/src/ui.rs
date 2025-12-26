@@ -119,8 +119,8 @@ impl UI {
 
         // Create a hit tester and forward events.
 
-        let hit_tester = HitTest::from((instance_manager, render_geometry));
-        let transitions = self.event_router.handle_event(event, &hit_tester)?;
+        let hit_test = HitTest::from((instance_manager, render_geometry));
+        let transitions = self.event_router.handle_event(event, &hit_test)?;
 
         apply_changes(transitions.transitions, instance_manager)?;
 
