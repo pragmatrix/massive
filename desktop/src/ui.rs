@@ -22,16 +22,13 @@ use crate::{
 type FocusPath = focus_tree::FocusPath<FocusTarget>;
 type EventRouter = event_router::EventRouter<FocusTarget>;
 
-// Architecture: This is all about focus so far. May rename it to DesktopInput or DesktopFocus or
-// InputInterface?
-//
-// Architecture: Every function here needs &InstanceManager.
 #[derive(Debug)]
 pub struct UI {
     event_router: EventRouter,
     camera: Animated<PixelCamera>,
 }
 
+// Architecture: Every function here needs &InstanceManager.
 impl UI {
     // Detail: We need a primary instance and view to initialize the UI for now.
     //
