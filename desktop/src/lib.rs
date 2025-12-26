@@ -8,5 +8,5 @@ mod ui;
 
 pub use application_registry::Application;
 pub use desktop::*;
-pub use event_router::*;
+pub use event_router::{EventRouter, EventTransition, HitTester};
 pub use ui::*;

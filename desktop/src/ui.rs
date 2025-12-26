@@ -12,7 +12,7 @@ use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    EventTransition, EventTransitions, HitTester,
+    EventTransition, HitTester,
     desktop_presenter::DesktopPresenter,
     event_router, focus_tree,
     instance_manager::{InstanceManager, ViewPath},
@@ -42,7 +42,7 @@ impl UI {
         let mut event_router = EventRouter::default();
         let initial_transitions = event_router.focus(view_path.into());
 
-        apply_transitions(initial_transitions, instance_manager)?;
+        apply_changes(initial_transitions.transitions, instance_manager)?;
 
         let camera =
             camera(event_router.focused(), presenter).expect("Internal error: No initial focus");
@@ -72,7 +72,7 @@ impl UI {
         let focus_path: FocusPath = (instance, primary_view).into();
 
         let transitions = self.event_router.focus(focus_path);
-        apply_transitions(transitions, instance_manager)?;
+        apply_changes(transitions.transitions, instance_manager)?;
 
         let camera = camera(self.event_router.focused(), presenter);
         if let Some(camera) = camera {
@@ -122,9 +122,18 @@ impl UI {
         let hit_tester = HitTest::from((instance_manager, render_geometry));
         let transitions = self.event_router.handle_event(event, &hit_tester)?;
 
-        apply_transitions(transitions, instance_manager)?;
+        apply_changes(transitions.transitions, instance_manager)?;
 
-        Ok(UiCommand::None)
+        // Robustness: Currently we don't check if the only the instance actually changed.
+        let command = if let Some(new_focus) = transitions.focus_changed
+            && let Some(instance) = new_focus.instance()
+        {
+            UiCommand::MakeForeground { instance }
+        } else {
+            UiCommand::None
+        };
+
+        Ok(command)
     }
 }
 
@@ -134,11 +143,11 @@ enum FocusTarget {
     View(ViewId),
 }
 
-fn apply_transitions(
-    transitions: EventTransitions<FocusTarget>,
+fn apply_changes(
+    changes: Vec<EventTransition<FocusTarget>>,
     instance_manager: &InstanceManager,
 ) -> Result<()> {
-    for transition in transitions.into_vec() {
+    for transition in changes {
         match transition {
             EventTransition::Send(focus_path, view_event) => {
                 if let Some(path) = focus_path.view_path() {

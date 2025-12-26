@@ -5,7 +5,6 @@
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
 use anyhow::Result;
-use derive_more::{From, Into};
 use log::warn;
 use winit::event::ElementState;
 
@@ -55,10 +54,10 @@ where
     T: Clone,
 {
     /// Change focus to the given path.
-    pub fn focus(&mut self, path: FocusPath<T>) -> EventTransitions<T> {
-        let mut event_transitions = EventTransitions::default();
+    pub fn focus(&mut self, path: FocusPath<T>) -> ChangeLog<T> {
+        let mut event_transitions = TransitionLog::new(self.focused().clone());
         set_focus(&mut self.focus_tree, path, &mut event_transitions);
-        event_transitions
+        event_transitions.finalize(self.focused().clone())
     }
 
     pub fn focused(&self) -> &FocusPath<T> {
@@ -69,10 +68,10 @@ where
         &mut self,
         input_event: &Event<ViewEvent>,
         hit_tester: &dyn HitTester<T>,
-    ) -> Result<EventTransitions<T>> {
+    ) -> Result<ChangeLog<T>> {
         let view_event = input_event.event();
 
-        let mut event_transitions = EventTransitions::default();
+        let mut event_transitions = TransitionLog::new(self.focused().clone());
 
         let keyboard_focused = self.focus_tree.focused();
 
@@ -156,26 +155,6 @@ where
 
             // Keyboard focus
             ViewEvent::KeyboardInput { .. } | ViewEvent::Ime(..) => {
-                // if key_event.state == ElementState::Pressed
-                //     && !key_event.repeat
-                //     && input_event.states().is_command()
-                //     && let Some(ViewPath { instance, .. }) = focused_view
-                // {
-                //     match &key_event.logical_key {
-                //         Key::Character(c) if c.as_str() == "t" => {
-                //             let application = instance_manager.get_application_name(instance)?;
-                //             return Ok(UiCommand::StartInstance {
-                //                 application: application.to_string(),
-                //                 originating_instance: instance,
-                //             });
-                //         }
-                //         Key::Character(c) if c.as_str() == "w" => {
-                //             return Ok(UiCommand::StopInstance { instance });
-                //         }
-                //         _ => {}
-                //     }
-                // }
-
                 event_transitions.send(keyboard_focused, view_event.clone());
             }
 
@@ -190,10 +169,10 @@ where
             ViewEvent::Resized(_) => {}
         }
 
-        Ok(event_transitions)
+        Ok(event_transitions.finalize(self.focused().clone()))
     }
 
-    fn set_outer_focus(&mut self, focused: bool, transitions: &mut EventTransitions<T>) {
+    fn set_outer_focus(&mut self, focused: bool, transitions: &mut TransitionLog<T>) {
         match (&self.outer_focus, focused) {
             (OuterFocusState::Unfocused { focused_previously }, true) => {
                 // Restore focus if nothing is focused.
@@ -227,7 +206,7 @@ where
 fn set_focus<T>(
     focus_tree: &mut FocusTree<T>,
     path: impl Into<FocusPath<T>>,
-    event_transitions: &mut EventTransitions<T>,
+    event_transitions: &mut TransitionLog<T>,
 ) where
     T: PartialEq + Clone,
 {
@@ -238,7 +217,7 @@ fn set_focus<T>(
 
 fn forward_focus_transitions<T>(
     focus_transitions: FocusTransitions<T>,
-    event_transitions: &mut EventTransitions<T>,
+    event_transitions: &mut TransitionLog<T>,
 ) where
     T: Clone,
 {
@@ -253,29 +232,49 @@ fn forward_focus_transitions<T>(
     }
 }
 
-#[derive(Debug, From, Into)]
-pub struct EventTransitions<T>(Vec<EventTransition<T>>);
-
-impl<T> Default for EventTransitions<T> {
-    fn default() -> Self {
-        Self(Default::default())
-    }
+#[must_use]
+#[derive(Debug)]
+pub struct ChangeLog<T> {
+    pub transitions: Vec<EventTransition<T>>,
+    pub focus_changed: Option<FocusPath<T>>,
 }
 
-impl<T> EventTransitions<T> {
+#[derive(Debug)]
+struct TransitionLog<T> {
+    transitions: Vec<EventTransition<T>>,
+    before_focus: FocusPath<T>,
+}
+
+impl<T> TransitionLog<T> {
+    fn new(focus: FocusPath<T>) -> Self {
+        Self {
+            transitions: Vec::new(),
+            before_focus: focus,
+        }
+    }
+
     fn send(&mut self, path: &FocusPath<T>, event: ViewEvent)
     where
         T: Clone,
     {
-        self.0.push(EventTransition::Send(path.clone(), event));
+        self.transitions
+            .push(EventTransition::Send(path.clone(), event));
     }
 
     fn broadcast(&mut self, event: ViewEvent) {
-        self.0.push(EventTransition::Broadcast(event));
+        self.transitions.push(EventTransition::Broadcast(event));
     }
 
-    pub fn into_vec(self) -> Vec<EventTransition<T>> {
-        self.0
+    pub fn finalize(self, focus: FocusPath<T>) -> ChangeLog<T>
+    where
+        T: PartialEq,
+    {
+        let focus_changed = (self.before_focus != focus).then_some(focus);
+
+        ChangeLog {
+            transitions: self.transitions,
+            focus_changed,
+        }
     }
 }
 
