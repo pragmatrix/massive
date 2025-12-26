@@ -15,13 +15,9 @@ pub struct ExternalEvent<E: InputEvent> {
     pub time: Instant,
 }
 
-impl ExternalEvent<WindowEvent> {
-    pub fn from_window_event(window: WindowId, event: WindowEvent, time: Instant) -> Self {
-        Self {
-            scope: window,
-            event,
-            time,
-        }
+impl<E: InputEvent> ExternalEvent<E> {
+    pub fn new(scope: E::ScopeId, event: E, time: Instant) -> Self {
+        Self { scope, event, time }
     }
 }
 
@@ -41,6 +37,28 @@ pub trait InputEvent: fmt::Debug + 'static {
     fn device(&self) -> Option<DeviceId>;
 }
 
+/// A distilled event representation to support state aggregation (i.e. tracking positions, button
+/// states, keyboard modifiers).
+pub enum AggregationEvent {
+    CursorMoved {
+        device_id: DeviceId,
+        position: Point,
+    },
+    CursorEntered {
+        device_id: DeviceId,
+    },
+    CursorLeft {
+        device_id: DeviceId,
+    },
+    MouseInput {
+        device_id: DeviceId,
+        state: ElementState,
+        button: MouseButton,
+    },
+    ModifiersChanged(Modifiers),
+}
+
+// Architecture: This does not belong here.
 impl InputEvent for WindowEvent {
     type ScopeId = WindowId;
 
@@ -94,25 +112,4 @@ impl InputEvent for WindowEvent {
             _ => None,
         }
     }
-}
-
-/// A distilled event representation to support state aggregation (i.e. tracking positions, button
-/// states, keyboard modifiers).
-pub enum AggregationEvent {
-    CursorMoved {
-        device_id: DeviceId,
-        position: Point,
-    },
-    CursorEntered {
-        device_id: DeviceId,
-    },
-    CursorLeft {
-        device_id: DeviceId,
-    },
-    MouseInput {
-        device_id: DeviceId,
-        state: ElementState,
-        button: MouseButton,
-    },
-    ModifiersChanged(Modifiers),
 }

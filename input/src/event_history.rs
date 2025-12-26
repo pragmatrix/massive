@@ -101,7 +101,7 @@ impl<E: InputEvent> EventHistory<E> {
 pub struct EventRecord<E: InputEvent> {
     pub id: u64,
     pub event: ExternalEvent<E>,
-    // TODO: may recycle states if they don't change (use `Rc`).
+    // Memory: may recycle states if they don't change (use `Rc`).
     pub states: DeviceStates,
 }
 
