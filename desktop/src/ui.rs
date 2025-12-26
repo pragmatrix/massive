@@ -28,10 +28,8 @@ type EventRouter = event_router::EventRouter<FocusTarget>;
 // Architecture: Every function here needs &InstanceManager.
 #[derive(Debug)]
 pub struct UI {
-    /// The camera
-    camera: Animated<PixelCamera>,
-
     event_router: EventRouter,
+    camera: Animated<PixelCamera>,
 }
 
 impl UI {
@@ -53,8 +51,8 @@ impl UI {
             camera(event_router.focused(), presenter).expect("Internal error: No initial focus");
 
         Ok(Self {
-            camera: scene.animated(camera),
             event_router,
+            camera: scene.animated(camera),
         })
     }
 
