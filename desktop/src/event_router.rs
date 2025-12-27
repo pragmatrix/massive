@@ -136,9 +136,18 @@ where
                         self.cursor_focus.clone(),
                         &mut event_transitions,
                     );
+                    // Detail: We don't want to forward the event if the focused changed in response
+                    // to it, because it would cause a selection to be marked if we animate views in
+                    // response to a focus change.
+                    //
+                    // This would only work when we would move the mouse cursor.
+                    //
+                    // Feature: We could respond only to a click and let movements get through
+                    // without focusing. This way users could select / copy, etc. without moving the
+                    // focus?
+                } else {
+                    event_transitions.send(&self.cursor_focus, view_event.clone());
                 }
-
-                event_transitions.send(&self.cursor_focus, view_event.clone());
             }
 
             // Forward to the current cursor focus.
