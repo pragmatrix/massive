@@ -25,6 +25,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Prefer using constructor functions over struct literals when constructing types.
 - For newtype patterns wrapping a single value (e.g., `struct Wrapper(T)`), use `derive_more::Deref` to enable ergonomic access instead of requiring `.0` everywhere.
 - When generating state transition events or similar sequences, include cumulative/complete state in each event rather than just the delta. This provides full context to event handlers.
+- In data structures with paired values (like min/max bounds), group them logically: prefer `x: [f32; 2], y: [f32; 2]` over `min_x, min_y, max_x, max_y` for clarity.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
