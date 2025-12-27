@@ -49,6 +49,7 @@ pub struct Renderer {
 pub struct RenderVisual {
     pub location_id: Id,
     pub depth_bias: usize,
+    pub clip_bounds: Option<massive_geometry::Bounds>,
     pub batches: PipelineBatches,
 }
 
@@ -280,6 +281,7 @@ impl Renderer {
             RenderVisual {
                 location_id: visual.location,
                 depth_bias: visual.depth_bias,
+                clip_bounds: visual.clip_bounds,
                 batches,
             },
         );
@@ -424,10 +426,10 @@ impl Renderer {
 
             let pass = &mut context.pass;
 
-            // TODO: Get clip_rect from visual
+            let clip_rect = visual.clip_bounds.map_or(ClipRect::NONE, ClipRect::from);
             let push_constants = PushConstants {
                 view_model: matrix.to_pod(),
-                clip_rect: ClipRect::NONE,
+                clip_rect,
             };
             pass.set_push_constants(
                 wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,

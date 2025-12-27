@@ -6,7 +6,7 @@ use std::{
 use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;
 
-use massive_geometry::Vector3;
+use massive_geometry::{Bounds, Vector3};
 use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
 // We need this for Rust to store our data correctly for the shaders
@@ -38,6 +38,15 @@ impl ClipRect {
         Self {
             x: [x.0, x.1],
             y: [y.0, y.1],
+        }
+    }
+}
+
+impl From<Bounds> for ClipRect {
+    fn from(bounds: Bounds) -> Self {
+        Self {
+            x: [bounds.min.x as f32, bounds.max.x as f32],
+            y: [bounds.min.y as f32, bounds.max.y as f32],
         }
     }
 }
