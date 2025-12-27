@@ -2,7 +2,8 @@
 
 struct PushConstants {
     view_model: mat4x4<f32>,
-    clip_rect: vec4<f32>, // (min_x, min_y, max_x, max_y) in model space
+    clip_rect_x: vec2<f32>, // [min_x, max_x]
+    clip_rect_y: vec2<f32>, // [min_y, max_y]
 }
 
 var<push_constant> pc: PushConstants;
@@ -40,8 +41,8 @@ var s_sampler: sampler;
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Clip fragments outside the clip rectangle (exclusive bounds)
-    if (in.model_pos.x < pc.clip_rect.x || in.model_pos.x >= pc.clip_rect.z ||
-        in.model_pos.y < pc.clip_rect.y || in.model_pos.y >= pc.clip_rect.w) {
+    if (in.model_pos.x < pc.clip_rect_x.x || in.model_pos.x >= pc.clip_rect_x.y ||
+        in.model_pos.y < pc.clip_rect_y.x || in.model_pos.y >= pc.clip_rect_y.y) {
         discard;
     }
     

@@ -22,28 +22,22 @@ const_assert_eq!(size_of::<Matrix4>() % 16, 0);
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct ClipRect {
-    pub min_x: f32,
-    pub min_y: f32,
-    pub max_x: f32,
-    pub max_y: f32,
+    pub x: [f32; 2], // [min_x, max_x]
+    pub y: [f32; 2], // [min_y, max_y]
 }
 
 impl ClipRect {
     /// Clip rectangle that effectively disables clipping.
     pub const NONE: Self = Self {
-        min_x: f32::MIN,
-        min_y: f32::MIN,
-        max_x: f32::MAX,
-        max_y: f32::MAX,
+        x: [f32::MIN, f32::MAX],
+        y: [f32::MIN, f32::MAX],
     };
 
     #[allow(unused)]
-    pub fn new(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> Self {
+    pub fn new(x: (f32, f32), y: (f32, f32)) -> Self {
         Self {
-            min_x,
-            min_y,
-            max_x,
-            max_y,
+            x: [x.0, x.1],
+            y: [y.0, y.1],
         }
     }
 }
