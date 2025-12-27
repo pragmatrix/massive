@@ -50,8 +50,8 @@ impl ShapeRenderer {
             label: Some("Shape Pipeline Layout"),
             bind_group_layouts: &[],
             push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::VERTEX,
-                range: 0..pods::Matrix4::size(),
+                stages: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                range: 0..pods::PushConstants::size(),
             }],
         });
 

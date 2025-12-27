@@ -18,6 +18,47 @@ pub struct Matrix4(pub [[f32; 4]; 4]);
 // WebGL uniform requirement
 const_assert_eq!(size_of::<Matrix4>() % 16, 0);
 
+/// Clip rectangle in model space with exclusive bounds.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ClipRect {
+    pub min_x: f32,
+    pub min_y: f32,
+    pub max_x: f32,
+    pub max_y: f32,
+}
+
+impl ClipRect {
+    /// Clip rectangle that effectively disables clipping.
+    pub const NONE: Self = Self {
+        min_x: f32::MIN,
+        min_y: f32::MIN,
+        max_x: f32::MAX,
+        max_y: f32::MAX,
+    };
+
+    #[allow(unused)]
+    pub fn new(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> Self {
+        Self {
+            min_x,
+            min_y,
+            max_x,
+            max_y,
+        }
+    }
+}
+
+/// Push constants for rendering, containing view-model matrix and clip rectangle.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct PushConstants {
+    pub view_model: Matrix4,
+    pub clip_rect: ClipRect,
+}
+
+// WebGL uniform requirement
+const_assert_eq!(size_of::<PushConstants>() % 16, 0);
+
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
 pub struct TextureSize(pub [f32; 2], pub [u32; 2]);
