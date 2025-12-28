@@ -1,7 +1,8 @@
 use cosmic_text as text;
 use glam::IVec2;
-use massive_geometry::{Color, SizePx, Vector3};
 use serde::{Deserialize, Serialize};
+
+use massive_geometry::{Color, SizePx, Vector3};
 
 use crate::geometry::Bounds;
 
