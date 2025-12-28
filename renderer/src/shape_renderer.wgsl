@@ -1,6 +1,12 @@
 // Vertex shader
 
-var<push_constant> view_model: mat4x4<f32>;
+struct PushConstants {
+    view_model: mat4x4<f32>,
+    clip_rect_x: vec2<f32>, // [min_x, max_x]
+    clip_rect_y: vec2<f32>, // [min_y, max_y]
+}
+
+var<push_constant> pc: PushConstants;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -23,6 +29,7 @@ struct VertexOutput {
     @location(1) @interpolate(flat) shape_selector: u32,
     @location(3) @interpolate(flat) shape_data: vec2<f32>,
     @location(4) @interpolate(flat) color: vec4<f32>,
+    @location(5) model_pos: vec2<f32>,
 }
 
 @vertex
@@ -31,7 +38,8 @@ fn vs_main(
 ) -> VertexOutput {
     var out: VertexOutput;
     out.unorm_tex_coords = vertex_input.unorm_tex_coords;
-    out.clip_position = view_model * vec4<f32>(vertex_input.position, 1.0);
+    out.model_pos = vertex_input.position.xy;
+    out.clip_position = pc.view_model * vec4<f32>(vertex_input.position, 1.0);
     // New: pass-through selector, size, and rounding
     out.shape_selector = vertex_input.shape_selector;
     out.shape_size = vertex_input.shape_size;
@@ -49,6 +57,12 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
+    // Clip fragments outside the clip rectangle (exclusive bounds)
+    if (in.model_pos.x < pc.clip_rect_x.x || in.model_pos.x >= pc.clip_rect_x.y ||
+        in.model_pos.y < pc.clip_rect_y.x || in.model_pos.y >= pc.clip_rect_y.y) {
+        discard;
+    }
+    
     let distance = compute_distance(in);
     // Adaptive screen-space AA using intrinsic fwidth(distance)
     // fwidth(x) = abs(dfdx(x)) + abs(dfdy(x)); gives 1.0 on axis-aligned SDF edges, ~1.414 at 45°.

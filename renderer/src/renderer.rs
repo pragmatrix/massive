@@ -8,7 +8,7 @@ use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 use crate::{
     RenderDevice, Transaction, TransactionManager,
     config::RendererConfig,
-    pods::{AsBytes, ToPod},
+    pods::{AsBytes, ClipRect, PushConstants, ToPod},
     render_batches::RenderBatches,
     scene::{LocationTransforms, Scene},
     stats::MeasureSeries,
@@ -49,6 +49,7 @@ pub struct Renderer {
 pub struct RenderVisual {
     pub location_id: Id,
     pub depth_bias: usize,
+    pub clip_bounds: Option<massive_geometry::Bounds>,
     pub batches: PipelineBatches,
 }
 
@@ -280,6 +281,7 @@ impl Renderer {
             RenderVisual {
                 location_id: visual.location,
                 depth_bias: visual.depth_bias,
+                clip_bounds: visual.clip_bounds,
                 batches,
             },
         );
@@ -424,7 +426,16 @@ impl Renderer {
 
             let pass = &mut context.pass;
 
-            pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, matrix.to_pod().as_bytes());
+            let clip_rect = visual.clip_bounds.map_or(ClipRect::NONE, ClipRect::from);
+            let push_constants = PushConstants {
+                view_model: matrix.to_pod(),
+                clip_rect,
+            };
+            pass.set_push_constants(
+                wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                0,
+                push_constants.as_bytes(),
+            );
             // Architecture: This test needs only done once per pipeline.
             if let Some(bg) = &batch.fs_bind_group {
                 pass.set_bind_group(0, bg, &[]);

@@ -6,7 +6,7 @@ use std::{
 use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;
 
-use massive_geometry::Vector3;
+use massive_geometry::{Bounds, Vector3};
 use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexStepMode};
 
 // We need this for Rust to store our data correctly for the shaders
@@ -17,6 +17,50 @@ pub struct Matrix4(pub [[f32; 4]; 4]);
 
 // WebGL uniform requirement
 const_assert_eq!(size_of::<Matrix4>() % 16, 0);
+
+/// Clip rectangle in model space with exclusive bounds.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct ClipRect {
+    pub x: [f32; 2], // [min_x, max_x]
+    pub y: [f32; 2], // [min_y, max_y]
+}
+
+impl ClipRect {
+    /// Clip rectangle that effectively disables clipping.
+    pub const NONE: Self = Self {
+        x: [f32::MIN, f32::MAX],
+        y: [f32::MIN, f32::MAX],
+    };
+
+    #[allow(unused)]
+    pub fn new(x: (f32, f32), y: (f32, f32)) -> Self {
+        Self {
+            x: [x.0, x.1],
+            y: [y.0, y.1],
+        }
+    }
+}
+
+impl From<Bounds> for ClipRect {
+    fn from(bounds: Bounds) -> Self {
+        Self {
+            x: [bounds.min.x as f32, bounds.max.x as f32],
+            y: [bounds.min.y as f32, bounds.max.y as f32],
+        }
+    }
+}
+
+/// Push constants for rendering, containing view-model matrix and clip rectangle.
+#[repr(C)]
+#[derive(Debug, Copy, Clone, Pod, Zeroable)]
+pub struct PushConstants {
+    pub view_model: Matrix4,
+    pub clip_rect: ClipRect,
+}
+
+// WebGL uniform requirement
+const_assert_eq!(size_of::<PushConstants>() % 16, 0);
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]

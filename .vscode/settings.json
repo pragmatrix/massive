@@ -1,5 +1,6 @@
 {
     "cSpell.words": [
+        "afwidth",
         "anchorize",
         "anchorized",
         "Anchorizer",
@@ -14,6 +15,7 @@
         "curr",
         "Danielsson's",
         "dmag",
+        "dpdx",
         "dscale",
         "Editioned",
         "fontdb",
@@ -38,6 +40,7 @@
         "rsqrt",
         "shortcodes",
         "slerp",
+        "smoothstep",
         "SSEDT",
         "stdvec",
         "stdx",

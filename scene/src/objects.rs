@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use massive_geometry::Transform;
+use massive_geometry::{Bounds, Transform};
 use massive_shapes::{GlyphRun, Shape};
 
 use crate::{Handle, Id, Object};
@@ -15,6 +15,9 @@ pub struct Visual {
     /// The current depth bias for this Visual. Default is 0, which renders it at first (without
     /// z-buffer) or with the corresponding depth bias (with z-buffer).
     pub depth_bias: usize,
+
+    /// An optional clip bounds in model space 2D only.
+    pub clip_bounds: Option<Bounds>,
 
     /// DR: Clients should be able to use [`Visual`] directly as a an abstract thing. Like for
     /// example a line which contains multiple Shapes (runs, quads, etc.). Therefore `Vec<Shape>`
@@ -33,6 +36,7 @@ impl Visual {
         Self {
             location,
             depth_bias: 0,
+            clip_bounds: None,
             shapes: shapes.into(),
         }
     }
@@ -40,12 +44,20 @@ impl Visual {
     pub fn with_depth_bias(self, depth_bias: usize) -> Self {
         Self { depth_bias, ..self }
     }
+
+    pub fn with_clip_bounds(self, bounds: impl Into<Bounds>) -> Self {
+        Self {
+            clip_bounds: Some(bounds.into()),
+            ..self
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub struct VisualRenderObj {
     pub location: Id,
     pub depth_bias: usize,
+    pub clip_bounds: Option<Bounds>,
     pub shapes: Arc<[Shape]>,
 }
 
@@ -69,6 +81,7 @@ impl Object for Visual {
         VisualRenderObj {
             location: self.location.id(),
             depth_bias: self.depth_bias,
+            clip_bounds: self.clip_bounds,
             shapes: self.shapes.clone(),
         }
     }
