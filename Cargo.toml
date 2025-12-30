@@ -3,16 +3,18 @@ resolver = "3"
 
 members = [
     "animation",
-    "geometry",
-    "input",
-    "shapes",
-    "renderer",
-    "shell",
-    "scene",
     "applications",
     "desktop",
+    "geometry",
+    "input",
+    "layout",
+    "renderer",
+    "scene",
+    "shapes",
+    "shell",
     "util", 
-    "examples/*", "layout",
+
+    "examples/*",
 ]
 
 exclude = [
