@@ -3,15 +3,17 @@ resolver = "3"
 
 members = [
     "animation",
-    "geometry",
-    "input",
-    "shapes",
-    "renderer",
-    "shell",
-    "scene",
     "applications",
     "desktop",
+    "geometry",
+    "input",
+    "layout",
+    "renderer",
+    "scene",
+    "shapes",
+    "shell",
     "util", 
+
     "examples/*",
 ]
 
@@ -34,6 +36,7 @@ massive-animation = { path = "animation" }
 massive-applications = { path = "applications" }
 massive-geometry = { path = "geometry" }
 massive-input = { path = "input" }
+massive-layout = { path = "layout" }
 massive-modules = { path = "modules" }
 massive-renderer = { path = "renderer" }
 massive-scene = { path = "scene" }
@@ -68,9 +71,9 @@ tracing = "0.1.40"
 tracing-chrome = "0.7.2"
 tracing-flame = "0.2.0"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
+uuid = { version = "1.18.1", features = ["v4"] }
 wgpu = "26.0.1"
 winit = { version = "0.30.12", features = ["rwh_06"] }
-uuid = { version = "1.18.1", features = ["v4"] }
 
 # rt-multi-thread is not supported on wasm
 tokio = { version = "1.36.0", features = ["macros", "sync"] }

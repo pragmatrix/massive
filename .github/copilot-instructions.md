@@ -24,6 +24,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Look for opportunities to eliminate unnecessary wrapper types when they no longer serve a purpose.
 - Prefer using constructor functions over struct literals when constructing types.
 - For newtype patterns wrapping a single value (e.g., `struct Wrapper(T)`), use `derive_more::Deref` to enable ergonomic access instead of requiring `.0` everywhere.
+- When implementing newtypes with `derive_more`, include `Copy` and `Clone` derives when the wrapped type supports them.
 - When generating state transition events or similar sequences, include cumulative/complete state in each event rather than just the delta. This provides full context to event handlers.
 - In data structures with paired values (like min/max bounds), group them logically: prefer `x: [f32; 2], y: [f32; 2]` over `min_x, min_y, max_x, max_y` for clarity.
 
@@ -36,6 +37,8 @@ Update it whenever you learn something new about the project's patterns, convent
 - When writing tests with similar structure, create helper functions that format results as strings and test multiple cases in a single test function with one-line assertions rather than writing many verbose test functions.
 - In tests, place test functions before helper functions they call to make the test structure immediately visible.
 - Prefer `std::fmt::Debug` over `Display` for test output formatting, as it's more universally available and provides good default representations.
+- For data types used in test assertions, derive `PartialEq` and `Eq` rather than implementing them manually.
+- In test modules, create concise constructor helper functions to reduce verbosity in assertions (e.g., `rect(x, y, w, h)` instead of `Rect::new(Offset { dim: [x, y] }, Size { dim: [w, h] })`).
 
 ## Communication
 - Explanations should be concise and strictly relevant.
