@@ -27,6 +27,10 @@ Update it whenever you learn something new about the project's patterns, convent
 - When implementing newtypes with `derive_more`, include `Copy` and `Clone` derives when the wrapped type supports them.
 - When generating state transition events or similar sequences, include cumulative/complete state in each event rather than just the delta. This provides full context to event handlers.
 - In data structures with paired values (like min/max bounds), group them logically: prefer `x: [f32; 2], y: [f32; 2]` over `min_x, min_y, max_x, max_y` for clarity.
+- Prefer using standard library traits (`Add`, `Mul`, etc.) over creating custom traits when possible.
+- When operations can be expressed using simpler primitives (e.g., subtraction as `a + (b * -1.0)`), avoid adding extra trait requirements.
+- Use `Self::Variant` consistently in enum match statements rather than fully qualifying the enum name.
+- Types that are private to a module don't need constructor functions - use struct literals directly.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
