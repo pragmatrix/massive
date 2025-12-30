@@ -24,7 +24,7 @@ pub trait LayoutNode<const RANK: usize>: Sized {
     where
         Self: 'c;
 
-    /// If this is a container, returns container options and child iterator, and container options.
+    /// If this is a container, returns container options and child iterator.
     fn meta(&self) -> NodeMeta<Self::ChildIter<'_>, RANK>;
     fn meta_mut(&mut self) -> NodeMeta<Self::ChildIterMut<'_>, RANK>;
 
