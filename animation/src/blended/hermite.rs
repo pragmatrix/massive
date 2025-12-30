@@ -57,10 +57,27 @@ where
         duration: Duration,
     ) {
         let from_tangent = if let Some(ref animation) = self.animation {
-            // Compute velocity from existing animation at current time
-            let velocity = animation.velocity_at(current_time);
-            // Scale velocity by new duration to get tangent
-            velocity * duration.as_secs_f64()
+            let t = animation.t_at(current_time);
+            // If previous animation has ended, start fresh like CubicOut
+            if t >= 1.0 {
+                let delta = to.clone() + (current_value.clone() * -1.0);
+                delta * 3.0
+            } else {
+                // Compute velocity from existing animation at current time
+                let velocity = animation.velocity_at(current_time);
+
+                // To maintain aggressiveness when chaining animations:
+                // We blend the existing velocity with the fresh direction boost.
+                // This prevents the animation from becoming too sluggish as it decelerates,
+                // while avoiding excessive overshoot.
+                let velocity_tangent = velocity * duration.as_secs_f64();
+                let delta = to.clone() + (current_value.clone() * -1.0);
+                let direction_tangent = delta * 3.0;
+
+                // Blend 60% existing velocity + 40% fresh direction
+                // This maintains momentum while adapting to the new target
+                velocity_tangent * 0.6 + direction_tangent * 0.4
+            }
         } else {
             // No existing animation, start with CubicOut-like initial velocity
             // CubicOut has derivative of 3 at t=0, so initial tangent = 3 * (to - from)
@@ -156,8 +173,12 @@ where
     fn velocity_at(&self, instant: Instant) -> T {
         let t = self.t_at(instant);
 
-        // If before or after animation, velocity is zero
-        if t <= 0.0 || t >= 1.0 {
+        // If before animation, velocity is zero
+        if t < 0.0 {
+            return self.from.clone() * 0.0;
+        }
+        // If after animation, velocity is zero
+        if t > 1.0 {
             return self.from.clone() * 0.0;
         }
 
@@ -204,4 +225,150 @@ where
     let term3 = m1.clone() * h11;
 
     term0 + term1 + term2 + term3
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    fn cubic_out(t: f64) -> f64 {
+        let t = 1.0 - t;
+        1.0 - t * t * t
+    }
+
+    #[test]
+    fn hermite_matches_cubic_out_when_not_interrupted() {
+        let mut hermite = Hermite::default();
+        let start_time = Instant::now();
+        let duration = Duration::from_secs(1);
+
+        // Animate from 0.0 to 100.0
+        hermite.animate_to(0.0, start_time, 100.0, duration);
+
+        // Sample at various points and compare to CubicOut
+        let test_points = [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 0.9, 1.0];
+
+        for &t in &test_points {
+            let instant = start_time + Duration::from_secs_f64(t * duration.as_secs_f64());
+            let hermite_value = hermite.proceed(instant).unwrap();
+            let expected = cubic_out(t) * 100.0;
+
+            let diff = (hermite_value - expected).abs();
+            assert!(
+                diff < 1e-10,
+                "At t={}: hermite={}, cubic_out={}, diff={}",
+                t,
+                hermite_value,
+                expected,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn hermite_velocity_matches_cubic_out_derivative() {
+        let mut hermite = Hermite::default();
+        let start_time = Instant::now();
+        let duration = Duration::from_secs(1);
+
+        hermite.animate_to(0.0, start_time, 100.0, duration);
+
+        let animation = hermite.animation.as_ref().unwrap();
+
+        // CubicOut derivative: d/dt[1-(1-t)³] = 3(1-t)²
+        // At t=0: velocity = 3 * 1² = 3, scaled by (to-from) = 300
+        // At t=1: velocity = 3 * 0² = 0
+        let test_points = [
+            (0.0, 300.0),
+            (0.2, 192.0),
+            (0.5, 75.0),
+            (0.8, 12.0),
+            (1.0, 0.0),
+        ];
+
+        for &(t, expected_velocity) in &test_points {
+            let instant = start_time + Duration::from_secs_f64(t);
+            let velocity = animation.velocity_at(instant);
+
+            let diff = (velocity - expected_velocity).abs();
+            assert!(
+                diff < 1e-9,
+                "At t={}: velocity={}, expected={}, diff={}",
+                t,
+                velocity,
+                expected_velocity,
+                diff
+            );
+        }
+    }
+
+    #[test]
+    fn hermite_restarts_with_cubic_out_if_previous_ended() {
+        let mut hermite = Hermite::default();
+        let start_time = Instant::now();
+        let duration = Duration::from_secs(1);
+
+        // First animation from 0.0 to 100.0
+        hermite.animate_to(0.0, start_time, 100.0, duration);
+
+        // Time passes beyond the end of the first animation
+        let after_end = start_time + duration + Duration::from_millis(100);
+
+        // Start a new animation without calling proceed (so the first animation is still stored)
+        // This should start fresh with CubicOut velocity, not try to continue from zero velocity
+        hermite.animate_to(100.0, after_end, 200.0, duration);
+
+        // Check that velocity at the start of second animation matches CubicOut
+        let animation = hermite.animation.as_ref().unwrap();
+        let velocity = animation.velocity_at(after_end);
+        let expected_velocity = 3.0 * (200.0 - 100.0); // CubicOut starting velocity
+
+        let diff = (velocity - expected_velocity).abs();
+        assert!(
+            diff < 1e-9,
+            "After ended animation, new animation should start with CubicOut velocity. Got {}, expected {}",
+            velocity, expected_velocity
+        );
+    }
+
+    #[test]
+    fn hermite_maintains_aggressiveness_in_rapid_succession() {
+        let mut hermite = Hermite::default();
+        let start_time = Instant::now();
+        let duration = Duration::from_millis(300);
+
+        // Simulate rapid succession: animate to 100, then 200, then 300
+        // Each new animation starts 50ms after the previous one
+        hermite.animate_to(0.0, start_time, 100.0, duration);
+
+        let t1 = start_time + Duration::from_millis(50);
+        let val1 = hermite.proceed(t1).unwrap();
+        hermite.animate_to(val1, t1, 200.0, duration);
+
+        let t2 = t1 + Duration::from_millis(50);
+        let val2 = hermite.proceed(t2).unwrap();
+        hermite.animate_to(val2, t2, 300.0, duration);
+
+        // Check that each new animation has significant initial velocity
+        let animation = hermite.animation.as_ref().unwrap();
+        let velocity_at_start = animation.velocity_at(t2);
+
+        println!("Value at t1: {}", val1);
+        println!("Value at t2: {}", val2);
+        println!("Velocity at start of 3rd animation: {}", velocity_at_start);
+
+        // The velocity should be aggressive - at least as much as a fresh CubicOut would be
+        // A fresh CubicOut from val2 to 300.0 would have velocity = 3 * (300 - val2)
+        let fresh_cubic_velocity = 3.0 * (300.0 - val2);
+        println!("Fresh CubicOut velocity would be: {}", fresh_cubic_velocity);
+
+        // With the boost, velocity should be greater than just the decaying velocity
+        assert!(
+            velocity_at_start > fresh_cubic_velocity * 0.8,
+            "Rapid succession should maintain aggressive velocity. Got {}, expected at least {}",
+            velocity_at_start,
+            fresh_cubic_velocity * 0.8
+        );
+    }
 }
