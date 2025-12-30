@@ -1,4 +1,7 @@
-use std::time::Duration;
+use std::{
+    ops::{Add, Mul},
+    time::Duration,
+};
 
 use parking_lot::Mutex;
 
@@ -9,7 +12,7 @@ use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolatio
 /// `Animated` implicitly supports animation blending. New animations added are combined with the
 /// trajectory of previous animations.
 #[derive(Debug)]
-pub struct Animated<T: Send> {
+pub struct Animated<T: Interpolatable + Send> {
     coordinator: AnimationCoordinator,
     /// The current value and the current state of the animation.
     ///
@@ -38,7 +41,7 @@ impl<T: Interpolatable + Send> Animated<T> {
         duration: Duration,
         interpolation: Interpolation,
     ) where
-        T: 'static + PartialEq,
+        T: 'static + PartialEq + Add<Output = T> + Mul<f64, Output = T>,
     {
         let mut inner = self.inner.lock();
         if *inner.final_value() == target_value {
@@ -59,7 +62,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     /// current value, if it is currently not animating.
     pub fn animate(&mut self, target_value: T, duration: Duration, interpolation: Interpolation)
     where
-        T: 'static,
+        T: 'static + Add<Output = T> + Mul<f64, Output = T>,
     {
         let instant = self.coordinator.allocate_animation_time(duration);
 
@@ -93,7 +96,10 @@ impl<T: Interpolatable + Send> Animated<T> {
     /// The current value of this animated value.
     ///
     /// If an animation is active, this computes the current value from the animation.
-    pub fn value(&self) -> T {
+    pub fn value(&self) -> T
+    where
+        T: Add<Output = T> + Mul<f64, Output = T>,
+    {
         let mut inner = self.inner.lock();
         if inner.animation.is_active() {
             let instant = self.coordinator.current_cycle_time();
@@ -134,7 +140,7 @@ impl<T: Interpolatable + Send> Animated<T> {
 #[derive(Debug)]
 struct AnimatedInner<T>
 where
-    T: Send,
+    T: Interpolatable + Send,
 {
     /// The current value.
     value: T,
@@ -142,7 +148,7 @@ where
     animation: BlendedAnimation<T>,
 }
 
-impl<T: Send> AnimatedInner<T> {
+impl<T: Interpolatable + Send> AnimatedInner<T> {
     pub fn final_value(&self) -> &T {
         self.animation.final_value().unwrap_or(&self.value)
     }
