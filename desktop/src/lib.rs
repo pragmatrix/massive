@@ -5,6 +5,7 @@ mod event_router;
 mod focus_tree;
 mod instance_manager;
 mod ui;
+mod project_configuration;
 
 pub use application_registry::Application;
 pub use desktop::*;

@@ -20,6 +20,8 @@ anyhow.workspace = true
 derive_more.workspace = true
 futures.workspace = true
 log.workspace = true
+serde.workspace = true
 tokio = { workspace = true, features = ["time"] }
+toml.workspace = true
 uuid.workspace = true
 winit.workspace = true
