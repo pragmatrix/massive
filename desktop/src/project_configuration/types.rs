@@ -1,3 +1,5 @@
+use derive_more::Deref;
+
 #[derive(Debug)]
 pub struct ProjectConfiguration {
     pub name: String,
@@ -44,7 +46,7 @@ pub struct ApplicationRef {
     pub tags: Vec<ScopedTag>,
 }
 
-#[derive(Debug, derive_more::Deref)]
+#[derive(Debug, Deref)]
 pub struct Parameters(pub Vec<Parameter>);
 
 #[derive(Debug, Clone)]
