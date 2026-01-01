@@ -5,29 +5,19 @@ use derive_more::{Constructor, Deref, From, Into};
 #[derive(Debug, Copy, Clone, From, Into, Deref)]
 pub struct LayoutAxis(usize);
 
-pub enum NodeMeta<CI, const RANK: usize> {
+pub enum LayoutInfo<const RANK: usize> {
     Container {
         layout_axis: LayoutAxis,
-        children: CI,
+        child_count: usize,
     },
-    Node {
+    Leaf {
         size: Size<RANK>,
     },
 }
 
-pub trait LayoutNode<const RANK: usize>: Sized {
-    type ChildIter<'c>: Iterator<Item = &'c Self>
-    where
-        Self: 'c;
-
-    type ChildIterMut<'c>: Iterator<Item = &'c mut Self> + DoubleEndedIterator
-    where
-        Self: 'c;
-
-    /// If this is a container, returns container options and child iterator.
-    fn meta(&self) -> NodeMeta<Self::ChildIter<'_>, RANK>;
-    fn meta_mut(&mut self) -> NodeMeta<Self::ChildIterMut<'_>, RANK>;
-
+pub trait LayoutNode<const RANK: usize> {
+    fn layout_info(&self) -> LayoutInfo<RANK>;
+    fn get_child_mut(&mut self, index: usize) -> &mut dyn LayoutNode<RANK>;
     fn set_rect(&mut self, rect: Rect<RANK>);
 }
 
@@ -78,78 +68,88 @@ impl<const RANK: usize> Rect<RANK> {
     }
 }
 
-pub fn layout<N, const RANK: usize>(node: &mut N)
-where
-    N: LayoutNode<RANK>,
-{
+/// Computes layout for a tree of nodes.
+///
+/// Uses a two-pass algorithm:
+/// 1. `compute_size_and_rects`: Depth-first traversal that computes sizes and pushes
+///    relative rects in post-order (children before parents, left before right).
+/// 2. `position`: Consumes rects via `.pop()` in reverse order while traversing children
+///    in reverse, creating perfect matching between stored rects and nodes.
+pub fn layout<const RANK: usize>(node: &mut dyn LayoutNode<RANK>) {
     let mut relative_rects = Vec::new();
-    let size = compute_size(node, &mut relative_rects);
+    let size = compute_size_and_rects(node, &mut relative_rects);
     let rect = Rect::new(Offset::ZERO, size);
-    let outer_rect = position(node, rect, &mut relative_rects);
-    node.set_rect(outer_rect);
+    position(node, rect, &mut relative_rects);
 }
 
-/// Computes sizes of all nodes and returns their container relative offsets in the order traversed.
+/// Computes sizes of all nodes and builds rects vector in post-order.
 ///
-/// The resulting rects are in pre-order (depth first) traversal with children processed in order.
-fn compute_size<N, const RANK: usize>(node: &N, child_rects: &mut Vec<Rect<RANK>>) -> Size<RANK>
-where
-    N: LayoutNode<RANK>,
-{
-    match node.meta() {
-        NodeMeta::Container {
+/// Performs depth-first traversal, pushing rects AFTER recursing into children.
+/// This creates post-order: for each container, all descendant rects are pushed
+/// before the container's own child rects.
+///
+/// Returns the size of the node.
+fn compute_size_and_rects<const RANK: usize>(
+    node: &mut dyn LayoutNode<RANK>,
+    rects: &mut Vec<Rect<RANK>>,
+) -> Size<RANK> {
+    match node.layout_info() {
+        LayoutInfo::Container {
             layout_axis,
-            children,
+            child_count,
         } => {
             let mut size = Size::ZERO;
-            let mut offset = Offset::<RANK>::ZERO;
-            for node in children {
-                let c_size = compute_size(node, child_rects);
-                for i in 0..RANK {
-                    if i == *layout_axis {
-                        size.dim[i] += c_size.dim[i];
+            let mut offset = Offset::ZERO;
+
+            // Recursively compute child sizes and push rects immediately
+            for i in 0..child_count {
+                let child = node.get_child_mut(i);
+                let child_size = compute_size_and_rects(child, rects);
+
+                rects.push(Rect::new(offset, child_size));
+                offset.dim[*layout_axis] += child_size.dim[*layout_axis];
+
+                for j in 0..RANK {
+                    if j == *layout_axis {
+                        size.dim[j] += child_size.dim[j];
                     } else {
-                        size.dim[i] = max(size.dim[i], c_size.dim[i]);
+                        size.dim[j] = max(size.dim[j], child_size.dim[j]);
                     }
                 }
-
-                child_rects.push(Rect::new(offset, c_size));
-
-                // Adjust offset
-                offset.dim[*layout_axis] += c_size.dim[*layout_axis]
-                // in all other axis, offset stays 0
             }
+
             size
         }
-        NodeMeta::Node { size } => size,
+        LayoutInfo::Leaf { size } => size,
     }
 }
 
-/// Absolutely position children.
+/// Absolutely position this node and its children.
 ///
-/// Architecture: This needs ChildIterMut and meta_mut(). Is there a way around this?
-fn position<N, const RANK: usize>(
-    node: &mut N,
+/// Processes children in REVERSE order (last to first) while consuming rects via `.pop()`.
+/// Since rects were pushed in post-order, popping gives us exactly the right rect for
+/// each child as we traverse backwards.
+fn position<const RANK: usize>(
+    node: &mut dyn LayoutNode<RANK>,
     absolute_rect: Rect<RANK>,
     child_rects: &mut Vec<Rect<RANK>>,
-) -> Rect<RANK>
-where
-    N: LayoutNode<RANK>,
-{
-    match node.meta_mut() {
-        NodeMeta::Container { children, .. } => {
-            // Process children in reverse to keep in sync with the post-order traversal.
-            for node in children.rev() {
-                let child_relative_rect = child_rects.pop().unwrap();
+) {
+    node.set_rect(absolute_rect);
+
+    match node.layout_info() {
+        LayoutInfo::Container { child_count, .. } => {
+            // Process children in backward order
+            for i in (0..child_count).rev() {
+                let child_relative_rect = child_rects
+                    .pop()
+                    .expect("Internal error: children rects do not match");
                 let child_absolute_rect = child_relative_rect.add_offset(absolute_rect.pos);
-                let positioned = position(node, child_absolute_rect, child_rects);
-                node.set_rect(positioned);
+                let child = node.get_child_mut(i);
+                position(child, child_absolute_rect, child_rects);
             }
         }
-        NodeMeta::Node { .. } => {}
+        LayoutInfo::Leaf { .. } => {}
     }
-
-    absolute_rect
 }
 
 #[cfg(test)]
@@ -178,34 +178,24 @@ mod tests {
     }
 
     impl LayoutNode<2> for TestNode {
-        type ChildIter<'c> = std::slice::Iter<'c, TestNode>;
-        type ChildIterMut<'c> = std::slice::IterMut<'c, TestNode>;
-
-        fn meta(&self) -> NodeMeta<Self::ChildIter<'_>, 2> {
+        fn layout_info(&self) -> LayoutInfo<2> {
             match self {
                 TestNode::Container {
                     layout_axis,
                     children,
                     ..
-                } => NodeMeta::Container {
+                } => LayoutInfo::Container {
                     layout_axis: *layout_axis,
-                    children: children.iter(),
+                    child_count: children.len(),
                 },
-                TestNode::Leaf { size, .. } => NodeMeta::Node { size: *size },
+                TestNode::Leaf { size, .. } => LayoutInfo::Leaf { size: *size },
             }
         }
 
-        fn meta_mut(&mut self) -> NodeMeta<Self::ChildIterMut<'_>, 2> {
+        fn get_child_mut(&mut self, index: usize) -> &mut dyn LayoutNode<2> {
             match self {
-                TestNode::Container {
-                    layout_axis,
-                    children,
-                    ..
-                } => NodeMeta::Container {
-                    layout_axis: *layout_axis,
-                    children: children.iter_mut(),
-                },
-                TestNode::Leaf { size, .. } => NodeMeta::Node { size: *size },
+                TestNode::Container { children, .. } => &mut children[index],
+                TestNode::Leaf { .. } => panic!("Leaf nodes have no children"),
             }
         }
 
