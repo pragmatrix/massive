@@ -68,6 +68,13 @@ impl<const RANK: usize> Rect<RANK> {
     }
 }
 
+/// Computes layout for a tree of nodes.
+///
+/// Uses a two-pass algorithm:
+/// 1. `compute_size_and_rects`: Depth-first traversal that computes sizes and pushes
+///    relative rects in post-order (children before parents, left before right).
+/// 2. `position`: Consumes rects via `.pop()` in reverse order while traversing children
+///    in reverse, creating perfect matching between stored rects and nodes.
 pub fn layout<const RANK: usize>(node: &mut dyn LayoutNode<RANK>) {
     let mut relative_rects = Vec::new();
     let size = compute_size_and_rects(node, &mut relative_rects);
@@ -75,7 +82,11 @@ pub fn layout<const RANK: usize>(node: &mut dyn LayoutNode<RANK>) {
     position(node, rect, &mut relative_rects);
 }
 
-/// Computes sizes of all nodes.
+/// Computes sizes of all nodes and builds rects vector in post-order.
+///
+/// Performs depth-first traversal, pushing rects AFTER recursing into children.
+/// This creates post-order: for each container, all descendant rects are pushed
+/// before the container's own child rects.
 ///
 /// Returns the size of the node.
 fn compute_size_and_rects<const RANK: usize>(
@@ -114,6 +125,10 @@ fn compute_size_and_rects<const RANK: usize>(
 }
 
 /// Absolutely position this node and its children.
+///
+/// Processes children in REVERSE order (last to first) while consuming rects via `.pop()`.
+/// Since rects were pushed in post-order, popping gives us exactly the right rect for
+/// each child as we traverse backwards.
 fn position<const RANK: usize>(
     node: &mut dyn LayoutNode<RANK>,
     absolute_rect: Rect<RANK>,
