@@ -6,8 +6,8 @@ use serde::Deserialize;
 use toml::Value;
 
 use super::types::{
-    ApplicationGroup, ApplicationRef, LayoutDirection, Parameter, Parameters, ProjectConfiguration,
-    ScopedTag,
+    ApplicationGroup, ApplicationRef, GroupContents, LayoutDirection, Parameter, Parameters,
+    ProjectConfiguration, ScopedTag,
 };
 
 /// Intermediate representation for deserializing TOML configuration files.
@@ -171,19 +171,18 @@ fn build_group(
     depth: usize,
 ) -> Result<ApplicationGroup> {
     let is_last_level = depth == group_tags.len() - 1;
-    let nested = if is_last_level {
-        // Last level - no more nesting
-        Vec::new()
+    let content = if is_last_level {
+        GroupContents::Applications(apps.iter().map(|&app| app.clone()).collect())
     } else {
-        // Recurse to build nested groups
-        build_group_hierarchy(apps, group_tags, order, depth + 1)?
+        let nested = build_group_hierarchy(apps, group_tags, order, depth + 1)?;
+        GroupContents::Groups(nested)
     };
 
     Ok(ApplicationGroup {
         name: value.clone(),
         tag: ScopedTag::new(tag_name, value),
         direction: LayoutDirection::Horizontal,
-        nested,
+        content,
     })
 }
 
@@ -194,32 +193,32 @@ mod tests {
     #[test]
     fn parse_simple_toml() {
         let toml = r#"
-[router-1]
-command = "ssh router-1"
+[host-1]
+command = "ssh host-1"
 datacenter = "ffm"
 
-[router-2]
-command = "ssh router-2"
+[host-2]
+command = "ssh host-2"
 datacenter = "ber"
         "#;
 
         let config: ConfigFile = toml::from_str(toml).unwrap();
         assert_eq!(config.applications.len(), 2);
-        assert!(config.applications.contains_key("router-1"));
-        assert!(config.applications.contains_key("router-2"));
+        assert!(config.applications.contains_key("host-1"));
+        assert!(config.applications.contains_key("host-2"));
     }
 
     #[test]
     fn build_app_ref_separates_tags_and_params() {
         let mut section = HashMap::new();
-        section.insert("command".to_string(), str_val("ssh router-1"));
+        section.insert("command".to_string(), str_val("ssh host-1"));
         section.insert("datacenter".to_string(), str_val("ffm"));
-        section.insert("type".to_string(), str_val("router"));
+        section.insert("type".to_string(), str_val("server"));
 
         let group_tags = ["datacenter".to_string(), "type".to_string()];
-        let app_ref = build_application_ref("router-1".to_string(), section, &group_tags).unwrap();
+        let app_ref = build_application_ref("host-1".to_string(), section, &group_tags).unwrap();
 
-        assert_eq!(app_ref.name, "router-1");
+        assert_eq!(app_ref.name, "host-1");
         assert_eq!(app_ref.params.len(), 1);
         assert_eq!(app_ref.params[0].name, "command");
         assert_eq!(app_ref.tags.len(), 2);
@@ -230,21 +229,9 @@ datacenter = "ber"
     #[test]
     fn hierarchy_builds_cross_product() {
         let apps = [
-            app(
-                "router-1",
-                &[],
-                &[("datacenter", "ffm"), ("type", "router")],
-            ),
-            app(
-                "router-2",
-                &[],
-                &[("datacenter", "ber"), ("type", "router")],
-            ),
-            app(
-                "router-3",
-                &[],
-                &[("datacenter", "ffm"), ("type", "backend")],
-            ),
+            app("host-1", &[], &[("datacenter", "ffm"), ("type", "server")]),
+            app("host-2", &[], &[("datacenter", "ber"), ("type", "server")]),
+            app("host-3", &[], &[("datacenter", "ffm"), ("type", "db")]),
         ];
         let app_refs: Vec<_> = apps.iter().collect();
 
@@ -256,7 +243,7 @@ datacenter = "ber"
         );
         order.insert(
             "type".to_string(),
-            vec!["router".to_string(), "backend".to_string()],
+            vec!["server".to_string(), "db".to_string()],
         );
 
         let groups = build_group_hierarchy(&app_refs, &group_tags, &order, 0).unwrap();
@@ -264,17 +251,29 @@ datacenter = "ber"
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, "ffm");
         assert_eq!(groups[1].name, "ber");
-        assert_eq!(groups[0].nested.len(), 2);
-        assert_eq!(groups[0].nested[0].name, "router");
-        assert_eq!(groups[0].nested[1].name, "backend");
+
+        if let GroupContents::Groups(ref nested) = groups[0].content {
+            assert_eq!(nested.len(), 2);
+            assert_eq!(nested[0].name, "server");
+            assert_eq!(nested[1].name, "db");
+
+            if let GroupContents::Applications(ref server_apps) = nested[0].content {
+                assert_eq!(server_apps.len(), 1);
+                assert_eq!(server_apps[0].name, "host-1");
+            } else {
+                panic!("Expected Applications at leaf level");
+            }
+        } else {
+            panic!("Expected Groups at datacenter level");
+        }
     }
 
     #[test]
     fn unlisted_values_grouped_in_ellipsis() {
         let apps = [
-            app("router-1", &[], &[("datacenter", "ffm")]),
-            app("router-2", &[], &[("datacenter", "ber")]),
-            app("router-3", &[], &[("datacenter", "nyc")]),
+            app("host-1", &[], &[("datacenter", "ffm")]),
+            app("host-2", &[], &[("datacenter", "ber")]),
+            app("host-3", &[], &[("datacenter", "nyc")]),
         ];
         let app_refs: Vec<_> = apps.iter().collect();
 
@@ -295,7 +294,7 @@ datacenter = "ber"
 
     #[test]
     fn empty_hierarchy_when_no_groups() {
-        let apps = [app("router-1", &[("command", "ssh router-1")], &[])];
+        let apps = [app("host-1", &[("command", "ssh host-1")], &[])];
         let app_refs: Vec<_> = apps.iter().collect();
 
         let groups = build_group_hierarchy(&app_refs, &[], &HashMap::new(), 0).unwrap();

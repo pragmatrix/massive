@@ -11,7 +11,7 @@ pub struct ApplicationGroup {
     pub name: String,
     pub tag: ScopedTag,
     pub direction: LayoutDirection,
-    pub nested: Vec<ApplicationGroup>,
+    pub content: GroupContents,
 }
 
 #[derive(Debug)]
@@ -39,14 +39,14 @@ impl ScopedTag {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ApplicationRef {
     pub name: String,
     pub params: Parameters,
     pub tags: Vec<ScopedTag>,
 }
 
-#[derive(Debug, Deref)]
+#[derive(Debug, Deref, Clone)]
 pub struct Parameters(pub Vec<Parameter>);
 
 #[derive(Debug, Clone)]
