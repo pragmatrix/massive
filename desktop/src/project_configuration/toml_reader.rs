@@ -213,7 +213,7 @@ datacenter = "ber"
         let mut section = HashMap::new();
         section.insert("command".to_string(), str_val("ssh host-1"));
         section.insert("datacenter".to_string(), str_val("ffm"));
-        section.insert("type".to_string(), str_val("server"));
+        section.insert("type".to_string(), str_val("router"));
 
         let group_tags = ["datacenter".to_string(), "type".to_string()];
         let app_ref = build_application_ref("host-1".to_string(), section, &group_tags).unwrap();
@@ -229,9 +229,9 @@ datacenter = "ber"
     #[test]
     fn hierarchy_builds_cross_product() {
         let apps = [
-            app("host-1", &[], &[("datacenter", "ffm"), ("type", "server")]),
-            app("host-2", &[], &[("datacenter", "ber"), ("type", "server")]),
-            app("host-3", &[], &[("datacenter", "ffm"), ("type", "db")]),
+            app("host-1", &[], &[("datacenter", "ffm"), ("type", "router")]),
+            app("host-2", &[], &[("datacenter", "ber"), ("type", "router")]),
+            app("host-3", &[], &[("datacenter", "ffm"), ("type", "backend")]),
         ];
         let app_refs: Vec<_> = apps.iter().collect();
 
@@ -243,7 +243,7 @@ datacenter = "ber"
         );
         order.insert(
             "type".to_string(),
-            vec!["server".to_string(), "db".to_string()],
+            vec!["router".to_string(), "backend".to_string()],
         );
 
         let groups = build_group_hierarchy(&app_refs, &group_tags, &order, 0).unwrap();
@@ -254,12 +254,12 @@ datacenter = "ber"
 
         if let GroupContents::Groups(ref nested) = groups[0].content {
             assert_eq!(nested.len(), 2);
-            assert_eq!(nested[0].name, "server");
-            assert_eq!(nested[1].name, "db");
+            assert_eq!(nested[0].name, "router");
+            assert_eq!(nested[1].name, "backend");
 
-            if let GroupContents::Applications(ref server_apps) = nested[0].content {
-                assert_eq!(server_apps.len(), 1);
-                assert_eq!(server_apps[0].name, "host-1");
+            if let GroupContents::Applications(ref router_apps) = nested[0].content {
+                assert_eq!(router_apps.len(), 1);
+                assert_eq!(router_apps[0].name, "host-1");
             } else {
                 panic!("Expected Applications at leaf level");
             }
