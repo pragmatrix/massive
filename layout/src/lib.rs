@@ -5,27 +5,68 @@ use derive_more::{Deref, From, Into};
 mod dimensional;
 use dimensional::{DimensionalOffset, DimensionalRect, DimensionalSize};
 
-#[derive(Debug, Copy, Clone, From, Into, Deref)]
+#[derive(Debug, Copy, Clone, From, Into, Deref, Default)]
 pub struct LayoutAxis(usize);
 
+impl LayoutAxis {
+    pub const HORIZONTAL: Self = Self(0);
+    pub const VERTICAL: Self = Self(1);
+    pub const DEPTH: Self = Self(2);
+}
+
+#[derive(Debug, Clone, Copy)]
 pub enum LayoutInfo<S: DimensionalSize> {
     Container {
-        layout_axis: LayoutAxis,
         child_count: usize,
+        layout_axis: LayoutAxis,
     },
     Leaf {
         size: S,
     },
 }
 
-pub trait LayoutNode {
+impl<S: DimensionalSize> LayoutInfo<S> {
+    pub fn container(child_count: usize) -> Self {
+        LayoutInfo::Container {
+            child_count,
+            layout_axis: Default::default(),
+        }
+    }
+
+    pub fn with_layout(self, axis: LayoutAxis) -> Self {
+        match self {
+            LayoutInfo::Container { child_count, .. } => LayoutInfo::Container {
+                child_count,
+                layout_axis: axis,
+            },
+            LayoutInfo::Leaf { .. } => {
+                panic!("Can't set layout axis on a leaf node");
+            }
+        }
+    }
+}
+
+impl<S: DimensionalSize> From<S> for LayoutInfo<S> {
+    fn from(size: S) -> Self {
+        LayoutInfo::Leaf { size }
+    }
+}
+
+pub trait LayoutNode<Context = ()> {
     type Rect: DimensionalRect;
 
     fn layout_info(&self) -> LayoutInfo<<Self::Rect as DimensionalRect>::Size>;
-    fn get_child_mut(&mut self, _index: usize) -> &mut dyn LayoutNode<Rect = Self::Rect> {
+    fn get_child_mut(&mut self, index: usize) -> &mut dyn LayoutNode<Context, Rect = Self::Rect> {
+        let _ = index;
         panic!("This LayoutNode is a container, but can't access its children!")
     }
-    fn set_rect(&mut self, rect: Self::Rect);
+    fn set_rect(&mut self, rect: Self::Rect, context: &Context) {
+        let _ = rect;
+        let _ = context;
+    }
+    fn children_positioned(&mut self, context: &Context) {
+        let _ = context;
+    }
 }
 
 /// Computes layout for a tree of nodes.
@@ -35,14 +76,11 @@ pub trait LayoutNode {
 ///    relative rects in post-order (children before parents, left before right).
 /// 2. `position`: Consumes rects via `.pop()` in reverse order while traversing children
 ///    in reverse, creating perfect matching between stored rects and nodes.
-pub fn layout<N: LayoutNode>(node: &mut N)
-where
-    N::Rect: DimensionalRect,
-{
+pub fn layout<Context, N: LayoutNode<Context>>(node: &mut N, context: &Context) {
     let mut relative_rects = Vec::new();
     let size = compute_size_and_rects(node, &mut relative_rects);
     let rect = N::Rect::from_offset_size(<N::Rect as DimensionalRect>::Offset::zero(), size);
-    position(node, rect, &mut relative_rects);
+    position(node, rect, &mut relative_rects, context);
 }
 
 /// Computes sizes of all nodes and builds rects vector in post-order.
@@ -52,8 +90,8 @@ where
 /// before the container's own child rects.
 ///
 /// Returns the size of the node.
-fn compute_size_and_rects<R: DimensionalRect>(
-    node: &mut dyn LayoutNode<Rect = R>,
+fn compute_size_and_rects<Context, R: DimensionalRect>(
+    node: &mut dyn LayoutNode<Context, Rect = R>,
     rects: &mut Vec<R>,
 ) -> R::Size {
     match node.layout_info() {
@@ -100,12 +138,13 @@ fn compute_size_and_rects<R: DimensionalRect>(
 /// Processes children in REVERSE order (last to first) while consuming rects via `.pop()`.
 /// Since rects were pushed in post-order, popping gives us exactly the right rect for
 /// each child as we traverse backwards.
-fn position<R: DimensionalRect>(
-    node: &mut dyn LayoutNode<Rect = R>,
+fn position<Context, R: DimensionalRect>(
+    node: &mut dyn LayoutNode<Context, Rect = R>,
     absolute_rect: R,
     child_rects: &mut Vec<R>,
+    context: &Context,
 ) {
-    node.set_rect(absolute_rect);
+    node.set_rect(absolute_rect, context);
 
     match node.layout_info() {
         LayoutInfo::Container { child_count, .. } => {
@@ -113,11 +152,13 @@ fn position<R: DimensionalRect>(
             for i in (0..child_count).rev() {
                 let child_relative_rect = child_rects
                     .pop()
-                    .expect("Internal error: children rects do not match");
+                    .expect("Internal error: Rects of children do not match");
                 let child_absolute_rect = add_offset_to_rect(child_relative_rect, absolute_rect);
                 let child = node.get_child_mut(i);
-                position(child, child_absolute_rect, child_rects);
+                position(child, child_absolute_rect, child_rects, context);
             }
+
+            node.children_positioned(context);
         }
         LayoutInfo::Leaf { .. } => {}
     }
@@ -184,7 +225,7 @@ mod tests {
             }
         }
 
-        fn set_rect(&mut self, rect: RectPx) {
+        fn set_rect(&mut self, rect: RectPx, _context: &()) {
             match self {
                 TestNode::Container { rect: r, .. } => *r = Some(rect),
                 TestNode::Leaf { rect: r, .. } => *r = Some(rect),
@@ -195,7 +236,7 @@ mod tests {
     #[test]
     fn single_leaf() {
         let mut node = leaf(100, 50);
-        layout(&mut node);
+        layout(&mut node, &());
 
         assert_eq!(node.rect(), rect(0, 0, 100, 50));
     }
@@ -203,7 +244,7 @@ mod tests {
     #[test]
     fn horizontal_container_three_leaves() {
         let mut node = container(0, vec![leaf(10, 20), leaf(15, 20), leaf(25, 20)]);
-        layout(&mut node);
+        layout(&mut node, &());
 
         assert_eq!(node.rect(), rect(0, 0, 50, 20));
 
@@ -217,7 +258,7 @@ mod tests {
     #[test]
     fn vertical_container_varying_widths() {
         let mut node = container(1, vec![leaf(10, 20), leaf(30, 15), leaf(20, 25)]);
-        layout(&mut node);
+        layout(&mut node, &());
 
         assert_eq!(node.rect(), rect(0, 0, 30, 60));
 
@@ -237,7 +278,7 @@ mod tests {
                 container(0, vec![leaf(20, 30), leaf(25, 30)]),
             ],
         );
-        layout(&mut node);
+        layout(&mut node, &());
 
         assert_eq!(node.rect(), rect(0, 0, 45, 50));
 
@@ -266,7 +307,7 @@ mod tests {
     #[test]
     fn empty_container() {
         let mut node = container(0, vec![]);
-        layout(&mut node);
+        layout(&mut node, &());
 
         assert_eq!(node.rect(), rect(0, 0, 0, 0));
     }
