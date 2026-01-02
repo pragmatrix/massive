@@ -1,10 +1,11 @@
-use std::{collections::HashMap, time::Duration};
+use std::{alloc::Layout, collections::HashMap, time::Duration};
 
 use anyhow::{Result, bail};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{SizePx, Vector3};
+use massive_geometry::{RectPx, SizePx, Vector3};
+use massive_layout::{LayoutInfo, LayoutNode, layout};
 use massive_scene::Transform;
 use massive_shell::Scene;
 
@@ -137,67 +138,11 @@ impl DesktopPresenter {
 
     /// Compute the current layout and animate the views to their positions.
     pub fn layout(&mut self, animate: bool) {
-        let mut max_panel_size = SizePx::zero();
-
-        for instance in &self.ordered {
-            let instance = &self.instances[instance];
-            max_panel_size = max_panel_size.max(instance.panel_size);
-        }
-
-        for (i, instance) in self.ordered.iter().enumerate() {
-            // Detail: This translation represents the center of the instance's panel. The first
-            // instance in the band is at 0,0 and does not consider the View's local coordinate.
-            // This translation is relative (irrelevant of its absolute location) because we just
-            // point the camera at it.
-            //
-            // The final translation, the one that considers the view, is done when animations are
-            // actually applied and a primary view exists.
-            let translation = ((max_panel_size.width as i32 * i as i32) as f64, 0.0, 0.0);
-
-            let instance = self
-                .instances
-                .get_mut(instance)
-                .expect("Internal error: Instance does not exist");
-
-            if animate {
-                instance.center_animation.animate_if_changed(
-                    translation.into(),
-                    Self::INSTANCE_TRANSITION_DURATION,
-                    Interpolation::CubicOut,
-                );
-            } else {
-                // Robustness: I don't think this is the best way here to set the view transform.
-                // This also does not initiate the animation system, which might be expected (this
-                // is why we need to invoke apply_animations() below).
-                instance
-                    .center_animation
-                    .set_immediately(translation.into());
-            }
-        }
-
-        if !animate {
-            self.apply_animations();
-        }
+        layout(self, &LayoutContext { animate });
     }
 
     pub fn apply_animations(&self) {
-        for presenter in self.instances.values() {
-            if let Some(view) = &presenter.view {
-                // Get the translation for the instance.
-                let mut translation = presenter.center_animation.value();
-
-                // And correct the view's position.
-                // Since the centering uses i32, we snap to pixel here (what we want!).
-                let center = view.view.extents.center().to_f64();
-                translation -= Vector3::new(center.x, center.y, 0.0);
-
-                view.view
-                    .location
-                    .value()
-                    .transform
-                    .update_if_changed(translation.into());
-            }
-        }
+        self.instances.values().for_each(|p| p.apply_animations());
     }
 
     /// Return the primary's view's (final) transform.
@@ -233,4 +178,74 @@ enum InstancePresenterState {
 #[derive(Debug)]
 struct PrimaryViewPresenter {
     view: ViewCreationInfo,
+}
+
+impl InstancePresenter {
+    pub fn apply_animations(&self) {
+        let Some(view) = &self.view else {
+            return;
+        };
+
+        // Get the translation for the instance.
+        let mut translation = self.center_animation.value();
+
+        // And correct the view's position.
+        // Since the centering uses i32, we snap to pixel here (what we want!).
+        let center = view.view.extents.center().to_f64();
+        translation -= Vector3::new(center.x, center.y, 0.0);
+
+        view.view
+            .location
+            .value()
+            .transform
+            .update_if_changed(translation.into());
+    }
+}
+
+// layout
+
+#[derive(Debug)]
+struct LayoutContext {
+    animate: bool,
+}
+
+impl LayoutNode<LayoutContext> for DesktopPresenter {
+    type Rect = RectPx;
+
+    fn layout_info(&self) -> LayoutInfo<SizePx> {
+        LayoutInfo::container(self.ordered.len())
+    }
+
+    fn get_child_mut(
+        &mut self,
+        index: usize,
+    ) -> &mut dyn LayoutNode<LayoutContext, Rect = Self::Rect> {
+        let instance = self.ordered[index];
+        self.instances
+            .get_mut(&instance)
+            .expect("Internal error: Order table does not match the instance map")
+    }
+}
+
+impl LayoutNode<LayoutContext> for InstancePresenter {
+    type Rect = RectPx;
+
+    fn layout_info(&self) -> LayoutInfo<SizePx> {
+        self.panel_size.into()
+    }
+
+    fn set_rect(&mut self, rect: Self::Rect, ctx: &LayoutContext) {
+        let translation = (rect.origin.x as f64, rect.origin.y as f64, 0.0).into();
+
+        if ctx.animate {
+            self.center_animation.animate_if_changed(
+                translation,
+                DesktopPresenter::INSTANCE_TRANSITION_DURATION,
+                Interpolation::CubicOut,
+            );
+        } else {
+            self.center_animation.set_immediately(translation);
+            self.apply_animations();
+        }
+    }
 }
