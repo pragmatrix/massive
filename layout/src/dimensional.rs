@@ -1,6 +1,7 @@
 use massive_geometry::{PointPx, RectPx, SizePx};
 
 pub trait DimensionalOffset: Copy {
+    #[allow(unused)]
     const RANK: usize;
     fn get(&self, i: usize) -> i32;
     fn set(&mut self, i: usize, value: i32);
