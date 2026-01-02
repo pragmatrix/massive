@@ -1,71 +1,31 @@
-use std::{cmp::max, ops::Add};
+use std::cmp::max;
 
-use derive_more::{Constructor, Deref, From, Into};
+use derive_more::{Deref, From, Into};
+
+mod dimensional;
+use dimensional::{DimensionalOffset, DimensionalRect, DimensionalSize};
 
 #[derive(Debug, Copy, Clone, From, Into, Deref)]
 pub struct LayoutAxis(usize);
 
-pub enum LayoutInfo<const RANK: usize> {
+pub enum LayoutInfo<S: DimensionalSize> {
     Container {
         layout_axis: LayoutAxis,
         child_count: usize,
     },
     Leaf {
-        size: Size<RANK>,
+        size: S,
     },
 }
 
-pub trait LayoutNode<const RANK: usize> {
-    fn layout_info(&self) -> LayoutInfo<RANK>;
-    fn get_child_mut(&mut self, index: usize) -> &mut dyn LayoutNode<RANK>;
-    fn set_rect(&mut self, rect: Rect<RANK>);
-}
+pub trait LayoutNode {
+    type Rect: DimensionalRect;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Size<const RANK: usize> {
-    pub dim: [u32; RANK],
-}
-
-impl<const RANK: usize> Size<RANK> {
-    pub const ZERO: Self = Self { dim: [0u32; RANK] };
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Offset<const RANK: usize> {
-    pub dim: [u32; RANK],
-}
-
-impl<const RANK: usize> Add for Offset<RANK> {
-    type Output = Self;
-
-    fn add(mut self, rhs: Self) -> Self {
-        for i in 0..RANK {
-            self.dim[i] += rhs.dim[i]
-        }
-        self
+    fn layout_info(&self) -> LayoutInfo<<Self::Rect as DimensionalRect>::Size>;
+    fn get_child_mut(&mut self, _index: usize) -> &mut dyn LayoutNode<Rect = Self::Rect> {
+        panic!("This LayoutNode is a container, but can't access its children!")
     }
-}
-
-impl<const RANK: usize> Offset<RANK> {
-    pub const ZERO: Self = Self { dim: [0u32; RANK] };
-}
-
-#[derive(Debug, Copy, Clone, Constructor, PartialEq, Eq)]
-// Optimization: Would it be enough to just track the intermediate Sizes that grow in layout direction?
-pub struct Rect<const RANK: usize> {
-    pub pos: Offset<RANK>,
-    // We also track sizes, so that we can compute the final rects.
-    pub size: Size<RANK>,
-}
-
-impl<const RANK: usize> Rect<RANK> {
-    #[must_use]
-    pub fn add_offset(mut self, offset: Offset<RANK>) -> Self {
-        for i in 0..RANK {
-            self.pos.dim[i] += offset.dim[i]
-        }
-        self
-    }
+    fn set_rect(&mut self, rect: Self::Rect);
 }
 
 /// Computes layout for a tree of nodes.
@@ -75,10 +35,13 @@ impl<const RANK: usize> Rect<RANK> {
 ///    relative rects in post-order (children before parents, left before right).
 /// 2. `position`: Consumes rects via `.pop()` in reverse order while traversing children
 ///    in reverse, creating perfect matching between stored rects and nodes.
-pub fn layout<const RANK: usize>(node: &mut dyn LayoutNode<RANK>) {
+pub fn layout<N: LayoutNode>(node: &mut N)
+where
+    N::Rect: DimensionalRect,
+{
     let mut relative_rects = Vec::new();
     let size = compute_size_and_rects(node, &mut relative_rects);
-    let rect = Rect::new(Offset::ZERO, size);
+    let rect = N::Rect::from_offset_size(<N::Rect as DimensionalRect>::Offset::zero(), size);
     position(node, rect, &mut relative_rects);
 }
 
@@ -89,31 +52,39 @@ pub fn layout<const RANK: usize>(node: &mut dyn LayoutNode<RANK>) {
 /// before the container's own child rects.
 ///
 /// Returns the size of the node.
-fn compute_size_and_rects<const RANK: usize>(
-    node: &mut dyn LayoutNode<RANK>,
-    rects: &mut Vec<Rect<RANK>>,
-) -> Size<RANK> {
+fn compute_size_and_rects<R: DimensionalRect>(
+    node: &mut dyn LayoutNode<Rect = R>,
+    rects: &mut Vec<R>,
+) -> R::Size {
     match node.layout_info() {
         LayoutInfo::Container {
             layout_axis,
             child_count,
         } => {
-            let mut size = Size::ZERO;
-            let mut offset = Offset::ZERO;
+            let mut size = R::Size::empty();
+            let mut offset = R::Offset::zero();
+            let rank = R::Size::RANK;
 
             // Recursively compute child sizes and push rects immediately
             for i in 0..child_count {
                 let child = node.get_child_mut(i);
                 let child_size = compute_size_and_rects(child, rects);
 
-                rects.push(Rect::new(offset, child_size));
-                offset.dim[*layout_axis] += child_size.dim[*layout_axis];
+                rects.push(R::from_offset_size(offset, child_size));
 
-                for j in 0..RANK {
+                let child_size_at_axis = child_size.get(*layout_axis) as i32;
+                let current_offset = offset.get(*layout_axis);
+                offset.set(*layout_axis, current_offset + child_size_at_axis);
+
+                for j in 0..rank {
                     if j == *layout_axis {
-                        size.dim[j] += child_size.dim[j];
+                        let current = size.get(j);
+                        let child_val = child_size.get(j);
+                        size.set(j, current + child_val);
                     } else {
-                        size.dim[j] = max(size.dim[j], child_size.dim[j]);
+                        let current = size.get(j);
+                        let child_val = child_size.get(j);
+                        size.set(j, max(current, child_val));
                     }
                 }
             }
@@ -129,10 +100,10 @@ fn compute_size_and_rects<const RANK: usize>(
 /// Processes children in REVERSE order (last to first) while consuming rects via `.pop()`.
 /// Since rects were pushed in post-order, popping gives us exactly the right rect for
 /// each child as we traverse backwards.
-fn position<const RANK: usize>(
-    node: &mut dyn LayoutNode<RANK>,
-    absolute_rect: Rect<RANK>,
-    child_rects: &mut Vec<Rect<RANK>>,
+fn position<R: DimensionalRect>(
+    node: &mut dyn LayoutNode<Rect = R>,
+    absolute_rect: R,
+    child_rects: &mut Vec<R>,
 ) {
     node.set_rect(absolute_rect);
 
@@ -143,7 +114,7 @@ fn position<const RANK: usize>(
                 let child_relative_rect = child_rects
                     .pop()
                     .expect("Internal error: children rects do not match");
-                let child_absolute_rect = child_relative_rect.add_offset(absolute_rect.pos);
+                let child_absolute_rect = add_offset_to_rect(child_relative_rect, absolute_rect);
                 let child = node.get_child_mut(i);
                 position(child, child_absolute_rect, child_rects);
             }
@@ -152,24 +123,36 @@ fn position<const RANK: usize>(
     }
 }
 
+fn add_offset_to_rect<R: DimensionalRect>(mut rect: R, offset_rect: R) -> R {
+    let rank = R::RANK;
+    for i in 0..rank {
+        let pos = rect.get(i);
+        let offset = offset_rect.get(i);
+        rect.set(i, pos + offset);
+    }
+    rect
+}
+
 #[cfg(test)]
 mod tests {
+    use massive_geometry::{RectPx, SizePx};
+
     use super::*;
 
     enum TestNode {
         Container {
             layout_axis: LayoutAxis,
             children: Vec<TestNode>,
-            rect: Option<Rect<2>>,
+            rect: Option<RectPx>,
         },
         Leaf {
-            size: Size<2>,
-            rect: Option<Rect<2>>,
+            size: SizePx,
+            rect: Option<RectPx>,
         },
     }
 
     impl TestNode {
-        fn rect(&self) -> Rect<2> {
+        fn rect(&self) -> RectPx {
             match self {
                 TestNode::Container { rect, .. } => rect.expect("rect not set"),
                 TestNode::Leaf { rect, .. } => rect.expect("rect not set"),
@@ -177,8 +160,10 @@ mod tests {
         }
     }
 
-    impl LayoutNode<2> for TestNode {
-        fn layout_info(&self) -> LayoutInfo<2> {
+    impl LayoutNode for TestNode {
+        type Rect = RectPx;
+
+        fn layout_info(&self) -> LayoutInfo<SizePx> {
             match self {
                 TestNode::Container {
                     layout_axis,
@@ -192,14 +177,14 @@ mod tests {
             }
         }
 
-        fn get_child_mut(&mut self, index: usize) -> &mut dyn LayoutNode<2> {
+        fn get_child_mut(&mut self, index: usize) -> &mut dyn LayoutNode<Rect = Self::Rect> {
             match self {
                 TestNode::Container { children, .. } => &mut children[index],
                 TestNode::Leaf { .. } => panic!("Leaf nodes have no children"),
             }
         }
 
-        fn set_rect(&mut self, rect: Rect<2>) {
+        fn set_rect(&mut self, rect: RectPx) {
             match self {
                 TestNode::Container { rect: r, .. } => *r = Some(rect),
                 TestNode::Leaf { rect: r, .. } => *r = Some(rect),
@@ -288,9 +273,7 @@ mod tests {
 
     fn leaf(width: u32, height: u32) -> TestNode {
         TestNode::Leaf {
-            size: Size {
-                dim: [width, height],
-            },
+            size: SizePx::new(width, height),
             rect: None,
         }
     }
@@ -303,15 +286,7 @@ mod tests {
         }
     }
 
-    fn offset(x: u32, y: u32) -> Offset<2> {
-        Offset { dim: [x, y] }
-    }
-
-    fn size(w: u32, h: u32) -> Size<2> {
-        Size { dim: [w, h] }
-    }
-
-    fn rect(x: u32, y: u32, w: u32, h: u32) -> Rect<2> {
-        Rect::new(offset(x, y), size(w, h))
+    fn rect(x: i32, y: i32, w: u32, h: u32) -> RectPx {
+        RectPx::new(euclid::point2(x, y), euclid::size2(w as i32, h as i32))
     }
 }
