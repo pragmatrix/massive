@@ -29,7 +29,11 @@ edition = "2024"
 # For trunk
 root-package = "shell"
 
-# exclude = [ "inlyne" ]
+[profile.release]
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
 
 [workspace.dependencies]
 massive-animation = { path = "animation" }
