@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use toml::Value;
 
+use crate::Application;
+
 use super::types::{
     ApplicationGroup, ApplicationRef, GroupContents, LayoutDirection, Parameter, Parameters,
     ProjectConfiguration, ScopedTag,
@@ -30,7 +32,7 @@ pub struct LayoutSection {
 pub type ApplicationSection = HashMap<String, Value>;
 
 /// Load a configuration file from a TOML file at the given path.
-pub fn load_configuration(path: &Path) -> Result<ProjectConfiguration> {
+pub fn load_configuration(path: &Path) -> Result<ApplicationGroup> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read configuration file: {}", path.display()))?;
 
@@ -47,8 +49,9 @@ pub fn load_configuration(path: &Path) -> Result<ProjectConfiguration> {
 }
 
 impl ConfigFile {
-    /// Convert the intermediate TOML representation into a ProjectConfiguration.
-    pub fn into_project_configuration(self, name: String) -> Result<ProjectConfiguration> {
+    /// Convert the intermediate TOML representation into a project configuration, which is itself
+    /// an ApplicationGroup.
+    pub fn into_project_configuration(self, name: String) -> Result<ApplicationGroup> {
         let layout = self.layout.unwrap_or_default();
         let group_tags = &layout.groups;
 
@@ -63,7 +66,12 @@ impl ConfigFile {
         let app_refs: Vec<_> = app_refs.iter().collect();
         let groups = build_group_hierarchy(&app_refs, group_tags, &layout.order, 0)?;
 
-        Ok(ProjectConfiguration { name, groups })
+        Ok(ApplicationGroup {
+            name,
+            tag: ScopedTag::new("", ""),
+            direction: LayoutDirection::Horizontal,
+            content: GroupContents::Groups(groups),
+        })
     }
 }
 

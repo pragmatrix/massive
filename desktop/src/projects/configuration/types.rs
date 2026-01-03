@@ -34,8 +34,11 @@ pub struct ScopedTag {
 }
 
 impl ScopedTag {
-    pub fn new(scope: String, tag: String) -> Self {
-        Self { scope, tag }
+    pub fn new(scope: impl Into<String>, tag: impl Into<String>) -> Self {
+        Self {
+            scope: scope.into(),
+            tag: tag.into(),
+        }
     }
 }
 

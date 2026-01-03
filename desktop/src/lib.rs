@@ -4,7 +4,7 @@ mod desktop_presenter;
 mod event_router;
 mod focus_tree;
 mod instance_manager;
-mod project_configuration;
+mod projects;
 mod ui;
 
 pub use application_registry::Application;
