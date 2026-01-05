@@ -5,11 +5,8 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use toml::Value;
 
-use crate::Application;
-
 use super::types::{
-    ApplicationGroup, ApplicationRef, GroupContents, LayoutDirection, Parameter, Parameters,
-    ProjectConfiguration, ScopedTag,
+    GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, Parameter, Parameters, ScopedTag,
 };
 
 /// Intermediate representation for deserializing TOML configuration files.
@@ -18,7 +15,7 @@ pub struct ConfigFile {
     #[serde(default)]
     pub layout: Option<LayoutSection>,
     #[serde(flatten)]
-    pub applications: HashMap<String, ApplicationSection>,
+    pub launchers: HashMap<String, LauncherSection>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -29,10 +26,10 @@ pub struct LayoutSection {
     pub order: HashMap<String, Vec<String>>,
 }
 
-pub type ApplicationSection = HashMap<String, Value>;
+pub type LauncherSection = HashMap<String, Value>;
 
 /// Load a configuration file from a TOML file at the given path.
-pub fn load_configuration(path: &Path) -> Result<ApplicationGroup> {
+pub fn load_configuration(path: &Path) -> Result<LaunchGroup> {
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read configuration file: {}", path.display()))?;
 
@@ -45,28 +42,28 @@ pub fn load_configuration(path: &Path) -> Result<ApplicationGroup> {
         .with_context(|| format!("Failed to extract filename from path: {}", path.display()))?
         .to_string();
 
-    config.into_project_configuration(name)
+    config.into_launch_group(name)
 }
 
 impl ConfigFile {
     /// Convert the intermediate TOML representation into a project configuration, which is itself
     /// an ApplicationGroup.
-    pub fn into_project_configuration(self, name: String) -> Result<ApplicationGroup> {
+    pub fn into_launch_group(self, name: String) -> Result<LaunchGroup> {
         let layout = self.layout.unwrap_or_default();
         let group_tags = &layout.groups;
 
         // Build ApplicationRefs from each application section
-        let app_refs: Vec<ApplicationRef> = self
-            .applications
+        let app_refs: Vec<LaunchProfile> = self
+            .launchers
             .into_iter()
-            .map(|(name, section)| build_application_ref(name, section, group_tags))
+            .map(|(name, section)| build_launch_profile(name, section, group_tags))
             .collect::<Result<Vec<_>>>()?;
 
         // Build the cross-product hierarchy
         let app_refs: Vec<_> = app_refs.iter().collect();
         let groups = build_group_hierarchy(&app_refs, group_tags, &layout.order, 0)?;
 
-        Ok(ApplicationGroup {
+        Ok(LaunchGroup {
             name,
             tag: ScopedTag::new("", ""),
             direction: LayoutDirection::Horizontal,
@@ -75,11 +72,11 @@ impl ConfigFile {
     }
 }
 
-fn build_application_ref(
+fn build_launch_profile(
     name: String,
-    section: ApplicationSection,
+    section: LauncherSection,
     group_tags: &[String],
-) -> Result<ApplicationRef> {
+) -> Result<LaunchProfile> {
     let mut tags = Vec::new();
     let mut params = Vec::new();
 
@@ -93,7 +90,7 @@ fn build_application_ref(
         }
     }
 
-    Ok(ApplicationRef {
+    Ok(LaunchProfile {
         name,
         params: Parameters(params),
         tags,
@@ -112,11 +109,11 @@ fn toml_value_to_string(value: &Value) -> Result<String> {
 
 /// Build a cross-product hierarchy of groups at the given depth level.
 fn build_group_hierarchy(
-    apps: &[&ApplicationRef],
+    apps: &[&LaunchProfile],
     group_tags: &[String],
     order: &HashMap<String, Vec<String>>,
     depth: usize,
-) -> Result<Vec<ApplicationGroup>> {
+) -> Result<Vec<LaunchGroup>> {
     if depth >= group_tags.len() {
         return Ok(Vec::new());
     }
@@ -125,7 +122,7 @@ fn build_group_hierarchy(
     let ordered_values = order.get(current_tag_name).cloned().unwrap_or_default();
 
     // Collect all unique values for this tag from applications
-    let mut found_values: HashMap<String, Vec<&ApplicationRef>> = HashMap::new();
+    let mut found_values: HashMap<String, Vec<&LaunchProfile>> = HashMap::new();
     for app in apps {
         if let Some(tag) = app.tags.iter().find(|t| &t.scope == current_tag_name) {
             found_values.entry(tag.tag.clone()).or_default().push(app);
@@ -137,7 +134,7 @@ fn build_group_hierarchy(
     // Add ordered values first
     for value in &ordered_values {
         if let Some(matching_apps) = found_values.remove(value) {
-            let group = build_group(
+            let group = build_launch_group(
                 value.clone(),
                 current_tag_name.clone(),
                 &matching_apps,
@@ -156,7 +153,7 @@ fn build_group_hierarchy(
             ellipsis_apps.extend(apps_vec.iter().copied());
         }
 
-        let ellipsis_group = build_group(
+        let ellipsis_group = build_launch_group(
             "...".to_string(),
             current_tag_name.clone(),
             &ellipsis_apps,
@@ -170,23 +167,23 @@ fn build_group_hierarchy(
     Ok(groups)
 }
 
-fn build_group(
+fn build_launch_group(
     value: String,
     tag_name: String,
-    apps: &[&ApplicationRef],
+    apps: &[&LaunchProfile],
     group_tags: &[String],
     order: &HashMap<String, Vec<String>>,
     depth: usize,
-) -> Result<ApplicationGroup> {
+) -> Result<LaunchGroup> {
     let is_last_level = depth == group_tags.len() - 1;
     let content = if is_last_level {
-        GroupContents::Applications(apps.iter().map(|&app| app.clone()).collect())
+        GroupContents::LaunchProfiles(apps.iter().map(|&app| app.clone()).collect())
     } else {
         let nested = build_group_hierarchy(apps, group_tags, order, depth + 1)?;
         GroupContents::Groups(nested)
     };
 
-    Ok(ApplicationGroup {
+    Ok(LaunchGroup {
         name: value.clone(),
         tag: ScopedTag::new(tag_name, value),
         direction: LayoutDirection::Horizontal,
@@ -211,9 +208,9 @@ datacenter = "ber"
         "#;
 
         let config: ConfigFile = toml::from_str(toml).unwrap();
-        assert_eq!(config.applications.len(), 2);
-        assert!(config.applications.contains_key("host-1"));
-        assert!(config.applications.contains_key("host-2"));
+        assert_eq!(config.launchers.len(), 2);
+        assert!(config.launchers.contains_key("host-1"));
+        assert!(config.launchers.contains_key("host-2"));
     }
 
     #[test]
@@ -224,7 +221,7 @@ datacenter = "ber"
         section.insert("type".to_string(), str_val("router"));
 
         let group_tags = ["datacenter".to_string(), "type".to_string()];
-        let app_ref = build_application_ref("host-1".to_string(), section, &group_tags).unwrap();
+        let app_ref = build_launch_profile("host-1".to_string(), section, &group_tags).unwrap();
 
         assert_eq!(app_ref.name, "host-1");
         assert_eq!(app_ref.params.len(), 1);
@@ -265,7 +262,7 @@ datacenter = "ber"
             assert_eq!(nested[0].name, "router");
             assert_eq!(nested[1].name, "backend");
 
-            if let GroupContents::Applications(ref router_apps) = nested[0].content {
+            if let GroupContents::LaunchProfiles(ref router_apps) = nested[0].content {
                 assert_eq!(router_apps.len(), 1);
                 assert_eq!(router_apps[0].name, "host-1");
             } else {
@@ -318,8 +315,8 @@ datacenter = "ber"
         assert_eq!(toml_value_to_string(&Value::Boolean(true)).unwrap(), "true");
     }
 
-    fn app(name: &str, params: &[(&str, &str)], tags: &[(&str, &str)]) -> ApplicationRef {
-        ApplicationRef {
+    fn app(name: &str, params: &[(&str, &str)], tags: &[(&str, &str)]) -> LaunchProfile {
+        LaunchProfile {
             name: name.to_string(),
             params: Parameters(
                 params

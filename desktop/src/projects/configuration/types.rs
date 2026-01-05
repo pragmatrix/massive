@@ -1,13 +1,7 @@
 use derive_more::Deref;
 
 #[derive(Debug)]
-pub struct ProjectConfiguration {
-    pub name: String,
-    pub groups: Vec<ApplicationGroup>,
-}
-
-#[derive(Debug)]
-pub struct ApplicationGroup {
+pub struct LaunchGroup {
     pub name: String,
     pub tag: ScopedTag,
     pub direction: LayoutDirection,
@@ -23,8 +17,15 @@ pub enum LayoutDirection {
 /// A group can only contain either groups or applications.
 #[derive(Debug)]
 pub enum GroupContents {
-    Groups(Vec<ApplicationGroup>),
-    Applications(Vec<ApplicationRef>),
+    Groups(Vec<LaunchGroup>),
+    LaunchProfiles(Vec<LaunchProfile>),
+}
+
+#[derive(Debug, Clone)]
+pub struct LaunchProfile {
+    pub name: String,
+    pub params: Parameters,
+    pub tags: Vec<ScopedTag>,
 }
 
 #[derive(Debug, Clone)]
@@ -40,13 +41,6 @@ impl ScopedTag {
             tag: tag.into(),
         }
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct ApplicationRef {
-    pub name: String,
-    pub params: Parameters,
-    pub tags: Vec<ScopedTag>,
 }
 
 #[derive(Debug, Deref, Clone)]

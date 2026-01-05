@@ -1,7 +1,7 @@
 use derive_more::{Constructor, Deref};
 
 use crate::projects::configuration::{
-    ApplicationGroup, ApplicationRef, GroupContents, LayoutDirection, ScopedTag,
+    GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, ScopedTag,
 };
 
 #[derive(Debug)]
@@ -22,7 +22,7 @@ pub enum SlotGroupContents {
 #[derive(Debug)]
 pub struct SlotDef {
     pub id: SlotId,
-    pub application: ApplicationRef,
+    pub application: LaunchProfile,
 }
 
 #[derive(Debug, Copy, Clone, Constructor, PartialEq, Eq, Hash, Deref)]
@@ -32,18 +32,14 @@ pub struct GroupId(u32);
 pub struct SlotId(u32);
 
 impl SlotGroup {
-    pub fn from_configuration(group: ApplicationGroup) -> Self {
+    pub fn from_configuration(group: LaunchGroup) -> Self {
         let mut group_id_counter = GroupId(1);
         let mut slot_id_counter = SlotId(1);
         convert_group(group, &mut group_id_counter, &mut slot_id_counter)
     }
 }
 
-fn convert_group(
-    group: ApplicationGroup,
-    group_id: &mut GroupId,
-    slot_id: &mut SlotId,
-) -> SlotGroup {
+fn convert_group(group: LaunchGroup, group_id: &mut GroupId, slot_id: &mut SlotId) -> SlotGroup {
     let id = *group_id;
     group_id.0 += 1;
 
@@ -56,7 +52,7 @@ fn convert_group(
             }
             SlotGroupContents::Groups(converted_groups)
         }
-        GroupContents::Applications(apps) => {
+        GroupContents::LaunchProfiles(apps) => {
             let mut slots = Vec::with_capacity(apps.len());
             for app in apps {
                 let slot = SlotDef {

@@ -4,5 +4,4 @@
 mod toml_reader;
 mod types;
 
-pub use toml_reader::load_configuration;
 pub use types::*;
