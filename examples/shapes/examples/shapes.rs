@@ -63,7 +63,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         // Chamfer rect: only top corners beveled
         Shape::ChamferRect(
             ChamferRect::new(
-                Rect::new((0.0, 460.0), Size::new(180.0, 100.0)),
+                Rect::new((0.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.9, 0.5, 0.2, 1.0)),
             )
@@ -73,7 +73,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         // Chamfer rect: only bottom corners beveled
         Shape::ChamferRect(
             ChamferRect::new(
-                Rect::new((200.0, 460.0), Size::new(180.0, 100.0)),
+                Rect::new((200.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.3, 0.7, 0.9, 1.0)),
             )
@@ -83,7 +83,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         // Chamfer rect: diagonal corners (top-left, bottom-right)
         Shape::ChamferRect(
             ChamferRect::new(
-                Rect::new((400.0, 460.0), Size::new(180.0, 100.0)),
+                Rect::new((400.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.7, 0.3, 0.8, 1.0)),
             )
@@ -93,7 +93,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         // Chamfer rect: single corner (bottom-right only)
         Shape::ChamferRect(
             ChamferRect::new(
-                Rect::new((600.0, 460.0), Size::new(180.0, 100.0)),
+                Rect::new((600.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.2, 0.8, 0.5, 1.0)),
             )
@@ -104,7 +104,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         // Chamfer rect: no beveled corners (sharp rectangle)
         Shape::ChamferRect(
             ChamferRect::new(
-                Rect::new((800.0, 460.0), Size::new(180.0, 100.0)),
+                Rect::new((800.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.9, 0.2, 0.3, 1.0)),
             )
