@@ -28,10 +28,10 @@ pub struct Launcher {
     pub profile: LaunchProfile,
 }
 
-#[derive(Debug, Copy, Clone, Constructor, PartialEq, Eq, Hash, Deref)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref, Constructor)]
 pub struct GroupId(u32);
 
-#[derive(Debug, Copy, Clone, Constructor, PartialEq, Eq, Hash, Deref)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref, Constructor)]
 pub struct LauncherId(u32);
 
 impl LaunchGroup {
