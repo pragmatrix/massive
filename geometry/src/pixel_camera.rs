@@ -1,3 +1,5 @@
+use std::ops::{Add, Mul};
+
 use crate::{Matrix4, Projection, SizePx, Transform, Vector3};
 
 /// A pixel camera.
@@ -52,5 +54,27 @@ impl PixelCamera {
         let (width, height) = surface_size.into().into();
         Projection::new(width as f64 / height as f64, z_range.0, z_range.1)
             .perspective_matrix(self.fovy)
+    }
+}
+
+impl Add for PixelCamera {
+    type Output = PixelCamera;
+
+    fn add(self, rhs: PixelCamera) -> Self::Output {
+        PixelCamera {
+            look_at: self.look_at + rhs.look_at,
+            fovy: self.fovy + rhs.fovy,
+        }
+    }
+}
+
+impl Mul<f64> for PixelCamera {
+    type Output = PixelCamera;
+
+    fn mul(self, scalar: f64) -> Self::Output {
+        PixelCamera {
+            look_at: self.look_at * scalar,
+            fovy: self.fovy * scalar,
+        }
     }
 }

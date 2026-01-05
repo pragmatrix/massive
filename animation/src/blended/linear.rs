@@ -3,11 +3,11 @@ use std::time::Duration;
 use crate::{time::Instant, Ease, Interpolatable, Interpolation};
 
 #[derive(Debug)]
-pub struct BlendedAnimation<T> {
+pub struct Linear<T> {
     animations: Vec<Animation<T>>,
 }
 
-impl<T> Default for BlendedAnimation<T> {
+impl<T> Default for Linear<T> {
     fn default() -> Self {
         Self {
             animations: Default::default(),
@@ -15,7 +15,7 @@ impl<T> Default for BlendedAnimation<T> {
     }
 }
 
-impl<T> BlendedAnimation<T> {
+impl<T> Linear<T> {
     /// Adds an animation on top of the stack of animations to blend.
     ///
     /// This animation is initially set up at 0% from the current value and then reaches 100% at end

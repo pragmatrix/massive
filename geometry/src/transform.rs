@@ -1,4 +1,4 @@
-use std::ops::{Mul, MulAssign};
+use std::ops::{Add, Mul, MulAssign};
 
 use crate::{Matrix4, Quaternion, ToVector3, Vector3};
 
@@ -160,6 +160,30 @@ impl From<f64> for Transform {
         Self {
             scale,
             ..Default::default()
+        }
+    }
+}
+
+impl Add for Transform {
+    type Output = Transform;
+
+    fn add(self, rhs: Transform) -> Self::Output {
+        Transform {
+            translate: self.translate + rhs.translate,
+            rotate: self.rotate.slerp(rhs.rotate, 0.5),
+            scale: self.scale + rhs.scale,
+        }
+    }
+}
+
+impl Mul<f64> for Transform {
+    type Output = Transform;
+
+    fn mul(self, scalar: f64) -> Self::Output {
+        Transform {
+            translate: self.translate * scalar,
+            rotate: Quaternion::IDENTITY.slerp(self.rotate, scalar),
+            scale: self.scale * scalar,
         }
     }
 }

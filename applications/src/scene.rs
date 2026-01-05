@@ -1,5 +1,8 @@
 //! A wrapper around a regular Scene that adds animation support.
-use std::time::Duration;
+use std::{
+    ops::{Add, Mul},
+    time::Duration,
+};
 
 use anyhow::Result;
 use derive_more::Deref;
@@ -28,7 +31,9 @@ impl Scene {
     }
 
     /// Create a animated value that is animating from a starting value to a target value.
-    pub fn animation<T: Interpolatable + 'static + Send>(
+    pub fn animation<
+        T: Interpolatable + 'static + Send + Add<Output = T> + Mul<f64, Output = T>,
+    >(
         &self,
         value: T,
         target_value: T,
