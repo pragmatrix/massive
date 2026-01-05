@@ -14,7 +14,7 @@ pub enum Shape {
     RoundRect(RoundRect),
     Circle(Circle),
     Ellipse(Ellipse),
-    ChamferRect(ChamferRect),
+    BeveledRect(BeveledRect),
     StrokeRect(StrokeRect),
     GlyphRun(GlyphRun),
     Custom(Custom),
@@ -130,7 +130,7 @@ impl Ellipse {
 ///
 /// By default, all corners are beveled (corner_mask = 0b1111).
 #[derive(Debug, Clone, PartialEq)]
-pub struct ChamferRect {
+pub struct BeveledRect {
     pub rect: geometry::Rect,
     pub chamfer: f32,
     /// Bitmask controlling which corners are beveled (clockwise from top-left).
@@ -139,7 +139,7 @@ pub struct ChamferRect {
     pub color: Color,
 }
 
-impl ChamferRect {
+impl BeveledRect {
     pub fn new(rect: impl Into<geometry::Rect>, chamfer: f32, color: impl Into<Color>) -> Self {
         Self {
             rect: rect.into(),

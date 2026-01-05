@@ -4,7 +4,7 @@ use winit::dpi::LogicalSize;
 use massive_geometry::{Color, Rect, Size};
 use massive_scene::Visual;
 use massive_shapes::{
-    ChamferRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
+    BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
 use massive_shell::{ApplicationContext, shell};
 use shared::application::{Application, UpdateResponse};
@@ -55,14 +55,14 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             color: Color::from((0.4, 0.85, 0.4, 1.0)),
         }),
         // Chamfer rect: all corners beveled (default)
-        Shape::ChamferRect(ChamferRect::new(
+        Shape::BeveledRect(BeveledRect::new(
             Rect::new((1080.0, 0.0), Size::new(200.0, 120.0)),
             12.0,
             Color::from((0.85, 0.4, 0.7, 1.0)),
         )),
         // Chamfer rect: only top corners beveled
-        Shape::ChamferRect(
-            ChamferRect::new(
+        Shape::BeveledRect(
+            BeveledRect::new(
                 Rect::new((0.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.9, 0.5, 0.2, 1.0)),
@@ -71,8 +71,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             .with_bottom_right(false),
         ),
         // Chamfer rect: only bottom corners beveled
-        Shape::ChamferRect(
-            ChamferRect::new(
+        Shape::BeveledRect(
+            BeveledRect::new(
                 Rect::new((200.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.3, 0.7, 0.9, 1.0)),
@@ -81,8 +81,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             .with_top_right(false),
         ),
         // Chamfer rect: diagonal corners (top-left, bottom-right)
-        Shape::ChamferRect(
-            ChamferRect::new(
+        Shape::BeveledRect(
+            BeveledRect::new(
                 Rect::new((400.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.7, 0.3, 0.8, 1.0)),
@@ -91,8 +91,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             .with_bottom_left(false),
         ),
         // Chamfer rect: single corner (bottom-right only)
-        Shape::ChamferRect(
-            ChamferRect::new(
+        Shape::BeveledRect(
+            BeveledRect::new(
                 Rect::new((600.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.2, 0.8, 0.5, 1.0)),
@@ -102,8 +102,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             .with_bottom_left(false),
         ),
         // Chamfer rect: no beveled corners (sharp rectangle)
-        Shape::ChamferRect(
-            ChamferRect::new(
+        Shape::BeveledRect(
+            BeveledRect::new(
                 Rect::new((800.0, 460.0), Size::new(180.0, 120.0)),
                 16.0,
                 Color::from((0.9, 0.2, 0.3, 1.0)),
@@ -155,7 +155,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             Shape::Circle(c) => c.rect,
             Shape::StrokeRect(r) => r.rect,
             Shape::Ellipse(e) => e.rect,
-            Shape::ChamferRect(r) => r.rect,
+            Shape::BeveledRect(r) => r.rect,
             Shape::GlyphRun(..) | Shape::Custom(..) => continue,
         };
         bounds = Some(if let Some(b) = bounds { b.joined(r) } else { r });
@@ -201,7 +201,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                 e.rect.top += offset_y;
                 e.rect.bottom += offset_y;
             }
-            Shape::ChamferRect(r) => {
+            Shape::BeveledRect(r) => {
                 r.rect.left += offset_x;
                 r.rect.right += offset_x;
                 r.rect.top += offset_y;

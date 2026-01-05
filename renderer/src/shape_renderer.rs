@@ -21,7 +21,7 @@ pub enum ShapeSelector {
     RoundedRect = 1,
     Circle = 2,
     Ellipse = 3,
-    ChamferRect = 4,
+    BeveledRect = 4,
     // Non-filled
     StrokeRect = 10,
 }
@@ -146,9 +146,9 @@ impl ShapeRenderer {
                     (r.corner_radius, 0.0),
                     r.color,
                 ),
-                Shape::ChamferRect(r) => emit(
+                Shape::BeveledRect(r) => emit(
                     &r.rect,
-                    ShapeSelector::ChamferRect,
+                    ShapeSelector::BeveledRect,
                     (r.chamfer, r.corner_mask as f32),
                     r.color,
                 ),
