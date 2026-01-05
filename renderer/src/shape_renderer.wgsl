@@ -178,50 +178,44 @@ fn sd_chamfer_rect_original(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) ->
 // Chamfer rectangle SDF with per-corner control
 // corners: 4-bit mask (bit0=top-left, bit1=top-right, bit2=bottom-right, bit3=bottom-left clockwise)
 fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32, corners: u32) -> f32 {
+    // Start with full-size box SDF (no shrinking)
+    let d = abs(p) - half_size;
+    var dist = length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0);
+    
     // Extract corner enable bits
     let c_tl = (corners & 1u) != 0u;       // bit 0: top-left
     let c_tr = (corners & 2u) != 0u;       // bit 1: top-right
     let c_br = (corners & 4u) != 0u;       // bit 2: bottom-right
     let c_bl = (corners & 8u) != 0u;       // bit 3: bottom-left
     
-    // Standard box SDF
-    let d = abs(p) - half_size;
+    let inv_sqrt2 = 0.7071067811865476; // 1/sqrt(2)
     
-    // Check if we're in a corner region (both components of d are close to being positive/zero)
-    // This includes both inside corners and outside corners near the corner point
-    let in_corner_region = (d.x > -chamfer) && (d.y > -chamfer);
+    // Apply chamfer cuts by taking max with 45-degree planes at each enabled corner
+    // Each plane is positioned so points in the corner triangle have positive distance
     
-    if (in_corner_region) {
-        // Determine which corner based on original position
-        let px = p.x;
-        let py = p.y;
-        let sqrt2 = 1.4142135623730951;
-        
-        var corner_chamfered = false;
-        if (px < 0.0 && py < 0.0) {
-            corner_chamfered = c_tl;
-        } else if (px >= 0.0 && py < 0.0) {
-            corner_chamfered = c_tr;
-        } else if (px >= 0.0 && py >= 0.0) {
-            corner_chamfered = c_br;
-        } else {
-            corner_chamfered = c_bl;
-        }
-        
-        if (corner_chamfered) {
-            // Apply chamfer: the chamfer line cuts diagonally
-            // For a chamfered corner, distance is: (d.x + d.y + chamfer) / sqrt(2) if in chamfer zone
-            let chamfer_dist = (d.x + d.y + chamfer) / sqrt2;
-            
-            // Check if we're actually in the chamfer zone (within chamfer distance from corner)
-            let in_chamfer_zone = (d.x + d.y) > -chamfer;
-            
-            if (in_chamfer_zone) {
-                return chamfer_dist;
-            }
-        }
+    // Top-left corner at (-half_size.x, -half_size.y)
+    if (c_tl) {
+        let plane_dist = (chamfer - (p.x + half_size.x) - (p.y + half_size.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
     }
     
-    // Standard box distance for non-chamfered regions
-    return length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0);
+    // Top-right corner at (half_size.x, -half_size.y)
+    if (c_tr) {
+        let plane_dist = (chamfer - (half_size.x - p.x) - (p.y + half_size.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
+    }
+    
+    // Bottom-right corner at (half_size.x, half_size.y)
+    if (c_br) {
+        let plane_dist = (chamfer - (half_size.x - p.x) - (half_size.y - p.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
+    }
+    
+    // Bottom-left corner at (-half_size.x, half_size.y)
+    if (c_bl) {
+        let plane_dist = (chamfer - (p.x + half_size.x) - (half_size.y - p.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
+    }
+    
+    return dist;
 }
