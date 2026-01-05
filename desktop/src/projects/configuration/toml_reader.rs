@@ -12,10 +12,15 @@ use super::types::{
 /// Intermediate representation for deserializing TOML configuration files.
 #[derive(Debug, Deserialize)]
 pub struct ConfigFile {
+    /// The startup launch profile.
+    ///
+    /// If None is defined, a launch profile without a name is created and started.
+    #[serde(default)]
+    pub startup: Option<String>,
     #[serde(default)]
     pub layout: Option<LayoutSection>,
     #[serde(flatten)]
-    pub launchers: HashMap<String, LauncherSection>,
+    pub launch_profiles: HashMap<String, LaunchProfileSection>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -26,7 +31,7 @@ pub struct LayoutSection {
     pub order: HashMap<String, Vec<String>>,
 }
 
-pub type LauncherSection = HashMap<String, Value>;
+pub type LaunchProfileSection = HashMap<String, Value>;
 
 /// Load a configuration file from a TOML file at the given path.
 pub fn load_configuration(path: &Path) -> Result<LaunchGroup> {
@@ -46,7 +51,7 @@ pub fn load_configuration(path: &Path) -> Result<LaunchGroup> {
 }
 
 impl ConfigFile {
-    /// Convert the intermediate TOML representation into a project configuration, which is itself
+    /// Convert the intermediate TOML representation into a launch group, which is itself
     /// an ApplicationGroup.
     pub fn into_launch_group(self, name: String) -> Result<LaunchGroup> {
         let layout = self.layout.unwrap_or_default();
@@ -54,7 +59,7 @@ impl ConfigFile {
 
         // Build ApplicationRefs from each application section
         let app_refs: Vec<LaunchProfile> = self
-            .launchers
+            .launch_profiles
             .into_iter()
             .map(|(name, section)| build_launch_profile(name, section, group_tags))
             .collect::<Result<Vec<_>>>()?;
@@ -74,7 +79,7 @@ impl ConfigFile {
 
 fn build_launch_profile(
     name: String,
-    section: LauncherSection,
+    section: LaunchProfileSection,
     group_tags: &[String],
 ) -> Result<LaunchProfile> {
     let mut tags = Vec::new();
@@ -208,9 +213,9 @@ datacenter = "ber"
         "#;
 
         let config: ConfigFile = toml::from_str(toml).unwrap();
-        assert_eq!(config.launchers.len(), 2);
-        assert!(config.launchers.contains_key("host-1"));
-        assert!(config.launchers.contains_key("host-2"));
+        assert_eq!(config.launch_profiles.len(), 2);
+        assert!(config.launch_profiles.contains_key("host-1"));
+        assert!(config.launch_profiles.contains_key("host-2"));
     }
 
     #[test]

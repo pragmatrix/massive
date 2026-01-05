@@ -1,6 +1,12 @@
 use derive_more::Deref;
 
 #[derive(Debug)]
+pub struct ProjectConfiguration {
+    pub default: String,
+    pub root: LaunchGroup,
+}
+
+#[derive(Debug)]
 pub struct LaunchGroup {
     pub name: String,
     pub tag: ScopedTag,
