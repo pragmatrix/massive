@@ -14,7 +14,7 @@ pub enum Shape {
     RoundRect(RoundRect),
     Circle(Circle),
     Ellipse(Ellipse),
-    ChamferRect(ChamferRect),
+    BeveledRect(BeveledRect),
     StrokeRect(StrokeRect),
     GlyphRun(GlyphRun),
     Custom(Custom),
@@ -120,20 +120,65 @@ impl Ellipse {
     }
 }
 
+/// A rectangle with chamfered (beveled) corners.
+///
+/// The `corner_mask` field controls which corners are beveled using a 4-bit mask:
+/// - bit 0 (0x1): top-left corner
+/// - bit 1 (0x2): top-right corner
+/// - bit 2 (0x4): bottom-right corner
+/// - bit 3 (0x8): bottom-left corner
+///
+/// By default, all corners are beveled (corner_mask = 0b1111).
 #[derive(Debug, Clone, PartialEq)]
-pub struct ChamferRect {
+pub struct BeveledRect {
     pub rect: geometry::Rect,
     pub chamfer: f32,
+    /// Bitmask controlling which corners are beveled (clockwise from top-left).
+    /// Default: 0b1111 (all corners beveled).
+    pub corner_mask: u8,
     pub color: Color,
 }
 
-impl ChamferRect {
+impl BeveledRect {
     pub fn new(rect: impl Into<geometry::Rect>, chamfer: f32, color: impl Into<Color>) -> Self {
         Self {
             rect: rect.into(),
             chamfer,
+            corner_mask: 0b1111, // All corners beveled by default
             color: color.into(),
         }
+    }
+
+    /// Enable or disable beveling on the top-left corner (bit 0).
+    pub fn with_top_left(self, enabled: bool) -> Self {
+        self.set_corner_bit(0, enabled)
+    }
+
+    /// Enable or disable beveling on the top-right corner (bit 1).
+    pub fn with_top_right(self, enabled: bool) -> Self {
+        self.set_corner_bit(1, enabled)
+    }
+
+    /// Enable or disable beveling on the bottom-right corner (bit 2).
+    pub fn with_bottom_right(self, enabled: bool) -> Self {
+        self.set_corner_bit(2, enabled)
+    }
+
+    /// Enable or disable beveling on the bottom-left corner (bit 3).
+    pub fn with_bottom_left(self, enabled: bool) -> Self {
+        self.set_corner_bit(3, enabled)
+    }
+
+    /// Set the corner bit at the given index (0-3).
+    fn set_corner_bit(mut self, bit_index: u8, enabled: bool) -> Self {
+        debug_assert!(bit_index < 4, "Corner bit index must be 0-3");
+        if enabled {
+            self.corner_mask |= 1 << bit_index;
+        } else {
+            self.corner_mask &= !(1 << bit_index);
+        }
+        debug_assert!(self.corner_mask <= 0x0F, "Corner mask must be 4 bits");
+        self
     }
 }
 

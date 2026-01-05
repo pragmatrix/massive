@@ -105,9 +105,10 @@ fn compute_distance(in: VertexOutput) -> f32 {
         case 3u: { // ellipse (use half extents)
             distance = -sd_ellipse(p_local, half_shape_size);
         }
-        case 4u: { // chamfer rect (shape_data.x = chamfer)
+        case 4u: { // chamfer rect (shape_data.x = chamfer, shape_data.y = corner_mask)
             let chamfer = in.shape_data.x;
-            distance = -sd_chamfer_rect(p_local, half_shape_size, chamfer);
+            let corner_mask = u32(in.shape_data.y);
+            distance = -sd_chamfer_rect(p_local, half_shape_size, chamfer, corner_mask);
         }
         case 10u: { // rect stroke (shape_data.xy = stroke thickness)
             let stroke = in.shape_data;
@@ -154,8 +155,9 @@ fn sd_stroked_rect(p: vec2<f32>, half_size: vec2<f32>, stroke: vec2<f32>) -> f32
     return max(d_outer, -d_inner);
 }
 
-// Chamfer rectangle SDF (based on Inigo Quilez sdChamferBox)
-fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) -> f32 {
+// Original Chamfer rectangle SDF (based on Inigo Quilez sdChamferBox) - kept for reference
+// This version applies uniform chamfer to all corners and shrinks the box by the chamfer amount
+fn sd_chamfer_rect_original(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) -> f32 {
     // b is the inner box after removing chamfer extents
     let b = half_size - vec2<f32>(chamfer, chamfer);
     var q = abs(p) - b;
@@ -171,4 +173,49 @@ fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) -> f32 {
         return (q.x + q.y) * sqrt(0.5);
     }
     return length(q);
+}
+
+// Chamfer rectangle SDF with per-corner control
+// corners: 4-bit mask (bit0=top-left, bit1=top-right, bit2=bottom-right, bit3=bottom-left clockwise)
+fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32, corners: u32) -> f32 {
+    // Start with full-size box SDF (no shrinking)
+    let d = abs(p) - half_size;
+    var dist = length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0);
+    
+    // Extract corner enable bits
+    let c_tl = (corners & 1u) != 0u;       // bit 0: top-left
+    let c_tr = (corners & 2u) != 0u;       // bit 1: top-right
+    let c_br = (corners & 4u) != 0u;       // bit 2: bottom-right
+    let c_bl = (corners & 8u) != 0u;       // bit 3: bottom-left
+    
+    let inv_sqrt2 = 0.7071067811865476; // 1/sqrt(2)
+    
+    // Apply chamfer cuts by taking max with 45-degree planes at each enabled corner
+    // Each plane is positioned so points in the corner triangle have positive distance
+    
+    // Top-left corner at (-half_size.x, -half_size.y)
+    if (c_tl) {
+        let plane_dist = (chamfer - (p.x + half_size.x) - (p.y + half_size.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
+    }
+    
+    // Top-right corner at (half_size.x, -half_size.y)
+    if (c_tr) {
+        let plane_dist = (chamfer - (half_size.x - p.x) - (p.y + half_size.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
+    }
+    
+    // Bottom-right corner at (half_size.x, half_size.y)
+    if (c_br) {
+        let plane_dist = (chamfer - (half_size.x - p.x) - (half_size.y - p.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
+    }
+    
+    // Bottom-left corner at (-half_size.x, half_size.y)
+    if (c_bl) {
+        let plane_dist = (chamfer - (p.x + half_size.x) - (half_size.y - p.y)) * inv_sqrt2;
+        dist = max(dist, plane_dist);
+    }
+    
+    return dist;
 }
