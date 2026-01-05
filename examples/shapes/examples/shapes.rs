@@ -54,11 +54,65 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             rect: Rect::new((880.0, 0.0), Size::new(180.0, 120.0)),
             color: Color::from((0.4, 0.85, 0.4, 1.0)),
         }),
-        Shape::ChamferRect(ChamferRect {
-            rect: Rect::new((1080.0, 0.0), Size::new(200.0, 120.0)),
-            chamfer: 12.0,
-            color: Color::from((0.85, 0.4, 0.7, 1.0)),
-        }),
+        // Chamfer rect: all corners beveled (default)
+        Shape::ChamferRect(ChamferRect::new(
+            Rect::new((1080.0, 0.0), Size::new(200.0, 120.0)),
+            12.0,
+            Color::from((0.85, 0.4, 0.7, 1.0)),
+        )),
+        // Chamfer rect: only top corners beveled
+        Shape::ChamferRect(
+            ChamferRect::new(
+                Rect::new((0.0, 460.0), Size::new(180.0, 100.0)),
+                16.0,
+                Color::from((0.9, 0.5, 0.2, 1.0)),
+            )
+            .with_bottom_left(false)
+            .with_bottom_right(false),
+        ),
+        // Chamfer rect: only bottom corners beveled
+        Shape::ChamferRect(
+            ChamferRect::new(
+                Rect::new((200.0, 460.0), Size::new(180.0, 100.0)),
+                16.0,
+                Color::from((0.3, 0.7, 0.9, 1.0)),
+            )
+            .with_top_left(false)
+            .with_top_right(false),
+        ),
+        // Chamfer rect: diagonal corners (top-left, bottom-right)
+        Shape::ChamferRect(
+            ChamferRect::new(
+                Rect::new((400.0, 460.0), Size::new(180.0, 100.0)),
+                16.0,
+                Color::from((0.7, 0.3, 0.8, 1.0)),
+            )
+            .with_top_right(false)
+            .with_bottom_left(false),
+        ),
+        // Chamfer rect: single corner (bottom-right only)
+        Shape::ChamferRect(
+            ChamferRect::new(
+                Rect::new((600.0, 460.0), Size::new(180.0, 100.0)),
+                16.0,
+                Color::from((0.2, 0.8, 0.5, 1.0)),
+            )
+            .with_top_left(false)
+            .with_top_right(false)
+            .with_bottom_left(false),
+        ),
+        // Chamfer rect: no beveled corners (sharp rectangle)
+        Shape::ChamferRect(
+            ChamferRect::new(
+                Rect::new((800.0, 460.0), Size::new(180.0, 100.0)),
+                16.0,
+                Color::from((0.9, 0.2, 0.3, 1.0)),
+            )
+            .with_top_left(false)
+            .with_top_right(false)
+            .with_bottom_left(false)
+            .with_bottom_right(false),
+        ),
         // Overlapping translucent stack
         Shape::Rect(FilledRect {
             rect: Rect::new((0.0, 180.0), Size::new(240.0, 160.0)),

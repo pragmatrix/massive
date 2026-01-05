@@ -105,9 +105,10 @@ fn compute_distance(in: VertexOutput) -> f32 {
         case 3u: { // ellipse (use half extents)
             distance = -sd_ellipse(p_local, half_shape_size);
         }
-        case 4u: { // chamfer rect (shape_data.x = chamfer)
+        case 4u: { // chamfer rect (shape_data.x = chamfer, shape_data.y = corner_mask)
             let chamfer = in.shape_data.x;
-            distance = -sd_chamfer_rect(p_local, half_shape_size, chamfer);
+            let corner_mask = u32(in.shape_data.y);
+            distance = -sd_chamfer_rect(p_local, half_shape_size, chamfer, corner_mask);
         }
         case 10u: { // rect stroke (shape_data.xy = stroke thickness)
             let stroke = in.shape_data;
@@ -154,8 +155,9 @@ fn sd_stroked_rect(p: vec2<f32>, half_size: vec2<f32>, stroke: vec2<f32>) -> f32
     return max(d_outer, -d_inner);
 }
 
-// Chamfer rectangle SDF (based on Inigo Quilez sdChamferBox)
-fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) -> f32 {
+// Original Chamfer rectangle SDF (based on Inigo Quilez sdChamferBox) - kept for reference
+// This version applies uniform chamfer to all corners and shrinks the box by the chamfer amount
+fn sd_chamfer_rect_original(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) -> f32 {
     // b is the inner box after removing chamfer extents
     let b = half_size - vec2<f32>(chamfer, chamfer);
     var q = abs(p) - b;
@@ -171,4 +173,55 @@ fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32) -> f32 {
         return (q.x + q.y) * sqrt(0.5);
     }
     return length(q);
+}
+
+// Chamfer rectangle SDF with per-corner control
+// corners: 4-bit mask (bit0=top-left, bit1=top-right, bit2=bottom-right, bit3=bottom-left clockwise)
+fn sd_chamfer_rect(p: vec2<f32>, half_size: vec2<f32>, chamfer: f32, corners: u32) -> f32 {
+    // Extract corner enable bits
+    let c_tl = (corners & 1u) != 0u;       // bit 0: top-left
+    let c_tr = (corners & 2u) != 0u;       // bit 1: top-right
+    let c_br = (corners & 4u) != 0u;       // bit 2: bottom-right
+    let c_bl = (corners & 8u) != 0u;       // bit 3: bottom-left
+    
+    // Standard box SDF
+    let d = abs(p) - half_size;
+    
+    // Check if we're in a corner region (both components of d are close to being positive/zero)
+    // This includes both inside corners and outside corners near the corner point
+    let in_corner_region = (d.x > -chamfer) && (d.y > -chamfer);
+    
+    if (in_corner_region) {
+        // Determine which corner based on original position
+        let px = p.x;
+        let py = p.y;
+        let sqrt2 = 1.4142135623730951;
+        
+        var corner_chamfered = false;
+        if (px < 0.0 && py < 0.0) {
+            corner_chamfered = c_tl;
+        } else if (px >= 0.0 && py < 0.0) {
+            corner_chamfered = c_tr;
+        } else if (px >= 0.0 && py >= 0.0) {
+            corner_chamfered = c_br;
+        } else {
+            corner_chamfered = c_bl;
+        }
+        
+        if (corner_chamfered) {
+            // Apply chamfer: the chamfer line cuts diagonally
+            // For a chamfered corner, distance is: (d.x + d.y + chamfer) / sqrt(2) if in chamfer zone
+            let chamfer_dist = (d.x + d.y + chamfer) / sqrt2;
+            
+            // Check if we're actually in the chamfer zone (within chamfer distance from corner)
+            let in_chamfer_zone = (d.x + d.y) > -chamfer;
+            
+            if (in_chamfer_zone) {
+                return chamfer_dist;
+            }
+        }
+    }
+    
+    // Standard box distance for non-chamfered regions
+    return length(max(d, vec2(0.0))) + min(max(d.x, d.y), 0.0);
 }

@@ -149,7 +149,7 @@ impl ShapeRenderer {
                 Shape::ChamferRect(r) => emit(
                     &r.rect,
                     ShapeSelector::ChamferRect,
-                    (r.chamfer, 0.0),
+                    (r.chamfer, r.corner_mask as f32),
                     r.color,
                 ),
                 Shape::Circle(c) => emit(&c.rect, ShapeSelector::Circle, (0.0, 0.0), c.color),
