@@ -26,7 +26,9 @@ pub struct Desktop {
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
     presenter: DesktopPresenter,
+
     event_manager: EventManager<ViewEvent>,
+
     instance_manager: InstanceManager,
     instance_commands: UnboundedReceiver<(InstanceId, InstanceCommand)>,
     context: ApplicationContext,

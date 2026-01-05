@@ -1,4 +1,4 @@
-use std::{char::ToLowercase, time::Instant};
+use std::time::Instant;
 
 use massive_geometry::{PixelCamera, Point, Rect, Transform, Vector3};
 
