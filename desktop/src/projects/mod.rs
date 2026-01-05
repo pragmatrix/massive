@@ -1,3 +1,3 @@
 mod configuration;
 mod project_presenter;
-mod slot_group;
+mod launch_group;
