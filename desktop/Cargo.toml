@@ -16,9 +16,11 @@ massive-layout.workspace = true
 massive-renderer.workspace = true
 massive-scene.workspace = true
 massive-shell.workspace = true
+massive-shapes.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true
+euclid.workspace = true
 futures.workspace = true
 log.workspace = true
 serde.workspace = true

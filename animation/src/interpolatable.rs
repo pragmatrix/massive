@@ -1,6 +1,6 @@
-use std::time::Instant;
+use std::{char::ToLowercase, time::Instant};
 
-use massive_geometry::{PixelCamera, Transform, Vector3};
+use massive_geometry::{PixelCamera, Point, Rect, Transform, Vector3};
 
 /// For now we have to support `Clone`.
 ///
@@ -31,6 +31,8 @@ impl Interpolatable for Instant {
     }
 }
 
+// 3D Geometry
+
 impl Interpolatable for Vector3 {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
         let x = f64::interpolate(&from.x, &to.x, t);
@@ -55,5 +57,25 @@ impl Interpolatable for PixelCamera {
         let interpolated_transform = Transform::interpolate(&from.look_at, &to.look_at, t);
         let fovy = f64::interpolate(&from.fovy, &to.fovy, t);
         PixelCamera::look_at(interpolated_transform, fovy)
+    }
+}
+
+// 2D Geometry
+
+impl Interpolatable for Point {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        let x = f64::interpolate(&from.x, &to.x, t);
+        let y = f64::interpolate(&from.y, &to.y, t);
+        (x, y).into()
+    }
+}
+
+impl Interpolatable for Rect {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        let (f_min, f_max) = (*from).into();
+        let (t_min, t_max) = (*to).into();
+        let min = Point::interpolate(&f_min, &t_min, t);
+        let max = Point::interpolate(&f_max, &t_max, t);
+        (min, max).into()
     }
 }

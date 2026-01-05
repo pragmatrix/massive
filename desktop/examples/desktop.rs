@@ -2,7 +2,7 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use massive_applications::InstanceContext;
-use massive_desktop::{Application, Desktop};
+use massive_desktop::{Application, DesktopEnvironment};
 use massive_shell::{ApplicationContext, shell};
 
 #[tokio::main]
@@ -12,8 +12,8 @@ async fn main() -> Result<()> {
 
 async fn run(ctx: ApplicationContext) -> Result<()> {
     let applications = vec![Application::new("Hello Application", hello_instance)];
-    let desktop = Desktop::new(applications);
-    desktop.run(ctx).await
+    let env = DesktopEnvironment::new(applications);
+    env.run_desktop(ctx).await
 }
 
 async fn hello_instance(ctx: InstanceContext) -> Result<()> {

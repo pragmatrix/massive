@@ -1,43 +1,40 @@
 use std::time::Instant;
 
-use anyhow::{anyhow, bail};
-use tokio::sync::mpsc::unbounded_channel;
-use uuid::Uuid;
-
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, Scene,
-    ViewCommand, ViewEvent, ViewId, ViewRole,
+    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, ViewCommand,
+    ViewEvent, ViewId, ViewRole,
 };
 use massive_input::{EventManager, ExternalEvent};
-use massive_renderer::{FontManager, RenderPacing};
-use massive_shell::{ApplicationContext, Result, ShellEvent, ShellWindow};
+use massive_renderer::RenderPacing;
+use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
+use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
+use anyhow::{Result, anyhow, bail};
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use uuid::Uuid;
+
+use crate::instance_manager::ViewPath;
 use crate::{
-    Application, UI, UiCommand,
-    application_registry::ApplicationRegistry,
-    desktop_presenter::DesktopPresenter,
-    instance_manager::{InstanceManager, ViewPath},
+    DesktopEnvironment, UI, UiCommand, desktop_presenter::DesktopPresenter,
+    instance_manager::InstanceManager,
 };
 
 #[derive(Debug)]
 pub struct Desktop {
-    primary_application: String,
-    applications: ApplicationRegistry,
+    ui: UI,
+    scene: Scene,
+    renderer: AsyncWindowRenderer,
+    window: ShellWindow,
+    presenter: DesktopPresenter,
+    event_manager: EventManager<ViewEvent>,
+    instance_manager: InstanceManager,
+    instance_commands: UnboundedReceiver<(InstanceId, InstanceCommand)>,
+    context: ApplicationContext,
+    env: DesktopEnvironment,
 }
 
 impl Desktop {
-    pub fn new(applications: Vec<Application>) -> Self {
-        Self {
-            primary_application: applications
-                .first()
-                .expect("No primary application")
-                .name
-                .clone(),
-            applications: ApplicationRegistry::new(applications),
-        }
-    }
-
-    pub async fn run(self, mut context: ApplicationContext) -> Result<()> {
+    pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Create the font manager - shared between desktop and instances
         let fonts = FontManager::system();
 
@@ -50,12 +47,12 @@ impl Desktop {
         );
         let mut instance_manager = InstanceManager::new(environment);
         // We need to use ViewEvent early on, because the EventRouter isn't able to convert events.
-        let mut event_manager = EventManager::<ViewEvent>::default();
+        let event_manager = EventManager::<ViewEvent>::default();
 
         // Start one instance of the first registered application
-        let primary_application = self
+        let primary_application = env
             .applications
-            .get_named(&self.primary_application)
+            .get_named(&env.primary_application)
             .expect("No primary application");
 
         instance_manager.spawn(primary_application, CreationMode::New)?;
@@ -70,7 +67,7 @@ impl Desktop {
         let primary_view = creation_info.id;
 
         let window = context.new_window(creation_info.size()).await?;
-        let mut renderer = window
+        let renderer = window
             .renderer()
             .with_shapes()
             .with_text(fonts.clone())
@@ -83,20 +80,35 @@ impl Desktop {
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
-        let mut ui = UI::new(
+        let ui = UI::new(
             (primary_instance, primary_view).into(),
             &instance_manager,
             &presenter,
             &scene,
         )?;
 
+        Ok(Self {
+            ui,
+            scene,
+            renderer,
+            window,
+            event_manager,
+            instance_manager,
+            presenter,
+            instance_commands: requests_rx,
+            context,
+            env,
+        })
+    }
+
+    pub async fn run(mut self) -> Result<()> {
         loop {
             tokio::select! {
-                Some((instance_id, request)) = requests_rx.recv() => {
-                    Self::handle_instance_command(&mut instance_manager, &mut presenter, &mut ui, &scene, &window, instance_id, request)?;
+                Some((instance_id, request)) = self.instance_commands.recv() => {
+                    self.handle_instance_command(instance_id, request)?;
                 }
 
-                shell_event = context.wait_for_shell_event() => {
+                shell_event = self.context.wait_for_shell_event() => {
                     let event = shell_event?;
 
                     match event {
@@ -105,35 +117,35 @@ impl Desktop {
                             if let Some(view_event) = ViewEvent::from_window_event(&window_event)
                                 // Use a nil ViewId as a global scope for raw window events; the UI
                                 // routing logic treats this as a non-specific view identifier.
-                                && let Some(input_event) = event_manager.add_event(
+                                && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-                                let cmd = ui.handle_input_event(
+                                let cmd = self.ui.handle_input_event(
                                     &input_event,
-                                    &instance_manager,
-                                    renderer.geometry(),
+                                    &self.instance_manager,
+                                    self.renderer.geometry(),
                                 )?;
 
-                                self.handle_ui_command(cmd, &mut instance_manager, &mut presenter, &mut ui, &scene)?;
+                                self.handle_ui_command(cmd)?;
                             }
 
-                            renderer.resize_redraw(&window_event)?;
+                            self.renderer.resize_redraw(&window_event)?;
                         }
                         ShellEvent::ApplyAnimations(_) => {
                             // Performance: Not every instance needs that, only the ones animating.
-                            instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
-                            presenter.apply_animations();
+                            self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
+                            self.presenter.apply_animations();
                         }
                     }
                 }
 
-                Ok((_instance_id, instance_result)) = instance_manager.join_next() => {
+                Ok((_instance_id, instance_result)) = self.instance_manager.join_next() => {
 
                     // If any instance fails, return the error
                     instance_result?;
 
                     // If all instances have finished, exit
-                    if instance_manager.is_empty() {
+                    if self.instance_manager.is_empty() {
                         return Ok(());
                     }
                 }
@@ -143,22 +155,15 @@ impl Desktop {
                 }
             }
 
-            let mut frame = scene.begin_frame().with_camera(ui.camera());
-            if instance_manager.effective_pacing() == RenderPacing::Smooth {
+            let mut frame = self.scene.begin_frame().with_camera(self.ui.camera());
+            if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                 frame = frame.with_pacing(RenderPacing::Smooth);
             }
-            frame.submit_to(&mut renderer)?;
+            frame.submit_to(&mut self.renderer)?;
         }
     }
 
-    fn handle_ui_command(
-        &self,
-        cmd: UiCommand,
-        instance_manager: &mut InstanceManager,
-        presenter: &mut DesktopPresenter,
-        ui: &mut UI,
-        scene: &Scene,
-    ) -> Result<()> {
+    fn handle_ui_command(&mut self, cmd: UiCommand) -> Result<()> {
         match cmd {
             UiCommand::None => {}
             UiCommand::StartInstance {
@@ -166,80 +171,72 @@ impl Desktop {
                 originating_instance,
             } => {
                 let application = self
+                    .env
                     .applications
                     .get_named(&application)
                     .ok_or(anyhow!("Internal error, application not registered"))?;
 
-                let instance = instance_manager.spawn(application, CreationMode::New)?;
-                presenter.present_instance(instance, originating_instance, scene)?;
-                ui.make_foreground(instance, instance_manager, presenter)?;
-                presenter.layout(true);
+                let instance = self
+                    .instance_manager
+                    .spawn(application, CreationMode::New)?;
+                self.presenter
+                    .present_instance(instance, originating_instance, &self.scene)?;
+                self.ui
+                    .make_foreground(instance, &self.instance_manager, &self.presenter)?;
+                self.presenter.layout(true);
             }
             UiCommand::MakeForeground { instance } => {
-                ui.make_foreground(instance, instance_manager, presenter)?;
+                self.ui
+                    .make_foreground(instance, &self.instance_manager, &self.presenter)?;
             }
-            UiCommand::StopInstance { instance } => instance_manager.stop(instance)?,
+            UiCommand::StopInstance { instance } => self.instance_manager.stop(instance)?,
         }
 
         Ok(())
     }
 
     fn handle_instance_command(
-        instance_manager: &mut InstanceManager,
-        presenter: &mut DesktopPresenter,
-        ui: &mut UI,
-        scene: &Scene,
-        window: &ShellWindow,
+        &mut self,
         instance: InstanceId,
         command: InstanceCommand,
     ) -> Result<()> {
         match command {
             InstanceCommand::CreateView(info) => {
-                instance_manager.add_view(instance, &info);
-                presenter.present_view(instance, &info)?;
+                self.instance_manager.add_view(instance, &info);
+                self.presenter.present_view(instance, &info)?;
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
-                    ui.make_foreground(instance, instance_manager, presenter)?;
+                if self.ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
+                    self.ui
+                        .make_foreground(instance, &self.instance_manager, &self.presenter)?;
                 }
             }
             InstanceCommand::DestroyView(id) => {
-                presenter.hide_view(id)?;
-                instance_manager.remove_view((instance, id).into());
+                self.presenter.hide_view(id)?;
+                self.instance_manager.remove_view((instance, id).into());
             }
             InstanceCommand::View(view_id, command) => {
-                Self::handle_view_command(
-                    instance_manager,
-                    scene,
-                    window,
-                    (instance, view_id).into(),
-                    command,
-                )?;
+                self.handle_view_command((instance, view_id).into(), command)?;
             }
         }
         Ok(())
     }
 
-    fn handle_view_command(
-        instance_manager: &mut InstanceManager,
-        scene: &Scene,
-        window: &ShellWindow,
-        view: ViewPath,
-        command: ViewCommand,
-    ) -> Result<()> {
+    fn handle_view_command(&mut self, view: ViewPath, command: ViewCommand) -> Result<()> {
         match command {
             ViewCommand::Render { submission } => {
-                instance_manager.update_view_pacing(view, submission.pacing)?;
-                scene.accumulate_changes(submission.changes);
+                self.instance_manager
+                    .update_view_pacing(view, submission.pacing)?;
+                self.scene.accumulate_changes(submission.changes);
             }
             ViewCommand::Resize(_) => {
                 todo!("Resize is unsupported");
             }
             ViewCommand::SetTitle(title) => {
-                window.set_title(&title);
+                self.window.set_title(&title);
             }
             ViewCommand::SetCursor(icon) => {
-                window.set_cursor(icon);
+                self.window.set_cursor(icon);
             }
         }
         Ok(())
