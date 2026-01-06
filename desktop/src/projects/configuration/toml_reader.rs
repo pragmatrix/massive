@@ -5,6 +5,8 @@ use anyhow::{Context, Result};
 use serde::Deserialize;
 use toml::Value;
 
+use crate::projects::configuration::ProjectConfiguration;
+
 use super::types::{
     GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, Parameter, Parameters, ScopedTag,
 };
@@ -33,23 +35,6 @@ pub struct LayoutSection {
 
 pub type LaunchProfileSection = HashMap<String, Value>;
 
-/// Load a configuration file from a TOML file at the given path.
-pub fn load_configuration(path: &Path) -> Result<LaunchGroup> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("Failed to read configuration file: {}", path.display()))?;
-
-    let config: ConfigFile = toml::from_str(&content)
-        .with_context(|| format!("Failed to parse TOML configuration: {}", path.display()))?;
-
-    let name = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .with_context(|| format!("Failed to extract filename from path: {}", path.display()))?
-        .to_string();
-
-    config.into_launch_group(name)
-}
-
 impl ConfigFile {
     /// Convert the intermediate TOML representation into a launch group, which is itself
     /// an ApplicationGroup.
@@ -71,7 +56,7 @@ impl ConfigFile {
         Ok(LaunchGroup {
             name,
             tag: ScopedTag::new("", ""),
-            direction: LayoutDirection::Horizontal,
+            layout: LayoutDirection::Horizontal,
             content: GroupContents::Groups(groups),
         })
     }
@@ -182,7 +167,7 @@ fn build_launch_group(
 ) -> Result<LaunchGroup> {
     let is_last_level = depth == group_tags.len() - 1;
     let content = if is_last_level {
-        GroupContents::LaunchProfiles(apps.iter().map(|&app| app.clone()).collect())
+        GroupContents::Profiles(apps.iter().map(|&app| app.clone()).collect())
     } else {
         let nested = build_group_hierarchy(apps, group_tags, order, depth + 1)?;
         GroupContents::Groups(nested)
@@ -191,7 +176,7 @@ fn build_launch_group(
     Ok(LaunchGroup {
         name: value.clone(),
         tag: ScopedTag::new(tag_name, value),
-        direction: LayoutDirection::Horizontal,
+        layout: LayoutDirection::Horizontal,
         content,
     })
 }
@@ -267,7 +252,7 @@ datacenter = "ber"
             assert_eq!(nested[0].name, "router");
             assert_eq!(nested[1].name, "backend");
 
-            if let GroupContents::LaunchProfiles(ref router_apps) = nested[0].content {
+            if let GroupContents::Profiles(ref router_apps) = nested[0].content {
                 assert_eq!(router_apps.len(), 1);
                 assert_eq!(router_apps[0].name, "host-1");
             } else {

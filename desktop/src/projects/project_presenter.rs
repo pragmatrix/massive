@@ -6,25 +6,29 @@ use massive_scene::{Handle, Location, Visual};
 use massive_shapes as shapes;
 use massive_shell::Scene;
 
-use crate::projects::launch_group::{GroupId, LaunchGroup, LauncherId};
+use crate::projects::{
+    Project,
+    project::{GroupId, LaunchGroup, LaunchProfileId},
+};
 
 #[derive(Debug)]
-struct ProjectPresenter {
+pub struct ProjectPresenter {
+    /// The project hierarchy is used for layout. It references the presenters through GroupIds and
+    /// SlotIds.
+    project: Project,
+
     location: Handle<Location>,
-    /// The current hierarchy root, directly derived from the configuration. This is for layout. It
-    /// references the presenters through GroupIds and SlotIds.
-    root: LaunchGroup,
 
     groups: HashMap<GroupId, GroupPresenter>,
     // Naming: Find a better name for Slot
-    slots: HashMap<LauncherId, SlotPresenter>,
+    slots: HashMap<LaunchProfileId, SlotPresenter>,
 }
 
 impl ProjectPresenter {
-    pub fn new(root: LaunchGroup, location: Handle<Location>) -> Self {
+    pub fn new(project: Project, location: Handle<Location>) -> Self {
         Self {
             location,
-            root,
+            project,
             // Groups and slots are created when layouted.
             groups: Default::default(),
             slots: Default::default(),

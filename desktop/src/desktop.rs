@@ -1,9 +1,11 @@
+use std::path::Path;
 use std::time::Instant;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, ViewCommand,
     ViewEvent, ViewId, ViewRole,
 };
+use massive_geometry::Projection;
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
@@ -13,10 +15,12 @@ use anyhow::{Result, anyhow, bail};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
 
-use crate::instance_manager::ViewPath;
+use crate::projects::{Project, ProjectPresenter};
 use crate::{
-    DesktopEnvironment, UI, UiCommand, desktop_presenter::DesktopPresenter,
-    instance_manager::InstanceManager,
+    DesktopEnvironment, UI, UiCommand,
+    desktop_presenter::DesktopPresenter,
+    instance_manager::{InstanceManager, ViewPath},
+    projects::ProjectConfiguration,
 };
 
 #[derive(Debug)]
@@ -37,6 +41,12 @@ pub struct Desktop {
 
 impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
+        // Load configuration
+
+        let projects_dir = env.final_projects_dir();
+        let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
+        let project = Project::from_configuration(project_configuration)?;
+
         // Create the font manager - shared between desktop and instances
         let fonts = FontManager::system();
 

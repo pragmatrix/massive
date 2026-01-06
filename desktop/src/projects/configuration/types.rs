@@ -1,16 +1,10 @@
 use derive_more::Deref;
 
 #[derive(Debug)]
-pub struct ProjectConfiguration {
-    pub default: String,
-    pub root: LaunchGroup,
-}
-
-#[derive(Debug)]
 pub struct LaunchGroup {
     pub name: String,
     pub tag: ScopedTag,
-    pub direction: LayoutDirection,
+    pub layout: LayoutDirection,
     pub content: GroupContents,
 }
 
@@ -24,7 +18,7 @@ pub enum LayoutDirection {
 #[derive(Debug)]
 pub enum GroupContents {
     Groups(Vec<LaunchGroup>),
-    LaunchProfiles(Vec<LaunchProfile>),
+    Profiles(Vec<LaunchProfile>),
 }
 
 #[derive(Debug, Clone)]
@@ -49,7 +43,7 @@ impl ScopedTag {
     }
 }
 
-#[derive(Debug, Deref, Clone)]
+#[derive(Debug, Deref, Clone, Default)]
 pub struct Parameters(pub Vec<Parameter>);
 
 #[derive(Debug, Clone)]
