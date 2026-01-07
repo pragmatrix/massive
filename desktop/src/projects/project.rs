@@ -1,5 +1,5 @@
 //! A configuration derived hierarchy with assigned ids.
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use derive_more::{Constructor, Deref};
 
 use crate::projects::configuration::{
@@ -72,7 +72,7 @@ impl LaunchGroup {
                         return Ok(launcher.id);
                     }
                 }
-                anyhow::bail!("Launch profile '{}' not found", name)
+                bail!("Launch profile '{}' not found", name)
             }
             LaunchGroupContents::Groups(groups) => {
                 for group in groups {
@@ -80,7 +80,7 @@ impl LaunchGroup {
                         return Ok(id);
                     }
                 }
-                anyhow::bail!("Launch profile '{}' not found", name)
+                bail!("Launch profile '{}' not found", name)
             }
         }
     }
