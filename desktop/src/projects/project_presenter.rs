@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
 use massive_animation::Animated;
-use massive_geometry::{Color, Rect};
+use massive_geometry::{Color, Rect, RectPx, Size, SizePx};
+use massive_layout::{LayoutAxis, LayoutInfo, LayoutNode};
 use massive_scene::{Handle, Location, Visual};
 use massive_shapes as shapes;
 use massive_shell::Scene;
 
 use crate::projects::{
     Project,
-    project::{GroupId, LaunchGroup, LaunchProfileId},
+    project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher},
 };
 
 #[derive(Debug)]
@@ -91,6 +92,47 @@ impl GroupPresenter {
             location,
             rect: scene.animated(rect),
             background: scene.stage(background),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LayoutContext<'a> {
+    default_size: SizePx,
+    presenter: &'a mut ProjectPresenter,
+}
+
+impl<'a> LayoutNode<LayoutContext<'a>> for LaunchGroup {
+    type Rect = RectPx;
+
+    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
+        LayoutInfo::Container {
+            child_count: self.contents.len(),
+            layout_axis: self.layout.axis(),
+        }
+    }
+
+    fn get_child_mut(
+        &mut self,
+        index: usize,
+    ) -> &mut dyn LayoutNode<LayoutContext<'a>, Rect = RectPx> {
+        match &mut self.contents {
+            LaunchGroupContents::Groups(launch_groups) => &mut launch_groups[index],
+            LaunchGroupContents::Launchers(launchers) => &mut launchers[index],
+        }
+    }
+
+    fn set_rect(&mut self, rect: Self::Rect, context: &mut LayoutContext) {
+        todo!();
+    }
+}
+
+impl LayoutNode<LayoutContext<'_>> for Launcher {
+    type Rect = RectPx;
+
+    fn layout_info(&self, context: &LayoutContext) -> LayoutInfo<SizePx> {
+        LayoutInfo::Leaf {
+            size: context.default_size,
         }
     }
 }

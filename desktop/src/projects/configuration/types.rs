@@ -1,4 +1,5 @@
 use derive_more::Deref;
+use massive_layout::LayoutAxis;
 
 #[derive(Debug)]
 pub struct LaunchGroup {
@@ -8,10 +9,19 @@ pub struct LaunchGroup {
     pub content: GroupContents,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum LayoutDirection {
     Horizontal,
     Vertical,
+}
+
+impl LayoutDirection {
+    pub fn axis(&self) -> LayoutAxis {
+        match self {
+            LayoutDirection::Horizontal => LayoutAxis::HORIZONTAL,
+            LayoutDirection::Vertical => LayoutAxis::VERTICAL,
+        }
+    }
 }
 
 /// A group can only contain either groups or applications.

@@ -138,7 +138,7 @@ impl DesktopPresenter {
 
     /// Compute the current layout and animate the views to their positions.
     pub fn layout(&mut self, animate: bool) {
-        layout(self, &LayoutContext { animate });
+        layout(self, &mut LayoutContext { animate });
     }
 
     pub fn apply_animations(&self) {
@@ -212,7 +212,7 @@ struct LayoutContext {
 impl LayoutNode<LayoutContext> for DesktopPresenter {
     type Rect = RectPx;
 
-    fn layout_info(&self) -> LayoutInfo<SizePx> {
+    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
         LayoutInfo::container(self.ordered.len())
     }
 
@@ -230,14 +230,14 @@ impl LayoutNode<LayoutContext> for DesktopPresenter {
 impl LayoutNode<LayoutContext> for InstancePresenter {
     type Rect = RectPx;
 
-    fn layout_info(&self) -> LayoutInfo<SizePx> {
+    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
         self.panel_size.into()
     }
 
-    fn set_rect(&mut self, rect: Self::Rect, ctx: &LayoutContext) {
+    fn set_rect(&mut self, rect: Self::Rect, context: &mut LayoutContext) {
         let translation = (rect.origin.x as f64, rect.origin.y as f64, 0.0).into();
 
-        if ctx.animate {
+        if context.animate {
             self.center_animation.animate_if_changed(
                 translation,
                 DesktopPresenter::INSTANCE_TRANSITION_DURATION,

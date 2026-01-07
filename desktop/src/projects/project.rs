@@ -24,7 +24,16 @@ pub struct LaunchGroup {
 #[derive(Debug)]
 pub enum LaunchGroupContents {
     Groups(Vec<LaunchGroup>),
-    Slots(Vec<Launcher>),
+    Launchers(Vec<Launcher>),
+}
+
+impl LaunchGroupContents {
+    pub fn len(&self) -> usize {
+        match self {
+            LaunchGroupContents::Groups(launch_groups) => launch_groups.len(),
+            LaunchGroupContents::Launchers(launchers) => launchers.len(),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -66,7 +75,7 @@ impl LaunchGroup {
     /// Returns the LaunchProfileId if found, or an error if not found.
     fn find_profile_by_name(&self, name: &str) -> Result<LaunchProfileId> {
         match &self.contents {
-            LaunchGroupContents::Slots(slots) => {
+            LaunchGroupContents::Launchers(slots) => {
                 for launcher in slots {
                     if launcher.profile.name == name {
                         return Ok(launcher.id);
@@ -113,7 +122,7 @@ fn convert_group(
                 profile_id.0 += 1;
                 slots.push(slot);
             }
-            LaunchGroupContents::Slots(slots)
+            LaunchGroupContents::Launchers(slots)
         }
     };
 
