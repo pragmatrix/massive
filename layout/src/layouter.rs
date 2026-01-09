@@ -11,14 +11,14 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Layout<'a, Id: Clone, R: DimensionalRect> {
+pub struct Layouter<'a, Id: Clone, R: DimensionalRect> {
     id: Id,
-    parent: Option<&'a mut LayoutInner<Id, R>>,
-    inner: LayoutInner<Id, R>,
+    parent: Option<&'a mut Inner<Id, R>>,
+    inner: Inner<Id, R>,
 }
 
 #[derive(Debug)]
-struct LayoutInner<Id: Clone, R: DimensionalRect> {
+struct Inner<Id: Clone, R: DimensionalRect> {
     trace: Vec<TraceEntry<Id, R>>,
     layout_axis: LayoutAxis,
     offset: R::Offset,
@@ -34,7 +34,7 @@ struct TraceEntry<Id, R> {
     children: usize,
 }
 
-impl<Id: Clone, R: DimensionalRect> Drop for Layout<'_, Id, R> {
+impl<Id: Clone, R: DimensionalRect> Drop for Layouter<'_, Id, R> {
     fn drop(&mut self) {
         if let Some(parent) = self.parent.take() {
             parent.trace = mem::take(&mut self.inner.trace);
@@ -43,16 +43,12 @@ impl<Id: Clone, R: DimensionalRect> Drop for Layout<'_, Id, R> {
     }
 }
 
-impl<'a, Id: Clone, R: DimensionalRect> Layout<'a, Id, R> {
+impl<'a, Id: Clone, R: DimensionalRect> Layouter<'a, Id, R> {
     pub fn root(id: Id, layout_axis: LayoutAxis) -> Self {
         Self::new(None, id, layout_axis)
     }
 
-    fn new(
-        mut parent: Option<&'a mut LayoutInner<Id, R>>,
-        id: Id,
-        layout_axis: LayoutAxis,
-    ) -> Self {
+    fn new(mut parent: Option<&'a mut Inner<Id, R>>, id: Id, layout_axis: LayoutAxis) -> Self {
         // If there is a parent, get the trace.
         let trace = parent
             .as_mut()
@@ -61,7 +57,7 @@ impl<'a, Id: Clone, R: DimensionalRect> Layout<'a, Id, R> {
         Self {
             id,
             parent,
-            inner: LayoutInner {
+            inner: Inner {
                 trace,
                 layout_axis,
                 offset: R::Offset::zero(),
@@ -71,12 +67,12 @@ impl<'a, Id: Clone, R: DimensionalRect> Layout<'a, Id, R> {
         }
     }
 
-    fn leaf(&mut self, id: Id, child_size: R::Size) {
+    pub fn leaf(&mut self, id: Id, child_size: R::Size) {
         self.inner.child(id, child_size, 0);
     }
 
-    pub fn container<'b>(&'b mut self, id: Id, layout_axis: LayoutAxis) -> Layout<'b, Id, R> {
-        Layout::new(Some(&mut self.inner), id, layout_axis)
+    pub fn container<'b>(&'b mut self, id: Id, layout_axis: LayoutAxis) -> Layouter<'b, Id, R> {
+        Layouter::new(Some(&mut self.inner), id, layout_axis)
     }
 
     pub fn size(&self) -> R::Size {
@@ -103,7 +99,7 @@ impl<'a, Id: Clone, R: DimensionalRect> Layout<'a, Id, R> {
     }
 }
 
-impl<Id: Clone, R: DimensionalRect> LayoutInner<Id, R> {
+impl<Id: Clone, R: DimensionalRect> Inner<Id, R> {
     fn child(&mut self, id: Id, child_size: R::Size, children: usize) {
         let child_relative_rect = R::from_offset_size(self.offset, child_size);
         self.trace.push(TraceEntry {
@@ -166,7 +162,7 @@ mod tests {
     use super::*;
     use massive_geometry::{PointPx, RectPx, SizePx};
 
-    type TestLayout<'a> = Layout<'a, u32, RectPx>;
+    type TestLayout<'a> = Layouter<'a, u32, RectPx>;
 
     #[test]
     fn single_leaf() {

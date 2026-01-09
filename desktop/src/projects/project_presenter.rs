@@ -3,19 +3,30 @@ use std::{
     time::Duration,
 };
 
+use derive_more::From;
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Color, Rect, RectPx, SizePx};
-use massive_layout::{LayoutInfo, LayoutNode, layout};
+use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
+use massive_layout::{LayoutAxis, LayoutInfo, LayoutNode, layout};
 use massive_scene::{Handle, Location, Visual};
 use massive_shapes as shapes;
 use massive_shell::Scene;
 
 use crate::projects::{
     Project,
+    configuration::LaunchProfile,
     project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher},
 };
 
 const ANIMATION_DURATION: Duration = Duration::from_millis(500);
+
+#[derive(Debug, Clone, Copy, From)]
+enum LayoutId {
+    Group(GroupId),
+    Launcher(LaunchProfileId),
+}
+
+/// Architecture: Can't we just use inner as the root, thus preventing the lifetime here.
+type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, RectPx>;
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -41,15 +52,19 @@ impl ProjectPresenter {
         }
     }
 
-    // pub fn layout(&mut self, default_size: SizePx, scene: &Scene) {
-    //     let mut context = LayoutContext {
-    //         default_size,
-    //         presenter: self,
-    //         scene,
-    //     };
+    pub fn layout(&mut self, default_size: SizePx, scene: &Scene) {
+        let mut layout = Layouter::root(self.project.root.id.into(), LayoutAxis::HORIZONTAL);
 
-    //     layout(&mut self.project.root, &mut context);
-    // }
+        layout_launch_group(&mut layout, &self.project.root, default_size);
+        layout.place_inline(PointPx::default(), |(id, rect)| match id {
+            LayoutId::Group(group_id) => {
+                self.set_group_rect(group_id, rect, scene);
+            }
+            LayoutId::Launcher(launch_profile_id) => {
+                self.set_launcher_rect(launch_profile_id, rect, scene);
+            }
+        });
+    }
 
     // layout callbacks
     // Ergonomics: Make Scene Clone.
@@ -65,13 +80,35 @@ impl ProjectPresenter {
         }
     }
 
-    fn set_launch_rect(&mut self, id: LaunchProfileId, rect: RectPx, scene: &Scene) {
+    fn set_launcher_rect(&mut self, id: LaunchProfileId, rect: RectPx, scene: &Scene) {
         use hash_map::Entry;
         let rect = rect.cast().into();
         match self.slots.entry(id) {
             Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
             Entry::Vacant(entry) => {
                 entry.insert(SlotPresenter::new(self.location.clone(), rect, scene));
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct LayoutContext<'a> {
+    default_size: SizePx,
+    scene: &'a Scene,
+}
+
+fn layout_launch_group(layout: &mut Layouter, group: &LaunchGroup, default_size: SizePx) {
+    match &group.contents {
+        LaunchGroupContents::Groups(launch_groups) => {
+            for group in launch_groups {
+                let mut container = layout.container(group.id.into(), group.layout.axis());
+                layout_launch_group(&mut container, &group, default_size);
+            }
+        }
+        LaunchGroupContents::Launchers(launchers) => {
+            for launcher in launchers {
+                layout.leaf(launcher.id.into(), default_size)
             }
         }
     }
@@ -142,55 +179,5 @@ impl SlotPresenter {
     fn set_rect(&mut self, rect: Rect) {
         self.rect
             .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
-    }
-}
-
-#[derive(Debug)]
-struct LayoutContext<'a> {
-    default_size: SizePx,
-    presenter: &'a mut ProjectPresenter,
-    scene: &'a Scene,
-}
-
-impl<'a> LayoutNode<LayoutContext<'a>> for LaunchGroup {
-    type Rect = RectPx;
-
-    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
-        LayoutInfo::Container {
-            child_count: self.contents.len(),
-            layout_axis: self.layout.axis(),
-        }
-    }
-
-    fn get_child_mut(
-        &mut self,
-        index: usize,
-    ) -> &mut dyn LayoutNode<LayoutContext<'a>, Rect = RectPx> {
-        match &mut self.contents {
-            LaunchGroupContents::Groups(launch_groups) => &mut launch_groups[index],
-            LaunchGroupContents::Launchers(launchers) => &mut launchers[index],
-        }
-    }
-
-    fn set_rect(&mut self, rect: Self::Rect, context: &mut LayoutContext) {
-        context
-            .presenter
-            .set_group_rect(self.id, rect, context.scene);
-    }
-}
-
-impl LayoutNode<LayoutContext<'_>> for Launcher {
-    type Rect = RectPx;
-
-    fn layout_info(&self, context: &LayoutContext) -> LayoutInfo<SizePx> {
-        LayoutInfo::Leaf {
-            size: context.default_size,
-        }
-    }
-
-    fn set_rect(&mut self, rect: Self::Rect, context: &mut LayoutContext) {
-        context
-            .presenter
-            .set_launch_rect(self.id, rect, context.scene);
     }
 }

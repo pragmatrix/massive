@@ -4,7 +4,7 @@ mod dimensional;
 mod layouter;
 mod node_layouter;
 
-pub use layouter::Layout;
+pub use layouter::Layouter;
 pub use node_layouter::{LayoutInfo, LayoutNode, layout};
 
 #[derive(Debug, Copy, Clone, From, Into, Deref, Default)]
