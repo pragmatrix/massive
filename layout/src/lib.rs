@@ -3,6 +3,8 @@ use std::cmp::max;
 use derive_more::{Deref, From, Into};
 
 mod dimensional;
+mod layouter;
+
 use dimensional::{DimensionalOffset, DimensionalRect, DimensionalSize};
 
 #[derive(Debug, Copy, Clone, From, Into, Deref, Default)]
@@ -82,6 +84,7 @@ pub fn layout<Context, N: LayoutNode<Context>>(node: &mut N, context: &mut Conte
     let mut relative_rects = Vec::new();
     let size = compute_size_and_rects(context, node, &mut relative_rects);
     let rect = N::Rect::from_offset_size(<N::Rect as DimensionalRect>::Offset::zero(), size);
+
     position(node, rect, &mut relative_rects, context);
 }
 

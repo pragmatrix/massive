@@ -1,6 +1,8 @@
+use std::fmt::Debug;
+
 use massive_geometry::{PointPx, RectPx, SizePx};
 
-pub trait DimensionalOffset: Copy {
+pub trait DimensionalOffset: Copy + Debug {
     #[allow(unused)]
     const RANK: usize;
     fn get(&self, i: usize) -> i32;
@@ -8,7 +10,7 @@ pub trait DimensionalOffset: Copy {
     fn zero() -> Self;
 }
 
-pub trait DimensionalSize: Copy {
+pub trait DimensionalSize: Copy + Debug {
     const RANK: usize;
     fn get(&self, i: usize) -> u32;
     fn set(&mut self, i: usize, value: u32);
@@ -24,6 +26,8 @@ pub trait DimensionalRect: Copy {
     fn set(&mut self, i: usize, value: i32);
     fn empty() -> Self;
     fn from_offset_size(offset: Self::Offset, size: Self::Size) -> Self;
+    fn offset(&self) -> Self::Offset;
+    fn size(&self) -> Self::Size;
 }
 
 impl DimensionalSize for SizePx {
@@ -94,5 +98,13 @@ impl DimensionalRect for RectPx {
 
     fn from_offset_size(offset: Self::Offset, size: Self::Size) -> Self {
         Self::new(offset, size.cast())
+    }
+
+    fn offset(&self) -> Self::Offset {
+        self.origin
+    }
+
+    fn size(&self) -> Self::Size {
+        self.size.cast()
     }
 }
