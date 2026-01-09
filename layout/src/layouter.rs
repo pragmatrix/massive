@@ -1,7 +1,7 @@
 //! Second attempt at the layout engine.
 //!
-//! This is a non-trait based one, that supports providing an id, and spits out a number of absolute
-//! `(Id,Rect)` pairs.
+//! This is a non-trait based layouter that supports providing an id, and spits out a number of
+//! absolute `(Id,Rect)` pairs.
 
 use std::{cmp::max, mem};
 
