@@ -13,7 +13,12 @@ use crate::{
 #[derive(Debug)]
 struct Layout<'a, Id: Copy, R: DimensionalRect> {
     id: Id,
-    parent: Option<&'a mut Layout<'a, Id, R>>,
+    parent: Option<&'a mut LayoutInner<Id, R>>,
+    inner: LayoutInner<Id, R>,
+}
+
+#[derive(Debug)]
+struct LayoutInner<Id: Copy, R: DimensionalRect> {
     trace: Vec<TraceEntry<Id, R>>,
     layout_axis: LayoutAxis,
     offset: R::Offset,
@@ -32,8 +37,8 @@ struct TraceEntry<Id, R> {
 impl<Id: Copy, R: DimensionalRect> Drop for Layout<'_, Id, R> {
     fn drop(&mut self) {
         if let Some(parent) = self.parent.take() {
-            parent.trace = mem::take(&mut self.trace);
-            parent.child(self.id, self.size, self.children);
+            parent.trace = mem::take(&mut self.inner.trace);
+            parent.child(self.id, self.inner.size, self.inner.children);
         }
     }
 }
@@ -43,7 +48,11 @@ impl<'a, Id: Copy, R: DimensionalRect> Layout<'a, Id, R> {
         Self::new(None, id, layout_axis)
     }
 
-    fn new(mut parent: Option<&'a mut Self>, id: Id, layout_axis: LayoutAxis) -> Self {
+    fn new(
+        mut parent: Option<&'a mut LayoutInner<Id, R>>,
+        id: Id,
+        layout_axis: LayoutAxis,
+    ) -> Self {
         // If there is a parent, get the trace.
         let trace = parent
             .as_mut()
@@ -52,18 +61,45 @@ impl<'a, Id: Copy, R: DimensionalRect> Layout<'a, Id, R> {
         Self {
             id,
             parent,
-            trace,
-            layout_axis,
-            offset: R::Offset::zero(),
-            size: R::Size::empty(),
-            children: 0,
+            inner: LayoutInner {
+                trace,
+                layout_axis,
+                offset: R::Offset::zero(),
+                size: R::Size::empty(),
+                children: 0,
+            },
         }
     }
 
     fn leaf(&mut self, id: Id, child_size: R::Size) {
-        self.child(id, child_size, 0);
+        self.inner.child(id, child_size, 0);
     }
 
+    pub fn container<'b>(&'b mut self, id: Id, layout_axis: LayoutAxis) -> Layout<'b, Id, R> {
+        Layout::new(Some(&mut self.inner), id, layout_axis)
+    }
+
+    pub fn size(&self) -> R::Size {
+        self.inner.size
+    }
+
+    pub fn place(mut self, absolute_offset: R::Offset) -> Vec<(Id, R)> {
+        if self.parent.is_some() {
+            panic!("Layout finalization can only be done on root containers");
+        }
+
+        let mut out = Vec::new();
+        let entry = TraceEntry {
+            id: self.id,
+            rect: R::from_offset_size(R::Offset::zero(), self.size()),
+            children: self.inner.children,
+        };
+        place_rec(&mut self.inner.trace, absolute_offset, entry, &mut out);
+        out
+    }
+}
+
+impl<Id: Copy, R: DimensionalRect> LayoutInner<Id, R> {
     fn child(&mut self, id: Id, child_size: R::Size, children: usize) {
         let child_relative_rect = R::from_offset_size(self.offset, child_size);
         self.trace.push(TraceEntry {
@@ -90,29 +126,6 @@ impl<'a, Id: Copy, R: DimensionalRect> Layout<'a, Id, R> {
             }
         }
         self.children += 1;
-    }
-
-    pub fn container(&'a mut self, id: Id, layout_axis: LayoutAxis) -> Self {
-        Self::new(Some(self), id, layout_axis)
-    }
-
-    pub fn size(&self) -> R::Size {
-        self.size
-    }
-
-    pub fn place(mut self, absolute_offset: R::Offset) -> Vec<(Id, R)> {
-        if self.parent.is_some() {
-            panic!("Layout finalization can only be done on root containers");
-        }
-
-        let mut out = Vec::new();
-        let entry = TraceEntry {
-            id: self.id,
-            rect: R::from_offset_size(R::Offset::zero(), self.size()),
-            children: self.children,
-        };
-        place_rec(&mut self.trace, absolute_offset, entry, &mut out);
-        out
     }
 }
 
@@ -239,6 +252,36 @@ mod tests {
         // since RectPx only has rank 2 (width and height)
         let mut root = TestLayout::root(0, LayoutAxis::DEPTH);
         root.leaf(1, size(100, 200)); // This should panic
+    }
+
+    // This test demonstrates the RAII pattern with LayoutInner separation
+    #[test]
+    fn nested_container_with_siblings() {
+        let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL);
+
+        root.leaf(1, size(50, 50));
+
+        {
+            let mut container = root.container(2, LayoutAxis::VERTICAL);
+            container.leaf(3, size(20, 30));
+            container.leaf(4, size(25, 35));
+        }
+
+        root.leaf(5, size(60, 60));
+
+        let results = root.place(PointPx::new(0, 0));
+
+        // Root contains: leaf(1) 50x50, container(2) 25x65, leaf(5) 60x60
+        // Container(2) contains: leaf(3) 20x30, leaf(4) 25x35 (vertical: width=max(20,25)=25, height=30+35=65)
+        // Root horizontal: width=50+25+60=135, height=max(50,65,60)=65
+        assert_eq!(results.len(), 6);
+        assert_eq!(results[0], (0, rect(0, 0, 135, 65)));
+        // Children in reverse: 5, 2, 1
+        assert_eq!(results[1], (5, rect(75, 0, 60, 60)));
+        assert_eq!(results[2], (2, rect(50, 0, 25, 65)));
+        assert_eq!(results[3], (4, rect(50, 30, 25, 35)));
+        assert_eq!(results[4], (3, rect(50, 0, 20, 30)));
+        assert_eq!(results[5], (1, rect(0, 0, 50, 50)));
     }
 
     // Helper to create RectPx from unsigned size
