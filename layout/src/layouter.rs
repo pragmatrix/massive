@@ -11,14 +11,14 @@ use crate::{
 };
 
 #[derive(Debug)]
-struct Layout<'a, Id: Copy, R: DimensionalRect> {
+pub struct Layout<'a, Id: Clone, R: DimensionalRect> {
     id: Id,
     parent: Option<&'a mut LayoutInner<Id, R>>,
     inner: LayoutInner<Id, R>,
 }
 
 #[derive(Debug)]
-struct LayoutInner<Id: Copy, R: DimensionalRect> {
+struct LayoutInner<Id: Clone, R: DimensionalRect> {
     trace: Vec<TraceEntry<Id, R>>,
     layout_axis: LayoutAxis,
     offset: R::Offset,
@@ -34,16 +34,16 @@ struct TraceEntry<Id, R> {
     children: usize,
 }
 
-impl<Id: Copy, R: DimensionalRect> Drop for Layout<'_, Id, R> {
+impl<Id: Clone, R: DimensionalRect> Drop for Layout<'_, Id, R> {
     fn drop(&mut self) {
         if let Some(parent) = self.parent.take() {
             parent.trace = mem::take(&mut self.inner.trace);
-            parent.child(self.id, self.inner.size, self.inner.children);
+            parent.child(self.id.clone(), self.inner.size, self.inner.children);
         }
     }
 }
 
-impl<'a, Id: Copy, R: DimensionalRect> Layout<'a, Id, R> {
+impl<'a, Id: Clone, R: DimensionalRect> Layout<'a, Id, R> {
     pub fn root(id: Id, layout_axis: LayoutAxis) -> Self {
         Self::new(None, id, layout_axis)
     }
@@ -83,23 +83,27 @@ impl<'a, Id: Copy, R: DimensionalRect> Layout<'a, Id, R> {
         self.inner.size
     }
 
-    pub fn place(mut self, absolute_offset: R::Offset) -> Vec<(Id, R)> {
+    pub fn place(self, absolute_offset: R::Offset) -> Vec<(Id, R)> {
+        let mut vec = Vec::new();
+        self.place_inline(absolute_offset, |(id, r)| vec.push((id, r)));
+        vec
+    }
+
+    pub fn place_inline(mut self, absolute_offset: R::Offset, mut out: impl FnMut((Id, R))) {
         if self.parent.is_some() {
             panic!("Layout finalization can only be done on root containers");
         }
 
-        let mut out = Vec::new();
         let entry = TraceEntry {
-            id: self.id,
+            id: self.id.clone(),
             rect: R::from_offset_size(R::Offset::zero(), self.size()),
             children: self.inner.children,
         };
         place_rec(&mut self.inner.trace, absolute_offset, entry, &mut out);
-        out
     }
 }
 
-impl<Id: Copy, R: DimensionalRect> LayoutInner<Id, R> {
+impl<Id: Clone, R: DimensionalRect> LayoutInner<Id, R> {
     fn child(&mut self, id: Id, child_size: R::Size, children: usize) {
         let child_relative_rect = R::from_offset_size(self.offset, child_size);
         self.trace.push(TraceEntry {
@@ -133,10 +137,10 @@ fn place_rec<Id, R: DimensionalRect>(
     trace: &mut Vec<TraceEntry<Id, R>>,
     offset: R::Offset,
     this: TraceEntry<Id, R>,
-    out: &mut Vec<(Id, R)>,
+    out: &mut impl FnMut((Id, R)),
 ) {
     let absolute_rect = add_offset(this.rect, offset);
-    out.push((this.id, absolute_rect));
+    out((this.id, absolute_rect));
     let children_offset = absolute_rect.offset();
 
     for _ in 0..this.children {
