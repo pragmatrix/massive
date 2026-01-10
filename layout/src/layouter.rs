@@ -21,10 +21,13 @@ pub struct Layouter<'a, Id: Clone, const RANK: usize> {
 struct Inner<Id: Clone, const RANK: usize> {
     trace: Vec<TraceEntry<Id, RANK>>,
     layout_axis: LayoutAxis,
-    // This is the parent relative offset and includes leading padding.
-    offset: Offset<RANK>,
+
     padding: Thickness<RANK>,
     spacing: u32,
+
+    // This is the parent relative offset and includes leading padding.
+    offset: Offset<RANK>,
+
     // This is the inner size of the children. Does not include padding.
     size: Size<RANK>,
 
@@ -73,10 +76,10 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
             inner: Inner {
                 trace,
                 layout_axis,
-                offset: Offset::ZERO,
-                size: Size::EMPTY,
                 padding: Thickness::ZERO,
                 spacing: 0,
+                offset: Offset::ZERO,
+                size: Size::EMPTY,
                 children: 0,
             },
         }
@@ -95,26 +98,28 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
         leading: impl Into<[u32; RANK]>,
         trailing: impl Into<[u32; RANK]>,
     ) -> Self {
-        if self.inner.children > 0 {
+        let inner = &mut self.inner;
+        if inner.children > 0 {
             panic!("padding() must be called before adding any children");
         }
 
-        self.inner.padding = Thickness {
+        inner.padding = Thickness {
             leading: leading.into().into(),
             trailing: trailing.into().into(),
         };
         // Update offset to account for leading padding
         for i in 0..RANK {
-            self.inner.offset[i] = self.inner.padding.leading[i] as i32;
+            inner.offset[i] = inner.padding.leading[i] as i32;
         }
         self
     }
 
     pub fn spacing(mut self, spacing: u32) -> Self {
-        if self.inner.children > 0 {
+        let inner = &mut self.inner;
+        if inner.children > 0 {
             panic!("spacing() must be called before adding any children");
         }
-        self.inner.spacing = spacing;
+        inner.spacing = spacing;
         self
     }
 
@@ -180,18 +185,13 @@ impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
         });
 
         let child_size_at_axis = child_size[axis] as i32;
-        let current_offset = self.offset[axis];
-        self.offset[axis] = current_offset + child_size_at_axis;
+        self.offset[axis] += child_size_at_axis;
 
         for i in 0..RANK {
             if i == axis {
-                let current = self.size[i];
-                let child_val = child_size[i];
-                self.size[i] = current + child_val;
+                self.size[i] += child_size[i];
             } else {
-                let current = self.size[i];
-                let child_val = child_size[i];
-                self.size[i] = max(current, child_val);
+                self.size[i] = max(self.size[i], child_size[i]);
             }
         }
 

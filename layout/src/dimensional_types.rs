@@ -5,7 +5,7 @@
 
 use std::ops;
 
-use derive_more::{Add, From, Index, IndexMut};
+use derive_more::{From, Index, IndexMut};
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct Box<const RANK: usize> {
