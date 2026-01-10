@@ -1,7 +1,7 @@
 use derive_more::{Deref, From, Into};
 
 mod dimensional;
-mod dimensional2;
+mod dimensional_types;
 mod layouter;
 mod node_layouter;
 

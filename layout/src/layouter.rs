@@ -7,7 +7,7 @@ use std::{cmp::max, mem};
 
 use crate::{
     LayoutAxis,
-    dimensional2::{Box, Offset, Size},
+    dimensional_types::{Box, Offset, Size},
 };
 
 #[derive(Debug)]
