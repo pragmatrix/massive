@@ -51,9 +51,9 @@ impl<Id: Clone, const RANK: usize> Drop for Layouter<'_, Id, RANK> {
     }
 }
 
-pub type BoxExt<const RANK: usize> = ([i32; RANK], [u32; RANK]);
+pub type BoxComponents<const RANK: usize> = ([i32; RANK], [u32; RANK]);
 
-impl<const RANK: usize> From<Box<RANK>> for BoxExt<RANK> {
+impl<const RANK: usize> From<Box<RANK>> for BoxComponents<RANK> {
     fn from(value: Box<RANK>) -> Self {
         (value.offset.0, value.size.0)
     }
