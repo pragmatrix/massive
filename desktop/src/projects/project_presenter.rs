@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, hash_map},
+    sync::Arc,
     time::Duration,
 };
 
@@ -8,7 +9,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{LayoutAxis, LayoutInfo, LayoutNode, layout};
 use massive_scene::{Handle, Location, Visual};
-use massive_shapes as shapes;
+use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 
 use crate::projects::{
@@ -38,7 +39,7 @@ pub struct ProjectPresenter {
 
     groups: HashMap<GroupId, GroupPresenter>,
     // Naming: Find a better name for Slot
-    slots: HashMap<LaunchProfileId, SlotPresenter>,
+    launchers: HashMap<LaunchProfileId, LauncherPresenter>,
 }
 
 impl ProjectPresenter {
@@ -48,7 +49,7 @@ impl ProjectPresenter {
             project,
             // Groups and slots are created when layouted.
             groups: Default::default(),
-            slots: Default::default(),
+            launchers: Default::default(),
         }
     }
 
@@ -83,12 +84,21 @@ impl ProjectPresenter {
     fn set_launcher_rect(&mut self, id: LaunchProfileId, rect: RectPx, scene: &Scene) {
         use hash_map::Entry;
         let rect = rect.cast().into();
-        match self.slots.entry(id) {
+        match self.launchers.entry(id) {
             Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
             Entry::Vacant(entry) => {
-                entry.insert(SlotPresenter::new(self.location.clone(), rect, scene));
+                entry.insert(LauncherPresenter::new(self.location.clone(), rect, scene));
             }
         }
+    }
+
+    fn apply_animations(&mut self) {
+        self.groups
+            .values_mut()
+            .for_each(|gp| gp.apply_animations());
+        self.launchers
+            .values_mut()
+            .for_each(|sp| sp.apply_animations());
     }
 }
 
@@ -128,9 +138,9 @@ impl GroupPresenter {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
         //
         // Ergonomics: I need more named color constants for faster prototyping.
-        let background_shape = shapes::Rect::new(rect, Color::rgb_u32(0x0000ff));
+        let background_shape = background_shape(rect, Color::rgb_u32(0x0000ff));
 
-        let background = Visual::new(location.clone(), [background_shape.into()]);
+        let background = Visual::new(location.clone(), [background_shape]);
 
         Self {
             location,
@@ -143,10 +153,17 @@ impl GroupPresenter {
         self.rect
             .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
     }
+
+    fn apply_animations(&mut self) {
+        // Ergonomics: Support value_mut() (wrap the mutex guard).
+        let rect = self.rect.value();
+        self.background
+            .update_with(|v| v.shapes = [background_shape(rect, Color::rgb_u32(0x0000ff))].into());
+    }
 }
 
 #[derive(Debug)]
-struct SlotPresenter {
+struct LauncherPresenter {
     // Ergonomics: Use just Location.
     location: Handle<Location>,
     rect: Animated<Rect>,
@@ -159,13 +176,13 @@ struct SlotPresenter {
     // name: Handle<Visual>,
 }
 
-impl SlotPresenter {
+impl LauncherPresenter {
     // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
     // introduce something new that exports more ergonomic UI components.
 
     pub fn new(location: Handle<Location>, rect: Rect, scene: &Scene) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
-        let background_shape = shapes::Rect::new(rect, Color::WHITE);
+        let background_shape = background_shape(rect, Color::WHITE);
 
         let background = Visual::new(location.clone(), [background_shape.into()]);
 
@@ -180,4 +197,14 @@ impl SlotPresenter {
         self.rect
             .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
     }
+
+    fn apply_animations(&mut self) {
+        let rect = self.rect.value();
+        self.background
+            .update_with(|visual| visual.shapes = [background_shape(rect, Color::WHITE)].into());
+    }
+}
+
+fn background_shape(rect: Rect, color: Color) -> Shape {
+    shapes::Rect::new(rect, Color::WHITE).into()
 }

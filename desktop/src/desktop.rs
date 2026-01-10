@@ -1,13 +1,12 @@
-use std::path::Path;
 use std::time::Instant;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, ViewCommand,
     ViewEvent, ViewId, ViewRole,
 };
-use massive_geometry::Projection;
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
+use massive_scene::Transform;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
@@ -30,6 +29,7 @@ pub struct Desktop {
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
     presenter: DesktopPresenter,
+    project_presenter: ProjectPresenter,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -57,6 +57,7 @@ impl Desktop {
             context.primary_monitor_scale_factor(),
             fonts.clone(),
         );
+
         let mut instance_manager = InstanceManager::new(environment);
         // We need to use ViewEvent early on, because the EventRouter isn't able to convert events.
         let event_manager = EventManager::<ViewEvent>::default();
@@ -89,6 +90,14 @@ impl Desktop {
 
         let scene = context.new_scene();
 
+        // project presenter
+        let location_matrix = scene.stage(Transform::IDENTITY);
+        let location = scene.stage(location_matrix.into());
+        let mut project_presenter = ProjectPresenter::new(project, location);
+        project_presenter.layout(creation_info.size() / 4, &scene);
+
+        // Initial setup
+
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
@@ -107,6 +116,7 @@ impl Desktop {
             event_manager,
             instance_manager,
             presenter,
+            project_presenter,
             instance_commands: requests_rx,
             context,
             env,

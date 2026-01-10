@@ -1,14 +1,15 @@
 mod application_registry;
+pub(crate) mod desktop;
 mod desktop_environment;
 mod desktop_presenter;
-pub(crate) mod desktop;
+mod desktop_ui;
 mod event_router;
 mod focus_tree;
 mod instance_manager;
 mod projects;
-mod desktop_ui;
 
 pub use application_registry::Application;
+pub use desktop::Desktop;
 pub use desktop_environment::*;
-pub use event_router::{EventRouter, EventTransition, HitTester};
 pub use desktop_ui::*;
+pub use event_router::{EventRouter, EventTransition, HitTester};
