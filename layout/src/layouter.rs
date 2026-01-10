@@ -7,7 +7,7 @@ use std::{cmp::max, mem};
 
 use crate::{
     LayoutAxis,
-    dimensional_types::{Box, Offset, Size},
+    dimensional_types::{Box, Offset, Size, Thickness},
 };
 
 #[derive(Debug)]
@@ -22,7 +22,11 @@ struct Inner<Id: Clone, const RANK: usize> {
     trace: Vec<TraceEntry<Id, RANK>>,
     layout_axis: LayoutAxis,
     offset: Offset<RANK>,
+
+    padding: Thickness<RANK>,
+    // This is the inner size of the children.
     size: Size<RANK>,
+
     children: usize,
 }
 
@@ -38,7 +42,7 @@ impl<Id: Clone, const RANK: usize> Drop for Layouter<'_, Id, RANK> {
     fn drop(&mut self) {
         if let Some(parent) = self.parent.take() {
             parent.trace = mem::take(&mut self.inner.trace);
-            parent.child(self.id.clone(), self.inner.size, self.inner.children);
+            parent.child(self.id.clone(), self.outer_size(), self.inner.children);
         }
     }
 }
@@ -48,12 +52,6 @@ pub type BoxExt<const RANK: usize> = ([i32; RANK], [u32; RANK]);
 impl<const RANK: usize> From<Box<RANK>> for BoxExt<RANK> {
     fn from(value: Box<RANK>) -> Self {
         (value.offset.0, value.size.0)
-    }
-}
-
-impl<const RANK: usize> From<BoxExt<RANK>> for Box<RANK> {
-    fn from(value: BoxExt<RANK>) -> Self {
-        Box::new(value.0.into(), value.1.into())
     }
 }
 
@@ -76,6 +74,7 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
                 layout_axis,
                 offset: Offset::ZERO,
                 size: Size::EMPTY,
+                padding: Thickness::ZERO,
                 children: 0,
             },
         }
@@ -89,8 +88,29 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
         Layouter::new(Some(&mut self.inner), id, layout_axis)
     }
 
-    pub fn size(&self) -> Size<RANK> {
-        self.inner.size
+    pub fn padding(
+        mut self,
+        leading: impl Into<[u32; RANK]>,
+        trailing: impl Into<[u32; RANK]>,
+    ) -> Self {
+        if self.inner.children > 0 {
+            panic!("padding() must be called before adding any children");
+        }
+
+        self.inner.padding = Thickness {
+            leading: leading.into().into(),
+            trailing: trailing.into().into(),
+        };
+        // Update offset to account for leading padding
+        for i in 0..RANK {
+            self.inner.offset[i] = self.inner.padding.leading[i] as i32;
+        }
+        self
+    }
+
+    pub fn outer_size(&self) -> Size<RANK> {
+        let inner = &self.inner;
+        inner.padding.leading + inner.size + inner.padding.trailing
     }
 
     pub fn place<BX>(self, absolute_offset: impl Into<[i32; RANK]>) -> Vec<(Id, BX)>
@@ -120,7 +140,7 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
 
         let entry = TraceEntry {
             id: self.id.clone(),
-            bx: Box::new(Offset::ZERO, self.size()),
+            bx: Box::new(Offset::ZERO, self.outer_size()),
             children: self.inner.children,
         };
 
@@ -170,6 +190,8 @@ fn place_rec<Id, const RANK: usize>(
 ) {
     let absolute_rect = add_offset(this.bx, offset);
     out((this.id, absolute_rect));
+    // Children are already positioned relative to padding.leading in their parent,
+    // so just use the absolute rect's offset
     let children_offset = absolute_rect.offset;
 
     for _ in 0..this.children {
@@ -326,5 +348,129 @@ mod tests {
     // Helper to create Offset<2>
     fn point(x: i32, y: i32) -> [i32; 2] {
         [x, y]
+    }
+
+    #[test]
+    fn horizontal_container_with_padding() {
+        let mut root =
+            TestLayout::root(0, LayoutAxis::HORIZONTAL).padding(size(10, 20), size(30, 40));
+        root.leaf(1, size(100, 50));
+        root.leaf(2, size(200, 30));
+        let results = root.place(point(0, 0));
+
+        assert_eq!(results.len(), 3);
+        // Outer size: padding.leading + inner + padding.trailing
+        // Width: 10 + (100 + 200) + 30 = 340
+        // Height: 20 + max(50, 30) + 40 = 110
+        assert_eq!(results[0], (0, rect(0, 0, 340, 110)));
+        // Children offset by leading padding (10, 20), laid out in reverse
+        assert_eq!(results[1], (2, rect(110, 20, 200, 30)));
+        assert_eq!(results[2], (1, rect(10, 20, 100, 50)));
+    }
+
+    #[test]
+    fn vertical_container_with_padding() {
+        let mut root = TestLayout::root(0, LayoutAxis::VERTICAL).padding(size(5, 10), size(15, 20));
+        root.leaf(1, size(100, 50));
+        root.leaf(2, size(200, 30));
+        let results = root.place(point(0, 0));
+
+        assert_eq!(results.len(), 3);
+        // Outer size:
+        // Width: 5 + max(100, 200) + 15 = 220
+        // Height: 10 + (50 + 30) + 20 = 110
+        assert_eq!(results[0], (0, rect(0, 0, 220, 110)));
+        // Children offset by leading padding (5, 10), laid out vertically in reverse
+        assert_eq!(results[1], (2, rect(5, 60, 200, 30)));
+        assert_eq!(results[2], (1, rect(5, 10, 100, 50)));
+    }
+
+    #[test]
+    fn nested_container_with_padding() {
+        let mut root =
+            TestLayout::root(0, LayoutAxis::HORIZONTAL).padding(size(10, 10), size(10, 10));
+
+        root.leaf(1, size(50, 50));
+
+        {
+            let mut container = root
+                .container(2, LayoutAxis::VERTICAL)
+                .padding(size(5, 5), size(5, 5));
+            container.leaf(3, size(20, 30));
+            container.leaf(4, size(25, 35));
+            // Container inner size: width=max(20,25)=25, height=30+35=65
+            // Container outer size: width=5+25+5=35, height=5+65+5=75
+        }
+
+        root.leaf(5, size(60, 60));
+
+        let results = root.place(point(0, 0));
+
+        // Root contains: leaf(1) 50x50, container(2) 35x75, leaf(5) 60x60
+        // Root inner: width=50+35+60=145, height=max(50,75,60)=75
+        // Root outer: width=10+145+10=165, height=10+75+10=95
+        assert_eq!(results.len(), 6);
+        assert_eq!(results[0], (0, rect(0, 0, 165, 95)));
+        // Root children offset by (10, 10), in reverse: 5, 2, 1
+        // Leaf 5 at x: 10 (padding) + 50 (leaf1) + 35 (container2) = 95
+        assert_eq!(results[1], (5, rect(95, 10, 60, 60)));
+        assert_eq!(results[2], (2, rect(60, 10, 35, 75)));
+        // Container(2) children offset by container's abs position (60, 10) + padding (5, 5)
+        // Leaf 3 at relative (5, 5), absolute (65, 15)
+        // Leaf 4 at relative (5, 35), absolute (65, 45)
+        assert_eq!(results[3], (4, rect(65, 45, 25, 35)));
+        assert_eq!(results[4], (3, rect(65, 15, 20, 30)));
+        assert_eq!(results[5], (1, rect(10, 10, 50, 50)));
+    }
+
+    #[test]
+    fn padding_with_empty_container() {
+        let root = TestLayout::root(0, LayoutAxis::HORIZONTAL).padding(size(10, 20), size(30, 40));
+        let results = root.place(point(0, 0));
+
+        assert_eq!(results.len(), 1);
+        // Only padding: width=10+0+30=40, height=20+0+40=60
+        assert_eq!(results[0], (0, rect(0, 0, 40, 60)));
+    }
+
+    #[test]
+    fn zero_padding() {
+        let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL).padding(size(0, 0), size(0, 0));
+        root.leaf(1, size(100, 50));
+        let results = root.place(point(0, 0));
+
+        assert_eq!(results.len(), 2);
+        // Should behave same as no padding
+        assert_eq!(results[0], (0, rect(0, 0, 100, 50)));
+        assert_eq!(results[1], (1, rect(0, 0, 100, 50)));
+    }
+
+    #[test]
+    fn asymmetric_padding() {
+        let mut root = TestLayout::root(0, LayoutAxis::VERTICAL).padding(size(0, 10), size(20, 0));
+        root.leaf(1, size(100, 50));
+        let results = root.place(point(0, 0));
+
+        assert_eq!(results.len(), 2);
+        // Width: 0 + 100 + 20 = 120
+        // Height: 10 + 50 + 0 = 60
+        assert_eq!(results[0], (0, rect(0, 0, 120, 60)));
+        // Child offset by leading padding (0, 10)
+        assert_eq!(results[1], (1, rect(0, 10, 100, 50)));
+    }
+
+    #[test]
+    #[should_panic(expected = "padding() must be called before adding any children")]
+    fn padding_after_children_panics() {
+        let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL);
+        root.leaf(1, size(100, 50));
+        // This should panic because we already added a child
+        let _root = root.padding(size(10, 10), size(10, 10));
+    }
+
+    impl<const RANK: usize> From<BoxExt<RANK>> for Box<RANK> {
+        fn from(value: BoxExt<RANK>) -> Self {
+            Box::new(value.0.into(), value.1.into())
+        }
     }
 }
