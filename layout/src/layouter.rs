@@ -24,6 +24,7 @@ struct Inner<Id: Clone, const RANK: usize> {
     // This is the parent relative offset and includes leading padding.
     offset: Offset<RANK>,
     padding: Thickness<RANK>,
+    spacing: u32,
     // This is the inner size of the children. Does not include padding.
     size: Size<RANK>,
 
@@ -75,6 +76,7 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
                 offset: Offset::ZERO,
                 size: Size::EMPTY,
                 padding: Thickness::ZERO,
+                spacing: 0,
                 children: 0,
             },
         }
@@ -105,6 +107,14 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
         for i in 0..RANK {
             self.inner.offset[i] = self.inner.padding.leading[i] as i32;
         }
+        self
+    }
+
+    pub fn spacing(mut self, spacing: u32) -> Self {
+        if self.inner.children > 0 {
+            panic!("spacing() must be called before adding any children");
+        }
+        self.inner.spacing = spacing;
         self
     }
 
@@ -155,6 +165,13 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
 
 impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
     fn child(&mut self, id: Id, child_size: Size<RANK>, children: usize) {
+        let axis = *self.layout_axis;
+
+        // Add spacing before this child (except for the first child)
+        if self.children > 0 {
+            self.offset[axis] += self.spacing as i32;
+        }
+
         let child_relative_box = Box::new(self.offset, child_size);
         self.trace.push(TraceEntry {
             id,
@@ -162,7 +179,6 @@ impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
             children,
         });
 
-        let axis = *self.layout_axis;
         let child_size_at_axis = child_size[axis] as i32;
         let current_offset = self.offset[axis];
         self.offset[axis] = current_offset + child_size_at_axis;
@@ -178,6 +194,12 @@ impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
                 self.size[i] = max(current, child_val);
             }
         }
+
+        // Add spacing contribution to total size
+        if self.children > 0 {
+            self.size[axis] += self.spacing;
+        }
+
         self.children += 1;
     }
 }
@@ -466,6 +488,52 @@ mod tests {
         root.leaf(1, size(100, 50));
         // This should panic because we already added a child
         let _root = root.padding(size(10, 10), size(10, 10));
+    }
+
+    #[test]
+    fn horizontal_container_with_spacing() {
+        let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL).spacing(10);
+        root.leaf(1, size(100, 50));
+        root.leaf(2, size(80, 60));
+        root.leaf(3, size(120, 40));
+        let results = root.place(point(0, 0));
+
+        assert_eq!(results.len(), 4);
+        // Width: 100 + 10 + 80 + 10 + 120 = 320
+        // Height: max(50, 60, 40) = 60
+        assert_eq!(results[0], (0, rect(0, 0, 320, 60)));
+        // Children in reverse order: 3, 2, 1
+        assert_eq!(results[1], (3, rect(200, 0, 120, 40)));
+        assert_eq!(results[2], (2, rect(110, 0, 80, 60)));
+        assert_eq!(results[3], (1, rect(0, 0, 100, 50)));
+    }
+
+    #[test]
+    fn spacing_with_padding() {
+        let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL)
+            .padding(size(5, 3), size(7, 4))
+            .spacing(10);
+        root.leaf(1, size(100, 50));
+        root.leaf(2, size(80, 60));
+        let results = root.place(point(0, 0));
+
+        assert_eq!(results.len(), 3);
+        // Width: 5 + 100 + 10 + 80 + 7 = 202
+        // Height: 3 + max(50, 60) + 4 = 67
+        assert_eq!(results[0], (0, rect(0, 0, 202, 67)));
+        // Children in reverse order: 2, 1
+        // Second child: 5 (leading) + 100 (first) + 10 (spacing)
+        assert_eq!(results[1], (2, rect(115, 3, 80, 60)));
+        // First child offset by leading padding
+        assert_eq!(results[2], (1, rect(5, 3, 100, 50)));
+    }
+
+    #[test]
+    #[should_panic(expected = "spacing() must be called before adding any children")]
+    fn spacing_after_children_panics() {
+        let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL);
+        root.leaf(1, size(100, 50));
+        let _root = root.spacing(10);
     }
 
     impl<const RANK: usize> From<BoxExt<RANK>> for Box<RANK> {
