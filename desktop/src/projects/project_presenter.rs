@@ -197,5 +197,5 @@ impl LauncherPresenter {
 }
 
 fn background_shape(rect: Rect, color: Color) -> Shape {
-    shapes::Rect::new(rect, Color::WHITE).into()
+    shapes::Rect::new(rect, color).into()
 }
