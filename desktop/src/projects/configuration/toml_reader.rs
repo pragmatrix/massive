@@ -1,11 +1,8 @@
 use std::collections::HashMap;
-use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use serde::Deserialize;
 use toml::Value;
-
-use crate::projects::configuration::ProjectConfiguration;
 
 use super::types::{
     GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, Parameter, Parameters, ScopedTag,

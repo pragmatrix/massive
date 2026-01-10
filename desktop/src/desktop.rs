@@ -157,6 +157,7 @@ impl Desktop {
                             // Performance: Not every instance needs that, only the ones animating.
                             self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
                             self.presenter.apply_animations();
+                            self.project_presenter.apply_animations();
                         }
                     }
                 }

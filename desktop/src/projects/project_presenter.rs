@@ -1,21 +1,19 @@
 use std::{
     collections::{HashMap, hash_map},
-    sync::Arc,
     time::Duration,
 };
 
 use derive_more::From;
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
-use massive_layout::{LayoutAxis, LayoutInfo, LayoutNode, layout};
+use massive_layout::LayoutAxis;
 use massive_scene::{Handle, Location, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 
 use crate::projects::{
     Project,
-    configuration::LaunchProfile,
-    project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher},
+    project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
 };
 
 const ANIMATION_DURATION: Duration = Duration::from_millis(500);
@@ -92,7 +90,7 @@ impl ProjectPresenter {
         }
     }
 
-    fn apply_animations(&mut self) {
+    pub fn apply_animations(&mut self) {
         self.groups
             .values_mut()
             .for_each(|gp| gp.apply_animations());
@@ -102,18 +100,12 @@ impl ProjectPresenter {
     }
 }
 
-#[derive(Debug)]
-struct LayoutContext<'a> {
-    default_size: SizePx,
-    scene: &'a Scene,
-}
-
 fn layout_launch_group(layout: &mut Layouter, group: &LaunchGroup, default_size: SizePx) {
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
             for group in launch_groups {
                 let mut container = layout.container(group.id.into(), group.layout.axis());
-                layout_launch_group(&mut container, &group, default_size);
+                layout_launch_group(&mut container, group, default_size);
             }
         }
         LaunchGroupContents::Launchers(launchers) => {
@@ -164,7 +156,6 @@ impl GroupPresenter {
 
 #[derive(Debug)]
 struct LauncherPresenter {
-    // Ergonomics: Use just Location.
     location: Handle<Location>,
     rect: Animated<Rect>,
 
@@ -184,7 +175,7 @@ impl LauncherPresenter {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
         let background_shape = background_shape(rect, Color::WHITE);
 
-        let background = Visual::new(location.clone(), [background_shape.into()]);
+        let background = Visual::new(location.clone(), [background_shape]);
 
         Self {
             location,

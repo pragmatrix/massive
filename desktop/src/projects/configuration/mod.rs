@@ -20,7 +20,7 @@ impl ProjectConfiguration {
     /// Load a configuration file from a TOML file. `name` denotes the name of the root group of this
     /// configuration.
     pub fn from_toml(toml: &str, root_group_name: &str) -> Result<Self> {
-        let config: ConfigFile = toml::from_str(&toml)
+        let config: ConfigFile = toml::from_str(toml)
             .with_context(|| format!("Failed to parse TOML configuration {root_group_name}"))?;
 
         let startup = config.startup.clone();
