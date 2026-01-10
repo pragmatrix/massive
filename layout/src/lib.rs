@@ -1,10 +1,11 @@
 use derive_more::{Deref, From, Into};
 
 mod dimensional;
+mod dimensional2;
 mod layouter;
 mod node_layouter;
 
-pub use layouter::Layouter;
+pub use layouter::{BoxExt as Box, Layouter};
 pub use node_layouter::{LayoutInfo, LayoutNode, layout};
 
 #[derive(Debug, Copy, Clone, From, Into, Deref, Default)]

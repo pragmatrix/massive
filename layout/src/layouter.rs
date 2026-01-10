@@ -7,34 +7,34 @@ use std::{cmp::max, mem};
 
 use crate::{
     LayoutAxis,
-    dimensional::{DimensionalOffset, DimensionalRect, DimensionalSize},
+    dimensional2::{Box, Offset, Size},
 };
 
 #[derive(Debug)]
-pub struct Layouter<'a, Id: Clone, R: DimensionalRect> {
+pub struct Layouter<'a, Id: Clone, const RANK: usize> {
     id: Id,
-    parent: Option<&'a mut Inner<Id, R>>,
-    inner: Inner<Id, R>,
+    parent: Option<&'a mut Inner<Id, RANK>>,
+    inner: Inner<Id, RANK>,
 }
 
 #[derive(Debug)]
-struct Inner<Id: Clone, R: DimensionalRect> {
-    trace: Vec<TraceEntry<Id, R>>,
+struct Inner<Id: Clone, const RANK: usize> {
+    trace: Vec<TraceEntry<Id, RANK>>,
     layout_axis: LayoutAxis,
-    offset: R::Offset,
-    size: R::Size,
+    offset: Offset<RANK>,
+    size: Size<RANK>,
     children: usize,
 }
 
 #[derive(Debug)]
-struct TraceEntry<Id, R> {
+struct TraceEntry<Id, const RANK: usize> {
     id: Id,
-    rect: R,
+    bx: Box<RANK>,
     /// The number of children, 0 if this is a leaf.
     children: usize,
 }
 
-impl<Id: Clone, R: DimensionalRect> Drop for Layouter<'_, Id, R> {
+impl<Id: Clone, const RANK: usize> Drop for Layouter<'_, Id, RANK> {
     fn drop(&mut self) {
         if let Some(parent) = self.parent.take() {
             parent.trace = mem::take(&mut self.inner.trace);
@@ -43,12 +43,26 @@ impl<Id: Clone, R: DimensionalRect> Drop for Layouter<'_, Id, R> {
     }
 }
 
-impl<'a, Id: Clone, R: DimensionalRect> Layouter<'a, Id, R> {
+pub type BoxExt<const RANK: usize> = ([i32; RANK], [u32; RANK]);
+
+impl<const RANK: usize> From<Box<RANK>> for BoxExt<RANK> {
+    fn from(value: Box<RANK>) -> Self {
+        (value.offset.0, value.size.0)
+    }
+}
+
+impl<const RANK: usize> From<BoxExt<RANK>> for Box<RANK> {
+    fn from(value: BoxExt<RANK>) -> Self {
+        Box::new(value.0.into(), value.1.into())
+    }
+}
+
+impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
     pub fn root(id: Id, layout_axis: LayoutAxis) -> Self {
         Self::new(None, id, layout_axis)
     }
 
-    fn new(mut parent: Option<&'a mut Inner<Id, R>>, id: Id, layout_axis: LayoutAxis) -> Self {
+    fn new(mut parent: Option<&'a mut Inner<Id, RANK>>, id: Id, layout_axis: LayoutAxis) -> Self {
         // If there is a parent, get the trace.
         let trace = parent
             .as_mut()
@@ -60,84 +74,103 @@ impl<'a, Id: Clone, R: DimensionalRect> Layouter<'a, Id, R> {
             inner: Inner {
                 trace,
                 layout_axis,
-                offset: R::Offset::zero(),
-                size: R::Size::empty(),
+                offset: Offset::ZERO,
+                size: Size::EMPTY,
                 children: 0,
             },
         }
     }
 
-    pub fn leaf(&mut self, id: Id, child_size: R::Size) {
-        self.inner.child(id, child_size, 0);
+    pub fn leaf(&mut self, id: Id, child_size: impl Into<[u32; RANK]>) {
+        self.inner.child(id, child_size.into().into(), 0);
     }
 
-    pub fn container<'b>(&'b mut self, id: Id, layout_axis: LayoutAxis) -> Layouter<'b, Id, R> {
+    pub fn container<'b>(&'b mut self, id: Id, layout_axis: LayoutAxis) -> Layouter<'b, Id, RANK> {
         Layouter::new(Some(&mut self.inner), id, layout_axis)
     }
 
-    pub fn size(&self) -> R::Size {
+    pub fn size(&self) -> Size<RANK> {
         self.inner.size
     }
 
-    pub fn place(self, absolute_offset: R::Offset) -> Vec<(Id, R)> {
+    pub fn place<BX>(self, absolute_offset: impl Into<[i32; RANK]>) -> Vec<(Id, BX)>
+    where
+        BX: From<BoxExt<RANK>>,
+    {
         let mut vec = Vec::new();
         self.place_inline(absolute_offset, |(id, r)| vec.push((id, r)));
         vec
     }
 
-    pub fn place_inline(mut self, absolute_offset: R::Offset, mut out: impl FnMut((Id, R))) {
+    pub fn place_inline<BX>(
+        mut self,
+        absolute_offset: impl Into<[i32; RANK]>,
+        mut out: impl FnMut((Id, BX)),
+    ) where
+        BX: From<BoxExt<RANK>>,
+    {
         if self.parent.is_some() {
             panic!("Layout finalization can only be done on root containers");
         }
 
+        let mut out = |(id, bx): (Id, Box<RANK>)| {
+            let ext_box: BoxExt<RANK> = bx.into();
+            out((id, ext_box.into()))
+        };
+
         let entry = TraceEntry {
             id: self.id.clone(),
-            rect: R::from_offset_size(R::Offset::zero(), self.size()),
+            bx: Box::new(Offset::ZERO, self.size()),
             children: self.inner.children,
         };
-        place_rec(&mut self.inner.trace, absolute_offset, entry, &mut out);
+
+        place_rec(
+            &mut self.inner.trace,
+            absolute_offset.into().into(),
+            entry,
+            &mut out,
+        );
     }
 }
 
-impl<Id: Clone, R: DimensionalRect> Inner<Id, R> {
-    fn child(&mut self, id: Id, child_size: R::Size, children: usize) {
-        let child_relative_rect = R::from_offset_size(self.offset, child_size);
+impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
+    fn child(&mut self, id: Id, child_size: Size<RANK>, children: usize) {
+        let child_relative_box = Box::new(self.offset, child_size);
         self.trace.push(TraceEntry {
             id,
-            rect: child_relative_rect,
+            bx: child_relative_box,
             children,
         });
 
         let axis = *self.layout_axis;
-        let child_size_at_axis = child_size.get(axis) as i32;
-        let current_offset = self.offset.get(axis);
-        self.offset.set(axis, current_offset + child_size_at_axis);
+        let child_size_at_axis = child_size[axis] as i32;
+        let current_offset = self.offset[axis];
+        self.offset[axis] = current_offset + child_size_at_axis;
 
-        let rank = R::Size::RANK;
-        for i in 0..rank {
+        for i in 0..RANK {
             if i == axis {
-                let current = self.size.get(i);
-                let child_val = child_size.get(i);
-                self.size.set(i, current + child_val);
+                let current = self.size[i];
+                let child_val = child_size[i];
+                self.size[i] = current + child_val;
             } else {
-                let current = self.size.get(i);
-                let child_val = child_size.get(i);
-                self.size.set(i, max(current, child_val));
+                let current = self.size[i];
+                let child_val = child_size[i];
+                self.size[i] = max(current, child_val);
             }
         }
         self.children += 1;
     }
 }
 
-fn place_rec<Id, R: DimensionalRect>(
-    trace: &mut Vec<TraceEntry<Id, R>>,
-    offset: R::Offset,
-    this: TraceEntry<Id, R>,
-    out: &mut impl FnMut((Id, R)),
+fn place_rec<Id, const RANK: usize>(
+    trace: &mut Vec<TraceEntry<Id, RANK>>,
+    offset: Offset<RANK>,
+    this: TraceEntry<Id, RANK>,
+    out: &mut impl FnMut((Id, Box<RANK>)),
 ) {
-    let absolute_rect = add_offset(this.rect, offset);
+    let absolute_rect = add_offset(this.bx, offset);
     out((this.id, absolute_rect));
-    let children_offset = absolute_rect.offset();
+    let children_offset = absolute_rect.offset;
 
     for _ in 0..this.children {
         let child = trace
@@ -147,12 +180,9 @@ fn place_rec<Id, R: DimensionalRect>(
     }
 }
 
-fn add_offset<R: DimensionalRect>(mut rect: R, offset: R::Offset) -> R {
-    let rank = R::RANK;
-    for i in 0..rank {
-        let pos = rect.get(i);
-        let offset = offset.get(i);
-        rect.set(i, pos + offset);
+fn add_offset<const RANK: usize>(mut rect: Box<RANK>, offset: Offset<RANK>) -> Box<RANK> {
+    for i in 0..RANK {
+        rect.offset[i] += offset[i];
     }
     rect
 }
@@ -160,15 +190,14 @@ fn add_offset<R: DimensionalRect>(mut rect: R, offset: R::Offset) -> R {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use massive_geometry::{PointPx, RectPx, SizePx};
 
-    type TestLayout<'a> = Layouter<'a, u32, RectPx>;
+    type TestLayout<'a> = Layouter<'a, usize, 2>;
 
     #[test]
     fn single_leaf() {
         let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL);
         root.leaf(1, size(100, 50));
-        let results = root.place(PointPx::new(0, 0));
+        let results = root.place(point(0, 0));
 
         assert_eq!(results.len(), 2);
         assert_eq!(results[0], (0, rect(0, 0, 100, 50)));
@@ -181,7 +210,7 @@ mod tests {
         root.leaf(1, size(100, 50));
         root.leaf(2, size(200, 30));
         root.leaf(3, size(150, 40));
-        let results = root.place(PointPx::new(0, 0));
+        let results = root.place(point(0, 0));
 
         assert_eq!(results.len(), 4);
         // Root should have width = sum, height = max
@@ -198,7 +227,7 @@ mod tests {
         root.leaf(1, size(100, 50));
         root.leaf(2, size(200, 30));
         root.leaf(3, size(150, 40));
-        let results = root.place(PointPx::new(0, 0));
+        let results = root.place(point(0, 0));
 
         assert_eq!(results.len(), 4);
         // Root should have width = max, height = sum
@@ -212,7 +241,7 @@ mod tests {
     #[test]
     fn empty_container() {
         let root = TestLayout::root(0, LayoutAxis::HORIZONTAL);
-        let results = root.place(PointPx::new(0, 0));
+        let results = root.place(point(0, 0));
 
         assert_eq!(results.len(), 1);
         assert_eq!(results[0], (0, rect(0, 0, 0, 0)));
@@ -223,7 +252,7 @@ mod tests {
         let mut root = TestLayout::root(0, LayoutAxis::HORIZONTAL);
         root.leaf(1, size(10, 10));
         root.leaf(2, size(20, 20));
-        let results = root.place(PointPx::new(100, 200));
+        let results = root.place(point(100, 200));
 
         assert_eq!(results.len(), 3);
         // All positions should be offset by (100, 200), children in reverse order
@@ -238,7 +267,7 @@ mod tests {
         root.leaf(1, size(10, 50));
         root.leaf(2, size(20, 30));
         root.leaf(3, size(30, 40));
-        let results = root.place(PointPx::new(0, 0));
+        let results = root.place(point(0, 0));
 
         // Along horizontal axis: widths sum (10+20+30=60)
         // Perpendicular (vertical): heights max (50)
@@ -246,12 +275,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Index out of bounds")]
+    #[should_panic(expected = "index out of bounds")]
     fn depth_axis_on_2d_rect_panics() {
         // Test that using DEPTH axis (index 2) on 2D rects properly panics
-        // since RectPx only has rank 2 (width and height)
+        // since RANK is 2
         let mut root = TestLayout::root(0, LayoutAxis::DEPTH);
-        root.leaf(1, size(100, 200)); // This should panic
+        root.leaf(1, size(100, 200)); // This should panic when accessing index 2
     }
 
     // This test demonstrates the RAII pattern with LayoutInner separation
@@ -269,7 +298,7 @@ mod tests {
 
         root.leaf(5, size(60, 60));
 
-        let results = root.place(PointPx::new(0, 0));
+        let results = root.place(point(0, 0));
 
         // Root contains: leaf(1) 50x50, container(2) 25x65, leaf(5) 60x60
         // Container(2) contains: leaf(3) 20x30, leaf(4) 25x35 (vertical: width=max(20,25)=25, height=30+35=65)
@@ -284,13 +313,18 @@ mod tests {
         assert_eq!(results[5], (1, rect(0, 0, 50, 50)));
     }
 
-    // Helper to create RectPx from unsigned size
-    fn rect(x: i32, y: i32, w: u32, h: u32) -> RectPx {
-        RectPx::new(PointPx::new(x, y), SizePx::new(w, h).cast())
+    // Helper to create Rect<2>
+    fn rect(x: i32, y: i32, w: u32, h: u32) -> Box<2> {
+        Box::new(point(x, y).into(), size(w, h).into())
     }
 
-    // Helper to create SizePx
-    fn size(w: u32, h: u32) -> SizePx {
-        SizePx::new(w, h)
+    // Helper to create Size<2>
+    fn size(w: u32, h: u32) -> [u32; 2] {
+        [w, h]
+    }
+
+    // Helper to create Offset<2>
+    fn point(x: i32, y: i32) -> [i32; 2] {
+        [x, y]
     }
 }

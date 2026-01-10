@@ -162,9 +162,9 @@ fn position<Context, R: DimensionalRect>(
 fn add_offset_to_rect<R: DimensionalRect>(mut rect: R, offset_rect: R) -> R {
     let rank = R::RANK;
     for i in 0..rank {
-        let pos = rect.get(i);
-        let offset = offset_rect.get(i);
-        rect.set(i, pos + offset);
+        let pos = rect.get_origin(i);
+        let offset = offset_rect.get_origin(i);
+        rect.set_origin(i, pos + offset);
     }
     rect
 }
