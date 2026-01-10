@@ -1,4 +1,4 @@
-//! Second iteration of dimension. Just use ranked types.
+//! Second iteration of dimensional support: Ranked types.
 //!
 //! Another idea is just to use typedefs, but then it wouldn't be possible to implement functions on
 //! top of them we might need.

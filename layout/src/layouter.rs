@@ -130,7 +130,7 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
 
     pub fn place<BX>(self, absolute_offset: impl Into<[i32; RANK]>) -> Vec<(Id, BX)>
     where
-        BX: From<BoxExt<RANK>>,
+        BX: From<BoxComponents<RANK>>,
     {
         let mut vec = Vec::new();
         self.place_inline(absolute_offset, |(id, r)| vec.push((id, r)));
@@ -142,15 +142,15 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
         absolute_offset: impl Into<[i32; RANK]>,
         mut out: impl FnMut((Id, BX)),
     ) where
-        BX: From<BoxExt<RANK>>,
+        BX: From<BoxComponents<RANK>>,
     {
         if self.parent.is_some() {
             panic!("Layout finalization can only be done on root containers");
         }
 
         let mut out = |(id, bx): (Id, Box<RANK>)| {
-            let ext_box: BoxExt<RANK> = bx.into();
-            out((id, ext_box.into()))
+            let box_components: BoxComponents<RANK> = bx.into();
+            out((id, box_components.into()))
         };
 
         let entry = TraceEntry {
@@ -535,8 +535,8 @@ mod tests {
         let _root = root.spacing(10);
     }
 
-    impl<const RANK: usize> From<BoxExt<RANK>> for Box<RANK> {
-        fn from(value: BoxExt<RANK>) -> Self {
+    impl<const RANK: usize> From<BoxComponents<RANK>> for Box<RANK> {
+        fn from(value: BoxComponents<RANK>) -> Self {
             Box::new(value.0.into(), value.1.into())
         }
     }
