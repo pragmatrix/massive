@@ -76,7 +76,6 @@ pub type PointPx = euclid::Point2D<i32, PixelUnit>;
 pub type RectPx = euclid::Rect<i32, PixelUnit>;
 pub type BoxPx = euclid::Box2D<i32, PixelUnit>;
 
-
 pub trait CastSigned {
     type SignedType;
 
