@@ -17,7 +17,7 @@ pub use project_presenter::ProjectPresenter;
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,
-    /// or if the file "desktop.toml" isœ not found, falls back to the default configuration.
+    /// or if the file "desktop.toml" is not found, falls back to the default configuration.
     pub fn from_dir(projects_dir: Option<&Path>) -> Result<Self> {
         let Some(projects_dir) = projects_dir else {
             return Ok(Self::default());
