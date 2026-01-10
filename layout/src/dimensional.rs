@@ -22,8 +22,11 @@ pub trait DimensionalRect: Copy {
     type Offset: DimensionalOffset;
 
     const RANK: usize;
-    fn get(&self, i: usize) -> i32;
-    fn set(&mut self, i: usize, value: i32);
+
+    // Ergonomics, use offset?
+    fn get_origin(&self, i: usize) -> i32;
+    fn set_origin(&mut self, i: usize, value: i32);
+
     fn empty() -> Self;
     fn from_offset_size(offset: Self::Offset, size: Self::Size) -> Self;
     fn offset(&self) -> Self::Offset;
@@ -84,11 +87,11 @@ impl DimensionalRect for RectPx {
 
     const RANK: usize = 2;
 
-    fn get(&self, i: usize) -> i32 {
+    fn get_origin(&self, i: usize) -> i32 {
         self.origin.get(i)
     }
 
-    fn set(&mut self, i: usize, value: i32) {
+    fn set_origin(&mut self, i: usize, value: i32) {
         self.origin.set(i, value);
     }
 

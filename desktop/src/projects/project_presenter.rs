@@ -6,7 +6,7 @@ use std::{
 use derive_more::From;
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
-use massive_layout::LayoutAxis;
+use massive_layout::{Box, LayoutAxis};
 use massive_scene::{Handle, Location, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
@@ -25,7 +25,7 @@ enum LayoutId {
 }
 
 /// Architecture: Can't we just use inner as the root, thus preventing the lifetime here.
-type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, RectPx>;
+type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -55,12 +55,15 @@ impl ProjectPresenter {
         let mut layout = Layouter::root(self.project.root.id.into(), LayoutAxis::HORIZONTAL);
 
         layout_launch_group(&mut layout, &self.project.root, default_size);
-        layout.place_inline(PointPx::default(), |(id, rect)| match id {
-            LayoutId::Group(group_id) => {
-                self.set_group_rect(group_id, rect, scene);
-            }
-            LayoutId::Launcher(launch_profile_id) => {
-                self.set_launcher_rect(launch_profile_id, rect, scene);
+        layout.place_inline(PointPx::zero(), |(id, rect)| {
+            let rect = box_to_rect(rect);
+            match id {
+                LayoutId::Group(group_id) => {
+                    self.set_group_rect(group_id, rect, scene);
+                }
+                LayoutId::Launcher(launch_profile_id) => {
+                    self.set_launcher_rect(launch_profile_id, rect, scene);
+                }
             }
         });
     }
@@ -98,6 +101,10 @@ impl ProjectPresenter {
             .values_mut()
             .for_each(|sp| sp.apply_animations());
     }
+}
+
+fn box_to_rect(([x, y], [w, h]): Box<2>) -> RectPx {
+    RectPx::new((x, y).into(), (w as i32, h as i32).into())
 }
 
 fn layout_launch_group(layout: &mut Layouter, group: &LaunchGroup, default_size: SizePx) {
