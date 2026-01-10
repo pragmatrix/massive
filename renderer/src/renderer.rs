@@ -436,7 +436,7 @@ impl Renderer {
                 0,
                 push_constants.as_bytes(),
             );
-            // Architecture: This test needs only done once per pipeline.
+            // Performance: This test needs only done once per pipeline.
             if let Some(bg) = &batch.fs_bind_group {
                 pass.set_bind_group(0, bg, &[]);
             }

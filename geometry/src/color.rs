@@ -28,7 +28,7 @@ impl Color {
         }
     }
 
-    pub fn rgb_u32(rgb: u32) -> Self {
+    pub const fn rgb_u32(rgb: u32) -> Self {
         let r = (rgb & 0xff0000) >> 16;
         let g = (rgb & 0xff00) >> 8;
         let b = rgb & 0xff;
@@ -39,7 +39,7 @@ impl Color {
     }
 
     // http://stackoverflow.com/questions/359612/how-to-change-rgb-color-to-hsv
-    pub fn hsv(hue: f32, saturation: f32, value: f32) -> Color {
+    pub const fn hsv(hue: f32, saturation: f32, value: f32) -> Color {
         let hf = (hue / 60.0).floor();
         let hi = hf.round() as i32 % 6;
         let f = hue / 60.0 - hf;

@@ -1,5 +1,5 @@
 [package]
-name = "layout"
+name = "massive-layout"
 version = "0.1.0"
 edition.workspace = true
 
