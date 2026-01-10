@@ -21,10 +21,10 @@ pub struct Layouter<'a, Id: Clone, const RANK: usize> {
 struct Inner<Id: Clone, const RANK: usize> {
     trace: Vec<TraceEntry<Id, RANK>>,
     layout_axis: LayoutAxis,
+    // This is the parent relative offset and includes leading padding.
     offset: Offset<RANK>,
-
     padding: Thickness<RANK>,
-    // This is the inner size of the children.
+    // This is the inner size of the children. Does not include padding.
     size: Size<RANK>,
 
     children: usize,
