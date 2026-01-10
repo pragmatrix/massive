@@ -184,9 +184,6 @@ impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
             children,
         });
 
-        let child_size_at_axis = child_size[axis] as i32;
-        self.offset[axis] += child_size_at_axis;
-
         for i in 0..RANK {
             if i == axis {
                 self.size[i] += child_size[i];
@@ -199,6 +196,8 @@ impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
         if self.children > 0 {
             self.size[axis] += self.spacing;
         }
+
+        self.offset[axis] += child_size[axis] as i32;
 
         self.children += 1;
     }
