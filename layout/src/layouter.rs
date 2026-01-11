@@ -29,7 +29,7 @@ struct Inner<Id: Clone, const RANK: usize> {
     // 0,0). It includes leading padding.
     offset: Offset<RANK>,
 
-    // The inner size of the children. Does not include padding.
+    // The inner size of the children. Does not include padding. Does include spacing.
     size: Size<RANK>,
 
     children: usize,
