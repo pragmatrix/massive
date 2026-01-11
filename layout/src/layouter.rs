@@ -25,10 +25,11 @@ struct Inner<Id: Clone, const RANK: usize> {
     padding: Thickness<RANK>,
     spacing: u32,
 
-    // This is the parent relative offset and includes leading padding.
+    // The placement offset of the children (not the parent relative offset, which is always
+    // 0,0). It includes leading padding.
     offset: Offset<RANK>,
 
-    // This is the inner size of the children. Does not include padding.
+    // The inner size of the children. Does not include padding.
     size: Size<RANK>,
 
     children: usize,
@@ -172,9 +173,11 @@ impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
     fn child(&mut self, id: Id, child_size: Size<RANK>, children: usize) {
         let axis = *self.layout_axis;
 
-        // Add spacing before this child (except for the first child)
+        // Add spacing before this child (except for the first child), and
+        // add the spacing contribution to the container size.
         if self.children > 0 {
             self.offset[axis] += self.spacing as i32;
+            self.size[axis] += self.spacing;
         }
 
         let child_relative_box = Box::new(self.offset, child_size);
@@ -190,11 +193,6 @@ impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
             } else {
                 self.size[i] = max(self.size[i], child_size[i]);
             }
-        }
-
-        // Add spacing contribution to total size
-        if self.children > 0 {
-            self.size[axis] += self.spacing;
         }
 
         self.offset[axis] += child_size[axis] as i32;
