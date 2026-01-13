@@ -70,12 +70,6 @@ pub fn rasterize_glyph(
         .variations(&[("wght", glyph_key.weight.0 as f32)])
         .build();
 
-    // Compute the fractional offset -- you'll likely want to quantize this
-    // in a real renderer
-    //
-    // TODO: Is this used? It seems that it's only relevant for subpixel rendering.
-    // let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
-
     // Select our source order
     Render::new(&[
         // Color outline with the first palette
@@ -87,8 +81,6 @@ pub fn rasterize_glyph(
     ])
     // Select a subpixel format
     .format(Format::Alpha)
-    // // Apply the fractional offset
-    // .offset(offset)
     // Render the image
     .render(&mut scaler, glyph_key.glyph_id)
 }
