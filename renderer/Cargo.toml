@@ -15,17 +15,17 @@ anyhow = { workspace = true }
 approx = { workspace = true }
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
-glam = { workspace = true }
 cosmic-text = { workspace = true }
 derive_more = { workspace = true }
+glam = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+parking_lot.workspace = true
 static_assertions = { workspace = true }
 swash = { workspace = true }
 tracing = { workspace = true }
 wgpu = { workspace = true }
 winit = { workspace = true }
-parking_lot.workspace = true
 
 sys-locale = "0.3.2"
 unicode-script = "0.5.7"

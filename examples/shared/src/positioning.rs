@@ -1,12 +1,10 @@
 #![allow(dead_code)]
 
-use cosmic_text::{CacheKey, CacheKeyFlags, LayoutGlyph, LayoutRun};
-
+use cosmic_text::{LayoutGlyph, LayoutRun};
 use itertools::Itertools;
-use massive_geometry::{Color, Vector3};
-use massive_shapes::{GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
-const RENDER_SUBPIXEL: bool = false;
+use massive_geometry::{Color, Vector3};
+use massive_shapes::{GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Converts a cosmic_text `LayoutRun` into one or more `GlyphRun`s.
 ///
@@ -65,23 +63,16 @@ pub fn position_glyphs(glyphs: &[LayoutGlyph]) -> Vec<RunGlyph> {
 }
 
 fn position_glyph(glyph: &LayoutGlyph) -> RunGlyph {
-    let fractional_pos = if RENDER_SUBPIXEL {
-        (glyph.x, glyph.y)
-    } else {
-        (glyph.x.round(), glyph.y.round())
-    };
+    let pos = (glyph.x.round() as i32, glyph.y.round() as i32);
 
-    // Robustness: There is a function physical() in glyph which also returns a GlyphKey, perhaps
-    // use this here.
-
-    let (glyph_key, x, y) = CacheKey::new(
-        glyph.font_id,
-        glyph.glyph_id,
-        glyph.font_size,
-        fractional_pos,
-        glyph.font_weight,
-        CacheKeyFlags::empty(),
-    );
-
-    RunGlyph::new((x, y), glyph_key)
+    // Ergonomics: create a better constructor.
+    RunGlyph::new(
+        pos,
+        GlyphKey::new(
+            glyph.font_id,
+            glyph.glyph_id,
+            glyph.font_size,
+            TextWeight(glyph.font_weight.0),
+        ),
+    )
 }

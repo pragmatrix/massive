@@ -1,4 +1,5 @@
-use cosmic_text as text;
+use cosmic_text::{self as text, fontdb};
+use derive_more::{From, Into};
 use glam::IVec2;
 use serde::{Deserialize, Serialize};
 
@@ -115,21 +116,11 @@ pub struct RunGlyph {
     /// This is the left top position of the "advance box" (in typography terms). Cosmic text
     /// uses the term "hit box".
     pub pos: (i32, i32),
-
-    /// The glyph's key. With this key the glyph can be rasterized _and_ positioned relative to its
-    /// glyph box in the line.
-    ///
-    /// This is a direct dependency on cosmic_text.
-    ///
-    /// Robustness: Should probably be wrapped to support different rasterizers.
-    ///
-    /// Robustness: There are probably a few values we don't need (weight for example, because it's
-    /// once per run).
-    pub key: text::CacheKey,
+    pub key: GlyphKey,
 }
 
 impl RunGlyph {
-    pub fn new(pos: (i32, i32), key: text::CacheKey) -> Self {
+    pub fn new(pos: (i32, i32), key: GlyphKey) -> Self {
         Self { pos, key }
     }
 
@@ -139,5 +130,24 @@ impl RunGlyph {
         let y = self.pos.1 + offset.1 as i32;
 
         Bounds::new((x as f64, y as f64), ((x + 1) as f64, (y + 1) as f64))
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct GlyphKey {
+    pub font_id: fontdb::ID,
+    pub glyph_id: u16,
+    pub font_size_bits: u32,
+    pub weight: TextWeight,
+}
+
+impl GlyphKey {
+    pub fn new(font_id: fontdb::ID, glyph_id: u16, font_size: f32, weight: TextWeight) -> Self {
+        Self {
+            font_id,
+            glyph_id,
+            font_size_bits: font_size.to_bits(),
+            weight,
+        }
     }
 }
