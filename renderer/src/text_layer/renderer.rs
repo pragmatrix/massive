@@ -144,7 +144,7 @@ impl TextLayerRenderer {
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement, AtlasKind)>> {
         let glyph_key = RasterizedGlyphKey {
-            text: glyph.key,
+            glyph: glyph.key,
             param: GlyphRasterizationParam {
                 prefer_sdf: true,
                 swash: SwashRasterizationParam { hinted: true },

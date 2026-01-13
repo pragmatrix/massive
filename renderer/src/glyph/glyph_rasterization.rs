@@ -1,20 +1,21 @@
-use cosmic_text::{self as text};
+use cosmic_text::{self as text, fontdb};
 use swash::{
     scale::{Render, ScaleContext, Source, StrikeWith},
     zeno::{Format, Vector},
 };
 use text::SwashContent;
 
-use crate::glyph::GlyphRasterizationParam;
+use massive_shapes::GlyphKey;
 
 use super::{
     SwashRasterizationParam,
     distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image},
 };
+use crate::glyph::GlyphRasterizationParam;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct RasterizedGlyphKey {
-    pub text: text::CacheKey,
+    pub glyph: GlyphKey,
     pub param: GlyphRasterizationParam,
 }
 
@@ -29,7 +30,7 @@ pub fn rasterize_glyph_with_padding(
     key: &RasterizedGlyphKey,
 ) -> Option<text::SwashImage> {
     let param = key.param;
-    let without_padding = rasterize_glyph(font_system, context, key.text, param.swash)?;
+    let without_padding = rasterize_glyph(font_system, context, key.glyph, param.swash)?;
     if without_padding.content == SwashContent::Mask && param.prefer_sdf {
         // SDF rendering adds its own padding.
         return render_sdf(&without_padding);
@@ -42,7 +43,7 @@ pub fn rasterize_glyph_with_padding(
 pub fn rasterize_glyph(
     font_system: &mut text::FontSystem,
     context: &mut ScaleContext,
-    cache_key: text::CacheKey,
+    glyph_key: GlyphKey,
     param: SwashRasterizationParam,
 ) -> Option<text::SwashImage> {
     // Copied from cosmic_text/swash.rs, because we might need finer control and don't need a cache.
@@ -50,10 +51,11 @@ pub fn rasterize_glyph(
     // be mutable for font caching (can we implement our own)
 
     // Robustness: cosmic-text version 0.15 introduced a new weight parameters.
-    let font = match font_system.get_font(cache_key.font_id, cache_key.font_weight) {
+
+    let font = match font_system.get_font(glyph_key.font_id, fontdb::Weight(glyph_key.weight.0)) {
         Some(some) => some,
         None => {
-            log::warn!("did not find font {:?}", cache_key.font_id);
+            log::warn!("did not find font {:?}", glyph_key.font_id);
             return None;
         }
     };
@@ -61,18 +63,18 @@ pub fn rasterize_glyph(
     // Build the scaler
     let mut scaler = context
         .builder(font.as_swash())
-        .size(f32::from_bits(cache_key.font_size_bits))
+        .size(f32::from_bits(glyph_key.font_size_bits))
         .hint(param.hinted)
         // Detail: the font ignores the font weight (for variable fonts), even though get_font()
         // added the font_weight parameter in cosmic-text 0.15,
-        .variations(&[("wght", cache_key.font_weight.0 as f32)])
+        .variations(&[("wght", glyph_key.weight.0 as f32)])
         .build();
 
     // Compute the fractional offset -- you'll likely want to quantize this
     // in a real renderer
     //
     // TODO: Is this used? It seems that it's only relevant for subpixel rendering.
-    let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
+    // let offset = Vector::new(cache_key.x_bin.as_float(), cache_key.y_bin.as_float());
 
     // Select our source order
     Render::new(&[
@@ -85,10 +87,10 @@ pub fn rasterize_glyph(
     ])
     // Select a subpixel format
     .format(Format::Alpha)
-    // Apply the fractional offset
-    .offset(offset)
+    // // Apply the fractional offset
+    // .offset(offset)
     // Render the image
-    .render(&mut scaler, cache_key.glyph_id)
+    .render(&mut scaler, glyph_key.glyph_id)
 }
 
 pub fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
