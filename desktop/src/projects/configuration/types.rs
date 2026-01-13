@@ -18,8 +18,15 @@ pub enum LayoutDirection {
 impl LayoutDirection {
     pub fn axis(&self) -> LayoutAxis {
         match self {
-            LayoutDirection::Horizontal => LayoutAxis::HORIZONTAL,
-            LayoutDirection::Vertical => LayoutAxis::VERTICAL,
+            Self::Horizontal => LayoutAxis::HORIZONTAL,
+            Self::Vertical => LayoutAxis::VERTICAL,
+        }
+    }
+
+    pub fn flipped(self) -> Self {
+        match self {
+            Self::Horizontal => Self::Vertical,
+            Self::Vertical => Self::Horizontal,
         }
     }
 }

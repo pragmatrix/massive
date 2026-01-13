@@ -1,5 +1,9 @@
 use std::time::Instant;
 
+use anyhow::{Result, anyhow, bail};
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use uuid::Uuid;
+
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, ViewCommand,
     ViewEvent, ViewId, ViewRole,
@@ -9,10 +13,6 @@ use massive_renderer::RenderPacing;
 use massive_scene::Transform;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
-
-use anyhow::{Result, anyhow, bail};
-use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
-use uuid::Uuid;
 
 use crate::projects::{Project, ProjectPresenter};
 use crate::{
@@ -43,7 +43,7 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
-        let projects_dir = env.final_projects_dir();
+        let projects_dir = env.projects_dir();
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
         let project = Project::from_configuration(project_configuration)?;
 
@@ -94,7 +94,7 @@ impl Desktop {
         let location_matrix = scene.stage(Transform::IDENTITY);
         let location = scene.stage(location_matrix.into());
         let mut project_presenter = ProjectPresenter::new(project, location);
-        project_presenter.layout(creation_info.size() / 4, &scene);
+        project_presenter.layout(creation_info.size() / 4, &scene, &mut fonts.lock());
 
         // Initial setup
 

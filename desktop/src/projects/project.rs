@@ -68,6 +68,10 @@ impl Project {
 
         Ok(Project { start, root })
     }
+
+    pub fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
+        self.root.get_launch_profile(id)
+    }
 }
 
 impl LaunchGroup {
@@ -90,6 +94,23 @@ impl LaunchGroup {
                     }
                 }
                 bail!("Launch profile '{}' not found", name)
+            }
+        }
+    }
+
+    fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
+        match &self.contents {
+            LaunchGroupContents::Launchers(launchers) => launchers
+                .iter()
+                .find(|launcher| launcher.id == id)
+                .map(|launcher| &launcher.profile),
+            LaunchGroupContents::Groups(groups) => {
+                for group in groups {
+                    if let Some(profile) = group.get_launch_profile(id) {
+                        return Some(profile);
+                    }
+                }
+                None
             }
         }
     }

@@ -34,7 +34,7 @@ impl DesktopEnvironment {
     }
 
     /// Returns either the set projects dir or the default one if a home directory can be resolved.
-    pub fn final_projects_dir(&self) -> Option<PathBuf> {
+    pub fn projects_dir(&self) -> Option<PathBuf> {
         self.projects_dir
             .clone()
             .or_else(|| env::home_dir().map(|hd| hd.join(DEFAULT_PROJECT_DIR)))

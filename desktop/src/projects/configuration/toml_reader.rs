@@ -106,7 +106,6 @@ fn build_group_hierarchy(
     }
 
     let current_tag_name = &group_tags[depth];
-    let ordered_values = order.get(current_tag_name).cloned().unwrap_or_default();
 
     // Collect all unique values for this tag from applications
     let mut found_values: HashMap<String, Vec<&LaunchProfile>> = HashMap::new();
@@ -115,6 +114,18 @@ fn build_group_hierarchy(
             found_values.entry(tag.tag.clone()).or_default().push(app);
         }
     }
+
+    let ordered_values = {
+        match order.get(current_tag_name) {
+            Some(v) => v.clone(),
+            None => {
+                // No ordered specification, take all the values we have and sort it alphabetically.
+                let mut keys: Vec<_> = found_values.keys().cloned().collect();
+                keys.sort();
+                keys
+            }
+        }
+    };
 
     let mut groups = Vec::new();
 
@@ -170,10 +181,16 @@ fn build_launch_group(
         GroupContents::Groups(nested)
     };
 
+    let layout_direction = if (depth & 1) == 0 {
+        LayoutDirection::Horizontal
+    } else {
+        LayoutDirection::Vertical
+    };
+
     Ok(LaunchGroup {
         name: value.clone(),
         tag: ScopedTag::new(tag_name, value),
-        layout: LayoutDirection::Horizontal,
+        layout: layout_direction,
         content,
     })
 }

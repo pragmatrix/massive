@@ -1,5 +1,4 @@
-use cosmic_text::{self as text, fontdb};
-use derive_more::{From, Into};
+use cosmic_text::{Placement, fontdb};
 use glam::IVec2;
 use serde::{Deserialize, Serialize};
 
@@ -44,7 +43,7 @@ impl GlyphRun {
     }
 
     /// Translate a rasterized glyph's position to the coordinate system of the run.
-    pub fn place_glyph(&self, glyph: &RunGlyph, placement: &text::Placement) -> (IVec2, IVec2) {
+    pub fn place_glyph(&self, glyph: &RunGlyph, placement: &Placement) -> (IVec2, IVec2) {
         let max_ascent = self.metrics.max_ascent;
         let pos = glyph.pos;
 
@@ -92,6 +91,12 @@ impl GlyphRunMetrics {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct TextWeight(pub u16);
+
+impl Default for TextWeight {
+    fn default() -> Self {
+        Self::NORMAL
+    }
+}
 
 impl TextWeight {
     pub const THIN: Self = Self(100);

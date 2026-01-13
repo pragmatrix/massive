@@ -7,12 +7,14 @@ use derive_more::From;
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
+use massive_renderer::text::FontSystem;
 use massive_scene::{Handle, Location, Visual};
-use massive_shapes::{self as shapes, Shape};
+use massive_shapes::{self as shapes, Shape, TextShaper};
 use massive_shell::Scene;
 
 use crate::projects::{
     Project,
+    configuration::LaunchProfile,
     project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
 };
 
@@ -51,7 +53,7 @@ impl ProjectPresenter {
         }
     }
 
-    pub fn layout(&mut self, default_size: SizePx, scene: &Scene) {
+    pub fn layout(&mut self, default_size: SizePx, scene: &Scene, font_system: &mut FontSystem) {
         let mut layout = Layouter::root(self.project.root.id.into(), LayoutAxis::HORIZONTAL);
 
         layout_launch_group(&mut layout, &self.project.root, default_size);
@@ -62,7 +64,7 @@ impl ProjectPresenter {
                     self.set_group_rect(group_id, rect, scene);
                 }
                 LayoutId::Launcher(launch_profile_id) => {
-                    self.set_launcher_rect(launch_profile_id, rect, scene);
+                    self.set_launcher_rect(launch_profile_id, rect, scene, font_system);
                 }
             }
         });
@@ -82,13 +84,29 @@ impl ProjectPresenter {
         }
     }
 
-    fn set_launcher_rect(&mut self, id: LaunchProfileId, rect: RectPx, scene: &Scene) {
+    fn set_launcher_rect(
+        &mut self,
+        id: LaunchProfileId,
+        rect: RectPx,
+        scene: &Scene,
+        font_system: &mut FontSystem,
+    ) {
         use hash_map::Entry;
+        let profile = self
+            .project
+            .get_launch_profile(id)
+            .expect("Internal Error: Launch profile not found");
         let rect = rect.cast().into();
         match self.launchers.entry(id) {
             Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
             Entry::Vacant(entry) => {
-                entry.insert(LauncherPresenter::new(self.location.clone(), rect, scene));
+                entry.insert(LauncherPresenter::new(
+                    self.location.clone(),
+                    profile.clone(),
+                    rect,
+                    scene,
+                    font_system,
+                ));
             }
         }
     }
@@ -111,7 +129,10 @@ fn layout_launch_group(layout: &mut Layouter, group: &LaunchGroup, default_size:
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
             for group in launch_groups {
-                let mut container = layout.container(group.id.into(), group.layout.axis());
+                let mut container = layout
+                    .container(group.id.into(), group.layout.axis())
+                    .spacing(10)
+                    .padding([10, 10], [10, 10]);
                 layout_launch_group(&mut container, group, default_size);
             }
         }
@@ -171,23 +192,40 @@ struct LauncherPresenter {
 
     // name_rect: Animated<Box>,
     // The text, either centered, or on top of the border.
-    // name: Handle<Visual>,
+    name: Handle<Visual>,
 }
 
 impl LauncherPresenter {
     // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
     // introduce something new that exports more ergonomic UI components.
 
-    pub fn new(location: Handle<Location>, rect: Rect, scene: &Scene) -> Self {
+    pub fn new(
+        location: Handle<Location>,
+        profile: LaunchProfile,
+        rect: Rect,
+        scene: &Scene,
+        font_system: &mut FontSystem,
+    ) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
         let background_shape = background_shape(rect, Color::WHITE);
 
-        let background = Visual::new(location.clone(), [background_shape]);
+        let background = Visual::new(location.clone(), [background_shape]).with_depth_bias(1);
+
+        let run = TextShaper::new(&profile.name).shape(font_system, 40.0);
+
+        let name = scene.stage(
+            Visual::new(
+                location.clone(),
+                run.into_iter().map(|run| run.into()).collect::<Vec<_>>(),
+            )
+            .with_depth_bias(3),
+        );
 
         Self {
             location,
             rect: scene.animated(rect),
             background: scene.stage(background),
+            name,
         }
     }
 

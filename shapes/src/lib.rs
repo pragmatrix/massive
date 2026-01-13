@@ -1,6 +1,8 @@
-mod text;
+mod glyph_run;
+mod text_shaper;
 
-pub use text::*;
+pub use glyph_run::*;
+pub use text_shaper::*;
 
 use std::{any::Any, fmt, mem, ops};
 
