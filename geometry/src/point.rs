@@ -13,6 +13,8 @@ pub struct Point {
 pub type Vector = Point;
 
 impl Point {
+    pub const ORIGIN: Point = Self::new(0.0, 0.0);
+
     pub const fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }

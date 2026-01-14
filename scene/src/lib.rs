@@ -27,6 +27,7 @@
 mod change;
 mod change_collector;
 mod change_surface;
+mod ergonomics;
 mod handle;
 mod id;
 mod objects;
@@ -36,6 +37,7 @@ mod type_id_generator;
 pub use change::*;
 pub use change_collector::*;
 pub use change_surface::*;
+pub use ergonomics::*;
 pub use handle::*;
 pub use id::Id;
 pub use objects::*;

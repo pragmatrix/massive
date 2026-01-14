@@ -8,7 +8,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
-use massive_scene::{Handle, Location, Visual};
+use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, ToTransform, Visual};
 use massive_shapes::{self as shapes, Shape, TextShaper};
 use massive_shell::Scene;
 
@@ -200,31 +200,42 @@ impl LauncherPresenter {
     // introduce something new that exports more ergonomic UI components.
 
     pub fn new(
-        location: Handle<Location>,
+        parent_location: Handle<Location>,
         profile: LaunchProfile,
         rect: Rect,
         scene: &Scene,
         font_system: &mut FontSystem,
     ) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
-        let background_shape = background_shape(rect, Color::WHITE);
+        let background_shape = background_shape(rect.size().to_rect(), Color::WHITE);
 
-        let background = Visual::new(location.clone(), [background_shape]).with_depth_bias(1);
+        let our_transform = rect.origin().to_transform().enter(scene);
+
+        let our_location = our_transform
+            .to_location()
+            .relative_to(&parent_location)
+            .enter(scene);
+
+        let background = background_shape
+            .into_visual()
+            .at(&our_location)
+            .with_depth_bias(1)
+            .enter(scene);
 
         let run = TextShaper::new(&profile.name).shape(font_system, 40.0);
 
         let name = scene.stage(
             Visual::new(
-                location.clone(),
+                our_location,
                 run.into_iter().map(|run| run.into()).collect::<Vec<_>>(),
             )
             .with_depth_bias(3),
         );
 
         Self {
-            location,
+            location: parent_location,
             rect: scene.animated(rect),
-            background: scene.stage(background),
+            background,
             name,
         }
     }

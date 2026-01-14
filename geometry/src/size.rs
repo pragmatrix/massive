@@ -1,6 +1,6 @@
 use std::ops;
 
-use crate::Point;
+use crate::{Point, Rect};
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct Size {
@@ -11,6 +11,10 @@ pub struct Size {
 impl Size {
     pub const fn new(width: f64, height: f64) -> Self {
         Self { width, height }
+    }
+
+    pub fn to_rect(&self) -> Rect {
+        Rect::new(Point::ORIGIN, *self)
     }
 }
 
