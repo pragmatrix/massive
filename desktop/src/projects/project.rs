@@ -114,6 +114,53 @@ impl LaunchGroup {
             }
         }
     }
+
+    /// Returns an ASCII tree visualization of the group hierarchy.
+    pub fn visualize(&self) -> String {
+        let mut output = String::new();
+        self.visualize_impl(&mut output, "", true, true);
+        output
+    }
+
+    fn visualize_impl(&self, output: &mut String, prefix: &str, is_last: bool, is_root: bool) {
+        let (connector, extension) = if is_root {
+            ("", "")
+        } else if is_last {
+            ("└── ", "    ")
+        } else {
+            ("├── ", "│   ")
+        };
+
+        output.push_str(prefix);
+        output.push_str(connector);
+        output.push_str(&self.name);
+        output.push('\n');
+
+        let child_prefix = format!("{}{}", prefix, extension);
+
+        match &self.contents {
+            LaunchGroupContents::Groups(groups) => {
+                for (i, group) in groups.iter().enumerate() {
+                    let is_last_child = i == groups.len() - 1;
+                    group.visualize_impl(output, &child_prefix, is_last_child, false);
+                }
+            }
+            LaunchGroupContents::Launchers(launchers) => {
+                for (i, launcher) in launchers.iter().enumerate() {
+                    let is_last_child = i == launchers.len() - 1;
+                    let connector = if is_last_child {
+                        "└── "
+                    } else {
+                        "├── "
+                    };
+                    output.push_str(&child_prefix);
+                    output.push_str(connector);
+                    output.push_str(&launcher.profile.name);
+                    output.push('\n');
+                }
+            }
+        }
+    }
 }
 
 fn convert_group(

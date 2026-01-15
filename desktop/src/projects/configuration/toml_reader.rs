@@ -68,7 +68,7 @@ impl ConfigFile {
 fn build_launch_profile(
     name: String,
     section: LaunchProfileSection,
-    group_tags: &[String],
+    groups: &[String],
 ) -> Result<LaunchProfile> {
     let mut tags = Vec::new();
     let mut params = Vec::new();
@@ -76,7 +76,7 @@ fn build_launch_profile(
     for (key, value) in section {
         let value = toml_value_to_string(&value)?;
 
-        if group_tags.contains(&key) {
+        if groups.contains(&key) {
             tags.push(ScopedTag::new(key, value));
         } else {
             params.push(Parameter::new(key, value));
@@ -100,7 +100,7 @@ fn build_group_hierarchy(
         return Ok(Vec::new());
     }
 
-    let current_group_name: &str = layout.groups[depth].as_ref();
+    let current_group_name: &str = &layout.groups[depth];
 
     // Collect all unique values for this group from the profiles
     let mut found_values: HashMap<&str, Vec<&LaunchProfile>> = HashMap::new();
