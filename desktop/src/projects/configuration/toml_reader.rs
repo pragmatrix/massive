@@ -41,18 +41,16 @@ impl ConfigFile {
     pub fn into_launch_group(self, name: String) -> Result<LaunchGroup> {
         let layout = self.layout.unwrap_or_default();
 
-        let layout_groups: &Vec<String> = &layout.groups;
-
-        // Build launch profiles from each launch group section
-        let launch_groups: Vec<LaunchProfile> = self
+        // First generate all profiles. Use the layout_groups for separating parameters from tags.
+        let all_profiles: Vec<LaunchProfile> = self
             .launch_profiles
             .into_iter()
-            .map(|(name, section)| build_launch_profile(name, section, layout_groups))
+            .map(|(name, section)| build_launch_profile(name, section, &layout.groups))
             .collect::<Result<Vec<_>>>()?;
 
         // Build the cross-product hierarchy
-        let launch_group_refs: Vec<_> = launch_groups.iter().collect();
-        let groups = build_group_hierarchy(&launch_group_refs, layout_groups, &layout.order, 0)?;
+        let all_profiles_ref: Vec<_> = all_profiles.iter().collect();
+        let groups = build_group_hierarchy(&all_profiles_ref, &layout, 0)?;
 
         Ok(LaunchGroup {
             name,
@@ -91,15 +89,14 @@ fn build_launch_profile(
 /// Build a cross-product hierarchy of groups at the given depth level.
 fn build_group_hierarchy(
     profiles: &[&LaunchProfile],
-    layout_groups: &[String],
-    layout_order: &HashMap<String, Vec<String>>,
+    layout: &LayoutSection,
     depth: usize,
 ) -> Result<Vec<LaunchGroup>> {
-    if depth >= layout_groups.len() {
+    if depth >= layout.groups.len() {
         return Ok(Vec::new());
     }
 
-    let current_group_name: &str = layout_groups[depth].as_ref();
+    let current_group_name: &str = layout.groups[depth].as_ref();
 
     // Collect all unique values for this group from the profiles
     let mut found_values: HashMap<&str, Vec<&LaunchProfile>> = HashMap::new();
@@ -113,7 +110,7 @@ fn build_group_hierarchy(
     }
 
     let ordered_values: Vec<&str> = {
-        match layout_order.get(current_group_name) {
+        match layout.order.get(current_group_name) {
             Some(v) => v.iter().map(|s| s.as_ref()).collect(),
             None => {
                 // No ordered specification, take all the values we have and sort it alphabetically.
@@ -129,14 +126,8 @@ fn build_group_hierarchy(
     // Add ordered profiles first
     for value in &ordered_values {
         if let Some(matching_profiles) = found_values.remove(value) {
-            let group = build_launch_group(
-                value,
-                current_group_name,
-                &matching_profiles,
-                layout_groups,
-                layout_order,
-                depth,
-            )?;
+            let group =
+                build_launch_group(value, current_group_name, &matching_profiles, layout, depth)?;
             groups.push(group);
         }
     }
@@ -148,14 +139,8 @@ fn build_group_hierarchy(
             .flat_map(|v| v.iter().copied())
             .collect();
 
-        let ellipsis_group = build_launch_group(
-            "...",
-            current_group_name,
-            &ellipsis_profiles,
-            layout_groups,
-            layout_order,
-            depth,
-        )?;
+        let ellipsis_group =
+            build_launch_group("...", current_group_name, &ellipsis_profiles, layout, depth)?;
         groups.push(ellipsis_group);
     }
 
@@ -166,15 +151,14 @@ fn build_launch_group(
     name: &str,
     group_name: &str,
     profiles: &[&LaunchProfile],
-    group_tags: &[String],
-    layout_order: &HashMap<String, Vec<String>>,
+    layout: &LayoutSection,
     depth: usize,
 ) -> Result<LaunchGroup> {
-    let is_last_level = depth == group_tags.len() - 1;
+    let is_last_level = depth == layout.groups.len() - 1;
     let content = if is_last_level {
         GroupContents::Profiles(profiles.iter().map(|&profile| profile.clone()).collect())
     } else {
-        let nested = build_group_hierarchy(profiles, group_tags, layout_order, depth + 1)?;
+        let nested = build_group_hierarchy(profiles, layout, depth + 1)?;
         GroupContents::Groups(nested)
     };
 
@@ -262,7 +246,11 @@ datacenter = "ber"
             vec!["router".to_string(), "backend".to_string()],
         );
 
-        let groups = build_group_hierarchy(&app_refs, &group_tags, &order, 0).unwrap();
+        let section = LayoutSection {
+            groups: group_tags.to_vec(),
+            order,
+        };
+        let groups = build_group_hierarchy(&app_refs, &section, 0).unwrap();
 
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, "ffm");
@@ -300,7 +288,11 @@ datacenter = "ber"
             vec!["ffm".to_string(), "ber".to_string()],
         );
 
-        let groups = build_group_hierarchy(&app_refs, &group_tags, &order, 0).unwrap();
+        let section = LayoutSection {
+            groups: group_tags.to_vec(),
+            order,
+        };
+        let groups = build_group_hierarchy(&app_refs, &section, 0).unwrap();
 
         assert_eq!(groups.len(), 3);
         assert_eq!(groups[0].name, "ffm");
@@ -313,7 +305,7 @@ datacenter = "ber"
         let apps = [app("host-1", &[("command", "ssh host-1")], &[])];
         let app_refs: Vec<_> = apps.iter().collect();
 
-        let groups = build_group_hierarchy(&app_refs, &[], &HashMap::new(), 0).unwrap();
+        let groups = build_group_hierarchy(&app_refs, &LayoutSection::default(), 0).unwrap();
 
         assert_eq!(groups.len(), 0);
     }
