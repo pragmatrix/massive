@@ -19,7 +19,7 @@ use winit::{
 
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::Vector3;
-use massive_scene::{Handle, Location, Transform, Visual};
+use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
     ApplicationContext, FontManager, Scene, ShellWindow,
@@ -126,19 +126,19 @@ impl Logs {
         let content_width = 1280;
         let application = Application::default();
         let current_transform = application.get_transform((content_width, content_width));
-        let content_transform = scene.stage(current_transform);
-        let content_location = scene.stage(Location::from(content_transform.clone()));
+        let content_transform = current_transform.enter(scene);
+        let content_location = content_transform.to_location().enter(scene);
 
         let vertical_center = scene.animated(0.0);
 
         // We move up the lines by their top position.
-        let vertical_center_transform = scene.stage(Transform::IDENTITY);
+        let vertical_center_transform = Transform::IDENTITY.enter(scene);
 
         // Final position for all lines (runs are y-translated, but only increasing).
-        let location = scene.stage(Location {
-            parent: Some(content_location),
-            transform: vertical_center_transform.clone(),
-        });
+        let location = vertical_center_transform
+            .to_location()
+            .relative_to(&content_location)
+            .enter(scene);
 
         let content_height = scene.animated(0.0);
 
@@ -164,8 +164,7 @@ impl Logs {
 
         let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
-        let line = Visual::new(self.location.clone(), glyph_runs);
-        let line = scene.stage(line);
+        let line = glyph_runs.into_visual().at(&self.location).enter(scene);
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,

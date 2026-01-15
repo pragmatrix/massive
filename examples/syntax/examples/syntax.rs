@@ -8,7 +8,7 @@ use syntect::{
 use winit::dpi::LogicalSize;
 
 use massive_geometry::Color;
-use massive_scene::Visual;
+use massive_scene::{IntoVisual, Object, ToLocation};
 use massive_shapes::TextWeight;
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
@@ -85,17 +85,17 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = (1280, height as u32);
     let mut application = Application::default();
-    let transform = scene.stage(application.get_transform(content_size));
-    let position = scene.stage(transform.clone().into());
+    let transform = application.get_transform(content_size).enter(&scene);
+    let position = transform.to_location().enter(&scene);
 
     // Hold the staged visual, otherwise it will disappear.
-    let _visual = scene.stage(Visual::new(
-        position.clone(),
-        glyph_runs
-            .into_iter()
-            .map(|run| run.into())
-            .collect::<Vec<_>>(),
-    ));
+    let _visual = glyph_runs
+        .into_iter()
+        .map(|run| run.into())
+        .collect::<Vec<_>>()
+        .into_visual()
+        .at(&position)
+        .enter(&scene);
 
     loop {
         let event = ctx.wait_for_shell_event().await?;

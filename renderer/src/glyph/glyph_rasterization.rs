@@ -1,7 +1,7 @@
 use cosmic_text::{self as text, fontdb};
 use swash::{
     scale::{Render, ScaleContext, Source, StrikeWith},
-    zeno::{Format, Vector},
+    zeno::Format,
 };
 use text::SwashContent;
 

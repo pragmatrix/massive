@@ -10,7 +10,7 @@ use massive_applications::{
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
-use massive_scene::Transform;
+use massive_scene::{Object, ToLocation, Transform};
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
@@ -91,8 +91,10 @@ impl Desktop {
         let scene = context.new_scene();
 
         // project presenter
-        let location_matrix = scene.stage(Transform::IDENTITY);
-        let location = scene.stage(location_matrix.into());
+        let location = Transform::IDENTITY
+            .enter(&scene)
+            .to_location()
+            .enter(&scene);
         let mut project_presenter = ProjectPresenter::new(project, location);
         project_presenter.layout(creation_info.size() / 4, &scene, &mut fonts.lock());
 

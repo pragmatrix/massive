@@ -19,7 +19,7 @@ use log::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizePx, Vector3};
-use massive_scene::Visual;
+use massive_scene::{IntoVisual, Object, ToLocation};
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
@@ -144,17 +144,17 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     let content_size = SizePx::new(page_width as _, page_height);
     let mut application = Application::default();
     let scene = ctx.new_scene();
-    let transform = scene.stage(application.get_transform(content_size));
-    let location = scene.stage(transform.clone().into());
+    let transform = application.get_transform(content_size).enter(&scene);
+    let location = transform.to_location().enter(&scene);
 
     // Hold the staged visual, otherwise it will disappear.
-    let _visual = scene.stage(Visual::new(
-        location.clone(),
-        glyph_runs
-            .into_iter()
-            .map(|run| run.into())
-            .collect::<Vec<_>>(),
-    ));
+    let _visual = glyph_runs
+        .into_iter()
+        .map(|run| run.into())
+        .collect::<Vec<_>>()
+        .into_visual()
+        .at(&location)
+        .enter(&scene);
 
     loop {
         let event = ctx.wait_for_shell_event().await?;

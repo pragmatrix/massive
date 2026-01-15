@@ -10,7 +10,7 @@ use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
 use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, ToTransform, Visual};
-use massive_shapes::{self as shapes, IntoShape, Shape, Size, TextLayouter};
+use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
 use crate::projects::{
@@ -161,12 +161,10 @@ impl GroupPresenter {
         // Ergonomics: I need more named color constants for faster prototyping.
         let background_shape = background_shape(rect, Color::rgb_u32(0x0000ff));
 
-        let background = Visual::new(location.clone(), [background_shape]);
-
         Self {
-            location,
+            location: location.clone(),
             rect: scene.animated(rect),
-            background: scene.stage(background),
+            background: [background_shape].into_visual().at(&location).enter(scene),
         }
     }
 

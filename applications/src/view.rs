@@ -8,7 +8,7 @@ use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, SizePx};
 use massive_renderer::{RenderSubmission, RenderTarget};
-use massive_scene::{Handle, Location, Transform};
+use massive_scene::{Handle, Location, Object, ToLocation, Transform};
 
 use crate::{InstanceId, Scene, ViewId, instance_context::InstanceCommand};
 
@@ -51,18 +51,18 @@ impl View {
         //
         // Detail: The identity transform here is incorrect but will be adjusted by the desktop
         // based on extents.
-        let desktop_transform = scene.stage(Transform::IDENTITY);
-        let desktop_location = scene.stage(Location::new(None, desktop_transform));
+        let desktop_transform = Transform::IDENTITY.enter(scene);
+        let desktop_location = desktop_transform.to_location().enter(scene);
 
         // The local transform is the basic center transform.
         //
         // Architecture: Do we need a local location anymore, if it does not make sense for the view
         // to modify it now that a full extents can be provided?
-        let local_transform = scene.stage(Transform::IDENTITY);
-        let location = scene.stage(Location::new(
-            Some(desktop_location.clone()),
-            local_transform,
-        ));
+        let local_transform = Transform::IDENTITY.enter(scene);
+        let location = local_transform
+            .to_location()
+            .relative_to(&desktop_location)
+            .enter(scene);
 
         command_sender.send((
             instance,

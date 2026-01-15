@@ -2,7 +2,7 @@ use anyhow::Result;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Color, Rect, Size};
-use massive_scene::Visual;
+use massive_scene::{IntoVisual, Object, ToLocation};
 use massive_shapes::{
     BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
@@ -211,10 +211,12 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let transform = scene.stage(application.get_transform((page_width, page_height)));
-    let location = scene.stage(transform.clone().into());
+    let transform = application
+        .get_transform((page_width, page_height))
+        .enter(&scene);
+    let location = transform.to_location().enter(&scene);
 
-    let _visual = scene.stage(Visual::new(location.clone(), shapes));
+    let _visual = shapes.into_visual().at(&location).enter(&scene);
 
     loop {
         let event = ctx.wait_for_shell_event().await?;

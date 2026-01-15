@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use massive_geometry::{Point, Transform};
-use massive_shapes::{GlyphRun, Shape};
+use massive_shapes::Shape;
 
 use crate::{Handle, Location, Visual};
 
@@ -52,6 +52,12 @@ impl IntoVisual for Option<Shape> {
 }
 
 impl<const LEN: usize> IntoVisual for [Shape; LEN] {
+    fn into_visual(self) -> VisualWithoutLocation {
+        VisualWithoutLocation::new(self)
+    }
+}
+
+impl IntoVisual for Vec<Shape> {
     fn into_visual(self) -> VisualWithoutLocation {
         VisualWithoutLocation::new(self)
     }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use massive_geometry::{Bounds, Point, Transform};
+use massive_geometry::{Bounds, Transform};
 use massive_shapes::{GlyphRun, Shape};
 
 use crate::{Change, Handle, Id, Object, SceneChange};
