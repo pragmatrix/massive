@@ -28,3 +28,5 @@ tokio = { workspace = true, features = ["time"] }
 toml.workspace = true
 uuid.workspace = true
 winit.workspace = true
+
+indexmap = { version = "2.13.0", features = ["serde"] }

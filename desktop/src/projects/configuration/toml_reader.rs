@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use indexmap::IndexMap;
 use serde::Deserialize;
 use toml::Value;
 
@@ -18,8 +19,11 @@ pub struct ConfigFile {
     pub startup: Option<String>,
     #[serde(default)]
     pub layout: Option<LayoutSection>,
+    /// Launch profiles indexed by name.
+    ///
+    /// Uses IndexMap to preserve the order from the TOML file.
     #[serde(flatten)]
-    pub launch_profiles: HashMap<String, LaunchProfileSection>,
+    pub launch_profiles: IndexMap<String, LaunchProfileSection>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -33,7 +37,7 @@ pub struct LayoutSection {
     pub order: HashMap<String, Vec<String>>,
 }
 
-pub type LaunchProfileSection = HashMap<String, Value>;
+pub type LaunchProfileSection = IndexMap<String, Value>;
 
 impl ConfigFile {
     /// Convert the intermediate TOML representation into a launch group, which is itself
@@ -210,7 +214,7 @@ datacenter = "ber"
 
     #[test]
     fn build_app_ref_separates_tags_and_params() {
-        let mut section = HashMap::new();
+        let mut section = IndexMap::new();
         section.insert("command".to_string(), str_val("ssh host-1"));
         section.insert("datacenter".to_string(), str_val("ffm"));
         section.insert("type".to_string(), str_val("router"));

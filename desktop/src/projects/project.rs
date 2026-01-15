@@ -133,12 +133,12 @@ fn convert_group(
             }
             LaunchGroupContents::Groups(converted_groups)
         }
-        GroupContents::Profiles(apps) => {
-            let mut slots = Vec::with_capacity(apps.len());
-            for app in apps {
+        GroupContents::Profiles(profiles) => {
+            let mut slots = Vec::with_capacity(profiles.len());
+            for profile in profiles {
                 let slot = Launcher {
                     id: *profile_id,
-                    profile: app,
+                    profile,
                 };
                 profile_id.0 += 1;
                 slots.push(slot);
