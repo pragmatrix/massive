@@ -4,12 +4,13 @@ use std::{
 };
 
 use derive_more::From;
+
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
 use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, ToTransform, Visual};
-use massive_shapes::{self as shapes, Shape, TextShaper};
+use massive_shapes::{self as shapes, IntoShape, Shape, Size, TextLayouter};
 use massive_shell::Scene;
 
 use crate::projects::{
@@ -222,9 +223,11 @@ impl LauncherPresenter {
             .with_depth_bias(1)
             .enter(scene);
 
-        let run = TextShaper::new(&profile.name).shape(font_system, 40.0);
-        let name = run
-            .map(|r| r.into())
+        let name = profile
+            .name
+            .size(40.0)
+            .layout(font_system)
+            .map(|r| r.into_shape())
             .into_visual()
             .at(our_location)
             .with_depth_bias(3)

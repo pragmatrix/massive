@@ -2,9 +2,7 @@ use cosmic_text::{Placement, fontdb};
 use glam::IVec2;
 use serde::{Deserialize, Serialize};
 
-use massive_geometry::{Color, SizePx, Vector3};
-
-use crate::geometry::Bounds;
+use massive_geometry::{Bounds, Color, SizePx, Vector3};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlyphRun {

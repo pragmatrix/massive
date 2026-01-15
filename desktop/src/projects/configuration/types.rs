@@ -22,13 +22,6 @@ impl LayoutDirection {
             Self::Vertical => LayoutAxis::VERTICAL,
         }
     }
-
-    pub fn flipped(self) -> Self {
-        match self {
-            Self::Horizontal => Self::Vertical,
-            Self::Vertical => Self::Horizontal,
-        }
-    }
 }
 
 /// A group can only contain either groups or applications.
