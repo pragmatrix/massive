@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use massive_geometry::{Point, Transform};
-use massive_shapes::Shape;
+use massive_shapes::{GlyphRun, Shape};
 
 use crate::{Handle, Location, Visual};
 
@@ -39,6 +39,21 @@ pub trait IntoVisual {
 impl IntoVisual for Shape {
     fn into_visual(self) -> VisualWithoutLocation {
         VisualWithoutLocation::new([self])
+    }
+}
+
+impl IntoVisual for Option<Shape> {
+    fn into_visual(self) -> VisualWithoutLocation {
+        match self {
+            Some(shape) => shape.into_visual(),
+            None => [].into_visual(),
+        }
+    }
+}
+
+impl<const LEN: usize> IntoVisual for [Shape; LEN] {
+    fn into_visual(self) -> VisualWithoutLocation {
+        VisualWithoutLocation::new(self)
     }
 }
 

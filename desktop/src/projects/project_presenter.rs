@@ -223,14 +223,12 @@ impl LauncherPresenter {
             .enter(scene);
 
         let run = TextShaper::new(&profile.name).shape(font_system, 40.0);
-
-        let name = scene.stage(
-            Visual::new(
-                our_location,
-                run.into_iter().map(|run| run.into()).collect::<Vec<_>>(),
-            )
-            .with_depth_bias(3),
-        );
+        let name = run
+            .map(|r| r.into())
+            .into_visual()
+            .at(our_location)
+            .with_depth_bias(3)
+            .enter(scene);
 
         Self {
             location: parent_location,

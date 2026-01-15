@@ -252,3 +252,16 @@ impl PartialEq for dyn CustomShape {
         self.eq_dyn(other)
     }
 }
+
+pub trait IntoShape {
+    fn into_shape(self) -> Shape;
+}
+
+impl<T> IntoShape for T
+where
+    Shape: From<T>,
+{
+    fn into_shape(self) -> Shape {
+        Shape::from(self)
+    }
+}
