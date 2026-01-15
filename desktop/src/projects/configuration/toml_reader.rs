@@ -24,8 +24,11 @@ pub struct ConfigFile {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct LayoutSection {
+    /// The global groups that decides the importance (most important first) and the cross-product
+    /// ordering.
     #[serde(default)]
     pub groups: Vec<String>,
+    /// For every group an order of its named launch groups can be specified.
     #[serde(default)]
     pub order: HashMap<String, Vec<String>>,
 }
@@ -37,18 +40,19 @@ impl ConfigFile {
     /// an ApplicationGroup.
     pub fn into_launch_group(self, name: String) -> Result<LaunchGroup> {
         let layout = self.layout.unwrap_or_default();
-        let group_tags = &layout.groups;
 
-        // Build ApplicationRefs from each application section
-        let app_refs: Vec<LaunchProfile> = self
+        let layout_groups = &layout.groups;
+
+        // Build ApplicationRefs from each launch group section
+        let launch_groups: Vec<LaunchProfile> = self
             .launch_profiles
             .into_iter()
-            .map(|(name, section)| build_launch_profile(name, section, group_tags))
+            .map(|(name, section)| build_launch_profile(name, section, layout_groups))
             .collect::<Result<Vec<_>>>()?;
 
         // Build the cross-product hierarchy
-        let app_refs: Vec<_> = app_refs.iter().collect();
-        let groups = build_group_hierarchy(&app_refs, group_tags, &layout.order, 0)?;
+        let launch_group_refs: Vec<_> = launch_groups.iter().collect();
+        let groups = build_group_hierarchy(&launch_group_refs, layout_groups, &layout.order, 0)?;
 
         Ok(LaunchGroup {
             name,
@@ -68,12 +72,12 @@ fn build_launch_profile(
     let mut params = Vec::new();
 
     for (key, value) in section {
-        let value_str = toml_value_to_string(&value)?;
+        let value = toml_value_to_string(&value)?;
 
         if group_tags.contains(&key) {
-            tags.push(ScopedTag::new(key, value_str));
+            tags.push(ScopedTag::new(key, value));
         } else {
-            params.push(Parameter::new(key, value_str));
+            params.push(Parameter::new(key, value));
         }
     }
 
@@ -84,19 +88,9 @@ fn build_launch_profile(
     })
 }
 
-fn toml_value_to_string(value: &Value) -> Result<String> {
-    match value {
-        Value::String(s) => Ok(s.clone()),
-        Value::Integer(i) => Ok(i.to_string()),
-        Value::Float(f) => Ok(f.to_string()),
-        Value::Boolean(b) => Ok(b.to_string()),
-        _ => anyhow::bail!("Unsupported TOML value type: {:?}", value),
-    }
-}
-
 /// Build a cross-product hierarchy of groups at the given depth level.
 fn build_group_hierarchy(
-    apps: &[&LaunchProfile],
+    profiles: &[&LaunchProfile],
     group_tags: &[String],
     order: &HashMap<String, Vec<String>>,
     depth: usize,
@@ -105,19 +99,22 @@ fn build_group_hierarchy(
         return Ok(Vec::new());
     }
 
-    let current_tag_name = &group_tags[depth];
+    let current_group_name = &group_tags[depth];
 
-    // Collect all unique values for this tag from applications
-    let mut found_values: HashMap<String, Vec<&LaunchProfile>> = HashMap::new();
-    for app in apps {
-        if let Some(tag) = app.tags.iter().find(|t| &t.scope == current_tag_name) {
-            found_values.entry(tag.tag.clone()).or_default().push(app);
+    // Collect all unique values for this group from the profiles
+    let mut found_values: HashMap<&str, Vec<&LaunchProfile>> = HashMap::new();
+    for profile in profiles {
+        if let Some(tag_value) = profile.tags.iter().find(|t| &t.scope == current_group_name) {
+            found_values
+                .entry(&tag_value.tag)
+                .or_default()
+                .push(profile);
         }
     }
 
     let ordered_values = {
-        match order.get(current_tag_name) {
-            Some(v) => v.clone(),
+        match order.get(current_group_name) {
+            Some(v) => v.iter().map(|s| s.as_ref()).collect(),
             None => {
                 // No ordered specification, take all the values we have and sort it alphabetically.
                 let mut keys: Vec<_> = found_values.keys().cloned().collect();
@@ -129,12 +126,12 @@ fn build_group_hierarchy(
 
     let mut groups = Vec::new();
 
-    // Add ordered values first
+    // Add ordered profiles first
     for value in &ordered_values {
         if let Some(matching_apps) = found_values.remove(value) {
             let group = build_launch_group(
-                value.clone(),
-                current_tag_name.clone(),
+                value,
+                current_group_name.clone(),
                 &matching_apps,
                 group_tags,
                 order,
@@ -144,17 +141,17 @@ fn build_group_hierarchy(
         }
     }
 
-    // Add unlisted values in an ellipsis group if any remain
+    // Add unlisted profiles in an ellipsis group if any remain
     if !found_values.is_empty() {
-        let mut ellipsis_apps = Vec::new();
+        let mut ellipsis_profiles = Vec::new();
         for apps_vec in found_values.values() {
-            ellipsis_apps.extend(apps_vec.iter().copied());
+            ellipsis_profiles.extend(apps_vec.iter().copied());
         }
 
         let ellipsis_group = build_launch_group(
-            "...".to_string(),
-            current_tag_name.clone(),
-            &ellipsis_apps,
+            "...",
+            current_group_name.clone(),
+            &ellipsis_profiles,
             group_tags,
             order,
             depth,
@@ -166,7 +163,7 @@ fn build_group_hierarchy(
 }
 
 fn build_launch_group(
-    value: String,
+    name: &str,
     tag_name: String,
     apps: &[&LaunchProfile],
     group_tags: &[String],
@@ -181,18 +178,28 @@ fn build_launch_group(
         GroupContents::Groups(nested)
     };
 
-    let layout_direction = if (depth & 1) == 0 {
+    let layout_direction = if (depth & 1) == 1 {
         LayoutDirection::Horizontal
     } else {
         LayoutDirection::Vertical
     };
 
     Ok(LaunchGroup {
-        name: value.clone(),
-        tag: ScopedTag::new(tag_name, value),
+        name: name.to_string(),
+        tag: ScopedTag::new(tag_name, name),
         layout: layout_direction,
         content,
     })
+}
+
+fn toml_value_to_string(value: &Value) -> Result<String> {
+    match value {
+        Value::String(s) => Ok(s.clone()),
+        Value::Integer(i) => Ok(i.to_string()),
+        Value::Float(f) => Ok(f.to_string()),
+        Value::Boolean(b) => Ok(b.to_string()),
+        _ => anyhow::bail!("Unsupported TOML value type: {:?}", value),
+    }
 }
 
 #[cfg(test)]
