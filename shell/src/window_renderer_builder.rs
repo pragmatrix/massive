@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-
 use log::debug;
+
 use massive_geometry::{Color, PixelCamera, SizePx};
 use massive_renderer::{FontManager, RenderDevice, RenderGeometry, RendererBuilder};
 

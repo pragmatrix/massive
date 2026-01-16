@@ -135,7 +135,8 @@ impl DerivedCache {
         self.view_projection.resolve(version, || {
             let model_to_camera_to_ndc_matrix =
                 self.model_to_camera_to_ndc.resolve(version, || {
-                    RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix()
+                    RenderGeometry::model_to_ndc(surface_size)
+                        * camera.model_camera_matrix(surface_size)
                 });
 
             let camera_projection = self.camera_projection.resolve(version, || {
