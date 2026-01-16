@@ -23,7 +23,7 @@ use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
 use massive_geometry::{Color, SizePx};
-use massive_scene::{IntoVisual, Object, ToLocation};
+use massive_scene::{At, Object, ToLocation};
 use massive_shapes::TextWeight;
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
@@ -265,7 +265,6 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .into_iter()
         .map(|run| run.into())
         .collect::<Vec<_>>()
-        .into_visual()
         .at(&location)
         .enter(&scene);
 

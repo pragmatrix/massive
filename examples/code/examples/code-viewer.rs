@@ -3,7 +3,7 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::SizePx;
-use massive_scene::{IntoVisual, Object, ToLocation};
+use massive_scene::{At, Object, ToLocation};
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
@@ -84,7 +84,6 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         .into_iter()
         .map(|m| m.into())
         .collect::<Vec<_>>()
-        .into_visual()
         .at(&location)
         .enter(&scene);
 

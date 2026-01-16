@@ -19,7 +19,7 @@ use winit::{
 
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::Vector3;
-use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, Transform, Visual};
+use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
     ApplicationContext, FontManager, Scene, ShellWindow,
@@ -164,7 +164,7 @@ impl Logs {
 
         let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
-        let line = glyph_runs.into_visual().at(&self.location).enter(scene);
+        let line = glyph_runs.at(&self.location).enter(scene);
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,

@@ -2,11 +2,12 @@ use anyhow::Result;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{Color, Rect, Size};
-use massive_scene::{IntoVisual, Object, ToLocation};
+use massive_scene::{At, Object, ToLocation};
 use massive_shapes::{
     BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
 use massive_shell::{ApplicationContext, shell};
+
 use shared::application::{Application, UpdateResponse};
 
 #[tokio::main]
@@ -216,7 +217,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         .enter(&scene);
     let location = transform.to_location().enter(&scene);
 
-    let _visual = shapes.into_visual().at(&location).enter(&scene);
+    let _visual = shapes.at(&location).enter(&scene);
 
     loop {
         let event = ctx.wait_for_shell_event().await?;

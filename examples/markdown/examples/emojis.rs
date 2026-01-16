@@ -19,7 +19,7 @@ use log::info;
 use winit::dpi::LogicalSize;
 
 use massive_geometry::{SizePx, Vector3};
-use massive_scene::{IntoVisual, Object, ToLocation};
+use massive_scene::{At, Object, ToLocation};
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
     application::{Application, UpdateResponse},
@@ -152,7 +152,6 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .into_iter()
         .map(|run| run.into())
         .collect::<Vec<_>>()
-        .into_visual()
         .at(&location)
         .enter(&scene);
 

@@ -22,6 +22,12 @@ impl ToTransform for Point {
     }
 }
 
+impl ToTransform for (f64, f64, f64) {
+    fn to_transform(&self) -> Transform {
+        Transform::from_translation(*self)
+    }
+}
+
 pub trait ToLocation {
     fn to_location(&self) -> Location;
 }
@@ -32,7 +38,7 @@ impl ToLocation for Handle<Transform> {
     }
 }
 
-pub trait IntoVisual {
+trait IntoVisual {
     fn into_visual(self) -> VisualWithoutLocation;
 }
 
@@ -77,5 +83,19 @@ impl VisualWithoutLocation {
 
     pub fn at(self, location: impl Into<Handle<Location>>) -> Visual {
         Visual::new(location.into(), self.shapes)
+    }
+}
+
+// Everything that can is positioned can be converted to a visual.
+pub trait At {
+    fn at(self, location: impl Into<Handle<Location>>) -> Visual;
+}
+
+impl<T> At for T
+where
+    T: IntoVisual,
+{
+    fn at(self, location: impl Into<Handle<Location>>) -> Visual {
+        self.into_visual().at(location)
     }
 }

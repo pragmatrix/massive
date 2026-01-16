@@ -9,9 +9,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
-use massive_scene::{
-    Handle, IntoVisual, Location, Object, ToLocation, ToTransform, Transform, Visual,
-};
+use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
@@ -166,7 +164,7 @@ impl GroupPresenter {
         Self {
             location: location.clone(),
             rect: scene.animated(rect),
-            background: [background_shape].into_visual().at(&location).enter(scene),
+            background: [background_shape].at(&location).enter(scene),
         }
     }
 
@@ -219,7 +217,6 @@ impl LauncherPresenter {
             .enter(scene);
 
         let background = background_shape
-            .into_visual()
             .at(&our_location)
             .with_depth_bias(1)
             .enter(scene);
@@ -229,7 +226,6 @@ impl LauncherPresenter {
             .size(40.0)
             .layout(font_system)
             .map(|r| r.into_shape())
-            .into_visual()
             .at(our_location)
             .with_depth_bias(3)
             .enter(scene);
