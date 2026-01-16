@@ -135,11 +135,11 @@ fn metrics(line: &LayoutLine) -> GlyphRunMetrics {
     // This assumes that we can derive the line height from the LayoutLine directly.
     // Robustness: May need some more parameterization here.
     let max_ascent = line.max_ascent;
-    let max_decent = line.max_descent;
+    let max_descent = line.max_descent;
 
     GlyphRunMetrics {
         max_ascent: max_ascent.ceil() as _,
-        max_descent: max_decent.ceil() as _,
+        max_descent: max_descent.ceil() as _,
         width: line.w.ceil() as u32,
     }
 }
