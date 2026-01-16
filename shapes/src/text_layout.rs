@@ -12,7 +12,7 @@ use crate::{GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 #[derive(Debug)]
 pub struct TextLayouter<'a> {
     text: &'a str,
-    /// Architecture: Could we use lifetime's here too (e.g. FontFamily string refs).
+    /// Architecture: Could we use lifetimes here too (e.g. FontFamily string refs).
     default_attributes: TextAttributes<'a>,
     range_attributes: Vec<(Range<usize>, TextAttributes<'a>)>,
 }
