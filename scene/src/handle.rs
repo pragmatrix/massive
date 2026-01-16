@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::{Change, ChangeCollector, Id, SceneChange};
+use crate::{Change, ChangeCollector, Id, Scene, SceneChange};
 
 /// A handle is a mutable representation of an object staged on a scene.
 ///
@@ -133,4 +133,11 @@ where
 
     /// Convert the current value to something that can be uploaded.
     fn to_change(&self) -> Self::Change;
+
+    fn enter(self, scene: &Scene) -> Handle<Self>
+    where
+        Self: 'static,
+    {
+        scene.stage(self)
+    }
 }

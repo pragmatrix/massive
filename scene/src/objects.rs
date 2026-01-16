@@ -3,7 +3,7 @@ use std::sync::Arc;
 use massive_geometry::{Bounds, Transform};
 use massive_shapes::{GlyphRun, Shape};
 
-use crate::{Handle, Id, Object};
+use crate::{Change, Handle, Id, Object, SceneChange};
 
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
@@ -103,8 +103,27 @@ impl From<Handle<Transform>> for Location {
 }
 
 impl Location {
-    pub fn new(parent: Option<Handle<Location>>, transform: Handle<Transform>) -> Self {
-        Self { parent, transform }
+    pub fn new(parent: Option<Handle<Location>>, transform: impl Into<Handle<Transform>>) -> Self {
+        Self {
+            parent,
+            transform: transform.into(),
+        }
+    }
+
+    pub fn relative_to(mut self, parent: impl Into<Handle<Location>>) -> Self {
+        self.parent = Some(parent.into());
+        self
+    }
+}
+
+// This allows `Into<Handle<Location>>` to take either a reference or an owned handle.
+impl<T> From<&Handle<T>> for Handle<T>
+where
+    T: Object,
+    SceneChange: From<Change<T::Change>>,
+{
+    fn from(value: &Handle<T>) -> Self {
+        Handle::clone(value)
     }
 }
 

@@ -68,6 +68,10 @@ impl Project {
 
         Ok(Project { start, root })
     }
+
+    pub fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
+        self.root.get_launch_profile(id)
+    }
 }
 
 impl LaunchGroup {
@@ -93,6 +97,70 @@ impl LaunchGroup {
             }
         }
     }
+
+    fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
+        match &self.contents {
+            LaunchGroupContents::Launchers(launchers) => launchers
+                .iter()
+                .find(|launcher| launcher.id == id)
+                .map(|launcher| &launcher.profile),
+            LaunchGroupContents::Groups(groups) => {
+                for group in groups {
+                    if let Some(profile) = group.get_launch_profile(id) {
+                        return Some(profile);
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Returns an ASCII tree visualization of the group hierarchy.
+    pub fn visualize(&self) -> String {
+        let mut output = String::new();
+        self.visualize_impl(&mut output, "", true, true);
+        output
+    }
+
+    fn visualize_impl(&self, output: &mut String, prefix: &str, is_last: bool, is_root: bool) {
+        let (connector, extension) = if is_root {
+            ("", "")
+        } else if is_last {
+            ("└── ", "    ")
+        } else {
+            ("├── ", "│   ")
+        };
+
+        output.push_str(prefix);
+        output.push_str(connector);
+        output.push_str(&self.name);
+        output.push('\n');
+
+        let child_prefix = format!("{}{}", prefix, extension);
+
+        match &self.contents {
+            LaunchGroupContents::Groups(groups) => {
+                for (i, group) in groups.iter().enumerate() {
+                    let is_last_child = i == groups.len() - 1;
+                    group.visualize_impl(output, &child_prefix, is_last_child, false);
+                }
+            }
+            LaunchGroupContents::Launchers(launchers) => {
+                for (i, launcher) in launchers.iter().enumerate() {
+                    let is_last_child = i == launchers.len() - 1;
+                    let connector = if is_last_child {
+                        "└── "
+                    } else {
+                        "├── "
+                    };
+                    output.push_str(&child_prefix);
+                    output.push_str(connector);
+                    output.push_str(&launcher.profile.name);
+                    output.push('\n');
+                }
+            }
+        }
+    }
 }
 
 fn convert_group(
@@ -112,12 +180,12 @@ fn convert_group(
             }
             LaunchGroupContents::Groups(converted_groups)
         }
-        GroupContents::Profiles(apps) => {
-            let mut slots = Vec::with_capacity(apps.len());
-            for app in apps {
+        GroupContents::Profiles(profiles) => {
+            let mut slots = Vec::with_capacity(profiles.len());
+            for profile in profiles {
                 let slot = Launcher {
                     id: *profile_id,
-                    profile: app,
+                    profile,
                 };
                 profile_id.0 += 1;
                 slots.push(slot);

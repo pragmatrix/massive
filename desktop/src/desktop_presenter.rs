@@ -148,6 +148,8 @@ impl DesktopPresenter {
     /// Return the primary's view's (final) transform.
     ///
     /// It's view might not yet visible.
+    ///
+    /// `None` if the instance does not exist.
     pub fn instance_transform(&self, instance: InstanceId) -> Option<Transform> {
         self.instances
             .get(&instance)
@@ -160,8 +162,8 @@ struct InstancePresenter {
     state: InstancePresenterState,
     // The size of the panel. Including borders.
     panel_size: SizePx,
-    /// The center of the instance's panel. This is also the point the camera should look at if its
-    /// at rest.
+    /// The center of the instance's panel. This is also the point the camera should look at at
+    /// rest.
     center_animation: Animated<Vector3>,
     // The primary view inside the panel.
     view: Option<PrimaryViewPresenter>,

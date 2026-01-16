@@ -169,7 +169,7 @@ fn apply_changes(
 fn camera(path: &FocusPath, presenter: &DesktopPresenter) -> Option<PixelCamera> {
     path.instance()
         .and_then(|instance| presenter.instance_transform(instance))
-        .map(|target| PixelCamera::look_at(target, PixelCamera::DEFAULT_FOVY))
+        .map(|target| PixelCamera::look_at(target, None, PixelCamera::DEFAULT_FOVY))
 }
 
 //

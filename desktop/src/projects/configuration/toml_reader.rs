@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use indexmap::IndexMap;
 use serde::Deserialize;
 use toml::Value;
 
@@ -18,37 +19,42 @@ pub struct ConfigFile {
     pub startup: Option<String>,
     #[serde(default)]
     pub layout: Option<LayoutSection>,
+    /// Launch profiles indexed by name.
+    ///
+    /// Uses IndexMap to preserve the order from the TOML file.
     #[serde(flatten)]
-    pub launch_profiles: HashMap<String, LaunchProfileSection>,
+    pub launch_profiles: IndexMap<String, LaunchProfileSection>,
 }
 
 #[derive(Debug, Deserialize, Default)]
 pub struct LayoutSection {
+    /// The global groups that decides the importance (most important first) and the cross-product
+    /// ordering.
     #[serde(default)]
     pub groups: Vec<String>,
+    /// For every group an order of its named launch groups can be specified.
     #[serde(default)]
     pub order: HashMap<String, Vec<String>>,
 }
 
-pub type LaunchProfileSection = HashMap<String, Value>;
+pub type LaunchProfileSection = IndexMap<String, Value>;
 
 impl ConfigFile {
     /// Convert the intermediate TOML representation into a launch group, which is itself
     /// an ApplicationGroup.
     pub fn into_launch_group(self, name: String) -> Result<LaunchGroup> {
         let layout = self.layout.unwrap_or_default();
-        let group_tags = &layout.groups;
 
-        // Build ApplicationRefs from each application section
-        let app_refs: Vec<LaunchProfile> = self
+        // First generate all profiles. Use the layout_groups for separating parameters from tags.
+        let all_profiles: Vec<LaunchProfile> = self
             .launch_profiles
             .into_iter()
-            .map(|(name, section)| build_launch_profile(name, section, group_tags))
+            .map(|(name, section)| build_launch_profile(name, section, &layout.groups))
             .collect::<Result<Vec<_>>>()?;
 
         // Build the cross-product hierarchy
-        let app_refs: Vec<_> = app_refs.iter().collect();
-        let groups = build_group_hierarchy(&app_refs, group_tags, &layout.order, 0)?;
+        let all_profiles_ref: Vec<_> = all_profiles.iter().collect();
+        let groups = build_group_hierarchy(&all_profiles_ref, &layout, 0)?;
 
         Ok(LaunchGroup {
             name,
@@ -62,18 +68,18 @@ impl ConfigFile {
 fn build_launch_profile(
     name: String,
     section: LaunchProfileSection,
-    group_tags: &[String],
+    groups: &[String],
 ) -> Result<LaunchProfile> {
     let mut tags = Vec::new();
     let mut params = Vec::new();
 
     for (key, value) in section {
-        let value_str = toml_value_to_string(&value)?;
+        let value = toml_value_to_string(&value)?;
 
-        if group_tags.contains(&key) {
-            tags.push(ScopedTag::new(key, value_str));
+        if groups.contains(&key) {
+            tags.push(ScopedTag::new(key, value));
         } else {
-            params.push(Parameter::new(key, value_str));
+            params.push(Parameter::new(key, value));
         }
     }
 
@@ -81,6 +87,96 @@ fn build_launch_profile(
         name,
         params: Parameters(params),
         tags,
+    })
+}
+
+/// Build a cross-product hierarchy of groups at the given depth level.
+fn build_group_hierarchy(
+    profiles: &[&LaunchProfile],
+    layout: &LayoutSection,
+    depth: usize,
+) -> Result<Vec<LaunchGroup>> {
+    if depth >= layout.groups.len() {
+        return Ok(Vec::new());
+    }
+
+    let current_group_name: &str = &layout.groups[depth];
+
+    // Collect all unique values for this group from the profiles
+    let mut found_values: HashMap<&str, Vec<&LaunchProfile>> = HashMap::new();
+    for profile in profiles {
+        if let Some(tag_value) = profile.tags.iter().find(|t| t.scope == current_group_name) {
+            found_values
+                .entry(&tag_value.tag)
+                .or_default()
+                .push(profile);
+        }
+    }
+
+    let ordered_values: Vec<&str> = {
+        match layout.order.get(current_group_name) {
+            Some(v) => v.iter().map(|s| s.as_ref()).collect(),
+            None => {
+                // No ordered specification, take all the values we have and sort it alphabetically.
+                let mut keys: Vec<_> = found_values.keys().cloned().collect();
+                keys.sort();
+                keys
+            }
+        }
+    };
+
+    let mut groups: Vec<LaunchGroup> = Vec::new();
+
+    // Add ordered profiles first
+    for value in &ordered_values {
+        if let Some(matching_profiles) = found_values.remove(value) {
+            let group =
+                build_launch_group(value, current_group_name, &matching_profiles, layout, depth)?;
+            groups.push(group);
+        }
+    }
+
+    // Add unlisted profiles in an ellipsis group if any remain
+    if !found_values.is_empty() {
+        let ellipsis_profiles: Vec<&LaunchProfile> = found_values
+            .values()
+            .flat_map(|v| v.iter().copied())
+            .collect();
+
+        let ellipsis_group =
+            build_launch_group("...", current_group_name, &ellipsis_profiles, layout, depth)?;
+        groups.push(ellipsis_group);
+    }
+
+    Ok(groups)
+}
+
+fn build_launch_group(
+    name: &str,
+    group_name: &str,
+    profiles: &[&LaunchProfile],
+    layout: &LayoutSection,
+    depth: usize,
+) -> Result<LaunchGroup> {
+    let is_last_level = depth == layout.groups.len() - 1;
+    let content = if is_last_level {
+        GroupContents::Profiles(profiles.iter().map(|&profile| profile.clone()).collect())
+    } else {
+        let nested = build_group_hierarchy(profiles, layout, depth + 1)?;
+        GroupContents::Groups(nested)
+    };
+
+    let layout_direction = if (depth & 1) == 1 {
+        LayoutDirection::Horizontal
+    } else {
+        LayoutDirection::Vertical
+    };
+
+    Ok(LaunchGroup {
+        name: name.to_string(),
+        tag: ScopedTag::new(group_name, name),
+        layout: layout_direction,
+        content,
     })
 }
 
@@ -92,90 +188,6 @@ fn toml_value_to_string(value: &Value) -> Result<String> {
         Value::Boolean(b) => Ok(b.to_string()),
         _ => anyhow::bail!("Unsupported TOML value type: {:?}", value),
     }
-}
-
-/// Build a cross-product hierarchy of groups at the given depth level.
-fn build_group_hierarchy(
-    apps: &[&LaunchProfile],
-    group_tags: &[String],
-    order: &HashMap<String, Vec<String>>,
-    depth: usize,
-) -> Result<Vec<LaunchGroup>> {
-    if depth >= group_tags.len() {
-        return Ok(Vec::new());
-    }
-
-    let current_tag_name = &group_tags[depth];
-    let ordered_values = order.get(current_tag_name).cloned().unwrap_or_default();
-
-    // Collect all unique values for this tag from applications
-    let mut found_values: HashMap<String, Vec<&LaunchProfile>> = HashMap::new();
-    for app in apps {
-        if let Some(tag) = app.tags.iter().find(|t| &t.scope == current_tag_name) {
-            found_values.entry(tag.tag.clone()).or_default().push(app);
-        }
-    }
-
-    let mut groups = Vec::new();
-
-    // Add ordered values first
-    for value in &ordered_values {
-        if let Some(matching_apps) = found_values.remove(value) {
-            let group = build_launch_group(
-                value.clone(),
-                current_tag_name.clone(),
-                &matching_apps,
-                group_tags,
-                order,
-                depth,
-            )?;
-            groups.push(group);
-        }
-    }
-
-    // Add unlisted values in an ellipsis group if any remain
-    if !found_values.is_empty() {
-        let mut ellipsis_apps = Vec::new();
-        for apps_vec in found_values.values() {
-            ellipsis_apps.extend(apps_vec.iter().copied());
-        }
-
-        let ellipsis_group = build_launch_group(
-            "...".to_string(),
-            current_tag_name.clone(),
-            &ellipsis_apps,
-            group_tags,
-            order,
-            depth,
-        )?;
-        groups.push(ellipsis_group);
-    }
-
-    Ok(groups)
-}
-
-fn build_launch_group(
-    value: String,
-    tag_name: String,
-    apps: &[&LaunchProfile],
-    group_tags: &[String],
-    order: &HashMap<String, Vec<String>>,
-    depth: usize,
-) -> Result<LaunchGroup> {
-    let is_last_level = depth == group_tags.len() - 1;
-    let content = if is_last_level {
-        GroupContents::Profiles(apps.iter().map(|&app| app.clone()).collect())
-    } else {
-        let nested = build_group_hierarchy(apps, group_tags, order, depth + 1)?;
-        GroupContents::Groups(nested)
-    };
-
-    Ok(LaunchGroup {
-        name: value.clone(),
-        tag: ScopedTag::new(tag_name, value),
-        layout: LayoutDirection::Horizontal,
-        content,
-    })
 }
 
 #[cfg(test)]
@@ -202,7 +214,7 @@ datacenter = "ber"
 
     #[test]
     fn build_app_ref_separates_tags_and_params() {
-        let mut section = HashMap::new();
+        let mut section = IndexMap::new();
         section.insert("command".to_string(), str_val("ssh host-1"));
         section.insert("datacenter".to_string(), str_val("ffm"));
         section.insert("type".to_string(), str_val("router"));
@@ -238,7 +250,11 @@ datacenter = "ber"
             vec!["router".to_string(), "backend".to_string()],
         );
 
-        let groups = build_group_hierarchy(&app_refs, &group_tags, &order, 0).unwrap();
+        let section = LayoutSection {
+            groups: group_tags.to_vec(),
+            order,
+        };
+        let groups = build_group_hierarchy(&app_refs, &section, 0).unwrap();
 
         assert_eq!(groups.len(), 2);
         assert_eq!(groups[0].name, "ffm");
@@ -276,7 +292,11 @@ datacenter = "ber"
             vec!["ffm".to_string(), "ber".to_string()],
         );
 
-        let groups = build_group_hierarchy(&app_refs, &group_tags, &order, 0).unwrap();
+        let section = LayoutSection {
+            groups: group_tags.to_vec(),
+            order,
+        };
+        let groups = build_group_hierarchy(&app_refs, &section, 0).unwrap();
 
         assert_eq!(groups.len(), 3);
         assert_eq!(groups[0].name, "ffm");
@@ -289,7 +309,7 @@ datacenter = "ber"
         let apps = [app("host-1", &[("command", "ssh host-1")], &[])];
         let app_refs: Vec<_> = apps.iter().collect();
 
-        let groups = build_group_hierarchy(&app_refs, &[], &HashMap::new(), 0).unwrap();
+        let groups = build_group_hierarchy(&app_refs, &LayoutSection::default(), 0).unwrap();
 
         assert_eq!(groups.len(), 0);
     }

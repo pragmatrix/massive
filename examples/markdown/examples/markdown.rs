@@ -21,7 +21,7 @@ use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::Subscr
 use winit::dpi::{LogicalSize, PhysicalSize};
 
 use massive_geometry::{SizePx, Vector3};
-use massive_scene::Visual;
+use massive_scene::{At, Object, ToLocation};
 use massive_shapes::GlyphRun;
 use massive_shell::{ApplicationContext, FontManager, shell};
 use shared::{
@@ -87,18 +87,17 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let scene = ctx.new_scene();
     let page_transform = application.get_transform(content_size);
 
-    let transform = scene.stage(page_transform);
-    let location = scene.stage(transform.clone().into());
+    let transform = page_transform.enter(&scene);
+    let location = transform.to_location().enter(&scene);
 
     // Hold the staged visual, otherwise it will disappear.
-    let _visual = scene.stage(Visual::new(
-        location,
-        glyph_runs
-            .clone()
-            .into_iter()
-            .map(|run| run.into())
-            .collect::<Vec<_>>(),
-    ));
+    let _visual = glyph_runs
+        .clone()
+        .into_iter()
+        .map(|run| run.into())
+        .collect::<Vec<_>>()
+        .at(&location)
+        .enter(&scene);
 
     loop {
         let event = ctx.wait_for_shell_event().await?;

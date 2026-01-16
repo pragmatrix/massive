@@ -1,12 +1,12 @@
 use std::{collections::HashSet, fmt};
 
 use anyhow::Result;
-use cosmic_text::{self as text};
+use cosmic_text::{self as text, SwashContent};
+use swash::scale::ScaleContext;
+use wgpu::Device;
+
 use massive_geometry::{Point, Vector3};
 use massive_shapes::{GlyphRun, RunGlyph};
-use swash::scale::ScaleContext;
-use text::SwashContent;
-use wgpu::Device;
 
 use crate::{
     FontManager,

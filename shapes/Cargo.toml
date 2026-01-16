@@ -5,9 +5,9 @@ edition.workspace = true
 
 [dependencies]
 massive-geometry = { workspace = true }
-# TODO: This is a bit heavyweight here, we need it for the CacheKey
+# Needed for TextShaping and GlyphRun CacheKey
 cosmic-text = { workspace = true }
-# TODO: This is needed for Weight.
+# Gorilla: This is needed for Weight.
 swash = { workspace = true }
 derive_more = { workspace = true }
 glam = { workspace = true }
