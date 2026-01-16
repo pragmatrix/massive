@@ -9,7 +9,9 @@ use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
-use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, ToTransform, Visual};
+use massive_scene::{
+    Handle, IntoVisual, Location, Object, ToLocation, ToTransform, Transform, Visual,
+};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
@@ -80,7 +82,7 @@ impl ProjectPresenter {
         match self.groups.entry(id) {
             Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
             Entry::Vacant(entry) => {
-                entry.insert(GroupPresenter::new(self.location.clone(), rect, scene));
+                // entry.insert(GroupPresenter::new(self.location.clone(), rect, scene));
             }
         }
     }
@@ -183,6 +185,7 @@ impl GroupPresenter {
 
 #[derive(Debug)]
 struct LauncherPresenter {
+    transform: Handle<Transform>,
     location: Handle<Location>,
     rect: Animated<Rect>,
 
@@ -232,6 +235,7 @@ impl LauncherPresenter {
             .enter(scene);
 
         Self {
+            transform: our_transform,
             location: parent_location,
             rect: scene.animated(rect),
             background,
@@ -245,9 +249,13 @@ impl LauncherPresenter {
     }
 
     fn apply_animations(&mut self) {
-        let rect = self.rect.value();
-        self.background
-            .update_with(|visual| visual.shapes = [background_shape(rect, Color::WHITE)].into());
+        let (origin, size) = self.rect.value().origin_and_size();
+
+        self.transform.update_if_changed(origin.with_z(0.0).into());
+
+        self.background.update_with(|visual| {
+            visual.shapes = [background_shape(size.to_rect(), Color::WHITE)].into()
+        });
     }
 }
 

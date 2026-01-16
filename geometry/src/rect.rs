@@ -181,6 +181,10 @@ impl Rect {
     pub fn to_scalars(&self) -> [f64; 4] {
         [self.left, self.top, self.right, self.bottom]
     }
+
+    pub fn origin_and_size(&self) -> (Point, Size) {
+        (self.origin(), self.size())
+    }
 }
 
 impl From<(f64, f64, f64, f64)> for Rect {
