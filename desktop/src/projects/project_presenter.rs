@@ -240,11 +240,14 @@ impl LauncherPresenter {
             .with_depth_bias(1)
             .enter(scene);
 
-        let name = profile
+        let name_shape = profile
             .name
             .size(40.0)
             .layout(font_system)
             .map(|r| r.into_shape())
+            .unwrap_or_else(|| background_shape(rect.size().to_rect(), Color::WHITE));
+
+        let name = name_shape
             .at(our_location)
             .with_depth_bias(3)
             .enter(scene);
