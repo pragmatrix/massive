@@ -148,6 +148,8 @@ impl DesktopPresenter {
     /// Return the primary's view's (final) transform.
     ///
     /// It's view might not yet visible.
+    ///
+    /// `None` if the instance does not exist.
     pub fn instance_transform(&self, instance: InstanceId) -> Option<Transform> {
         self.instances
             .get(&instance)

@@ -50,7 +50,6 @@ impl PixelCamera {
         surface_size: impl Into<SizePx>,
     ) -> Matrix4 {
         let (width, height) = surface_size.into().into();
-        Projection::new(width as f64 / height as f64, z_range.0, z_range.1)
-            .perspective_matrix(self.fovy)
+        Projection::new(width as f64 / height as f64, z_range).perspective_matrix(self.fovy)
     }
 }
