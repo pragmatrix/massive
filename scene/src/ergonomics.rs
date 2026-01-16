@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use massive_geometry::{Point, Transform};
+use massive_geometry::{PixelCamera, Point, Transform};
 use massive_shapes::Shape;
 
 use crate::{Handle, Location, Visual};
@@ -25,6 +25,12 @@ impl ToTransform for Point {
 impl ToTransform for (f64, f64, f64) {
     fn to_transform(&self) -> Transform {
         Transform::from_translation(*self)
+    }
+}
+
+impl ToTransform for Transform {
+    fn to_transform(&self) -> Transform {
+        *self
     }
 }
 
@@ -97,5 +103,18 @@ where
 {
     fn at(self, location: impl Into<Handle<Location>>) -> Visual {
         self.into_visual().at(location)
+    }
+}
+
+pub trait ToCamera {
+    fn to_camera(&self) -> PixelCamera;
+}
+
+impl<T> ToCamera for T
+where
+    T: ToTransform,
+{
+    fn to_camera(&self) -> PixelCamera {
+        PixelCamera::look_at(self.to_transform(), None, PixelCamera::DEFAULT_FOVY)
     }
 }

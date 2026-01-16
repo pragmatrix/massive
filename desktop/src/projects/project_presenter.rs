@@ -6,10 +6,12 @@ use std::{
 use derive_more::From;
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx};
+use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
-use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
+use massive_scene::{
+    At, Handle, Location, Object, ToCamera, ToLocation, ToTransform, Transform, Visual,
+};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
@@ -80,7 +82,7 @@ impl ProjectPresenter {
         match self.groups.entry(id) {
             Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
             Entry::Vacant(entry) => {
-                // entry.insert(GroupPresenter::new(self.location.clone(), rect, scene));
+                entry.insert(GroupPresenter::new(self.location.clone(), rect, scene));
             }
         }
     }
@@ -119,6 +121,14 @@ impl ProjectPresenter {
         self.launchers
             .values_mut()
             .for_each(|sp| sp.apply_animations());
+    }
+
+    pub fn outer_camera(&self) -> PixelCamera {
+        let root_group = self.project.root.id;
+        if let Some(group) = self.groups.get(&root_group) {
+            return group.camera();
+        }
+        Transform::IDENTITY.to_camera()
     }
 }
 
@@ -178,6 +188,15 @@ impl GroupPresenter {
         let rect = self.rect.value();
         self.background
             .update_with(|v| v.shapes = [background_shape(rect, Color::rgb_u32(0x0000ff))].into());
+    }
+
+    fn camera(&self) -> PixelCamera {
+        let rect = self.rect.final_value();
+
+        rect.center()
+            .to_transform()
+            .to_camera()
+            .with_size(rect.size())
     }
 }
 

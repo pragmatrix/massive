@@ -1,5 +1,15 @@
 use crate::{Matrix4, Projection, Size, SizePx, Transform, Vector3};
 
+/// Camera sizing mode.
+#[derive(Debug, Clone, PartialEq, Copy)]
+pub enum CameraMode {
+    /// 1:1 pixel mapping (pixel-perfect).
+    PixelPerfect,
+    /// Fit target size within surface, with optional blend factor.
+    /// blend: 0.0 = pixel-perfect, 1.0 = fully fitted to target_size
+    Sized { target_size: Size, blend: f64 },
+}
+
 /// A pixel camera.
 ///
 /// Detail: The camera is not expressed as its position, but at the point it is pointing to in model
@@ -12,10 +22,8 @@ use crate::{Matrix4, Projection, Size, SizePx, Transform, Vector3};
 pub struct PixelCamera {
     /// The point the camera points at in model / pixel space.
     pub look_at: Transform,
-    /// The target visible area size in pixels. When `None`, the camera uses 1:1 pixel mapping.
-    /// When `Some`, the camera scales to fit this area within the surface, using letterboxing
-    /// (fit to constraining dimension), and 1:1 pixel mapping is no longer maintained.
-    pub target_size: Option<Size>,
+    /// The camera's sizing mode.
+    pub mode: CameraMode,
     pub fovy: f64,
 }
 
@@ -30,14 +38,29 @@ impl PixelCamera {
 
     /// Create a new camera from a transform, optional target size, and field of view.
     ///
-    /// When `target_size` is `None`, the camera uses 1:1 pixel mapping.
-    /// When `target_size` is `Some`, the camera scales to fit the target size using letterboxing.
+    /// When `target_size` is `None`, the camera uses 1:1 pixel mapping (pixel-perfect).
+    /// When `target_size` is `Some`, the camera fits the target size using letterboxing.
+    /// Intermediate blend values can only be created through interpolation.
     pub fn look_at(look_at: Transform, target_size: Option<Size>, fovy: f64) -> Self {
         Self {
             look_at,
-            target_size,
+            mode: match target_size {
+                None => CameraMode::PixelPerfect,
+                Some(target_size) => CameraMode::Sized {
+                    target_size,
+                    blend: 1.0,
+                },
+            },
             fovy,
         }
+    }
+
+    pub fn with_size(mut self, target_size: Size) -> Self {
+        self.mode = CameraMode::Sized {
+            target_size,
+            blend: 1.0,
+        };
+        self
     }
 
     /// The matrix that moves and scales the model so that the camera target is at 0,0 and
@@ -73,20 +96,21 @@ impl PixelCamera {
         Matrix4::from_scale(Vector3::new(scale, scale, scale))
     }
 
-    /// Compute the scale factor needed to fit the target size within the surface.
-    ///
-    /// Returns 1.0 if no target size is set (1:1 pixel mapping).
-    /// Uses letterboxing: fits to the constraining dimension so the entire target is visible.
+    /// Compute the scale factor, blending between pixel-perfect and target-size modes.
     fn target_scale(&self, surface_size: SizePx) -> f64 {
-        let Some(target_size) = self.target_size else {
-            return 1.0;
-        };
+        match self.mode {
+            CameraMode::PixelPerfect => 1.0,
+            CameraMode::Sized { target_size, blend } => {
+                let (surface_width, surface_height) = surface_size.into();
+                let scale_x = surface_width as f64 / target_size.width;
+                let scale_y = surface_height as f64 / target_size.height;
 
-        let (surface_width, surface_height) = surface_size.into();
-        let scale_x = surface_width as f64 / target_size.width;
-        let scale_y = surface_height as f64 / target_size.height;
+                // Use the smaller scale to ensure the entire target fits (letterboxing)
+                let target_based_scale = scale_x.min(scale_y);
 
-        // Use the smaller scale to ensure the entire target fits (letterboxing)
-        scale_x.min(scale_y)
+                // Blend between pixel-perfect (1.0) and sized (target_based_scale)
+                1.0 + (target_based_scale - 1.0) * blend
+            }
+        }
     }
 }

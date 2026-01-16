@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use massive_geometry::{PixelCamera, Point, Rect, Size, Transform, Vector3};
+use massive_geometry::{CameraMode, PixelCamera, Point, Rect, Size, Transform, Vector3};
 
 /// For now we have to support `Clone`.
 ///
@@ -54,10 +54,52 @@ impl Interpolatable for Transform {
 
 impl Interpolatable for PixelCamera {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
-        let look_at = interpolate(&from.look_at, &to.look_at, t);
-        let target_size = interpolate(&from.target_size, &to.target_size, t);
-        let fovy = interpolate(&from.fovy, &to.fovy, t);
-        PixelCamera::look_at(look_at, target_size, fovy)
+        PixelCamera {
+            look_at: interpolate(&from.look_at, &to.look_at, t),
+            mode: interpolate(&from.mode, &to.mode, t),
+            fovy: interpolate(&from.fovy, &to.fovy, t),
+        }
+    }
+}
+
+impl Interpolatable for CameraMode {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        use CameraMode::*;
+
+        match (from, to) {
+            (PixelPerfect, PixelPerfect) => PixelPerfect,
+            (PixelPerfect, Sized { target_size, .. }) => {
+                let blend = interpolate(&0.0, &1.0, t);
+                Sized {
+                    target_size: *target_size,
+                    blend,
+                }
+            }
+            (Sized { target_size, .. }, PixelPerfect) => {
+                let blend = interpolate(&1.0, &0.0, t);
+                if blend == 0.0 {
+                    PixelPerfect
+                } else {
+                    Sized {
+                        target_size: *target_size,
+                        blend,
+                    }
+                }
+            }
+            (
+                Sized {
+                    target_size: from_size,
+                    blend: from_blend,
+                },
+                Sized {
+                    target_size: to_size,
+                    blend: to_blend,
+                },
+            ) => Sized {
+                target_size: interpolate(from_size, to_size, t),
+                blend: interpolate(from_blend, to_blend, t),
+            },
+        }
     }
 }
 
@@ -66,17 +108,6 @@ impl Interpolatable for Size {
         let width = interpolate(&from.width, &to.width, t);
         let height = interpolate(&from.height, &to.height, t);
         Size::new(width, height)
-    }
-}
-
-impl<T: Interpolatable> Interpolatable for Option<T> {
-    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
-        match (from, to) {
-            (Some(from), Some(to)) => Some(T::interpolate(from, to, t)),
-            // Snap to the target value when transitioning between Some and None
-            (None, None) => None,
-            (Some(_), None) | (None, Some(_)) => to.clone(),
-        }
     }
 }
 

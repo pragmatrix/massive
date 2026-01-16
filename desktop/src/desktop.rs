@@ -180,7 +180,9 @@ impl Desktop {
                 }
             }
 
-            let mut frame = self.scene.begin_frame().with_camera(self.ui.camera());
+            // let camera = self.ui.camera();
+            let camera = self.project_presenter.outer_camera();
+            let mut frame = self.scene.begin_frame().with_camera(camera);
             if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                 frame = frame.with_pacing(RenderPacing::Smooth);
             }
