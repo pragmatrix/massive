@@ -242,8 +242,17 @@ impl LauncherPresenter {
 
         let name = profile
             .name
-            .size(40.0)
-            .layout(font_system)
+            // Idea: To not waste so much memory here for large fonts, may use a quality index that
+            // is automatically applied based on the font, small fonts high quality, large fonts,
+            // lower quality, the quality index starts with 1 and is the effective pixel resolution
+            // divisor: Quality 1: original size, quality 2: 1/4th the memory in use (horizontal
+            // size / 2, vertical size / 2) 
+            // 
+            // Idea: No, this should be fully automatic depending of how large the font is shown I
+            // guess. Make this independent of the font size, but dependent on what is visible (a
+            // background optimizer).
+            .size(32.0 * 8.0)
+            .shape(font_system)
             .map(|r| r.into_shape())
             .at(our_location)
             .with_depth_bias(3)

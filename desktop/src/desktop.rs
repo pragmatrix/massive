@@ -96,7 +96,7 @@ impl Desktop {
             .to_location()
             .enter(&scene);
         let mut project_presenter = ProjectPresenter::new(project, location);
-        project_presenter.layout(creation_info.size() / 4, &scene, &mut fonts.lock());
+        project_presenter.layout(creation_info.size(), &scene, &mut fonts.lock());
 
         // Initial setup
 

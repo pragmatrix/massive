@@ -10,7 +10,7 @@ use massive_geometry::Color;
 use crate::{GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 #[derive(Debug)]
-pub struct TextLayouter<'a> {
+pub struct TextShaper<'a> {
     text: &'a str,
     /// Architecture: Could we use lifetimes here too (e.g. FontFamily string refs).
     default_attributes: TextAttributes<'a>,
@@ -58,7 +58,7 @@ impl<'a> TextAttributes<'a> {
     }
 }
 
-impl<'a> TextLayouter<'a> {
+impl<'a> TextShaper<'a> {
     /// Creates a default text shaper that uses the Sans-Serif family.
     pub fn new(text: &'a str) -> Self {
         Self {
