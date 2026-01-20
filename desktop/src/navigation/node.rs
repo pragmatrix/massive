@@ -51,14 +51,14 @@ pub fn container<'a, Target>(
 }
 
 pub struct NavigationHitTester<'a, Target> {
-    navigation: &'a NavigationObject<'a, Target>,
+    navigation: NavigationObject<'a, Target>,
     render_geometry: &'a RenderGeometry,
     base_transform: Transform,
 }
 
 impl<'a, Target> NavigationHitTester<'a, Target> {
     pub fn new(
-        navigation: &'a NavigationObject<'a, Target>,
+        navigation: NavigationObject<'a, Target>,
         render_geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
@@ -79,7 +79,7 @@ impl<'a, Target: Clone + PartialEq> HitTester<Target> for NavigationHitTester<'a
         let mut hits = Vec::new();
         self.collect_hits(
             screen_pos,
-            self.navigation,
+            &self.navigation,
             self.base_transform,
             &mut hits,
             Vec::new(),
@@ -98,7 +98,7 @@ impl<'a, Target: Clone + PartialEq> HitTester<Target> for NavigationHitTester<'a
     }
 
     fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<Target>) -> Option<Vector3> {
-        self.hit_test_target_recursive(screen_pos, self.navigation, self.base_transform, target, 0)
+        self.hit_test_target_recursive(screen_pos, &self.navigation, self.base_transform, target, 0)
     }
 }
 

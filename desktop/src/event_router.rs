@@ -19,7 +19,7 @@ pub struct EventRouter<T> {
     /// The recently touched target with the cursor / mouse.
     ///
     /// If _any_ button is pressed while moving the cursor, its focus stays on the previous target.
-    cursor_focus: FocusPath<T>,
+    pointer_focus: FocusPath<T>,
 
     /// This decides to which view and instance the keyboard events are delivered. Basically the
     /// keyboard focus.
@@ -41,7 +41,7 @@ pub struct EventRouter<T> {
 impl<T> Default for EventRouter<T> {
     fn default() -> Self {
         Self {
-            cursor_focus: Default::default(),
+            pointer_focus: Default::default(),
             focus_tree: Default::default(),
             // For now, we assume that _we_ are focused by default but nothing below us.
             outer_focus: OuterFocusState::Focused,
@@ -53,15 +53,19 @@ impl<T: PartialEq> EventRouter<T>
 where
     T: Clone,
 {
+    pub fn focused(&self) -> &FocusPath<T> {
+        self.focus_tree.focused()
+    }
+
+    pub fn pointer_focus(&self) -> &FocusPath<T> {
+        &self.pointer_focus
+    }
+
     /// Change focus to the given path.
     pub fn focus(&mut self, path: FocusPath<T>) -> ChangeLog<T> {
         let mut event_transitions = TransitionLog::new(self.focused().clone());
         set_focus(&mut self.focus_tree, path, &mut event_transitions);
         event_transitions.finalize(self.focused().clone())
-    }
-
-    pub fn focused(&self) -> &FocusPath<T> {
-        self.focus_tree.focused()
     }
 
     pub fn handle_event(
@@ -96,19 +100,19 @@ where
                 let hit = if !any_pressed {
                     let (path, hit) = hit_tester.hit_test(screen_pos);
                     // Feature: Need to consider CursorExit / Enter messages here.
-                    self.cursor_focus = path;
+                    self.pointer_focus = path;
                     Some(hit)
                 } else {
                     // Button is pressed, hit directly on the previous target.
 
-                    if let Some(hit) = hit_tester.hit_test_target(screen_pos, &self.cursor_focus) {
+                    if let Some(hit) = hit_tester.hit_test_target(screen_pos, &self.pointer_focus) {
                         Some(hit)
                     } else {
                         // No hit on the previous target? This happens if it does not exist anymore,
                         // or some numeric stability problem. In either case, the current cursor
                         // focus must be reset.
                         // Robustness: Shouldn't a regular hit test be attempted?
-                        self.cursor_focus = FocusPath::EMPTY;
+                        self.pointer_focus = FocusPath::EMPTY;
                         None
                     }
                 };
@@ -116,7 +120,7 @@ where
                 // If there is a current hit position, forward the event.
                 if let Some(hit) = hit {
                     event_transitions.send(
-                        &self.cursor_focus,
+                        &self.pointer_focus,
                         ViewEvent::CursorMoved {
                             device_id: *device_id,
                             position: (hit.x, hit.y),
@@ -130,10 +134,10 @@ where
                 state: ElementState::Pressed,
                 ..
             } => {
-                if *keyboard_focused != self.cursor_focus {
+                if *keyboard_focused != self.pointer_focus {
                     set_focus(
                         &mut self.focus_tree,
-                        self.cursor_focus.clone(),
+                        self.pointer_focus.clone(),
                         &mut event_transitions,
                     );
                     // Detail: We don't want to forward the event if the focused changed in response
@@ -146,7 +150,7 @@ where
                     // without focusing. This way users could select / copy, etc. without moving the
                     // focus?
                 } else {
-                    event_transitions.send(&self.cursor_focus, view_event.clone());
+                    event_transitions.send(&self.pointer_focus, view_event.clone());
                 }
             }
 
@@ -156,7 +160,7 @@ where
             // focus here again with the current screen pos. The scene might have changed in the
             // meantime.
             ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. } => {
-                event_transitions.send(&self.cursor_focus, view_event.clone());
+                event_transitions.send(&self.pointer_focus, view_event.clone());
             }
 
             ViewEvent::CursorEntered { .. } | ViewEvent::CursorLeft { .. } => {}

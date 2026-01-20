@@ -3,12 +3,15 @@ use std::{
     time::Duration,
 };
 
+use anyhow::Result;
 use derive_more::From;
 
 use massive_animation::{Animated, Interpolation};
+use massive_applications::ViewEvent;
 use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
+use massive_input::Event;
 use massive_layout::{Box, LayoutAxis};
-use massive_renderer::text::FontSystem;
+use massive_renderer::{RenderGeometry, text::FontSystem};
 use massive_scene::{
     At, Handle, Location, Object, ToCamera, ToLocation, ToTransform, Transform, Visual,
 };
@@ -16,7 +19,8 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
 use crate::{
-    navigation::{NavigationObject, container, leaf},
+    EventRouter,
+    navigation::{NavigationHitTester, NavigationObject, container, leaf},
     projects::{
         Project,
         configuration::LaunchProfile,
@@ -35,8 +39,8 @@ enum LayoutId {
 /// Architecture: Can't we just use inner as the root, thus preventing the lifetime here.
 type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
 
-#[derive(Debug, From)]
-enum Id {
+#[derive(Debug, Clone, PartialEq, From)]
+pub enum Id {
     Group(GroupId),
     Launcher(LaunchProfileId),
 }

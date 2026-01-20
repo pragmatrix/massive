@@ -1,0 +1,33 @@
+use anyhow::Result;
+
+use derive_more::{Deref, DerefMut};
+use log::{info, warn};
+use massive_applications::ViewEvent;
+use massive_input::Event;
+use massive_renderer::RenderGeometry;
+
+use super::project_presenter::Id;
+use crate::{
+    EventRouter,
+    navigation::{NavigationHitTester, NavigationObject},
+    projects::ProjectPresenter,
+};
+
+#[derive(Debug, Default)]
+pub struct ProjectInteraction {
+    event_router: EventRouter<Id>,
+}
+
+impl ProjectInteraction {
+    pub fn handle_input_event<'a>(
+        &'a mut self,
+        event: &Event<ViewEvent>,
+        navigation: NavigationObject<'a, Id>,
+        geometry: &'a RenderGeometry,
+    ) -> Result<()> {
+        let hit_tester = NavigationHitTester::new(navigation, geometry);
+        let changes = self.event_router.handle_event(event, &hit_tester);
+
+        Ok(())
+    }
+}

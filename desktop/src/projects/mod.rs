@@ -10,10 +10,12 @@ use crate::projects::configuration::{
 mod configuration;
 mod project;
 mod project_presenter;
+mod project_interaction;
 
 pub use configuration::ProjectConfiguration;
 pub use project::Project;
 pub use project_presenter::ProjectPresenter;
+pub use project_interaction::ProjectInteraction;
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,

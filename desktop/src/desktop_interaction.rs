@@ -23,13 +23,13 @@ type FocusPath = focus_tree::FocusPath<FocusTarget>;
 type EventRouter = event_router::EventRouter<FocusTarget>;
 
 #[derive(Debug)]
-pub struct UI {
+pub struct DesktopInteraction {
     event_router: EventRouter,
     camera: Animated<PixelCamera>,
 }
 
 // Architecture: Every function here needs &InstanceManager.
-impl UI {
+impl DesktopInteraction {
     // Detail: We need a primary instance and view to initialize the UI for now.
     //
     // Detail: This function assumes that the window is focused right now.
