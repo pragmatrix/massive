@@ -6,6 +6,7 @@ mod desktop_ui;
 mod event_router;
 mod focus_tree;
 mod instance_manager;
+mod navigation;
 mod projects;
 
 pub use application_registry::Application;

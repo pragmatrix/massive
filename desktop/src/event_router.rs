@@ -293,11 +293,14 @@ pub enum EventTransition<T> {
     Broadcast(ViewEvent),
 }
 
-pub trait HitTester<T> {
-    /// Return the topmost hit at screen_pos.
-    fn hit_test(&self, screen_pos: Point) -> (FocusPath<T>, Vector3);
-    /// Returns the position transformed on target, even if it's outside of it.
-    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<T>) -> Option<Vector3>;
+// Architecture: The two functions can probably be combined into one. But is this a good thing?
+pub trait HitTester<Target> {
+    /// Return the topmost hit at screen_pos in the target's coordinate system.
+    fn hit_test(&self, screen_pos: Point) -> (FocusPath<Target>, Vector3);
+
+    /// Returns the position in the target's coordinate system, even if a regular hit test would
+    /// return another target or the point is outside of the hit area.
+    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<Target>) -> Option<Vector3>;
 }
 
 #[derive(Debug)]

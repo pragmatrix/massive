@@ -1,0 +1,4 @@
+struct Navigator<Id> {
+    
+    
+}

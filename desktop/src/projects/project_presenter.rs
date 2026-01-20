@@ -15,10 +15,13 @@ use massive_scene::{
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
-use crate::projects::{
-    Project,
-    configuration::LaunchProfile,
-    project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
+use crate::{
+    navigation::{NavigationObject, container, leaf},
+    projects::{
+        Project,
+        configuration::LaunchProfile,
+        project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher},
+    },
 };
 
 const ANIMATION_DURATION: Duration = Duration::from_millis(500);
@@ -32,6 +35,12 @@ enum LayoutId {
 /// Architecture: Can't we just use inner as the root, thus preventing the lifetime here.
 type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
 
+#[derive(Debug, From)]
+enum Id {
+    Group(GroupId),
+    Launcher(LaunchProfileId),
+}
+
 #[derive(Debug)]
 pub struct ProjectPresenter {
     /// The project hierarchy is used for layout. It references the presenters through GroupIds and
@@ -41,7 +50,6 @@ pub struct ProjectPresenter {
     location: Handle<Location>,
 
     groups: HashMap<GroupId, GroupPresenter>,
-    // Naming: Find a better name for Slot
     launchers: HashMap<LaunchProfileId, LauncherPresenter>,
 }
 
@@ -71,6 +79,47 @@ impl ProjectPresenter {
                 }
             }
         });
+    }
+
+    // Architecture: layout() has to be called before the navigation structure can return anything.
+    // Perhaps manifest this in a better constructor.
+    pub fn navigation(&self) -> NavigationObject<'_, Id> {
+        container(self.project.root.id, || {
+            let mut r = Vec::new();
+            match &self.project.root.contents {
+                LaunchGroupContents::Groups(launch_groups) => {
+                    for launch_group in launch_groups.iter() {
+                        r.push(self.group_navigation(launch_group));
+                    }
+                }
+                // Robustness: Is this true, if so, can't we create a better Project type that reflects that?
+                _ => panic!("Project root must be groups"),
+            }
+            r
+        })
+    }
+
+    pub fn group_navigation<'a>(
+        &'a self,
+        launch_group: &'a LaunchGroup,
+    ) -> NavigationObject<'a, Id> {
+        container(launch_group.id, || {
+            let mut r = Vec::new();
+            match &launch_group.contents {
+                LaunchGroupContents::Groups(launch_groups) => {
+                    for lg in launch_groups {
+                        r.push(self.group_navigation(lg))
+                    }
+                }
+                LaunchGroupContents::Launchers(launchers) => {
+                    for launcher in launchers {
+                        let presenter = &self.launchers[&launcher.id];
+                        r.push(presenter.navigation(&launcher));
+                    }
+                }
+            }
+            r
+        })
     }
 
     // layout callbacks
@@ -246,8 +295,8 @@ impl LauncherPresenter {
             // is automatically applied based on the font, small fonts high quality, large fonts,
             // lower quality, the quality index starts with 1 and is the effective pixel resolution
             // divisor: Quality 1: original size, quality 2: 1/4th the memory in use (horizontal
-            // size / 2, vertical size / 2) 
-            // 
+            // size / 2, vertical size / 2)
+            //
             // Idea: No, this should be fully automatic depending of how large the font is shown I
             // guess. Make this independent of the font size, but dependent on what is visible (a
             // background optimizer).
@@ -265,6 +314,10 @@ impl LauncherPresenter {
             background,
             name,
         }
+    }
+
+    fn navigation(&self, launcher: &Launcher) -> NavigationObject<'_, Id> {
+        leaf(launcher.id, self.rect.final_value())
     }
 
     fn set_rect(&mut self, rect: Rect) {
