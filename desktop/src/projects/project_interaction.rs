@@ -9,8 +9,8 @@ use massive_renderer::RenderGeometry;
 use super::project_presenter::Id;
 use crate::{
     EventRouter,
+    event_router::EventTransitions,
     navigation::{NavigationHitTester, NavigationObject},
-    projects::ProjectPresenter,
 };
 
 #[derive(Debug, Default)]
@@ -24,10 +24,8 @@ impl ProjectInteraction {
         event: &Event<ViewEvent>,
         navigation: NavigationObject<'a, Id>,
         geometry: &'a RenderGeometry,
-    ) -> Result<()> {
+    ) -> Result<EventTransitions<Id>> {
         let hit_tester = NavigationHitTester::new(navigation, geometry);
-        let changes = self.event_router.handle_event(event, &hit_tester);
-
-        Ok(())
+        self.event_router.handle_event(event, &hit_tester)
     }
 }

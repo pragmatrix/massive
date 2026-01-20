@@ -5,6 +5,7 @@
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
 use anyhow::Result;
+use derive_more::IntoIterator;
 use log::warn;
 use winit::event::ElementState;
 
@@ -62,7 +63,7 @@ where
     }
 
     /// Change focus to the given path.
-    pub fn focus(&mut self, path: FocusPath<T>) -> ChangeLog<T> {
+    pub fn focus(&mut self, path: FocusPath<T>) -> EventTransitions<T> {
         let mut event_transitions = TransitionLog::new(self.focused().clone());
         set_focus(&mut self.focus_tree, path, &mut event_transitions);
         event_transitions.finalize(self.focused().clone())
@@ -72,7 +73,7 @@ where
         &mut self,
         input_event: &Event<ViewEvent>,
         hit_tester: &dyn HitTester<T>,
-    ) -> Result<ChangeLog<T>> {
+    ) -> Result<EventTransitions<T>> {
         let view_event = input_event.event();
 
         let mut event_transitions = TransitionLog::new(self.focused().clone());
@@ -246,8 +247,9 @@ fn forward_focus_transitions<T>(
 }
 
 #[must_use]
-#[derive(Debug)]
-pub struct ChangeLog<T> {
+#[derive(Debug, IntoIterator)]
+pub struct EventTransitions<T> {
+    #[into_iterator]
     pub transitions: Vec<EventTransition<T>>,
     pub focus_changed: Option<FocusPath<T>>,
 }
@@ -278,13 +280,13 @@ impl<T> TransitionLog<T> {
         self.transitions.push(EventTransition::Broadcast(event));
     }
 
-    pub fn finalize(self, focus: FocusPath<T>) -> ChangeLog<T>
+    pub fn finalize(self, focus: FocusPath<T>) -> EventTransitions<T>
     where
         T: PartialEq,
     {
         let focus_changed = (self.before_focus != focus).then_some(focus);
 
-        ChangeLog {
+        EventTransitions {
             transitions: self.transitions,
             focus_changed,
         }

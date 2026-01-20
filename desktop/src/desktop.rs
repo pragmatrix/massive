@@ -147,7 +147,10 @@ impl Desktop {
                                 && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-                                let cmd = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry());
+                                let transitions = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry())?;
+                                for transition in transitions {
+                                    self.project_presenter.handle_event_transition(transition)?;
+                                }
 
                                 // let cmd = self.ui.handle_input_event(
                                 //     &input_event,

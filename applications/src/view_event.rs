@@ -36,6 +36,7 @@ pub enum ViewEvent {
         /// to implement non-cursor-like interactions such as 3D camera control.
         position: (f64, f64),
     },
+    // Naming: Should probably be renamed to PointerEntered / PointerLeft?
     CursorEntered {
         device_id: event::DeviceId,
     },

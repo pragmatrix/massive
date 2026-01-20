@@ -9,9 +9,8 @@ use derive_more::From;
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewEvent;
 use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_input::Event;
 use massive_layout::{Box, LayoutAxis};
-use massive_renderer::{RenderGeometry, text::FontSystem};
+use massive_renderer::text::FontSystem;
 use massive_scene::{
     At, Handle, Location, Object, ToCamera, ToLocation, ToTransform, Transform, Visual,
 };
@@ -19,8 +18,8 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
 use crate::{
-    EventRouter,
-    navigation::{NavigationHitTester, NavigationObject, container, leaf},
+    EventTransition,
+    navigation::{NavigationObject, container, leaf},
     projects::{
         Project,
         configuration::LaunchProfile,
@@ -85,6 +84,36 @@ impl ProjectPresenter {
         });
     }
 
+    pub fn handle_event_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
+        match event_transition {
+            EventTransition::Send(focus_path, view_event) => {
+                if let Some(id) = focus_path.last() {
+                    match id {
+                        Id::Group(group_id) => self
+                            .groups
+                            .get_mut(group_id)
+                            .expect("Internal Error: Missing group")
+                            .handle_event(view_event)?,
+                        Id::Launcher(launch_profile_id) => self
+                            .launchers
+                            .get_mut(launch_profile_id)
+                            .expect("Internal Error: Missing launcher")
+                            .handle_event(view_event)?,
+                    }
+                }
+            }
+            EventTransition::Broadcast(view_event) => {
+                for group in self.groups.values_mut() {
+                    group.handle_event(view_event.clone())?;
+                }
+                for launcher in self.launchers.values_mut() {
+                    launcher.handle_event(view_event.clone())?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     // Architecture: layout() has to be called before the navigation structure can return anything.
     // Perhaps manifest this in a better constructor.
     pub fn navigation(&self) -> NavigationObject<'_, Id> {
@@ -118,7 +147,7 @@ impl ProjectPresenter {
                 LaunchGroupContents::Launchers(launchers) => {
                     for launcher in launchers {
                         let presenter = &self.launchers[&launcher.id];
-                        r.push(presenter.navigation(&launcher));
+                        r.push(presenter.navigation(launcher));
                     }
                 }
             }
@@ -231,6 +260,10 @@ impl GroupPresenter {
         }
     }
 
+    fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
+        Ok(())
+    }
+
     fn set_rect(&mut self, rect: Rect) {
         self.rect
             .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
@@ -322,6 +355,10 @@ impl LauncherPresenter {
 
     fn navigation(&self, launcher: &Launcher) -> NavigationObject<'_, Id> {
         leaf(launcher.id, self.rect.final_value())
+    }
+
+    fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
+        Ok(())
     }
 
     fn set_rect(&mut self, rect: Rect) {
