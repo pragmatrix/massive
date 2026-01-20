@@ -2,7 +2,7 @@ use massive_geometry::{Contains, Point, Rect, Vector3};
 use massive_scene::Transform;
 
 use crate::event_router::HitTester;
-use crate::focus_tree::FocusPath;
+use crate::focus_path::FocusPath;
 use massive_renderer::RenderGeometry;
 
 pub enum NavigationObject<'a, Target> {

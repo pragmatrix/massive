@@ -13,7 +13,7 @@ use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::Event;
 
-use crate::focus_tree::{FocusPath, FocusTransition, FocusTransitions, FocusTree};
+use crate::focus_path::{FocusPath, FocusPathTransition, FocusPathTransitions};
 
 #[derive(Debug)]
 pub struct EventRouter<T> {
@@ -24,7 +24,7 @@ pub struct EventRouter<T> {
 
     /// This decides to which view and instance the keyboard events are delivered. Basically the
     /// keyboard focus.
-    focus_tree: FocusTree<T>,
+    keyboard_focus: FocusPath<T>,
 
     /// The current state of the outer focus state (perhaps the Window).
     ///
@@ -43,7 +43,7 @@ impl<T> Default for EventRouter<T> {
     fn default() -> Self {
         Self {
             pointer_focus: Default::default(),
-            focus_tree: Default::default(),
+            keyboard_focus: Default::default(),
             // For now, we assume that _we_ are focused by default but nothing below us.
             outer_focus: OuterFocusState::Focused,
         }
@@ -55,7 +55,7 @@ where
     T: Clone,
 {
     pub fn focused(&self) -> &FocusPath<T> {
-        self.focus_tree.focused()
+        &self.keyboard_focus
     }
 
     pub fn pointer_focus(&self) -> &FocusPath<T> {
@@ -65,7 +65,7 @@ where
     /// Change focus to the given path.
     pub fn focus(&mut self, path: FocusPath<T>) -> EventTransitions<T> {
         let mut event_transitions = TransitionLog::new(self.focused().clone());
-        set_focus(&mut self.focus_tree, path, &mut event_transitions);
+        set_focus(&mut self.keyboard_focus, path, &mut event_transitions);
         event_transitions.finalize(self.focused().clone())
     }
 
@@ -78,7 +78,7 @@ where
 
         let mut event_transitions = TransitionLog::new(self.focused().clone());
 
-        let keyboard_focused = self.focus_tree.focused();
+        let keyboard_focused = &self.keyboard_focus;
 
         match view_event {
             ViewEvent::Focused(focused) => {
@@ -137,7 +137,7 @@ where
             } => {
                 if *keyboard_focused != self.pointer_focus {
                     set_focus(
-                        &mut self.focus_tree,
+                        &mut self.keyboard_focus,
                         self.pointer_focus.clone(),
                         &mut event_transitions,
                     );
@@ -192,11 +192,11 @@ where
                 // Restore focus if nothing is focused.
                 //
                 // Detail: Focus does not change while the Window is unfocused, see set_foreground.
-                if *self.focus_tree.focused() == FocusPath::EMPTY {
+                if self.keyboard_focus == FocusPath::EMPTY {
                     // Robustness: We may need to check if instances / views are valid here at
                     // the latest, or event better while the Unfocused state is active.
                     set_focus(
-                        &mut self.focus_tree,
+                        &mut self.keyboard_focus,
                         focused_previously.clone(),
                         transitions,
                     );
@@ -206,9 +206,9 @@ where
             (OuterFocusState::Focused, false) => {
                 // Save and unfocus.
                 self.outer_focus = OuterFocusState::Unfocused {
-                    focused_previously: self.focus_tree.focused().clone(),
+                    focused_previously: self.keyboard_focus.clone(),
                 };
-                set_focus(&mut self.focus_tree, FocusPath::EMPTY, transitions);
+                set_focus(&mut self.keyboard_focus, FocusPath::EMPTY, transitions);
             }
             _ => {
                 warn!("Redundant Window focus change")
@@ -218,27 +218,26 @@ where
 }
 
 fn set_focus<T>(
-    focus_tree: &mut FocusTree<T>,
-    path: impl Into<FocusPath<T>>,
+    focus_path: &mut FocusPath<T>,
+    new_path: impl Into<FocusPath<T>>,
     event_transitions: &mut TransitionLog<T>,
 ) where
     T: PartialEq + Clone,
 {
-    let path = path.into();
-    let focus_transitions = focus_tree.focus(path);
+    let focus_transitions = focus_path.transition(new_path.into());
     forward_focus_transitions(focus_transitions, event_transitions);
 }
 
 fn forward_focus_transitions<T>(
-    focus_transitions: FocusTransitions<T>,
+    focus_transitions: FocusPathTransitions<T>,
     event_transitions: &mut TransitionLog<T>,
 ) where
     T: Clone,
 {
     for transition in focus_transitions {
         let (path, focus) = match transition {
-            FocusTransition::Exit(path) => (path, false),
-            FocusTransition::Enter(path) => (path, true),
+            FocusPathTransition::Exit(path) => (path, false),
+            FocusPathTransition::Enter(path) => (path, true),
         };
 
         // Performance: Recycle path here.

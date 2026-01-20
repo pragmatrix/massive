@@ -14,12 +14,12 @@ use massive_shell::Scene;
 use crate::{
     EventTransition, HitTester,
     desktop_presenter::DesktopPresenter,
-    event_router, focus_tree,
+    event_router, focus_path,
     instance_manager::{InstanceManager, ViewPath},
 };
 
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
-type FocusPath = focus_tree::FocusPath<FocusTarget>;
+type FocusPath = focus_path::FocusPath<FocusTarget>;
 type EventRouter = event_router::EventRouter<FocusTarget>;
 
 #[derive(Debug)]
@@ -263,7 +263,7 @@ pub enum UiCommand {
     },
 }
 
-impl focus_tree::FocusPath<FocusTarget> {
+impl focus_path::FocusPath<FocusTarget> {
     // Returns the instance that is currently focused.
     pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| t.instance())

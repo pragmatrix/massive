@@ -4,7 +4,7 @@ mod desktop_environment;
 mod desktop_presenter;
 mod desktop_interaction;
 mod event_router;
-mod focus_tree;
+mod focus_path;
 mod instance_manager;
 mod navigation;
 mod projects;
