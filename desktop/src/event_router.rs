@@ -7,7 +7,7 @@
 use anyhow::Result;
 use derive_more::IntoIterator;
 use log::warn;
-use winit::event::ElementState;
+use winit::event::{DeviceId, ElementState};
 
 use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
@@ -100,8 +100,12 @@ where
                 // Robustness: There might be a change of the device here.
                 let hit = if !any_pressed {
                     let (path, hit) = hit_tester.hit_test(screen_pos);
-                    // Feature: Need to consider CursorExit / Enter messages here.
-                    self.pointer_focus = path;
+                    set_pointer_focus(
+                        &mut self.pointer_focus,
+                        path,
+                        *device_id,
+                        &mut event_transitions,
+                    );
                     Some(hit)
                 } else {
                     // Button is pressed, hit directly on the previous target.
@@ -113,7 +117,12 @@ where
                         // or some numeric stability problem. In either case, the current cursor
                         // focus must be reset.
                         // Robustness: Shouldn't a regular hit test be attempted?
-                        self.pointer_focus = FocusPath::EMPTY;
+                        set_pointer_focus(
+                            &mut self.pointer_focus,
+                            FocusPath::EMPTY,
+                            *device_id,
+                            &mut event_transitions,
+                        );
                         None
                     }
                 };
@@ -225,15 +234,6 @@ fn set_focus<T>(
     T: PartialEq + Clone,
 {
     let focus_transitions = focus_path.transition(new_path.into());
-    forward_focus_transitions(focus_transitions, event_transitions);
-}
-
-fn forward_focus_transitions<T>(
-    focus_transitions: FocusPathTransitions<T>,
-    event_transitions: &mut TransitionLog<T>,
-) where
-    T: Clone,
-{
     for transition in focus_transitions {
         let (path, focus) = match transition {
             FocusPathTransition::Exit(path) => (path, false),
@@ -242,6 +242,27 @@ fn forward_focus_transitions<T>(
 
         // Performance: Recycle path here.
         event_transitions.send(&path, ViewEvent::Focused(focus));
+    }
+}
+
+fn set_pointer_focus<T>(
+    focus_path: &mut FocusPath<T>,
+    new_path: impl Into<FocusPath<T>>,
+    device_id: DeviceId,
+    event_transitions: &mut TransitionLog<T>,
+) where
+    T: PartialEq + Clone,
+{
+    let focus_transitions = focus_path.transition(new_path.into());
+
+    for transition in focus_transitions {
+        let (path, event) = match transition {
+            FocusPathTransition::Exit(path) => (path, ViewEvent::CursorLeft { device_id }),
+            FocusPathTransition::Enter(path) => (path, ViewEvent::CursorEntered { device_id }),
+        };
+
+        // Performance: Recycle path here.
+        event_transitions.send(&path, event);
     }
 }
 

@@ -157,7 +157,6 @@ impl Desktop {
                                 //     &self.instance_manager,
                                 //     self.renderer.geometry(),
                                 // )?;
-
                                 // self.handle_ui_command(cmd)?;
                             }
 

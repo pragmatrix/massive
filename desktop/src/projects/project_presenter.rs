@@ -6,6 +6,7 @@ use std::{
 use anyhow::Result;
 use derive_more::From;
 
+use log::warn;
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewEvent;
 use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
@@ -288,6 +289,7 @@ impl GroupPresenter {
 
 #[derive(Debug)]
 struct LauncherPresenter {
+    profile: LaunchProfile,
     transform: Handle<Transform>,
     location: Handle<Location>,
     rect: Animated<Rect>,
@@ -345,6 +347,7 @@ impl LauncherPresenter {
             .enter(scene);
 
         Self {
+            profile,
             transform: our_transform,
             location: parent_location,
             rect: scene.animated(rect),
@@ -358,6 +361,16 @@ impl LauncherPresenter {
     }
 
     fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
+        match view_event {
+            ViewEvent::CursorEntered { .. } => {
+                warn!("CursorEntered: {}", self.profile.name);
+            }
+            ViewEvent::CursorLeft { .. } => {
+                warn!("CursorLeft   : {}", self.profile.name);
+            }
+            _ => {}
+        }
+
         Ok(())
     }
 
