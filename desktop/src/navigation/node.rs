@@ -1,5 +1,9 @@
-use massive_geometry::Rect;
+use massive_geometry::{Contains, Point, Rect, Vector3};
 use massive_scene::Transform;
+
+use crate::event_router::HitTester;
+use crate::focus_tree::FocusPath;
+use massive_renderer::RenderGeometry;
 
 pub enum NavigationObject<'a, Target> {
     Leaf {
@@ -43,5 +47,175 @@ pub fn container<'a, Target>(
         transform: Transform::IDENTITY,
         rect: None,
         nested: Box::new(f),
+    }
+}
+
+pub struct NavigationHitTester<'a, Target> {
+    navigation: &'a NavigationObject<'a, Target>,
+    render_geometry: &'a RenderGeometry,
+    base_transform: Transform,
+}
+
+impl<'a, Target> NavigationHitTester<'a, Target> {
+    pub fn new(
+        navigation: &'a NavigationObject<'a, Target>,
+        render_geometry: &'a RenderGeometry,
+    ) -> Self {
+        Self {
+            navigation,
+            render_geometry,
+            base_transform: Transform::IDENTITY,
+        }
+    }
+
+    pub fn with_base_transform(mut self, base_transform: Transform) -> Self {
+        self.base_transform = base_transform;
+        self
+    }
+}
+
+impl<'a, Target: Clone + PartialEq> HitTester<Target> for NavigationHitTester<'a, Target> {
+    fn hit_test(&self, screen_pos: Point) -> (FocusPath<Target>, Vector3) {
+        let mut hits = Vec::new();
+        self.collect_hits(
+            screen_pos,
+            self.navigation,
+            self.base_transform,
+            &mut hits,
+            Vec::new(),
+        );
+
+        // Sort by z descending to get topmost hit
+        hits.sort_by(|a, b| {
+            b.1.z
+                .partial_cmp(&a.1.z)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        hits.first()
+            .map(|(path, pos)| (path.clone(), *pos))
+            .unwrap_or_else(|| (FocusPath::EMPTY, screen_pos.with_z(0.0)))
+    }
+
+    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<Target>) -> Option<Vector3> {
+        self.hit_test_target_recursive(screen_pos, self.navigation, self.base_transform, target, 0)
+    }
+}
+
+impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
+    fn collect_hits(
+        &self,
+        screen_pos: Point,
+        node: &NavigationObject<'a, Target>,
+        accumulated_transform: Transform,
+        hits: &mut Vec<(FocusPath<Target>, Vector3)>,
+        mut current_path: Vec<Target>,
+    ) {
+        match node {
+            NavigationObject::Leaf {
+                target,
+                transform,
+                rect,
+            } => {
+                let combined = accumulated_transform * *transform;
+                if let Some(local_pos) = self.unproject(screen_pos, combined) {
+                    let point = Point::new(local_pos.x, local_pos.y);
+                    if rect.contains(point) {
+                        current_path.push(target.clone());
+                        hits.push((current_path.into(), local_pos));
+                    }
+                }
+            }
+            NavigationObject::Container {
+                id,
+                transform,
+                rect,
+                nested,
+            } => {
+                let combined = accumulated_transform * *transform;
+
+                // Check bounds if specified, otherwise just recurse
+                if let Some(bounds) = rect {
+                    if let Some(local_pos) = self.unproject(screen_pos, combined) {
+                        let point = Point::new(local_pos.x, local_pos.y);
+                        if !bounds.contains(point) {
+                            return;
+                        }
+                    } else {
+                        return;
+                    }
+                }
+
+                // Add container to path and recurse into children
+                current_path.push(id.clone());
+                for child in nested() {
+                    self.collect_hits(screen_pos, &child, combined, hits, current_path.clone());
+                }
+            }
+        }
+    }
+
+    fn hit_test_target_recursive(
+        &self,
+        screen_pos: Point,
+        node: &NavigationObject<'a, Target>,
+        accumulated_transform: Transform,
+        target_path: &FocusPath<Target>,
+        depth: usize,
+    ) -> Option<Vector3> {
+        if depth >= target_path.len() {
+            return None;
+        }
+
+        let target = &target_path[depth];
+        let is_final = depth == target_path.len() - 1;
+
+        match node {
+            NavigationObject::Leaf {
+                target: leaf_target,
+                transform,
+                ..
+            } => {
+                if leaf_target == target && is_final {
+                    let combined = accumulated_transform * *transform;
+                    self.unproject(screen_pos, combined)
+                } else {
+                    None
+                }
+            }
+            NavigationObject::Container {
+                id,
+                transform,
+                nested,
+                ..
+            } => {
+                if id != target {
+                    return None;
+                }
+
+                let combined = accumulated_transform * *transform;
+
+                if is_final {
+                    self.unproject(screen_pos, combined)
+                } else {
+                    // Continue searching in children
+                    nested().into_iter().find_map(|child| {
+                        self.hit_test_target_recursive(
+                            screen_pos,
+                            &child,
+                            combined,
+                            target_path,
+                            depth + 1,
+                        )
+                    })
+                }
+            }
+        }
+    }
+
+    fn unproject(&self, screen_pos: Point, transform: Transform) -> Option<Vector3> {
+        let matrix = transform.to_matrix4();
+        self.render_geometry
+            .unproject_to_model_z0(screen_pos, &matrix)
     }
 }
