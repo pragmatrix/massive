@@ -4,6 +4,7 @@ use massive_scene::Transform;
 
 use crate::{event_router::HitTester, focus_path::FocusPath};
 
+#[derive(derive_more::Debug)]
 pub enum NavigationNode<'a, Target> {
     Leaf {
         target: Target,
@@ -19,6 +20,7 @@ pub enum NavigationNode<'a, Target> {
         //
         // Robustness: If `None`, this node is not considered a navigation point.
         rect: Option<Rect>,
+        #[debug(skip)]
         nested: Box<dyn Fn() -> Vec<NavigationNode<'a, Target>> + 'a>,
     },
 }

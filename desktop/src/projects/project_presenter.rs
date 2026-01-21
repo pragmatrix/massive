@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, hash_map},
+    sync::Arc,
     time::{Duration, Instant},
 };
 
@@ -14,9 +15,9 @@ use massive_input::{EventManager, ExternalEvent};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
 use massive_scene::{
-    At, Handle, Location, Object, ToCamera, ToLocation, ToTransform, Transform, Visual,
+    At, Handle, IntoVisual, Location, Object, ToCamera, ToLocation, ToTransform, Transform, Visual,
 };
-use massive_shapes::{self as shapes, IntoShape, Shape, Size};
+use massive_shapes::{self as shapes, IntoShape, Shape, Size, StrokeRect};
 use massive_shell::Scene;
 use winit::event::MouseButton;
 
@@ -57,16 +58,30 @@ pub struct ProjectPresenter {
 
     groups: HashMap<GroupId, GroupPresenter>,
     launchers: HashMap<LaunchProfileId, LauncherPresenter>,
+
+    // Idea: Use a type that combines Alpha with another Interpolatable type.
+    // Robustness: Alpha should be a type.
+    hover_alpha: Animated<f32>,
+    hover_rect: Animated<Rect>,
+    // Idea: can't we just animate a visual / Handle<Visual>?
+    // Performance: This is a visual that _always_ lives inside the renderer, even though it does not contain a single shape when alpha = 0.0
+    hover_visual: Handle<Visual>,
 }
 
 impl ProjectPresenter {
-    pub fn new(project: Project, location: Handle<Location>) -> Self {
+    pub fn new(project: Project, location: Handle<Location>, scene: &Scene) -> Self {
         Self {
-            location,
+            location: location.clone(),
             project,
             // Groups and slots are created when layouted.
             groups: Default::default(),
             launchers: Default::default(),
+            hover_alpha: scene.animated(0.0),
+            hover_rect: scene.animated(Rect::ZERO),
+            hover_visual: create_hover_shapes(None)
+                .into_visual()
+                .at(location)
+                .enter(scene),
         }
     }
 
@@ -89,20 +104,10 @@ impl ProjectPresenter {
 
     pub fn handle_event_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
         match event_transition {
-            EventTransition::Send(focus_path, view_event) => {
+            EventTransition::Directed(focus_path, view_event) => {
+                warn!("DIRECTED: {focus_path:?}: {view_event:?}");
                 if let Some(id) = focus_path.last() {
-                    match id {
-                        Id::Group(group_id) => self
-                            .groups
-                            .get_mut(group_id)
-                            .expect("Internal Error: Missing group")
-                            .handle_event(view_event)?,
-                        Id::Launcher(launch_profile_id) => self
-                            .launchers
-                            .get_mut(launch_profile_id)
-                            .expect("Internal Error: Missing launcher")
-                            .handle_event(view_event)?,
-                    }
+                    self.handle_directed_event(id.clone(), view_event)?;
                 }
             }
             EventTransition::Broadcast(view_event) => {
@@ -115,6 +120,72 @@ impl ProjectPresenter {
             }
         }
         Ok(())
+    }
+
+    const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+
+    fn handle_directed_event(&mut self, id: Id, view_event: ViewEvent) -> Result<()> {
+        match id {
+            Id::Group(group_id) => {
+                self.groups
+                    .get_mut(&group_id)
+                    .expect("Internal Error: Missing group")
+                    .handle_event(view_event)?;
+            }
+            Id::Launcher(launch_profile_id) => {
+                match view_event {
+                    ViewEvent::CursorEntered { .. } => {
+                        // We do have to do this when the navigation structure already retrieves rects?
+                        let rect = self.rect_of(id);
+
+                        let was_visible = self.hover_alpha.final_value() == 1.0;
+
+                        warn!("ENTERED: {launch_profile_id:?}");
+
+                        self.hover_alpha.animate_if_changed(
+                            1.0,
+                            Self::HOVER_ANIMATION_DURATION,
+                            Interpolation::CubicOut,
+                        );
+
+                        if was_visible {
+                            self.hover_rect.animate_if_changed(
+                                rect,
+                                Self::HOVER_ANIMATION_DURATION,
+                                Interpolation::CubicOut,
+                            );
+                        } else {
+                            self.hover_rect.set_immediately(rect);
+                        }
+                    }
+                    ViewEvent::CursorLeft { .. } => {
+                        warn!("EXITED: {launch_profile_id:?}");
+
+                        self.hover_alpha.animate(
+                            0.0,
+                            Self::HOVER_ANIMATION_DURATION,
+                            Interpolation::CubicOut,
+                        );
+                    }
+                    _ => {}
+                }
+
+                self.launchers
+                    .get_mut(&launch_profile_id)
+                    .expect("Internal Error: Missing launcher")
+                    .handle_event(view_event)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn rect_of(&self, id: Id) -> Rect {
+        match id {
+            Id::Group(group_id) => self.groups[&group_id].rect.final_value(),
+            Id::Launcher(launch_profile_id) => {
+                self.launchers[&launch_profile_id].rect.final_value()
+            }
+        }
     }
 
     // Architecture: layout() has to be called before the navigation structure can return anything.
@@ -201,6 +272,22 @@ impl ProjectPresenter {
     }
 
     pub fn apply_animations(&mut self) {
+        {
+            let alpha = self.hover_alpha.value();
+            let rect_alpha = (alpha != 0.0).then(|| (self.hover_rect.value(), alpha));
+
+            warn!("alpha: {alpha}");
+
+            // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
+            //
+            // Performance: Can't be update just the shapes here with apply...
+            let visual = create_hover_shapes(rect_alpha)
+                .into_visual()
+                .at(&self.location)
+                .with_depth_bias(5);
+            self.hover_visual.update_if_changed(visual);
+        }
+
         self.groups
             .values_mut()
             .for_each(|gp| gp.apply_animations());
@@ -216,6 +303,20 @@ impl ProjectPresenter {
         }
         Transform::IDENTITY.to_camera()
     }
+}
+
+fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
+    rect_alpha
+        .map(|(r, a)| {
+            StrokeRect {
+                rect: r,
+                stroke: (10., 10.).into(),
+                color: Color::rgb_u32(0xffff00).with_alpha(a),
+            }
+            .into()
+        })
+        .into_iter()
+        .collect()
 }
 
 fn box_to_rect(([x, y], [w, h]): Box<2>) -> RectPx {

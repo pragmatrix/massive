@@ -293,7 +293,7 @@ impl<T> TransitionLog<T> {
         T: Clone,
     {
         self.transitions
-            .push(EventTransition::Send(path.clone(), event));
+            .push(EventTransition::Directed(path.clone(), event));
     }
 
     fn broadcast(&mut self, event: ViewEvent) {
@@ -315,7 +315,7 @@ impl<T> TransitionLog<T> {
 
 #[derive(Debug)]
 pub enum EventTransition<T> {
-    Send(FocusPath<T>, ViewEvent),
+    Directed(FocusPath<T>, ViewEvent),
     Broadcast(ViewEvent),
 }
 

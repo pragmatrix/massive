@@ -149,7 +149,7 @@ fn apply_changes(
 ) -> Result<()> {
     for transition in changes {
         match transition {
-            EventTransition::Send(focus_path, view_event) => {
+            EventTransition::Directed(focus_path, view_event) => {
                 if let Some(path) = focus_path.view_path() {
                     instance_manager.send_view_event(path, view_event)?;
                 }
