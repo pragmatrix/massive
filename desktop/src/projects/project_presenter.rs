@@ -22,7 +22,7 @@ use winit::event::MouseButton;
 
 use crate::{
     EventTransition,
-    navigation::{NavigationObject, container, leaf},
+    navigation::{NavigationNode, container, leaf},
     projects::{
         Project,
         configuration::LaunchProfile,
@@ -119,7 +119,8 @@ impl ProjectPresenter {
 
     // Architecture: layout() has to be called before the navigation structure can return anything.
     // Perhaps manifest this in a better constructor.
-    pub fn navigation(&self) -> NavigationObject<'_, Id> {
+    pub fn navigation(&self) -> NavigationNode<'_, Id> {
+        let rect = self.groups[&self.project.root.id].rect.final_value();
         container(self.project.root.id, || {
             let mut r = Vec::new();
             match &self.project.root.contents {
@@ -133,12 +134,11 @@ impl ProjectPresenter {
             }
             r
         })
+        .with_rect(rect)
     }
 
-    pub fn group_navigation<'a>(
-        &'a self,
-        launch_group: &'a LaunchGroup,
-    ) -> NavigationObject<'a, Id> {
+    pub fn group_navigation<'a>(&'a self, launch_group: &'a LaunchGroup) -> NavigationNode<'a, Id> {
+        let rect = self.groups[&launch_group.id].rect.final_value();
         container(launch_group.id, || {
             let mut r = Vec::new();
             match &launch_group.contents {
@@ -156,6 +156,7 @@ impl ProjectPresenter {
             }
             r
         })
+        .with_rect(rect)
     }
 
     // layout callbacks
@@ -364,7 +365,7 @@ impl LauncherPresenter {
         }
     }
 
-    fn navigation(&self, launcher: &Launcher) -> NavigationObject<'_, Id> {
+    fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, Id> {
         leaf(launcher.id, self.rect.final_value())
     }
 

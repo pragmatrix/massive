@@ -1,11 +1,10 @@
 use massive_geometry::{Contains, Point, Rect, Vector3};
+use massive_renderer::RenderGeometry;
 use massive_scene::Transform;
 
-use crate::event_router::HitTester;
-use crate::focus_path::FocusPath;
-use massive_renderer::RenderGeometry;
+use crate::{event_router::HitTester, focus_path::FocusPath};
 
-pub enum NavigationObject<'a, Target> {
+pub enum NavigationNode<'a, Target> {
     Leaf {
         target: Target,
         transform: Transform,
@@ -15,23 +14,35 @@ pub enum NavigationObject<'a, Target> {
         id: Target,
         transform: Transform,
         /// This is used for deciding if nested objects are queried on hit testing. None: Query them all.
+        ///
+        // Architecture: This should be a sphere or AABB or something similar.
+        //
+        // Robustness: If `None`, this node is not considered a navigation point.
         rect: Option<Rect>,
-        nested: Box<dyn Fn() -> Vec<NavigationObject<'a, Target>> + 'a>,
+        nested: Box<dyn Fn() -> Vec<NavigationNode<'a, Target>> + 'a>,
     },
 }
 
-impl<Target> NavigationObject<'_, Target> {
+impl<Target> NavigationNode<'_, Target> {
     pub fn with_transform(mut self, tf: Transform) -> Self {
         match &mut self {
-            NavigationObject::Leaf { transform, .. } => *transform = tf,
-            NavigationObject::Container { transform, .. } => *transform = tf,
+            NavigationNode::Leaf { transform, .. } => *transform = tf,
+            NavigationNode::Container { transform, .. } => *transform = tf,
         }
+        self
+    }
+
+    pub fn with_rect(mut self, r: Rect) -> Self {
+        match &mut self {
+            NavigationNode::Leaf { rect, .. } => *rect = r,
+            NavigationNode::Container { rect, .. } => *rect = Some(r),
+        };
         self
     }
 }
 
-pub fn leaf<'a, Target>(id: impl Into<Target>, rect: Rect) -> NavigationObject<'a, Target> {
-    NavigationObject::Leaf {
+pub fn leaf<'a, Target>(id: impl Into<Target>, rect: Rect) -> NavigationNode<'a, Target> {
+    NavigationNode::Leaf {
         target: id.into(),
         transform: Transform::IDENTITY,
         rect,
@@ -40,9 +51,9 @@ pub fn leaf<'a, Target>(id: impl Into<Target>, rect: Rect) -> NavigationObject<'
 
 pub fn container<'a, Target>(
     id: impl Into<Target>,
-    f: impl Fn() -> Vec<NavigationObject<'a, Target>> + 'a,
-) -> NavigationObject<'a, Target> {
-    NavigationObject::Container {
+    f: impl Fn() -> Vec<NavigationNode<'a, Target>> + 'a,
+) -> NavigationNode<'a, Target> {
+    NavigationNode::Container {
         id: id.into(),
         transform: Transform::IDENTITY,
         rect: None,
@@ -51,14 +62,14 @@ pub fn container<'a, Target>(
 }
 
 pub struct NavigationHitTester<'a, Target> {
-    navigation: NavigationObject<'a, Target>,
+    navigation: NavigationNode<'a, Target>,
     render_geometry: &'a RenderGeometry,
     base_transform: Transform,
 }
 
 impl<'a, Target> NavigationHitTester<'a, Target> {
     pub fn new(
-        navigation: NavigationObject<'a, Target>,
+        navigation: NavigationNode<'a, Target>,
         render_geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
@@ -106,13 +117,13 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
     fn collect_hits(
         &self,
         screen_pos: Point,
-        node: &NavigationObject<'a, Target>,
+        node: &NavigationNode<'a, Target>,
         accumulated_transform: Transform,
         hits: &mut Vec<(FocusPath<Target>, Vector3)>,
         mut current_path: Vec<Target>,
     ) {
         match node {
-            NavigationObject::Leaf {
+            NavigationNode::Leaf {
                 target,
                 transform,
                 rect,
@@ -126,7 +137,7 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                     }
                 }
             }
-            NavigationObject::Container {
+            NavigationNode::Container {
                 id,
                 transform,
                 rect,
@@ -158,7 +169,7 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
     fn hit_test_target_recursive(
         &self,
         screen_pos: Point,
-        node: &NavigationObject<'a, Target>,
+        node: &NavigationNode<'a, Target>,
         accumulated_transform: Transform,
         target_path: &FocusPath<Target>,
         depth: usize,
@@ -171,7 +182,7 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
         let is_final = depth == target_path.len() - 1;
 
         match node {
-            NavigationObject::Leaf {
+            NavigationNode::Leaf {
                 target: leaf_target,
                 transform,
                 ..
@@ -183,7 +194,7 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                     None
                 }
             }
-            NavigationObject::Container {
+            NavigationNode::Container {
                 id,
                 transform,
                 nested,

@@ -10,7 +10,7 @@ use super::project_presenter::Id;
 use crate::{
     EventRouter,
     event_router::EventTransitions,
-    navigation::{NavigationHitTester, NavigationObject},
+    navigation::{NavigationHitTester, NavigationNode},
 };
 
 #[derive(Debug, Default)]
@@ -22,7 +22,7 @@ impl ProjectInteraction {
     pub fn handle_input_event<'a>(
         &'a mut self,
         event: &Event<ViewEvent>,
-        navigation: NavigationObject<'a, Id>,
+        navigation: NavigationNode<'a, Id>,
         geometry: &'a RenderGeometry,
     ) -> Result<EventTransitions<Id>> {
         let hit_tester = NavigationHitTester::new(navigation, geometry);
