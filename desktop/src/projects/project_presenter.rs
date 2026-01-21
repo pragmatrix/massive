@@ -1,6 +1,6 @@
 use std::{
     collections::{HashMap, hash_map},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use anyhow::Result;
@@ -8,8 +8,9 @@ use derive_more::From;
 
 use log::warn;
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewEvent;
+use massive_applications::{ViewEvent, ViewId};
 use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
+use massive_input::{EventManager, ExternalEvent};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
 use massive_scene::{
@@ -17,6 +18,7 @@ use massive_scene::{
 };
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
+use winit::event::MouseButton;
 
 use crate::{
     EventTransition,
@@ -300,6 +302,11 @@ struct LauncherPresenter {
     // name_rect: Animated<Box>,
     // The text, either centered, or on top of the border.
     name: Handle<Visual>,
+
+    /// Architecture: We don't want a history per presenter. What we want is a global one, but one
+    /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
+    /// account.
+    events: EventManager<ViewEvent>,
 }
 
 impl LauncherPresenter {
@@ -353,6 +360,7 @@ impl LauncherPresenter {
             rect: scene.animated(rect),
             background,
             name,
+            events: EventManager::default(),
         }
     }
 
@@ -361,7 +369,22 @@ impl LauncherPresenter {
     }
 
     fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
-        match view_event {
+        // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
+        // arbitrary hierarchies? May be the EventManager directly defines the scope id?
+        // Ergonomics: Create a fluent constructor for events with Scope?
+        let Some(event) = self.events.add_event(ExternalEvent::new(
+            uuid::Uuid::nil().into(),
+            view_event,
+            Instant::now(),
+        )) else {
+            return Ok(());
+        };
+
+        if let Some(point) = event.detect_click(MouseButton::Left) {
+            warn!("CLICKED on {point:?}");
+        }
+
+        match event.event() {
             ViewEvent::CursorEntered { .. } => {
                 warn!("CursorEntered: {}", self.profile.name);
             }
