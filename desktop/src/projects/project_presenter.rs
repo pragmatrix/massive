@@ -105,7 +105,6 @@ impl ProjectPresenter {
     pub fn handle_event_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
         match event_transition {
             EventTransition::Directed(focus_path, view_event) => {
-                warn!("DIRECTED: {focus_path:?}: {view_event:?}");
                 if let Some(id) = focus_path.last() {
                     self.handle_directed_event(id.clone(), view_event)?;
                 }
@@ -140,8 +139,6 @@ impl ProjectPresenter {
 
                         let was_visible = self.hover_alpha.final_value() == 1.0;
 
-                        warn!("ENTERED: {launch_profile_id:?}");
-
                         self.hover_alpha.animate_if_changed(
                             1.0,
                             Self::HOVER_ANIMATION_DURATION,
@@ -159,8 +156,6 @@ impl ProjectPresenter {
                         }
                     }
                     ViewEvent::CursorLeft { .. } => {
-                        warn!("EXITED: {launch_profile_id:?}");
-
                         self.hover_alpha.animate(
                             0.0,
                             Self::HOVER_ANIMATION_DURATION,
