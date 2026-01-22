@@ -1,37 +1,33 @@
 use std::{
     collections::{HashMap, hash_map},
     sync::Arc,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::Result;
 use derive_more::From;
-
 use log::warn;
+
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{ViewEvent, ViewId};
+use massive_applications::ViewEvent;
 use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_input::{EventManager, ExternalEvent};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
 use massive_scene::{
-    At, Handle, IntoVisual, Location, Object, ToCamera, ToLocation, ToTransform, Transform, Visual,
+    Handle, IntoVisual, Location, Object, ToCamera, ToTransform, Transform, Visual,
 };
-use massive_shapes::{self as shapes, IntoShape, Shape, Size, StrokeRect};
+use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
-use winit::event::MouseButton;
 
+use super::{
+    LauncherPresenter, Project,
+    project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
+};
 use crate::{
     EventTransition,
-    navigation::{NavigationNode, container, leaf},
-    projects::{
-        Project,
-        configuration::LaunchProfile,
-        project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher},
-    },
+    navigation::{NavigationNode, container},
+    projects::{Id, STRUCTURAL_ANIMATION_DURATION},
 };
-
-const ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, From)]
 enum LayoutId {
@@ -41,12 +37,6 @@ enum LayoutId {
 
 /// Architecture: Can't we just use inner as the root, thus preventing the lifetime here.
 type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
-
-#[derive(Debug, Clone, PartialEq, From)]
-pub enum Id {
-    Group(GroupId),
-    Launcher(LaunchProfileId),
-}
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -162,6 +152,11 @@ impl ProjectPresenter {
                             Interpolation::CubicOut,
                         );
                     }
+                    ViewEvent::Focused(focused) => {
+                        if focused {
+                            warn!("FOCUSED {launch_profile_id:?}");
+                        }
+                    }
                     _ => {}
                 }
 
@@ -271,8 +266,6 @@ impl ProjectPresenter {
             let alpha = self.hover_alpha.value();
             let rect_alpha = (alpha != 0.0).then(|| (self.hover_rect.value(), alpha));
 
-            warn!("alpha: {alpha}");
-
             // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
             //
             // Performance: Can't be update just the shapes here with apply...
@@ -342,8 +335,8 @@ struct GroupPresenter {
     // Ergonomics: Use just Location.
     location: Handle<Location>,
     rect: Animated<Rect>,
-
-    background: Handle<Visual>,
+    // No background for now, we focus on the launchers.
+    // background: Handle<Visual>,
 }
 
 impl GroupPresenter {
@@ -351,12 +344,12 @@ impl GroupPresenter {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
         //
         // Ergonomics: I need more named color constants for faster prototyping.
-        let background_shape = background_shape(rect, Color::rgb_u32(0x0000ff));
+        // let background_shape = background_shape(rect, Color::rgb_u32(0x0000ff));
 
         Self {
             location: location.clone(),
             rect: scene.animated(rect),
-            background: [background_shape].at(&location).enter(scene),
+            // background: [background_shape].at(&location).enter(scene),
         }
     }
 
@@ -366,14 +359,14 @@ impl GroupPresenter {
 
     fn set_rect(&mut self, rect: Rect) {
         self.rect
-            .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
+            .animate_if_changed(rect, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
     }
 
     fn apply_animations(&mut self) {
         // Ergonomics: Support value_mut() (wrap the mutex guard).
-        let rect = self.rect.value();
-        self.background
-            .update_with(|v| v.shapes = [background_shape(rect, Color::rgb_u32(0x0000ff))].into());
+        // let rect = self.rect.value();
+        // self.background
+        //     .update_with(|v| v.shapes = [background_shape(rect, Color::rgb_u32(0x0000ff))].into());
     }
 
     fn camera(&self) -> PixelCamera {
@@ -384,132 +377,4 @@ impl GroupPresenter {
             .to_camera()
             .with_size(rect.size())
     }
-}
-
-#[derive(Debug)]
-struct LauncherPresenter {
-    profile: LaunchProfile,
-    transform: Handle<Transform>,
-    location: Handle<Location>,
-    rect: Animated<Rect>,
-
-    background: Handle<Visual>,
-    // border: Handle<Visual>,
-
-    // name_rect: Animated<Box>,
-    // The text, either centered, or on top of the border.
-    name: Handle<Visual>,
-
-    /// Architecture: We don't want a history per presenter. What we want is a global one, but one
-    /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
-    /// account.
-    events: EventManager<ViewEvent>,
-}
-
-impl LauncherPresenter {
-    // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
-    // introduce something new that exports more ergonomic UI components.
-
-    pub fn new(
-        parent_location: Handle<Location>,
-        profile: LaunchProfile,
-        rect: Rect,
-        scene: &Scene,
-        font_system: &mut FontSystem,
-    ) -> Self {
-        // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
-        let background_shape = background_shape(rect.size().to_rect(), Color::WHITE);
-
-        let our_transform = rect.origin().to_transform().enter(scene);
-
-        let our_location = our_transform
-            .to_location()
-            .relative_to(&parent_location)
-            .enter(scene);
-
-        let background = background_shape
-            .at(&our_location)
-            .with_depth_bias(1)
-            .enter(scene);
-
-        let name = profile
-            .name
-            // Idea: To not waste so much memory here for large fonts, may use a quality index that
-            // is automatically applied based on the font, small fonts high quality, large fonts,
-            // lower quality, the quality index starts with 1 and is the effective pixel resolution
-            // divisor: Quality 1: original size, quality 2: 1/4th the memory in use (horizontal
-            // size / 2, vertical size / 2)
-            //
-            // Idea: No, this should be fully automatic depending of how large the font is shown I
-            // guess. Make this independent of the font size, but dependent on what is visible (a
-            // background optimizer).
-            .size(32.0 * 8.0)
-            .shape(font_system)
-            .map(|r| r.into_shape())
-            .at(our_location)
-            .with_depth_bias(3)
-            .enter(scene);
-
-        Self {
-            profile,
-            transform: our_transform,
-            location: parent_location,
-            rect: scene.animated(rect),
-            background,
-            name,
-            events: EventManager::default(),
-        }
-    }
-
-    fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, Id> {
-        leaf(launcher.id, self.rect.final_value())
-    }
-
-    fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
-        // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
-        // arbitrary hierarchies? May be the EventManager directly defines the scope id?
-        // Ergonomics: Create a fluent constructor for events with Scope?
-        let Some(event) = self.events.add_event(ExternalEvent::new(
-            uuid::Uuid::nil().into(),
-            view_event,
-            Instant::now(),
-        )) else {
-            return Ok(());
-        };
-
-        if let Some(point) = event.detect_click(MouseButton::Left) {
-            warn!("CLICKED on {point:?}");
-        }
-
-        match event.event() {
-            ViewEvent::CursorEntered { .. } => {
-                warn!("CursorEntered: {}", self.profile.name);
-            }
-            ViewEvent::CursorLeft { .. } => {
-                warn!("CursorLeft   : {}", self.profile.name);
-            }
-            _ => {}
-        }
-
-        Ok(())
-    }
-
-    fn set_rect(&mut self, rect: Rect) {
-        self.rect
-            .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
-    }
-
-    fn apply_animations(&mut self) {
-        let (origin, size) = self.rect.value().origin_and_size();
-
-        self.transform.update_if_changed(origin.with_z(0.0).into());
-
-        self.background.update_with(|visual| {
-            visual.shapes = [background_shape(size.to_rect(), Color::WHITE)].into()
-        });
-    }
-}
-
-fn background_shape(rect: Rect, color: Color) -> Shape {
-    shapes::Rect::new(rect, color).into()
 }

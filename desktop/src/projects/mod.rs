@@ -1,21 +1,35 @@
-use std::{fs, path::Path};
+use std::{fs, path::Path, time::Duration};
 
 use anyhow::{Context, Result};
+use derive_more::From;
 use log::warn;
 
-use crate::projects::configuration::{
-    GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, Parameters, ScopedTag,
+use crate::projects::{
+    configuration::{
+        GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, Parameters, ScopedTag,
+    },
+    project::{GroupId, LaunchProfileId},
 };
 
 mod configuration;
+mod launcher_presenter;
 mod project;
-mod project_presenter;
 mod project_interaction;
+mod project_presenter;
 
 pub use configuration::ProjectConfiguration;
+pub use launcher_presenter::LauncherPresenter;
 pub use project::Project;
-pub use project_presenter::ProjectPresenter;
 pub use project_interaction::ProjectInteraction;
+pub use project_presenter::ProjectPresenter;
+
+pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+
+#[derive(Debug, Clone, PartialEq, From)]
+pub enum Id {
+    Group(GroupId),
+    Launcher(LaunchProfileId),
+}
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,

@@ -1,12 +1,10 @@
 use anyhow::Result;
 
-use derive_more::{Deref, DerefMut};
-use log::{info, warn};
 use massive_applications::ViewEvent;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
-use super::project_presenter::Id;
+use super::Id;
 use crate::{
     EventRouter,
     event_router::EventTransitions,
