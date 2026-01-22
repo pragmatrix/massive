@@ -1,11 +1,12 @@
 mod application_registry;
 pub(crate) mod desktop;
 mod desktop_environment;
-mod desktop_presenter;
 mod desktop_interaction;
+mod desktop_presenter;
 mod event_router;
 mod focus_path;
 mod instance_manager;
+mod instance_presenter;
 mod navigation;
 mod projects;
 

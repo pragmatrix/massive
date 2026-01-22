@@ -78,7 +78,7 @@ impl DesktopInteraction {
         if let Some(camera) = camera {
             self.camera.animate_if_changed(
                 camera,
-                DesktopPresenter::INSTANCE_TRANSITION_DURATION,
+                DesktopPresenter::STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         }

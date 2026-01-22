@@ -2,12 +2,13 @@ use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Result, bail};
 
-use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{RectPx, SizePx, Vector3};
+use massive_geometry::{RectPx, SizePx};
 use massive_layout::{LayoutInfo, LayoutNode, layout};
 use massive_scene::Transform;
 use massive_shell::Scene;
+
+use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
 
 #[derive(Debug, Default)]
 /// Manages the presentation of the desktop's user interface.
@@ -19,7 +20,7 @@ pub struct DesktopPresenter {
 }
 
 impl DesktopPresenter {
-    pub const INSTANCE_TRANSITION_DURATION: Duration = Duration::from_millis(500);
+    pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
     /// Present the primary instance and its primary role view.
     ///
     /// For now this can not be done by separately presenting an instance and a view because we
@@ -157,58 +158,11 @@ impl DesktopPresenter {
     }
 }
 
-#[derive(Debug)]
-struct InstancePresenter {
-    state: InstancePresenterState,
-    // The size of the panel. Including borders.
-    panel_size: SizePx,
-    /// The center of the instance's panel. This is also the point the camera should look at at
-    /// rest.
-    center_animation: Animated<Vector3>,
-    // The primary view inside the panel.
-    view: Option<PrimaryViewPresenter>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum InstancePresenterState {
-    /// No view yet, or just appearing, animating in.
-    Appearing,
-    Presenting,
-    Disappearing,
-}
-
-#[derive(Debug)]
-struct PrimaryViewPresenter {
-    view: ViewCreationInfo,
-}
-
-impl InstancePresenter {
-    pub fn apply_animations(&self) {
-        let Some(view) = &self.view else {
-            return;
-        };
-
-        // Get the translation for the instance.
-        let mut translation = self.center_animation.value();
-
-        // And correct the view's position.
-        // Since the centering uses i32, we snap to pixel here (what we want!).
-        let center = view.view.extents.center().to_f64();
-        translation -= Vector3::new(center.x, center.y, 0.0);
-
-        view.view
-            .location
-            .value()
-            .transform
-            .update_if_changed(translation.into());
-    }
-}
-
 // layout
 
 #[derive(Debug)]
-struct LayoutContext {
-    animate: bool,
+pub struct LayoutContext {
+    pub animate: bool,
 }
 
 impl LayoutNode<LayoutContext> for DesktopPresenter {
@@ -226,28 +180,5 @@ impl LayoutNode<LayoutContext> for DesktopPresenter {
         self.instances
             .get_mut(&instance)
             .expect("Internal error: Order table does not match the instance map")
-    }
-}
-
-impl LayoutNode<LayoutContext> for InstancePresenter {
-    type Rect = RectPx;
-
-    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
-        self.panel_size.into()
-    }
-
-    fn set_rect(&mut self, rect: Self::Rect, context: &mut LayoutContext) {
-        let translation = (rect.origin.x as f64, rect.origin.y as f64, 0.0).into();
-
-        if context.animate {
-            self.center_animation.animate_if_changed(
-                translation,
-                DesktopPresenter::INSTANCE_TRANSITION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.center_animation.set_immediately(translation);
-            self.apply_animations();
-        }
     }
 }
