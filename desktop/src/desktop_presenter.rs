@@ -1,14 +1,23 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Result, bail};
+use derive_more::From;
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{RectPx, SizePx};
-use massive_layout::{LayoutInfo, LayoutNode, layout};
+use massive_geometry::{PointPx, RectPx};
+use massive_layout::{Box, LayoutAxis};
 use massive_scene::Transform;
 use massive_shell::Scene;
 
 use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
+
+#[derive(Debug, Clone, Copy, From)]
+enum LayoutId {
+    Root,
+    Instance(InstanceId),
+}
+
+type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
 
 #[derive(Debug, Default)]
 /// Manages the presentation of the desktop's user interface.
@@ -139,7 +148,25 @@ impl DesktopPresenter {
 
     /// Compute the current layout and animate the views to their positions.
     pub fn layout(&mut self, animate: bool) {
-        layout(self, &mut LayoutContext { animate });
+        let mut layout = Layouter::root(LayoutId::Root, LayoutAxis::HORIZONTAL);
+
+        for instance_id in &self.ordered {
+            let presenter = &self.instances[instance_id];
+            layout.leaf((*instance_id).into(), presenter.panel_size);
+        }
+
+        layout.place_inline(PointPx::origin(), |(id, rect)| {
+            if let LayoutId::Instance(instance_id) = id {
+                self.set_instance_rect(instance_id, box_to_rect(rect), animate);
+            }
+        });
+    }
+
+    fn set_instance_rect(&mut self, instance_id: InstanceId, rect: RectPx, animate: bool) {
+        self.instances
+            .get_mut(&instance_id)
+            .expect("Internal error: Instance not found")
+            .set_rect(rect, animate);
     }
 
     pub fn apply_animations(&self) {
@@ -158,27 +185,6 @@ impl DesktopPresenter {
     }
 }
 
-// layout
-
-#[derive(Debug)]
-pub struct LayoutContext {
-    pub animate: bool,
-}
-
-impl LayoutNode<LayoutContext> for DesktopPresenter {
-    type Rect = RectPx;
-
-    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
-        LayoutInfo::container(self.ordered.len())
-    }
-
-    fn get_child_mut(
-        &mut self,
-        index: usize,
-    ) -> &mut dyn LayoutNode<LayoutContext, Rect = Self::Rect> {
-        let instance = self.ordered[index];
-        self.instances
-            .get_mut(&instance)
-            .expect("Internal error: Order table does not match the instance map")
-    }
+fn box_to_rect(([x, y], [w, h]): Box<2>) -> RectPx {
+    RectPx::new((x, y).into(), (w as i32, h as i32).into())
 }

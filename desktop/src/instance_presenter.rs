@@ -1,9 +1,8 @@
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewCreationInfo;
 use massive_geometry::{RectPx, SizePx, Vector3};
-use massive_layout::{LayoutInfo, LayoutNode};
 
-pub use crate::desktop_presenter::{DesktopPresenter, LayoutContext};
+pub use crate::desktop_presenter::DesktopPresenter;
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -50,17 +49,11 @@ impl InstancePresenter {
     }
 }
 
-impl LayoutNode<LayoutContext> for InstancePresenter {
-    type Rect = RectPx;
-
-    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
-        self.panel_size.into()
-    }
-
-    fn set_rect(&mut self, rect: Self::Rect, context: &mut LayoutContext) {
+impl InstancePresenter {
+    pub fn set_rect(&mut self, rect: RectPx, animate: bool) {
         let translation = (rect.origin.x as f64, rect.origin.y as f64, 0.0).into();
 
-        if context.animate {
+        if animate {
             self.center_animation.animate_if_changed(
                 translation,
                 DesktopPresenter::STRUCTURAL_ANIMATION_DURATION,
