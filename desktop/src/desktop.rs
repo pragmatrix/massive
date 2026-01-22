@@ -24,7 +24,7 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Desktop {
-    ui: DesktopInteraction,
+    interaction: DesktopInteraction,
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
@@ -113,7 +113,7 @@ impl Desktop {
         )?;
 
         Ok(Self {
-            ui,
+            interaction: ui,
             scene,
             renderer,
             window,
@@ -147,17 +147,18 @@ impl Desktop {
                                 && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-                                let transitions = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry())?;
-                                for transition in transitions {
-                                    self.project_presenter.handle_event_transition(transition)?;
-                                }
 
-                                // let cmd = self.ui.handle_input_event(
-                                //     &input_event,
-                                //     &self.instance_manager,
-                                //     self.renderer.geometry(),
-                                // )?;
-                                // self.handle_ui_command(cmd)?;
+                                // let transitions = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry())?;
+                                // for transition in transitions {
+                                //     self.project_presenter.handle_event_transition(transition)?;
+                                // }
+
+                                let cmd = self.interaction.handle_input_event(
+                                    &input_event,
+                                    &self.instance_manager,
+                                    self.renderer.geometry(),
+                                )?;
+                                self.handle_ui_command(cmd)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -187,8 +188,8 @@ impl Desktop {
                 }
             }
 
-            // let camera = self.ui.camera();
-            let camera = self.project_presenter.outer_camera();
+            let camera = self.interaction.camera();
+            // let camera = self.project_presenter.outer_camera();
             let mut frame = self.scene.begin_frame().with_camera(camera);
             if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                 frame = frame.with_pacing(RenderPacing::Smooth);
@@ -215,13 +216,19 @@ impl Desktop {
                     .spawn(application, CreationMode::New)?;
                 self.presenter
                     .present_instance(instance, originating_instance, &self.scene)?;
-                self.ui
-                    .make_foreground(instance, &self.instance_manager, &self.presenter)?;
+                self.interaction.make_foreground(
+                    instance,
+                    &self.instance_manager,
+                    &self.presenter,
+                )?;
                 self.presenter.layout(true);
             }
             DesktopCommand::MakeForeground { instance } => {
-                self.ui
-                    .make_foreground(instance, &self.instance_manager, &self.presenter)?;
+                self.interaction.make_foreground(
+                    instance,
+                    &self.instance_manager,
+                    &self.presenter,
+                )?;
             }
             DesktopCommand::StopInstance { instance } => self.instance_manager.stop(instance)?,
         }
@@ -240,9 +247,14 @@ impl Desktop {
                 self.presenter.present_view(instance, &info)?;
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if self.ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
-                    self.ui
-                        .make_foreground(instance, &self.instance_manager, &self.presenter)?;
+                if self.interaction.focused_instance() == Some(instance)
+                    && info.role == ViewRole::Primary
+                {
+                    self.interaction.make_foreground(
+                        instance,
+                        &self.instance_manager,
+                        &self.presenter,
+                    )?;
                 }
             }
             InstanceCommand::DestroyView(id) => {
