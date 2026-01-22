@@ -91,7 +91,7 @@ impl DesktopInteraction {
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<UiCommand> {
+    ) -> Result<DesktopCommand> {
         // Catch Command+t and Command+w
 
         if let ViewEvent::KeyboardInput {
@@ -105,13 +105,13 @@ impl DesktopInteraction {
             match &key_event.logical_key {
                 Key::Character(c) if c.as_str() == "t" => {
                     let application = instance_manager.get_application_name(instance)?;
-                    return Ok(UiCommand::StartInstance {
+                    return Ok(DesktopCommand::StartInstance {
                         application: application.to_string(),
                         originating_instance: instance,
                     });
                 }
                 Key::Character(c) if c.as_str() == "w" => {
-                    return Ok(UiCommand::StopInstance { instance });
+                    return Ok(DesktopCommand::StopInstance { instance });
                 }
                 _ => {}
             }
@@ -128,9 +128,9 @@ impl DesktopInteraction {
         let command = if let Some(new_focus) = transitions.focus_changed
             && let Some(instance) = new_focus.instance()
         {
-            UiCommand::MakeForeground { instance }
+            DesktopCommand::MakeForeground { instance }
         } else {
-            UiCommand::None
+            DesktopCommand::None
         };
 
         Ok(command)
@@ -249,7 +249,7 @@ fn hit_test_on_view(
 }
 
 #[must_use]
-pub enum UiCommand {
+pub enum DesktopCommand {
     None,
     StartInstance {
         application: String,
