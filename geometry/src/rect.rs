@@ -14,6 +14,13 @@ pub struct Rect {
 }
 
 impl Rect {
+    pub const ZERO: Self = Self {
+        left: 0.0,
+        top: 0.0,
+        right: 0.0,
+        bottom: 0.0,
+    };
+
     #[must_use]
     pub fn new(origin: impl Into<Point>, size: impl Into<Size>) -> Self {
         (origin.into(), size.into()).into()

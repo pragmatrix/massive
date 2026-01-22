@@ -14,22 +14,22 @@ use massive_shell::Scene;
 use crate::{
     EventTransition, HitTester,
     desktop_presenter::DesktopPresenter,
-    event_router, focus_tree,
+    event_router, focus_path,
     instance_manager::{InstanceManager, ViewPath},
 };
 
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
-type FocusPath = focus_tree::FocusPath<FocusTarget>;
+type FocusPath = focus_path::FocusPath<FocusTarget>;
 type EventRouter = event_router::EventRouter<FocusTarget>;
 
 #[derive(Debug)]
-pub struct UI {
+pub struct DesktopInteraction {
     event_router: EventRouter,
     camera: Animated<PixelCamera>,
 }
 
 // Architecture: Every function here needs &InstanceManager.
-impl UI {
+impl DesktopInteraction {
     // Detail: We need a primary instance and view to initialize the UI for now.
     //
     // Detail: This function assumes that the window is focused right now.
@@ -91,7 +91,7 @@ impl UI {
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<UiCommand> {
+    ) -> Result<DesktopCommand> {
         // Catch Command+t and Command+w
 
         if let ViewEvent::KeyboardInput {
@@ -105,13 +105,13 @@ impl UI {
             match &key_event.logical_key {
                 Key::Character(c) if c.as_str() == "t" => {
                     let application = instance_manager.get_application_name(instance)?;
-                    return Ok(UiCommand::StartInstance {
+                    return Ok(DesktopCommand::StartInstance {
                         application: application.to_string(),
                         originating_instance: instance,
                     });
                 }
                 Key::Character(c) if c.as_str() == "w" => {
-                    return Ok(UiCommand::StopInstance { instance });
+                    return Ok(DesktopCommand::StopInstance { instance });
                 }
                 _ => {}
             }
@@ -128,9 +128,9 @@ impl UI {
         let command = if let Some(new_focus) = transitions.focus_changed
             && let Some(instance) = new_focus.instance()
         {
-            UiCommand::MakeForeground { instance }
+            DesktopCommand::MakeForeground { instance }
         } else {
-            UiCommand::None
+            DesktopCommand::None
         };
 
         Ok(command)
@@ -149,7 +149,7 @@ fn apply_changes(
 ) -> Result<()> {
     for transition in changes {
         match transition {
-            EventTransition::Send(focus_path, view_event) => {
+            EventTransition::Directed(focus_path, view_event) => {
                 if let Some(path) = focus_path.view_path() {
                     instance_manager.send_view_event(path, view_event)?;
                 }
@@ -249,7 +249,7 @@ fn hit_test_on_view(
 }
 
 #[must_use]
-pub enum UiCommand {
+pub enum DesktopCommand {
     None,
     StartInstance {
         application: String,
@@ -263,7 +263,7 @@ pub enum UiCommand {
     },
 }
 
-impl focus_tree::FocusPath<FocusTarget> {
+impl focus_path::FocusPath<FocusTarget> {
     // Returns the instance that is currently focused.
     pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| t.instance())

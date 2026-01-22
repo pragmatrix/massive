@@ -5,25 +5,26 @@
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
 use anyhow::Result;
+use derive_more::IntoIterator;
 use log::warn;
-use winit::event::ElementState;
+use winit::event::{DeviceId, ElementState};
 
 use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::Event;
 
-use crate::focus_tree::{FocusPath, FocusTransition, FocusTransitions, FocusTree};
+use crate::focus_path::{FocusPath, FocusPathTransition, FocusPathTransitions};
 
 #[derive(Debug)]
 pub struct EventRouter<T> {
     /// The recently touched target with the cursor / mouse.
     ///
     /// If _any_ button is pressed while moving the cursor, its focus stays on the previous target.
-    cursor_focus: FocusPath<T>,
+    pointer_focus: FocusPath<T>,
 
     /// This decides to which view and instance the keyboard events are delivered. Basically the
     /// keyboard focus.
-    focus_tree: FocusTree<T>,
+    keyboard_focus: FocusPath<T>,
 
     /// The current state of the outer focus state (perhaps the Window).
     ///
@@ -41,8 +42,8 @@ pub struct EventRouter<T> {
 impl<T> Default for EventRouter<T> {
     fn default() -> Self {
         Self {
-            cursor_focus: Default::default(),
-            focus_tree: Default::default(),
+            pointer_focus: Default::default(),
+            keyboard_focus: Default::default(),
             // For now, we assume that _we_ are focused by default but nothing below us.
             outer_focus: OuterFocusState::Focused,
         }
@@ -53,27 +54,31 @@ impl<T: PartialEq> EventRouter<T>
 where
     T: Clone,
 {
-    /// Change focus to the given path.
-    pub fn focus(&mut self, path: FocusPath<T>) -> ChangeLog<T> {
-        let mut event_transitions = TransitionLog::new(self.focused().clone());
-        set_focus(&mut self.focus_tree, path, &mut event_transitions);
-        event_transitions.finalize(self.focused().clone())
+    pub fn focused(&self) -> &FocusPath<T> {
+        &self.keyboard_focus
     }
 
-    pub fn focused(&self) -> &FocusPath<T> {
-        self.focus_tree.focused()
+    pub fn pointer_focus(&self) -> &FocusPath<T> {
+        &self.pointer_focus
+    }
+
+    /// Change focus to the given path.
+    pub fn focus(&mut self, path: FocusPath<T>) -> EventTransitions<T> {
+        let mut event_transitions = TransitionLog::new(self.focused().clone());
+        set_focus(&mut self.keyboard_focus, path, &mut event_transitions);
+        event_transitions.finalize(self.focused().clone())
     }
 
     pub fn handle_event(
         &mut self,
         input_event: &Event<ViewEvent>,
         hit_tester: &dyn HitTester<T>,
-    ) -> Result<ChangeLog<T>> {
+    ) -> Result<EventTransitions<T>> {
         let view_event = input_event.event();
 
         let mut event_transitions = TransitionLog::new(self.focused().clone());
 
-        let keyboard_focused = self.focus_tree.focused();
+        let keyboard_focused = &self.keyboard_focus;
 
         match view_event {
             ViewEvent::Focused(focused) => {
@@ -95,20 +100,29 @@ where
                 // Robustness: There might be a change of the device here.
                 let hit = if !any_pressed {
                     let (path, hit) = hit_tester.hit_test(screen_pos);
-                    // Feature: Need to consider CursorExit / Enter messages here.
-                    self.cursor_focus = path;
+                    set_pointer_focus(
+                        &mut self.pointer_focus,
+                        path,
+                        *device_id,
+                        &mut event_transitions,
+                    );
                     Some(hit)
                 } else {
                     // Button is pressed, hit directly on the previous target.
 
-                    if let Some(hit) = hit_tester.hit_test_target(screen_pos, &self.cursor_focus) {
+                    if let Some(hit) = hit_tester.hit_test_target(screen_pos, &self.pointer_focus) {
                         Some(hit)
                     } else {
                         // No hit on the previous target? This happens if it does not exist anymore,
                         // or some numeric stability problem. In either case, the current cursor
                         // focus must be reset.
                         // Robustness: Shouldn't a regular hit test be attempted?
-                        self.cursor_focus = FocusPath::EMPTY;
+                        set_pointer_focus(
+                            &mut self.pointer_focus,
+                            FocusPath::EMPTY,
+                            *device_id,
+                            &mut event_transitions,
+                        );
                         None
                     }
                 };
@@ -116,7 +130,7 @@ where
                 // If there is a current hit position, forward the event.
                 if let Some(hit) = hit {
                     event_transitions.send(
-                        &self.cursor_focus,
+                        &self.pointer_focus,
                         ViewEvent::CursorMoved {
                             device_id: *device_id,
                             position: (hit.x, hit.y),
@@ -130,10 +144,10 @@ where
                 state: ElementState::Pressed,
                 ..
             } => {
-                if *keyboard_focused != self.cursor_focus {
+                if *keyboard_focused != self.pointer_focus {
                     set_focus(
-                        &mut self.focus_tree,
-                        self.cursor_focus.clone(),
+                        &mut self.keyboard_focus,
+                        self.pointer_focus.clone(),
                         &mut event_transitions,
                     );
                     // Detail: We don't want to forward the event if the focused changed in response
@@ -146,7 +160,7 @@ where
                     // without focusing. This way users could select / copy, etc. without moving the
                     // focus?
                 } else {
-                    event_transitions.send(&self.cursor_focus, view_event.clone());
+                    event_transitions.send(&self.pointer_focus, view_event.clone());
                 }
             }
 
@@ -156,7 +170,7 @@ where
             // focus here again with the current screen pos. The scene might have changed in the
             // meantime.
             ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. } => {
-                event_transitions.send(&self.cursor_focus, view_event.clone());
+                event_transitions.send(&self.pointer_focus, view_event.clone());
             }
 
             ViewEvent::CursorEntered { .. } | ViewEvent::CursorLeft { .. } => {}
@@ -187,11 +201,11 @@ where
                 // Restore focus if nothing is focused.
                 //
                 // Detail: Focus does not change while the Window is unfocused, see set_foreground.
-                if *self.focus_tree.focused() == FocusPath::EMPTY {
+                if self.keyboard_focus == FocusPath::EMPTY {
                     // Robustness: We may need to check if instances / views are valid here at
                     // the latest, or event better while the Unfocused state is active.
                     set_focus(
-                        &mut self.focus_tree,
+                        &mut self.keyboard_focus,
                         focused_previously.clone(),
                         transitions,
                     );
@@ -201,9 +215,9 @@ where
             (OuterFocusState::Focused, false) => {
                 // Save and unfocus.
                 self.outer_focus = OuterFocusState::Unfocused {
-                    focused_previously: self.focus_tree.focused().clone(),
+                    focused_previously: self.keyboard_focus.clone(),
                 };
-                set_focus(&mut self.focus_tree, FocusPath::EMPTY, transitions);
+                set_focus(&mut self.keyboard_focus, FocusPath::EMPTY, transitions);
             }
             _ => {
                 warn!("Redundant Window focus change")
@@ -213,27 +227,17 @@ where
 }
 
 fn set_focus<T>(
-    focus_tree: &mut FocusTree<T>,
-    path: impl Into<FocusPath<T>>,
+    focus_path: &mut FocusPath<T>,
+    new_path: impl Into<FocusPath<T>>,
     event_transitions: &mut TransitionLog<T>,
 ) where
     T: PartialEq + Clone,
 {
-    let path = path.into();
-    let focus_transitions = focus_tree.focus(path);
-    forward_focus_transitions(focus_transitions, event_transitions);
-}
-
-fn forward_focus_transitions<T>(
-    focus_transitions: FocusTransitions<T>,
-    event_transitions: &mut TransitionLog<T>,
-) where
-    T: Clone,
-{
+    let focus_transitions = focus_path.transition(new_path.into());
     for transition in focus_transitions {
         let (path, focus) = match transition {
-            FocusTransition::Exit(path) => (path, false),
-            FocusTransition::Enter(path) => (path, true),
+            FocusPathTransition::Exit(path) => (path, false),
+            FocusPathTransition::Enter(path) => (path, true),
         };
 
         // Performance: Recycle path here.
@@ -241,9 +245,31 @@ fn forward_focus_transitions<T>(
     }
 }
 
+fn set_pointer_focus<T>(
+    focus_path: &mut FocusPath<T>,
+    new_path: impl Into<FocusPath<T>>,
+    device_id: DeviceId,
+    event_transitions: &mut TransitionLog<T>,
+) where
+    T: PartialEq + Clone,
+{
+    let focus_transitions = focus_path.transition(new_path.into());
+
+    for transition in focus_transitions {
+        let (path, event) = match transition {
+            FocusPathTransition::Exit(path) => (path, ViewEvent::CursorLeft { device_id }),
+            FocusPathTransition::Enter(path) => (path, ViewEvent::CursorEntered { device_id }),
+        };
+
+        // Performance: Recycle path here.
+        event_transitions.send(&path, event);
+    }
+}
+
 #[must_use]
-#[derive(Debug)]
-pub struct ChangeLog<T> {
+#[derive(Debug, IntoIterator)]
+pub struct EventTransitions<T> {
+    #[into_iterator]
     pub transitions: Vec<EventTransition<T>>,
     pub focus_changed: Option<FocusPath<T>>,
 }
@@ -267,20 +293,20 @@ impl<T> TransitionLog<T> {
         T: Clone,
     {
         self.transitions
-            .push(EventTransition::Send(path.clone(), event));
+            .push(EventTransition::Directed(path.clone(), event));
     }
 
     fn broadcast(&mut self, event: ViewEvent) {
         self.transitions.push(EventTransition::Broadcast(event));
     }
 
-    pub fn finalize(self, focus: FocusPath<T>) -> ChangeLog<T>
+    pub fn finalize(self, focus: FocusPath<T>) -> EventTransitions<T>
     where
         T: PartialEq,
     {
         let focus_changed = (self.before_focus != focus).then_some(focus);
 
-        ChangeLog {
+        EventTransitions {
             transitions: self.transitions,
             focus_changed,
         }
@@ -289,15 +315,18 @@ impl<T> TransitionLog<T> {
 
 #[derive(Debug)]
 pub enum EventTransition<T> {
-    Send(FocusPath<T>, ViewEvent),
+    Directed(FocusPath<T>, ViewEvent),
     Broadcast(ViewEvent),
 }
 
-pub trait HitTester<T> {
-    /// Return the topmost hit at screen_pos.
-    fn hit_test(&self, screen_pos: Point) -> (FocusPath<T>, Vector3);
-    /// Returns the position transformed on target, even if it's outside of it.
-    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<T>) -> Option<Vector3>;
+// Architecture: The two functions can probably be combined into one. But is this a good thing?
+pub trait HitTester<Target> {
+    /// Return the topmost hit at screen_pos in the target's coordinate system.
+    fn hit_test(&self, screen_pos: Point) -> (FocusPath<Target>, Vector3);
+
+    /// Returns the position in the target's coordinate system, even if a regular hit test would
+    /// return another target or the point is outside of the hit area.
+    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<Target>) -> Option<Vector3>;
 }
 
 #[derive(Debug)]

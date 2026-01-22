@@ -1,27 +1,33 @@
 use std::{
     collections::{HashMap, hash_map},
+    sync::Arc,
     time::Duration,
 };
 
+use anyhow::Result;
 use derive_more::From;
+use log::warn;
 
 use massive_animation::{Animated, Interpolation};
+use massive_applications::ViewEvent;
 use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_layout::{Box, LayoutAxis};
 use massive_renderer::text::FontSystem;
 use massive_scene::{
-    At, Handle, Location, Object, ToCamera, ToLocation, ToTransform, Transform, Visual,
+    Handle, IntoVisual, Location, Object, ToCamera, ToTransform, Transform, Visual,
 };
-use massive_shapes::{self as shapes, IntoShape, Shape, Size};
+use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
-use crate::projects::{
-    Project,
-    configuration::LaunchProfile,
+use super::{
+    LauncherPresenter, Project,
     project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
 };
-
-const ANIMATION_DURATION: Duration = Duration::from_millis(500);
+use crate::{
+    EventTransition,
+    navigation::{NavigationNode, container},
+    projects::{Id, STRUCTURAL_ANIMATION_DURATION},
+};
 
 #[derive(Debug, Clone, Copy, From)]
 enum LayoutId {
@@ -41,18 +47,31 @@ pub struct ProjectPresenter {
     location: Handle<Location>,
 
     groups: HashMap<GroupId, GroupPresenter>,
-    // Naming: Find a better name for Slot
     launchers: HashMap<LaunchProfileId, LauncherPresenter>,
+
+    // Idea: Use a type that combines Alpha with another Interpolatable type.
+    // Robustness: Alpha should be a type.
+    hover_alpha: Animated<f32>,
+    hover_rect: Animated<Rect>,
+    // Idea: can't we just animate a visual / Handle<Visual>?
+    // Performance: This is a visual that _always_ lives inside the renderer, even though it does not contain a single shape when alpha = 0.0
+    hover_visual: Handle<Visual>,
 }
 
 impl ProjectPresenter {
-    pub fn new(project: Project, location: Handle<Location>) -> Self {
+    pub fn new(project: Project, location: Handle<Location>, scene: &Scene) -> Self {
         Self {
-            location,
+            location: location.clone(),
             project,
             // Groups and slots are created when layouted.
             groups: Default::default(),
             launchers: Default::default(),
+            hover_alpha: scene.animated(0.0),
+            hover_rect: scene.animated(Rect::ZERO),
+            hover_visual: create_hover_shapes(None)
+                .into_visual()
+                .at(location)
+                .enter(scene),
         }
     }
 
@@ -71,6 +90,134 @@ impl ProjectPresenter {
                 }
             }
         });
+    }
+
+    pub fn handle_event_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
+        match event_transition {
+            EventTransition::Directed(focus_path, view_event) => {
+                if let Some(id) = focus_path.last() {
+                    self.handle_directed_event(id.clone(), view_event)?;
+                }
+            }
+            EventTransition::Broadcast(view_event) => {
+                for group in self.groups.values_mut() {
+                    group.handle_event(view_event.clone())?;
+                }
+                for launcher in self.launchers.values_mut() {
+                    launcher.handle_event(view_event.clone())?;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+
+    fn handle_directed_event(&mut self, id: Id, view_event: ViewEvent) -> Result<()> {
+        match id {
+            Id::Group(group_id) => {
+                self.groups
+                    .get_mut(&group_id)
+                    .expect("Internal Error: Missing group")
+                    .handle_event(view_event)?;
+            }
+            Id::Launcher(launch_profile_id) => {
+                match view_event {
+                    ViewEvent::CursorEntered { .. } => {
+                        // We do have to do this when the navigation structure already retrieves rects?
+                        let rect = self.rect_of(id);
+
+                        let was_visible = self.hover_alpha.final_value() == 1.0;
+
+                        self.hover_alpha.animate_if_changed(
+                            1.0,
+                            Self::HOVER_ANIMATION_DURATION,
+                            Interpolation::CubicOut,
+                        );
+
+                        if was_visible {
+                            self.hover_rect.animate_if_changed(
+                                rect,
+                                Self::HOVER_ANIMATION_DURATION,
+                                Interpolation::CubicOut,
+                            );
+                        } else {
+                            self.hover_rect.set_immediately(rect);
+                        }
+                    }
+                    ViewEvent::CursorLeft { .. } => {
+                        self.hover_alpha.animate(
+                            0.0,
+                            Self::HOVER_ANIMATION_DURATION,
+                            Interpolation::CubicOut,
+                        );
+                    }
+                    ViewEvent::Focused(focused) => {
+                        if focused {
+                            warn!("FOCUSED {launch_profile_id:?}");
+                        }
+                    }
+                    _ => {}
+                }
+
+                self.launchers
+                    .get_mut(&launch_profile_id)
+                    .expect("Internal Error: Missing launcher")
+                    .handle_event(view_event)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn rect_of(&self, id: Id) -> Rect {
+        match id {
+            Id::Group(group_id) => self.groups[&group_id].rect.final_value(),
+            Id::Launcher(launch_profile_id) => {
+                self.launchers[&launch_profile_id].rect.final_value()
+            }
+        }
+    }
+
+    // Architecture: layout() has to be called before the navigation structure can return anything.
+    // Perhaps manifest this in a better constructor.
+    pub fn navigation(&self) -> NavigationNode<'_, Id> {
+        let rect = self.groups[&self.project.root.id].rect.final_value();
+        container(self.project.root.id, || {
+            let mut r = Vec::new();
+            match &self.project.root.contents {
+                LaunchGroupContents::Groups(launch_groups) => {
+                    for launch_group in launch_groups.iter() {
+                        r.push(self.group_navigation(launch_group));
+                    }
+                }
+                // Robustness: Is this true, if so, can't we create a better Project type that reflects that?
+                _ => panic!("Project root must be groups"),
+            }
+            r
+        })
+        .with_rect(rect)
+    }
+
+    pub fn group_navigation<'a>(&'a self, launch_group: &'a LaunchGroup) -> NavigationNode<'a, Id> {
+        let rect = self.groups[&launch_group.id].rect.final_value();
+        container(launch_group.id, || {
+            let mut r = Vec::new();
+            match &launch_group.contents {
+                LaunchGroupContents::Groups(launch_groups) => {
+                    for lg in launch_groups {
+                        r.push(self.group_navigation(lg))
+                    }
+                }
+                LaunchGroupContents::Launchers(launchers) => {
+                    for launcher in launchers {
+                        let presenter = &self.launchers[&launcher.id];
+                        r.push(presenter.navigation(launcher));
+                    }
+                }
+            }
+            r
+        })
+        .with_rect(rect)
     }
 
     // layout callbacks
@@ -115,6 +262,20 @@ impl ProjectPresenter {
     }
 
     pub fn apply_animations(&mut self) {
+        {
+            let alpha = self.hover_alpha.value();
+            let rect_alpha = (alpha != 0.0).then(|| (self.hover_rect.value(), alpha));
+
+            // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
+            //
+            // Performance: Can't be update just the shapes here with apply...
+            let visual = create_hover_shapes(rect_alpha)
+                .into_visual()
+                .at(&self.location)
+                .with_depth_bias(5);
+            self.hover_visual.update_if_changed(visual);
+        }
+
         self.groups
             .values_mut()
             .for_each(|gp| gp.apply_animations());
@@ -130,6 +291,20 @@ impl ProjectPresenter {
         }
         Transform::IDENTITY.to_camera()
     }
+}
+
+fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
+    rect_alpha
+        .map(|(r, a)| {
+            StrokeRect {
+                rect: r,
+                stroke: (10., 10.).into(),
+                color: Color::rgb_u32(0xffff00).with_alpha(a),
+            }
+            .into()
+        })
+        .into_iter()
+        .collect()
 }
 
 fn box_to_rect(([x, y], [w, h]): Box<2>) -> RectPx {
@@ -160,8 +335,8 @@ struct GroupPresenter {
     // Ergonomics: Use just Location.
     location: Handle<Location>,
     rect: Animated<Rect>,
-
-    background: Handle<Visual>,
+    // No background for now, we focus on the launchers.
+    // background: Handle<Visual>,
 }
 
 impl GroupPresenter {
@@ -169,25 +344,29 @@ impl GroupPresenter {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
         //
         // Ergonomics: I need more named color constants for faster prototyping.
-        let background_shape = background_shape(rect, Color::rgb_u32(0x0000ff));
+        // let background_shape = background_shape(rect, Color::rgb_u32(0x0000ff));
 
         Self {
             location: location.clone(),
             rect: scene.animated(rect),
-            background: [background_shape].at(&location).enter(scene),
+            // background: [background_shape].at(&location).enter(scene),
         }
+    }
+
+    fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
+        Ok(())
     }
 
     fn set_rect(&mut self, rect: Rect) {
         self.rect
-            .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
+            .animate_if_changed(rect, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
     }
 
     fn apply_animations(&mut self) {
         // Ergonomics: Support value_mut() (wrap the mutex guard).
-        let rect = self.rect.value();
-        self.background
-            .update_with(|v| v.shapes = [background_shape(rect, Color::rgb_u32(0x0000ff))].into());
+        // let rect = self.rect.value();
+        // self.background
+        //     .update_with(|v| v.shapes = [background_shape(rect, Color::rgb_u32(0x0000ff))].into());
     }
 
     fn camera(&self) -> PixelCamera {
@@ -198,91 +377,4 @@ impl GroupPresenter {
             .to_camera()
             .with_size(rect.size())
     }
-}
-
-#[derive(Debug)]
-struct LauncherPresenter {
-    transform: Handle<Transform>,
-    location: Handle<Location>,
-    rect: Animated<Rect>,
-
-    background: Handle<Visual>,
-    // border: Handle<Visual>,
-
-    // name_rect: Animated<Box>,
-    // The text, either centered, or on top of the border.
-    name: Handle<Visual>,
-}
-
-impl LauncherPresenter {
-    // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
-    // introduce something new that exports more ergonomic UI components.
-
-    pub fn new(
-        parent_location: Handle<Location>,
-        profile: LaunchProfile,
-        rect: Rect,
-        scene: &Scene,
-        font_system: &mut FontSystem,
-    ) -> Self {
-        // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
-        let background_shape = background_shape(rect.size().to_rect(), Color::WHITE);
-
-        let our_transform = rect.origin().to_transform().enter(scene);
-
-        let our_location = our_transform
-            .to_location()
-            .relative_to(&parent_location)
-            .enter(scene);
-
-        let background = background_shape
-            .at(&our_location)
-            .with_depth_bias(1)
-            .enter(scene);
-
-        let name = profile
-            .name
-            // Idea: To not waste so much memory here for large fonts, may use a quality index that
-            // is automatically applied based on the font, small fonts high quality, large fonts,
-            // lower quality, the quality index starts with 1 and is the effective pixel resolution
-            // divisor: Quality 1: original size, quality 2: 1/4th the memory in use (horizontal
-            // size / 2, vertical size / 2) 
-            // 
-            // Idea: No, this should be fully automatic depending of how large the font is shown I
-            // guess. Make this independent of the font size, but dependent on what is visible (a
-            // background optimizer).
-            .size(32.0 * 8.0)
-            .shape(font_system)
-            .map(|r| r.into_shape())
-            .at(our_location)
-            .with_depth_bias(3)
-            .enter(scene);
-
-        Self {
-            transform: our_transform,
-            location: parent_location,
-            rect: scene.animated(rect),
-            background,
-            name,
-        }
-    }
-
-    fn set_rect(&mut self, rect: Rect) {
-        self.rect
-            .animate_if_changed(rect, ANIMATION_DURATION, Interpolation::CubicOut);
-    }
-
-    fn apply_animations(&mut self) {
-        let (origin, size) = self.rect.value().origin_and_size();
-
-        self.transform.update_if_changed(origin.with_z(0.0).into());
-
-        self.background.update_with(|visual| {
-            visual.shapes = [background_shape(size.to_rect(), Color::WHITE)].into()
-        });
-    }
-}
-
-fn background_shape(rect: Rect, color: Color) -> Shape {
-    shapes::Rect::new(rect, color).into()
 }

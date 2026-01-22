@@ -4,19 +4,6 @@ use std::mem;
 
 use derive_more::{Deref, From, Into};
 
-#[derive(Debug)]
-pub struct FocusTree<T> {
-    focused: FocusPath<T>,
-}
-
-impl<T> Default for FocusTree<T> {
-    fn default() -> Self {
-        Self {
-            focused: Default::default(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Deref, From, Into)]
 pub struct FocusPath<T>(Vec<T>);
 
@@ -45,52 +32,46 @@ impl<T> FocusPath<T> {
     pub fn take(&mut self) -> Self {
         mem::take(self)
     }
-}
 
-pub type FocusTransitions<T> = Vec<FocusTransition<T>>;
-
-#[derive(Debug)]
-pub enum FocusTransition<T> {
-    Enter(FocusPath<T>),
-    Exit(FocusPath<T>),
-}
-
-impl<T> FocusTree<T> {
-    pub fn focused(&self) -> &FocusPath<T> {
-        &self.focused
-    }
-
-    pub fn focus(&mut self, new_path: FocusPath<T>) -> FocusTransitions<T>
+    /// Transition to a new path and return the nested exit / enter sequence.
+    #[must_use]
+    pub fn transition(&mut self, other: Self) -> Vec<FocusPathTransition<T>>
     where
         T: PartialEq + Clone,
     {
-        let mut transitions = Vec::new();
-
         // Find common prefix length where both paths match
-        let common_prefix_len = self
-            .focused
+        let common_prefix_len = (*self)
             .iter()
-            .zip(new_path.iter())
+            .zip(other.iter())
             .take_while(|(a, b)| a == b)
             .count();
 
+        let mut transitions = Vec::new();
+
         // Generate exit transitions bottom-up (from leaf to common ancestor)
         // Exit indices from (self.focused.len() - 1) down to common_prefix_len
-        for i in (common_prefix_len..self.focused.len()).rev() {
-            transitions.push(FocusTransition::Exit(self.focused[..=i].to_vec().into()));
+        for i in (common_prefix_len..self.len()).rev() {
+            transitions.push(FocusPathTransition::Exit(self[..=i].to_vec().into()));
         }
 
         // Generate enter transitions top-down (from common ancestor to leaf)
         // Enter indices from common_prefix_len to (new_path.len() - 1)
-        for i in common_prefix_len..new_path.len() {
-            transitions.push(FocusTransition::Enter(new_path[..=i].to_vec().into()));
+        for i in common_prefix_len..other.len() {
+            transitions.push(FocusPathTransition::Enter(other[..=i].to_vec().into()));
         }
 
-        // Update current focus
-        self.focused = new_path;
+        *self = other;
 
         transitions
     }
+}
+
+pub type FocusPathTransitions<T> = Vec<FocusPathTransition<T>>;
+
+#[derive(Debug)]
+pub enum FocusPathTransition<T> {
+    Exit(FocusPath<T>),
+    Enter(FocusPath<T>),
 }
 
 #[cfg(test)]
@@ -119,22 +100,20 @@ mod tests {
         test_focus(vec![1, 2], vec![], "Exit[1, 2], Exit[1]");
     }
 
-    fn format_transitions<T: fmt::Debug>(transitions: &[FocusTransition<T>]) -> String {
+    fn format_transitions<T: fmt::Debug>(transitions: &[FocusPathTransition<T>]) -> String {
         transitions
             .iter()
             .map(|t| match t {
-                FocusTransition::Enter(path) => format!("Enter{:?}", &**path),
-                FocusTransition::Exit(path) => format!("Exit{:?}", &**path),
+                FocusPathTransition::Enter(path) => format!("Enter{:?}", &**path),
+                FocusPathTransition::Exit(path) => format!("Exit{:?}", &**path),
             })
             .collect::<Vec<_>>()
             .join(", ")
     }
 
     fn test_focus<T: PartialEq + Clone + fmt::Debug>(from: Vec<T>, to: Vec<T>, expected: &str) {
-        let mut tree = FocusTree {
-            focused: from.into(),
-        };
-        let transitions = tree.focus(to.into());
+        let mut path: FocusPath<T> = from.into();
+        let transitions = path.transition(to.into());
         assert_eq!(format_transitions(&transitions), expected);
     }
 }

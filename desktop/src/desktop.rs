@@ -14,9 +14,9 @@ use massive_scene::{Object, ToLocation, Transform};
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::projects::{Project, ProjectPresenter};
+use crate::projects::{Project, ProjectInteraction, ProjectPresenter};
 use crate::{
-    DesktopEnvironment, UI, UiCommand,
+    DesktopCommand, DesktopEnvironment, DesktopInteraction,
     desktop_presenter::DesktopPresenter,
     instance_manager::{InstanceManager, ViewPath},
     projects::ProjectConfiguration,
@@ -24,12 +24,13 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Desktop {
-    ui: UI,
+    ui: DesktopInteraction,
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
     presenter: DesktopPresenter,
     project_presenter: ProjectPresenter,
+    project_interaction: ProjectInteraction,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -95,15 +96,16 @@ impl Desktop {
             .enter(&scene)
             .to_location()
             .enter(&scene);
-        let mut project_presenter = ProjectPresenter::new(project, location);
+        let mut project_presenter = ProjectPresenter::new(project, location, &scene);
         project_presenter.layout(creation_info.size(), &scene, &mut fonts.lock());
+        let project_interaction = ProjectInteraction::default();
 
         // Initial setup
 
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(false);
         instance_manager.add_view(primary_instance, &creation_info);
-        let ui = UI::new(
+        let ui = DesktopInteraction::new(
             (primary_instance, primary_view).into(),
             &instance_manager,
             &presenter,
@@ -119,6 +121,7 @@ impl Desktop {
             instance_manager,
             presenter,
             project_presenter,
+            project_interaction,
             instance_commands: requests_rx,
             context,
             env,
@@ -144,13 +147,17 @@ impl Desktop {
                                 && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-                                let cmd = self.ui.handle_input_event(
-                                    &input_event,
-                                    &self.instance_manager,
-                                    self.renderer.geometry(),
-                                )?;
+                                let transitions = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry())?;
+                                for transition in transitions {
+                                    self.project_presenter.handle_event_transition(transition)?;
+                                }
 
-                                self.handle_ui_command(cmd)?;
+                                // let cmd = self.ui.handle_input_event(
+                                //     &input_event,
+                                //     &self.instance_manager,
+                                //     self.renderer.geometry(),
+                                // )?;
+                                // self.handle_ui_command(cmd)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -190,10 +197,10 @@ impl Desktop {
         }
     }
 
-    fn handle_ui_command(&mut self, cmd: UiCommand) -> Result<()> {
+    fn handle_ui_command(&mut self, cmd: DesktopCommand) -> Result<()> {
         match cmd {
-            UiCommand::None => {}
-            UiCommand::StartInstance {
+            DesktopCommand::None => {}
+            DesktopCommand::StartInstance {
                 application,
                 originating_instance,
             } => {
@@ -212,11 +219,11 @@ impl Desktop {
                     .make_foreground(instance, &self.instance_manager, &self.presenter)?;
                 self.presenter.layout(true);
             }
-            UiCommand::MakeForeground { instance } => {
+            DesktopCommand::MakeForeground { instance } => {
                 self.ui
                     .make_foreground(instance, &self.instance_manager, &self.presenter)?;
             }
-            UiCommand::StopInstance { instance } => self.instance_manager.stop(instance)?,
+            DesktopCommand::StopInstance { instance } => self.instance_manager.stop(instance)?,
         }
 
         Ok(())

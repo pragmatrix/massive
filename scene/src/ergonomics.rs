@@ -44,7 +44,7 @@ impl ToLocation for Handle<Transform> {
     }
 }
 
-trait IntoVisual {
+pub trait IntoVisual {
     fn into_visual(self) -> VisualWithoutLocation;
 }
 
@@ -70,6 +70,12 @@ impl<const LEN: usize> IntoVisual for [Shape; LEN] {
 }
 
 impl IntoVisual for Vec<Shape> {
+    fn into_visual(self) -> VisualWithoutLocation {
+        VisualWithoutLocation::new(self)
+    }
+}
+
+impl IntoVisual for Arc<[Shape]> {
     fn into_visual(self) -> VisualWithoutLocation {
         VisualWithoutLocation::new(self)
     }
