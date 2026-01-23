@@ -17,7 +17,7 @@ use massive_shell::{AsyncWindowRenderer, ShellWindow};
 use crate::projects::{Project, ProjectInteraction, ProjectPresenter};
 use crate::{
     DesktopCommand, DesktopEnvironment, DesktopInteraction,
-    desktop_presenter::DesktopPresenter,
+    band_presenter::BandPresenter,
     instance_manager::{InstanceManager, ViewPath},
     projects::ProjectConfiguration,
 };
@@ -28,7 +28,7 @@ pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
-    presenter: DesktopPresenter,
+    presenter: BandPresenter,
     project_presenter: ProjectPresenter,
     project_interaction: ProjectInteraction,
 
@@ -52,7 +52,7 @@ impl Desktop {
         let fonts = FontManager::system();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
-        let mut presenter = DesktopPresenter::default();
+        let mut presenter = BandPresenter::default();
         let environment = InstanceEnvironment::new(
             requests_tx,
             context.primary_monitor_scale_factor(),

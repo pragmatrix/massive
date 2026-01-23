@@ -13,7 +13,7 @@ use massive_shell::Scene;
 
 use crate::{
     EventTransition, HitTester,
-    desktop_presenter::DesktopPresenter,
+    band_presenter::BandPresenter,
     event_router, focus_path,
     instance_manager::{InstanceManager, ViewPath},
 };
@@ -36,7 +36,7 @@ impl DesktopInteraction {
     pub fn new(
         view_path: ViewPath,
         instance_manager: &InstanceManager,
-        presenter: &DesktopPresenter,
+        presenter: &BandPresenter,
         scene: &Scene,
     ) -> Result<Self> {
         let mut event_router = EventRouter::default();
@@ -65,7 +65,7 @@ impl DesktopInteraction {
         &mut self,
         instance: InstanceId,
         instance_manager: &InstanceManager,
-        presenter: &DesktopPresenter,
+        presenter: &BandPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
         let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
@@ -78,7 +78,7 @@ impl DesktopInteraction {
         if let Some(camera) = camera {
             self.camera.animate_if_changed(
                 camera,
-                DesktopPresenter::STRUCTURAL_ANIMATION_DURATION,
+                BandPresenter::STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         }
@@ -166,7 +166,7 @@ fn apply_changes(
 }
 
 /// Returns the camera position it should target at.
-fn camera(path: &FocusPath, presenter: &DesktopPresenter) -> Option<PixelCamera> {
+fn camera(path: &FocusPath, presenter: &BandPresenter) -> Option<PixelCamera> {
     path.instance()
         .and_then(|instance| presenter.instance_transform(instance))
         .map(|target| PixelCamera::look_at(target, None, PixelCamera::DEFAULT_FOVY))

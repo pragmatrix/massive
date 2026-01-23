@@ -20,15 +20,15 @@ enum LayoutId {
 type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
 
 #[derive(Debug, Default)]
-/// Manages the presentation of the desktop's user interface.
-pub struct DesktopPresenter {
+/// Manages the presentation of a horizontal band of instances.
+pub struct BandPresenter {
     instances: HashMap<InstanceId, InstancePresenter>,
     /// The Instances in order as they take up space in a final configuration. Exiting
     /// instances are not anymore in this list.
     ordered: Vec<InstanceId>,
 }
 
-impl DesktopPresenter {
+impl BandPresenter {
     pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
     /// Present the primary instance and its primary role view.
     ///
@@ -51,7 +51,9 @@ impl DesktopPresenter {
         };
 
         let presenter = InstancePresenter {
-            state: InstancePresenterState::Presenting { view: view_presenter },
+            state: InstancePresenterState::Presenting {
+                view: view_presenter,
+            },
             panel_size: view_creation_info.size(),
             center_animation: scene.animated(Default::default()),
         };
@@ -104,7 +106,9 @@ impl DesktopPresenter {
 
         match &presenter.state {
             InstancePresenterState::Presenting { view } => {
-                let view = PrimaryViewPresenter { view: view.view.clone() };
+                let view = PrimaryViewPresenter {
+                    view: view.view.clone(),
+                };
                 presenter.state = InstancePresenterState::Disappearing { view };
             }
             InstancePresenterState::Disappearing { .. } => {

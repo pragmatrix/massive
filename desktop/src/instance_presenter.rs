@@ -2,7 +2,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewCreationInfo;
 use massive_geometry::{RectPx, SizePx, Vector3};
 
-pub use crate::desktop_presenter::DesktopPresenter;
+pub use crate::band_presenter::BandPresenter;
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -61,7 +61,7 @@ impl InstancePresenter {
         if animate {
             self.center_animation.animate_if_changed(
                 translation,
-                DesktopPresenter::STRUCTURAL_ANIMATION_DURATION,
+                BandPresenter::STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {
