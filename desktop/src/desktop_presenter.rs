@@ -51,10 +51,9 @@ impl DesktopPresenter {
         };
 
         let presenter = InstancePresenter {
-            state: InstancePresenterState::Appearing,
+            state: InstancePresenterState::Presenting { view: view_presenter },
             panel_size: view_creation_info.size(),
             center_animation: scene.animated(Default::default()),
-            view: Some(view_presenter),
         };
 
         self.instances.insert(instance, presenter);
@@ -78,7 +77,6 @@ impl DesktopPresenter {
             state: InstancePresenterState::Appearing,
             panel_size: originating_presenter.panel_size,
             center_animation: scene.animated(originating_presenter.center_animation.value()),
-            view: None,
         };
 
         if self.instances.insert(instance, presenter).is_some() {
@@ -104,10 +102,17 @@ impl DesktopPresenter {
             bail!("Instance not found");
         };
 
-        if presenter.state != InstancePresenterState::Disappearing {
-            presenter.state = InstancePresenterState::Disappearing;
-        } else {
-            bail!("Instance is already disappearing")
+        match &presenter.state {
+            InstancePresenterState::Presenting { view } => {
+                let view = PrimaryViewPresenter { view: view.view.clone() };
+                presenter.state = InstancePresenterState::Disappearing { view };
+            }
+            InstancePresenterState::Disappearing { .. } => {
+                bail!("Instance is already disappearing")
+            }
+            InstancePresenterState::Appearing => {
+                bail!("Cannot hide instance that is still appearing")
+            }
         }
 
         self.ordered.retain(|i| *i != instance);
@@ -128,16 +133,17 @@ impl DesktopPresenter {
             bail!("Instance not found");
         };
 
-        if instance_presenter.state != InstancePresenterState::Appearing {
+        if !matches!(instance_presenter.state, InstancePresenterState::Appearing) {
             bail!("Primary view is already presenting");
         }
 
         // Feature: Add a alpha animation just for the view.
         instance_presenter.panel_size = view_creation_info.size();
-        instance_presenter.view = Some(PrimaryViewPresenter {
-            view: view_creation_info.clone(),
-        });
-        instance_presenter.state = InstancePresenterState::Presenting;
+        instance_presenter.state = InstancePresenterState::Presenting {
+            view: PrimaryViewPresenter {
+                view: view_creation_info.clone(),
+            },
+        };
 
         Ok(())
     }

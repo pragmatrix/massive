@@ -11,15 +11,18 @@ pub struct InstancePresenter {
     /// The center of the instance's panel. This is also the point the camera should look at at
     /// rest.
     pub center_animation: Animated<Vector3>,
-    pub view: Option<PrimaryViewPresenter>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 pub enum InstancePresenterState {
-    /// No view yet, or just appearing, animating in.
+    /// No view yet, animating in.
     Appearing,
-    Presenting,
-    Disappearing,
+    Presenting {
+        view: PrimaryViewPresenter,
+    },
+    Disappearing {
+        view: PrimaryViewPresenter,
+    },
 }
 
 #[derive(Debug)]
@@ -29,8 +32,10 @@ pub struct PrimaryViewPresenter {
 
 impl InstancePresenter {
     pub fn apply_animations(&self) {
-        let Some(view) = &self.view else {
-            return;
+        let view = match &self.state {
+            InstancePresenterState::Presenting { view }
+            | InstancePresenterState::Disappearing { view } => view,
+            InstancePresenterState::Appearing => return,
         };
 
         // Get the translation for the instance.
