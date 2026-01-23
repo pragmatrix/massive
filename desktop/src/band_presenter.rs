@@ -1,31 +1,21 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Result, bail};
-use derive_more::From;
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{PointPx, RectPx};
-use massive_layout::{Box, LayoutAxis};
+use massive_geometry::RectPx;
 use massive_scene::Transform;
 use massive_shell::Scene;
 
 use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
 
-#[derive(Debug, Clone, Copy, From)]
-enum LayoutId {
-    Root,
-    Instance(InstanceId),
-}
-
-type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
-
 #[derive(Debug, Default)]
 /// Manages the presentation of a horizontal band of instances.
 pub struct BandPresenter {
-    instances: HashMap<InstanceId, InstancePresenter>,
+    pub instances: HashMap<InstanceId, InstancePresenter>,
     /// The Instances in order as they take up space in a final configuration. Exiting
     /// instances are not anymore in this list.
-    ordered: Vec<InstanceId>,
+    pub ordered: Vec<InstanceId>,
 }
 
 impl BandPresenter {
@@ -156,23 +146,7 @@ impl BandPresenter {
         bail!("Hiding views is not supported yet");
     }
 
-    /// Compute the current layout and animate the views to their positions.
-    pub fn layout(&mut self, animate: bool) {
-        let mut layout = Layouter::root(LayoutId::Root, LayoutAxis::HORIZONTAL);
-
-        for instance_id in &self.ordered {
-            let presenter = &self.instances[instance_id];
-            layout.leaf((*instance_id).into(), presenter.panel_size);
-        }
-
-        layout.place_inline(PointPx::origin(), |(id, rect)| {
-            if let LayoutId::Instance(instance_id) = id {
-                self.set_instance_rect(instance_id, box_to_rect(rect), animate);
-            }
-        });
-    }
-
-    fn set_instance_rect(&mut self, instance_id: InstanceId, rect: RectPx, animate: bool) {
+    pub fn set_instance_rect(&mut self, instance_id: InstanceId, rect: RectPx, animate: bool) {
         self.instances
             .get_mut(&instance_id)
             .expect("Internal error: Instance not found")
@@ -193,8 +167,4 @@ impl BandPresenter {
             .get(&instance)
             .map(|instance| instance.center_animation.final_value().into())
     }
-}
-
-fn box_to_rect(([x, y], [w, h]): Box<2>) -> RectPx {
-    RectPx::new((x, y).into(), (w as i32, h as i32).into())
 }

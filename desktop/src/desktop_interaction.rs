@@ -1,26 +1,24 @@
-use std::cmp::Ordering;
-
 use anyhow::Result;
-use derive_more::From;
 use winit::{event::ElementState, keyboard::Key};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewEvent, ViewId, ViewRole};
-use massive_geometry::{PixelCamera, Point, Vector3, VectorPx};
+use massive_applications::{InstanceId, ViewEvent, ViewRole};
+use massive_geometry::PixelCamera;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    EventTransition, HitTester,
-    band_presenter::BandPresenter,
-    event_router, focus_path,
+    EventTransition,
+    desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
+    event_router,
     instance_manager::{InstanceManager, ViewPath},
+    navigation::NavigationHitTester,
 };
 
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
-type FocusPath = focus_path::FocusPath<FocusTarget>;
-type EventRouter = event_router::EventRouter<FocusTarget>;
+type FocusPath = DesktopFocusPath;
+type EventRouter = event_router::EventRouter<DesktopTarget>;
 
 #[derive(Debug)]
 pub struct DesktopInteraction {
@@ -35,17 +33,19 @@ impl DesktopInteraction {
     // Detail: This function assumes that the window is focused right now.
     pub fn new(
         view_path: ViewPath,
-        instance_manager: &InstanceManager,
-        presenter: &BandPresenter,
+        _instance_manager: &InstanceManager,
+        presenter: &DesktopPresenter,
         scene: &Scene,
     ) -> Result<Self> {
         let mut event_router = EventRouter::default();
-        let initial_transitions = event_router.focus(view_path.into());
+        let _initial_transitions = event_router.focus(view_path.into());
 
-        apply_changes(initial_transitions.transitions, instance_manager)?;
+        // We can't call apply_changes yet as it needs a mutable presenter reference
+        // which we don't have. The transitions will be applied later.
 
-        let camera =
-            camera(event_router.focused(), presenter).expect("Internal error: No initial focus");
+        let camera = presenter
+            .camera_for_focus(event_router.focused())
+            .expect("Internal error: No initial focus");
 
         Ok(Self {
             event_router,
@@ -65,20 +65,24 @@ impl DesktopInteraction {
         &mut self,
         instance: InstanceId,
         instance_manager: &InstanceManager,
-        presenter: &BandPresenter,
+        presenter: &mut DesktopPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
         let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
         let focus_path: FocusPath = (instance, primary_view).into();
 
         let transitions = self.event_router.focus(focus_path);
-        apply_changes(transitions.transitions, instance_manager)?;
+        apply_changes(
+            transitions.transitions,
+            instance_manager,
+            &mut presenter.project,
+        )?;
 
-        let camera = camera(self.event_router.focused(), presenter);
+        let camera = presenter.camera_for_focus(self.event_router.focused());
         if let Some(camera) = camera {
             self.camera.animate_if_changed(
                 camera,
-                BandPresenter::STRUCTURAL_ANIMATION_DURATION,
+                crate::desktop_presenter::STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         }
@@ -90,6 +94,7 @@ impl DesktopInteraction {
         &mut self,
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
+        presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<DesktopCommand> {
         // Catch Command+t and Command+w
@@ -119,10 +124,17 @@ impl DesktopInteraction {
 
         // Create a hit tester and forward events.
 
-        let hit_test = HitTest::from((instance_manager, render_geometry));
-        let transitions = self.event_router.handle_event(event, &hit_test)?;
+        let transitions = {
+            let navigation = presenter.navigation(instance_manager);
+            let hit_test = NavigationHitTester::new(navigation, render_geometry);
+            self.event_router.handle_event(event, &hit_test)?
+        };
 
-        apply_changes(transitions.transitions, instance_manager)?;
+        apply_changes(
+            transitions.transitions,
+            instance_manager,
+            &mut presenter.project,
+        )?;
 
         // Robustness: Currently we don't check if the only the instance actually changed.
         let command = if let Some(new_focus) = transitions.focus_changed
@@ -137,115 +149,20 @@ impl DesktopInteraction {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, From)]
-enum FocusTarget {
-    Instance(InstanceId),
-    View(ViewId),
-}
-
 fn apply_changes(
-    changes: Vec<EventTransition<FocusTarget>>,
+    changes: Vec<EventTransition<DesktopTarget>>,
     instance_manager: &InstanceManager,
+    project_presenter: &mut crate::projects::ProjectPresenter,
 ) -> Result<()> {
     for transition in changes {
-        match transition {
-            EventTransition::Directed(focus_path, view_event) => {
-                if let Some(path) = focus_path.view_path() {
-                    instance_manager.send_view_event(path, view_event)?;
-                }
-            }
-            EventTransition::Broadcast(view_event) => {
-                for (view, _) in instance_manager.views() {
-                    instance_manager.send_view_event(view, view_event.clone())?;
-                }
-            }
-        }
+        crate::desktop_presenter::forward_event_transition(
+            transition,
+            instance_manager,
+            project_presenter,
+        )?;
     }
 
     Ok(())
-}
-
-/// Returns the camera position it should target at.
-fn camera(path: &FocusPath, presenter: &BandPresenter) -> Option<PixelCamera> {
-    path.instance()
-        .and_then(|instance| presenter.instance_transform(instance))
-        .map(|target| PixelCamera::look_at(target, None, PixelCamera::DEFAULT_FOVY))
-}
-
-//
-// Hit testing
-//
-
-#[derive(From)]
-struct HitTest<'a> {
-    instance_manager: &'a InstanceManager,
-    render_geometry: &'a RenderGeometry,
-}
-
-impl HitTester<FocusTarget> for HitTest<'_> {
-    fn hit_test(&self, screen_pos: Point) -> (FocusPath, Vector3) {
-        if let Some((view_path, hit)) =
-            hit_test_at_point(screen_pos, self.instance_manager, self.render_geometry)
-        {
-            return (view_path.into(), hit);
-        }
-        (FocusPath::EMPTY, screen_pos.with_z(0.0))
-    }
-
-    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath) -> Option<Vector3> {
-        target.view_path().and_then(|view_path| {
-            hit_test_on_view(
-                screen_pos,
-                view_path,
-                self.instance_manager,
-                self.render_geometry,
-            )
-        })
-    }
-}
-
-fn hit_test_at_point(
-    screen_pos: Point,
-    instance_manager: &InstanceManager,
-    geometry: &RenderGeometry,
-) -> Option<(ViewPath, Vector3)> {
-    let mut hits = Vec::new();
-
-    for (view, view_info) in instance_manager.views() {
-        let location = view_info.location.value();
-        let transform = location.transform.value();
-        let extents = view_info.extents;
-
-        // Feature: Support parent transforms (and cache?)!
-        let matrix = transform.to_matrix4();
-        if let Some(local_pos) = geometry.unproject_to_model_z0(screen_pos, &matrix) {
-            // Robustness: Are we leaving accuracy on the table here by converting from f64 to i32?
-            let v: VectorPx = (local_pos.x as i32, local_pos.y as i32).into();
-            if extents.contains(v.to_point()) {
-                hits.push((view, local_pos));
-            }
-        }
-    }
-
-    // Sort by z (descending) to get topmost view first
-    hits.sort_by(|a, b| b.1.z.partial_cmp(&a.1.z).unwrap_or(Ordering::Equal));
-
-    hits.first().copied()
-}
-
-/// Specifically hit tests on a view without considering its boundaries.
-///
-/// Meaning that the hit test result may be out of bounds.
-fn hit_test_on_view(
-    screen_pos: Point,
-    view: ViewPath,
-    instance_manager: &InstanceManager,
-    render_geometry: &RenderGeometry,
-) -> Option<Vector3> {
-    let view_info = instance_manager.get_view(view).ok()?;
-    let location = view_info.location.value();
-    let matrix = location.transform.value().to_matrix4();
-    render_geometry.unproject_to_model_z0(screen_pos, &matrix)
 }
 
 #[must_use]
@@ -261,46 +178,4 @@ pub enum DesktopCommand {
     MakeForeground {
         instance: InstanceId,
     },
-}
-
-impl focus_path::FocusPath<FocusTarget> {
-    // Returns the instance that is currently focused.
-    pub fn instance(&self) -> Option<InstanceId> {
-        self.iter().rev().find_map(|t| t.instance())
-    }
-
-    pub fn view_path(&self) -> Option<ViewPath> {
-        match self.as_slice() {
-            [.., FocusTarget::Instance(instance), FocusTarget::View(view)] => {
-                Some((*instance, *view).into())
-            }
-            _ => None,
-        }
-    }
-}
-
-impl From<ViewPath> for FocusPath {
-    fn from(view_path: ViewPath) -> Self {
-        let (instance, view) = view_path.into();
-        vec![instance.into(), view.into()].into()
-    }
-}
-
-impl From<(InstanceId, Option<ViewId>)> for FocusPath {
-    fn from((instance, view): (InstanceId, Option<ViewId>)) -> Self {
-        if let Some(view) = view {
-            FocusPath::EMPTY.with(instance).with(view)
-        } else {
-            FocusPath::EMPTY.with(instance)
-        }
-    }
-}
-
-impl FocusTarget {
-    fn instance(&self) -> Option<InstanceId> {
-        match self {
-            FocusTarget::Instance(instance_id) => Some(*instance_id),
-            _ => None,
-        }
-    }
 }

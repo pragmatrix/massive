@@ -5,13 +5,12 @@ use std::{
 };
 
 use anyhow::Result;
-use derive_more::From;
 use log::warn;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewEvent;
-use massive_geometry::{Color, PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_layout::{Box, LayoutAxis};
+use massive_geometry::{Color, PixelCamera, Rect, SizePx};
+use massive_layout::Layouter;
 use massive_renderer::text::FontSystem;
 use massive_scene::{
     Handle, IntoVisual, Location, Object, ToCamera, ToTransform, Transform, Visual,
@@ -29,19 +28,10 @@ use crate::{
     projects::{Id, STRUCTURAL_ANIMATION_DURATION},
 };
 
-#[derive(Debug, Clone, Copy, From)]
-enum LayoutId {
-    Group(GroupId),
-    Launcher(LaunchProfileId),
-}
-
-/// Architecture: Can't we just use inner as the root, thus preventing the lifetime here.
-type Layouter<'a> = massive_layout::Layouter<'a, LayoutId, 2>;
-
 #[derive(Debug)]
 pub struct ProjectPresenter {
-    /// The project hierarchy is used for layout. It references the presenters through GroupIds and
-    /// SlotIds.
+    /// The project hierarchy is used for layout. It references the presenters through `GroupIds` and
+    /// `LaunchProfileIds`.
     project: Project,
 
     location: Handle<Location>,
@@ -73,23 +63,6 @@ impl ProjectPresenter {
                 .at(location)
                 .enter(scene),
         }
-    }
-
-    pub fn layout(&mut self, default_size: SizePx, scene: &Scene, font_system: &mut FontSystem) {
-        let mut layout = Layouter::root(self.project.root.id.into(), LayoutAxis::HORIZONTAL);
-
-        layout_launch_group(&mut layout, &self.project.root, default_size);
-        layout.place_inline(PointPx::zero(), |(id, rect)| {
-            let rect = box_to_rect(rect);
-            match id {
-                LayoutId::Group(group_id) => {
-                    self.set_group_rect(group_id, rect, scene);
-                }
-                LayoutId::Launcher(launch_profile_id) => {
-                    self.set_launcher_rect(launch_profile_id, rect, scene, font_system);
-                }
-            }
-        });
     }
 
     pub fn handle_event_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
@@ -205,7 +178,7 @@ impl ProjectPresenter {
             match &launch_group.contents {
                 LaunchGroupContents::Groups(launch_groups) => {
                     for lg in launch_groups {
-                        r.push(self.group_navigation(lg))
+                        r.push(self.group_navigation(lg));
                     }
                 }
                 LaunchGroupContents::Launchers(launchers) => {
@@ -223,9 +196,17 @@ impl ProjectPresenter {
     // layout callbacks
     // Ergonomics: Make Scene Clone.
 
-    fn set_group_rect(&mut self, id: GroupId, rect: RectPx, scene: &Scene) {
+    pub fn set_rect(&mut self, id: Id, rect: Rect, scene: &Scene, font_system: &mut FontSystem) {
+        match id {
+            Id::Group(group_id) => self.set_group_rect(group_id, rect, scene),
+            Id::Launcher(launch_profile_id) => {
+                self.set_launcher_rect(launch_profile_id, rect, scene, font_system)
+            }
+        }
+    }
+
+    fn set_group_rect(&mut self, id: GroupId, rect: Rect, scene: &Scene) {
         use hash_map::Entry;
-        let rect = rect.cast().into();
         match self.groups.entry(id) {
             Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
             Entry::Vacant(entry) => {
@@ -237,7 +218,7 @@ impl ProjectPresenter {
     fn set_launcher_rect(
         &mut self,
         id: LaunchProfileId,
-        rect: RectPx,
+        rect: Rect,
         scene: &Scene,
         font_system: &mut FontSystem,
     ) {
@@ -246,7 +227,6 @@ impl ProjectPresenter {
             .project
             .get_launch_profile(id)
             .expect("Internal Error: Launch profile not found");
-        let rect = rect.cast().into();
         match self.launchers.entry(id) {
             Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
             Entry::Vacant(entry) => {
@@ -293,6 +273,26 @@ impl ProjectPresenter {
     }
 }
 
+/// Recursively layout a launch group and its children.
+fn layout_launch_group(layout: &mut Layouter<Id, 2>, group: &LaunchGroup, default_size: SizePx) {
+    match &group.contents {
+        LaunchGroupContents::Groups(launch_groups) => {
+            for group in launch_groups {
+                let mut container = layout
+                    .container(Id::Group(group.id), group.layout.axis())
+                    .spacing(10)
+                    .padding([10, 10], [10, 10]);
+                layout_launch_group(&mut container, group, default_size);
+            }
+        }
+        LaunchGroupContents::Launchers(launchers) => {
+            for launcher in launchers {
+                layout.leaf(Id::Launcher(launcher.id), default_size);
+            }
+        }
+    }
+}
+
 fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
     rect_alpha
         .map(|(r, a)| {
@@ -305,29 +305,6 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
         })
         .into_iter()
         .collect()
-}
-
-fn box_to_rect(([x, y], [w, h]): Box<2>) -> RectPx {
-    RectPx::new((x, y).into(), (w as i32, h as i32).into())
-}
-
-fn layout_launch_group(layout: &mut Layouter, group: &LaunchGroup, default_size: SizePx) {
-    match &group.contents {
-        LaunchGroupContents::Groups(launch_groups) => {
-            for group in launch_groups {
-                let mut container = layout
-                    .container(group.id.into(), group.layout.axis())
-                    .spacing(10)
-                    .padding([10, 10], [10, 10]);
-                layout_launch_group(&mut container, group, default_size);
-            }
-        }
-        LaunchGroupContents::Launchers(launchers) => {
-            for launcher in launchers {
-                layout.leaf(launcher.id.into(), default_size)
-            }
-        }
-    }
 }
 
 #[derive(Debug)]

@@ -12,8 +12,17 @@ use crate::{
 
 #[derive(Debug)]
 pub struct Layouter<'a, Id: Clone, const RANK: usize> {
-    id: Id,
+    id: Option<Id>,
     parent: Option<&'a mut Inner<Id, RANK>>,
+    inner: Inner<Id, RANK>,
+}
+
+pub struct NestedLayouter<'a, Mapper, ParentId: Clone, Id: Clone, const RANK: usize>
+where
+    Mapper: Fn(Id) -> ParentId,
+{
+    mapper: Mapper,
+    parent: Option<&'a mut Inner<ParentId, RANK>>,
     inner: Inner<Id, RANK>,
 }
 
@@ -37,7 +46,7 @@ struct Inner<Id: Clone, const RANK: usize> {
 
 #[derive(Debug)]
 struct TraceEntry<Id, const RANK: usize> {
-    id: Id,
+    id: Option<Id>,
     bx: Box<RANK>,
     /// The number of children, 0 if this is a leaf.
     children: usize,
@@ -61,11 +70,15 @@ impl<const RANK: usize> From<Box<RANK>> for BoxComponents<RANK> {
 }
 
 impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
-    pub fn root(id: Id, layout_axis: LayoutAxis) -> Self {
-        Self::new(None, id, layout_axis)
+    pub fn root(id: impl Into<Option<Id>>, layout_axis: LayoutAxis) -> Self {
+        Self::new(None, id.into(), layout_axis)
     }
 
-    fn new(mut parent: Option<&'a mut Inner<Id, RANK>>, id: Id, layout_axis: LayoutAxis) -> Self {
+    fn new(
+        mut parent: Option<&'a mut Inner<Id, RANK>>,
+        id: Option<Id>,
+        layout_axis: LayoutAxis,
+    ) -> Self {
         // If there is a parent, get the trace.
         let trace = parent
             .as_mut()
@@ -90,8 +103,12 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
         self.inner.child(id, child_size.into().into(), 0);
     }
 
-    pub fn container<'b>(&'b mut self, id: Id, layout_axis: LayoutAxis) -> Layouter<'b, Id, RANK> {
-        Layouter::new(Some(&mut self.inner), id, layout_axis)
+    pub fn container<'b>(
+        &'b mut self,
+        id: impl Into<Option<Id>>,
+        layout_axis: LayoutAxis,
+    ) -> Layouter<'b, Id, RANK> {
+        Layouter::new(Some(&mut self.inner), id.into(), layout_axis)
     }
 
     pub fn padding(
@@ -141,7 +158,7 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
     pub fn place_inline<BX>(
         mut self,
         absolute_offset: impl Into<[i32; RANK]>,
-        mut out: impl FnMut((Id, BX)),
+        mut set_rect: impl FnMut((Id, BX)),
     ) where
         BX: From<BoxComponents<RANK>>,
     {
@@ -151,7 +168,7 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
 
         let mut out = |(id, bx): (Id, Box<RANK>)| {
             let box_components: BoxComponents<RANK> = bx.into();
-            out((id, box_components.into()))
+            set_rect((id, box_components.into()))
         };
 
         let entry = TraceEntry {
@@ -170,7 +187,8 @@ impl<'a, Id: Clone, const RANK: usize> Layouter<'a, Id, RANK> {
 }
 
 impl<Id: Clone, const RANK: usize> Inner<Id, RANK> {
-    fn child(&mut self, id: Id, child_size: Size<RANK>, children: usize) {
+    fn child(&mut self, id: impl Into<Option<Id>>, child_size: Size<RANK>, children: usize) {
+        let id = id.into();
         let axis = *self.layout_axis;
 
         // Add spacing before this child (except for the first child), and
@@ -208,7 +226,9 @@ fn place_rec<Id, const RANK: usize>(
     out: &mut impl FnMut((Id, Box<RANK>)),
 ) {
     let absolute_rect = add_offset(this.bx, offset);
-    out((this.id, absolute_rect));
+    if let Some(id) = this.id {
+        out((id, absolute_rect));
+    }
     // Children are already positioned relative to padding.leading in their parent,
     // so just use the absolute rect's offset
     let children_offset = absolute_rect.offset;

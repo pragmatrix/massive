@@ -10,14 +10,12 @@ use massive_applications::{
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
-use massive_scene::{Object, ToLocation, Transform};
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::projects::{Project, ProjectInteraction, ProjectPresenter};
+use crate::projects::{Project};
 use crate::{
-    DesktopCommand, DesktopEnvironment, DesktopInteraction,
-    band_presenter::BandPresenter,
+    DesktopCommand, DesktopEnvironment, DesktopInteraction, DesktopPresenter,
     instance_manager::{InstanceManager, ViewPath},
     projects::ProjectConfiguration,
 };
@@ -28,9 +26,7 @@ pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
-    presenter: BandPresenter,
-    project_presenter: ProjectPresenter,
-    project_interaction: ProjectInteraction,
+    presenter: DesktopPresenter,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -38,6 +34,7 @@ pub struct Desktop {
     instance_commands: UnboundedReceiver<(InstanceId, InstanceCommand)>,
     context: ApplicationContext,
     env: DesktopEnvironment,
+    fonts: FontManager,
 }
 
 impl Desktop {
@@ -51,8 +48,11 @@ impl Desktop {
         // Create the font manager - shared between desktop and instances
         let fonts = FontManager::system();
 
+        // Create scene early for presenter initialization
+        let scene = context.new_scene();
+
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
-        let mut presenter = BandPresenter::default();
+        let mut presenter = DesktopPresenter::new(project, &scene);
         let environment = InstanceEnvironment::new(
             requests_tx,
             context.primary_monitor_scale_factor(),
@@ -89,21 +89,10 @@ impl Desktop {
             .build()
             .await?;
 
-        let scene = context.new_scene();
-
-        // project presenter
-        let location = Transform::IDENTITY
-            .enter(&scene)
-            .to_location()
-            .enter(&scene);
-        let mut project_presenter = ProjectPresenter::new(project, location, &scene);
-        project_presenter.layout(creation_info.size(), &scene, &mut fonts.lock());
-        let project_interaction = ProjectInteraction::default();
-
         // Initial setup
 
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
-        presenter.layout(false);
+        presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
         instance_manager.add_view(primary_instance, &creation_info);
         let ui = DesktopInteraction::new(
             (primary_instance, primary_view).into(),
@@ -120,11 +109,10 @@ impl Desktop {
             event_manager,
             instance_manager,
             presenter,
-            project_presenter,
-            project_interaction,
             instance_commands: requests_rx,
             context,
             env,
+            fonts,
         })
     }
 
@@ -156,6 +144,7 @@ impl Desktop {
                                 let cmd = self.interaction.handle_input_event(
                                     &input_event,
                                     &self.instance_manager,
+                                    &mut self.presenter,
                                     self.renderer.geometry(),
                                 )?;
                                 self.handle_ui_command(cmd)?;
@@ -167,7 +156,6 @@ impl Desktop {
                             // Performance: Not every instance needs that, only the ones animating.
                             self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
                             self.presenter.apply_animations();
-                            self.project_presenter.apply_animations();
                         }
                     }
                 }
@@ -219,15 +207,27 @@ impl Desktop {
                 self.interaction.make_foreground(
                     instance,
                     &self.instance_manager,
-                    &self.presenter,
+                    &mut self.presenter,
                 )?;
-                self.presenter.layout(true);
+                // Get default size from the first view or use a default
+                let default_size = self
+                    .instance_manager
+                    .views()
+                    .next()
+                    .map(|(_, info)| info.extents.size().cast())
+                    .unwrap_or((800u32, 600u32).into());
+                self.presenter.layout(
+                    default_size,
+                    true,
+                    &self.scene,
+                    &mut self.fonts.lock(),
+                );
             }
             DesktopCommand::MakeForeground { instance } => {
                 self.interaction.make_foreground(
                     instance,
                     &self.instance_manager,
-                    &self.presenter,
+                    &mut self.presenter,
                 )?;
             }
             DesktopCommand::StopInstance { instance } => self.instance_manager.stop(instance)?,
@@ -253,7 +253,7 @@ impl Desktop {
                     self.interaction.make_foreground(
                         instance,
                         &self.instance_manager,
-                        &self.presenter,
+                        &mut self.presenter,
                     )?;
                 }
             }
