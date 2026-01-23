@@ -73,12 +73,7 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
     pub fn layout(mut self) -> Layout<Id, RANK> {
         let axis = *self.container.layout_axis;
         let mut size = Size::EMPTY;
-        let mut offset = Offset::ZERO;
-
-        // Initialize offset with leading padding
-        for i in 0..RANK {
-            offset[i] = self.container.padding.leading[i] as i32;
-        }
+        let mut offset: Offset<RANK> = self.container.padding.leading.into();
 
         // Position children and compute container size
         for (i, child) in self.container.children.iter_mut().enumerate() {
@@ -205,10 +200,7 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
 
     fn place_rec(self, absolute_offset: Offset<RANK>, out: &mut impl FnMut(Id, Box<RANK>)) {
         // Compute absolute position of this layout
-        let mut abs_offset = absolute_offset;
-        for i in 0..RANK {
-            abs_offset[i] += self.offset[i];
-        }
+        let abs_offset = absolute_offset + self.offset;
 
         let outer_size = self.outer_size();
         let id = self.id;

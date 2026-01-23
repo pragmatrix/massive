@@ -50,6 +50,29 @@ impl<const RANK: usize> Offset<RANK> {
     pub const ZERO: Self = Self([0; RANK]);
 }
 
+impl<const RANK: usize> From<Size<RANK>> for Offset<RANK> {
+    fn from(size: Size<RANK>) -> Self {
+        Self(size.0.map(|v| v as i32))
+    }
+}
+
+impl<const RANK: usize> ops::AddAssign for Offset<RANK> {
+    fn add_assign(&mut self, rhs: Self) {
+        for i in 0..RANK {
+            self[i] += rhs[i]
+        }
+    }
+}
+
+impl<const RANK: usize> ops::Add for Offset<RANK> {
+    type Output = Self;
+
+    fn add(mut self, rhs: Self) -> Self::Output {
+        self += rhs;
+        self
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From)]
 pub struct Size<const RANK: usize>(pub [u32; RANK]);
 
