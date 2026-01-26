@@ -13,7 +13,8 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::projects::{Project};
+use crate::desktop_presenter::DesktopPath;
+use crate::projects::Project;
 use crate::{
     DesktopCommand, DesktopEnvironment, DesktopInteraction, DesktopPresenter,
     instance_manager::{InstanceManager, ViewPath},
@@ -78,7 +79,10 @@ impl Desktop {
         else {
             bail!("Did not or received an unexpected request from the application");
         };
-        let primary_view = creation_info.id;
+
+        // Currently we can't target views directly, the focus system is targeting only instances
+        // and their primary view.
+        let _primary_view = creation_info.id;
 
         let window = context.new_window(creation_info.size()).await?;
         let renderer = window
@@ -94,10 +98,11 @@ impl Desktop {
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
         instance_manager.add_view(primary_instance, &creation_info);
+
         let ui = DesktopInteraction::new(
-            (primary_instance, primary_view).into(),
+            DesktopPath::from_instance(primary_instance),
             &instance_manager,
-            &presenter,
+            &mut presenter,
             &scene,
         )?;
 
@@ -138,16 +143,16 @@ impl Desktop {
 
                                 // let transitions = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry())?;
                                 // for transition in transitions {
-                                //     self.project_presenter.handle_event_transition(transition)?;
+                                //     self.project_presenter.process_transition(transition)?;
                                 // }
 
-                                let cmd = self.interaction.handle_input_event(
+                                let cmd = self.interaction.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
                                     &mut self.presenter,
                                     self.renderer.geometry(),
                                 )?;
-                                self.handle_ui_command(cmd)?;
+                                self.process_command(cmd)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -186,7 +191,7 @@ impl Desktop {
         }
     }
 
-    fn handle_ui_command(&mut self, cmd: DesktopCommand) -> Result<()> {
+    fn process_command(&mut self, cmd: DesktopCommand) -> Result<()> {
         match cmd {
             DesktopCommand::None => {}
             DesktopCommand::StartInstance {
@@ -216,12 +221,8 @@ impl Desktop {
                     .next()
                     .map(|(_, info)| info.extents.size().cast())
                     .unwrap_or((800u32, 600u32).into());
-                self.presenter.layout(
-                    default_size,
-                    true,
-                    &self.scene,
-                    &mut self.fonts.lock(),
-                );
+                self.presenter
+                    .layout(default_size, true, &self.scene, &mut self.fonts.lock());
             }
             DesktopCommand::MakeForeground { instance } => {
                 self.interaction.make_foreground(

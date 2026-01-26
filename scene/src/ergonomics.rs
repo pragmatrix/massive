@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use massive_geometry::{PixelCamera, Point, Transform};
+use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
 use crate::{Handle, Location, Visual};
@@ -14,6 +14,13 @@ use crate::{Handle, Location, Visual};
 
 pub trait ToTransform {
     fn to_transform(&self) -> Transform;
+}
+
+impl ToTransform for PointPx {
+    fn to_transform(&self) -> Transform {
+        let (x, y, z) = self.cast::<f64>().to_3d().into();
+        (x, y, z).into()
+    }
 }
 
 impl ToTransform for Point {

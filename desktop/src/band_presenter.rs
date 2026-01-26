@@ -2,12 +2,17 @@ use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Result, bail};
 
-use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::RectPx;
+use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent, ViewId, ViewRole};
+use massive_geometry::{Rect, RectPx};
+use massive_layout::{self as layout, LayoutAxis};
 use massive_scene::Transform;
 use massive_shell::Scene;
 
-use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
+use crate::{
+    instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter},
+    navigation,
+    navigation::NavigationNode,
+};
 
 #[derive(Debug, Default)]
 /// Manages the presentation of a horizontal band of instances.
@@ -45,6 +50,7 @@ impl BandPresenter {
                 view: view_presenter,
             },
             panel_size: view_creation_info.size(),
+            rect: RectPx::zero(),
             center_animation: scene.animated(Default::default()),
         };
 
@@ -68,6 +74,7 @@ impl BandPresenter {
         let presenter = InstancePresenter {
             state: InstancePresenterState::Appearing,
             panel_size: originating_presenter.panel_size,
+            rect: RectPx::zero(),
             center_animation: scene.animated(originating_presenter.center_animation.value()),
         };
 
@@ -146,11 +153,42 @@ impl BandPresenter {
         bail!("Hiding views is not supported yet");
     }
 
+    pub fn layout(&self) -> layout::Layout<InstanceId, 2> {
+        let mut band_builder = layout::container(None, LayoutAxis::HORIZONTAL);
+
+        for instance_id in &self.ordered {
+            let presenter = &self.instances[instance_id];
+            band_builder.child(layout::leaf(*instance_id, presenter.panel_size));
+        }
+
+        band_builder.layout()
+    }
+
     pub fn set_instance_rect(&mut self, instance_id: InstanceId, rect: RectPx, animate: bool) {
         self.instances
             .get_mut(&instance_id)
             .expect("Internal error: Instance not found")
             .set_rect(rect, animate);
+    }
+
+    // For now we do only allow navigation to instances directly.
+    pub fn navigation(&self) -> NavigationNode<'_, InstanceId> {
+        navigation::container(None, || {
+            let mut nodes = Vec::new();
+
+            for instance_id in &self.ordered {
+                let presenter = &self.instances[instance_id];
+                let rect: Rect = presenter.rect().into();
+                nodes.push(navigation::leaf(*instance_id, rect));
+            }
+
+            nodes
+        })
+    }
+
+    /// Process an event directly targeted at the band itself (i.e. its border / title)
+    pub fn process(&self, _view_event: ViewEvent) -> Result<()> {
+        Ok(())
     }
 
     pub fn apply_animations(&self) {

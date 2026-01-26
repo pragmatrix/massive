@@ -12,7 +12,15 @@ pub enum NavigationNode<'a, Target> {
         rect: Rect,
     },
     Container {
-        id: Target,
+        // If `None`, this does not introduce another "level" when targeting nested items.
+        //
+        // Architecture: May combine this with rect?
+        //
+        // Architecture: Why then create a container at all?
+        //
+        // Architecture: Review the cases in which `None` is used here, this is just as a
+        // convenience to return a container node instead of a list of children.
+        id: Option<Target>,
         transform: Transform,
         /// This is used for deciding if nested objects are queried on hit testing. None: Query them all.
         ///
@@ -25,7 +33,17 @@ pub enum NavigationNode<'a, Target> {
     },
 }
 
-impl<Target> NavigationNode<'_, Target> {
+impl<'a, Target> NavigationNode<'a, Target> {
+    pub fn with_target(mut self, target: Target) -> Self {
+        match &mut self {
+            NavigationNode::Leaf {
+                target: leaf_target,
+                ..
+            } => *leaf_target = target,
+            NavigationNode::Container { id, .. } => *id = Some(target),
+        }
+        self
+    }
     pub fn with_transform(mut self, tf: Transform) -> Self {
         match &mut self {
             NavigationNode::Leaf { transform, .. } => *transform = tf,
@@ -41,6 +59,42 @@ impl<Target> NavigationNode<'_, Target> {
         };
         self
     }
+
+    pub fn map_target<NewTarget>(
+        self,
+        f: &'a impl Fn(Target) -> NewTarget,
+    ) -> NavigationNode<'a, NewTarget>
+    where
+        Target: 'a,
+    {
+        match self {
+            NavigationNode::Leaf {
+                target,
+                transform,
+                rect,
+            } => NavigationNode::Leaf {
+                target: f(target),
+                transform,
+                rect,
+            },
+            NavigationNode::Container {
+                id,
+                transform,
+                rect,
+                nested,
+            } => NavigationNode::Container {
+                id: id.map(f),
+                transform,
+                rect,
+                nested: Box::new(move || {
+                    nested()
+                        .into_iter()
+                        .map(|node| node.map_target(f))
+                        .collect()
+                }),
+            },
+        }
+    }
 }
 
 pub fn leaf<'a, Target>(id: impl Into<Target>, rect: Rect) -> NavigationNode<'a, Target> {
@@ -52,7 +106,7 @@ pub fn leaf<'a, Target>(id: impl Into<Target>, rect: Rect) -> NavigationNode<'a,
 }
 
 pub fn container<'a, Target>(
-    id: impl Into<Target>,
+    id: impl Into<Option<Target>>,
     f: impl Fn() -> Vec<NavigationNode<'a, Target>> + 'a,
 ) -> NavigationNode<'a, Target> {
     NavigationNode::Container {
@@ -79,11 +133,6 @@ impl<'a, Target> NavigationHitTester<'a, Target> {
             render_geometry,
             base_transform: Transform::IDENTITY,
         }
-    }
-
-    pub fn with_base_transform(mut self, base_transform: Transform) -> Self {
-        self.base_transform = base_transform;
-        self
     }
 }
 
@@ -160,7 +209,9 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                 }
 
                 // Add container to path and recurse into children
-                current_path.push(id.clone());
+                if let Some(id) = id {
+                    current_path.push(id.clone());
+                }
                 for child in nested() {
                     self.collect_hits(screen_pos, &child, combined, hits, current_path.clone());
                 }
@@ -202,7 +253,7 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                 nested,
                 ..
             } => {
-                if id != target {
+                if id.as_ref().is_some_and(|id| id != target) {
                     return None;
                 }
 

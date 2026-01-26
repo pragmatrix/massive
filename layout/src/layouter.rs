@@ -1,9 +1,16 @@
-//! Second attempt at the layout engine.
+//! Third attempt at the layout engine.
 //!
-//! This is a non-trait based layouter that supports providing an id, and spits out a number of
-//! absolute `(Id,Rect)` pairs.
+//! First: was a trait / node based layouter.
+//!
+//! Second: This is a non-trait based layouter that supports providing an id, and spits out a number
+//! of absolute `(Id,Rect)` pairs.
+//!
+//! Third: Functional variant, the main reason was that we needed to map Ids and the second one was
+//! using a shared strace for memory optimization that prevented that or made it too complicated.
 
 use std::cmp::max;
+
+use derive_more::{From, Into};
 
 use crate::{
     LayoutAxis,
@@ -46,12 +53,12 @@ pub struct ContainerBuilder<Id: Clone, const RANK: usize> {
 impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
     pub fn padding(
         mut self,
-        leading: impl Into<Size<RANK>>,
-        trailing: impl Into<Size<RANK>>,
+        leading: impl Into<Padding<RANK>>,
+        trailing: impl Into<Padding<RANK>>,
     ) -> Self {
         self.container.padding = Thickness {
-            leading: leading.into(),
-            trailing: trailing.into(),
+            leading: leading.into().into(),
+            trailing: trailing.into().into(),
         };
         self
     }
@@ -144,7 +151,11 @@ impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
             layout_axis: self.layout_axis,
             padding: self.padding,
             spacing: self.spacing,
-            children: self.children.into_iter().map(|child| child.map_id(f)).collect(),
+            children: self
+                .children
+                .into_iter()
+                .map(|child| child.map_id_ref(f))
+                .collect(),
         }
     }
 }
@@ -166,7 +177,17 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
         }
     }
 
-    pub fn map_id<NewId: Clone>(self, f: &impl Fn(Id) -> NewId) -> Layout<NewId, RANK> {
+    pub fn with_id(mut self, id: Id) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub fn map_id<NewId: Clone>(self, f: impl Fn(Id) -> NewId) -> Layout<NewId, RANK> {
+        // Need to use a reference here to be able to call it multiple times.
+        self.map_id_ref(&f)
+    }
+
+    fn map_id_ref<NewId: Clone>(self, f: &impl Fn(Id) -> NewId) -> Layout<NewId, RANK> {
         Layout {
             id: self.id.map(f),
             container: self.container.map(|c| c.map_id(f)),
@@ -217,6 +238,23 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
                 child.place_rec(abs_offset, out);
             }
         }
+    }
+}
+
+/// Convenience type to convert from u32, (u32,u32) to a padding value.
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, From, Into)]
+pub struct Padding<const RANK: usize>(Size<RANK>);
+
+impl<const RANK: usize> From<u32> for Padding<RANK> {
+    fn from(value: u32) -> Self {
+        [value; RANK].into()
+    }
+}
+
+impl<const RANK: usize> From<[u32; RANK]> for Padding<RANK> {
+    fn from(value: [u32; RANK]) -> Self {
+        Size::from(value).into()
     }
 }
 

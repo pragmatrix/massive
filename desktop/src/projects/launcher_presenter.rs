@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 use log::warn;
@@ -95,7 +95,7 @@ impl LauncherPresenter {
         leaf(launcher.id, self.rect.final_value())
     }
 
-    pub fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
+    pub fn process(&mut self, view_event: ViewEvent) -> Result<()> {
         // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
         // arbitrary hierarchies? May be the EventManager directly defines the scope id?
         // Ergonomics: Create a fluent constructor for events with Scope?

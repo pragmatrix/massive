@@ -24,7 +24,7 @@ impl<T> FocusPath<T> {
         self.0.push(component.into())
     }
 
-    pub fn with(mut self, component: impl Into<T>) -> Self {
+    pub fn join(mut self, component: impl Into<T>) -> Self {
         self.push(component.into());
         self
     }
@@ -65,8 +65,6 @@ impl<T> FocusPath<T> {
         transitions
     }
 }
-
-pub type FocusPathTransitions<T> = Vec<FocusPathTransition<T>>;
 
 #[derive(Debug)]
 pub enum FocusPathTransition<T> {

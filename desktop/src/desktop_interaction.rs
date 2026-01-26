@@ -2,22 +2,20 @@ use anyhow::Result;
 use winit::{event::ElementState, keyboard::Key};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewEvent, ViewRole};
+use massive_applications::{InstanceId, ViewEvent};
 use massive_geometry::PixelCamera;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    EventTransition,
-    desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
+    desktop_presenter::{DesktopPath, DesktopPresenter, DesktopTarget},
     event_router,
-    instance_manager::{InstanceManager, ViewPath},
+    instance_manager::InstanceManager,
     navigation::NavigationHitTester,
 };
 
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
-type FocusPath = DesktopFocusPath;
 type EventRouter = event_router::EventRouter<DesktopTarget>;
 
 #[derive(Debug)]
@@ -32,13 +30,14 @@ impl DesktopInteraction {
     //
     // Detail: This function assumes that the window is focused right now.
     pub fn new(
-        view_path: ViewPath,
-        _instance_manager: &InstanceManager,
-        presenter: &DesktopPresenter,
+        path: DesktopPath,
+        instance_manager: &InstanceManager,
+        presenter: &mut DesktopPresenter,
         scene: &Scene,
     ) -> Result<Self> {
         let mut event_router = EventRouter::default();
-        let _initial_transitions = event_router.focus(view_path.into());
+        let initial_transitions = event_router.focus(path);
+        presenter.forward_event_transitions(initial_transitions.transitions, instance_manager)?;
 
         // We can't call apply_changes yet as it needs a mutable presenter reference
         // which we don't have. The transitions will be applied later.
@@ -68,15 +67,11 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
-        let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-        let focus_path: FocusPath = (instance, primary_view).into();
+        // let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
+        let focus_path = DesktopPath::from_instance(instance);
 
         let transitions = self.event_router.focus(focus_path);
-        apply_changes(
-            transitions.transitions,
-            instance_manager,
-            &mut presenter.project,
-        )?;
+        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
         let camera = presenter.camera_for_focus(self.event_router.focused());
         if let Some(camera) = camera {
@@ -90,14 +85,14 @@ impl DesktopInteraction {
         Ok(())
     }
 
-    pub fn handle_input_event(
+    pub fn process_input_event(
         &mut self,
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<DesktopCommand> {
-        // Catch Command+t and Command+w
+        // Catch Command+t and Command+w if a instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
             event: key_event, ..
@@ -105,7 +100,7 @@ impl DesktopInteraction {
             && key_event.state == ElementState::Pressed
             && !key_event.repeat
             && event.states().is_command()
-            && let Some(ViewPath { instance, .. }) = self.event_router.focused().view_path()
+            && let Some(instance) = self.event_router.focused().instance()
         {
             match &key_event.logical_key {
                 Key::Character(c) if c.as_str() == "t" => {
@@ -125,16 +120,11 @@ impl DesktopInteraction {
         // Create a hit tester and forward events.
 
         let transitions = {
-            let navigation = presenter.navigation(instance_manager);
+            let navigation = presenter.navigation();
             let hit_test = NavigationHitTester::new(navigation, render_geometry);
-            self.event_router.handle_event(event, &hit_test)?
+            self.event_router.process(event, &hit_test)?
         };
-
-        apply_changes(
-            transitions.transitions,
-            instance_manager,
-            &mut presenter.project,
-        )?;
+        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
         // Robustness: Currently we don't check if the only the instance actually changed.
         let command = if let Some(new_focus) = transitions.focus_changed
@@ -147,22 +137,6 @@ impl DesktopInteraction {
 
         Ok(command)
     }
-}
-
-fn apply_changes(
-    changes: Vec<EventTransition<DesktopTarget>>,
-    instance_manager: &InstanceManager,
-    project_presenter: &mut crate::projects::ProjectPresenter,
-) -> Result<()> {
-    for transition in changes {
-        crate::desktop_presenter::forward_event_transition(
-            transition,
-            instance_manager,
-            project_presenter,
-        )?;
-    }
-
-    Ok(())
 }
 
 #[must_use]

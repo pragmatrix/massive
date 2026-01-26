@@ -8,6 +8,8 @@ pub use crate::band_presenter::BandPresenter;
 pub struct InstancePresenter {
     pub state: InstancePresenterState,
     pub panel_size: SizePx,
+    /// The rectangle after layout.
+    pub rect: RectPx,
     /// The center of the instance's panel. This is also the point the camera should look at at
     /// rest.
     pub center_animation: Animated<Vector3>,
@@ -31,6 +33,26 @@ pub struct PrimaryViewPresenter {
 }
 
 impl InstancePresenter {
+    pub fn rect(&self) -> RectPx {
+        self.rect
+    }
+
+    pub fn set_rect(&mut self, rect: RectPx, animate: bool) {
+        self.rect = rect;
+        let translation = (rect.origin.x as f64, rect.origin.y as f64, 0.0).into();
+
+        if animate {
+            self.center_animation.animate_if_changed(
+                translation,
+                BandPresenter::STRUCTURAL_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
+        } else {
+            self.center_animation.set_immediately(translation);
+            self.apply_animations();
+        }
+    }
+
     pub fn apply_animations(&self) {
         let view = match &self.state {
             InstancePresenterState::Presenting { view }
@@ -51,22 +73,5 @@ impl InstancePresenter {
             .value()
             .transform
             .update_if_changed(translation.into());
-    }
-}
-
-impl InstancePresenter {
-    pub fn set_rect(&mut self, rect: RectPx, animate: bool) {
-        let translation = (rect.origin.x as f64, rect.origin.y as f64, 0.0).into();
-
-        if animate {
-            self.center_animation.animate_if_changed(
-                translation,
-                BandPresenter::STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.center_animation.set_immediately(translation);
-            self.apply_animations();
-        }
     }
 }

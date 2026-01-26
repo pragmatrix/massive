@@ -11,12 +11,11 @@ use crate::projects::configuration::{
 mod configuration;
 mod launcher_presenter;
 mod project;
-mod project_interaction;
 mod project_presenter;
 
 pub use configuration::ProjectConfiguration;
 pub use launcher_presenter::LauncherPresenter;
-pub use project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Project};
+pub use project::{GroupId, LaunchProfileId, Project};
 pub use project_presenter::ProjectPresenter;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);

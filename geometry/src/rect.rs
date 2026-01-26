@@ -279,12 +279,3 @@ impl Contains<&Rect> for Rect {
             && self.bottom >= r.bottom
     }
 }
-
-impl<Unit> From<euclid::Rect<f64, Unit>> for Rect {
-    fn from(value: euclid::Rect<f64, Unit>) -> Self {
-        Self::new(
-            (value.origin.x, value.origin.y),
-            (value.size.width, value.size.height),
-        )
-    }
-}

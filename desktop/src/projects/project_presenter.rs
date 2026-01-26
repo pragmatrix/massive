@@ -9,12 +9,10 @@ use log::warn;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewEvent;
-use massive_geometry::{Color, PixelCamera, Rect, SizePx};
-use massive_layout::Layouter;
+use massive_geometry::{Color, Rect, SizePx};
+use massive_layout::{Layout, container, leaf};
 use massive_renderer::text::FontSystem;
-use massive_scene::{
-    Handle, IntoVisual, Location, Object, ToCamera, ToTransform, Transform, Visual,
-};
+use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
@@ -24,7 +22,7 @@ use super::{
 };
 use crate::{
     EventTransition,
-    navigation::{NavigationNode, container},
+    navigation::{self, NavigationNode},
     projects::{Id, STRUCTURAL_ANIMATION_DURATION},
 };
 
@@ -65,7 +63,7 @@ impl ProjectPresenter {
         }
     }
 
-    pub fn handle_event_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
+    pub fn process_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
         match event_transition {
             EventTransition::Directed(focus_path, view_event) => {
                 if let Some(id) = focus_path.last() {
@@ -74,10 +72,10 @@ impl ProjectPresenter {
             }
             EventTransition::Broadcast(view_event) => {
                 for group in self.groups.values_mut() {
-                    group.handle_event(view_event.clone())?;
+                    group.process(view_event.clone())?;
                 }
                 for launcher in self.launchers.values_mut() {
-                    launcher.handle_event(view_event.clone())?;
+                    launcher.process(view_event.clone())?;
                 }
             }
         }
@@ -92,7 +90,7 @@ impl ProjectPresenter {
                 self.groups
                     .get_mut(&group_id)
                     .expect("Internal Error: Missing group")
-                    .handle_event(view_event)?;
+                    .process(view_event)?;
             }
             Id::Launcher(launch_profile_id) => {
                 match view_event {
@@ -136,13 +134,13 @@ impl ProjectPresenter {
                 self.launchers
                     .get_mut(&launch_profile_id)
                     .expect("Internal Error: Missing launcher")
-                    .handle_event(view_event)?;
+                    .process(view_event)?;
             }
         }
         Ok(())
     }
 
-    fn rect_of(&self, id: Id) -> Rect {
+    pub fn rect_of(&self, id: Id) -> Rect {
         match id {
             Id::Group(group_id) => self.groups[&group_id].rect.final_value(),
             Id::Launcher(launch_profile_id) => {
@@ -151,11 +149,17 @@ impl ProjectPresenter {
         }
     }
 
+    pub fn layout(&self, default_panel_size: SizePx) -> Layout<Id, 2> {
+        layout_launch_group(&self.project.root, default_panel_size)
+    }
+
     // Architecture: layout() has to be called before the navigation structure can return anything.
     // Perhaps manifest this in a better constructor.
     pub fn navigation(&self) -> NavigationNode<'_, Id> {
         let rect = self.groups[&self.project.root.id].rect.final_value();
-        container(self.project.root.id, || {
+
+        // Root is a navigation target and treated as a regular group for now.
+        navigation::container(Id::Group(self.project.root.id), || {
             let mut r = Vec::new();
             match &self.project.root.contents {
                 LaunchGroupContents::Groups(launch_groups) => {
@@ -173,7 +177,7 @@ impl ProjectPresenter {
 
     pub fn group_navigation<'a>(&'a self, launch_group: &'a LaunchGroup) -> NavigationNode<'a, Id> {
         let rect = self.groups[&launch_group.id].rect.final_value();
-        container(launch_group.id, || {
+        navigation::container(Id::Group(launch_group.id), || {
             let mut r = Vec::new();
             match &launch_group.contents {
                 LaunchGroupContents::Groups(launch_groups) => {
@@ -264,31 +268,45 @@ impl ProjectPresenter {
             .for_each(|sp| sp.apply_animations());
     }
 
-    pub fn outer_camera(&self) -> PixelCamera {
-        let root_group = self.project.root.id;
-        if let Some(group) = self.groups.get(&root_group) {
-            return group.camera();
-        }
-        Transform::IDENTITY.to_camera()
-    }
+    // pub fn outer_camera(&self) -> PixelCamera {
+    //     let root_group = self.project.root.id;
+    //     if let Some(group) = self.groups.get(&root_group) {
+    //         return group.camera();
+    //     }
+    //     Transform::IDENTITY.to_camera()
+    // }
 }
 
 /// Recursively layout a launch group and its children.
-fn layout_launch_group(layout: &mut Layouter<Id, 2>, group: &LaunchGroup, default_size: SizePx) {
+fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<Id, 2> {
+    let group_id = group.id;
+
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
-            for group in launch_groups {
-                let mut container = layout
-                    .container(Id::Group(group.id), group.layout.axis())
-                    .spacing(10)
-                    .padding([10, 10], [10, 10]);
-                layout_launch_group(&mut container, group, default_size);
+            let mut builder = container(Id::Group(group_id), group.layout.axis())
+                .spacing(10)
+                .padding(10, 10);
+
+            for child_group in launch_groups {
+                let child_layout = layout_launch_group(child_group, default_size);
+                builder.child(child_layout);
             }
+
+            builder.layout()
         }
         LaunchGroupContents::Launchers(launchers) => {
+            let mut builder = container(Id::Group(group_id), group.layout.axis())
+                .spacing(10)
+                .padding(10, 10);
+
             for launcher in launchers {
-                layout.leaf(Id::Launcher(launcher.id), default_size);
+                builder.child(leaf(
+                    Id::Launcher(launcher.id),
+                    [default_size.width, default_size.height],
+                ));
             }
+
+            builder.layout()
         }
     }
 }
@@ -330,7 +348,7 @@ impl GroupPresenter {
         }
     }
 
-    fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
+    fn process(&mut self, _view_event: ViewEvent) -> Result<()> {
         Ok(())
     }
 
@@ -344,14 +362,5 @@ impl GroupPresenter {
         // let rect = self.rect.value();
         // self.background
         //     .update_with(|v| v.shapes = [background_shape(rect, Color::rgb_u32(0x0000ff))].into());
-    }
-
-    fn camera(&self) -> PixelCamera {
-        let rect = self.rect.final_value();
-
-        rect.center()
-            .to_transform()
-            .to_camera()
-            .with_size(rect.size())
     }
 }
