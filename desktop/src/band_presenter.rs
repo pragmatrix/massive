@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::{Result, bail};
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent, ViewId, ViewRole};
-use massive_geometry::{Rect, RectPx};
+use massive_geometry::RectPx;
 use massive_layout::{self as layout, LayoutAxis};
 use massive_scene::Transform;
 use massive_shell::Scene;
@@ -21,6 +21,12 @@ pub struct BandPresenter {
     /// The Instances in order as they take up space in a final configuration. Exiting
     /// instances are not anymore in this list.
     pub ordered: Vec<InstanceId>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BandTarget {
+    Instance(InstanceId),
+    View(ViewId),
 }
 
 impl BandPresenter {
@@ -42,7 +48,7 @@ impl BandPresenter {
         }
 
         let view_presenter = PrimaryViewPresenter {
-            view: view_creation_info.clone(),
+            creation_info: view_creation_info.clone(),
         };
 
         let presenter = InstancePresenter {
@@ -104,7 +110,7 @@ impl BandPresenter {
         match &presenter.state {
             InstancePresenterState::Presenting { view } => {
                 let view = PrimaryViewPresenter {
-                    view: view.view.clone(),
+                    creation_info: view.creation_info.clone(),
                 };
                 presenter.state = InstancePresenterState::Disappearing { view };
             }
@@ -142,7 +148,7 @@ impl BandPresenter {
         instance_presenter.panel_size = view_creation_info.size();
         instance_presenter.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
-                view: view_creation_info.clone(),
+                creation_info: view_creation_info.clone(),
             },
         };
 
@@ -171,14 +177,17 @@ impl BandPresenter {
             .set_rect(rect, animate);
     }
 
-    pub fn navigation(&self) -> NavigationNode<'_, InstanceId> {
+    pub fn navigation(&self) -> NavigationNode<'_, BandTarget> {
         navigation::container(None, || {
             let mut nodes = Vec::new();
 
             for instance_id in &self.ordered {
                 let presenter = &self.instances[instance_id];
-                let rect: Rect = presenter.rect().into();
-                nodes.push(navigation::leaf(*instance_id, rect));
+                let instance_nav = presenter
+                    .navigation()
+                    .map_target(&BandTarget::View)
+                    .with_target(BandTarget::Instance(*instance_id));
+                nodes.push(instance_nav);
             }
 
             nodes

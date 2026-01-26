@@ -1,8 +1,9 @@
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewCreationInfo;
+use massive_applications::{ViewCreationInfo, ViewId};
 use massive_geometry::{RectPx, SizePx, Vector3};
 
 pub use crate::band_presenter::BandPresenter;
+use crate::navigation::{NavigationNode, container, leaf};
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -29,7 +30,7 @@ pub enum InstancePresenterState {
 
 #[derive(Debug)]
 pub struct PrimaryViewPresenter {
-    pub view: ViewCreationInfo,
+    pub creation_info: ViewCreationInfo,
 }
 
 impl InstancePresenter {
@@ -54,11 +55,22 @@ impl InstancePresenter {
         }
     }
 
+    /// This returns a container without an id and contains a leaf with the view id, if there is a
+    /// view. This way the instance can be focused / navigated without focusing the view.
+    pub fn navigation(&self) -> NavigationNode<'_, ViewId> {
+        container(None, || {
+            if let Some(view) = self.state.view() {
+                [leaf(view.creation_info.id, self.rect().into())].into()
+            } else {
+                Vec::new()
+            }
+        })
+        .with_rect(self.rect.into())
+    }
+
     pub fn apply_animations(&self) {
-        let view = match &self.state {
-            InstancePresenterState::Presenting { view }
-            | InstancePresenterState::Disappearing { view } => view,
-            InstancePresenterState::Appearing => return,
+        let Some(view) = self.state.view() else {
+            return;
         };
 
         // Get the translation for the instance.
@@ -66,13 +78,23 @@ impl InstancePresenter {
 
         // And correct the view's position.
         // Since the centering uses i32, we snap to pixel here (what we want!).
-        let center = view.view.extents.center().to_f64();
+        let center = view.creation_info.extents.center().to_f64();
         translation -= Vector3::new(center.x, center.y, 0.0);
 
-        view.view
+        view.creation_info
             .location
             .value()
             .transform
             .update_if_changed(translation.into());
+    }
+}
+
+impl InstancePresenterState {
+    pub fn view(&self) -> Option<&PrimaryViewPresenter> {
+        match self {
+            InstancePresenterState::Appearing => None,
+            InstancePresenterState::Presenting { view } => Some(view),
+            InstancePresenterState::Disappearing { view } => Some(view),
+        }
     }
 }

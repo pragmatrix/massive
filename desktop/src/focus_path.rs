@@ -22,6 +22,13 @@ impl<T> FocusPath<T> {
         self
     }
 
+    pub fn parent(&self) -> Option<Self>
+    where
+        T: Clone,
+    {
+        self.0.split_last().map(|(_, rest)| rest.to_vec().into())
+    }
+
     /// Transition to a new path and return the nested exit / enter sequence.
     #[must_use]
     pub fn transition(&mut self, other: Self) -> Vec<FocusPathTransition<T>>

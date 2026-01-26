@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use derive_more::From;
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
@@ -11,13 +11,14 @@ use massive_renderer::text::FontSystem;
 use massive_scene::{Handle, Location, Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
+use crate::band_presenter::BandTarget;
 use crate::{
     EventTransition,
     band_presenter::BandPresenter,
     focus_path::FocusPath,
     instance_manager::InstanceManager,
     navigation::{NavigationNode, container},
-    projects::{self, Id as ProjectId, Project, ProjectPresenter},
+    projects::{self, Project, ProjectPresenter, ProjectTarget},
 };
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
@@ -28,7 +29,7 @@ pub enum LayoutId {
     Desktop,
     TopBand,
     Instance(InstanceId),
-    Project(projects::Id),
+    Project(ProjectTarget),
 }
 
 /// Architecture: We need "unified" target enums. One that encapsulate the full path, but has parent
@@ -38,9 +39,9 @@ pub enum DesktopTarget {
     // The whole area, covering the top band and
     Desktop,
     TopBand,
-    Instance(InstanceId),
+    Band(BandTarget),
     // The project itself is a group inside the project (not sure yet if this is a good thing)
-    Project(ProjectId),
+    Project(ProjectTarget),
 }
 
 pub type DesktopPath = FocusPath<DesktopTarget>;
@@ -174,7 +175,7 @@ impl DesktopPresenter {
                 // Band navigation instances.
                 self.band
                     .navigation()
-                    .map_target(&DesktopTarget::Instance)
+                    .map_target(&DesktopTarget::Band)
                     .with_target(DesktopTarget::TopBand),
                 // Project navigation.
                 self.project
@@ -196,8 +197,14 @@ impl DesktopPresenter {
                 .center()
                 .to_camera()
                 .with_size(self.top_band_rect.size()),
-            DesktopTarget::Instance(instance_id) => {
+            DesktopTarget::Band(BandTarget::Instance(instance_id)) => {
+                // Architecture: The Band should be responsible for resolving at least the rects, if
+                // not the camera?
                 self.band.instance_transform(*instance_id)?.to_camera()
+            }
+            DesktopTarget::Band(BandTarget::View(..)) => {
+                // Forward this to the parent (which is a BandTarget::Instance).
+                self.camera_for_focus(&focus.parent()?)?
             }
             DesktopTarget::Project(id) => self.project.rect_of(id.clone()).center().to_camera(),
         })
@@ -235,15 +242,14 @@ impl DesktopPresenter {
                         DesktopTarget::TopBand => {
                             band_presenter.process(view_event)?;
                         }
-                        DesktopTarget::Instance(instance) => {
+                        DesktopTarget::Band(BandTarget::Instance(..)) => {
                             // Shouldn't we forward this to the band here?
-
-                            // Send to instance if it has a view
-                            if let Some(view) =
-                                instance_manager.get_view_by_role(*instance, ViewRole::Primary)?
-                            {
-                                instance_manager.send_view_event((*instance, view), view_event)?;
-                            }
+                        }
+                        DesktopTarget::Band(BandTarget::View(view_id)) => {
+                            let Some(instance) = instance_manager.instance_of_view(*view_id) else {
+                                bail!("Internal error: Instance of view {view_id:?} not found");
+                            };
+                            instance_manager.send_view_event((instance, *view_id), view_event)?;
                         }
                         DesktopTarget::Project(project_id) => {
                             // Forward to project presenter
@@ -279,16 +285,20 @@ fn box_to_rect(([x, y], [w, h]): LayoutBox<2>) -> massive_geometry::RectPx {
 
 impl DesktopPath {
     /// Focus the primary view. Currently only on the TopBand.
-    pub fn from_instance(instance: InstanceId) -> Self {
+    pub fn from_instance_and_view(instance: InstanceId, view: impl Into<Option<ViewId>>) -> Self {
         // Ergonomics: what about supporting .join directly on a target?
-        Self::new(DesktopTarget::Desktop)
+        let instance = Self::new(DesktopTarget::Desktop)
             .join(DesktopTarget::TopBand)
-            .join(DesktopTarget::Instance(instance))
+            .join(DesktopTarget::Band(BandTarget::Instance(instance)));
+        let Some(view) = view.into() else {
+            return instance;
+        };
+        instance.join(DesktopTarget::Band(BandTarget::View(view)))
     }
 
     pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| match t {
-            DesktopTarget::Instance(id) => Some(*id),
+            DesktopTarget::Band(BandTarget::Instance(id)) => Some(*id),
             _ => None,
         })
     }

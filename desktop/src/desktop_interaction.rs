@@ -2,7 +2,7 @@ use anyhow::Result;
 use winit::{event::ElementState, keyboard::Key};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::{InstanceId, ViewEvent, ViewRole};
 use massive_geometry::PixelCamera;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
@@ -67,8 +67,8 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
-        // let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-        let focus_path = DesktopPath::from_instance(instance);
+        let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
+        let focus_path = DesktopPath::from_instance_and_view(instance, primary_view);
 
         let transitions = self.event_router.focus(focus_path);
         presenter.forward_event_transitions(transitions.transitions, instance_manager)?;

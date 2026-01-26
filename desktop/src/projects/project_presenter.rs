@@ -23,7 +23,7 @@ use super::{
 use crate::{
     EventTransition,
     navigation::{self, NavigationNode},
-    projects::{Id, STRUCTURAL_ANIMATION_DURATION},
+    projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION},
 };
 
 #[derive(Debug)]
@@ -63,7 +63,10 @@ impl ProjectPresenter {
         }
     }
 
-    pub fn process_transition(&mut self, event_transition: EventTransition<Id>) -> Result<()> {
+    pub fn process_transition(
+        &mut self,
+        event_transition: EventTransition<ProjectTarget>,
+    ) -> Result<()> {
         match event_transition {
             EventTransition::Directed(focus_path, view_event) => {
                 if let Some(id) = focus_path.last() {
@@ -84,15 +87,15 @@ impl ProjectPresenter {
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
-    fn handle_directed_event(&mut self, id: Id, view_event: ViewEvent) -> Result<()> {
+    fn handle_directed_event(&mut self, id: ProjectTarget, view_event: ViewEvent) -> Result<()> {
         match id {
-            Id::Group(group_id) => {
+            ProjectTarget::Group(group_id) => {
                 self.groups
                     .get_mut(&group_id)
                     .expect("Internal Error: Missing group")
                     .process(view_event)?;
             }
-            Id::Launcher(launch_profile_id) => {
+            ProjectTarget::Launcher(launch_profile_id) => {
                 match view_event {
                     ViewEvent::CursorEntered { .. } => {
                         // We do have to do this when the navigation structure already retrieves rects?
@@ -140,26 +143,26 @@ impl ProjectPresenter {
         Ok(())
     }
 
-    pub fn rect_of(&self, id: Id) -> Rect {
+    pub fn rect_of(&self, id: ProjectTarget) -> Rect {
         match id {
-            Id::Group(group_id) => self.groups[&group_id].rect.final_value(),
-            Id::Launcher(launch_profile_id) => {
+            ProjectTarget::Group(group_id) => self.groups[&group_id].rect.final_value(),
+            ProjectTarget::Launcher(launch_profile_id) => {
                 self.launchers[&launch_profile_id].rect.final_value()
             }
         }
     }
 
-    pub fn layout(&self, default_panel_size: SizePx) -> Layout<Id, 2> {
+    pub fn layout(&self, default_panel_size: SizePx) -> Layout<ProjectTarget, 2> {
         layout_launch_group(&self.project.root, default_panel_size)
     }
 
     // Architecture: layout() has to be called before the navigation structure can return anything.
     // Perhaps manifest this in a better constructor.
-    pub fn navigation(&self) -> NavigationNode<'_, Id> {
+    pub fn navigation(&self) -> NavigationNode<'_, ProjectTarget> {
         let rect = self.groups[&self.project.root.id].rect.final_value();
 
         // Root is a navigation target and treated as a regular group for now.
-        navigation::container(Id::Group(self.project.root.id), || {
+        navigation::container(ProjectTarget::Group(self.project.root.id), || {
             let mut r = Vec::new();
             match &self.project.root.contents {
                 LaunchGroupContents::Groups(launch_groups) => {
@@ -175,9 +178,12 @@ impl ProjectPresenter {
         .with_rect(rect)
     }
 
-    pub fn group_navigation<'a>(&'a self, launch_group: &'a LaunchGroup) -> NavigationNode<'a, Id> {
+    pub fn group_navigation<'a>(
+        &'a self,
+        launch_group: &'a LaunchGroup,
+    ) -> NavigationNode<'a, ProjectTarget> {
         let rect = self.groups[&launch_group.id].rect.final_value();
-        navigation::container(Id::Group(launch_group.id), || {
+        navigation::container(ProjectTarget::Group(launch_group.id), || {
             let mut r = Vec::new();
             match &launch_group.contents {
                 LaunchGroupContents::Groups(launch_groups) => {
@@ -200,10 +206,16 @@ impl ProjectPresenter {
     // layout callbacks
     // Ergonomics: Make Scene Clone.
 
-    pub fn set_rect(&mut self, id: Id, rect: Rect, scene: &Scene, font_system: &mut FontSystem) {
+    pub fn set_rect(
+        &mut self,
+        id: ProjectTarget,
+        rect: Rect,
+        scene: &Scene,
+        font_system: &mut FontSystem,
+    ) {
         match id {
-            Id::Group(group_id) => self.set_group_rect(group_id, rect, scene),
-            Id::Launcher(launch_profile_id) => {
+            ProjectTarget::Group(group_id) => self.set_group_rect(group_id, rect, scene),
+            ProjectTarget::Launcher(launch_profile_id) => {
                 self.set_launcher_rect(launch_profile_id, rect, scene, font_system)
             }
         }
@@ -270,12 +282,12 @@ impl ProjectPresenter {
 }
 
 /// Recursively layout a launch group and its children.
-fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<Id, 2> {
+fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<ProjectTarget, 2> {
     let group_id = group.id;
 
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
-            let mut builder = container(Id::Group(group_id), group.layout.axis())
+            let mut builder = container(ProjectTarget::Group(group_id), group.layout.axis())
                 .spacing(10)
                 .padding(10, 10);
 
@@ -287,13 +299,13 @@ fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<Id, 
             builder.layout()
         }
         LaunchGroupContents::Launchers(launchers) => {
-            let mut builder = container(Id::Group(group_id), group.layout.axis())
+            let mut builder = container(ProjectTarget::Group(group_id), group.layout.axis())
                 .spacing(10)
                 .padding(10, 10);
 
             for launcher in launchers {
                 builder.child(leaf(
-                    Id::Launcher(launcher.id),
+                    ProjectTarget::Launcher(launcher.id),
                     [default_size.width, default_size.height],
                 ));
             }

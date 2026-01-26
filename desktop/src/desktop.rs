@@ -82,7 +82,7 @@ impl Desktop {
 
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.
-        let _primary_view = creation_info.id;
+        let primary_view = creation_info.id;
 
         let window = context.new_window(creation_info.size()).await?;
         let renderer = window
@@ -100,7 +100,7 @@ impl Desktop {
         instance_manager.add_view(primary_instance, &creation_info);
 
         let ui = DesktopInteraction::new(
-            DesktopPath::from_instance(primary_instance),
+            DesktopPath::from_instance_and_view(primary_instance, primary_view),
             &instance_manager,
             &mut presenter,
             &scene,

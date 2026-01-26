@@ -21,7 +21,7 @@ pub use project_presenter::ProjectPresenter;
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, From)]
-pub enum Id {
+pub enum ProjectTarget {
     Group(GroupId),
     Launcher(LaunchProfileId),
 }

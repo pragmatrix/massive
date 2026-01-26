@@ -13,7 +13,9 @@ use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Trans
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
-use super::{Id, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile, project::Launcher};
+use super::{
+    ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile, project::Launcher,
+};
 use crate::navigation::{NavigationNode, leaf};
 
 #[derive(Debug)]
@@ -91,7 +93,7 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, Id> {
+    pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, ProjectTarget> {
         leaf(launcher.id, self.rect.final_value())
     }
 
