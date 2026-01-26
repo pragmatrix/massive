@@ -1,9 +1,9 @@
 mod application_registry;
+mod band_presenter;
 pub(crate) mod desktop;
 mod desktop_environment;
 mod desktop_interaction;
 mod desktop_presenter;
-mod band_presenter;
 mod event_router;
 mod focus_path;
 mod instance_manager;
