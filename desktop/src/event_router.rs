@@ -13,7 +13,7 @@ use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::Event;
 
-use crate::focus_path::{FocusPath, FocusPathTransition, FocusPathTransitions};
+use crate::focus_path::{FocusPath, FocusPathTransition};
 
 #[derive(Debug)]
 pub struct EventRouter<T> {
@@ -69,7 +69,7 @@ where
         event_transitions.finalize(self.focused().clone())
     }
 
-    pub fn handle_event(
+    pub fn process(
         &mut self,
         input_event: &Event<ViewEvent>,
         hit_tester: &dyn HitTester<T>,

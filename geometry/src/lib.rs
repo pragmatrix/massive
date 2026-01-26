@@ -100,3 +100,23 @@ impl<U> ToVector3 for euclid::Vector3D<f64, U> {
         (x, y, z).into()
     }
 }
+
+/// Interoperability euclid -> our types.
+pub mod from_euclid {
+    use crate::{Rect, RectPx};
+
+    impl From<RectPx> for Rect {
+        fn from(value: RectPx) -> Self {
+            value.cast::<f64>().into()
+        }
+    }
+
+    impl<Unit> From<euclid::Rect<f64, Unit>> for Rect {
+        fn from(value: euclid::Rect<f64, Unit>) -> Self {
+            Self::new(
+                (value.origin.x, value.origin.y),
+                (value.size.width, value.size.height),
+            )
+        }
+    }
+}

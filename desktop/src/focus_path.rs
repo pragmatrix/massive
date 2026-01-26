@@ -1,9 +1,6 @@
-//! The FocusTree manages a current focus path that points into a focus tree / hierarchy and
-//! provides the necessary event transitions when the focus changes.
-use std::mem;
-
 use derive_more::{Deref, From, Into};
 
+/// A path into a focus tree / hierarchy.
 #[derive(Debug, Clone, PartialEq, Deref, From, Into)]
 pub struct FocusPath<T>(Vec<T>);
 
@@ -20,17 +17,16 @@ impl<T> FocusPath<T> {
         Self([component.into()].into())
     }
 
-    pub fn push(&mut self, component: impl Into<T>) {
-        self.0.push(component.into())
-    }
-
-    pub fn with(mut self, component: impl Into<T>) -> Self {
-        self.push(component.into());
+    pub fn join(mut self, component: impl Into<T>) -> Self {
+        self.0.push(component.into());
         self
     }
 
-    pub fn take(&mut self) -> Self {
-        mem::take(self)
+    pub fn parent(&self) -> Option<Self>
+    where
+        T: Clone,
+    {
+        self.0.split_last().map(|(_, rest)| rest.to_vec().into())
     }
 
     /// Transition to a new path and return the nested exit / enter sequence.
@@ -65,8 +61,6 @@ impl<T> FocusPath<T> {
         transitions
     }
 }
-
-pub type FocusPathTransitions<T> = Vec<FocusPathTransition<T>>;
 
 #[derive(Debug)]
 pub enum FocusPathTransition<T> {

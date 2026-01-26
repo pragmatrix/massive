@@ -1,108 +1,97 @@
-use std::{collections::HashMap, time::Duration};
+use std::time::Duration;
 
 use anyhow::{Result, bail};
+use derive_more::From;
 
-use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{RectPx, SizePx, Vector3};
-use massive_layout::{LayoutInfo, LayoutNode, layout};
-use massive_scene::Transform;
+use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
+use massive_geometry::{PixelCamera, PointPx, Rect, SizePx};
+use massive_layout as layout;
+use massive_layout::{Box as LayoutBox, LayoutAxis};
+use massive_renderer::text::FontSystem;
+use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-#[derive(Debug, Default)]
-/// Manages the presentation of the desktop's user interface.
+use crate::band_presenter::BandTarget;
+use crate::{
+    EventTransition,
+    band_presenter::BandPresenter,
+    focus_path::FocusPath,
+    instance_manager::InstanceManager,
+    navigation::{NavigationNode, container},
+    projects::{Project, ProjectPresenter, ProjectTarget},
+};
+
+pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+const SECTION_SPACING: u32 = 20;
+
+#[derive(Debug, Clone, PartialEq, From)]
+pub enum LayoutId {
+    Desktop,
+    TopBand,
+    Instance(InstanceId),
+    Project(ProjectTarget),
+}
+
+/// Architecture: We need "unified" target enums. One that encapsulate the full path, but has parent
+/// / add_nested or something like that trait implementations?
+#[derive(Debug, Clone, PartialEq, From)]
+pub enum DesktopTarget {
+    // The whole area, covering the top band and
+    Desktop,
+    TopBand,
+    Band(BandTarget),
+    // The project itself is a group inside the project (not sure yet if this is a good thing)
+    Project(ProjectTarget),
+}
+
+pub type DesktopPath = FocusPath<DesktopTarget>;
+
+/// Manages the presentation of the desktop, combining the band (instances) and projects
+/// with unified vertical layout.
+#[derive(Debug)]
 pub struct DesktopPresenter {
-    instances: HashMap<InstanceId, InstancePresenter>,
-    /// The Instances in order as they take up space in a final configuration. Exiting
-    /// instances are not anymore in this list.
-    ordered: Vec<InstanceId>,
+    pub band: BandPresenter,
+    pub project: ProjectPresenter,
+
+    rect: Rect,
+    top_band_rect: Rect,
 }
 
 impl DesktopPresenter {
-    pub const INSTANCE_TRANSITION_DURATION: Duration = Duration::from_millis(500);
-    /// Present the primary instance and its primary role view.
-    ///
-    /// For now this can not be done by separately presenting an instance and a view because we
-    /// don't support creating an instance with an undefined panel size.
-    ///
-    /// This is also only possible if there are no other instances yet present.
+    pub fn new(project: Project, scene: &Scene) -> Self {
+        let location = Transform::IDENTITY.enter(scene).to_location().enter(scene);
+        let project_presenter = ProjectPresenter::new(project, location.clone(), scene);
+
+        Self {
+            band: BandPresenter::default(),
+            project: project_presenter,
+            // Ergonomics: We need to push the layout results somewhere outside of the presenters.
+            // Perhaps a `HashMap<LayoutId, Rect>` or so?
+            rect: Rect::ZERO,
+            top_band_rect: Rect::ZERO,
+        }
+    }
+
+    // BandPresenter delegation
+
     pub fn present_primary_instance(
         &mut self,
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
     ) -> Result<()> {
-        if !self.instances.is_empty() {
-            bail!("Primary instance is already presenting");
-        }
-
-        let view_presenter = PrimaryViewPresenter {
-            view: view_creation_info.clone(),
-        };
-
-        let presenter = InstancePresenter {
-            state: InstancePresenterState::Appearing,
-            panel_size: view_creation_info.size(),
-            center_animation: scene.animated(Default::default()),
-            view: Some(view_presenter),
-        };
-
-        self.instances.insert(instance, presenter);
-        self.ordered.push(instance);
-
-        Ok(())
+        self.band
+            .present_primary_instance(instance, view_creation_info, scene)
     }
 
-    /// Present an instance originating from another.
     pub fn present_instance(
         &mut self,
         instance: InstanceId,
         originating_from: InstanceId,
         scene: &Scene,
     ) -> Result<()> {
-        let Some(originating_presenter) = self.instances.get(&originating_from) else {
-            bail!("Originating presenter does not exist");
-        };
-
-        let presenter = InstancePresenter {
-            state: InstancePresenterState::Appearing,
-            panel_size: originating_presenter.panel_size,
-            center_animation: scene.animated(originating_presenter.center_animation.value()),
-            view: None,
-        };
-
-        if self.instances.insert(instance, presenter).is_some() {
-            bail!("Instance already presented");
-        }
-
-        let pos = self
-            .ordered
-            .iter()
-            .position(|i| *i == originating_from)
-            .map(|i| i + 1)
-            .unwrap_or(self.ordered.len());
-
-        // Even though it's not yet visible, make place for it.
-        self.ordered.insert(pos, instance);
-
-        Ok(())
-    }
-
-    #[allow(unused)]
-    pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
-        let Some(presenter) = self.instances.get_mut(&instance) else {
-            bail!("Instance not found");
-        };
-
-        if presenter.state != InstancePresenterState::Disappearing {
-            presenter.state = InstancePresenterState::Disappearing;
-        } else {
-            bail!("Instance is already disappearing")
-        }
-
-        self.ordered.retain(|i| *i != instance);
-
-        Ok(())
+        self.band
+            .present_instance(instance, originating_from, scene)
     }
 
     pub fn present_view(
@@ -110,144 +99,203 @@ impl DesktopPresenter {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
     ) -> Result<()> {
-        if view_creation_info.role != ViewRole::Primary {
-            todo!("Only primary views are supported yet");
+        self.band.present_view(instance, view_creation_info)
+    }
+
+    pub fn hide_view(&mut self, id: ViewId) -> Result<()> {
+        self.band.hide_view(id)
+    }
+
+    // Unified Layout
+
+    /// Compute the unified vertical layout for band (top) and projects (bottom).
+    pub fn layout(
+        &mut self,
+        default_panel_size: SizePx,
+        animate: bool,
+        scene: &Scene,
+        font_system: &mut FontSystem,
+    ) {
+        let mut root_builder =
+            layout::container(LayoutId::Desktop, LayoutAxis::VERTICAL).spacing(SECTION_SPACING);
+
+        // Band section (instances layouted horizontally)
+        root_builder.child(
+            self.band
+                .layout()
+                .map_id(LayoutId::Instance)
+                .with_id(LayoutId::TopBand),
+        );
+
+        // Project section
+        {
+            let project_layout = self
+                .project
+                .layout(default_panel_size)
+                .map_id(LayoutId::Project);
+            root_builder.child(project_layout);
         }
 
-        let Some(instance_presenter) = self.instances.get_mut(&instance) else {
-            bail!("Instance not found");
-        };
+        root_builder
+            .layout()
+            .place_inline(PointPx::origin(), |(id, rect)| {
+                let rect_px = box_to_rect(rect);
+                match id {
+                    LayoutId::Desktop => {
+                        self.rect = rect_px.into();
+                    }
+                    LayoutId::TopBand => {
+                        self.top_band_rect = rect_px.into();
+                    }
+                    LayoutId::Instance(instance_id) => {
+                        self.band.set_instance_rect(instance_id, rect_px, animate);
+                    }
+                    LayoutId::Project(project_id) => {
+                        self.project
+                            .set_rect(project_id, rect_px.into(), scene, font_system);
+                    }
+                }
+            });
+    }
 
-        if instance_presenter.state != InstancePresenterState::Appearing {
-            bail!("Primary view is already presenting");
+    pub fn apply_animations(&mut self) {
+        self.band.apply_animations();
+        self.project.apply_animations();
+    }
+
+    // Navigation
+
+    pub fn navigation<'a>(&'a self) -> NavigationNode<'a, DesktopTarget> {
+        container(DesktopTarget::Desktop, || {
+            [
+                // Band navigation instances.
+                self.band
+                    .navigation()
+                    .map_target(&DesktopTarget::Band)
+                    .with_target(DesktopTarget::TopBand),
+                // Project navigation.
+                self.project
+                    .navigation()
+                    .map_target(&DesktopTarget::Project),
+            ]
+            .into()
+        })
+    }
+
+    // Camera
+
+    pub fn camera_for_focus(&self, focus: &DesktopPath) -> Option<PixelCamera> {
+        Some(match focus.last()? {
+            // Desktop and TopBand are constrained to their size.
+            DesktopTarget::Desktop => self.rect.center().to_camera().with_size(self.rect.size()),
+            DesktopTarget::TopBand => self
+                .top_band_rect
+                .center()
+                .to_camera()
+                .with_size(self.top_band_rect.size()),
+            DesktopTarget::Band(BandTarget::Instance(instance_id)) => {
+                // Architecture: The Band should be responsible for resolving at least the rects, if
+                // not the camera?
+                self.band.instance_transform(*instance_id)?.to_camera()
+            }
+            DesktopTarget::Band(BandTarget::View(..)) => {
+                // Forward this to the parent (which is a BandTarget::Instance).
+                self.camera_for_focus(&focus.parent()?)?
+            }
+            DesktopTarget::Project(id) => self.project.rect_of(id.clone()).center().to_camera(),
+        })
+    }
+
+    // Event forwarding Architecture: This also seems to be wrong here. Used from the
+    // DesktopInteraction, DesktopInteraction should probably own DesktopPresenter?
+
+    pub fn forward_event_transitions(
+        &mut self,
+        // Don't use EventTransitions here for now, it contains more information than we need.
+        transitions: Vec<EventTransition<DesktopTarget>>,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
+        for transition in transitions {
+            self.forward_event_transition(transition, instance_manager)?;
         }
-
-        // Feature: Add a alpha animation just for the view.
-        instance_presenter.panel_size = view_creation_info.size();
-        instance_presenter.view = Some(PrimaryViewPresenter {
-            view: view_creation_info.clone(),
-        });
-        instance_presenter.state = InstancePresenterState::Presenting;
-
         Ok(())
     }
 
-    pub fn hide_view(&mut self, _id: ViewId) -> Result<()> {
-        bail!("Hiding views is not supported yet");
-    }
-
-    /// Compute the current layout and animate the views to their positions.
-    pub fn layout(&mut self, animate: bool) {
-        layout(self, &mut LayoutContext { animate });
-    }
-
-    pub fn apply_animations(&self) {
-        self.instances.values().for_each(|p| p.apply_animations());
-    }
-
-    /// Return the primary's view's (final) transform.
-    ///
-    /// It's view might not yet visible.
-    ///
-    /// `None` if the instance does not exist.
-    pub fn instance_transform(&self, instance: InstanceId) -> Option<Transform> {
-        self.instances
-            .get(&instance)
-            .map(|instance| instance.center_animation.final_value().into())
-    }
-}
-
-#[derive(Debug)]
-struct InstancePresenter {
-    state: InstancePresenterState,
-    // The size of the panel. Including borders.
-    panel_size: SizePx,
-    /// The center of the instance's panel. This is also the point the camera should look at at
-    /// rest.
-    center_animation: Animated<Vector3>,
-    // The primary view inside the panel.
-    view: Option<PrimaryViewPresenter>,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-enum InstancePresenterState {
-    /// No view yet, or just appearing, animating in.
-    Appearing,
-    Presenting,
-    Disappearing,
-}
-
-#[derive(Debug)]
-struct PrimaryViewPresenter {
-    view: ViewCreationInfo,
-}
-
-impl InstancePresenter {
-    pub fn apply_animations(&self) {
-        let Some(view) = &self.view else {
-            return;
-        };
-
-        // Get the translation for the instance.
-        let mut translation = self.center_animation.value();
-
-        // And correct the view's position.
-        // Since the centering uses i32, we snap to pixel here (what we want!).
-        let center = view.view.extents.center().to_f64();
-        translation -= Vector3::new(center.x, center.y, 0.0);
-
-        view.view
-            .location
-            .value()
-            .transform
-            .update_if_changed(translation.into());
-    }
-}
-
-// layout
-
-#[derive(Debug)]
-struct LayoutContext {
-    animate: bool,
-}
-
-impl LayoutNode<LayoutContext> for DesktopPresenter {
-    type Rect = RectPx;
-
-    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
-        LayoutInfo::container(self.ordered.len())
-    }
-
-    fn get_child_mut(
+    /// Forward event transitions to the appropriate handler based on the target type.
+    pub fn forward_event_transition(
         &mut self,
-        index: usize,
-    ) -> &mut dyn LayoutNode<LayoutContext, Rect = Self::Rect> {
-        let instance = self.ordered[index];
-        self.instances
-            .get_mut(&instance)
-            .expect("Internal error: Order table does not match the instance map")
+        transition: EventTransition<DesktopTarget>,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
+        let band_presenter = &self.band;
+        let project_presenter = &mut self.project;
+        match transition {
+            EventTransition::Directed(focus_path, view_event) => {
+                // Route to the appropriate handler based on the last target in the path
+                if let Some(target) = focus_path.last() {
+                    match target {
+                        DesktopTarget::Desktop => {}
+                        DesktopTarget::TopBand => {
+                            band_presenter.process(view_event)?;
+                        }
+                        DesktopTarget::Band(BandTarget::Instance(..)) => {
+                            // Shouldn't we forward this to the band here?
+                        }
+                        DesktopTarget::Band(BandTarget::View(view_id)) => {
+                            let Some(instance) = instance_manager.instance_of_view(*view_id) else {
+                                bail!("Internal error: Instance of view {view_id:?} not found");
+                            };
+                            instance_manager.send_view_event((instance, *view_id), view_event)?;
+                        }
+                        DesktopTarget::Project(project_id) => {
+                            // Forward to project presenter
+                            let project_transition = EventTransition::Directed(
+                                vec![project_id.clone()].into(),
+                                view_event,
+                            );
+                            project_presenter.process_transition(project_transition)?;
+                        }
+                    }
+                }
+            }
+            EventTransition::Broadcast(view_event) => {
+                // Broadcast to all views in instance manager
+                for (view_path, _) in instance_manager.views() {
+                    instance_manager.send_view_event(view_path, view_event.clone())?;
+                }
+
+                // Also broadcast to project presenter
+                let project_transition = EventTransition::Broadcast(view_event);
+                project_presenter.process_transition(project_transition)?;
+            }
+        }
+        Ok(())
     }
 }
 
-impl LayoutNode<LayoutContext> for InstancePresenter {
-    type Rect = RectPx;
+fn box_to_rect(([x, y], [w, h]): LayoutBox<2>) -> massive_geometry::RectPx {
+    massive_geometry::RectPx::new((x, y).into(), (w as i32, h as i32).into())
+}
 
-    fn layout_info(&self, _context: &LayoutContext) -> LayoutInfo<SizePx> {
-        self.panel_size.into()
+// Path utilities
+
+impl DesktopPath {
+    /// Focus the primary view. Currently only on the TopBand.
+    pub fn from_instance_and_view(instance: InstanceId, view: impl Into<Option<ViewId>>) -> Self {
+        // Ergonomics: what about supporting .join directly on a target?
+        let instance = Self::new(DesktopTarget::Desktop)
+            .join(DesktopTarget::TopBand)
+            .join(DesktopTarget::Band(BandTarget::Instance(instance)));
+        let Some(view) = view.into() else {
+            return instance;
+        };
+        instance.join(DesktopTarget::Band(BandTarget::View(view)))
     }
 
-    fn set_rect(&mut self, rect: Self::Rect, context: &mut LayoutContext) {
-        let translation = (rect.origin.x as f64, rect.origin.y as f64, 0.0).into();
-
-        if context.animate {
-            self.center_animation.animate_if_changed(
-                translation,
-                DesktopPresenter::INSTANCE_TRANSITION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.center_animation.set_immediately(translation);
-            self.apply_animations();
-        }
+    pub fn instance(&self) -> Option<InstanceId> {
+        self.iter().rev().find_map(|t| match t {
+            DesktopTarget::Band(BandTarget::Instance(id)) => Some(*id),
+            _ => None,
+        })
     }
 }

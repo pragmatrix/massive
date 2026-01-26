@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 use log::warn;
@@ -13,14 +13,16 @@ use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Trans
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
-use super::{Id, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile, project::Launcher};
+use super::{
+    ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile, project::Launcher,
+};
 use crate::navigation::{NavigationNode, leaf};
 
 #[derive(Debug)]
 pub struct LauncherPresenter {
     profile: LaunchProfile,
     transform: Handle<Transform>,
-    location: Handle<Location>,
+    // location: Handle<Location>,
     pub rect: Animated<Rect>,
 
     background: Handle<Visual>,
@@ -28,8 +30,7 @@ pub struct LauncherPresenter {
 
     // name_rect: Animated<Box>,
     // The text, either centered, or on top of the border.
-    name: Handle<Visual>,
-
+    _name: Handle<Visual>,
     /// Architecture: We don't want a history per presenter. What we want is a global one, but one
     /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
     /// account.
@@ -83,19 +84,19 @@ impl LauncherPresenter {
         Self {
             profile,
             transform: our_transform,
-            location: parent_location,
+            // location: parent_location,
             rect: scene.animated(rect),
             background,
-            name,
+            _name: name,
             events: EventManager::default(),
         }
     }
 
-    pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, Id> {
+    pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, ProjectTarget> {
         leaf(launcher.id, self.rect.final_value())
     }
 
-    pub fn handle_event(&mut self, view_event: ViewEvent) -> Result<()> {
+    pub fn process(&mut self, view_event: ViewEvent) -> Result<()> {
         // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
         // arbitrary hierarchies? May be the EventManager directly defines the scope id?
         // Ergonomics: Create a fluent constructor for events with Scope?

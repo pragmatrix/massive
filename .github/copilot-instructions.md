@@ -22,7 +22,7 @@ Update it whenever you learn something new about the project's patterns, convent
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
-- Add or update tests when modifying behavior.
+- Don't add tests unless explicitly asked.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - In tests: place test functions before helpers, create concise constructor helpers to reduce verbosity, prefer static data structures, and use helper functions for common value construction patterns.
@@ -42,5 +42,6 @@ Update it whenever you learn something new about the project's patterns, convent
 - When unsure, ask clarifying questions before making assumptions.
 
 ## Documentation
+- Don't add documentation with examples unless explicitly asked.
 - Markdown documentation updates to existing files are fine.
 - Ask before creating new Markdown documentation files.

@@ -4,29 +4,24 @@ use anyhow::{Context, Result};
 use derive_more::From;
 use log::warn;
 
-use crate::projects::{
-    configuration::{
-        GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, Parameters, ScopedTag,
-    },
-    project::{GroupId, LaunchProfileId},
+use crate::projects::configuration::{
+    GroupContents, LaunchProfile, LayoutDirection, Parameters, ScopedTag,
 };
 
 mod configuration;
 mod launcher_presenter;
 mod project;
-mod project_interaction;
 mod project_presenter;
 
 pub use configuration::ProjectConfiguration;
 pub use launcher_presenter::LauncherPresenter;
-pub use project::Project;
-pub use project_interaction::ProjectInteraction;
+pub use project::{GroupId, LaunchProfileId, Project};
 pub use project_presenter::ProjectPresenter;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, PartialEq, From)]
-pub enum Id {
+pub enum ProjectTarget {
     Group(GroupId),
     Launcher(LaunchProfileId),
 }
@@ -64,7 +59,7 @@ impl Default for ProjectConfiguration {
 
         ProjectConfiguration {
             startup: Some(DEFAULT_PROFILE.into()),
-            root: LaunchGroup {
+            root: configuration::LaunchGroup {
                 name: "/".into(),
                 tag: ScopedTag::new("", ""),
                 layout: LayoutDirection::Horizontal,

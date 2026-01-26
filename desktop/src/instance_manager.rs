@@ -222,6 +222,13 @@ impl InstanceManager {
             .map(|(id, _)| *id))
     }
 
+    pub fn instance_of_view(&self, id: ViewId) -> Option<InstanceId> {
+        self.instances
+            .iter()
+            .find(|(_, instance)| instance.views.contains_key(&id))
+            .map(|(iid, _)| *iid)
+    }
+
     pub fn get_application_name(&self, instance: InstanceId) -> Result<&str> {
         self.get_instance(instance)
             .map(|ri| ri.application_name.as_str())

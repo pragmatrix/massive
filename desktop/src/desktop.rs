@@ -10,27 +10,24 @@ use massive_applications::{
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
-use massive_scene::{Object, ToLocation, Transform};
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::projects::{Project, ProjectInteraction, ProjectPresenter};
+use crate::desktop_presenter::DesktopPath;
+use crate::projects::Project;
 use crate::{
-    DesktopCommand, DesktopEnvironment, DesktopInteraction,
-    desktop_presenter::DesktopPresenter,
+    DesktopCommand, DesktopEnvironment, DesktopInteraction, DesktopPresenter,
     instance_manager::{InstanceManager, ViewPath},
     projects::ProjectConfiguration,
 };
 
 #[derive(Debug)]
 pub struct Desktop {
-    ui: DesktopInteraction,
+    interaction: DesktopInteraction,
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
     presenter: DesktopPresenter,
-    project_presenter: ProjectPresenter,
-    project_interaction: ProjectInteraction,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -38,6 +35,7 @@ pub struct Desktop {
     instance_commands: UnboundedReceiver<(InstanceId, InstanceCommand)>,
     context: ApplicationContext,
     env: DesktopEnvironment,
+    fonts: FontManager,
 }
 
 impl Desktop {
@@ -51,8 +49,11 @@ impl Desktop {
         // Create the font manager - shared between desktop and instances
         let fonts = FontManager::system();
 
+        // Create scene early for presenter initialization
+        let scene = context.new_scene();
+
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
-        let mut presenter = DesktopPresenter::default();
+        let mut presenter = DesktopPresenter::new(project, &scene);
         let environment = InstanceEnvironment::new(
             requests_tx,
             context.primary_monitor_scale_factor(),
@@ -78,6 +79,9 @@ impl Desktop {
         else {
             bail!("Did not or received an unexpected request from the application");
         };
+
+        // Currently we can't target views directly, the focus system is targeting only instances
+        // and their primary view.
         let primary_view = creation_info.id;
 
         let window = context.new_window(creation_info.size()).await?;
@@ -89,42 +93,31 @@ impl Desktop {
             .build()
             .await?;
 
-        let scene = context.new_scene();
-
-        // project presenter
-        let location = Transform::IDENTITY
-            .enter(&scene)
-            .to_location()
-            .enter(&scene);
-        let mut project_presenter = ProjectPresenter::new(project, location, &scene);
-        project_presenter.layout(creation_info.size(), &scene, &mut fonts.lock());
-        let project_interaction = ProjectInteraction::default();
-
         // Initial setup
 
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
-        presenter.layout(false);
+        presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
         instance_manager.add_view(primary_instance, &creation_info);
+
         let ui = DesktopInteraction::new(
-            (primary_instance, primary_view).into(),
+            DesktopPath::from_instance_and_view(primary_instance, primary_view),
             &instance_manager,
-            &presenter,
+            &mut presenter,
             &scene,
         )?;
 
         Ok(Self {
-            ui,
+            interaction: ui,
             scene,
             renderer,
             window,
             event_manager,
             instance_manager,
             presenter,
-            project_presenter,
-            project_interaction,
             instance_commands: requests_rx,
             context,
             env,
+            fonts,
         })
     }
 
@@ -140,24 +133,17 @@ impl Desktop {
 
                     match event {
                         ShellEvent::WindowEvent(_window_id, window_event) => {
-                            // Process through EventManager and convert to view event immediately.
                             if let Some(view_event) = ViewEvent::from_window_event(&window_event)
-                                // Use a nil ViewId as a global scope for raw window events; the UI
-                                // routing logic treats this as a non-specific view identifier.
                                 && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-                                let transitions = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry())?;
-                                for transition in transitions {
-                                    self.project_presenter.handle_event_transition(transition)?;
-                                }
-
-                                // let cmd = self.ui.handle_input_event(
-                                //     &input_event,
-                                //     &self.instance_manager,
-                                //     self.renderer.geometry(),
-                                // )?;
-                                // self.handle_ui_command(cmd)?;
+                               let cmd = self.interaction.process_input_event(
+                                    &input_event,
+                                    &self.instance_manager,
+                                    &mut self.presenter,
+                                    self.renderer.geometry(),
+                                )?;
+                                self.process_command(cmd)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -166,7 +152,6 @@ impl Desktop {
                             // Performance: Not every instance needs that, only the ones animating.
                             self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
                             self.presenter.apply_animations();
-                            self.project_presenter.apply_animations();
                         }
                     }
                 }
@@ -187,8 +172,7 @@ impl Desktop {
                 }
             }
 
-            // let camera = self.ui.camera();
-            let camera = self.project_presenter.outer_camera();
+            let camera = self.interaction.camera();
             let mut frame = self.scene.begin_frame().with_camera(camera);
             if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                 frame = frame.with_pacing(RenderPacing::Smooth);
@@ -197,7 +181,7 @@ impl Desktop {
         }
     }
 
-    fn handle_ui_command(&mut self, cmd: DesktopCommand) -> Result<()> {
+    fn process_command(&mut self, cmd: DesktopCommand) -> Result<()> {
         match cmd {
             DesktopCommand::None => {}
             DesktopCommand::StartInstance {
@@ -215,13 +199,27 @@ impl Desktop {
                     .spawn(application, CreationMode::New)?;
                 self.presenter
                     .present_instance(instance, originating_instance, &self.scene)?;
-                self.ui
-                    .make_foreground(instance, &self.instance_manager, &self.presenter)?;
-                self.presenter.layout(true);
+                self.interaction.make_foreground(
+                    instance,
+                    &self.instance_manager,
+                    &mut self.presenter,
+                )?;
+                // Get default size from the first view or use a default
+                let default_size = self
+                    .instance_manager
+                    .views()
+                    .next()
+                    .map(|(_, info)| info.extents.size().cast())
+                    .unwrap_or((800u32, 600u32).into());
+                self.presenter
+                    .layout(default_size, true, &self.scene, &mut self.fonts.lock());
             }
             DesktopCommand::MakeForeground { instance } => {
-                self.ui
-                    .make_foreground(instance, &self.instance_manager, &self.presenter)?;
+                self.interaction.make_foreground(
+                    instance,
+                    &self.instance_manager,
+                    &mut self.presenter,
+                )?;
             }
             DesktopCommand::StopInstance { instance } => self.instance_manager.stop(instance)?,
         }
@@ -240,9 +238,14 @@ impl Desktop {
                 self.presenter.present_view(instance, &info)?;
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if self.ui.focused_instance() == Some(instance) && info.role == ViewRole::Primary {
-                    self.ui
-                        .make_foreground(instance, &self.instance_manager, &self.presenter)?;
+                if self.interaction.focused_instance() == Some(instance)
+                    && info.role == ViewRole::Primary
+                {
+                    self.interaction.make_foreground(
+                        instance,
+                        &self.instance_manager,
+                        &mut self.presenter,
+                    )?;
                 }
             }
             InstanceCommand::DestroyView(id) => {
