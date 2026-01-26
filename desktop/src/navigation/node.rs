@@ -213,6 +213,7 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                     current_path.push(id.clone());
                 }
                 for child in nested() {
+                    // Research: Shouldn't screen_pos be transformed?
                     self.collect_hits(screen_pos, &child, combined, hits, current_path.clone());
                 }
             }

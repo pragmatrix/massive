@@ -171,7 +171,6 @@ impl BandPresenter {
             .set_rect(rect, animate);
     }
 
-    // For now we do only allow navigation to instances directly.
     pub fn navigation(&self) -> NavigationNode<'_, InstanceId> {
         navigation::container(None, || {
             let mut nodes = Vec::new();
