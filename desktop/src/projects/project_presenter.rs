@@ -267,14 +267,6 @@ impl ProjectPresenter {
             .values_mut()
             .for_each(|sp| sp.apply_animations());
     }
-
-    // pub fn outer_camera(&self) -> PixelCamera {
-    //     let root_group = self.project.root.id;
-    //     if let Some(group) = self.groups.get(&root_group) {
-    //         return group.camera();
-    //     }
-    //     Transform::IDENTITY.to_camera()
-    // }
 }
 
 /// Recursively layout a launch group and its children.

@@ -133,20 +133,11 @@ impl Desktop {
 
                     match event {
                         ShellEvent::WindowEvent(_window_id, window_event) => {
-                            // Process through EventManager and convert to view event immediately.
                             if let Some(view_event) = ViewEvent::from_window_event(&window_event)
-                                // Use a nil ViewId as a global scope for raw window events; the UI
-                                // routing logic treats this as a non-specific view identifier.
                                 && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-
-                                // let transitions = self.project_interaction.handle_input_event(&input_event, self.project_presenter.navigation(), self.renderer.geometry())?;
-                                // for transition in transitions {
-                                //     self.project_presenter.process_transition(transition)?;
-                                // }
-
-                                let cmd = self.interaction.process_input_event(
+                               let cmd = self.interaction.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
                                     &mut self.presenter,
@@ -182,7 +173,6 @@ impl Desktop {
             }
 
             let camera = self.interaction.camera();
-            // let camera = self.project_presenter.outer_camera();
             let mut frame = self.scene.begin_frame().with_camera(camera);
             if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                 frame = frame.with_pacing(RenderPacing::Smooth);

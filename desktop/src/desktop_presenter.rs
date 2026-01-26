@@ -275,7 +275,7 @@ fn box_to_rect(([x, y], [w, h]): LayoutBox<2>) -> massive_geometry::RectPx {
     massive_geometry::RectPx::new((x, y).into(), (w as i32, h as i32).into())
 }
 
-// Focus path utilities
+// Path utilities
 
 impl DesktopPath {
     /// Focus the primary view. Currently only on the TopBand.
@@ -292,43 +292,4 @@ impl DesktopPath {
             _ => None,
         })
     }
-
-    // pub fn view_path(&self) -> Option<ViewPath> {
-    //     let mut instance = None;
-    //     let mut view = None;
-
-    //     for target in self.iter() {
-    //         match target {
-    //             DesktopTarget::Band(BandTarget::Instance(id)) => instance = Some(*id),
-    //             DesktopTarget::Band(BandTarget::View(id)) => view = Some(*id),
-    //             _ => {}
-    //         }
-    //     }
-
-    //     match (instance, view) {
-    //         (Some(inst), Some(v)) => Some((inst, v).into()),
-    //         _ => None,
-    //     }
-    // }
 }
-
-//impl From<ViewPath> for DesktopFocusPath {
-// fn from(view_path: ViewPath) -> Self {
-//     let (instance, view) = view_path.into();
-//     vec![
-//         DesktopTarget::Band(BandTarget::Instance(instance)),
-//         DesktopTarget::Band(BandTarget::View(view)),
-//     ]
-//     .into()
-// }
-//}
-
-// impl From<(InstanceId, Option<ViewId>)> for DesktopFocusPath {
-//     fn from((instance, view): (InstanceId, Option<ViewId>)) -> Self {
-//         let mut path = vec![DesktopTarget::Band(BandTarget::Instance(instance))];
-//         if let Some(view) = view {
-//             path.push(DesktopTarget::Band(BandTarget::View(view)));
-//         }
-//         path.into()
-//     }
-// }
