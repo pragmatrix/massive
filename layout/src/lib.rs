@@ -1,11 +1,10 @@
 use derive_more::{Deref, From, Into};
 
-mod dimensional;
 mod dimensional_types;
 mod layouter;
 
-pub use layouter::{BoxComponents as Box, Layout, ContainerBuilder, leaf, container};
-pub use dimensional_types::{Thickness, Size, Offset};
+pub use dimensional_types::{Offset, Size, Thickness};
+pub use layouter::{BoxComponents as Box, ContainerBuilder, Layout, container, leaf};
 #[derive(Debug, Copy, Clone, From, Into, Deref, Default)]
 pub struct LayoutAxis(usize);
 

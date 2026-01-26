@@ -22,7 +22,7 @@ use crate::navigation::{NavigationNode, leaf};
 pub struct LauncherPresenter {
     profile: LaunchProfile,
     transform: Handle<Transform>,
-    location: Handle<Location>,
+    // location: Handle<Location>,
     pub rect: Animated<Rect>,
 
     background: Handle<Visual>,
@@ -30,8 +30,7 @@ pub struct LauncherPresenter {
 
     // name_rect: Animated<Box>,
     // The text, either centered, or on top of the border.
-    name: Handle<Visual>,
-
+    _name: Handle<Visual>,
     /// Architecture: We don't want a history per presenter. What we want is a global one, but one
     /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
     /// account.
@@ -85,10 +84,10 @@ impl LauncherPresenter {
         Self {
             profile,
             transform: our_transform,
-            location: parent_location,
+            // location: parent_location,
             rect: scene.animated(rect),
             background,
-            name,
+            _name: name,
             events: EventManager::default(),
         }
     }

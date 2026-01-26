@@ -3,12 +3,12 @@ use std::time::Duration;
 use anyhow::{Result, bail};
 use derive_more::From;
 
-use massive_applications::{InstanceId, ViewCreationInfo, ViewId, ViewRole};
+use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, SizePx};
 use massive_layout as layout;
 use massive_layout::{Box as LayoutBox, LayoutAxis};
 use massive_renderer::text::FontSystem;
-use massive_scene::{Handle, Location, Object, ToCamera, ToLocation, Transform};
+use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
 use crate::band_presenter::BandTarget;
@@ -18,7 +18,7 @@ use crate::{
     focus_path::FocusPath,
     instance_manager::InstanceManager,
     navigation::{NavigationNode, container},
-    projects::{self, Project, ProjectPresenter, ProjectTarget},
+    projects::{Project, ProjectPresenter, ProjectTarget},
 };
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
@@ -53,9 +53,6 @@ pub struct DesktopPresenter {
     pub band: BandPresenter,
     pub project: ProjectPresenter,
 
-    /// The root location for the desktop layout.
-    location: Handle<Location>,
-
     rect: Rect,
     top_band_rect: Rect,
 }
@@ -68,7 +65,6 @@ impl DesktopPresenter {
         Self {
             band: BandPresenter::default(),
             project: project_presenter,
-            location,
             // Ergonomics: We need to push the layout results somewhere outside of the presenters.
             // Perhaps a `HashMap<LayoutId, Rect>` or so?
             rect: Rect::ZERO,

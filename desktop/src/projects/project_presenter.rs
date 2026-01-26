@@ -332,21 +332,21 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
 #[derive(Debug)]
 struct GroupPresenter {
     // Ergonomics: Use just Location.
-    location: Handle<Location>,
+    // location: Handle<Location>,
     rect: Animated<Rect>,
     // No background for now, we focus on the launchers.
     // background: Handle<Visual>,
 }
 
 impl GroupPresenter {
-    pub fn new(location: Handle<Location>, rect: Rect, scene: &Scene) -> Self {
+    pub fn new(_location: Handle<Location>, rect: Rect, scene: &Scene) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
         //
         // Ergonomics: I need more named color constants for faster prototyping.
         // let background_shape = background_shape(rect, Color::rgb_u32(0x0000ff));
 
         Self {
-            location: location.clone(),
+            // location: location.clone(),
             rect: scene.animated(rect),
             // background: [background_shape].at(&location).enter(scene),
         }
