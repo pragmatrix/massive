@@ -20,7 +20,7 @@ pub enum NavigationNode<'a, Target> {
         //
         // Architecture: Review the cases in which `None` is used here, this is just as a
         // convenience to return a container node instead of a list of children.
-        id: Option<Target>,
+        target: Option<Target>,
         transform: Transform,
         /// This is used for deciding if nested objects are queried on hit testing. None: Query them all.
         ///
@@ -34,13 +34,13 @@ pub enum NavigationNode<'a, Target> {
 }
 
 impl<'a, Target> NavigationNode<'a, Target> {
-    pub fn with_target(mut self, target: Target) -> Self {
+    pub fn with_target(mut self, new_target: Target) -> Self {
         match &mut self {
             NavigationNode::Leaf {
                 target: leaf_target,
                 ..
-            } => *leaf_target = target,
-            NavigationNode::Container { id, .. } => *id = Some(target),
+            } => *leaf_target = new_target,
+            NavigationNode::Container { target, .. } => *target = Some(new_target),
         }
         self
     }
@@ -78,12 +78,12 @@ impl<'a, Target> NavigationNode<'a, Target> {
                 rect,
             },
             NavigationNode::Container {
-                id,
+                target,
                 transform,
                 rect,
                 nested,
             } => NavigationNode::Container {
-                id: id.map(f),
+                target: target.map(f),
                 transform,
                 rect,
                 nested: Box::new(move || {
@@ -97,20 +97,20 @@ impl<'a, Target> NavigationNode<'a, Target> {
     }
 }
 
-pub fn leaf<'a, Target>(id: impl Into<Target>, rect: Rect) -> NavigationNode<'a, Target> {
+pub fn leaf<'a, Target>(target: impl Into<Target>, rect: Rect) -> NavigationNode<'a, Target> {
     NavigationNode::Leaf {
-        target: id.into(),
+        target: target.into(),
         transform: Transform::IDENTITY,
         rect,
     }
 }
 
 pub fn container<'a, Target>(
-    id: impl Into<Option<Target>>,
+    target: impl Into<Option<Target>>,
     f: impl Fn() -> Vec<NavigationNode<'a, Target>> + 'a,
 ) -> NavigationNode<'a, Target> {
     NavigationNode::Container {
-        id: id.into(),
+        target: target.into(),
         transform: Transform::IDENTITY,
         rect: None,
         nested: Box::new(f),
@@ -189,7 +189,7 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                 }
             }
             NavigationNode::Container {
-                id,
+                target,
                 transform,
                 rect,
                 nested,
@@ -209,8 +209,8 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                 }
 
                 // Add container to path and recurse into children
-                if let Some(id) = id {
-                    current_path.push(id.clone());
+                if let Some(target) = target {
+                    current_path.push(target.clone());
                 }
                 for child in nested() {
                     // Research: Shouldn't screen_pos be transformed?
@@ -232,16 +232,14 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
             return None;
         }
 
-        let target = &target_path[depth];
+        let current = &target_path[depth];
         let is_final = depth == target_path.len() - 1;
 
         match node {
             NavigationNode::Leaf {
-                target: leaf_target,
-                transform,
-                ..
+                target, transform, ..
             } => {
-                if leaf_target == target && is_final {
+                if target == current && is_final {
                     let combined = accumulated_transform * *transform;
                     self.unproject(screen_pos, combined)
                 } else {
@@ -249,12 +247,12 @@ impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
                 }
             }
             NavigationNode::Container {
-                id,
+                target,
                 transform,
                 nested,
                 ..
             } => {
-                if id.as_ref().is_some_and(|id| id != target) {
+                if target.as_ref().is_some_and(|target| target != current) {
                     return None;
                 }
 
