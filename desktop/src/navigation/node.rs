@@ -36,26 +36,27 @@ pub enum NavigationNode<'a, Target> {
 impl<'a, Target> NavigationNode<'a, Target> {
     pub fn with_target(mut self, new_target: Target) -> Self {
         match &mut self {
-            NavigationNode::Leaf {
+            Self::Leaf {
                 target: leaf_target,
                 ..
             } => *leaf_target = new_target,
-            NavigationNode::Container { target, .. } => *target = Some(new_target),
+            Self::Container { target, .. } => *target = Some(new_target),
         }
         self
     }
+
     pub fn with_transform(mut self, tf: Transform) -> Self {
         match &mut self {
-            NavigationNode::Leaf { transform, .. } => *transform = tf,
-            NavigationNode::Container { transform, .. } => *transform = tf,
+            Self::Leaf { transform, .. } => *transform = tf,
+            Self::Container { transform, .. } => *transform = tf,
         }
         self
     }
 
     pub fn with_rect(mut self, r: Rect) -> Self {
         match &mut self {
-            NavigationNode::Leaf { rect, .. } => *rect = r,
-            NavigationNode::Container { rect, .. } => *rect = Some(r),
+            Self::Leaf { rect, .. } => *rect = r,
+            Self::Container { rect, .. } => *rect = Some(r),
         };
         self
     }
@@ -68,7 +69,7 @@ impl<'a, Target> NavigationNode<'a, Target> {
         Target: 'a,
     {
         match self {
-            NavigationNode::Leaf {
+            Self::Leaf {
                 target,
                 transform,
                 rect,
@@ -77,7 +78,7 @@ impl<'a, Target> NavigationNode<'a, Target> {
                 transform,
                 rect,
             },
-            NavigationNode::Container {
+            Self::Container {
                 target,
                 transform,
                 rect,
