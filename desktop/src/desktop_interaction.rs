@@ -88,7 +88,15 @@ impl DesktopInteraction {
         // If the window is not focus, we just focus the instance.
         let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
         let focus_path = DesktopFocusPath::from_instance_and_view(instance, primary_view);
+        self.focus(focus_path, instance_manager, presenter)
+    }
 
+    pub fn focus(
+        &mut self,
+        focus_path: DesktopFocusPath,
+        instance_manager: &InstanceManager,
+        presenter: &mut DesktopPresenter,
+    ) -> Result<()> {
         let transitions = self.event_router.focus(focus_path);
         presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 

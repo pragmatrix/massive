@@ -185,7 +185,8 @@ impl Desktop {
         match cmd {
             UserIntent::None => {}
             UserIntent::Focus(path) => {
-                
+                self.interaction
+                    .focus(path, &self.instance_manager, &mut self.presenter)?;
             }
             UserIntent::StartInstance {
                 application,
@@ -218,7 +219,6 @@ impl Desktop {
                     .layout(default_size, true, &self.scene, &mut self.fonts.lock());
             }
             UserIntent::StopInstance { instance } => self.instance_manager.stop(instance)?,
-
         }
 
         Ok(())
