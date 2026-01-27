@@ -80,6 +80,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         load_out_dirs_from_check: false,
         with_proc_macro_server: ProcMacroServerChoice::None,
         prefill_caches: false,
+        proc_macro_processes: 1,
     };
 
     let file_to_show = example_dir.join("code.rs");
@@ -114,7 +115,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let names = {
         let mut names = Vec::new();
-        let file_id = EditionedFileId::current_edition(db, file_id);
+        let file_id = EditionedFileId::current_edition_guess_origin(db, file_id);
         let tree = db.parse(file_id).tree();
         let syntax = tree.syntax().preorder();
         for event in syntax {
@@ -191,6 +192,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         inject_doc_comment: true,
         macro_bang: true,
         syntactic_name_ref_highlighting: true,
+        comments: true,
+        minicore: Default::default(),
     };
 
     let syntax = analysis.highlight(highlight_config, file_id)?;
@@ -302,6 +305,7 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, TextWeight) {
             SymbolKind::BuiltinAttr => black(),
             SymbolKind::Const => const_blue(),
             SymbolKind::ConstParam => type_green(),
+            SymbolKind::CrateRoot => black(),
             SymbolKind::Derive => keyword_blue(),
             SymbolKind::DeriveHelper => keyword_blue(),
             SymbolKind::Enum => type_green(),
@@ -321,7 +325,6 @@ fn attribute(tag: HlTag, mods: HlMods) -> (Color, TextWeight) {
             SymbolKind::Struct => type_green(),
             SymbolKind::ToolModule => black(),
             SymbolKind::Trait => type_green(),
-            SymbolKind::TraitAlias => type_green(),
             SymbolKind::TypeAlias => type_green(),
             SymbolKind::TypeParam => type_light_green(),
             SymbolKind::Union => type_green(),
