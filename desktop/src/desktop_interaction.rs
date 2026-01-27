@@ -92,6 +92,37 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<DesktopCommand> {
+        let command = self.preprocess_keyboard_commands(event, instance_manager)?;
+        if command != DesktopCommand::None {
+            return Ok(command);
+        }
+
+        // Create a hit tester and forward events.
+
+        let transitions = {
+            let navigation = presenter.navigation();
+            let hit_test = NavigationHitTester::new(navigation, render_geometry);
+            self.event_router.process(event, &hit_test)?
+        };
+        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
+
+        // Robustness: Currently we don't check if the only the instance actually changed.
+        let command = if let Some(new_focus) = transitions.focus_changed
+            && let Some(instance) = new_focus.instance()
+        {
+            DesktopCommand::MakeForeground { instance }
+        } else {
+            DesktopCommand::None
+        };
+
+        Ok(command)
+    }
+
+    fn preprocess_keyboard_commands(
+        &self,
+        event: &Event<ViewEvent>,
+        instance_manager: &InstanceManager,
+    ) -> Result<DesktopCommand> {
         // Catch Command+t and Command+w if a instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
@@ -117,30 +148,14 @@ impl DesktopInteraction {
             }
         }
 
-        // Create a hit tester and forward events.
-
-        let transitions = {
-            let navigation = presenter.navigation();
-            let hit_test = NavigationHitTester::new(navigation, render_geometry);
-            self.event_router.process(event, &hit_test)?
-        };
-        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
-
-        // Robustness: Currently we don't check if the only the instance actually changed.
-        let command = if let Some(new_focus) = transitions.focus_changed
-            && let Some(instance) = new_focus.instance()
-        {
-            DesktopCommand::MakeForeground { instance }
-        } else {
-            DesktopCommand::None
-        };
-
-        Ok(command)
+        Ok(DesktopCommand::None)
     }
 }
 
 #[must_use]
+#[derive(Debug, PartialEq, Eq)]
 pub enum DesktopCommand {
+    // Architecture: Review if `None` is such a good idea here, it almost never is.
     None,
     StartInstance {
         application: String,
