@@ -1,12 +1,12 @@
 // Vertex shader
 
-struct PushConstants {
+struct Immediates {
     view_model: mat4x4<f32>,
     clip_rect_x: vec2<f32>, // [min_x, max_x]
     clip_rect_y: vec2<f32>, // [min_y, max_y]
 }
 
-var<push_constant> pc: PushConstants;
+var<immediate> im: Immediates;
 
 struct VertexInput {
     @location(0) position: vec3<f32>,
@@ -30,7 +30,7 @@ fn vs_main(
     var out: VertexOutput;
     out.unorm_tex_coords = vertex_input.unorm_tex_coords;
     out.model_pos = vertex_input.position.xy;
-    out.clip_position = pc.view_model * vec4<f32>(vertex_input.position, 1.0);
+    out.clip_position = im.view_model * vec4<f32>(vertex_input.position, 1.0);
     out.color = vertex_input.color;
     return out;
 }
@@ -67,8 +67,8 @@ const df_epsilon = 0.0001;
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // Clip fragments outside the clip rectangle (exclusive bounds)
-    if (in.model_pos.x < pc.clip_rect_x.x || in.model_pos.x >= pc.clip_rect_x.y ||
-        in.model_pos.y < pc.clip_rect_y.x || in.model_pos.y >= pc.clip_rect_y.y) {
+    if (in.model_pos.x < im.clip_rect_x.x || in.model_pos.x >= im.clip_rect_x.y ||
+        in.model_pos.y < im.clip_rect_y.x || in.model_pos.y >= im.clip_rect_y.y) {
         discard;
     }
     

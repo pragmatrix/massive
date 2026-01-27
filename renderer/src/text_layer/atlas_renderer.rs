@@ -34,10 +34,7 @@ impl AtlasRenderer {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Atlas Pipeline Layout"),
             bind_group_layouts: &[&fs_bind_group_layout],
-            push_constant_ranges: &[wgpu::PushConstantRange {
-                stages: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                range: 0..pods::PushConstants::size(),
-            }],
+            immediate_size: pods::Immediates::size(),
         });
 
         let targets = [Some(wgpu::ColorTargetState {
