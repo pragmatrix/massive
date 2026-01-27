@@ -13,7 +13,7 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::desktop_presenter::DesktopPath;
+use crate::desktop_presenter::DesktopFocusPath;
 use crate::projects::Project;
 use crate::{
     DesktopEnvironment, DesktopInteraction, DesktopPresenter, UserIntent,
@@ -100,7 +100,7 @@ impl Desktop {
         instance_manager.add_view(primary_instance, &creation_info);
 
         let ui = DesktopInteraction::new(
-            DesktopPath::from_instance_and_view(primary_instance, primary_view),
+            DesktopFocusPath::from_instance_and_view(primary_instance, primary_view),
             &instance_manager,
             &mut presenter,
             &scene,
@@ -184,6 +184,9 @@ impl Desktop {
     fn process_user_intent(&mut self, cmd: UserIntent) -> Result<()> {
         match cmd {
             UserIntent::None => {}
+            UserIntent::Focus(path) => {
+                
+            }
             UserIntent::StartInstance {
                 application,
                 originating_instance,
@@ -215,6 +218,7 @@ impl Desktop {
                     .layout(default_size, true, &self.scene, &mut self.fonts.lock());
             }
             UserIntent::StopInstance { instance } => self.instance_manager.stop(instance)?,
+
         }
 
         Ok(())

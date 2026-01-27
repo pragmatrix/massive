@@ -34,7 +34,7 @@ pub enum LayoutId {
 
 /// Architecture: We need "unified" target enums. One that encapsulate the full path, but has parent
 /// / add_nested or something like that trait implementations?
-#[derive(Debug, Clone, PartialEq, From)]
+#[derive(Debug, Clone, PartialEq, Eq, From)]
 pub enum DesktopTarget {
     // The whole area, covering the top band and
     Desktop,
@@ -44,7 +44,7 @@ pub enum DesktopTarget {
     Project(ProjectTarget),
 }
 
-pub type DesktopPath = FocusPath<DesktopTarget>;
+pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 /// Manages the presentation of the desktop, combining the band (instances) and projects
 /// with unified vertical layout.
@@ -184,7 +184,7 @@ impl DesktopPresenter {
 
     // Camera
 
-    pub fn camera_for_focus(&self, focus: &DesktopPath) -> Option<PixelCamera> {
+    pub fn camera_for_focus(&self, focus: &DesktopFocusPath) -> Option<PixelCamera> {
         Some(match focus.last()? {
             // Desktop and TopBand are constrained to their size.
             DesktopTarget::Desktop => self.rect.center().to_camera().with_size(self.rect.size()),
@@ -279,7 +279,7 @@ fn box_to_rect(([x, y], [w, h]): LayoutBox<2>) -> massive_geometry::RectPx {
 
 // Path utilities
 
-impl DesktopPath {
+impl DesktopFocusPath {
     /// Focus the primary view. Currently only on the TopBand.
     pub fn from_instance_and_view(instance: InstanceId, view: impl Into<Option<ViewId>>) -> Self {
         // Ergonomics: what about supporting .join directly on a target?

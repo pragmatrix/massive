@@ -1,7 +1,7 @@
 use derive_more::{Deref, From, Into};
 
 /// A path into a focus tree / hierarchy.
-#[derive(Debug, Clone, PartialEq, Deref, From, Into)]
+#[derive(Debug, Clone, PartialEq, Eq, Deref, From, Into)]
 pub struct FocusPath<T>(Vec<T>);
 
 impl<T> Default for FocusPath<T> {

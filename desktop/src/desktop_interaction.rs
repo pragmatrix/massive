@@ -1,5 +1,8 @@
 use anyhow::Result;
-use winit::{event::ElementState, keyboard::Key};
+use winit::{
+    event::ElementState,
+    keyboard::{Key, NamedKey},
+};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent, ViewRole};
@@ -9,7 +12,7 @@ use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    desktop_presenter::{DesktopPath, DesktopPresenter, DesktopTarget},
+    desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
     event_router,
     instance_manager::InstanceManager,
     navigation::NavigationHitTester,
@@ -20,6 +23,8 @@ use crate::{
 pub enum UserIntent {
     // Architecture: Review if `None` is such a good idea here, it almost never is.
     None,
+    // Architecture: Could just always Focus an explicit thing?
+    Focus(DesktopFocusPath),
     StartInstance {
         application: String,
         originating_instance: InstanceId,
@@ -44,7 +49,7 @@ impl DesktopInteraction {
     //
     // Detail: This function assumes that the window is focused right now.
     pub fn new(
-        path: DesktopPath,
+        path: DesktopFocusPath,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
         scene: &Scene,
@@ -82,7 +87,7 @@ impl DesktopInteraction {
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
         let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-        let focus_path = DesktopPath::from_instance_and_view(instance, primary_view);
+        let focus_path = DesktopFocusPath::from_instance_and_view(instance, primary_view);
 
         let transitions = self.event_router.focus(focus_path);
         presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
@@ -143,20 +148,27 @@ impl DesktopInteraction {
             && key_event.state == ElementState::Pressed
             && !key_event.repeat
             && event.states().is_command()
-            && let Some(instance) = self.event_router.focused().instance()
         {
-            match &key_event.logical_key {
-                Key::Character(c) if c.as_str() == "t" => {
-                    let application = instance_manager.get_application_name(instance)?;
-                    return Ok(UserIntent::StartInstance {
-                        application: application.to_string(),
-                        originating_instance: instance,
-                    });
+            if let Some(instance) = self.event_router.focused().instance() {
+                match &key_event.logical_key {
+                    Key::Character(c) if c.as_str() == "t" => {
+                        let application = instance_manager.get_application_name(instance)?;
+                        return Ok(UserIntent::StartInstance {
+                            application: application.to_string(),
+                            originating_instance: instance,
+                        });
+                    }
+                    Key::Character(c) if c.as_str() == "w" => {
+                        return Ok(UserIntent::StopInstance { instance });
+                    }
+                    _ => {}
                 }
-                Key::Character(c) if c.as_str() == "w" => {
-                    return Ok(UserIntent::StopInstance { instance });
-                }
-                _ => {}
+            }
+
+            if let Some(parent_focus) = self.event_router.focused().parent()
+                && let Key::Named(NamedKey::Escape) = &key_event.logical_key
+            {
+                return Ok(UserIntent::Focus(parent_focus));
             }
         }
 

@@ -23,7 +23,7 @@ pub struct BandPresenter {
     pub ordered: Vec<InstanceId>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BandTarget {
     Instance(InstanceId),
     View(ViewId),
