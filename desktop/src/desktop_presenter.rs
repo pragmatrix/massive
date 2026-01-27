@@ -171,12 +171,10 @@ impl DesktopPresenter {
                 // Band navigation instances.
                 self.band
                     .navigation()
-                    .map_target(&DesktopTarget::Band)
+                    .map_target(DesktopTarget::Band)
                     .with_target(DesktopTarget::TopBand),
                 // Project navigation.
-                self.project
-                    .navigation()
-                    .map_target(&DesktopTarget::Project),
+                self.project.navigation().map_target(DesktopTarget::Project),
             ]
             .into()
         })

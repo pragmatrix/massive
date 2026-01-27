@@ -185,7 +185,7 @@ impl BandPresenter {
                 let presenter = &self.instances[instance_id];
                 let instance_nav = presenter
                     .navigation()
-                    .map_target(&BandTarget::View)
+                    .map_target(BandTarget::View)
                     .with_target(BandTarget::Instance(*instance_id));
                 nodes.push(instance_nav);
             }

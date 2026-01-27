@@ -62,7 +62,7 @@ impl<'a, Target> NavigationNode<'a, Target> {
 
     pub fn map_target<NewTarget>(
         self,
-        f: &'a impl Fn(Target) -> NewTarget,
+        f: impl Fn(Target) -> NewTarget + Clone + 'a,
     ) -> NavigationNode<'a, NewTarget>
     where
         Target: 'a,
@@ -83,13 +83,13 @@ impl<'a, Target> NavigationNode<'a, Target> {
                 rect,
                 nested,
             } => NavigationNode::Container {
-                target: target.map(f),
+                target: target.map(&f),
                 transform,
                 rect,
                 nested: Box::new(move || {
                     nested()
                         .into_iter()
-                        .map(|node| node.map_target(f))
+                        .map(|node| node.map_target(f.clone()))
                         .collect()
                 }),
             },
