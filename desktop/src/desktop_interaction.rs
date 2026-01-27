@@ -15,6 +15,20 @@ use crate::{
     navigation::NavigationHitTester,
 };
 
+#[must_use]
+#[derive(Debug, PartialEq, Eq)]
+pub enum UserIntent {
+    // Architecture: Review if `None` is such a good idea here, it almost never is.
+    None,
+    StartInstance {
+        application: String,
+        originating_instance: InstanceId,
+    },
+    StopInstance {
+        instance: InstanceId,
+    },
+}
+
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
 type EventRouter = event_router::EventRouter<DesktopTarget>;
 
@@ -91,9 +105,9 @@ impl DesktopInteraction {
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
-    ) -> Result<DesktopCommand> {
+    ) -> Result<UserIntent> {
         let command = self.preprocess_keyboard_commands(event, instance_manager)?;
-        if command != DesktopCommand::None {
+        if command != UserIntent::None {
             return Ok(command);
         }
 
@@ -107,22 +121,20 @@ impl DesktopInteraction {
         presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
         // Robustness: Currently we don't check if the only the instance actually changed.
-        let command = if let Some(new_focus) = transitions.focus_changed
+        if let Some(new_focus) = transitions.focus_changed
             && let Some(instance) = new_focus.instance()
         {
-            DesktopCommand::MakeForeground { instance }
-        } else {
-            DesktopCommand::None
+            self.make_foreground(instance, instance_manager, presenter)?;
         };
 
-        Ok(command)
+        Ok(UserIntent::None)
     }
 
     fn preprocess_keyboard_commands(
         &self,
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
-    ) -> Result<DesktopCommand> {
+    ) -> Result<UserIntent> {
         // Catch Command+t and Command+w if a instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
@@ -136,35 +148,18 @@ impl DesktopInteraction {
             match &key_event.logical_key {
                 Key::Character(c) if c.as_str() == "t" => {
                     let application = instance_manager.get_application_name(instance)?;
-                    return Ok(DesktopCommand::StartInstance {
+                    return Ok(UserIntent::StartInstance {
                         application: application.to_string(),
                         originating_instance: instance,
                     });
                 }
                 Key::Character(c) if c.as_str() == "w" => {
-                    return Ok(DesktopCommand::StopInstance { instance });
+                    return Ok(UserIntent::StopInstance { instance });
                 }
                 _ => {}
             }
         }
 
-        Ok(DesktopCommand::None)
+        Ok(UserIntent::None)
     }
-}
-
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub enum DesktopCommand {
-    // Architecture: Review if `None` is such a good idea here, it almost never is.
-    None,
-    StartInstance {
-        application: String,
-        originating_instance: InstanceId,
-    },
-    StopInstance {
-        instance: InstanceId,
-    },
-    MakeForeground {
-        instance: InstanceId,
-    },
 }

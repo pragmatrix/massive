@@ -16,7 +16,7 @@ use massive_shell::{AsyncWindowRenderer, ShellWindow};
 use crate::desktop_presenter::DesktopPath;
 use crate::projects::Project;
 use crate::{
-    DesktopCommand, DesktopEnvironment, DesktopInteraction, DesktopPresenter,
+    DesktopEnvironment, DesktopInteraction, DesktopPresenter, UserIntent,
     instance_manager::{InstanceManager, ViewPath},
     projects::ProjectConfiguration,
 };
@@ -143,7 +143,7 @@ impl Desktop {
                                     &mut self.presenter,
                                     self.renderer.geometry(),
                                 )?;
-                                self.process_command(cmd)?;
+                                self.process_user_intent(cmd)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -181,10 +181,10 @@ impl Desktop {
         }
     }
 
-    fn process_command(&mut self, cmd: DesktopCommand) -> Result<()> {
+    fn process_user_intent(&mut self, cmd: UserIntent) -> Result<()> {
         match cmd {
-            DesktopCommand::None => {}
-            DesktopCommand::StartInstance {
+            UserIntent::None => {}
+            UserIntent::StartInstance {
                 application,
                 originating_instance,
             } => {
@@ -214,14 +214,7 @@ impl Desktop {
                 self.presenter
                     .layout(default_size, true, &self.scene, &mut self.fonts.lock());
             }
-            DesktopCommand::MakeForeground { instance } => {
-                self.interaction.make_foreground(
-                    instance,
-                    &self.instance_manager,
-                    &mut self.presenter,
-                )?;
-            }
-            DesktopCommand::StopInstance { instance } => self.instance_manager.stop(instance)?,
+            UserIntent::StopInstance { instance } => self.instance_manager.stop(instance)?,
         }
 
         Ok(())
