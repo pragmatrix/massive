@@ -8,7 +8,7 @@ use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 use crate::{
     RenderDevice, Transaction, TransactionManager,
     config::RendererConfig,
-    pods::{AsBytes, ClipRect, PushConstants, ToPod},
+    pods::{AsBytes, ClipRect, Immediates, ToPod},
     render_batches::RenderBatches,
     scene::{LocationTransforms, Scene},
     stats::MeasureSeries,
@@ -352,9 +352,7 @@ impl Renderer {
                         },
                         depth_slice: None,
                     })],
-                    depth_stencil_attachment: None,
-                    timestamp_writes: None,
-                    occlusion_query_set: None,
+                    ..Default::default()
                 });
 
                 // DI: There is a lot of view_projection stuff going on.
@@ -389,7 +387,10 @@ impl Renderer {
             // Robustness: This should be done in another thread to prevent us from blocking or delaying present().
             self.device
                 .device
-                .poll(wgpu::PollType::WaitForSubmissionIndex(submit_index))
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(submit_index),
+                    timeout: None,
+                })
                 .unwrap();
             let duration_passed = Instant::now().duration_since(render_start_time);
             self.measure_series.add_sample(duration_passed);
@@ -427,15 +428,11 @@ impl Renderer {
             let pass = &mut context.pass;
 
             let clip_rect = visual.clip_bounds.map_or(ClipRect::NONE, ClipRect::from);
-            let push_constants = PushConstants {
+            let push_constants = Immediates {
                 view_model: matrix.to_pod(),
                 clip_rect,
             };
-            pass.set_push_constants(
-                wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                0,
-                push_constants.as_bytes(),
-            );
+            pass.set_immediates(0, push_constants.as_bytes());
             // Performance: This test needs only done once per pipeline.
             if let Some(bg) = &batch.fs_bind_group {
                 pass.set_bind_group(0, bg, &[]);

@@ -1,7 +1,7 @@
 use anyhow::{Context, Result, bail};
 use log::info;
 
-const REQUIRED_ADAPTER_FEATURES: wgpu::Features = wgpu::Features::PUSH_CONSTANTS;
+const REQUIRED_ADAPTER_FEATURES: wgpu::Features = wgpu::Features::IMMEDIATES;
 
 #[derive(Debug, Clone)]
 pub struct RenderDevice {
@@ -61,9 +61,7 @@ async fn get_device_and_queue_from_adapter(
             required_features: REQUIRED_ADAPTER_FEATURES,
             // May be wrong, see: <https://github.com/gfx-rs/wgpu/blob/1144b065c4784d769d59da2f58f5aa13212627b0/examples/src/hello_triangle/mod.rs#L33-L34>
             required_limits: adapter.limits(),
-            label: None,
-            memory_hints: Default::default(),
-            trace: Default::default(),
+            ..Default::default()
         })
         .await
         .context("Requesting device")

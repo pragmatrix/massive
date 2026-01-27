@@ -51,16 +51,17 @@ impl From<Bounds> for ClipRect {
     }
 }
 
-/// Push constants for rendering, containing view-model matrix and clip rectangle.
+/// Immediates for rendering (formerly push constants), containing view-model matrix and clip
+/// rectangle.
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
-pub struct PushConstants {
+pub struct Immediates {
     pub view_model: Matrix4,
     pub clip_rect: ClipRect,
 }
 
 // WebGL uniform requirement
-const_assert_eq!(size_of::<PushConstants>() % 16, 0);
+const_assert_eq!(size_of::<Immediates>() % 16, 0);
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
