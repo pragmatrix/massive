@@ -10,6 +10,7 @@ mod instance_manager;
 mod instance_presenter;
 mod navigation;
 mod projects;
+mod focus_target;
 
 pub use application_registry::Application;
 pub use desktop::Desktop;
