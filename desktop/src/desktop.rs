@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use anyhow::{Result, anyhow, bail};
+use massive_geometry::SizePx;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
 
@@ -27,6 +28,7 @@ pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
+    primary_instance_panel_size: SizePx,
     presenter: DesktopPresenter,
 
     event_manager: EventManager<ViewEvent>,
@@ -83,6 +85,7 @@ impl Desktop {
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.
         let primary_view = creation_info.id;
+        let default_size = creation_info.size();
 
         let window = context.new_window(creation_info.size()).await?;
         let renderer = window
@@ -111,9 +114,10 @@ impl Desktop {
             scene,
             renderer,
             window,
+            primary_instance_panel_size: default_size,
+            presenter,
             event_manager,
             instance_manager,
-            presenter,
             instance_commands: requests_rx,
             context,
             env,
@@ -189,20 +193,25 @@ impl Desktop {
                     .focus(path, &self.instance_manager, &mut self.presenter)?;
             }
             UserIntent::StartInstance {
-                application,
                 originating_instance,
             } => {
+                // Feature: Support starting non-primary applications.
                 let application = self
                     .env
                     .applications
-                    .get_named(&application)
+                    .get_named(&self.env.primary_application)
                     .ok_or(anyhow!("Internal error, application not registered"))?;
 
                 let instance = self
                     .instance_manager
                     .spawn(application, CreationMode::New)?;
-                self.presenter
-                    .present_instance(instance, originating_instance, &self.scene)?;
+
+                self.presenter.present_instance(
+                    instance,
+                    originating_instance,
+                    self.primary_instance_panel_size,
+                    &self.scene,
+                )?;
                 self.interaction.make_foreground(
                     instance,
                     &self.instance_manager,

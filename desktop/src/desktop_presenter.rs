@@ -11,10 +11,9 @@ use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-use crate::band_presenter::BandTarget;
 use crate::{
     EventTransition,
-    band_presenter::BandPresenter,
+    band_presenter::{BandPresenter, BandTarget},
     focus_path::FocusPath,
     instance_manager::InstanceManager,
     navigation::{NavigationNode, container},
@@ -87,11 +86,12 @@ impl DesktopPresenter {
     pub fn present_instance(
         &mut self,
         instance: InstanceId,
-        originating_from: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<()> {
         self.band
-            .present_instance(instance, originating_from, scene)
+            .present_instance(instance, originating_from, default_panel_size, scene)
     }
 
     pub fn present_view(

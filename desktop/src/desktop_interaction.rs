@@ -26,8 +26,10 @@ pub enum UserIntent {
     // Architecture: Could just always Focus an explicit thing?
     Focus(DesktopFocusPath),
     StartInstance {
-        application: String,
-        originating_instance: InstanceId,
+        // Removed this for now, we always start the primary / default application.
+        // application: String,
+        // Architecture: This should just a transformed rect.
+        originating_instance: Option<InstanceId>,
     },
     StopInstance {
         instance: InstanceId,
@@ -119,7 +121,7 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<UserIntent> {
-        let command = self.preprocess_keyboard_commands(event, instance_manager)?;
+        let command = self.preprocess_keyboard_commands(event)?;
         if command != UserIntent::None {
             return Ok(command);
         }
@@ -143,11 +145,7 @@ impl DesktopInteraction {
         Ok(UserIntent::None)
     }
 
-    fn preprocess_keyboard_commands(
-        &self,
-        event: &Event<ViewEvent>,
-        instance_manager: &InstanceManager,
-    ) -> Result<UserIntent> {
+    fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {
         // Catch Command+t and Command+w if a instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
@@ -160,10 +158,8 @@ impl DesktopInteraction {
             if let Some(instance) = self.event_router.focused().instance() {
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
-                        let application = instance_manager.get_application_name(instance)?;
                         return Ok(UserIntent::StartInstance {
-                            application: application.to_string(),
-                            originating_instance: instance,
+                            originating_instance: Some(instance),
                         });
                     }
                     Key::Character(c) if c.as_str() == "w" => {

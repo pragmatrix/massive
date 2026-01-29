@@ -3,7 +3,7 @@ use std::{collections::HashMap, time::Duration};
 use anyhow::{Result, bail};
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent, ViewId, ViewRole};
-use massive_geometry::RectPx;
+use massive_geometry::{RectPx, SizePx};
 use massive_layout::{self as layout, LayoutAxis};
 use massive_scene::Transform;
 use massive_shell::Scene;
@@ -17,6 +17,7 @@ use crate::{
 #[derive(Debug, Default)]
 /// Manages the presentation of a horizontal band of instances.
 pub struct BandPresenter {
+    // Robustness don't make these pub.
     pub instances: HashMap<InstanceId, InstancePresenter>,
     /// The Instances in order as they take up space in a final configuration. Exiting
     /// instances are not anymore in this list.
@@ -31,6 +32,11 @@ pub enum BandTarget {
 
 impl BandPresenter {
     pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+
+    pub fn is_empty(&self) -> bool {
+        self.ordered.is_empty()
+    }
+
     /// Present the primary instance and its primary role view.
     ///
     /// For now this can not be done by separately presenting an instance and a view because we
@@ -67,21 +73,33 @@ impl BandPresenter {
     }
 
     /// Present an instance originating from another.
+    ///
+    /// The originating is used for two purposes.
+    /// - For determining the panel size.
+    /// - For determining where to insert the new instance in the band (default is right next to
+    ///   originating).
     pub fn present_instance(
         &mut self,
         instance: InstanceId,
-        originating_from: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<()> {
-        let Some(originating_presenter) = self.instances.get(&originating_from) else {
-            bail!("Originating presenter does not exist");
-        };
+        let originating_presenter =
+            originating_from.and_then(|originating_from| self.instances.get(&originating_from));
 
         let presenter = InstancePresenter {
             state: InstancePresenterState::Appearing,
-            panel_size: originating_presenter.panel_size,
+            panel_size: originating_presenter
+                .map(|p| p.panel_size)
+                .unwrap_or(default_panel_size),
             rect: RectPx::zero(),
-            center_animation: scene.animated(originating_presenter.center_animation.value()),
+            // Correctness: We animate from 0,0 if no originating exist. Need a position here.
+            center_animation: scene.animated(
+                originating_presenter
+                    .map(|op| op.center_animation.value())
+                    .unwrap_or_default(),
+            ),
         };
 
         if self.instances.insert(instance, presenter).is_some() {
@@ -91,7 +109,7 @@ impl BandPresenter {
         let pos = self
             .ordered
             .iter()
-            .position(|i| *i == originating_from)
+            .position(|i| Some(*i) == originating_from)
             .map(|i| i + 1)
             .unwrap_or(self.ordered.len());
 

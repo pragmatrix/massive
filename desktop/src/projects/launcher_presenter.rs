@@ -16,7 +16,11 @@ use massive_shell::Scene;
 use super::{
     ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile, project::Launcher,
 };
-use crate::navigation::{NavigationNode, leaf};
+use crate::{
+    UserIntent,
+    band_presenter::BandPresenter,
+    navigation::{NavigationNode, leaf},
+};
 
 #[derive(Debug)]
 pub struct LauncherPresenter {
@@ -35,6 +39,9 @@ pub struct LauncherPresenter {
     /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
     /// account.
     events: EventManager<ViewEvent>,
+
+    /// The instances.
+    band: BandPresenter,
 }
 
 impl LauncherPresenter {
@@ -89,6 +96,7 @@ impl LauncherPresenter {
             background,
             _name: name,
             events: EventManager::default(),
+            band: BandPresenter::default(),
         }
     }
 
@@ -96,7 +104,8 @@ impl LauncherPresenter {
         leaf(launcher.id, self.rect.final_value())
     }
 
-    pub fn process(&mut self, view_event: ViewEvent) -> Result<()> {
+    // Architecture: I don't want the launcher here to directly generate UserIntent, may be LauncherIntent? Not sure.
+    pub fn process(&mut self, view_event: ViewEvent) -> Result<Option<UserIntent>> {
         // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
         // arbitrary hierarchies? May be the EventManager directly defines the scope id?
         // Ergonomics: Create a fluent constructor for events with Scope?
@@ -105,7 +114,7 @@ impl LauncherPresenter {
             view_event,
             Instant::now(),
         )) else {
-            return Ok(());
+            return Ok(None);
         };
 
         if let Some(point) = event.detect_click(MouseButton::Left) {
@@ -113,6 +122,12 @@ impl LauncherPresenter {
         }
 
         match event.event() {
+            ViewEvent::Focused(true) if self.band.is_empty() => {
+                // Usability: Should pass this rect?
+                return Ok(Some(UserIntent::StartInstance {
+                    originating_instance: None,
+                }));
+            }
             ViewEvent::CursorEntered { .. } => {
                 warn!("CursorEntered: {}", self.profile.name);
             }
@@ -122,7 +137,7 @@ impl LauncherPresenter {
             _ => {}
         }
 
-        Ok(())
+        Ok(None)
     }
 
     pub fn set_rect(&mut self, rect: Rect) {
