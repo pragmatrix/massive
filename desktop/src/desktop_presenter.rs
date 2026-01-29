@@ -11,9 +11,8 @@ use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-use crate::UserIntent;
 use crate::{
-    EventTransition,
+    EventTransition, UserIntent,
     band_presenter::{BandPresenter, BandTarget},
     focus_path::FocusPath,
     instance_manager::InstanceManager,
@@ -107,9 +106,6 @@ impl DesktopPresenter {
         self.band.hide_view(id)
     }
 
-    // Unified Layout
-
-    /// Compute the unified vertical layout for band (top) and projects (bottom).
     pub fn layout(
         &mut self,
         default_panel_size: SizePx,
