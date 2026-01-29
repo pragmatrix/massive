@@ -58,7 +58,11 @@ impl DesktopInteraction {
     ) -> Result<Self> {
         let mut event_router = EventRouter::default();
         let initial_transitions = event_router.focus(path);
-        presenter.forward_event_transitions(initial_transitions.transitions, instance_manager)?;
+        assert!(
+            presenter
+                .forward_event_transitions(initial_transitions.transitions, instance_manager)?
+                == UserIntent::None
+        );
 
         // We can't call apply_changes yet as it needs a mutable presenter reference
         // which we don't have. The transitions will be applied later.
@@ -90,7 +94,12 @@ impl DesktopInteraction {
         // If the window is not focus, we just focus the instance.
         let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
         let focus_path = DesktopFocusPath::from_instance_and_view(instance, primary_view);
-        self.focus(focus_path, instance_manager, presenter)
+        assert_eq!(
+            self.focus(focus_path, instance_manager, presenter)?,
+            UserIntent::None,
+            "Unexpected UserIntent in response to make_foreground"
+        );
+        Ok(())
     }
 
     pub fn focus(
@@ -98,9 +107,10 @@ impl DesktopInteraction {
         focus_path: DesktopFocusPath,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
-    ) -> Result<()> {
+    ) -> Result<UserIntent> {
         let transitions = self.event_router.focus(focus_path);
-        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
+        let user_intent =
+            presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
         let camera = presenter.camera_for_focus(self.event_router.focused());
         if let Some(camera) = camera {
@@ -111,7 +121,7 @@ impl DesktopInteraction {
             );
         }
 
-        Ok(())
+        Ok(user_intent)
     }
 
     pub fn process_input_event(
@@ -121,9 +131,9 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<UserIntent> {
-        let command = self.preprocess_keyboard_commands(event)?;
-        if command != UserIntent::None {
-            return Ok(command);
+        let intent = self.preprocess_keyboard_commands(event)?;
+        if intent != UserIntent::None {
+            return Ok(intent);
         }
 
         // Create a hit tester and forward events.
@@ -133,7 +143,8 @@ impl DesktopInteraction {
             let hit_test = NavigationHitTester::new(navigation, render_geometry);
             self.event_router.process(event, &hit_test)?
         };
-        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
+        let intent =
+            presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
         // Robustness: Currently we don't check if the only the instance actually changed.
         if let Some(new_focus) = transitions.focus_changed
@@ -142,7 +153,7 @@ impl DesktopInteraction {
             self.make_foreground(instance, instance_manager, presenter)?;
         };
 
-        Ok(UserIntent::None)
+        Ok(intent)
     }
 
     fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {

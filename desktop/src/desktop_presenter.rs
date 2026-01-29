@@ -11,6 +11,7 @@ use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
+use crate::UserIntent;
 use crate::{
     EventTransition,
     band_presenter::{BandPresenter, BandTarget},
@@ -212,11 +213,15 @@ impl DesktopPresenter {
         // Don't use EventTransitions here for now, it contains more information than we need.
         transitions: Vec<EventTransition<DesktopTarget>>,
         instance_manager: &InstanceManager,
-    ) -> Result<()> {
+    ) -> Result<UserIntent> {
+        let mut user_intent = UserIntent::None;
+
+        // Robustness: While we need to forward all transitions we currently process only one intent.
         for transition in transitions {
-            self.forward_event_transition(transition, instance_manager)?;
+            user_intent = self.forward_event_transition(transition, instance_manager)?;
         }
-        Ok(())
+
+        Ok(user_intent)
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
@@ -224,35 +229,36 @@ impl DesktopPresenter {
         &mut self,
         transition: EventTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
-    ) -> Result<()> {
+    ) -> Result<UserIntent> {
         let band_presenter = &self.band;
         let project_presenter = &mut self.project;
+        let mut user_intent = UserIntent::None;
         match transition {
+            EventTransition::Directed(path, _) if path.is_empty() => {
+                // This happens if hit testing hits no presenter and a CursorMove event gets
+                // forwarded: FocusPath::EMPTY represents the Window itself.
+            }
             EventTransition::Directed(focus_path, view_event) => {
                 // Route to the appropriate handler based on the last target in the path
-                if let Some(target) = focus_path.last() {
-                    match target {
-                        DesktopTarget::Desktop => {}
-                        DesktopTarget::TopBand => {
-                            band_presenter.process(view_event)?;
-                        }
-                        DesktopTarget::Band(BandTarget::Instance(..)) => {
-                            // Shouldn't we forward this to the band here?
-                        }
-                        DesktopTarget::Band(BandTarget::View(view_id)) => {
-                            let Some(instance) = instance_manager.instance_of_view(*view_id) else {
-                                bail!("Internal error: Instance of view {view_id:?} not found");
-                            };
-                            instance_manager.send_view_event((instance, *view_id), view_event)?;
-                        }
-                        DesktopTarget::Project(project_id) => {
-                            // Forward to project presenter
-                            let project_transition = EventTransition::Directed(
-                                vec![project_id.clone()].into(),
-                                view_event,
-                            );
-                            project_presenter.process_transition(project_transition)?;
-                        }
+                match focus_path.last().expect("Internal Error") {
+                    DesktopTarget::Desktop => {}
+                    DesktopTarget::TopBand => {
+                        band_presenter.process(view_event)?;
+                    }
+                    DesktopTarget::Band(BandTarget::Instance(..)) => {
+                        // Shouldn't we forward this to the band here?
+                    }
+                    DesktopTarget::Band(BandTarget::View(view_id)) => {
+                        let Some(instance) = instance_manager.instance_of_view(*view_id) else {
+                            bail!("Internal error: Instance of view {view_id:?} not found");
+                        };
+                        instance_manager.send_view_event((instance, *view_id), view_event)?;
+                    }
+                    DesktopTarget::Project(project_id) => {
+                        // Forward to project presenter
+                        let project_transition =
+                            EventTransition::Directed(vec![project_id.clone()].into(), view_event);
+                        user_intent = project_presenter.process_transition(project_transition)?;
                     }
                 }
             }
@@ -264,10 +270,10 @@ impl DesktopPresenter {
 
                 // Also broadcast to project presenter
                 let project_transition = EventTransition::Broadcast(view_event);
-                project_presenter.process_transition(project_transition)?;
+                user_intent = project_presenter.process_transition(project_transition)?;
             }
         }
-        Ok(())
+        Ok(user_intent)
     }
 }
 

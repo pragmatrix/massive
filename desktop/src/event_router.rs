@@ -39,7 +39,7 @@ pub struct EventRouter<T> {
     outer_focus: OuterFocusState<T>,
 }
 
-impl<T> Default for EventRouter<T> {
+impl<T: PartialEq> Default for EventRouter<T> {
     fn default() -> Self {
         Self {
             pointer_focus: Default::default(),

@@ -189,8 +189,11 @@ impl Desktop {
         match cmd {
             UserIntent::None => {}
             UserIntent::Focus(path) => {
-                self.interaction
-                    .focus(path, &self.instance_manager, &mut self.presenter)?;
+                assert_eq!(
+                    self.interaction
+                        .focus(path, &self.instance_manager, &mut self.presenter)?,
+                    UserIntent::None
+                );
             }
             UserIntent::StartInstance {
                 originating_instance,
@@ -217,15 +220,12 @@ impl Desktop {
                     &self.instance_manager,
                     &mut self.presenter,
                 )?;
-                // Get default size from the first view or use a default
-                let default_size = self
-                    .instance_manager
-                    .views()
-                    .next()
-                    .map(|(_, info)| info.extents.size().cast())
-                    .unwrap_or((800u32, 600u32).into());
-                self.presenter
-                    .layout(default_size, true, &self.scene, &mut self.fonts.lock());
+                self.presenter.layout(
+                    self.primary_instance_panel_size,
+                    true,
+                    &self.scene,
+                    &mut self.fonts.lock(),
+                );
             }
             UserIntent::StopInstance { instance } => self.instance_manager.stop(instance)?,
         }

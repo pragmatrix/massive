@@ -4,13 +4,13 @@ use derive_more::{Deref, From, Into};
 #[derive(Debug, Clone, PartialEq, Eq, Deref, From, Into)]
 pub struct FocusPath<T>(Vec<T>);
 
-impl<T> Default for FocusPath<T> {
+impl<T: PartialEq> Default for FocusPath<T> {
     fn default() -> Self {
         Self::EMPTY
     }
 }
 
-impl<T> FocusPath<T> {
+impl<T: PartialEq> FocusPath<T> {
     pub const EMPTY: Self = Self(Vec::new());
 
     pub fn new(component: impl Into<T>) -> Self {
@@ -33,7 +33,7 @@ impl<T> FocusPath<T> {
     #[must_use]
     pub fn transition(&mut self, other: Self) -> Vec<FocusPathTransition<T>>
     where
-        T: PartialEq + Clone,
+        T: Clone,
     {
         // Find common prefix length where both paths match
         let common_prefix_len = (*self)

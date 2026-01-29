@@ -105,7 +105,7 @@ impl LauncherPresenter {
     }
 
     // Architecture: I don't want the launcher here to directly generate UserIntent, may be LauncherIntent? Not sure.
-    pub fn process(&mut self, view_event: ViewEvent) -> Result<Option<UserIntent>> {
+    pub fn process(&mut self, view_event: ViewEvent) -> Result<UserIntent> {
         // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
         // arbitrary hierarchies? May be the EventManager directly defines the scope id?
         // Ergonomics: Create a fluent constructor for events with Scope?
@@ -114,7 +114,7 @@ impl LauncherPresenter {
             view_event,
             Instant::now(),
         )) else {
-            return Ok(None);
+            return Ok(UserIntent::None);
         };
 
         if let Some(point) = event.detect_click(MouseButton::Left) {
@@ -124,9 +124,9 @@ impl LauncherPresenter {
         match event.event() {
             ViewEvent::Focused(true) if self.band.is_empty() => {
                 // Usability: Should pass this rect?
-                return Ok(Some(UserIntent::StartInstance {
+                return Ok(UserIntent::StartInstance {
                     originating_instance: None,
-                }));
+                });
             }
             ViewEvent::CursorEntered { .. } => {
                 warn!("CursorEntered: {}", self.profile.name);
@@ -137,7 +137,7 @@ impl LauncherPresenter {
             _ => {}
         }
 
-        Ok(None)
+        Ok(UserIntent::None)
     }
 
     pub fn set_rect(&mut self, rect: Rect) {
