@@ -49,8 +49,8 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 /// with unified vertical layout.
 #[derive(Debug)]
 pub struct DesktopPresenter {
-    pub band: BandPresenter,
-    pub project: ProjectPresenter,
+    top_band: BandPresenter,
+    project: ProjectPresenter,
 
     rect: Rect,
     top_band_rect: Rect,
@@ -62,7 +62,7 @@ impl DesktopPresenter {
         let project_presenter = ProjectPresenter::new(project, location.clone(), scene);
 
         Self {
-            band: BandPresenter::default(),
+            top_band: BandPresenter::default(),
             project: project_presenter,
             // Ergonomics: We need to push the layout results somewhere outside of the presenters.
             // Perhaps a `HashMap<LayoutId, Rect>` or so?
@@ -79,7 +79,7 @@ impl DesktopPresenter {
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
     ) -> Result<()> {
-        self.band
+        self.top_band
             .present_primary_instance(instance, view_creation_info, scene)
     }
 
@@ -90,7 +90,7 @@ impl DesktopPresenter {
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<()> {
-        self.band
+        self.top_band
             .present_instance(instance, originating_from, default_panel_size, scene)
     }
 
@@ -99,11 +99,11 @@ impl DesktopPresenter {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
     ) -> Result<()> {
-        self.band.present_view(instance, view_creation_info)
+        self.top_band.present_view(instance, view_creation_info)
     }
 
     pub fn hide_view(&mut self, id: ViewId) -> Result<()> {
-        self.band.hide_view(id)
+        self.top_band.hide_view(id)
     }
 
     pub fn layout(
@@ -118,7 +118,7 @@ impl DesktopPresenter {
 
         // Band section (instances layouted horizontally)
         root_builder.child(
-            self.band
+            self.top_band
                 .layout()
                 .map_id(LayoutId::Instance)
                 .with_id(LayoutId::TopBand),
@@ -145,7 +145,8 @@ impl DesktopPresenter {
                         self.top_band_rect = rect_px.into();
                     }
                     LayoutId::Instance(instance_id) => {
-                        self.band.set_instance_rect(instance_id, rect_px, animate);
+                        self.top_band
+                            .set_instance_rect(instance_id, rect_px, animate);
                     }
                     LayoutId::Project(project_id) => {
                         self.project
@@ -156,7 +157,7 @@ impl DesktopPresenter {
     }
 
     pub fn apply_animations(&mut self) {
-        self.band.apply_animations();
+        self.top_band.apply_animations();
         self.project.apply_animations();
     }
 
@@ -166,7 +167,7 @@ impl DesktopPresenter {
         container(DesktopTarget::Desktop, || {
             [
                 // Band navigation instances.
-                self.band
+                self.top_band
                     .navigation()
                     .map_target(DesktopTarget::Band)
                     .with_target(DesktopTarget::TopBand),
@@ -191,7 +192,7 @@ impl DesktopPresenter {
             DesktopTarget::Band(BandTarget::Instance(instance_id)) => {
                 // Architecture: The Band should be responsible for resolving at least the rects, if
                 // not the camera?
-                self.band.instance_transform(*instance_id)?.to_camera()
+                self.top_band.instance_transform(*instance_id)?.to_camera()
             }
             DesktopTarget::Band(BandTarget::View(..)) => {
                 // Forward this to the parent (which is a BandTarget::Instance).
@@ -226,7 +227,7 @@ impl DesktopPresenter {
         transition: EventTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<UserIntent> {
-        let band_presenter = &self.band;
+        let band_presenter = &self.top_band;
         let project_presenter = &mut self.project;
         let mut user_intent = UserIntent::None;
         match transition {
