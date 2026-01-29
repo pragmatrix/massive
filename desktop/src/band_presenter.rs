@@ -33,6 +33,10 @@ pub enum BandTarget {
 impl BandPresenter {
     pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
+    pub fn presents_instance(&self, id: InstanceId) -> bool {
+        self.instances.contains_key(&id)
+    }
+
     pub fn is_empty(&self) -> bool {
         self.ordered.is_empty()
     }

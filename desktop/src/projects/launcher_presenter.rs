@@ -5,8 +5,8 @@ use log::warn;
 use winit::event::MouseButton;
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewEvent;
-use massive_geometry::{Color, Rect};
+use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
+use massive_geometry::{Color, Rect, SizePx};
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
@@ -153,6 +153,25 @@ impl LauncherPresenter {
         self.background.update_with(|visual| {
             visual.shapes = [background_shape(size.to_rect(), Color::WHITE)].into()
         });
+    }
+
+    pub fn present_instance(
+        &mut self,
+        instance: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
+        scene: &Scene,
+    ) -> Result<()> {
+        self.band
+            .present_instance(instance, originating_from, default_panel_size, scene)
+    }
+
+    pub fn presents_instance(&self, instance: InstanceId) -> bool {
+        self.band.presents_instance(instance)
+    }
+
+    pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
+        self.band.present_view(instance, view)
     }
 }
 

@@ -11,6 +11,7 @@ use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
+use crate::projects::LaunchProfileId;
 use crate::{
     EventTransition, UserIntent,
     band_presenter::{BandPresenter, BandTarget},
@@ -44,6 +45,13 @@ pub enum DesktopTarget {
 }
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
+
+/// The location where the instance bands are.
+#[derive(Debug)]
+pub enum InstanceTarget {
+    TopBand,
+    LaunchProfile(LaunchProfileId),
+}
 
 /// Manages the presentation of the desktop, combining the band (instances) and projects
 /// with unified vertical layout.
@@ -85,13 +93,27 @@ impl DesktopPresenter {
 
     pub fn present_instance(
         &mut self,
+        target: InstanceTarget,
         instance: InstanceId,
         originating_from: Option<InstanceId>,
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<()> {
-        self.top_band
-            .present_instance(instance, originating_from, default_panel_size, scene)
+        match target {
+            InstanceTarget::TopBand => self.top_band.present_instance(
+                instance,
+                originating_from,
+                default_panel_size,
+                scene,
+            ),
+            InstanceTarget::LaunchProfile(launch_profile_id) => self.project.present_instance(
+                launch_profile_id,
+                instance,
+                originating_from,
+                default_panel_size,
+                scene,
+            ),
+        }
     }
 
     pub fn present_view(
@@ -99,7 +121,11 @@ impl DesktopPresenter {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
     ) -> Result<()> {
-        self.top_band.present_view(instance, view_creation_info)
+        // Here the instance does exist, so we can check where it belongs to.
+        if self.top_band.presents_instance(instance) {
+            return self.top_band.present_view(instance, view_creation_info);
+        }
+        self.project.present_view(instance, view_creation_info)
     }
 
     pub fn hide_view(&mut self, id: ViewId) -> Result<()> {
@@ -297,6 +323,24 @@ impl DesktopFocusPath {
         self.iter().rev().find_map(|t| match t {
             DesktopTarget::Band(BandTarget::Instance(id)) => Some(*id),
             _ => None,
+        })
+    }
+
+    /// A target that can take on more instances. This defines where we can create new instances.
+    pub fn instance_target(&self) -> Option<InstanceTarget> {
+        self.iter().rev().find_map(|t| match t {
+            DesktopTarget::Desktop => {
+                // This could be useful for spawning a instance in the top band.
+                None
+            }
+            DesktopTarget::TopBand | DesktopTarget::Band(..) => Some(InstanceTarget::TopBand),
+            DesktopTarget::Project(ProjectTarget::Launcher(launcher_id)) => {
+                Some(InstanceTarget::LaunchProfile(*launcher_id))
+            }
+            DesktopTarget::Project(ProjectTarget::Group(_)) => {
+                // Idea: Spawn for each member of the group?
+                None
+            }
         })
     }
 }

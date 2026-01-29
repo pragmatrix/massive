@@ -26,9 +26,10 @@ pub enum UserIntent {
     // Architecture: Could just always Focus an explicit thing?
     Focus(DesktopFocusPath),
     StartInstance {
-        // Removed this for now, we always start the primary / default application.
-        // application: String,
-        // Architecture: This should just a transformed rect.
+        // Architecture: This should just a transformed rect. **BUT** it also determines the
+        // insertion index!!!
+        //
+        // Idea: What about looking for which presenter has the focus currently?
         originating_instance: Option<InstanceId>,
     },
     StopInstance {
@@ -77,8 +78,8 @@ impl DesktopInteraction {
         })
     }
 
-    pub fn focused_instance(&self) -> Option<InstanceId> {
-        self.event_router.focused().instance()
+    pub fn focused(&self) -> &DesktopFocusPath {
+        self.event_router.focused()
     }
 
     pub fn camera(&self) -> PixelCamera {

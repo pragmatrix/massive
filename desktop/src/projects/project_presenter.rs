@@ -8,7 +8,7 @@ use anyhow::Result;
 use log::error;
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewEvent;
+use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
 use massive_geometry::{Color, Rect, SizePx};
 use massive_layout::{Layout, container, leaf};
 use massive_renderer::text::FontSystem;
@@ -286,6 +286,41 @@ impl ProjectPresenter {
         self.launchers
             .values_mut()
             .for_each(|sp| sp.apply_animations());
+    }
+
+    pub fn present_instance(
+        &mut self,
+        launcher: LaunchProfileId,
+        instance: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
+        scene: &Scene,
+    ) -> Result<()> {
+        self.launchers
+            .get_mut(&launcher)
+            .expect("Launcher does not exist")
+            .present_instance(instance, originating_from, default_panel_size, scene)
+    }
+
+    pub fn present_view(
+        &mut self,
+        instance: InstanceId,
+        creation_info: &ViewCreationInfo,
+    ) -> Result<()> {
+        let launcher = self
+            .mut_launcher_for_instance(instance)
+            .expect("Instance for view does not exist");
+
+        launcher.present_view(instance, creation_info)
+    }
+
+    fn mut_launcher_for_instance(
+        &mut self,
+        instance: InstanceId,
+    ) -> Option<&mut LauncherPresenter> {
+        self.launchers
+            .values_mut()
+            .find(|l| l.presents_instance(instance))
     }
 }
 

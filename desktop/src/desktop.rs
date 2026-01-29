@@ -209,12 +209,21 @@ impl Desktop {
                     .instance_manager
                     .spawn(application, CreationMode::New)?;
 
+                // Simplify: Use the currently focused instance for determining the originating one.
+                let instance_target = self
+                    .interaction
+                    .focused()
+                    .instance_target()
+                    .expect("Failed to start an instance without a focused instance target");
+
                 self.presenter.present_instance(
+                    instance_target,
                     instance,
                     originating_instance,
                     self.primary_instance_panel_size,
                     &self.scene,
                 )?;
+
                 self.interaction.make_foreground(
                     instance,
                     &self.instance_manager,
@@ -244,7 +253,7 @@ impl Desktop {
                 self.presenter.present_view(instance, &info)?;
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if self.interaction.focused_instance() == Some(instance)
+                if self.interaction.focused().instance() == Some(instance)
                     && info.role == ViewRole::Primary
                 {
                     self.interaction.make_foreground(
