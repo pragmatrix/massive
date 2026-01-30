@@ -201,21 +201,21 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
         BX: From<BoxComponents<RANK>>,
     {
         let mut vec = Vec::new();
-        self.place_inline(absolute_offset, |(id, r)| vec.push((id, r)));
+        self.place_inline(absolute_offset, |id, r| vec.push((id, r)));
         vec
     }
 
     pub fn place_inline<BX>(
         self,
         absolute_offset: impl Into<[i32; RANK]>,
-        mut set_rect: impl FnMut((Id, BX)),
+        mut set_rect: impl FnMut(Id, BX),
     ) where
         BX: From<BoxComponents<RANK>>,
     {
         let absolute_offset: Offset<RANK> = absolute_offset.into().into();
         self.place_rec(absolute_offset, &mut |id, bx| {
             let box_components: BoxComponents<RANK> = bx.into();
-            set_rect((id, box_components.into()))
+            set_rect(id, box_components.into())
         });
     }
 

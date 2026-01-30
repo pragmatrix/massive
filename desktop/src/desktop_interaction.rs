@@ -12,7 +12,7 @@ use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
+    desktop_presenter::{BandLocation, DesktopFocusPath, DesktopPresenter, DesktopTarget},
     event_router,
     instance_manager::InstanceManager,
     navigation::NavigationHitTester,
@@ -26,8 +26,11 @@ pub enum UserIntent {
     // Architecture: Could just always Focus an explicit thing?
     Focus(DesktopFocusPath),
     StartInstance {
-        application: String,
-        originating_instance: InstanceId,
+        // Architecture: This should just a transformed rect. **BUT** it also determines the
+        // insertion index!!!
+        //
+        // Idea: What about looking for which presenter has the focus currently?
+        originating_instance: Option<InstanceId>,
     },
     StopInstance {
         instance: InstanceId,
@@ -49,14 +52,18 @@ impl DesktopInteraction {
     //
     // Detail: This function assumes that the window is focused right now.
     pub fn new(
-        path: DesktopFocusPath,
+        initial_focus: DesktopFocusPath,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
         scene: &Scene,
     ) -> Result<Self> {
         let mut event_router = EventRouter::default();
-        let initial_transitions = event_router.focus(path);
-        presenter.forward_event_transitions(initial_transitions.transitions, instance_manager)?;
+        let initial_transitions = event_router.focus(initial_focus);
+        assert!(
+            presenter
+                .forward_event_transitions(initial_transitions.transitions, instance_manager)?
+                == UserIntent::None
+        );
 
         // We can't call apply_changes yet as it needs a mutable presenter reference
         // which we don't have. The transitions will be applied later.
@@ -71,8 +78,8 @@ impl DesktopInteraction {
         })
     }
 
-    pub fn focused_instance(&self) -> Option<InstanceId> {
-        self.event_router.focused().instance()
+    pub fn focused(&self) -> &DesktopFocusPath {
+        self.event_router.focused()
     }
 
     pub fn camera(&self) -> PixelCamera {
@@ -81,14 +88,21 @@ impl DesktopInteraction {
 
     pub fn make_foreground(
         &mut self,
+        band_location: BandLocation,
         instance: InstanceId,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
         let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-        let focus_path = DesktopFocusPath::from_instance_and_view(instance, primary_view);
-        self.focus(focus_path, instance_manager, presenter)
+        let focus_path =
+            DesktopFocusPath::from_instance_and_view(band_location, instance, primary_view);
+        assert_eq!(
+            self.focus(focus_path, instance_manager, presenter)?,
+            UserIntent::None,
+            "Unexpected UserIntent in response to make_foreground"
+        );
+        Ok(())
     }
 
     pub fn focus(
@@ -96,9 +110,10 @@ impl DesktopInteraction {
         focus_path: DesktopFocusPath,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
-    ) -> Result<()> {
+    ) -> Result<UserIntent> {
         let transitions = self.event_router.focus(focus_path);
-        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
+        let user_intent =
+            presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
         let camera = presenter.camera_for_focus(self.event_router.focused());
         if let Some(camera) = camera {
@@ -109,7 +124,7 @@ impl DesktopInteraction {
             );
         }
 
-        Ok(())
+        Ok(user_intent)
     }
 
     pub fn process_input_event(
@@ -119,9 +134,9 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<UserIntent> {
-        let command = self.preprocess_keyboard_commands(event, instance_manager)?;
-        if command != UserIntent::None {
-            return Ok(command);
+        let intent = self.preprocess_keyboard_commands(event)?;
+        if intent != UserIntent::None {
+            return Ok(intent);
         }
 
         // Create a hit tester and forward events.
@@ -131,23 +146,21 @@ impl DesktopInteraction {
             let hit_test = NavigationHitTester::new(navigation, render_geometry);
             self.event_router.process(event, &hit_test)?
         };
-        presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
+        let intent =
+            presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
         // Robustness: Currently we don't check if the only the instance actually changed.
         if let Some(new_focus) = transitions.focus_changed
             && let Some(instance) = new_focus.instance()
+            && let Some(band_location) = new_focus.band_location()
         {
-            self.make_foreground(instance, instance_manager, presenter)?;
+            self.make_foreground(band_location, instance, instance_manager, presenter)?;
         };
 
-        Ok(UserIntent::None)
+        Ok(intent)
     }
 
-    fn preprocess_keyboard_commands(
-        &self,
-        event: &Event<ViewEvent>,
-        instance_manager: &InstanceManager,
-    ) -> Result<UserIntent> {
+    fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {
         // Catch Command+t and Command+w if a instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
@@ -160,10 +173,8 @@ impl DesktopInteraction {
             if let Some(instance) = self.event_router.focused().instance() {
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
-                        let application = instance_manager.get_application_name(instance)?;
                         return Ok(UserIntent::StartInstance {
-                            application: application.to_string(),
-                            originating_instance: instance,
+                            originating_instance: Some(instance),
                         });
                     }
                     Key::Character(c) if c.as_str() == "w" => {

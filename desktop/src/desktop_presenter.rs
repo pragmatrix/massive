@@ -6,15 +6,16 @@ use derive_more::From;
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, SizePx};
 use massive_layout as layout;
-use massive_layout::{Box as LayoutBox, LayoutAxis};
+use massive_layout::LayoutAxis;
 use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-use crate::band_presenter::BandTarget;
+use crate::box_to_rect;
+use crate::projects::LaunchProfileId;
 use crate::{
-    EventTransition,
-    band_presenter::BandPresenter,
+    EventTransition, UserIntent,
+    band_presenter::{BandPresenter, BandTarget},
     focus_path::FocusPath,
     instance_manager::InstanceManager,
     navigation::{NavigationNode, container},
@@ -46,12 +47,19 @@ pub enum DesktopTarget {
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
+/// The location where the instance bands are.
+#[derive(Debug, Clone, Copy)]
+pub enum BandLocation {
+    TopBand,
+    LaunchProfile(LaunchProfileId),
+}
+
 /// Manages the presentation of the desktop, combining the band (instances) and projects
 /// with unified vertical layout.
 #[derive(Debug)]
 pub struct DesktopPresenter {
-    pub band: BandPresenter,
-    pub project: ProjectPresenter,
+    top_band: BandPresenter,
+    project: ProjectPresenter,
 
     rect: Rect,
     top_band_rect: Rect,
@@ -63,7 +71,7 @@ impl DesktopPresenter {
         let project_presenter = ProjectPresenter::new(project, location.clone(), scene);
 
         Self {
-            band: BandPresenter::default(),
+            top_band: BandPresenter::default(),
             project: project_presenter,
             // Ergonomics: We need to push the layout results somewhere outside of the presenters.
             // Perhaps a `HashMap<LayoutId, Rect>` or so?
@@ -80,18 +88,33 @@ impl DesktopPresenter {
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
     ) -> Result<()> {
-        self.band
+        self.top_band
             .present_primary_instance(instance, view_creation_info, scene)
     }
 
     pub fn present_instance(
         &mut self,
+        target: BandLocation,
         instance: InstanceId,
-        originating_from: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<()> {
-        self.band
-            .present_instance(instance, originating_from, scene)
+        match target {
+            BandLocation::TopBand => self.top_band.present_instance(
+                instance,
+                originating_from,
+                default_panel_size,
+                scene,
+            ),
+            BandLocation::LaunchProfile(launch_profile_id) => self.project.present_instance(
+                launch_profile_id,
+                instance,
+                originating_from,
+                default_panel_size,
+                scene,
+            ),
+        }
     }
 
     pub fn present_view(
@@ -99,16 +122,17 @@ impl DesktopPresenter {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
     ) -> Result<()> {
-        self.band.present_view(instance, view_creation_info)
+        // Here the instance does exist, so we can check where it belongs to.
+        if self.top_band.presents_instance(instance) {
+            return self.top_band.present_view(instance, view_creation_info);
+        }
+        self.project.present_view(instance, view_creation_info)
     }
 
     pub fn hide_view(&mut self, id: ViewId) -> Result<()> {
-        self.band.hide_view(id)
+        self.top_band.hide_view(id)
     }
 
-    // Unified Layout
-
-    /// Compute the unified vertical layout for band (top) and projects (bottom).
     pub fn layout(
         &mut self,
         default_panel_size: SizePx,
@@ -121,7 +145,7 @@ impl DesktopPresenter {
 
         // Band section (instances layouted horizontally)
         root_builder.child(
-            self.band
+            self.top_band
                 .layout()
                 .map_id(LayoutId::Instance)
                 .with_id(LayoutId::TopBand),
@@ -138,7 +162,7 @@ impl DesktopPresenter {
 
         root_builder
             .layout()
-            .place_inline(PointPx::origin(), |(id, rect)| {
+            .place_inline(PointPx::origin(), |id, rect| {
                 let rect_px = box_to_rect(rect);
                 match id {
                     LayoutId::Desktop => {
@@ -148,7 +172,8 @@ impl DesktopPresenter {
                         self.top_band_rect = rect_px.into();
                     }
                     LayoutId::Instance(instance_id) => {
-                        self.band.set_instance_rect(instance_id, rect_px, animate);
+                        self.top_band
+                            .set_instance_rect(instance_id, rect_px, animate);
                     }
                     LayoutId::Project(project_id) => {
                         self.project
@@ -159,7 +184,7 @@ impl DesktopPresenter {
     }
 
     pub fn apply_animations(&mut self) {
-        self.band.apply_animations();
+        self.top_band.apply_animations();
         self.project.apply_animations();
     }
 
@@ -169,7 +194,7 @@ impl DesktopPresenter {
         container(DesktopTarget::Desktop, || {
             [
                 // Band navigation instances.
-                self.band
+                self.top_band
                     .navigation()
                     .map_target(DesktopTarget::Band)
                     .with_target(DesktopTarget::TopBand),
@@ -194,7 +219,7 @@ impl DesktopPresenter {
             DesktopTarget::Band(BandTarget::Instance(instance_id)) => {
                 // Architecture: The Band should be responsible for resolving at least the rects, if
                 // not the camera?
-                self.band.instance_transform(*instance_id)?.to_camera()
+                self.top_band.instance_transform(*instance_id)?.to_camera()
             }
             DesktopTarget::Band(BandTarget::View(..)) => {
                 // Forward this to the parent (which is a BandTarget::Instance).
@@ -212,11 +237,15 @@ impl DesktopPresenter {
         // Don't use EventTransitions here for now, it contains more information than we need.
         transitions: Vec<EventTransition<DesktopTarget>>,
         instance_manager: &InstanceManager,
-    ) -> Result<()> {
+    ) -> Result<UserIntent> {
+        let mut user_intent = UserIntent::None;
+
+        // Robustness: While we need to forward all transitions we currently process only one intent.
         for transition in transitions {
-            self.forward_event_transition(transition, instance_manager)?;
+            user_intent = self.forward_event_transition(transition, instance_manager)?;
         }
-        Ok(())
+
+        Ok(user_intent)
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
@@ -224,35 +253,36 @@ impl DesktopPresenter {
         &mut self,
         transition: EventTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        let band_presenter = &self.band;
+    ) -> Result<UserIntent> {
+        let band_presenter = &self.top_band;
         let project_presenter = &mut self.project;
+        let mut user_intent = UserIntent::None;
         match transition {
+            EventTransition::Directed(path, _) if path.is_empty() => {
+                // This happens if hit testing hits no presenter and a CursorMove event gets
+                // forwarded: FocusPath::EMPTY represents the Window itself.
+            }
             EventTransition::Directed(focus_path, view_event) => {
                 // Route to the appropriate handler based on the last target in the path
-                if let Some(target) = focus_path.last() {
-                    match target {
-                        DesktopTarget::Desktop => {}
-                        DesktopTarget::TopBand => {
-                            band_presenter.process(view_event)?;
-                        }
-                        DesktopTarget::Band(BandTarget::Instance(..)) => {
-                            // Shouldn't we forward this to the band here?
-                        }
-                        DesktopTarget::Band(BandTarget::View(view_id)) => {
-                            let Some(instance) = instance_manager.instance_of_view(*view_id) else {
-                                bail!("Internal error: Instance of view {view_id:?} not found");
-                            };
-                            instance_manager.send_view_event((instance, *view_id), view_event)?;
-                        }
-                        DesktopTarget::Project(project_id) => {
-                            // Forward to project presenter
-                            let project_transition = EventTransition::Directed(
-                                vec![project_id.clone()].into(),
-                                view_event,
-                            );
-                            project_presenter.process_transition(project_transition)?;
-                        }
+                match focus_path.last().expect("Internal Error") {
+                    DesktopTarget::Desktop => {}
+                    DesktopTarget::TopBand => {
+                        band_presenter.process(view_event)?;
+                    }
+                    DesktopTarget::Band(BandTarget::Instance(..)) => {
+                        // Shouldn't we forward this to the band here?
+                    }
+                    DesktopTarget::Band(BandTarget::View(view_id)) => {
+                        let Some(instance) = instance_manager.instance_of_view(*view_id) else {
+                            bail!("Internal error: Instance of view {view_id:?} not found");
+                        };
+                        instance_manager.send_view_event((instance, *view_id), view_event)?;
+                    }
+                    DesktopTarget::Project(project_id) => {
+                        // Forward to project presenter
+                        let project_transition =
+                            EventTransition::Directed(vec![project_id.clone()].into(), view_event);
+                        user_intent = project_presenter.process_transition(project_transition)?;
                     }
                 }
             }
@@ -264,36 +294,78 @@ impl DesktopPresenter {
 
                 // Also broadcast to project presenter
                 let project_transition = EventTransition::Broadcast(view_event);
-                project_presenter.process_transition(project_transition)?;
+                user_intent = project_presenter.process_transition(project_transition)?;
             }
         }
-        Ok(())
+        Ok(user_intent)
     }
-}
-
-fn box_to_rect(([x, y], [w, h]): LayoutBox<2>) -> massive_geometry::RectPx {
-    massive_geometry::RectPx::new((x, y).into(), (w as i32, h as i32).into())
 }
 
 // Path utilities
 
 impl DesktopFocusPath {
     /// Focus the primary view. Currently only on the TopBand.
-    pub fn from_instance_and_view(instance: InstanceId, view: impl Into<Option<ViewId>>) -> Self {
-        // Ergonomics: what about supporting .join directly on a target?
-        let instance = Self::new(DesktopTarget::Desktop)
-            .join(DesktopTarget::TopBand)
-            .join(DesktopTarget::Band(BandTarget::Instance(instance)));
-        let Some(view) = view.into() else {
-            return instance;
-        };
-        instance.join(DesktopTarget::Band(BandTarget::View(view)))
+    pub fn from_instance_and_view(
+        band_location: BandLocation,
+        instance: InstanceId,
+        view: impl Into<Option<ViewId>>,
+    ) -> Self {
+        match band_location {
+            BandLocation::TopBand => {
+                // Ergonomics: what about supporting .join directly on a target?
+                let instance = Self::new(DesktopTarget::Desktop)
+                    .join(DesktopTarget::TopBand)
+                    .join(DesktopTarget::Band(BandTarget::Instance(instance)));
+                if let Some(view) = view.into() {
+                    instance.join(DesktopTarget::Band(BandTarget::View(view)))
+                } else {
+                    instance
+                }
+            }
+            BandLocation::LaunchProfile(launch_profile_id) => {
+                let instance = Self::new(DesktopTarget::Desktop).join(DesktopTarget::Project(
+                    ProjectTarget::Band(launch_profile_id, BandTarget::Instance(instance)),
+                ));
+                if let Some(view) = view.into() {
+                    instance.join(DesktopTarget::Band(BandTarget::View(view)))
+                } else {
+                    instance
+                }
+            }
+        }
     }
 
     pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| match t {
-            DesktopTarget::Band(BandTarget::Instance(id)) => Some(*id),
+            // Architecture: We really need a new way to organize paths, this is horrible.
+            // Perhaps just flatten, but then how to map the ids from BandTargets up?
+            DesktopTarget::Band(BandTarget::Instance(id))
+            | DesktopTarget::Project(ProjectTarget::Band(_, BandTarget::Instance(id))) => Some(*id),
+
             _ => None,
+        })
+    }
+
+    /// A target that can take on more instances. This defines the locations where new instances can be created.
+    pub fn band_location(&self) -> Option<BandLocation> {
+        self.iter().rev().find_map(|t| match t {
+            DesktopTarget::Desktop => {
+                // This could be useful for spawning a instance in the top band.
+                None
+            }
+            DesktopTarget::TopBand | DesktopTarget::Band(..) => Some(BandLocation::TopBand),
+            DesktopTarget::Project(ProjectTarget::Launcher(launcher_id)) => {
+                Some(BandLocation::LaunchProfile(*launcher_id))
+            }
+            DesktopTarget::Project(ProjectTarget::Group(_)) => {
+                // Idea: Spawn for each member of the group?
+                None
+            }
+
+            DesktopTarget::Project(ProjectTarget::Band(..)) => {
+                // Covered by ProjectTarget::Launcher already.
+                None
+            }
         })
     }
 }

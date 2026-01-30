@@ -61,6 +61,7 @@ where
     where
         T: PartialEq,
     {
+        // Robustness: This locks twice.
         if update != *self.value() {
             self.update(update)
         }
@@ -71,9 +72,31 @@ where
         self.inner.update(update)
     }
 
+    // Performance: May use replace_with?
     pub fn update_with(&self, f: impl FnOnce(&mut T)) {
+        // Performance: This locks twice.
         f(&mut *self.value_mut());
         self.inner.updated();
+    }
+
+    // Performance: May use replace_with?
+    pub fn update_with_if_changed(&self, f: impl FnOnce(&mut T))
+    where
+        T: Clone + PartialEq,
+    {
+        // Robustness: This locks twice if changed.
+        //
+        // Detail: Need to separate the lock range here clearly, otherwise the mutex stays locked
+        // until self.inner.updated()
+        let changed = {
+            let mut v = self.value_mut();
+            let before = v.clone();
+            f(&mut *v);
+            *v != before
+        };
+        if changed {
+            self.inner.updated();
+        }
     }
 
     pub fn value(&self) -> MutexGuard<'_, T> {

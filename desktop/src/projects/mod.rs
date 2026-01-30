@@ -4,8 +4,11 @@ use anyhow::{Context, Result};
 use derive_more::From;
 use log::warn;
 
-use crate::projects::configuration::{
-    GroupContents, LaunchProfile, LayoutDirection, Parameters, ScopedTag,
+use crate::{
+    band_presenter::BandTarget,
+    projects::configuration::{
+        GroupContents, LaunchProfile, LayoutDirection, Parameters, ScopedTag,
+    },
 };
 
 mod configuration;
@@ -24,6 +27,9 @@ pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 pub enum ProjectTarget {
     Group(GroupId),
     Launcher(LaunchProfileId),
+    // Under Launcher
+    // Architecture: Why do we need to have the LaunchProfileId here for navigating down?
+    Band(LaunchProfileId, BandTarget),
 }
 
 impl ProjectConfiguration {

@@ -5,10 +5,10 @@ use std::{
 };
 
 use anyhow::Result;
-use log::warn;
+use log::error;
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewEvent;
+use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
 use massive_geometry::{Color, Rect, SizePx};
 use massive_layout::{Layout, container, leaf};
 use massive_renderer::text::FontSystem;
@@ -21,7 +21,7 @@ use super::{
     project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
 };
 use crate::{
-    EventTransition,
+    EventTransition, UserIntent,
     navigation::{self, NavigationNode},
     projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION},
 };
@@ -66,11 +66,13 @@ impl ProjectPresenter {
     pub fn process_transition(
         &mut self,
         event_transition: EventTransition<ProjectTarget>,
-    ) -> Result<()> {
-        match event_transition {
+    ) -> Result<UserIntent> {
+        let intent = match event_transition {
             EventTransition::Directed(focus_path, view_event) => {
                 if let Some(id) = focus_path.last() {
-                    self.handle_directed_event(id.clone(), view_event)?;
+                    self.handle_directed_event(id.clone(), view_event)?
+                } else {
+                    UserIntent::None
                 }
             }
             EventTransition::Broadcast(view_event) => {
@@ -78,22 +80,34 @@ impl ProjectPresenter {
                     group.process(view_event.clone())?;
                 }
                 for launcher in self.launchers.values_mut() {
-                    launcher.process(view_event.clone())?;
+                    let intent = launcher.process(view_event.clone())?;
+                    if intent != UserIntent::None {
+                        error!(
+                            "Unsupported user intent in response to a Broadcast event: {intent:?}"
+                        );
+                    }
                 }
+                UserIntent::None
             }
-        }
-        Ok(())
+        };
+
+        Ok(intent)
     }
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
-    fn handle_directed_event(&mut self, id: ProjectTarget, view_event: ViewEvent) -> Result<()> {
-        match id {
+    fn handle_directed_event(
+        &mut self,
+        id: ProjectTarget,
+        view_event: ViewEvent,
+    ) -> Result<UserIntent> {
+        Ok(match id {
             ProjectTarget::Group(group_id) => {
                 self.groups
                     .get_mut(&group_id)
                     .expect("Internal Error: Missing group")
                     .process(view_event)?;
+                UserIntent::None
             }
             ProjectTarget::Launcher(launch_profile_id) => {
                 match view_event {
@@ -126,27 +140,27 @@ impl ProjectPresenter {
                             Interpolation::CubicOut,
                         );
                     }
-                    ViewEvent::Focused(focused) => {
-                        if focused {
-                            warn!("FOCUSED {launch_profile_id:?}");
-                        }
-                    }
                     _ => {}
                 }
 
                 self.launchers
                     .get_mut(&launch_profile_id)
                     .expect("Internal Error: Missing launcher")
-                    .process(view_event)?;
+                    .process(view_event)?
             }
-        }
-        Ok(())
+            ProjectTarget::Band(launch_profile_id, _) => self
+                .launchers
+                .get_mut(&launch_profile_id)
+                .expect("Internal Error: Missing launcher")
+                .process_band(view_event)?,
+        })
     }
 
     pub fn rect_of(&self, id: ProjectTarget) -> Rect {
         match id {
             ProjectTarget::Group(group_id) => self.groups[&group_id].rect.final_value(),
-            ProjectTarget::Launcher(launch_profile_id) => {
+            ProjectTarget::Launcher(launch_profile_id)
+            | ProjectTarget::Band(launch_profile_id, ..) => {
                 self.launchers[&launch_profile_id].rect.final_value()
             }
         }
@@ -218,6 +232,9 @@ impl ProjectPresenter {
             ProjectTarget::Launcher(launch_profile_id) => {
                 self.set_launcher_rect(launch_profile_id, rect, scene, font_system)
             }
+            ProjectTarget::Band(..) => {
+                panic!("Invalid set_rect on a Band inside the project")
+            }
         }
     }
 
@@ -279,6 +296,41 @@ impl ProjectPresenter {
             .values_mut()
             .for_each(|sp| sp.apply_animations());
     }
+
+    pub fn present_instance(
+        &mut self,
+        launcher: LaunchProfileId,
+        instance: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
+        scene: &Scene,
+    ) -> Result<()> {
+        self.launchers
+            .get_mut(&launcher)
+            .expect("Launcher does not exist")
+            .present_instance(instance, originating_from, default_panel_size, scene)
+    }
+
+    pub fn present_view(
+        &mut self,
+        instance: InstanceId,
+        creation_info: &ViewCreationInfo,
+    ) -> Result<()> {
+        let launcher = self
+            .mut_launcher_for_instance(instance)
+            .expect("Instance for view does not exist");
+
+        launcher.present_view(instance, creation_info)
+    }
+
+    fn mut_launcher_for_instance(
+        &mut self,
+        instance: InstanceId,
+    ) -> Option<&mut LauncherPresenter> {
+        self.launchers
+            .values_mut()
+            .find(|l| l.is_presenting_instance(instance))
+    }
 }
 
 /// Recursively layout a launch group and its children.
@@ -321,7 +373,7 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
             StrokeRect {
                 rect: r,
                 stroke: (10., 10.).into(),
-                color: Color::rgb_u32(0xffff00).with_alpha(a),
+                color: Color::rgb_u32(0xff0000).with_alpha(a),
             }
             .into()
         })

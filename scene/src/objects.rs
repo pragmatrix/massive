@@ -9,7 +9,9 @@ use crate::{Change, Handle, Id, Object, SceneChange};
 ///
 /// Architecture: This has now the same size as [`VisualRenderObj`]. Why not just clone this one for
 /// the renderer then .. or even just the [`Handle<Visual>`]?
-#[derive(Debug, PartialEq)]
+///
+/// Detail: `Clone` was added for `Handle::update_with_if_changed()`.
+#[derive(Debug, Clone, PartialEq)]
 pub struct Visual {
     pub location: Handle<Location>,
     /// The current depth bias for this Visual. Default is 0, which renders it at first (without

@@ -1,6 +1,7 @@
 use std::time::Instant;
 
 use anyhow::{Result, anyhow, bail};
+use massive_geometry::SizePx;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
 
@@ -13,7 +14,7 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::desktop_presenter::DesktopFocusPath;
+use crate::desktop_presenter::{BandLocation, DesktopFocusPath};
 use crate::projects::Project;
 use crate::{
     DesktopEnvironment, DesktopInteraction, DesktopPresenter, UserIntent,
@@ -27,6 +28,7 @@ pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
+    primary_instance_panel_size: SizePx,
     presenter: DesktopPresenter,
 
     event_manager: EventManager<ViewEvent>,
@@ -83,6 +85,7 @@ impl Desktop {
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.
         let primary_view = creation_info.id;
+        let default_size = creation_info.size();
 
         let window = context.new_window(creation_info.size()).await?;
         let renderer = window
@@ -100,7 +103,11 @@ impl Desktop {
         instance_manager.add_view(primary_instance, &creation_info);
 
         let ui = DesktopInteraction::new(
-            DesktopFocusPath::from_instance_and_view(primary_instance, primary_view),
+            DesktopFocusPath::from_instance_and_view(
+                BandLocation::TopBand,
+                primary_instance,
+                primary_view,
+            ),
             &instance_manager,
             &mut presenter,
             &scene,
@@ -111,9 +118,10 @@ impl Desktop {
             scene,
             renderer,
             window,
+            primary_instance_panel_size: default_size,
+            presenter,
             event_manager,
             instance_manager,
-            presenter,
             instance_commands: requests_rx,
             context,
             env,
@@ -185,38 +193,56 @@ impl Desktop {
         match cmd {
             UserIntent::None => {}
             UserIntent::Focus(path) => {
-                self.interaction
-                    .focus(path, &self.instance_manager, &mut self.presenter)?;
+                assert_eq!(
+                    self.interaction
+                        .focus(path, &self.instance_manager, &mut self.presenter)?,
+                    UserIntent::None
+                );
             }
             UserIntent::StartInstance {
-                application,
                 originating_instance,
             } => {
+                // Feature: Support starting non-primary applications.
                 let application = self
                     .env
                     .applications
-                    .get_named(&application)
+                    .get_named(&self.env.primary_application)
                     .ok_or(anyhow!("Internal error, application not registered"))?;
 
                 let instance = self
                     .instance_manager
                     .spawn(application, CreationMode::New)?;
-                self.presenter
-                    .present_instance(instance, originating_instance, &self.scene)?;
+
+                // Simplify: Use the currently focused instance for determining the originating one.
+                let band_location = self
+                    .interaction
+                    .focused()
+                    .band_location()
+                    .expect("Failed to start an instance without a focused instance target");
+
+                self.presenter.present_instance(
+                    band_location,
+                    instance,
+                    originating_instance,
+                    self.primary_instance_panel_size,
+                    &self.scene,
+                )?;
+
                 self.interaction.make_foreground(
+                    band_location,
                     instance,
                     &self.instance_manager,
                     &mut self.presenter,
                 )?;
-                // Get default size from the first view or use a default
-                let default_size = self
-                    .instance_manager
-                    .views()
-                    .next()
-                    .map(|(_, info)| info.extents.size().cast())
-                    .unwrap_or((800u32, 600u32).into());
-                self.presenter
-                    .layout(default_size, true, &self.scene, &mut self.fonts.lock());
+
+                // Performance: We might not need a global re-layout, if we present an instance
+                // to the project's band (This has to work incremental some day).
+                self.presenter.layout(
+                    self.primary_instance_panel_size,
+                    true,
+                    &self.scene,
+                    &mut self.fonts.lock(),
+                );
             }
             UserIntent::StopInstance { instance } => self.instance_manager.stop(instance)?,
         }
@@ -233,12 +259,18 @@ impl Desktop {
             InstanceCommand::CreateView(info) => {
                 self.instance_manager.add_view(instance, &info);
                 self.presenter.present_view(instance, &info)?;
+
+                let focused = self.interaction.focused();
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if self.interaction.focused_instance() == Some(instance)
+                //
+                // Ergonomics: instance() and band_location() are usually used together.
+                if focused.instance() == Some(instance)
+                    && let Some(band_location) = focused.band_location()
                     && info.role == ViewRole::Primary
                 {
                     self.interaction.make_foreground(
+                        band_location,
                         instance,
                         &self.instance_manager,
                         &mut self.presenter,

@@ -40,6 +40,11 @@ impl GlyphRun {
         }
     }
 
+    pub fn with_color(mut self, text_color: Color) -> Self {
+        self.text_color = text_color;
+        self
+    }
+
     /// Translate a rasterized glyph's position to the coordinate system of the run.
     pub fn place_glyph(&self, glyph: &RunGlyph, placement: &Placement) -> (IVec2, IVec2) {
         let max_ascent = self.metrics.max_ascent;

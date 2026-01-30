@@ -1,12 +1,12 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use log::warn;
 use winit::event::MouseButton;
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewEvent;
-use massive_geometry::{Color, Rect};
+use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
+use massive_geometry::{Color, PointPx, Rect, SizePx, ToPixels};
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
@@ -16,7 +16,21 @@ use massive_shell::Scene;
 use super::{
     ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile, project::Launcher,
 };
-use crate::navigation::{NavigationNode, leaf};
+use crate::{
+    UserIntent,
+    band_presenter::BandPresenter,
+    box_to_rect,
+    navigation::{NavigationNode, leaf},
+};
+
+// TODO: Need proper color palettes for UI elements.
+// const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
+// const POWDER_BLUE: Color = Color::rgb_u32(0xb0e0e6);
+const MIDNIGHT_BLUE: Color = Color::rgb_u32(0x191970);
+
+const BACKGROUND_COLOR: Color = MIDNIGHT_BLUE;
+const TEXT_COLOR: Color = Color::WHITE;
+const FADING_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 pub struct LauncherPresenter {
@@ -30,11 +44,17 @@ pub struct LauncherPresenter {
 
     // name_rect: Animated<Box>,
     // The text, either centered, or on top of the border.
-    _name: Handle<Visual>,
+    name: Handle<Visual>,
     /// Architecture: We don't want a history per presenter. What we want is a global one, but one
     /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
     /// account.
     events: EventManager<ViewEvent>,
+
+    /// The instances.
+    band: BandPresenter,
+
+    // Alpha fading of name / background.
+    fader: Animated<f32>,
 }
 
 impl LauncherPresenter {
@@ -49,7 +69,7 @@ impl LauncherPresenter {
         font_system: &mut FontSystem,
     ) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
-        let background_shape = background_shape(rect.size().to_rect(), Color::WHITE);
+        let background_shape = background_shape(rect.size().to_rect(), BACKGROUND_COLOR);
 
         let our_transform = rect.origin().to_transform().enter(scene);
 
@@ -76,7 +96,7 @@ impl LauncherPresenter {
             // background optimizer).
             .size(32.0 * 8.0)
             .shape(font_system)
-            .map(|r| r.into_shape())
+            .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(our_location)
             .with_depth_bias(3)
             .enter(scene);
@@ -87,16 +107,27 @@ impl LauncherPresenter {
             // location: parent_location,
             rect: scene.animated(rect),
             background,
-            _name: name,
+            name,
             events: EventManager::default(),
+            band: BandPresenter::default(),
+            fader: scene.animated(1.0),
         }
     }
 
     pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, ProjectTarget> {
-        leaf(launcher.id, self.rect.final_value())
+        if self.band.is_empty() {
+            return leaf(launcher.id, self.rect.final_value());
+        }
+        let launcher_id = launcher.id;
+        self.band
+            .navigation()
+            .map_target(move |band_target| ProjectTarget::Band(launcher_id, band_target))
+            .with_target(ProjectTarget::Launcher(launcher_id))
+            .with_rect(self.rect.final_value())
     }
 
-    pub fn process(&mut self, view_event: ViewEvent) -> Result<()> {
+    // Architecture: I don't want the launcher here to directly generate UserIntent, may be LauncherIntent? Not sure.
+    pub fn process(&mut self, view_event: ViewEvent) -> Result<UserIntent> {
         // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
         // arbitrary hierarchies? May be the EventManager directly defines the scope id?
         // Ergonomics: Create a fluent constructor for events with Scope?
@@ -105,7 +136,7 @@ impl LauncherPresenter {
             view_event,
             Instant::now(),
         )) else {
-            return Ok(());
+            return Ok(UserIntent::None);
         };
 
         if let Some(point) = event.detect_click(MouseButton::Left) {
@@ -113,6 +144,12 @@ impl LauncherPresenter {
         }
 
         match event.event() {
+            ViewEvent::Focused(true) if self.band.is_empty() => {
+                // Usability: Should pass this rect?
+                return Ok(UserIntent::StartInstance {
+                    originating_instance: None,
+                });
+            }
             ViewEvent::CursorEntered { .. } => {
                 warn!("CursorEntered: {}", self.profile.name);
             }
@@ -122,12 +159,18 @@ impl LauncherPresenter {
             _ => {}
         }
 
-        Ok(())
+        Ok(UserIntent::None)
+    }
+
+    pub fn process_band(&mut self, view_event: ViewEvent) -> Result<UserIntent> {
+        self.band.process(view_event).map(|()| UserIntent::None)
     }
 
     pub fn set_rect(&mut self, rect: Rect) {
         self.rect
             .animate_if_changed(rect, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
+
+        self.layout_band(true);
     }
 
     pub fn apply_animations(&mut self) {
@@ -135,8 +178,74 @@ impl LauncherPresenter {
 
         self.transform.update_if_changed(origin.with_z(0.0).into());
 
-        self.background.update_with(|visual| {
-            visual.shapes = [background_shape(size.to_rect(), Color::WHITE)].into()
+        let alpha = self.fader.value();
+
+        // Performance: How can we not call this if self.rect and self.fader are both not animating.
+        // `is_animating()` is perhaps not reliable.
+        self.background.update_with_if_changed(|visual| {
+            visual.shapes = [background_shape(
+                size.to_rect(),
+                BACKGROUND_COLOR.with_alpha(alpha),
+            )]
+            .into()
+        });
+
+        // Ergonomics: Isn't there a better way to directly set new shapes?
+        self.name.update_with_if_changed(|visual| {
+            visual.shapes = match &*visual.shapes {
+                [Shape::GlyphRun(gr)] => [gr
+                    .clone()
+                    .with_color(TEXT_COLOR.with_alpha(alpha))
+                    .into_shape()]
+                .into(),
+                rest => rest.into(),
+            }
+        });
+
+        // Robustness: Forgot to forward this once. How can we make sure that animations are
+        // always applied if needed?
+        self.band.apply_animations();
+    }
+
+    pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
+        self.band.presents_instance(instance)
+    }
+
+    pub fn present_instance(
+        &mut self,
+        instance: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
+        scene: &Scene,
+    ) -> Result<()> {
+        let was_empty = self.band.is_empty();
+        self.band
+            .present_instance(instance, originating_from, default_panel_size, scene)?;
+        if was_empty && !self.band.is_empty() {
+            self.fader
+                .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
+        }
+
+        // self.layout_band(true);
+        Ok(())
+    }
+
+    pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
+        self.band.present_view(instance, view)?;
+
+        // self.layout_band(false);
+        Ok(())
+    }
+
+    fn layout_band(&mut self, animate: bool) {
+        // Layout the band's instances.
+
+        let band_layout = self.band.layout();
+        let r: PointPx = self.rect.final_value().origin().to_pixels();
+
+        band_layout.place_inline([r.x, r.y], |instance_id, bx| {
+            self.band
+                .set_instance_rect(instance_id, box_to_rect(bx), animate);
         });
     }
 }
