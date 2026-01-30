@@ -17,7 +17,7 @@ use crate::{
 #[derive(Debug, Default)]
 /// Manages the presentation of a horizontal band of instances.
 pub struct BandPresenter {
-    // Robustness don't make these pub.
+    // Robustness: don't make these pub.
     pub instances: HashMap<InstanceId, InstancePresenter>,
     /// The Instances in order as they take up space in a final configuration. Exiting
     /// instances are not anymore in this list.
