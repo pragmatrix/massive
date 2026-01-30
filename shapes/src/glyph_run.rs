@@ -3,6 +3,7 @@ use glam::IVec2;
 use serde::{Deserialize, Serialize};
 
 use massive_geometry::{Bounds, Color, SizePx, Vector3};
+use swash::text;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlyphRun {
@@ -38,6 +39,11 @@ impl GlyphRun {
             text_weight,
             glyphs,
         }
+    }
+
+    pub fn with_color(mut self, text_color: Color) -> Self {
+        self.text_color = text_color;
+        self
     }
 
     /// Translate a rasterized glyph's position to the coordinate system of the run.

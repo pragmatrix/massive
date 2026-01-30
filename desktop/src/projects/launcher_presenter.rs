@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use log::warn;
@@ -23,6 +23,15 @@ use crate::{
     navigation::{NavigationNode, leaf},
 };
 
+// TODO: Need proper color palettes for UI elements.
+// const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
+// const POWDER_BLUE: Color = Color::rgb_u32(0xb0e0e6);
+const MIDNIGHT_BLUE: Color = Color::rgb_u32(0x191970);
+
+const BACKGROUND_COLOR: Color = MIDNIGHT_BLUE;
+const TEXT_COLOR: Color = Color::WHITE;
+const FADING_DURATION: Duration = Duration::from_millis(500);
+
 #[derive(Debug)]
 pub struct LauncherPresenter {
     profile: LaunchProfile,
@@ -35,7 +44,7 @@ pub struct LauncherPresenter {
 
     // name_rect: Animated<Box>,
     // The text, either centered, or on top of the border.
-    _name: Handle<Visual>,
+    name: Handle<Visual>,
     /// Architecture: We don't want a history per presenter. What we want is a global one, but one
     /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
     /// account.
@@ -43,6 +52,9 @@ pub struct LauncherPresenter {
 
     /// The instances.
     band: BandPresenter,
+
+    // Alpha fading of name / background.
+    fader: Animated<f32>,
 }
 
 impl LauncherPresenter {
@@ -57,7 +69,7 @@ impl LauncherPresenter {
         font_system: &mut FontSystem,
     ) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
-        let background_shape = background_shape(rect.size().to_rect(), Color::WHITE);
+        let background_shape = background_shape(rect.size().to_rect(), BACKGROUND_COLOR);
 
         let our_transform = rect.origin().to_transform().enter(scene);
 
@@ -84,7 +96,7 @@ impl LauncherPresenter {
             // background optimizer).
             .size(32.0 * 8.0)
             .shape(font_system)
-            .map(|r| r.into_shape())
+            .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(our_location)
             .with_depth_bias(3)
             .enter(scene);
@@ -95,9 +107,10 @@ impl LauncherPresenter {
             // location: parent_location,
             rect: scene.animated(rect),
             background,
-            _name: name,
+            name,
             events: EventManager::default(),
             band: BandPresenter::default(),
+            fader: scene.animated(1.0),
         }
     }
 
@@ -145,15 +158,7 @@ impl LauncherPresenter {
         self.rect
             .animate_if_changed(rect, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
 
-        // Layout the band's instances.
-
-        let band_layout = self.band.layout();
-        let r: PointPx = self.rect.final_value().origin().to_pixels();
-
-        band_layout.place_inline([r.x, r.y], |instance_id, bx| {
-            self.band
-                .set_instance_rect(instance_id, box_to_rect(bx), true);
-        });
+        self.layout_band(true);
     }
 
     pub fn apply_animations(&mut self) {
@@ -161,13 +166,38 @@ impl LauncherPresenter {
 
         self.transform.update_if_changed(origin.with_z(0.0).into());
 
-        self.background.update_with(|visual| {
-            visual.shapes = [background_shape(size.to_rect(), Color::WHITE)].into()
+        let alpha = self.fader.value();
+
+        // Performance: How can we not call this if self.rect and self.fader are both not animating.
+        // is_animating() is perhaps not reliable.
+
+        self.background.update_with_if_changed(|visual| {
+            visual.shapes = [background_shape(
+                size.to_rect(),
+                BACKGROUND_COLOR.with_alpha(alpha),
+            )]
+            .into()
         });
 
-        // Robustness: I forgot to forward this once. How can we make sure that animations are
+        // // Ergonomics: Isn't there a better way?
+        self.name.update_with_if_changed(|visual| {
+            visual.shapes = match &*visual.shapes {
+                [Shape::GlyphRun(gr)] => [gr
+                    .clone()
+                    .with_color(TEXT_COLOR.with_alpha(alpha))
+                    .into_shape()]
+                .into(),
+                rest => rest.into(),
+            }
+        });
+
+        // Robustness: Forgot to forward this once. How can we make sure that animations are
         // always applied if needed?
         self.band.apply_animations();
+    }
+
+    pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
+        self.band.presents_instance(instance)
     }
 
     pub fn present_instance(
@@ -177,16 +207,35 @@ impl LauncherPresenter {
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<()> {
+        let was_empty = self.band.is_empty();
         self.band
-            .present_instance(instance, originating_from, default_panel_size, scene)
-    }
+            .present_instance(instance, originating_from, default_panel_size, scene)?;
+        if was_empty && !self.band.is_empty() {
+            self.fader
+                .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
+        }
 
-    pub fn presents_instance(&self, instance: InstanceId) -> bool {
-        self.band.presents_instance(instance)
+        // self.layout_band(true);
+        Ok(())
     }
 
     pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
-        self.band.present_view(instance, view)
+        self.band.present_view(instance, view)?;
+
+        // self.layout_band(false);
+        Ok(())
+    }
+
+    fn layout_band(&mut self, animate: bool) {
+        // Layout the band's instances.
+
+        let band_layout = self.band.layout();
+        let r: PointPx = self.rect.final_value().origin().to_pixels();
+
+        band_layout.place_inline([r.x, r.y], |instance_id, bx| {
+            self.band
+                .set_instance_rect(instance_id, box_to_rect(bx), animate);
+        });
     }
 }
 

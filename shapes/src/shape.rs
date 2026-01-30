@@ -7,6 +7,7 @@ use massive_geometry::{self as geometry, Color, Size};
 
 use crate::GlyphRun;
 
+// Architecture: Every one except custom has a color field, can we do something about that?
 #[derive(Debug, Clone, From, PartialEq)]
 pub enum Shape {
     Rect(Rect),

@@ -229,6 +229,9 @@ impl Desktop {
                     &self.instance_manager,
                     &mut self.presenter,
                 )?;
+
+                // Performance: We might not need a global re-layout layout, if we present an instance
+                // to the project's band (This has to work incremental some day).
                 self.presenter.layout(
                     self.primary_instance_panel_size,
                     true,

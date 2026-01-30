@@ -320,7 +320,7 @@ impl ProjectPresenter {
     ) -> Option<&mut LauncherPresenter> {
         self.launchers
             .values_mut()
-            .find(|l| l.presents_instance(instance))
+            .find(|l| l.is_presenting_instance(instance))
     }
 }
 
