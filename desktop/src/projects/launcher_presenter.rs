@@ -6,7 +6,7 @@ use winit::event::MouseButton;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
-use massive_geometry::{Color, Rect, SizePx};
+use massive_geometry::{Color, PointPx, Rect, SizePx, ToPixels};
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
@@ -19,6 +19,7 @@ use super::{
 use crate::{
     UserIntent,
     band_presenter::BandPresenter,
+    box_to_rect,
     navigation::{NavigationNode, leaf},
 };
 
@@ -143,6 +144,16 @@ impl LauncherPresenter {
     pub fn set_rect(&mut self, rect: Rect) {
         self.rect
             .animate_if_changed(rect, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
+
+        // Layout the band's instances.
+
+        let band_layout = self.band.layout();
+        let r: PointPx = self.rect.final_value().origin().to_pixels();
+
+        band_layout.place_inline([r.x, r.y], |instance_id, bx| {
+            self.band
+                .set_instance_rect(instance_id, box_to_rect(bx), true);
+        });
     }
 
     pub fn apply_animations(&mut self) {
@@ -153,6 +164,10 @@ impl LauncherPresenter {
         self.background.update_with(|visual| {
             visual.shapes = [background_shape(size.to_rect(), Color::WHITE)].into()
         });
+
+        // Robustness: I forgot to forward this once. How can we make sure that animations are
+        // always applied if needed?
+        self.band.apply_animations();
     }
 
     pub fn present_instance(

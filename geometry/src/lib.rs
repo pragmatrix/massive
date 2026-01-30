@@ -69,12 +69,27 @@ impl PerspectiveDivide for Vector4 {
     }
 }
 
+// TODO: Put them into a separate file.
+
 pub struct PixelUnit;
 pub type SizePx = euclid::Size2D<u32, PixelUnit>;
 pub type VectorPx = euclid::Vector2D<i32, PixelUnit>;
 pub type PointPx = euclid::Point2D<i32, PixelUnit>;
 pub type RectPx = euclid::Rect<i32, PixelUnit>;
 pub type BoxPx = euclid::Box2D<i32, PixelUnit>;
+
+pub trait ToPixels {
+    type Target;
+    fn to_pixels(&self) -> Self::Target;
+}
+
+impl ToPixels for Point {
+    type Target = PointPx;
+
+    fn to_pixels(&self) -> Self::Target {
+        ((self.x.round() as i32), (self.y.round() as i32)).into()
+    }
+}
 
 pub trait CastSigned {
     type SignedType;

@@ -6,11 +6,12 @@ use derive_more::From;
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, SizePx};
 use massive_layout as layout;
-use massive_layout::{Box as LayoutBox, LayoutAxis};
+use massive_layout::LayoutAxis;
 use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
+use crate::box_to_rect;
 use crate::projects::LaunchProfileId;
 use crate::{
     EventTransition, UserIntent,
@@ -161,7 +162,7 @@ impl DesktopPresenter {
 
         root_builder
             .layout()
-            .place_inline(PointPx::origin(), |(id, rect)| {
+            .place_inline(PointPx::origin(), |id, rect| {
                 let rect_px = box_to_rect(rect);
                 match id {
                     LayoutId::Desktop => {
@@ -298,10 +299,6 @@ impl DesktopPresenter {
         }
         Ok(user_intent)
     }
-}
-
-fn box_to_rect(([x, y], [w, h]): LayoutBox<2>) -> massive_geometry::RectPx {
-    massive_geometry::RectPx::new((x, y).into(), (w as i32, h as i32).into())
 }
 
 // Path utilities
