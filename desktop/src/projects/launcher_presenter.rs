@@ -169,8 +169,7 @@ impl LauncherPresenter {
         let alpha = self.fader.value();
 
         // Performance: How can we not call this if self.rect and self.fader are both not animating.
-        // is_animating() is perhaps not reliable.
-
+        // `is_animating()` is perhaps not reliable.
         self.background.update_with_if_changed(|visual| {
             visual.shapes = [background_shape(
                 size.to_rect(),
@@ -179,7 +178,7 @@ impl LauncherPresenter {
             .into()
         });
 
-        // // Ergonomics: Isn't there a better way?
+        // Ergonomics: Isn't there a better way to directly set new shapes?
         self.name.update_with_if_changed(|visual| {
             visual.shapes = match &*visual.shapes {
                 [Shape::GlyphRun(gr)] => [gr
