@@ -48,8 +48,8 @@ pub enum DesktopTarget {
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 /// The location where the instance bands are.
-#[derive(Debug)]
-pub enum InstanceTarget {
+#[derive(Debug, Clone, Copy)]
+pub enum BandLocation {
     TopBand,
     LaunchProfile(LaunchProfileId),
 }
@@ -94,20 +94,20 @@ impl DesktopPresenter {
 
     pub fn present_instance(
         &mut self,
-        target: InstanceTarget,
+        target: BandLocation,
         instance: InstanceId,
         originating_from: Option<InstanceId>,
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<()> {
         match target {
-            InstanceTarget::TopBand => self.top_band.present_instance(
+            BandLocation::TopBand => self.top_band.present_instance(
                 instance,
                 originating_from,
                 default_panel_size,
                 scene,
             ),
-            InstanceTarget::LaunchProfile(launch_profile_id) => self.project.present_instance(
+            BandLocation::LaunchProfile(launch_profile_id) => self.project.present_instance(
                 launch_profile_id,
                 instance,
                 originating_from,
@@ -305,34 +305,57 @@ impl DesktopPresenter {
 
 impl DesktopFocusPath {
     /// Focus the primary view. Currently only on the TopBand.
-    pub fn from_instance_and_view(instance: InstanceId, view: impl Into<Option<ViewId>>) -> Self {
-        // Ergonomics: what about supporting .join directly on a target?
-        let instance = Self::new(DesktopTarget::Desktop)
-            .join(DesktopTarget::TopBand)
-            .join(DesktopTarget::Band(BandTarget::Instance(instance)));
-        let Some(view) = view.into() else {
-            return instance;
-        };
-        instance.join(DesktopTarget::Band(BandTarget::View(view)))
+    pub fn from_instance_and_view(
+        band_location: BandLocation,
+        instance: InstanceId,
+        view: impl Into<Option<ViewId>>,
+    ) -> Self {
+        match band_location {
+            BandLocation::TopBand => {
+                // Ergonomics: what about supporting .join directly on a target?
+                let instance = Self::new(DesktopTarget::Desktop)
+                    .join(DesktopTarget::TopBand)
+                    .join(DesktopTarget::Band(BandTarget::Instance(instance)));
+                if let Some(view) = view.into() {
+                    instance.join(DesktopTarget::Band(BandTarget::View(view)))
+                } else {
+                    instance
+                }
+            }
+            BandLocation::LaunchProfile(launch_profile_id) => {
+                let instance = Self::new(DesktopTarget::Desktop).join(DesktopTarget::Project(
+                    ProjectTarget::Band(launch_profile_id, BandTarget::Instance(instance)),
+                ));
+                if let Some(view) = view.into() {
+                    instance.join(DesktopTarget::Band(BandTarget::View(view)))
+                } else {
+                    instance
+                }
+            }
+        }
     }
 
     pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| match t {
-            DesktopTarget::Band(BandTarget::Instance(id)) => Some(*id),
+            // Architecture: We really need a new way to organize paths, this is horrible.
+            // Perhaps just flatten, but then how to map the ids from BandTargets up?
+            DesktopTarget::Band(BandTarget::Instance(id))
+            | DesktopTarget::Project(ProjectTarget::Band(_, BandTarget::Instance(id))) => Some(*id),
+
             _ => None,
         })
     }
 
     /// A target that can take on more instances. This defines the locations where new instances can be created.
-    pub fn instance_target(&self) -> Option<InstanceTarget> {
+    pub fn band_location(&self) -> Option<BandLocation> {
         self.iter().rev().find_map(|t| match t {
             DesktopTarget::Desktop => {
                 // This could be useful for spawning a instance in the top band.
                 None
             }
-            DesktopTarget::TopBand | DesktopTarget::Band(..) => Some(InstanceTarget::TopBand),
+            DesktopTarget::TopBand | DesktopTarget::Band(..) => Some(BandLocation::TopBand),
             DesktopTarget::Project(ProjectTarget::Launcher(launcher_id)) => {
-                Some(InstanceTarget::LaunchProfile(*launcher_id))
+                Some(BandLocation::LaunchProfile(*launcher_id))
             }
             DesktopTarget::Project(ProjectTarget::Group(_)) => {
                 // Idea: Spawn for each member of the group?

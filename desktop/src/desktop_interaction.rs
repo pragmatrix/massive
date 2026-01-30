@@ -12,7 +12,7 @@ use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
+    desktop_presenter::{BandLocation, DesktopFocusPath, DesktopPresenter, DesktopTarget},
     event_router,
     instance_manager::InstanceManager,
     navigation::NavigationHitTester,
@@ -52,13 +52,13 @@ impl DesktopInteraction {
     //
     // Detail: This function assumes that the window is focused right now.
     pub fn new(
-        path: DesktopFocusPath,
+        initial_focus: DesktopFocusPath,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
         scene: &Scene,
     ) -> Result<Self> {
         let mut event_router = EventRouter::default();
-        let initial_transitions = event_router.focus(path);
+        let initial_transitions = event_router.focus(initial_focus);
         assert!(
             presenter
                 .forward_event_transitions(initial_transitions.transitions, instance_manager)?
@@ -88,13 +88,15 @@ impl DesktopInteraction {
 
     pub fn make_foreground(
         &mut self,
+        band_location: BandLocation,
         instance: InstanceId,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
     ) -> Result<()> {
         // If the window is not focus, we just focus the instance.
         let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-        let focus_path = DesktopFocusPath::from_instance_and_view(instance, primary_view);
+        let focus_path =
+            DesktopFocusPath::from_instance_and_view(band_location, instance, primary_view);
         assert_eq!(
             self.focus(focus_path, instance_manager, presenter)?,
             UserIntent::None,
@@ -150,8 +152,9 @@ impl DesktopInteraction {
         // Robustness: Currently we don't check if the only the instance actually changed.
         if let Some(new_focus) = transitions.focus_changed
             && let Some(instance) = new_focus.instance()
+            && let Some(band_location) = new_focus.band_location()
         {
-            self.make_foreground(instance, instance_manager, presenter)?;
+            self.make_foreground(band_location, instance, instance_manager, presenter)?;
         };
 
         Ok(intent)

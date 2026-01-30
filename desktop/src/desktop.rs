@@ -14,7 +14,7 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::desktop_presenter::DesktopFocusPath;
+use crate::desktop_presenter::{BandLocation, DesktopFocusPath};
 use crate::projects::Project;
 use crate::{
     DesktopEnvironment, DesktopInteraction, DesktopPresenter, UserIntent,
@@ -103,7 +103,11 @@ impl Desktop {
         instance_manager.add_view(primary_instance, &creation_info);
 
         let ui = DesktopInteraction::new(
-            DesktopFocusPath::from_instance_and_view(primary_instance, primary_view),
+            DesktopFocusPath::from_instance_and_view(
+                BandLocation::TopBand,
+                primary_instance,
+                primary_view,
+            ),
             &instance_manager,
             &mut presenter,
             &scene,
@@ -210,14 +214,14 @@ impl Desktop {
                     .spawn(application, CreationMode::New)?;
 
                 // Simplify: Use the currently focused instance for determining the originating one.
-                let instance_target = self
+                let band_location = self
                     .interaction
                     .focused()
-                    .instance_target()
+                    .band_location()
                     .expect("Failed to start an instance without a focused instance target");
 
                 self.presenter.present_instance(
-                    instance_target,
+                    band_location,
                     instance,
                     originating_instance,
                     self.primary_instance_panel_size,
@@ -225,6 +229,7 @@ impl Desktop {
                 )?;
 
                 self.interaction.make_foreground(
+                    band_location,
                     instance,
                     &self.instance_manager,
                     &mut self.presenter,
@@ -254,12 +259,18 @@ impl Desktop {
             InstanceCommand::CreateView(info) => {
                 self.instance_manager.add_view(instance, &info);
                 self.presenter.present_view(instance, &info)?;
+
+                let focused = self.interaction.focused();
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if self.interaction.focused().instance() == Some(instance)
+                //
+                // Ergonomics: instance() and band_location() are usually used together.
+                if focused.instance() == Some(instance)
+                    && let Some(band_location) = focused.band_location()
                     && info.role == ViewRole::Primary
                 {
                     self.interaction.make_foreground(
+                        band_location,
                         instance,
                         &self.instance_manager,
                         &mut self.presenter,
