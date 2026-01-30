@@ -148,13 +148,19 @@ impl ProjectPresenter {
                     .expect("Internal Error: Missing launcher")
                     .process(view_event)?
             }
+            ProjectTarget::Band(launch_profile_id, _) => self
+                .launchers
+                .get_mut(&launch_profile_id)
+                .expect("Internal Error: Missing launcher")
+                .process_band(view_event)?,
         })
     }
 
     pub fn rect_of(&self, id: ProjectTarget) -> Rect {
         match id {
             ProjectTarget::Group(group_id) => self.groups[&group_id].rect.final_value(),
-            ProjectTarget::Launcher(launch_profile_id) => {
+            ProjectTarget::Launcher(launch_profile_id)
+            | ProjectTarget::Band(launch_profile_id, ..) => {
                 self.launchers[&launch_profile_id].rect.final_value()
             }
         }
@@ -225,6 +231,9 @@ impl ProjectPresenter {
             ProjectTarget::Group(group_id) => self.set_group_rect(group_id, rect, scene),
             ProjectTarget::Launcher(launch_profile_id) => {
                 self.set_launcher_rect(launch_profile_id, rect, scene, font_system)
+            }
+            ProjectTarget::Band(..) => {
+                panic!("Invalid set_rect on a Band inside the project")
             }
         }
     }

@@ -3,7 +3,6 @@ use glam::IVec2;
 use serde::{Deserialize, Serialize};
 
 use massive_geometry::{Bounds, Color, SizePx, Vector3};
-use swash::text;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlyphRun {

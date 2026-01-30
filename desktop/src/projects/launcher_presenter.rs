@@ -115,7 +115,15 @@ impl LauncherPresenter {
     }
 
     pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, ProjectTarget> {
-        leaf(launcher.id, self.rect.final_value())
+        if self.band.is_empty() {
+            return leaf(launcher.id, self.rect.final_value());
+        }
+        let launcher_id = launcher.id;
+        self.band
+            .navigation()
+            .map_target(move |band_target| ProjectTarget::Band(launcher_id, band_target))
+            .with_target(ProjectTarget::Launcher(launcher_id))
+            .with_rect(self.rect.final_value())
     }
 
     // Architecture: I don't want the launcher here to directly generate UserIntent, may be LauncherIntent? Not sure.
@@ -152,6 +160,10 @@ impl LauncherPresenter {
         }
 
         Ok(UserIntent::None)
+    }
+
+    pub fn process_band(&mut self, view_event: ViewEvent) -> Result<UserIntent> {
+        self.band.process(view_event).map(|()| UserIntent::None)
     }
 
     pub fn set_rect(&mut self, rect: Rect) {

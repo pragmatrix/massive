@@ -323,7 +323,7 @@ impl DesktopFocusPath {
         })
     }
 
-    /// A target that can take on more instances. This defines where we can create new instances.
+    /// A target that can take on more instances. This defines the locations where new instances can be created.
     pub fn instance_target(&self) -> Option<InstanceTarget> {
         self.iter().rev().find_map(|t| match t {
             DesktopTarget::Desktop => {
@@ -336,6 +336,11 @@ impl DesktopFocusPath {
             }
             DesktopTarget::Project(ProjectTarget::Group(_)) => {
                 // Idea: Spawn for each member of the group?
+                None
+            }
+
+            DesktopTarget::Project(ProjectTarget::Band(..)) => {
+                // Covered by ProjectTarget::Launcher already.
                 None
             }
         })
