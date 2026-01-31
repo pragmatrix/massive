@@ -61,6 +61,13 @@ impl InstanceContext {
         &self.creation_mode
     }
 
+    pub fn parameters(&self) -> Option<&InstanceParameters> {
+        match &self.creation_mode {
+            CreationMode::New(map) => Some(map),
+            CreationMode::Restore => None,
+        }
+    }
+
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.environment.primary_monitor_scale_factor
     }
