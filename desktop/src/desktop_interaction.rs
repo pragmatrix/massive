@@ -1,4 +1,5 @@
 use anyhow::Result;
+use serde_json::{Map, Value};
 use winit::{
     event::ElementState,
     keyboard::{Key, NamedKey},
@@ -31,6 +32,7 @@ pub enum UserIntent {
         //
         // Idea: What about looking for which presenter has the focus currently?
         originating_instance: Option<InstanceId>,
+        parameters: Map<String, Value>,
     },
     StopInstance {
         instance: InstanceId,
@@ -175,6 +177,7 @@ impl DesktopInteraction {
                     Key::Character(c) if c.as_str() == "t" => {
                         return Ok(UserIntent::StartInstance {
                             originating_instance: Some(instance),
+                            parameters: Default::default(),
                         });
                     }
                     Key::Character(c) if c.as_str() == "w" => {

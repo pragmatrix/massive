@@ -1,4 +1,5 @@
-use derive_more::Deref;
+use serde_json::{Map, Value};
+
 use massive_layout::LayoutAxis;
 
 #[derive(Debug)]
@@ -34,7 +35,7 @@ pub enum GroupContents {
 #[derive(Debug, Clone)]
 pub struct LaunchProfile {
     pub name: String,
-    pub params: Parameters,
+    pub params: Map<String, Value>,
     pub tags: Vec<ScopedTag>,
 }
 
@@ -50,19 +51,5 @@ impl ScopedTag {
             scope: scope.into(),
             tag: tag.into(),
         }
-    }
-}
-
-#[derive(Debug, Deref, Clone, Default)]
-pub struct Parameters(pub Vec<Parameter>);
-
-#[derive(Debug, Clone)]
-pub struct Parameter {
-    pub name: String,
-    pub value: String,
-}
-impl Parameter {
-    pub fn new(name: String, value: String) -> Self {
-        Self { name, value }
     }
 }

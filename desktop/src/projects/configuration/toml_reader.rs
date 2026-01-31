@@ -3,11 +3,10 @@ use std::collections::HashMap;
 use anyhow::Result;
 use indexmap::IndexMap;
 use serde::Deserialize;
+use serde_json::Map;
 use toml::Value;
 
-use super::types::{
-    GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, Parameter, Parameters, ScopedTag,
-};
+use super::types::{GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, ScopedTag};
 
 /// Intermediate representation for deserializing TOML configuration files.
 #[derive(Debug, Deserialize)]
@@ -71,23 +70,18 @@ fn build_launch_profile(
     groups: &[String],
 ) -> Result<LaunchProfile> {
     let mut tags = Vec::new();
-    let mut params = Vec::new();
+    let mut params = Map::new();
 
     for (key, value) in section {
-        let value = toml_value_to_string(&value)?;
-
         if groups.contains(&key) {
+            let value = toml_value_to_string(&value)?;
             tags.push(ScopedTag::new(key, value));
         } else {
-            params.push(Parameter::new(key, value));
+            params.insert(key, serde_json::to_value(&value)?);
         }
     }
 
-    Ok(LaunchProfile {
-        name,
-        params: Parameters(params),
-        tags,
-    })
+    Ok(LaunchProfile { name, params, tags })
 }
 
 /// Build a cross-product hierarchy of groups at the given depth level.
@@ -224,7 +218,7 @@ datacenter = "ber"
 
         assert_eq!(app_ref.name, "host-1");
         assert_eq!(app_ref.params.len(), 1);
-        assert_eq!(app_ref.params[0].name, "command");
+        assert!(app_ref.params.contains_key("command"));
         assert_eq!(app_ref.tags.len(), 2);
         assert!(app_ref.tags.iter().any(|t| t.scope == "datacenter"));
         assert!(app_ref.tags.iter().any(|t| t.scope == "type"));
@@ -323,14 +317,14 @@ datacenter = "ber"
     }
 
     fn app(name: &str, params: &[(&str, &str)], tags: &[(&str, &str)]) -> LaunchProfile {
+        let mut param_map = Map::new();
+        for (k, v) in params {
+            param_map.insert(k.to_string(), serde_json::Value::String(v.to_string()));
+        }
+
         LaunchProfile {
             name: name.to_string(),
-            params: Parameters(
-                params
-                    .iter()
-                    .map(|(k, v)| Parameter::new(k.to_string(), v.to_string()))
-                    .collect(),
-            ),
+            params: param_map,
             tags: tags
                 .iter()
                 .map(|(scope, tag)| ScopedTag::new(scope.to_string(), tag.to_string()))

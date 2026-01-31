@@ -201,6 +201,7 @@ impl Desktop {
             }
             UserIntent::StartInstance {
                 originating_instance,
+                parameters,
             } => {
                 // Feature: Support starting non-primary applications.
                 let application = self
