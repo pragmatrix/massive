@@ -13,6 +13,8 @@ pub struct InstanceEnvironment {
     pub(crate) parameters: Map<String, Value>,
 }
 
+pub type InstanceParameters = Map<String, Value>;
+
 impl InstanceEnvironment {
     pub fn new(
         requests_tx: UnboundedSender<(InstanceId, InstanceCommand)>,
@@ -27,7 +29,7 @@ impl InstanceEnvironment {
         }
     }
 
-    pub fn with_parameters(mut self, parameters: Map<String, Value>) -> Self {
+    pub fn with_parameters(mut self, parameters: InstanceParameters) -> Self {
         self.parameters = parameters;
         self
     }

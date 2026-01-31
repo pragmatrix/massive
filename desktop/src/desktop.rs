@@ -6,8 +6,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId, ViewCommand,
-    ViewEvent, ViewId, ViewRole,
+    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId,
+    InstanceParameters, ViewCommand, ViewEvent, ViewId, ViewRole,
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
@@ -72,7 +72,10 @@ impl Desktop {
             .get_named(&env.primary_application)
             .expect("No primary application");
 
-        instance_manager.spawn(primary_application, CreationMode::New)?;
+        instance_manager.spawn(
+            primary_application,
+            CreationMode::New(InstanceParameters::new()),
+        )?;
 
         // First wait for the initial view that's being created.
 
@@ -212,7 +215,7 @@ impl Desktop {
 
                 let instance = self
                     .instance_manager
-                    .spawn(application, CreationMode::New)?;
+                    .spawn(application, CreationMode::New(parameters))?;
 
                 // Simplify: Use the currently focused instance for determining the originating one.
                 let band_location = self

@@ -1,12 +1,11 @@
 use anyhow::Result;
-use serde_json::{Map, Value};
 use winit::{
     event::ElementState,
     keyboard::{Key, NamedKey},
 };
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewEvent, ViewRole};
+use massive_applications::{InstanceId, InstanceParameters, ViewEvent, ViewRole};
 use massive_geometry::PixelCamera;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
@@ -32,7 +31,7 @@ pub enum UserIntent {
         //
         // Idea: What about looking for which presenter has the focus currently?
         originating_instance: Option<InstanceId>,
-        parameters: Map<String, Value>,
+        parameters: InstanceParameters,
     },
     StopInstance {
         instance: InstanceId,
