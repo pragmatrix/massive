@@ -148,6 +148,7 @@ impl LauncherPresenter {
                 // Usability: Should pass this rect?
                 return Ok(UserIntent::StartInstance {
                     originating_instance: None,
+                    parameters: self.profile.params.clone(),
                 });
             }
             ViewEvent::CursorEntered { .. } => {

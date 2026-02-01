@@ -6,9 +6,7 @@ use log::warn;
 
 use crate::{
     band_presenter::BandTarget,
-    projects::configuration::{
-        GroupContents, LaunchProfile, LayoutDirection, Parameters, ScopedTag,
-    },
+    projects::configuration::{GroupContents, LaunchProfile, LayoutDirection, ScopedTag},
 };
 
 mod configuration;
@@ -72,7 +70,7 @@ impl Default for ProjectConfiguration {
                 content: GroupContents::Profiles(
                     [LaunchProfile {
                         name: DEFAULT_PROFILE.into(),
-                        params: Parameters::default(),
+                        params: Default::default(),
                         tags: Vec::new(),
                     }]
                     .into(),

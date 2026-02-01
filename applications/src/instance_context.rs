@@ -11,14 +11,14 @@ use massive_renderer::FontManager;
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::{
-    InstanceEnvironment, InstanceId, Scene, ViewEvent, ViewExtent, ViewId,
+    InstanceEnvironment, InstanceId, InstanceParameters, Scene, ViewEvent, ViewExtent, ViewId,
     view::{ViewCommand, ViewCreationInfo},
     view_builder::ViewBuilder,
 };
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreationMode {
-    New,
+    New(InstanceParameters),
     Restore,
 }
 
@@ -57,8 +57,15 @@ impl InstanceContext {
         self.id
     }
 
-    pub fn creation_mode(&self) -> CreationMode {
-        self.creation_mode
+    pub fn creation_mode(&self) -> &CreationMode {
+        &self.creation_mode
+    }
+
+    pub fn parameters(&self) -> Option<&InstanceParameters> {
+        match &self.creation_mode {
+            CreationMode::New(map) => Some(map),
+            CreationMode::Restore => None,
+        }
     }
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {

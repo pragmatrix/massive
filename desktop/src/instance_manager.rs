@@ -29,8 +29,6 @@ pub struct InstanceManager {
 #[derive(Debug)]
 struct RunningInstance {
     application_name: String,
-    #[allow(dead_code)]
-    creation_mode: CreationMode,
     events_tx: UnboundedSender<InstanceEvent>,
     views: HashMap<ViewId, ViewInfo>,
 }
@@ -107,7 +105,6 @@ impl InstanceManager {
             instance_id,
             RunningInstance {
                 application_name: application.name.clone(),
-                creation_mode,
                 events_tx,
                 views: HashMap::new(),
             },
