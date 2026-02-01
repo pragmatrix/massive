@@ -323,9 +323,15 @@ impl DesktopFocusPath {
                 }
             }
             BandLocation::LaunchProfile(launch_profile_id) => {
-                let instance = Self::new(DesktopTarget::Desktop).join(DesktopTarget::Project(
-                    ProjectTarget::Band(launch_profile_id, BandTarget::Instance(instance)),
-                ));
+                let instance = Self::new(DesktopTarget::Desktop)
+                    // TODO: Add all the groups that lead to the launcher.
+                    .join(DesktopTarget::Project(ProjectTarget::Launcher(
+                        launch_profile_id,
+                    )))
+                    .join(DesktopTarget::Project(ProjectTarget::Band(
+                        launch_profile_id,
+                        BandTarget::Instance(instance),
+                    )));
                 if let Some(view) = view.into() {
                     instance.join(DesktopTarget::Band(BandTarget::View(view)))
                 } else {
