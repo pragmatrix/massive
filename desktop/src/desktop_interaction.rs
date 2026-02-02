@@ -25,17 +25,8 @@ pub enum UserIntent {
     None,
     // Architecture: Could just always Focus an explicit thing?
     Focus(DesktopFocusPath),
-    StartInstance {
-        // Architecture: This should just a transformed rect. **BUT** it also determines the
-        // insertion index!!!
-        //
-        // Idea: What about looking for which presenter has the focus currently?
-        originating_instance: Option<InstanceId>,
-        parameters: InstanceParameters,
-    },
-    StopInstance {
-        instance: InstanceId,
-    },
+    StartInstance { parameters: InstanceParameters },
+    StopInstance { instance: InstanceId },
 }
 
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
@@ -175,7 +166,6 @@ impl DesktopInteraction {
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
                         return Ok(UserIntent::StartInstance {
-                            originating_instance: Some(instance),
                             parameters: Default::default(),
                         });
                     }

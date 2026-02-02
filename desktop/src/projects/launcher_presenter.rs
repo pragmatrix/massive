@@ -147,7 +147,6 @@ impl LauncherPresenter {
             ViewEvent::Focused(true) if self.band.is_empty() => {
                 // Usability: Should pass this rect?
                 return Ok(UserIntent::StartInstance {
-                    originating_instance: None,
                     parameters: self.profile.params.clone(),
                 });
             }

@@ -202,10 +202,7 @@ impl Desktop {
                     UserIntent::None
                 );
             }
-            UserIntent::StartInstance {
-                originating_instance,
-                parameters,
-            } => {
+            UserIntent::StartInstance { parameters } => {
                 // Feature: Support starting non-primary applications.
                 let application = self
                     .env
@@ -217,10 +214,11 @@ impl Desktop {
                     .instance_manager
                     .spawn(application, CreationMode::New(parameters))?;
 
+                let focused = self.interaction.focused();
+                let originating_instance = focused.instance();
+
                 // Simplify: Use the currently focused instance for determining the originating one.
-                let band_location = self
-                    .interaction
-                    .focused()
+                let band_location = focused
                     .band_location()
                     .expect("Failed to start an instance without a focused instance target");
 
