@@ -217,7 +217,6 @@ impl Desktop {
                 let focused = self.interaction.focused();
                 let originating_instance = focused.instance();
 
-                // Simplify: Use the currently focused instance for determining the originating one.
                 let band_location = focused
                     .band_location()
                     .expect("Failed to start an instance without a focused instance target");
