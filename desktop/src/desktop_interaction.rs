@@ -148,6 +148,8 @@ impl DesktopInteraction {
                         });
                     }
                     Key::Character(c) if c.as_str() == "w" => {
+                        // Architecture: Shouldn't this just end the current view, and let the
+                        // instance decide then?
                         return Ok(UserIntent::StopInstance { instance });
                     }
                     _ => {}

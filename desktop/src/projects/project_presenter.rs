@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use log::error;
 
 use massive_animation::{Animated, Interpolation};
@@ -309,6 +309,18 @@ impl ProjectPresenter {
             .get_mut(&launcher)
             .expect("Launcher does not exist")
             .present_instance(instance, originating_from, default_panel_size, scene)
+    }
+
+    pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+        if let Some(launcher) = self
+            .launchers
+            .values_mut()
+            .find(|launcher| launcher.is_presenting_instance(instance))
+        {
+            launcher.hide_instance(instance)
+        } else {
+            bail!("Internal error: No instance in this project")
+        }
     }
 
     pub fn present_view(

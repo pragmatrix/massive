@@ -13,6 +13,7 @@ use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
 use crate::box_to_rect;
+use crate::instance_manager::ViewPath;
 use crate::projects::{GroupId, LaunchProfileId};
 use crate::{
     EventTransition, UserIntent,
@@ -142,6 +143,15 @@ impl DesktopPresenter {
         Ok(instance_parent.join(DesktopTarget::Instance(new_instance)))
     }
 
+    /// The instance is shutting down. Begin hiding them.
+    pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+        if self.top_band.presents_instance(instance) {
+            return self.top_band.hide_instance(instance);
+        }
+
+        self.project.hide_instance(instance)
+    }
+
     pub fn present_view(
         &mut self,
         instance: InstanceId,
@@ -154,8 +164,8 @@ impl DesktopPresenter {
         self.project.present_view(instance, view_creation_info)
     }
 
-    pub fn hide_view(&mut self, id: ViewId) -> Result<()> {
-        self.top_band.hide_view(id)
+    pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
+        self.top_band.hide_view(view)
     }
 
     pub fn layout(
@@ -318,7 +328,12 @@ impl DesktopPresenter {
                         let Some(instance) = focus_path.instance() else {
                             bail!("Internal error: Instance of view {view_id:?} not found");
                         };
-                        instance_manager.send_view_event((instance, *view_id), view_event)?;
+                        if let Err(e) = instance_manager
+                            .send_view_event((instance, *view_id), view_event.clone())
+                        {
+                            // This is not an error we want to stop the world for now.
+                            error!("Sending view event {view_event:?} failed with {e:?}");
+                        }
                     }
 
                     DesktopTarget::ProjectGroup(group_id) => {

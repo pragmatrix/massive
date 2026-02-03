@@ -2,8 +2,10 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewCreationInfo, ViewId};
 use massive_geometry::{RectPx, SizePx, Vector3};
 
-pub use crate::band_presenter::BandPresenter;
-use crate::navigation::{NavigationNode, container, leaf};
+use crate::{
+    band_presenter::BandPresenter,
+    navigation::{NavigationNode, container, leaf},
+};
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -19,13 +21,11 @@ pub struct InstancePresenter {
 #[derive(Debug)]
 pub enum InstancePresenterState {
     /// No view yet, animating in.
-    Appearing,
+    WaitingForPrimaryView,
     Presenting {
         view: PrimaryViewPresenter,
     },
-    Disappearing {
-        view: PrimaryViewPresenter,
-    },
+    Disappearing,
 }
 
 #[derive(Debug)]
@@ -69,6 +69,7 @@ impl InstancePresenter {
     }
 
     pub fn apply_animations(&self) {
+        // Feature: Hiding animation.
         let Some(view) = self.state.view() else {
             return;
         };
@@ -92,9 +93,9 @@ impl InstancePresenter {
 impl InstancePresenterState {
     pub fn view(&self) -> Option<&PrimaryViewPresenter> {
         match self {
-            InstancePresenterState::Appearing => None,
-            InstancePresenterState::Presenting { view } => Some(view),
-            InstancePresenterState::Disappearing { view } => Some(view),
+            Self::WaitingForPrimaryView => None,
+            Self::Presenting { view } => Some(view),
+            Self::Disappearing => None,
         }
     }
 }
