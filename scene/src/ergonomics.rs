@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use massive_geometry::{PixelCamera, Point, PointPx, Transform};
+use massive_geometry::{PixelCamera, Point, PointPx, Rect, Transform};
 use massive_shapes::Shape;
 
 use crate::{Handle, Location, Visual};
@@ -129,5 +129,11 @@ where
 {
     fn to_camera(&self) -> PixelCamera {
         PixelCamera::look_at(self.to_transform(), None, PixelCamera::DEFAULT_FOVY)
+    }
+}
+
+impl ToCamera for Rect {
+    fn to_camera(&self) -> PixelCamera {
+        self.center().to_camera().with_size(self.size())
     }
 }

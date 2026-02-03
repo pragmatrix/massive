@@ -235,15 +235,8 @@ impl DesktopPresenter {
     pub fn camera_for_focus(&self, focus: &DesktopFocusPath) -> Option<PixelCamera> {
         match focus.last()? {
             // Desktop and TopBand are constrained to their size.
-            DesktopTarget::Desktop => {
-                Some(self.rect.center().to_camera().with_size(self.rect.size()))
-            }
-            DesktopTarget::TopBand => Some(
-                self.top_band_rect
-                    .center()
-                    .to_camera()
-                    .with_size(self.top_band_rect.size()),
-            ),
+            DesktopTarget::Desktop => Some(self.rect.to_camera()),
+            DesktopTarget::TopBand => Some(self.top_band_rect.to_camera()),
 
             DesktopTarget::Instance(instance_id) => {
                 // Architecture: The Band should be responsible for resolving at least the rects, if
@@ -267,7 +260,6 @@ impl DesktopPresenter {
             DesktopTarget::ProjectGroup(group) => Some(
                 self.project
                     .rect_of(ProjectTarget::Group(*group))
-                    .center()
                     .to_camera(),
             ),
             DesktopTarget::ProjectLauncher(launcher) => Some(
