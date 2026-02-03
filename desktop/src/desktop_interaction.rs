@@ -5,14 +5,14 @@ use winit::{
 };
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, InstanceParameters, ViewEvent, ViewRole};
+use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::PixelCamera;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
 use crate::{
-    desktop_presenter::{BandLocation, DesktopFocusPath, DesktopPresenter, DesktopTarget},
+    desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
     event_router,
     instance_manager::InstanceManager,
     navigation::NavigationHitTester,

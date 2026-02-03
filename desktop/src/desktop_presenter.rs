@@ -70,13 +70,6 @@ impl From<ProjectTarget> for DesktopTarget {
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
-/// The location where the instance bands are.
-#[derive(Debug, Clone, Copy)]
-pub enum BandLocation {
-    TopBand,
-    LaunchProfile(LaunchProfileId),
-}
-
 /// Manages the presentation of the desktop, combining the band (instances) and projects
 /// with unified vertical layout.
 #[derive(Debug)]
@@ -395,6 +388,6 @@ impl DesktopFocusPath {
                     Some(i - 1)
                 }
             })
-            .map(|i| self.iter().cloned().take(i).collect::<Vec<_>>().into())
+            .map(|i| self.iter().take(i).cloned().collect::<Vec<_>>().into())
     }
 }

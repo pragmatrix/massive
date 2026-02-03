@@ -14,7 +14,7 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::desktop_presenter::{BandLocation, DesktopFocusPath, DesktopTarget};
+use crate::desktop_presenter::DesktopTarget;
 use crate::projects::Project;
 use crate::{
     DesktopEnvironment, DesktopInteraction, DesktopPresenter, UserIntent,
@@ -227,11 +227,13 @@ impl Desktop {
                     &self.scene,
                 )?;
 
-                self.interaction.focus(
+                let intent = self.interaction.focus(
                     presented_instance_path,
                     &self.instance_manager,
                     &mut self.presenter,
                 )?;
+
+                assert_eq!(intent, UserIntent::None);
 
                 // Performance: We might not need a global re-layout, if we present an instance
                 // to the project's band (This has to work incremental some day).
@@ -266,11 +268,13 @@ impl Desktop {
                     && info.role == ViewRole::Primary
                 {
                     let view_focus = focused.clone().join(DesktopTarget::View(info.id));
-                    self.interaction.focus(
+                    let intent = self.interaction.focus(
                         view_focus,
                         &self.instance_manager,
                         &mut self.presenter,
                     )?;
+
+                    assert_eq!(intent, UserIntent::None)
                 }
             }
             InstanceCommand::DestroyView(id) => {
