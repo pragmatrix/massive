@@ -84,7 +84,8 @@ impl InstanceContext {
         let event = self.events.recv().await?;
 
         if matches!(event, InstanceEvent::ApplyAnimations) {
-            self.animation_coordinator.upgrade_to_apply_animations();
+            self.animation_coordinator
+                .upgrade_to_apply_animations_cycle();
         }
 
         Ok(event)

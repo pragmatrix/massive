@@ -74,7 +74,7 @@ impl AnimationCoordinator {
     /// Upgrade the current cycle to an apply animations cycle.
     ///
     /// If the cycle has not been started yet, it's started now.
-    pub fn upgrade_to_apply_animations(&self) {
+    pub fn upgrade_to_apply_animations_cycle(&self) {
         let mut inner = self.inner.lock();
         // Be sure there is a current cycle.
         let cycle = inner.current_cycle();
