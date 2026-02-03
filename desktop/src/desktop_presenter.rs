@@ -267,7 +267,7 @@ impl DesktopPresenter {
                 }
             }
             DesktopTarget::View(_) => {
-                // Forward this to the parent (which mut be a ::Instance).
+                // Forward this to the parent (which must be a ::Instance).
                 self.camera_for_focus(&focus.parent()?)
             }
 
