@@ -1,8 +1,9 @@
 use std::time::Duration;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow, bail};
 use derive_more::From;
 
+use log::error;
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, SizePx};
 use massive_layout as layout;
@@ -12,7 +13,7 @@ use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
 use crate::box_to_rect;
-use crate::projects::LaunchProfileId;
+use crate::projects::{GroupId, LaunchProfileId};
 use crate::{
     EventTransition, UserIntent,
     band_presenter::{BandPresenter, BandTarget},
@@ -40,9 +41,31 @@ pub enum DesktopTarget {
     // The whole area, covering the top band and
     Desktop,
     TopBand,
-    Band(BandTarget),
-    // The project itself is a group inside the project (not sure yet if this is a good thing)
-    Project(ProjectTarget),
+
+    ProjectGroup(GroupId),
+    ProjectLauncher(LaunchProfileId),
+
+    Instance(InstanceId),
+    View(ViewId),
+}
+
+impl From<BandTarget> for DesktopTarget {
+    fn from(value: BandTarget) -> Self {
+        match value {
+            BandTarget::Instance(instance_id) => Self::Instance(instance_id),
+            BandTarget::View(view_id) => Self::View(view_id),
+        }
+    }
+}
+
+impl From<ProjectTarget> for DesktopTarget {
+    fn from(value: ProjectTarget) -> Self {
+        match value {
+            ProjectTarget::Group(group_id) => Self::ProjectGroup(group_id),
+            ProjectTarget::Launcher(launch_profile_id) => Self::ProjectLauncher(launch_profile_id),
+            ProjectTarget::Band(_, band_target) => band_target.into(),
+        }
+    }
 }
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
@@ -94,27 +117,36 @@ impl DesktopPresenter {
 
     pub fn present_instance(
         &mut self,
-        target: BandLocation,
-        instance: InstanceId,
+        focused: &DesktopFocusPath,
+        new_instance: InstanceId,
         originating_from: Option<InstanceId>,
         default_panel_size: SizePx,
         scene: &Scene,
-    ) -> Result<()> {
-        match target {
-            BandLocation::TopBand => self.top_band.present_instance(
-                instance,
+    ) -> Result<DesktopFocusPath> {
+        let instance_parent = focused.instance_parent().ok_or(anyhow!(
+            "Failed to present instance when no parent is focused that can take on a new one"
+        ))?;
+
+        match instance_parent.last().unwrap() {
+            DesktopTarget::TopBand => self.top_band.present_instance(
+                new_instance,
                 originating_from,
                 default_panel_size,
                 scene,
-            ),
-            BandLocation::LaunchProfile(launch_profile_id) => self.project.present_instance(
-                launch_profile_id,
-                instance,
+            )?,
+            DesktopTarget::ProjectLauncher(launch_profile_id) => self.project.present_instance(
+                *launch_profile_id,
+                new_instance,
                 originating_from,
                 default_panel_size,
                 scene,
-            ),
+            )?,
+            invalid => {
+                bail!("Invalid instance parent: {invalid:?}");
+            }
         }
+
+        Ok(instance_parent.join(DesktopTarget::Instance(new_instance)))
     }
 
     pub fn present_view(
@@ -196,10 +228,10 @@ impl DesktopPresenter {
                 // Band navigation instances.
                 self.top_band
                     .navigation()
-                    .map_target(DesktopTarget::Band)
+                    .map_target(|bt| bt.into())
                     .with_target(DesktopTarget::TopBand),
                 // Project navigation.
-                self.project.navigation().map_target(DesktopTarget::Project),
+                self.project.navigation().map_target(|pt| pt.into()),
             ]
             .into()
         })
@@ -208,25 +240,50 @@ impl DesktopPresenter {
     // Camera
 
     pub fn camera_for_focus(&self, focus: &DesktopFocusPath) -> Option<PixelCamera> {
-        Some(match focus.last()? {
+        match focus.last()? {
             // Desktop and TopBand are constrained to their size.
-            DesktopTarget::Desktop => self.rect.center().to_camera().with_size(self.rect.size()),
-            DesktopTarget::TopBand => self
-                .top_band_rect
-                .center()
-                .to_camera()
-                .with_size(self.top_band_rect.size()),
-            DesktopTarget::Band(BandTarget::Instance(instance_id)) => {
+            DesktopTarget::Desktop => {
+                Some(self.rect.center().to_camera().with_size(self.rect.size()))
+            }
+            DesktopTarget::TopBand => Some(
+                self.top_band_rect
+                    .center()
+                    .to_camera()
+                    .with_size(self.top_band_rect.size()),
+            ),
+
+            DesktopTarget::Instance(instance_id) => {
                 // Architecture: The Band should be responsible for resolving at least the rects, if
                 // not the camera?
-                self.top_band.instance_transform(*instance_id)?.to_camera()
+                match focus[focus.len() - 2] {
+                    DesktopTarget::TopBand => {
+                        Some(self.top_band.instance_transform(*instance_id)?.to_camera())
+                    }
+                    DesktopTarget::ProjectLauncher(_) => self.camera_for_focus(&focus.parent()?),
+                    _ => {
+                        error!("Unexpected parent of instance");
+                        None
+                    }
+                }
             }
-            DesktopTarget::Band(BandTarget::View(..)) => {
-                // Forward this to the parent (which is a BandTarget::Instance).
-                self.camera_for_focus(&focus.parent()?)?
+            DesktopTarget::View(_) => {
+                // Forward this to the parent (which mut be a ::Instance).
+                self.camera_for_focus(&focus.parent()?)
             }
-            DesktopTarget::Project(id) => self.project.rect_of(id.clone()).center().to_camera(),
-        })
+
+            DesktopTarget::ProjectGroup(group) => Some(
+                self.project
+                    .rect_of(ProjectTarget::Group(*group))
+                    .center()
+                    .to_camera(),
+            ),
+            DesktopTarget::ProjectLauncher(launcher) => Some(
+                self.project
+                    .rect_of(ProjectTarget::Launcher(*launcher))
+                    .center()
+                    .to_camera(),
+            ),
+        }
     }
 
     // Event forwarding Architecture: This also seems to be wrong here. Used from the
@@ -269,19 +326,30 @@ impl DesktopPresenter {
                     DesktopTarget::TopBand => {
                         band_presenter.process(view_event)?;
                     }
-                    DesktopTarget::Band(BandTarget::Instance(..)) => {
+                    DesktopTarget::Instance(..) => {
                         // Shouldn't we forward this to the band here?
                     }
-                    DesktopTarget::Band(BandTarget::View(view_id)) => {
-                        let Some(instance) = instance_manager.instance_of_view(*view_id) else {
+                    DesktopTarget::View(view_id) => {
+                        let Some(instance) = focus_path.instance() else {
                             bail!("Internal error: Instance of view {view_id:?} not found");
                         };
                         instance_manager.send_view_event((instance, *view_id), view_event)?;
                     }
-                    DesktopTarget::Project(project_id) => {
+
+                    DesktopTarget::ProjectGroup(group_id) => {
                         // Forward to project presenter
-                        let project_transition =
-                            EventTransition::Directed(vec![project_id.clone()].into(), view_event);
+                        let project_transition = EventTransition::Directed(
+                            vec![ProjectTarget::Group(*group_id)].into(),
+                            view_event,
+                        );
+                        user_intent = project_presenter.process_transition(project_transition)?;
+                    }
+                    DesktopTarget::ProjectLauncher(launcher_id) => {
+                        // Forward to project presenter
+                        let project_transition = EventTransition::Directed(
+                            vec![ProjectTarget::Launcher(*launcher_id)].into(),
+                            view_event,
+                        );
                         user_intent = project_presenter.process_transition(project_transition)?;
                     }
                 }
@@ -304,74 +372,29 @@ impl DesktopPresenter {
 // Path utilities
 
 impl DesktopFocusPath {
-    /// Focus the primary view. Currently only on the TopBand.
-    pub fn from_instance_and_view(
-        band_location: BandLocation,
-        instance: InstanceId,
-        view: impl Into<Option<ViewId>>,
-    ) -> Self {
-        match band_location {
-            BandLocation::TopBand => {
-                // Ergonomics: what about supporting .join directly on a target?
-                let instance = Self::new(DesktopTarget::Desktop)
-                    .join(DesktopTarget::TopBand)
-                    .join(DesktopTarget::Band(BandTarget::Instance(instance)));
-                if let Some(view) = view.into() {
-                    instance.join(DesktopTarget::Band(BandTarget::View(view)))
-                } else {
-                    instance
-                }
-            }
-            BandLocation::LaunchProfile(launch_profile_id) => {
-                let instance = Self::new(DesktopTarget::Desktop)
-                    // TODO: Add all the groups that lead to the launcher.
-                    .join(DesktopTarget::Project(ProjectTarget::Launcher(
-                        launch_profile_id,
-                    )))
-                    .join(DesktopTarget::Project(ProjectTarget::Band(
-                        launch_profile_id,
-                        BandTarget::Instance(instance),
-                    )));
-                if let Some(view) = view.into() {
-                    instance.join(DesktopTarget::Band(BandTarget::View(view)))
-                } else {
-                    instance
-                }
-            }
-        }
-    }
-
     pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| match t {
-            // Architecture: We really need a new way to organize paths, this is horrible.
-            // Perhaps just flatten, but then how to map the ids from BandTargets up?
-            DesktopTarget::Band(BandTarget::Instance(id))
-            | DesktopTarget::Project(ProjectTarget::Band(_, BandTarget::Instance(id))) => Some(*id),
-
+            DesktopTarget::Instance(id) => Some(*id),
             _ => None,
         })
     }
 
-    /// A target that can take on more instances. This defines the locations where new instances can be created.
-    pub fn band_location(&self) -> Option<BandLocation> {
-        self.iter().rev().find_map(|t| match t {
-            DesktopTarget::Desktop => {
-                // This could be useful for spawning a instance in the top band.
-                None
-            }
-            DesktopTarget::TopBand | DesktopTarget::Band(..) => Some(BandLocation::TopBand),
-            DesktopTarget::Project(ProjectTarget::Launcher(launcher_id)) => {
-                Some(BandLocation::LaunchProfile(*launcher_id))
-            }
-            DesktopTarget::Project(ProjectTarget::Group(_)) => {
-                // Idea: Spawn for each member of the group?
-                None
-            }
-
-            DesktopTarget::Project(ProjectTarget::Band(..)) => {
-                // Covered by ProjectTarget::Launcher already.
-                None
-            }
-        })
+    /// Is this or a parent something that can be added new instances to?
+    pub fn instance_parent(&self) -> Option<DesktopFocusPath> {
+        self.iter()
+            .enumerate()
+            .rev()
+            .find_map(|(i, t)| match t {
+                DesktopTarget::Desktop => None,
+                DesktopTarget::TopBand => Some(i + 1),
+                DesktopTarget::ProjectGroup(..) => None,
+                DesktopTarget::ProjectLauncher(..) => Some(i + 1),
+                DesktopTarget::Instance(..) => Some(i),
+                DesktopTarget::View(..) => {
+                    assert!(matches!(self[i - 1], DesktopTarget::Instance(..)));
+                    Some(i - 1)
+                }
+            })
+            .map(|i| self.iter().cloned().take(i).collect::<Vec<_>>().into())
     }
 }

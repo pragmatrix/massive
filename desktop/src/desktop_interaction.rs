@@ -78,25 +78,6 @@ impl DesktopInteraction {
         self.camera.value()
     }
 
-    pub fn make_foreground(
-        &mut self,
-        band_location: BandLocation,
-        instance: InstanceId,
-        instance_manager: &InstanceManager,
-        presenter: &mut DesktopPresenter,
-    ) -> Result<()> {
-        // If the window is not focus, we just focus the instance.
-        let primary_view = instance_manager.get_view_by_role(instance, ViewRole::Primary)?;
-        let focus_path =
-            DesktopFocusPath::from_instance_and_view(band_location, instance, primary_view);
-        assert_eq!(
-            self.focus(focus_path, instance_manager, presenter)?,
-            UserIntent::None,
-            "Unexpected UserIntent in response to make_foreground"
-        );
-        Ok(())
-    }
-
     pub fn focus(
         &mut self,
         focus_path: DesktopFocusPath,
@@ -138,18 +119,7 @@ impl DesktopInteraction {
             let hit_test = NavigationHitTester::new(navigation, render_geometry);
             self.event_router.process(event, &hit_test)?
         };
-        let intent =
-            presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
-
-        // Robustness: Currently we don't check if the only the instance actually changed.
-        if let Some(new_focus) = transitions.focus_changed
-            && let Some(instance) = new_focus.instance()
-            && let Some(band_location) = new_focus.band_location()
-        {
-            self.make_foreground(band_location, instance, instance_manager, presenter)?;
-        };
-
-        Ok(intent)
+        presenter.forward_event_transitions(transitions.transitions, instance_manager)
     }
 
     fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {
