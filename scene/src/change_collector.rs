@@ -37,6 +37,17 @@ pub struct SceneChanges {
     pub changes: Vec<SceneChange>,
 }
 
+impl Drop for SceneChanges {
+    fn drop(&mut self) {
+        if !self.changes.is_empty() {
+            log::error!(
+                "{} Scene Changes not propagated to the renderer",
+                self.changes.len()
+            );
+        }
+    }
+}
+
 impl SceneChanges {
     pub fn push(&mut self, change: SceneChange) {
         if self.changes.is_empty() {
@@ -45,7 +56,7 @@ impl SceneChanges {
         self.changes.push(change);
     }
 
-    pub fn accumulate(&mut self, changes: SceneChanges) {
+    pub fn accumulate(&mut self, mut changes: SceneChanges) {
         match (self.time_of_oldest_change, changes.time_of_oldest_change) {
             (None, _) => {
                 // Performance: Capacity
@@ -53,7 +64,7 @@ impl SceneChanges {
             }
             (Some(time), Some(time_new)) => {
                 self.time_of_oldest_change = Some(time.min(time_new));
-                self.changes.extend(changes.changes);
+                self.changes.extend(mem::take(&mut changes.changes));
             }
             (Some(_), None) => {}
         }
@@ -61,11 +72,11 @@ impl SceneChanges {
 
     /// This converts SceneChanges into their vec representation and frees all ids that are not used
     /// anymore.
-    pub fn release(self) -> Option<(Instant, Vec<SceneChange>)> {
+    pub fn release(mut self) -> Option<(Instant, Vec<SceneChange>)> {
         self.time_of_oldest_change.map(|time| {
             assert!(!self.is_empty());
             id_generator::gc(&self.changes);
-            (time, self.changes)
+            (time, mem::take(&mut self.changes))
         })
     }
 }
