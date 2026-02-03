@@ -119,7 +119,15 @@ impl DesktopInteraction {
             let hit_test = NavigationHitTester::new(navigation, render_geometry);
             self.event_router.process(event, &hit_test)?
         };
-        presenter.forward_event_transitions(transitions.transitions, instance_manager)
+        let intent =
+            presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
+
+        if let Some(focus) = transitions.focus_changed {
+            let intent = self.focus(focus, instance_manager, presenter)?;
+            assert_eq!(intent, UserIntent::None);
+        }
+
+        Ok(intent)
     }
 
     fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {
