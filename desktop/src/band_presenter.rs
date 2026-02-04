@@ -201,7 +201,8 @@ impl BandPresenter {
                 }
             }
             InstancePresenterState::Disappearing => {
-                bail!("Invalid view: Currently the instance presenter is in a disappearing state");
+                // ignored, we are already disappearing.
+                Ok(())
             }
         }
     }

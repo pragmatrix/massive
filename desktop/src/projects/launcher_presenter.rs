@@ -20,6 +20,7 @@ use crate::{
     UserIntent,
     band_presenter::BandPresenter,
     box_to_rect,
+    instance_manager::ViewPath,
     navigation::{NavigationNode, leaf},
 };
 
@@ -210,6 +211,10 @@ impl LauncherPresenter {
 
         // self.layout_band(false);
         Ok(())
+    }
+
+    pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
+        self.band.hide_view(view)
     }
 
     fn layout_band(&mut self, animate: bool) {

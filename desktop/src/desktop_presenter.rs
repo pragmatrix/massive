@@ -159,13 +159,18 @@ impl DesktopPresenter {
     ) -> Result<()> {
         // Here the instance does exist, so we can check where it belongs to.
         if self.top_band.presents_instance(instance) {
-            return self.top_band.present_view(instance, view_creation_info);
+            self.top_band.present_view(instance, view_creation_info)
+        } else {
+            self.project.present_view(instance, view_creation_info)
         }
-        self.project.present_view(instance, view_creation_info)
     }
 
     pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
-        self.top_band.hide_view(view)
+        if self.top_band.presents_instance(view.instance) {
+            self.top_band.hide_view(view)
+        } else {
+            self.project.hide_view(view)
+        }
     }
 
     pub fn layout(

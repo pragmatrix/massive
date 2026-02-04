@@ -22,6 +22,7 @@ use super::{
 };
 use crate::{
     EventTransition, UserIntent,
+    instance_manager::ViewPath,
     navigation::{self, NavigationNode},
     projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION},
 };
@@ -333,6 +334,13 @@ impl ProjectPresenter {
             .expect("Instance for view does not exist");
 
         launcher.present_view(instance, creation_info)
+    }
+
+    pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
+        let launcher = self
+            .mut_launcher_for_instance(view.instance)
+            .expect("Instance for view does not exist");
+        launcher.hide_view(view)
     }
 
     fn mut_launcher_for_instance(
