@@ -1,6 +1,8 @@
+use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Context, Result, anyhow, bail};
+use log::info;
 use massive_geometry::SizePx;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
@@ -169,10 +171,17 @@ impl Desktop {
                     }
                 }
 
-                Ok((_instance_id, instance_result)) = self.instance_manager.join_next() => {
+                Ok((instance_id, instance_result)) = self.instance_manager.join_next() => {
+                    info!("Instance ended: {instance_id:?}");
+                    // Hiding is done on shutdown, but what if it's ended by itself?
+                    // self.presenter.hide_instance(instance_id)?;
 
-                    // If any instance fails, return the error
-                    instance_result?;
+
+                    // Feature: Display the error to the user?
+
+                    if let Err(e) = instance_result {
+                        log::error!("Instance error: {e:?}");
+                    }
 
                     // If all instances have finished, exit
                     if self.instance_manager.is_empty() {
@@ -185,12 +194,15 @@ impl Desktop {
                 }
             }
 
-            let camera = self.interaction.camera();
-            let mut frame = self.scene.begin_frame().with_camera(camera);
-            if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
-                frame = frame.with_pacing(RenderPacing::Smooth);
+            // Get the camera, build the frame, and submit it to the renderer.
+            {
+                let camera = self.interaction.camera();
+                let mut frame = self.scene.begin_frame().with_camera(camera);
+                if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
+                    frame = frame.with_pacing(RenderPacing::Smooth);
+                }
+                frame.submit_to(&mut self.renderer)?;
             }
-            frame.submit_to(&mut self.renderer)?;
         }
     }
 
@@ -244,7 +256,28 @@ impl Desktop {
                     &mut self.fonts.lock(),
                 );
             }
-            UserIntent::StopInstance { instance } => self.instance_manager.stop(instance)?,
+            UserIntent::StopInstance { instance } => {
+                // Remove the instance from the focus first.
+                let focus = self.interaction.focused();
+                if let Some(focused_instance) = self.interaction.focused().instance()
+                    && focused_instance == instance
+                {
+                    let instance_parent = focus.instance_parent().expect("Internal error: Instance parent failed even though instance() returned one.");
+                    let intent = self.interaction.focus(
+                        instance_parent,
+                        &self.instance_manager,
+                        &mut self.presenter,
+                    )?;
+                    assert_eq!(intent, UserIntent::None);
+                }
+
+                // Trigger the shutdown.
+                self.instance_manager.trigger_shutdown(instance)?;
+
+                // We hide the instance as soon we trigger a shutdown so that they can't be in the
+                // navigation tree anymore.
+                self.presenter.hide_instance(instance)?;
+            }
         }
 
         Ok(())
@@ -277,9 +310,21 @@ impl Desktop {
                     assert_eq!(intent, UserIntent::None)
                 }
             }
-            InstanceCommand::DestroyView(id) => {
-                self.presenter.hide_view(id)?;
+            InstanceCommand::DestroyView(id, collector) => {
+                self.presenter.hide_view((instance, id).into())?;
                 self.instance_manager.remove_view((instance, id).into());
+                // Feature: Don't push the remaining changes immediately and fade the remaining
+                // visuals out. (We do have the root location and should be able to do at least
+                // alpha blending over that in the future).
+                self.scene.accumulate_changes(collector.take_all());
+                // Now the collector should not have any references.
+                let refs = Arc::strong_count(&collector);
+                if refs > 1 {
+                    log::error!(
+                        "Destroyed view's change collector contains {} unexpected references. Are there pending Visuals / Handles?",
+                        refs - 1
+                    );
+                };
             }
             InstanceCommand::View(view_id, command) => {
                 self.handle_view_command((instance, view_id).into(), command)?;
@@ -292,7 +337,8 @@ impl Desktop {
         match command {
             ViewCommand::Render { submission } => {
                 self.instance_manager
-                    .update_view_pacing(view, submission.pacing)?;
+                    .update_view_pacing(view, submission.pacing)
+                    .context("render / update_view_pacing")?;
                 self.scene.accumulate_changes(submission.changes);
             }
             ViewCommand::Resize(_) => {

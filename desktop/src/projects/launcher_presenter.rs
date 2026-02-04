@@ -20,6 +20,7 @@ use crate::{
     UserIntent,
     band_presenter::BandPresenter,
     box_to_rect,
+    instance_manager::ViewPath,
     navigation::{NavigationNode, leaf},
 };
 
@@ -173,6 +174,61 @@ impl LauncherPresenter {
         self.layout_band(true);
     }
 
+    pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
+        self.band.presents_instance(instance)
+    }
+
+    pub fn present_instance(
+        &mut self,
+        instance: InstanceId,
+        originating_from: Option<InstanceId>,
+        default_panel_size: SizePx,
+        scene: &Scene,
+    ) -> Result<()> {
+        let was_empty = self.band.is_empty();
+        self.band
+            .present_instance(instance, originating_from, default_panel_size, scene)?;
+        if was_empty && !self.band.is_empty() {
+            self.fader
+                .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
+        }
+
+        // self.layout_band(true);
+        Ok(())
+    }
+
+    pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+        self.band.hide_instance(instance)?;
+        if self.band.is_empty() {
+            self.fader
+                .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
+        }
+        Ok(())
+    }
+
+    pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
+        self.band.present_view(instance, view)?;
+
+        // self.layout_band(false);
+        Ok(())
+    }
+
+    pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
+        self.band.hide_view(view)
+    }
+
+    fn layout_band(&mut self, animate: bool) {
+        // Layout the band's instances.
+
+        let band_layout = self.band.layout();
+        let r: PointPx = self.rect.final_value().origin().to_pixels();
+
+        band_layout.place_inline([r.x, r.y], |instance_id, bx| {
+            self.band
+                .set_instance_rect(instance_id, box_to_rect(bx), animate);
+        });
+    }
+
     pub fn apply_animations(&mut self) {
         let (origin, size) = self.rect.value().origin_and_size();
 
@@ -205,48 +261,6 @@ impl LauncherPresenter {
         // Robustness: Forgot to forward this once. How can we make sure that animations are
         // always applied if needed?
         self.band.apply_animations();
-    }
-
-    pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
-        self.band.presents_instance(instance)
-    }
-
-    pub fn present_instance(
-        &mut self,
-        instance: InstanceId,
-        originating_from: Option<InstanceId>,
-        default_panel_size: SizePx,
-        scene: &Scene,
-    ) -> Result<()> {
-        let was_empty = self.band.is_empty();
-        self.band
-            .present_instance(instance, originating_from, default_panel_size, scene)?;
-        if was_empty && !self.band.is_empty() {
-            self.fader
-                .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
-        }
-
-        // self.layout_band(true);
-        Ok(())
-    }
-
-    pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
-        self.band.present_view(instance, view)?;
-
-        // self.layout_band(false);
-        Ok(())
-    }
-
-    fn layout_band(&mut self, animate: bool) {
-        // Layout the band's instances.
-
-        let band_layout = self.band.layout();
-        let r: PointPx = self.rect.final_value().origin().to_pixels();
-
-        band_layout.place_inline([r.x, r.y], |instance_id, bx| {
-            self.band
-                .set_instance_rect(instance_id, box_to_rect(bx), animate);
-        });
     }
 }
 

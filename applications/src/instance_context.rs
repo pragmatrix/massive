@@ -1,8 +1,9 @@
 //! The context for an instance.
 
-use std::mem;
+use std::{mem, sync::Arc};
 
 use anyhow::Result;
+use massive_scene::ChangeCollector;
 use tokio::sync::mpsc::UnboundedReceiver;
 use winit::event::DeviceId;
 
@@ -84,7 +85,8 @@ impl InstanceContext {
         let event = self.events.recv().await?;
 
         if matches!(event, InstanceEvent::ApplyAnimations) {
-            self.animation_coordinator.upgrade_to_apply_animations();
+            self.animation_coordinator
+                .upgrade_to_apply_animations_cycle();
         }
 
         Ok(event)
@@ -95,6 +97,7 @@ impl InstanceContext {
             self.environment.command_sender.clone(),
             self.id,
             extent.into().into(),
+            self.new_scene(),
         )
     }
 }
@@ -110,7 +113,9 @@ pub enum InstanceEvent {
 #[derive(Debug)]
 pub enum InstanceCommand {
     CreateView(ViewCreationInfo),
-    DestroyView(ViewId),
+    // Detail: We pass the change collector up to the desktop, so it can make all Handles are destroyed and
+    // pending changes are sent to the renderer.
+    DestroyView(ViewId, Arc<ChangeCollector>),
     View(ViewId, ViewCommand),
 }
 

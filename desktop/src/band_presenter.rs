@@ -2,6 +2,7 @@ use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Result, bail};
 
+use log::{info, warn};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent, ViewId, ViewRole};
 use massive_geometry::{RectPx, SizePx};
 use massive_layout::{self as layout, LayoutAxis};
@@ -9,9 +10,9 @@ use massive_scene::Transform;
 use massive_shell::Scene;
 
 use crate::{
+    instance_manager::ViewPath,
     instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter},
-    navigation,
-    navigation::NavigationNode,
+    navigation::{self, NavigationNode},
 };
 
 #[derive(Debug, Default)]
@@ -93,7 +94,7 @@ impl BandPresenter {
             originating_from.and_then(|originating_from| self.instances.get(&originating_from));
 
         let presenter = InstancePresenter {
-            state: InstancePresenterState::Appearing,
+            state: InstancePresenterState::WaitingForPrimaryView,
             panel_size: originating_presenter
                 .map(|p| p.panel_size)
                 .unwrap_or(default_panel_size),
@@ -123,24 +124,21 @@ impl BandPresenter {
         Ok(())
     }
 
-    #[allow(unused)]
     pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+        info!("Hiding instance: {instance:?}");
         let Some(presenter) = self.instances.get_mut(&instance) else {
             bail!("Instance not found");
         };
 
         match &presenter.state {
-            InstancePresenterState::Presenting { view } => {
-                let view = PrimaryViewPresenter {
-                    creation_info: view.creation_info.clone(),
-                };
-                presenter.state = InstancePresenterState::Disappearing { view };
-            }
-            InstancePresenterState::Disappearing { .. } => {
-                bail!("Instance is already disappearing")
-            }
-            InstancePresenterState::Appearing => {
+            InstancePresenterState::WaitingForPrimaryView => {
                 bail!("Cannot hide instance that is still appearing")
+            }
+            InstancePresenterState::Presenting { .. } => {
+                presenter.state = InstancePresenterState::Disappearing;
+            }
+            InstancePresenterState::Disappearing => {
+                bail!("Instance is already disappearing")
             }
         }
 
@@ -162,7 +160,10 @@ impl BandPresenter {
             bail!("Instance not found");
         };
 
-        if !matches!(instance_presenter.state, InstancePresenterState::Appearing) {
+        if !matches!(
+            instance_presenter.state,
+            InstancePresenterState::WaitingForPrimaryView
+        ) {
             bail!("Primary view is already presenting");
         }
 
@@ -177,8 +178,33 @@ impl BandPresenter {
         Ok(())
     }
 
-    pub fn hide_view(&mut self, _id: ViewId) -> Result<()> {
-        bail!("Hiding views is not supported yet");
+    pub fn hide_view(&mut self, path: ViewPath) -> Result<()> {
+        let Some(instance_presenter) = self.instances.get_mut(&path.instance) else {
+            warn!("Can't hide view: Instance for view not found");
+            // Robustness: Decide if this should return an error.
+            return Ok(());
+        };
+
+        match &instance_presenter.state {
+            InstancePresenterState::WaitingForPrimaryView => {
+                bail!(
+                    "A view needs to be hidden, but instance presenter waits for a view with a primary role."
+                )
+            }
+            InstancePresenterState::Presenting { view } => {
+                if view.creation_info.id == path.view {
+                    // Feature: this should initiate a disappearing animation?
+                    instance_presenter.state = InstancePresenterState::Disappearing;
+                    Ok(())
+                } else {
+                    bail!("Invalid view: It's not related to anything we present");
+                }
+            }
+            InstancePresenterState::Disappearing => {
+                // ignored, we are already disappearing.
+                Ok(())
+            }
+        }
     }
 
     pub fn layout(&self) -> layout::Layout<InstanceId, 2> {

@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use log::error;
 
 use massive_animation::{Animated, Interpolation};
@@ -22,6 +22,7 @@ use super::{
 };
 use crate::{
     EventTransition, UserIntent,
+    instance_manager::ViewPath,
     navigation::{self, NavigationNode},
     projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION},
 };
@@ -311,6 +312,18 @@ impl ProjectPresenter {
             .present_instance(instance, originating_from, default_panel_size, scene)
     }
 
+    pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+        if let Some(launcher) = self
+            .launchers
+            .values_mut()
+            .find(|launcher| launcher.is_presenting_instance(instance))
+        {
+            launcher.hide_instance(instance)
+        } else {
+            bail!("Internal error: No instance in this project")
+        }
+    }
+
     pub fn present_view(
         &mut self,
         instance: InstanceId,
@@ -321,6 +334,13 @@ impl ProjectPresenter {
             .expect("Instance for view does not exist");
 
         launcher.present_view(instance, creation_info)
+    }
+
+    pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
+        let launcher = self
+            .mut_launcher_for_instance(view.instance)
+            .expect("Instance for view does not exist");
+        launcher.hide_view(view)
     }
 
     fn mut_launcher_for_instance(

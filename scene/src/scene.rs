@@ -16,7 +16,7 @@ pub struct Scene {
     // them.
     //
     // Shared because handles need to push changes when dropped.
-    change_tracker: Arc<ChangeCollector>,
+    change_collector: Arc<ChangeCollector>,
 }
 
 impl Scene {
@@ -30,16 +30,20 @@ impl Scene {
         SceneChange: From<Change<T::Change>>,
     {
         let id = id_generator::acquire::<T>();
-        Handle::new(id, value, self.change_tracker.clone())
+        Handle::new(id, value, self.change_collector.clone())
     }
 
     /// Push external changes into this scene.
     pub fn push_changes(&self, changes: SceneChanges) {
-        self.change_tracker.push_many(changes);
+        self.change_collector.push_many(changes);
     }
 
     // Take the changes that need to be sent to the renderer.
     pub fn take_changes(&self) -> SceneChanges {
-        self.change_tracker.take_all()
+        self.change_collector.take_all()
+    }
+
+    pub fn into_collector(self) -> Arc<ChangeCollector> {
+        self.change_collector
     }
 }

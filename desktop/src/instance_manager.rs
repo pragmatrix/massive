@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId,
-    ViewCreationInfo, ViewEvent, ViewId, ViewRole,
+    ViewCreationInfo, ViewEvent, ViewId,
 };
 use massive_renderer::RenderPacing;
 use massive_shell::Result;
@@ -55,26 +55,6 @@ impl InstanceManager {
         }
     }
 
-    /// Stop an instance gracefully by sending an Exit event.
-    /// Returns immediately after sending the event; use wait_for_instance to wait for completion.
-    #[allow(dead_code)]
-    pub fn stop(&mut self, instance_id: InstanceId) -> Result<()> {
-        let instance = self
-            .instances
-            .get(&instance_id)
-            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
-
-        instance
-            .events_tx
-            .send(InstanceEvent::Shutdown)
-            .map_err(|_| {
-                anyhow!(
-                    "Failed to send shutdown event to instance {:?}",
-                    instance_id
-                )
-            })
-    }
-
     /// Spawn a new instance of an application.
     pub fn spawn(
         &mut self,
@@ -111,6 +91,25 @@ impl InstanceManager {
         );
 
         Ok(instance_id)
+    }
+
+    /// Begin the shutdown of an instance by sending [`InstanceEvent::Shutdown`]. Returns immediately
+    /// after sending the event
+    pub fn trigger_shutdown(&self, instance_id: InstanceId) -> Result<()> {
+        let instance = self
+            .instances
+            .get(&instance_id)
+            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
+
+        instance
+            .events_tx
+            .send(InstanceEvent::Shutdown)
+            .map_err(|_| {
+                anyhow!(
+                    "Failed to send shutdown event to instance {:?}",
+                    instance_id
+                )
+            })
     }
 
     /// Wait for the next instance to complete and handle cleanup.
@@ -192,31 +191,6 @@ impl InstanceManager {
                 .iter()
                 .map(|(view_id, info)| ((*instance_id, *view_id).into(), info))
         })
-    }
-
-    /// Returns the ViewInfo of a view if it's instance and the view exists.
-    pub fn get_view(&self, view: ViewPath) -> Result<&ViewInfo> {
-        self.get_instance(view.instance).and_then(|instance| {
-            instance
-                .views
-                .get(&view.view)
-                .ok_or_else(|| anyhow!("View not found"))
-        })
-    }
-
-    /// Returns the first view with the given role. Returns `None` if no view with that role is
-    /// found and an error if the instance does not exist.
-    pub fn get_view_by_role(
-        &self,
-        instance_id: InstanceId,
-        role: ViewRole,
-    ) -> Result<Option<ViewId>> {
-        Ok(self
-            .get_instance(instance_id)?
-            .views
-            .iter()
-            .find(|(_, info)| info.role == role)
-            .map(|(id, _)| *id))
     }
 
     pub fn instance_of_view(&self, id: ViewId) -> Option<InstanceId> {
