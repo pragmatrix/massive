@@ -40,10 +40,7 @@ pub struct SceneChanges {
 impl Drop for SceneChanges {
     fn drop(&mut self) {
         if !self.changes.is_empty() {
-            log::error!(
-                "{} Scene Changes not propagated to the renderer",
-                self.changes.len()
-            );
+            log::error!("{} scene changes were not processed", self.changes.len());
         }
     }
 }
