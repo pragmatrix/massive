@@ -1,6 +1,9 @@
+use std::mem;
+
 use anyhow::{Context, Result};
 use derive_more::{From, Into};
 use log::debug;
+use massive_animation::AnimationCoordinator;
 use tokio::sync::mpsc::{UnboundedSender, error::SendError};
 
 use uuid::Uuid;
@@ -25,10 +28,16 @@ pub struct View {
 
 impl Drop for View {
     fn drop(&mut self) {
-        if let Err(SendError { .. }) = self
-            .command_sender
-            .send((self.instance, InstanceCommand::DestroyView(self.id)))
-        {
+        // Detail: Quite an expensive hack, but we need to take out the scene and send it up to the
+        // desktop.
+        //
+        // Architecture: This also means that users can create default scenes.
+        let scene = mem::replace(&mut self.scene, Scene::new(AnimationCoordinator::new()));
+
+        if let Err(SendError { .. }) = self.command_sender.send((
+            self.instance,
+            InstanceCommand::DestroyView(self.id, scene.into_collector()),
+        )) {
             debug!("Ignored DestroyView command because the command receiver is gone")
         }
     }

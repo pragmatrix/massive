@@ -1,11 +1,12 @@
 //! A wrapper around a regular Scene that adds animation support.
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::Result;
 use derive_more::Deref;
 
 use massive_animation::{Animated, AnimationCoordinator, Interpolatable, Interpolation, TimeScale};
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
+use massive_scene::ChangeCollector;
 
 #[derive(Debug, Deref)]
 pub struct Scene {
@@ -76,5 +77,9 @@ impl Scene {
         };
 
         RenderSubmission::new(self.take_changes(), pacing)
+    }
+
+    pub fn into_collector(self) -> Arc<ChangeCollector> {
+        self.inner.into_collector()
     }
 }
