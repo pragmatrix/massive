@@ -13,10 +13,11 @@ use crate::{
 pub struct ViewBuilder {
     command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
     instance: InstanceId,
+    extent: BoxPx,
+    scene: Scene,
 
     role: ViewRole,
 
-    extent: BoxPx,
     background_color: Option<Color>,
 }
 
@@ -25,12 +26,14 @@ impl ViewBuilder {
         requests: UnboundedSender<(InstanceId, InstanceCommand)>,
         instance: InstanceId,
         extent: BoxPx,
+        scene: Scene,
     ) -> Self {
         Self {
             command_sender: requests,
             instance,
-            role: ViewRole::default(),
             extent,
+            scene,
+            role: ViewRole::default(),
             background_color: None,
         }
     }
@@ -45,13 +48,13 @@ impl ViewBuilder {
         self
     }
 
-    pub fn build(self, scene: &Scene) -> Result<View> {
+    pub fn build(self) -> Result<View> {
         View::new(
-            self.instance,
             self.command_sender,
-            self.role,
+            self.instance,
             self.extent,
-            scene,
+            self.scene,
+            self.role,
         )
     }
 }

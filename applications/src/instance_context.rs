@@ -96,6 +96,7 @@ impl InstanceContext {
             self.environment.command_sender.clone(),
             self.id,
             extent.into().into(),
+            self.new_scene(),
         )
     }
 }

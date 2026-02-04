@@ -12,12 +12,15 @@ use massive_scene::{Handle, Location, Object, ToLocation, Transform};
 
 use crate::{InstanceId, Scene, ViewId, instance_context::InstanceCommand};
 
+/// ADR: Decided to let the View own the Scene, so that we do have a lifetime restriction on the
+/// Scene and can properly clean up and detect dangling handles in this scene in the Desktop.
 #[derive(Debug)]
 pub struct View {
+    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
     instance: InstanceId,
+    scene: Scene,
     id: ViewId,
     location: Handle<Location>,
-    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
 }
 
 impl Drop for View {
@@ -33,11 +36,11 @@ impl Drop for View {
 
 impl View {
     pub(crate) fn new(
-        instance: InstanceId,
         command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
-        role: ViewRole,
+        instance: InstanceId,
         extents: BoxPx,
-        scene: &Scene,
+        scene: Scene,
+        role: ViewRole,
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
@@ -51,18 +54,18 @@ impl View {
         //
         // Detail: The identity transform here is incorrect but will be adjusted by the desktop
         // based on extents.
-        let desktop_transform = Transform::IDENTITY.enter(scene);
-        let desktop_location = desktop_transform.to_location().enter(scene);
+        let desktop_transform = Transform::IDENTITY.enter(&scene);
+        let desktop_location = desktop_transform.to_location().enter(&scene);
 
         // The local transform is the basic center transform.
         //
         // Architecture: Do we need a local location anymore, if it does not make sense for the view
         // to modify it now that a full extents can be provided?
-        let local_transform = Transform::IDENTITY.enter(scene);
+        let local_transform = Transform::IDENTITY.enter(&scene);
         let location = local_transform
             .to_location()
             .relative_to(&desktop_location)
-            .enter(scene);
+            .enter(&scene);
 
         command_sender.send((
             instance,
@@ -75,11 +78,16 @@ impl View {
         ))?;
 
         Ok(Self {
+            command_sender,
             instance,
+            scene,
             id,
             location,
-            command_sender,
         })
+    }
+
+    pub fn scene(&self) -> &Scene {
+        &self.scene
     }
 
     /// The location's transform.
@@ -123,6 +131,16 @@ impl View {
                 InstanceCommand::View(self.id, ViewCommand::SetCursor(icon)),
             ))
             .context("Failed to send a set cursor request")
+    }
+
+    pub fn render(&self) -> Result<()> {
+        let submission = self.scene.begin_frame();
+        self.command_sender
+            .send((
+                self.instance,
+                InstanceCommand::View(self.id, ViewCommand::Render { submission }),
+            ))
+            .context("Failed to send a render request")
     }
 }
 
