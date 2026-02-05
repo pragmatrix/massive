@@ -7,7 +7,7 @@ use winit::{
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::PixelCamera;
-use massive_input::{DeviceStates, Event};
+use massive_input::Event;
 use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
@@ -35,8 +35,6 @@ type EventRouter = event_router::EventRouter<DesktopTarget>;
 #[derive(Debug)]
 pub struct DesktopInteraction {
     event_router: EventRouter,
-    // A local copy of the most recent device states, so that we can re-hit the pointer if needed.
-    device_states: DeviceStates,
     camera: Animated<PixelCamera>,
 }
 
@@ -68,7 +66,6 @@ impl DesktopInteraction {
 
         Ok(Self {
             event_router,
-            device_states: Default::default(),
             camera: scene.animated(camera),
         })
     }
@@ -110,7 +107,6 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<UserIntent> {
-        self.device_states = event.device_states().clone();
         let intent = self.preprocess_keyboard_commands(event)?;
         if intent != UserIntent::None {
             return Ok(intent);
