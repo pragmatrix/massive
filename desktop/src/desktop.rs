@@ -281,7 +281,7 @@ impl Desktop {
                 // navigation tree anymore.
                 self.presenter.hide_instance(instance)?;
 
-                // And we need to refocus the cursor now, e.g. it might point to the instance that got removed.
+                // Refocus the cursor since it may be pointing to the removed instance.
                 let intent = self.interaction.refocus_pointer(
                     &self.instance_manager,
                     &mut self.presenter,
