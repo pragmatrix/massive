@@ -12,27 +12,17 @@ use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-use crate::instance_manager::ViewPath;
-use crate::projects::{GroupId, LaunchProfileId};
 use crate::{
     EventTransition, UserIntent,
     band_presenter::{BandPresenter, BandTarget},
     focus_path::FocusPath,
-    instance_manager::InstanceManager,
+    instance_manager::{InstanceManager, ViewPath},
     navigation::{NavigationNode, container},
-    projects::{Project, ProjectPresenter, ProjectTarget},
+    projects::{GroupId, LaunchProfileId, Project, ProjectPresenter, ProjectTarget},
 };
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const SECTION_SPACING: u32 = 20;
-
-#[derive(Debug, Clone, PartialEq, From)]
-pub enum LayoutId {
-    Desktop,
-    TopBand,
-    Instance(InstanceId),
-    Project(ProjectTarget),
-}
 
 /// Architecture: We need "unified" target enums. One that encapsulate the full path, but has parent
 /// / add_nested or something like that trait implementations?
@@ -42,8 +32,8 @@ pub enum DesktopTarget {
     Desktop,
     TopBand,
 
-    ProjectGroup(GroupId),
-    ProjectLauncher(LaunchProfileId),
+    Group(GroupId),
+    Launcher(LaunchProfileId),
 
     Instance(InstanceId),
     View(ViewId),
@@ -61,8 +51,8 @@ impl From<BandTarget> for DesktopTarget {
 impl From<ProjectTarget> for DesktopTarget {
     fn from(value: ProjectTarget) -> Self {
         match value {
-            ProjectTarget::Group(group_id) => Self::ProjectGroup(group_id),
-            ProjectTarget::Launcher(launch_profile_id) => Self::ProjectLauncher(launch_profile_id),
+            ProjectTarget::Group(group_id) => Self::Group(group_id),
+            ProjectTarget::Launcher(launch_profile_id) => Self::Launcher(launch_profile_id),
             ProjectTarget::Band(_, band_target) => band_target.into(),
         }
     }
@@ -127,7 +117,7 @@ impl DesktopPresenter {
                 default_panel_size,
                 scene,
             )?,
-            DesktopTarget::ProjectLauncher(launch_profile_id) => self.project.present_instance(
+            DesktopTarget::Launcher(launch_profile_id) => self.project.present_instance(
                 *launch_profile_id,
                 new_instance,
                 originating_from,
@@ -179,15 +169,15 @@ impl DesktopPresenter {
         scene: &Scene,
         font_system: &mut FontSystem,
     ) {
-        let mut root_builder =
-            layout::container(LayoutId::Desktop, LayoutAxis::VERTICAL).spacing(SECTION_SPACING);
+        let mut root_builder = layout::container(DesktopTarget::Desktop, LayoutAxis::VERTICAL)
+            .spacing(SECTION_SPACING);
 
         // Band section (instances layouted horizontally)
         root_builder.child(
             self.top_band
                 .layout()
-                .map_id(LayoutId::Instance)
-                .with_id(LayoutId::TopBand),
+                .map_id(DesktopTarget::Instance)
+                .with_id(DesktopTarget::TopBand),
         );
 
         // Project section
@@ -195,26 +185,41 @@ impl DesktopPresenter {
             let project_layout = self
                 .project
                 .layout(default_panel_size)
-                .map_id(LayoutId::Project);
+                .map_id(|pt| pt.into());
             root_builder.child(project_layout);
         }
 
         root_builder
             .layout()
             .place_inline(PointPx::origin(), |id, rect_px: RectPx| match id {
-                LayoutId::Desktop => {
+                DesktopTarget::Desktop => {
                     self.rect = rect_px.into();
                 }
-                LayoutId::TopBand => {
+                DesktopTarget::TopBand => {
                     self.top_band_rect = rect_px.into();
                 }
-                LayoutId::Instance(instance_id) => {
+                DesktopTarget::Instance(instance_id) => {
                     self.top_band
                         .set_instance_rect(instance_id, rect_px, animate);
                 }
-                LayoutId::Project(project_id) => {
-                    self.project
-                        .set_rect(project_id, rect_px.into(), scene, font_system);
+                DesktopTarget::Group(group_id) => {
+                    self.project.set_rect(
+                        ProjectTarget::Group(group_id),
+                        rect_px.into(),
+                        scene,
+                        font_system,
+                    );
+                }
+                DesktopTarget::Launcher(launcher_id) => {
+                    self.project.set_rect(
+                        ProjectTarget::Launcher(launcher_id),
+                        rect_px.into(),
+                        scene,
+                        font_system,
+                    );
+                }
+                DesktopTarget::View(..) => {
+                    panic!("View layout isn't supported ");
                 }
             });
     }
@@ -256,7 +261,7 @@ impl DesktopPresenter {
                     DesktopTarget::TopBand => {
                         Some(self.top_band.instance_transform(*instance_id)?.to_camera())
                     }
-                    DesktopTarget::ProjectLauncher(_) => self.camera_for_focus(&focus.parent()?),
+                    DesktopTarget::Launcher(_) => self.camera_for_focus(&focus.parent()?),
                     _ => {
                         error!("Unexpected parent of instance");
                         None
@@ -268,12 +273,12 @@ impl DesktopPresenter {
                 self.camera_for_focus(&focus.parent()?)
             }
 
-            DesktopTarget::ProjectGroup(group) => Some(
+            DesktopTarget::Group(group) => Some(
                 self.project
                     .rect_of(ProjectTarget::Group(*group))
                     .to_camera(),
             ),
-            DesktopTarget::ProjectLauncher(launcher) => Some(
+            DesktopTarget::Launcher(launcher) => Some(
                 self.project
                     .rect_of(ProjectTarget::Launcher(*launcher))
                     .center()
@@ -337,7 +342,7 @@ impl DesktopPresenter {
                         }
                     }
 
-                    DesktopTarget::ProjectGroup(group_id) => {
+                    DesktopTarget::Group(group_id) => {
                         // Forward to project presenter
                         let project_transition = EventTransition::Directed(
                             vec![ProjectTarget::Group(*group_id)].into(),
@@ -345,7 +350,7 @@ impl DesktopPresenter {
                         );
                         user_intent = project_presenter.process_transition(project_transition)?;
                     }
-                    DesktopTarget::ProjectLauncher(launcher_id) => {
+                    DesktopTarget::Launcher(launcher_id) => {
                         // Forward to project presenter
                         let project_transition = EventTransition::Directed(
                             vec![ProjectTarget::Launcher(*launcher_id)].into(),
@@ -388,8 +393,8 @@ impl DesktopFocusPath {
             .find_map(|(i, t)| match t {
                 DesktopTarget::Desktop => None,
                 DesktopTarget::TopBand => Some(i + 1),
-                DesktopTarget::ProjectGroup(..) => None,
-                DesktopTarget::ProjectLauncher(..) => Some(i + 1),
+                DesktopTarget::Group(..) => None,
+                DesktopTarget::Launcher(..) => Some(i + 1),
                 DesktopTarget::Instance(..) => Some(i),
                 DesktopTarget::View(..) => {
                     assert!(matches!(self[i - 1], DesktopTarget::Instance(..)));
