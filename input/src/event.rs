@@ -39,11 +39,11 @@ impl<'history, E: InputEvent> Event<'history, E> {
     ///
     // Robustness: I think we should make this require the device() to be passed, this is otherwise
     pub fn pos(&self) -> Option<Point> {
-        self.states().pos(self.device()?)
+        self.device_states().pos(self.device()?)
     }
 
     pub fn device_pos(&self, device: DeviceId) -> Option<Point> {
-        self.states().pos(device)
+        self.device_states().pos(device)
     }
 
     /// Returns the device that is associated with the event.
@@ -212,10 +212,10 @@ impl<'history, E: InputEvent> Event<'history, E> {
     }
 
     pub fn pointing_device_state(&self, device: DeviceId) -> Option<&PointingDeviceState> {
-        self.states().pointing_device(device)
+        self.device_states().pointing_device(device)
     }
 
-    pub fn states(&self) -> &DeviceStates {
+    pub fn device_states(&self) -> &DeviceStates {
         &self.record().states
     }
 }

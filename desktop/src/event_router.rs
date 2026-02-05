@@ -4,14 +4,14 @@
 //! This type is generic over T, which is the element's type. An target is a reference to a concrete
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use derive_more::IntoIterator;
 use log::warn;
 use winit::event::{DeviceId, ElementState};
 
 use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
-use massive_input::Event;
+use massive_input::{DeviceStates, Event};
 
 use crate::focus_path::{FocusPath, FocusPathTransition};
 
@@ -37,6 +37,9 @@ pub struct EventRouter<T> {
     /// as individuals in their role as containers or leaves, it may be possible to avoid managing a
     /// focus tree here and just manage the focus of the immediate descendants.
     outer_focus: OuterFocusState<T>,
+
+    /// The most recent Device States, stored here, so that we can re-hit the pointer.
+    device_states: DeviceStates,
 }
 
 impl<T: PartialEq> Default for EventRouter<T> {
@@ -46,6 +49,7 @@ impl<T: PartialEq> Default for EventRouter<T> {
             keyboard_focus: Default::default(),
             // For now, we assume that _we_ are focused by default but nothing below us.
             outer_focus: OuterFocusState::Focused,
+            device_states: Default::default(),
         }
     }
 }
@@ -117,6 +121,7 @@ where
                         // or some numeric stability problem. In either case, the current cursor
                         // focus must be reset.
                         // Robustness: Shouldn't a regular hit test be attempted?
+                        warn!("Resetting pointer focus, no hit on previous target");
                         set_pointer_focus(
                             &mut self.pointer_focus,
                             FocusPath::EMPTY,
@@ -192,7 +197,43 @@ where
             ViewEvent::Resized(_) => {}
         }
 
+        // Commit device states.
+        self.device_states = input_event.device_states().clone();
+
         Ok(event_transitions.finalize(self.focused().clone()))
+    }
+
+    /// The pointer focus should be tested again with hit-testing against all targets.
+    ///
+    /// Robustness: There is perhaps a need to send a CursorMove event to the newly hit target,
+    /// otherwise the current position may be off?
+    pub fn reset_pointer_focus(
+        &mut self,
+        hit_tester: &dyn HitTester<T>,
+    ) -> Result<EventTransitions<T>> {
+        let (path, device) = {
+            // This is somehow a shortcut, we just check for the latest Device's pos change.
+            // Robustness: Support multiple pointers.
+            if let Some(device) = self.device_states.most_recent_moved_pointing_device()
+                && let Some(pos) = self.device_states.pos(device)
+            {
+                let (path, _hit) = hit_tester.hit_test(pos);
+                (path, device)
+            } else {
+                warn!("Resetting pointer focus: No most recent position was found");
+                if self.pointer_focus == FocusPath::EMPTY {
+                    return Ok(Default::default());
+                }
+                bail!(
+                    "Internal error, pointer focus was set, but no most recent position was found"
+                );
+            }
+        };
+
+        // We don't need a focus change tracking here.
+        let mut log = TransitionLog::new(self.focused().clone());
+        set_pointer_focus(&mut self.pointer_focus, path, device, &mut log);
+        Ok(log.finalize(self.focused().clone()))
     }
 
     fn set_outer_focus(&mut self, focused: bool, transitions: &mut TransitionLog<T>) {
@@ -271,7 +312,16 @@ fn set_pointer_focus<T>(
 pub struct EventTransitions<T> {
     #[into_iterator]
     pub transitions: Vec<EventTransition<T>>,
-    pub focus_changed: Option<FocusPath<T>>,
+    pub keyboard_focus_changed: Option<FocusPath<T>>,
+}
+
+impl<T> Default for EventTransitions<T> {
+    fn default() -> Self {
+        Self {
+            transitions: Vec::new(),
+            keyboard_focus_changed: None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -308,7 +358,7 @@ impl<T> TransitionLog<T> {
 
         EventTransitions {
             transitions: self.transitions,
-            focus_changed,
+            keyboard_focus_changed: focus_changed,
         }
     }
 }

@@ -46,7 +46,7 @@ impl EventAggregator {
             AggregationEvent::CursorMoved {
                 device_id,
                 position,
-            } => self.cursor_moved(device_id, position),
+            } => self.cursor_moved(time, device_id, position),
             AggregationEvent::CursorEntered { device_id } => self.cursor_entered(device_id),
             AggregationEvent::CursorLeft { device_id } => self.cursor_left(device_id),
             AggregationEvent::MouseInput {
@@ -79,13 +79,22 @@ impl EventAggregator {
         AggregationReport::Integrated
     }
 
-    fn cursor_moved(&mut self, device_id: DeviceId, pos: Point) -> AggregationReport {
+    fn cursor_moved(
+        &mut self,
+        time: Instant,
+        device_id: DeviceId,
+        new_pos: Point,
+    ) -> AggregationReport {
         let device_state = self.pointing_device_mut(device_id);
-        let pos = Some(pos);
-        if device_state.pos == pos {
+        if let Some(pos) = &device_state.pos
+            && pos.pos == new_pos
+        {
             return AggregationReport::Redundant;
         }
-        device_state.pos = pos;
+        device_state.pos = Some(PointerPosState {
+            when: time,
+            pos: new_pos,
+        });
         AggregationReport::Integrated
     }
 
@@ -99,7 +108,7 @@ impl EventAggregator {
         let device = self.pointing_device_mut(device_id);
         // If no pos received yet, completely ignore that event.
         // TODO: log this!
-        let Some(pos) = device.pos else {
+        let Some(pos) = &device.pos else {
             return AggregationReport::PrerequisitesNotMet;
         };
 
@@ -108,7 +117,7 @@ impl EventAggregator {
             MouseButtonState {
                 element: state,
                 when: now,
-                at_pos: pos,
+                at_pos: pos.pos,
             },
         );
 
@@ -144,7 +153,7 @@ impl EventAggregator {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct DeviceStates {
     pointing_devices: Vec<(DeviceId, PointingDeviceState)>,
     keyboard_modifiers: ModifiersState,
@@ -184,7 +193,8 @@ impl DeviceStates {
 
     /// Returns the physical coordinates of the pointing device.
     pub fn pos(&self, id: DeviceId) -> Option<Point> {
-        self.pointing_device(id).and_then(|p| p.pos)
+        self.pointing_device(id)
+            .and_then(|p| p.pos.as_ref().map(|p| p.pos))
     }
 
     /// When pressed, returns the instant a device was pressed first and where it was pressed.
@@ -220,12 +230,20 @@ impl DeviceStates {
             .iter()
             .find_map(|(di, s)| (*di == id).then_some(s))
     }
+
+    pub fn most_recent_moved_pointing_device(&self) -> Option<DeviceId> {
+        self.pointing_devices
+            .iter()
+            .filter_map(|(id, state)| state.pos.as_ref().map(|pos| (*id, pos.when)))
+            .max_by_key(|(_, when)| *when)
+            .map(|(id, _)| id)
+    }
 }
 
 #[derive(Clone, Default, Debug)]
 pub struct PointingDeviceState {
     pub entered: bool,
-    pub pos: Option<Point>,
+    pub pos: Option<PointerPosState>,
     pub buttons: HashMap<MouseButton, MouseButtonState>,
 }
 
@@ -235,6 +253,12 @@ impl PointingDeviceState {
             .values()
             .any(|button_state| button_state.element.is_pressed())
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct PointerPosState {
+    pub when: Instant,
+    pub pos: Point,
 }
 
 #[derive(Debug, Clone)]

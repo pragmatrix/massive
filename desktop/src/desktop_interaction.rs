@@ -7,7 +7,7 @@ use winit::{
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::PixelCamera;
-use massive_input::Event;
+use massive_input::{DeviceStates, Event};
 use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
@@ -35,6 +35,8 @@ type EventRouter = event_router::EventRouter<DesktopTarget>;
 #[derive(Debug)]
 pub struct DesktopInteraction {
     event_router: EventRouter,
+    // A local copy of the most recent device states, so that we can re-hit the pointer if needed.
+    device_states: DeviceStates,
     camera: Animated<PixelCamera>,
 }
 
@@ -66,6 +68,7 @@ impl DesktopInteraction {
 
         Ok(Self {
             event_router,
+            device_states: Default::default(),
             camera: scene.animated(camera),
         })
     }
@@ -107,6 +110,7 @@ impl DesktopInteraction {
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
     ) -> Result<UserIntent> {
+        self.device_states = event.device_states().clone();
         let intent = self.preprocess_keyboard_commands(event)?;
         if intent != UserIntent::None {
             return Ok(intent);
@@ -115,19 +119,41 @@ impl DesktopInteraction {
         // Create a hit tester and forward events.
 
         let transitions = {
-            let navigation = presenter.navigation();
-            let hit_test = NavigationHitTester::new(navigation, render_geometry);
-            self.event_router.process(event, &hit_test)?
+            self.event_router.process(
+                event,
+                &NavigationHitTester::new(presenter.navigation(), render_geometry),
+            )?
         };
         let intent =
             presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
 
-        if let Some(focus) = transitions.focus_changed {
+        if let Some(focus) = transitions.keyboard_focus_changed {
             let intent = self.focus(focus, instance_manager, presenter)?;
             assert_eq!(intent, UserIntent::None);
         }
 
         Ok(intent)
+    }
+
+    /// Refocus the pointer at its current position.
+    ///
+    /// This is needed when navigation nodes are removed.
+    pub fn refocus_pointer(
+        &mut self,
+        instance_manager: &InstanceManager,
+        presenter: &mut DesktopPresenter,
+        render_geometry: &RenderGeometry,
+    ) -> Result<UserIntent> {
+        let transitions = self
+            .event_router
+            .reset_pointer_focus(&NavigationHitTester::new(
+                presenter.navigation(),
+                render_geometry,
+            ))?;
+
+        assert!(transitions.keyboard_focus_changed.is_none());
+
+        presenter.forward_event_transitions(transitions.transitions, instance_manager)
     }
 
     fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {
@@ -138,7 +164,7 @@ impl DesktopInteraction {
         } = event.event()
             && key_event.state == ElementState::Pressed
             && !key_event.repeat
-            && event.states().is_command()
+            && event.device_states().is_command()
         {
             if let Some(instance) = self.event_router.focused().instance() {
                 match &key_event.logical_key {
