@@ -357,34 +357,24 @@ impl ProjectPresenter {
 fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<ProjectTarget, 2> {
     let group_id = group.id;
 
+    let mut builder = container(ProjectTarget::Group(group_id), group.layout.axis())
+        .spacing(10)
+        .padding(10, 10);
+
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
-            let mut builder = container(ProjectTarget::Group(group_id), group.layout.axis())
-                .spacing(10)
-                .padding(10, 10);
-
             for child_group in launch_groups {
-                let child_layout = layout_launch_group(child_group, default_size);
-                builder.child(child_layout);
+                builder.child(layout_launch_group(child_group, default_size));
             }
-
-            builder.layout()
         }
         LaunchGroupContents::Launchers(launchers) => {
-            let mut builder = container(ProjectTarget::Group(group_id), group.layout.axis())
-                .spacing(10)
-                .padding(10, 10);
-
             for launcher in launchers {
-                builder.child(leaf(
-                    ProjectTarget::Launcher(launcher.id),
-                    [default_size.width, default_size.height],
-                ));
+                builder.child(leaf(ProjectTarget::Launcher(launcher.id), default_size));
             }
-
-            builder.layout()
         }
     }
+
+    builder.layout()
 }
 
 fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {

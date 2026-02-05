@@ -17,6 +17,7 @@ impl<T: PartialEq> FocusPath<T> {
         Self([component.into()].into())
     }
 
+    // Idea: Add a trait that confirms that a joining path is structurally allowed.
     pub fn join(mut self, component: impl Into<T>) -> Self {
         self.0.push(component.into());
         self

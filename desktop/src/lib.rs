@@ -18,11 +18,3 @@ pub use desktop_environment::*;
 pub use desktop_interaction::*;
 pub use desktop_presenter::DesktopPresenter;
 pub use event_router::{EventRouter, EventTransition, HitTester};
-
-
-// A layout helper.
-// Robustness: Can't we implement ToPixels somewhere?
-
-pub fn box_to_rect(([x, y], [w, h]): massive_layout::Box<2>) -> massive_geometry::RectPx {
-    massive_geometry::RectPx::new((x, y).into(), (w as i32, h as i32).into())
-}

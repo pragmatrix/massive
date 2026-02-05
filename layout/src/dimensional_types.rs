@@ -5,7 +5,7 @@
 
 use std::ops;
 
-use derive_more::{From, Index, IndexMut};
+use derive_more::{From, Index, IndexMut, Into};
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct Box<const RANK: usize> {
@@ -37,7 +37,7 @@ impl<const RANK: usize> Thickness<RANK> {
     };
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From, Into)]
 pub struct Offset<const RANK: usize>(pub [i32; RANK]);
 
 impl<const RANK: usize> Default for Offset<RANK> {
@@ -73,7 +73,7 @@ impl<const RANK: usize> ops::Add for Offset<RANK> {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From, Into)]
 pub struct Size<const RANK: usize>(pub [u32; RANK]);
 
 impl<const RANK: usize> Default for Size<RANK> {

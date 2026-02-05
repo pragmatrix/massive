@@ -5,14 +5,13 @@ use derive_more::From;
 
 use log::error;
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
-use massive_geometry::{PixelCamera, PointPx, Rect, SizePx};
+use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_layout as layout;
 use massive_layout::LayoutAxis;
 use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-use crate::box_to_rect;
 use crate::instance_manager::ViewPath;
 use crate::projects::{GroupId, LaunchProfileId};
 use crate::{
@@ -202,23 +201,20 @@ impl DesktopPresenter {
 
         root_builder
             .layout()
-            .place_inline(PointPx::origin(), |id, rect| {
-                let rect_px = box_to_rect(rect);
-                match id {
-                    LayoutId::Desktop => {
-                        self.rect = rect_px.into();
-                    }
-                    LayoutId::TopBand => {
-                        self.top_band_rect = rect_px.into();
-                    }
-                    LayoutId::Instance(instance_id) => {
-                        self.top_band
-                            .set_instance_rect(instance_id, rect_px, animate);
-                    }
-                    LayoutId::Project(project_id) => {
-                        self.project
-                            .set_rect(project_id, rect_px.into(), scene, font_system);
-                    }
+            .place_inline(PointPx::origin(), |id, rect_px: RectPx| match id {
+                LayoutId::Desktop => {
+                    self.rect = rect_px.into();
+                }
+                LayoutId::TopBand => {
+                    self.top_band_rect = rect_px.into();
+                }
+                LayoutId::Instance(instance_id) => {
+                    self.top_band
+                        .set_instance_rect(instance_id, rect_px, animate);
+                }
+                LayoutId::Project(project_id) => {
+                    self.project
+                        .set_rect(project_id, rect_px.into(), scene, font_system);
                 }
             });
     }

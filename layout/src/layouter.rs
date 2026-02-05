@@ -19,13 +19,13 @@ use crate::{
 
 pub fn leaf<Id: Clone, const RANK: usize>(
     id: impl Into<Option<Id>>,
-    size: impl Into<[u32; RANK]>,
+    size: impl Into<Size<RANK>>,
 ) -> Layout<Id, RANK> {
     Layout {
         id: id.into(),
         container: None,
         offset: Offset::ZERO,
-        size: size.into().into(),
+        size: size.into(),
     }
 }
 
@@ -160,14 +160,6 @@ impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
     }
 }
 
-pub type BoxComponents<const RANK: usize> = ([i32; RANK], [u32; RANK]);
-
-impl<const RANK: usize> From<Box<RANK>> for BoxComponents<RANK> {
-    fn from(value: Box<RANK>) -> Self {
-        (value.offset.0, value.size.0)
-    }
-}
-
 impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
     pub fn outer_size(&self) -> Size<RANK> {
         if let Some(ref container) = self.container {
@@ -184,6 +176,7 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
 
     pub fn map_id<NewId: Clone>(self, f: impl Fn(Id) -> NewId) -> Layout<NewId, RANK> {
         // Need to use a reference here to be able to call it multiple times.
+        // Alternative is to require Clone.
         self.map_id_ref(&f)
     }
 
@@ -196,9 +189,9 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
         }
     }
 
-    pub fn place<BX>(self, absolute_offset: impl Into<[i32; RANK]>) -> Vec<(Id, BX)>
+    pub fn place<BX>(self, absolute_offset: impl Into<Offset<RANK>>) -> Vec<(Id, BX)>
     where
-        BX: From<BoxComponents<RANK>>,
+        BX: From<Box<RANK>>,
     {
         let mut vec = Vec::new();
         self.place_inline(absolute_offset, |id, r| vec.push((id, r)));
@@ -207,16 +200,13 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
 
     pub fn place_inline<BX>(
         self,
-        absolute_offset: impl Into<[i32; RANK]>,
+        absolute_offset: impl Into<Offset<RANK>>,
         mut set_rect: impl FnMut(Id, BX),
     ) where
-        BX: From<BoxComponents<RANK>>,
+        BX: From<Box<RANK>>,
     {
-        let absolute_offset: Offset<RANK> = absolute_offset.into().into();
-        self.place_rec(absolute_offset, &mut |id, bx| {
-            let box_components: BoxComponents<RANK> = bx.into();
-            set_rect(id, box_components.into())
-        });
+        let absolute_offset: Offset<RANK> = absolute_offset.into();
+        self.place_rec(absolute_offset, &mut |id, bx| set_rect(id, bx.into()));
     }
 
     fn place_rec(self, absolute_offset: Offset<RANK>, out: &mut impl FnMut(Id, Box<RANK>)) {
@@ -540,11 +530,5 @@ mod tests {
         assert_eq!(results[1], (1, rect(5, 3, 100, 50)));
         // Second child: 5 (leading) + 100 (first) + 10 (spacing)
         assert_eq!(results[2], (2, rect(115, 3, 80, 60)));
-    }
-
-    impl<const RANK: usize> From<BoxComponents<RANK>> for Box<RANK> {
-        fn from(value: BoxComponents<RANK>) -> Self {
-            Box::new(value.0.into(), value.1.into())
-        }
     }
 }
