@@ -258,6 +258,9 @@ impl Desktop {
             }
             UserIntent::StopInstance { instance } => {
                 // Remove the instance from the focus first.
+                //
+                // Detail: This causes an unfocus event sent to the instance's view. I don't think
+                // this should happen on teardown.
                 let focus = self.interaction.focused();
                 if let Some(focused_instance) = self.interaction.focused().instance()
                     && focused_instance == instance
@@ -277,6 +280,15 @@ impl Desktop {
                 // We hide the instance as soon we trigger a shutdown so that they can't be in the
                 // navigation tree anymore.
                 self.presenter.hide_instance(instance)?;
+
+                // Refocus the cursor since it may be pointing to the removed instance.
+                let intent = self.interaction.refocus_pointer(
+                    &self.instance_manager,
+                    &mut self.presenter,
+                    self.renderer.geometry(),
+                )?;
+                // No intent on refocusing allowed.
+                assert_eq!(intent, UserIntent::None);
             }
         }
 
