@@ -38,7 +38,7 @@ pub struct EventRouter<T> {
     /// focus tree here and just manage the focus of the immediate descendants.
     outer_focus: OuterFocusState<T>,
 
-    /// The most recent Device States, stored here, so that we can re-hit the pointer.
+    /// Most recent [`DeviceStates`], so that we can re-hit the pointer anytime.
     device_states: DeviceStates,
 }
 
@@ -225,7 +225,7 @@ where
                     return Ok(Default::default());
                 }
                 bail!(
-                    "Internal error, pointer focus was set, but no most recent position was found"
+                    "Internal error: Pointer focus was set, but no most recent position was found"
                 );
             }
         };
