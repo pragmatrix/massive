@@ -8,12 +8,12 @@ use std::ops;
 use derive_more::{From, Index, IndexMut, Into};
 
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
-pub struct Box<const RANK: usize> {
+pub struct Rect<const RANK: usize> {
     pub offset: Offset<RANK>,
     pub size: Size<RANK>,
 }
 
-impl<const RANK: usize> Box<RANK> {
+impl<const RANK: usize> Rect<RANK> {
     pub const fn new(offset: Offset<RANK>, size: Size<RANK>) -> Self {
         Self { offset, size }
     }

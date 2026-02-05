@@ -14,7 +14,7 @@ use derive_more::{From, Into};
 
 use crate::{
     LayoutAxis,
-    dimensional_types::{Box, Offset, Size, Thickness},
+    dimensional_types::{Offset, Rect, Size, Thickness},
 };
 
 pub fn leaf<Id: Clone, const RANK: usize>(
@@ -24,8 +24,7 @@ pub fn leaf<Id: Clone, const RANK: usize>(
     Layout {
         id: id.into(),
         container: None,
-        offset: Offset::ZERO,
-        size: size.into(),
+        rect: Rect::new(Offset::ZERO, size.into()),
     }
 }
 
@@ -92,7 +91,7 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
             }
 
             // Set child's offset relative to this container's content area
-            child.offset = offset;
+            child.rect.offset = offset;
 
             // Advance offset along layout axis
             offset[axis] += child_outer_size[axis] as i32;
@@ -113,8 +112,7 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
         Layout {
             id: self.id,
             container: Some(self.container),
-            offset: Offset::ZERO,
-            size,
+            rect: Rect::new(Offset::ZERO, size),
         }
     }
 }
@@ -126,14 +124,9 @@ pub struct Layout<Id: Clone, const RANK: usize> {
 
     container: Option<Container<Id, RANK>>,
 
-    // Architecture: Replace the following two by a `Rect<RANK>`?
-
-    // The placement offset of this layout (the parent relative offset)
-    // 0,0). If this is a container, this does include leading padding.
-    offset: Offset<RANK>,
-
-    // The inner size of this. Does not include padding. Does include spacing.
-    size: Size<RANK>,
+    // The rectangle of this layout (parent-relative offset and inner size)
+    // If this is a container, the offset includes leading padding but size does not include padding.
+    rect: Rect<RANK>,
 }
 
 #[derive(Debug)]
@@ -163,9 +156,9 @@ impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
 impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
     pub fn outer_size(&self) -> Size<RANK> {
         if let Some(ref container) = self.container {
-            container.padding.leading + self.size + container.padding.trailing
+            container.padding.leading + self.rect.size + container.padding.trailing
         } else {
-            self.size
+            self.rect.size
         }
     }
 
@@ -184,14 +177,13 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
         Layout {
             id: self.id.map(f),
             container: self.container.map(|c| c.map_id(f)),
-            offset: self.offset,
-            size: self.size,
+            rect: self.rect,
         }
     }
 
     pub fn place<BX>(self, absolute_offset: impl Into<Offset<RANK>>) -> Vec<(Id, BX)>
     where
-        BX: From<Box<RANK>>,
+        BX: From<Rect<RANK>>,
     {
         let mut vec = Vec::new();
         self.place_inline(absolute_offset, |id, r| vec.push((id, r)));
@@ -203,15 +195,15 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
         absolute_offset: impl Into<Offset<RANK>>,
         mut set_rect: impl FnMut(Id, BX),
     ) where
-        BX: From<Box<RANK>>,
+        BX: From<Rect<RANK>>,
     {
         let absolute_offset: Offset<RANK> = absolute_offset.into();
         self.place_rec(absolute_offset, &mut |id, bx| set_rect(id, bx.into()));
     }
 
-    fn place_rec(self, absolute_offset: Offset<RANK>, out: &mut impl FnMut(Id, Box<RANK>)) {
+    fn place_rec(self, absolute_offset: Offset<RANK>, out: &mut impl FnMut(Id, Rect<RANK>)) {
         // Compute absolute position of this layout
-        let abs_offset = absolute_offset + self.offset;
+        let abs_offset = absolute_offset + self.rect.offset;
 
         let outer_size = self.outer_size();
         let id = self.id;
@@ -219,7 +211,7 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
 
         // Emit this layout's box if it has an id
         if let Some(id) = id {
-            out(id, Box::new(abs_offset, outer_size));
+            out(id, Rect::new(abs_offset, outer_size));
         }
 
         // Recursively place children with accumulated offset
@@ -340,7 +332,7 @@ mod tests {
         // since RANK is 2
         let mut root = container(0, LayoutAxis::DEPTH);
         root.child(leaf(1, size(100, 200))); // This should panic when accessing index 2
-        let _: Vec<(usize, Box<2>)> = root.layout().place(point(0, 0));
+        let _: Vec<(usize, Rect<2>)> = root.layout().place(point(0, 0));
     }
 
     // This test demonstrates the builder pattern with nested containers
@@ -375,8 +367,8 @@ mod tests {
     }
 
     // Helper to create Rect<2>
-    fn rect(x: i32, y: i32, w: u32, h: u32) -> Box<2> {
-        Box::new(point(x, y).into(), size(w, h).into())
+    fn rect(x: i32, y: i32, w: u32, h: u32) -> Rect<2> {
+        Rect::new(point(x, y).into(), size(w, h).into())
     }
 
     // Helper to create Size<2>

@@ -3,7 +3,7 @@ use derive_more::{Deref, From, Into};
 mod dimensional_types;
 mod layouter;
 
-pub use dimensional_types::{Box, Offset, Size, Thickness};
+pub use dimensional_types::{Offset, Rect, Size, Thickness};
 pub use layouter::{ContainerBuilder, Layout, container, leaf};
 
 #[derive(Debug, Copy, Clone, From, Into, Deref, Default)]
@@ -18,7 +18,7 @@ impl LayoutAxis {
 mod geometry_interop {
     use massive_geometry::{PointPx, RectPx, SizePx};
 
-    use crate::{Box, Offset, Size};
+    use crate::{Offset, Rect, Size};
 
     impl From<SizePx> for Size<2> {
         fn from(value: SizePx) -> Self {
@@ -32,8 +32,8 @@ mod geometry_interop {
         }
     }
 
-    impl From<Box<2>> for RectPx {
-        fn from(value: Box<2>) -> Self {
+    impl From<Rect<2>> for RectPx {
+        fn from(value: Rect<2>) -> Self {
             let [x, y] = value.offset.into();
             let [w, h] = value.size.into();
             RectPx::new((x, y).into(), (w as i32, h as i32).into())
