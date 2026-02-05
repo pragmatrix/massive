@@ -153,7 +153,7 @@ impl DesktopInteraction {
     }
 
     fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {
-        // Catch Command+t and Command+w if a instance has the keyboard focus.
+        // Catch CMD+t and CMD+w if an instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
             event: key_event, ..
