@@ -17,9 +17,10 @@ use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
 use crate::desktop_presenter::DesktopTarget;
+use crate::desktop_system::DesktopSystem;
 use crate::projects::Project;
 use crate::{
-    DesktopEnvironment, DesktopInteraction, DesktopPresenter, UserIntent,
+    DesktopEnvironment, DesktopInteraction, UserIntent,
     instance_manager::{InstanceManager, ViewPath},
     projects::ProjectConfiguration,
 };
@@ -31,7 +32,7 @@ pub struct Desktop {
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
     primary_instance_panel_size: SizePx,
-    presenter: DesktopPresenter,
+    presenter: DesktopSystem,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -57,7 +58,6 @@ impl Desktop {
         let scene = context.new_scene();
 
         let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
-        let mut presenter = DesktopPresenter::new(project, &scene);
         let environment = InstanceEnvironment::new(
             requests_tx,
             context.primary_monitor_scale_factor(),
@@ -103,6 +103,7 @@ impl Desktop {
 
         // Initial setup
 
+        let mut presenter = DesktopSystem::new(project, default_size, &scene)?;
         presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
         presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
         instance_manager.add_view(primary_instance, &creation_info);

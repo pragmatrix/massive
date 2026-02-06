@@ -9,6 +9,7 @@
 //! and aggregates that are event driven.
 
 use anyhow::Result;
+use derive_more::{Deref, DerefMut};
 
 use massive_geometry::SizePx;
 use massive_layout::{LayoutAxis, Padding, Thickness};
@@ -29,11 +30,13 @@ pub enum DesktopCommand {
     Project(ProjectCommand),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Deref, DerefMut)]
 pub struct DesktopSystem {
     default_panel_size: SizePx,
     hierarchy: OrderedHierarchy<DesktopTarget>,
     layout_specs: Map<DesktopTarget, LayoutSpec>,
+    #[deref]
+    #[deref_mut]
     presenter: DesktopPresenter,
     startup_profile: Option<LaunchProfileId>,
 }
