@@ -1,10 +1,13 @@
+mod aggregates;
 mod application_registry;
 mod band_presenter;
 pub(crate) mod desktop;
 mod desktop_environment;
 mod desktop_interaction;
 mod desktop_presenter;
+mod desktop_system;
 mod event_router;
+mod event_sourcing;
 mod focus_path;
 mod focus_target;
 mod instance_manager;
@@ -12,6 +15,7 @@ mod instance_presenter;
 mod navigation;
 mod projects;
 
+pub use aggregates::*;
 pub use application_registry::Application;
 pub use desktop::Desktop;
 pub use desktop_environment::*;

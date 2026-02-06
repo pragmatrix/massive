@@ -22,10 +22,31 @@ use super::{
 };
 use crate::{
     EventTransition, UserIntent,
+    event_sourcing::OrderedInsertion,
     instance_manager::ViewPath,
     navigation::{self, NavigationNode},
-    projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION},
+    projects::{
+        ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile,
+        project::LaunchGroupProperties,
+    },
 };
+
+#[derive(Debug)]
+pub enum ProjectCommand {
+    InsertLaunchGroup {
+        parent: Option<OrderedInsertion<GroupId>>,
+        id: GroupId,
+        properties: LaunchGroupProperties,
+    },
+    RemoveLaunchGroup(GroupId),
+    InsertLauncher {
+        group: OrderedInsertion<GroupId>,
+        id: LaunchProfileId,
+        profile: LaunchProfile,
+    },
+    RemoveLauncher(LaunchProfileId),
+    SetStartupProfile(Option<LaunchProfileId>),
+}
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -357,9 +378,12 @@ impl ProjectPresenter {
 fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<ProjectTarget, 2> {
     let group_id = group.id;
 
-    let mut builder = container(ProjectTarget::Group(group_id), group.layout.axis())
-        .spacing(10)
-        .padding(10, 10);
+    let mut builder = container(
+        ProjectTarget::Group(group_id),
+        group.properties.layout.axis(),
+    )
+    .spacing(10)
+    .padding(10, 10);
 
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {

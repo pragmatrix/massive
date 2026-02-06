@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use derive_more::From;
-
 use log::error;
+
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_layout as layout;
@@ -26,7 +26,7 @@ const SECTION_SPACING: u32 = 20;
 
 /// Architecture: We need "unified" target enums. One that encapsulate the full path, but has parent
 /// / add_nested or something like that trait implementations?
-#[derive(Debug, Clone, PartialEq, Eq, From)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
 pub enum DesktopTarget {
     // The whole area, covering the top band and
     Desktop,

@@ -7,6 +7,8 @@ use std::ops;
 
 use derive_more::{From, Index, IndexMut, Into};
 
+use crate::Padding;
+
 #[derive(Debug, Default, Copy, Clone, PartialEq, Eq)]
 pub struct Rect<const RANK: usize> {
     pub offset: Offset<RANK>,
@@ -35,6 +37,15 @@ impl<const RANK: usize> Thickness<RANK> {
         leading: Size::EMPTY,
         trailing: Size::EMPTY,
     };
+}
+
+impl<const RANK: usize> From<(Padding<RANK>, Padding<RANK>)> for Thickness<RANK> {
+    fn from((leading, trailing): (Padding<RANK>, Padding<RANK>)) -> Self {
+        Self {
+            leading: leading.into(),
+            trailing: trailing.into(),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From, Into)]
