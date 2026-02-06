@@ -31,6 +31,7 @@ pub enum DesktopCommand {
 
 #[derive(Debug)]
 pub struct DesktopSystem {
+    default_panel_size: SizePx,
     hierarchy: OrderedHierarchy<DesktopTarget>,
     layout_specs: Map<DesktopTarget, LayoutSpec>,
     presenter: DesktopPresenter,
@@ -42,6 +43,7 @@ impl DesktopSystem {
         let transaction = project_to_transaction(&project).map(DesktopCommand::Project);
         let presenter = DesktopPresenter::new(project, scene);
         let mut system = Self {
+            default_panel_size,
             hierarchy: Default::default(),
             layout_specs: Default::default(),
             presenter,
@@ -87,13 +89,21 @@ impl DesktopSystem {
                 self.layout_specs.remove(&target)?;
                 self.hierarchy.remove(&target)?;
             }
-            ProjectCommand::InsertLauncher { group, id, profile } => {
+            ProjectCommand::InsertLauncher {
+                group,
+                id,
+                profile: _,
+            } => {
+                let target = DesktopTarget::Launcher(id);
                 self.hierarchy
-                    .insert(DesktopTarget::Launcher(id), group.map(DesktopTarget::Group))?;
+                    .insert(target.clone(), group.map(DesktopTarget::Group))?;
+                self.layout_specs
+                    .insert_or_update(target, LayoutSpec::Leaf(self.default_panel_size))?;
             }
             ProjectCommand::RemoveLauncher(launch_profile_id) => {
-                self.hierarchy
-                    .remove(&DesktopTarget::Launcher(launch_profile_id))?;
+                let target = DesktopTarget::Launcher(launch_profile_id);
+                self.layout_specs.remove(&target)?;
+                self.hierarchy.remove(&target)?;
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
                 self.startup_profile = launch_profile_id
