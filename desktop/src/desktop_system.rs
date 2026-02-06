@@ -202,7 +202,7 @@ fn launch_group_commands(
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
             for launch_group in launch_groups {
-                launch_group_commands(Some(group.id), &launch_group, commands);
+                launch_group_commands(Some(group.id), launch_group, commands);
             }
         }
         LaunchGroupContents::Launchers(launchers) => {

@@ -20,7 +20,7 @@ impl<Target> Default for OrderedHierarchy<Target> {
 }
 
 #[derive(Debug)]
-enum OrderedHierarchyCommand<T> {
+pub enum OrderedHierarchyCommand<T> {
     Insert(T, Option<OrderedInsertion<T>>),
     /// Removes T and all nested ones.
     Remove(T),
@@ -89,12 +89,12 @@ impl<T: Clone + Eq + hash::Hash> OrderedHierarchy<T> {
     }
 
     fn remove_recursive(&mut self, target: &T) -> Result<()> {
-        let children = self.nested.remove(&target).unwrap_or_default();
+        let children = self.nested.remove(target).unwrap_or_default();
         for child in children {
             self.remove_recursive(&child)?;
         }
 
-        if let Some(parent) = self.parent.remove(&target)
+        if let Some(parent) = self.parent.remove(target)
             && let Some(siblings) = self.nested.get_mut(&parent)
         {
             siblings.retain(|sibling| sibling != target);
