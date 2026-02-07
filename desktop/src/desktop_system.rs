@@ -91,7 +91,9 @@ impl DesktopSystem {
                 id,
                 properties,
             } => {
-                self.hierarchy.add(parent.map(Into::into), id.into())?;
+                if let Some(parent) = parent {
+                    self.hierarchy.add(parent.into(), id.into())?;
+                };
                 let spec = properties
                     .layout
                     .axis()
@@ -111,8 +113,7 @@ impl DesktopSystem {
                 profile: _,
             } => {
                 let target = DesktopTarget::Launcher(id);
-                self.hierarchy
-                    .add(Some(DesktopTarget::Group(group)), target.clone())?;
+                self.hierarchy.add(group.into(), target.clone())?;
                 self.layout_specs
                     .insert_or_update(target, LayoutSpec::Leaf(self.default_panel_size))?;
             }

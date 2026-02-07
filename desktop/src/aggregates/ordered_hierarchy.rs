@@ -2,10 +2,14 @@ use std::{collections::HashMap, hash};
 
 use anyhow::{Result, bail};
 
+/// A representation of a ordered hierarchy.
+///
+/// This implementation does not represent roots. It only maintains relationships between the ids.
 #[derive(Debug)]
 pub struct OrderedHierarchy<Id> {
-    /// Map from Id to parent.
+    /// Map from Id to parent. Does not contain roots.
     parent: HashMap<Id, Id>,
+    /// Map from Id to an ordered list of nested ids. Does not contain roots or empty lists.
     nested: HashMap<Id, Vec<Id>>,
 }
 
@@ -19,29 +23,18 @@ impl<Id> Default for OrderedHierarchy<Id> {
 }
 
 impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
-    /// Add a new root without a parent.
-    pub fn add_root(&mut self, target: Id) -> Result<()> {
-        self.add(None, target)
-    }
-
     /// Add a target to the end of the parent's nested list.
-    pub fn add(&mut self, parent: Option<Id>, target: Id) -> Result<()> {
-        if let Some(parent) = parent {
-            self.parent.insert(target.clone(), parent.clone());
-            let children = self.nested.entry(parent).or_default();
-            children.push(target);
-        } else {
-            assert!(!self.parent.contains_key(&target));
-            assert!(!self.nested.contains_key(&target));
-        }
+    pub fn add(&mut self, parent: Id, target: Id) -> Result<()> {
+        if self.parent.insert(target.clone(), parent.clone()).is_some() {
+            bail!("Internal error: target had already a parent");
+        };
+        let children = self.nested.entry(parent).or_default();
+        children.push(target);
         Ok(())
     }
 
     pub fn insert_at(&mut self, parent: Id, index: usize, target: Id) -> Result<()> {
-        if self.parent.insert(target.clone(), parent.clone()).is_some() {
-            bail!("Internal error, target had already a parent");
-        };
-        let children = self.nested.entry(parent).or_default();
+        let children = self.nested.entry(parent.clone()).or_default();
 
         if index > children.len() {
             anyhow::bail!(
@@ -51,26 +44,43 @@ impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
             );
         }
 
+        if self.parent.insert(target.clone(), parent).is_some() {
+            bail!("Internal error: target had already a parent");
+        };
+
         children.insert(index, target);
         Ok(())
     }
 
     pub fn remove(&mut self, id: &Id) -> Result<()> {
-        self.remove_recursive(id)
-    }
-
-    fn remove_recursive(&mut self, id: &Id) -> Result<()> {
-        let children = self.nested.remove(id).unwrap_or_default();
-        for child in children {
-            self.remove_recursive(&child)?;
-        }
+        // Remove this from its parent first.
 
         if let Some(parent) = self.parent.remove(id)
-            && let Some(siblings) = self.nested.get_mut(&parent)
+            && let Some(nested) = self.nested.get_mut(&parent)
         {
-            siblings.retain(|sibling| sibling != id);
+            // find + remove should be slightly faster than retain.
+            if let Some(index) = nested.iter().position(|nested| nested == id) {
+                nested.remove(index);
+            } else {
+                bail!("Nested not found");
+            }
+            if nested.is_empty() {
+                self.nested.remove(&parent);
+            }
         }
 
+        // Remove the complete nested tree. Don't need to care for parents anymore.
+        self.remove_nested(id)?;
+
+        Ok(())
+    }
+
+    fn remove_nested(&mut self, id: &Id) -> Result<()> {
+        let children = self.nested.remove(id).unwrap_or_default();
+        for child in children {
+            assert!(self.parent.remove(&child).is_some());
+            self.remove_nested(&child)?;
+        }
         Ok(())
     }
 
@@ -89,8 +99,7 @@ mod tests {
 
     #[test]
     fn insert_root() {
-        let mut hierarchy = hierarchy();
-        hierarchy.add(None, 1).unwrap();
+        let hierarchy = hierarchy();
 
         assert_eq!(hierarchy.parent(&1), None);
         assert_eq!(hierarchy.nested(&1), &[] as &[i32]);
@@ -99,8 +108,7 @@ mod tests {
     #[test]
     fn insert_child_append() {
         let mut hierarchy = hierarchy();
-        hierarchy.add(None, 1).unwrap();
-        hierarchy.add(Some(1), 2).unwrap();
+        hierarchy.add(1, 2).unwrap();
 
         assert_eq!(hierarchy.parent(&2), Some(&1));
         assert_eq!(hierarchy.nested(&1), &[2]);
@@ -109,8 +117,7 @@ mod tests {
     #[test]
     fn insert_child_at_index() {
         let mut hierarchy = hierarchy();
-        hierarchy.add(None, 1).unwrap();
-        hierarchy.add(Some(1), 2).unwrap();
+        hierarchy.add(1, 2).unwrap();
         hierarchy.insert_at(1, 0, 3).unwrap();
 
         assert_eq!(hierarchy.nested(&1), &[3, 2]);
@@ -119,7 +126,6 @@ mod tests {
     #[test]
     fn insert_invalid_index() {
         let mut hierarchy = hierarchy();
-        hierarchy.add(None, 1).unwrap();
 
         let result = hierarchy.insert_at(1, 5, 2);
         assert!(result.is_err());
@@ -128,9 +134,8 @@ mod tests {
     #[test]
     fn remove_with_nested() {
         let mut hierarchy = hierarchy();
-        hierarchy.add(None, 1).unwrap();
-        hierarchy.add(Some(1), 2).unwrap();
-        hierarchy.add(Some(2), 3).unwrap();
+        hierarchy.add(1, 2).unwrap();
+        hierarchy.add(2, 3).unwrap();
 
         hierarchy.remove(&1).unwrap();
 
@@ -144,13 +149,25 @@ mod tests {
     #[test]
     fn remove_removes_from_parent_list() {
         let mut hierarchy = hierarchy();
-        hierarchy.add(None, 1).unwrap();
-        hierarchy.add(Some(1), 2).unwrap();
-        hierarchy.add(Some(1), 3).unwrap();
+        hierarchy.add(1, 2).unwrap();
+        hierarchy.add(1, 3).unwrap();
 
         hierarchy.remove(&2).unwrap();
 
         assert_eq!(hierarchy.nested(&1), &[3]);
+    }
+
+    #[test]
+    fn remove_preserves_order() {
+        let mut hierarchy = hierarchy();
+        hierarchy.add(1, 2).unwrap();
+        hierarchy.add(1, 3).unwrap();
+        hierarchy.add(1, 4).unwrap();
+        hierarchy.add(1, 5).unwrap();
+
+        hierarchy.remove(&3).unwrap();
+
+        assert_eq!(hierarchy.nested(&1), &[2, 4, 5]);
     }
 
     fn hierarchy() -> OrderedHierarchy<i32> {
