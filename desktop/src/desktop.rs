@@ -20,14 +20,13 @@ use crate::desktop_presenter::DesktopTarget;
 use crate::desktop_system::DesktopSystem;
 use crate::projects::Project;
 use crate::{
-    DesktopEnvironment, DesktopInteraction, UserIntent,
+    DesktopEnvironment, UserIntent,
     instance_manager::{InstanceManager, ViewPath},
     projects::ProjectConfiguration,
 };
 
 #[derive(Debug)]
 pub struct Desktop {
-    interaction: DesktopInteraction,
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
@@ -89,7 +88,6 @@ impl Desktop {
 
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.
-        let primary_view = creation_info.id;
         let default_size = creation_info.size();
 
         let window = context.new_window(creation_info.size()).await?;
@@ -103,42 +101,22 @@ impl Desktop {
 
         // Initial setup
 
-        let mut system = DesktopSystem::new(project, default_size, &scene)?;
+        let mut system = DesktopSystem::new(
+            primary_instance,
+            creation_info.clone(),
+            project,
+            default_size,
+            &scene,
+            &instance_manager,
+        )?;
         // presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
 
-        // Present the default terminal inside of the top band.
-        {
-            system.present_instance(
-                &[DesktopTarget::Desktop, DesktopTarget::TopBand]
-                    .to_vec()
-                    .into(),
-                primary_instance,
-                default_size,
-                &scene,
-            )?;
-            system.present_view(primary_instance, &creation_info)?;
-        }
-
         system.update_effects(false, &scene, &mut fonts.lock())?;
+
         // presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
         instance_manager.add_view(primary_instance, &creation_info);
 
-        let ui = DesktopInteraction::new(
-            [
-                DesktopTarget::Desktop,
-                DesktopTarget::TopBand,
-                DesktopTarget::Instance(primary_instance),
-                DesktopTarget::View(primary_view),
-            ]
-            .to_vec()
-            .into(),
-            &instance_manager,
-            &mut system,
-            &scene,
-        )?;
-
         Ok(Self {
-            interaction: ui,
             scene,
             renderer,
             window,
@@ -169,13 +147,12 @@ impl Desktop {
                                 && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-                               let cmd = self.interaction.process_input_event(
+                               let intent = self.system.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
-                                    &mut self.system,
                                     self.renderer.geometry(),
                                 )?;
-                                self.process_user_intent(cmd)?;
+                                self.process_user_intent(intent)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -213,7 +190,7 @@ impl Desktop {
 
             // Get the camera, build the frame, and submit it to the renderer.
             {
-                let camera = self.interaction.camera();
+                let camera = self.system.interaction.camera();
                 let mut frame = self.scene.begin_frame().with_camera(camera);
                 if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                     frame = frame.with_pacing(RenderPacing::Smooth);
@@ -228,8 +205,7 @@ impl Desktop {
             UserIntent::None => {}
             UserIntent::Focus(path) => {
                 assert_eq!(
-                    self.interaction
-                        .focus(path, &self.instance_manager, &mut self.system)?,
+                    self.system.focus(path, &self.instance_manager)?,
                     UserIntent::None
                 );
             }
@@ -245,20 +221,18 @@ impl Desktop {
                     .instance_manager
                     .spawn(application, CreationMode::New(parameters))?;
 
-                let focused = self.interaction.focused();
+                let focused = self.system.interaction.focused().clone();
 
                 let presented_instance_path = self.system.present_instance(
-                    focused,
+                    &focused,
                     instance,
                     self.primary_instance_panel_size,
                     &self.scene,
                 )?;
 
-                let intent = self.interaction.focus(
-                    presented_instance_path,
-                    &self.instance_manager,
-                    &mut self.system,
-                )?;
+                let intent = self
+                    .system
+                    .focus(presented_instance_path, &self.instance_manager)?;
 
                 assert_eq!(intent, UserIntent::None);
 
@@ -276,16 +250,12 @@ impl Desktop {
                 //
                 // Detail: This causes an unfocus event sent to the instance's view. I don't think
                 // this should happen on teardown.
-                let focus = self.interaction.focused();
-                if let Some(focused_instance) = self.interaction.focused().instance()
+                let focus = self.system.interaction.focused();
+                if let Some(focused_instance) = self.system.interaction.focused().instance()
                     && focused_instance == instance
                 {
                     let instance_parent = focus.instance_parent().expect("Internal error: Instance parent failed even though instance() returned one.");
-                    let intent = self.interaction.focus(
-                        instance_parent,
-                        &self.instance_manager,
-                        &mut self.system,
-                    )?;
+                    let intent = self.system.focus(instance_parent, &self.instance_manager)?;
                     assert_eq!(intent, UserIntent::None);
                 }
 
@@ -297,11 +267,9 @@ impl Desktop {
                 self.system.hide_instance(instance)?;
 
                 // Refocus the cursor since it may be pointing to the removed instance.
-                let intent = self.interaction.refocus_pointer(
-                    &self.instance_manager,
-                    &mut self.system,
-                    self.renderer.geometry(),
-                )?;
+                let intent = self
+                    .system
+                    .refocus_pointer(&self.instance_manager, self.renderer.geometry())?;
                 // No intent on refocusing allowed.
                 assert_eq!(intent, UserIntent::None);
             }
@@ -320,7 +288,7 @@ impl Desktop {
                 self.instance_manager.add_view(instance, &info);
                 self.system.present_view(instance, &info)?;
 
-                let focused = self.interaction.focused();
+                let focused = self.system.interaction.focused();
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
                 if matches!(focused.last(), Some(DesktopTarget::Instance(..)))
@@ -328,11 +296,7 @@ impl Desktop {
                     && info.role == ViewRole::Primary
                 {
                     let view_focus = focused.clone().join(DesktopTarget::View(info.id));
-                    let intent = self.interaction.focus(
-                        view_focus,
-                        &self.instance_manager,
-                        &mut self.system,
-                    )?;
+                    let intent = self.system.focus(view_focus, &self.instance_manager)?;
 
                     assert_eq!(intent, UserIntent::None)
                 }

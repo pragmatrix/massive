@@ -11,16 +11,18 @@
 use anyhow::Result;
 use derive_more::{Deref, DerefMut, From};
 
-use massive_applications::InstanceId;
+use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
 use massive_geometry::SizePx;
+use massive_input::Event;
 use massive_layout::{Layout, LayoutAxis, Padding, Thickness, container, leaf};
-use massive_renderer::text::FontSystem;
+use massive_renderer::{RenderGeometry, text::FontSystem};
 use massive_shell::Scene;
 
 use crate::{
-    DesktopPresenter, Map, OrderedHierarchy,
+    DesktopInteraction, DesktopPresenter, Map, OrderedHierarchy, UserIntent,
     desktop_presenter::{DesktopFocusPath, DesktopTarget, SECTION_SPACING},
     event_sourcing::Transaction,
+    instance_manager::InstanceManager,
     projects::{
         GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher, Project,
         ProjectCommand,
@@ -36,16 +38,27 @@ pub enum DesktopCommand {
 #[derive(Debug, Deref, DerefMut)]
 pub struct DesktopSystem {
     default_panel_size: SizePx,
-    hierarchy: OrderedHierarchy<DesktopTarget>,
-    layout_specs: Map<DesktopTarget, LayoutSpec>,
+
+    pub interaction: DesktopInteraction,
+
     #[deref]
     #[deref_mut]
     presenter: DesktopPresenter,
+
+    hierarchy: OrderedHierarchy<DesktopTarget>,
+    layout_specs: Map<DesktopTarget, LayoutSpec>,
     startup_profile: Option<LaunchProfileId>,
 }
 
 impl DesktopSystem {
-    pub fn new(project: Project, default_panel_size: SizePx, scene: &Scene) -> Result<Self> {
+    pub fn new(
+        primary_instance: InstanceId,
+        primary_view: ViewCreationInfo,
+        project: Project,
+        default_panel_size: SizePx,
+        scene: &Scene,
+        instance_manager: &InstanceManager,
+    ) -> Result<Self> {
         let transaction = project_to_transaction(&project).map(DesktopCommand::Project);
 
         // Set up static hierarchy parts and layout specs.
@@ -69,13 +82,45 @@ impl DesktopSystem {
             LayoutAxis::HORIZONTAL.to_container(),
         );
 
-        let presenter = DesktopPresenter::new(project, scene);
+        let mut presenter = DesktopPresenter::new(project, scene);
+
+        // Present the default terminal inside of the top band.
+        {
+            presenter.present_instance(
+                &[DesktopTarget::Desktop, DesktopTarget::TopBand]
+                    .to_vec()
+                    .into(),
+                primary_instance,
+                default_panel_size,
+                &scene,
+            )?;
+            presenter.present_view(primary_instance, &primary_view)?;
+        }
+
+        // Architecture: This is the wrong way around, we need to create the desktop interaction
+        // with the focus on the TopBand first and then add the primary instance.
+        let interaction = DesktopInteraction::new(
+            [
+                DesktopTarget::Desktop,
+                DesktopTarget::TopBand,
+                DesktopTarget::Instance(primary_instance),
+                DesktopTarget::View(primary_view.id),
+            ]
+            .to_vec()
+            .into(),
+            &instance_manager,
+            // This pushes the initial focus events to the presenter. Not sure if this makes sense, because Instance and View does not exist yet.
+            &mut presenter,
+            &scene,
+        )?;
 
         let mut system = Self {
             default_panel_size,
+            interaction,
+            presenter,
+
             hierarchy,
             layout_specs,
-            presenter,
             startup_profile: None,
         };
 
@@ -187,6 +232,38 @@ impl DesktopSystem {
             }
             LayoutSpec::Leaf(size) => leaf(target, size),
         }
+    }
+
+    pub fn process_input_event(
+        &mut self,
+        event: &Event<ViewEvent>,
+        instance_manager: &InstanceManager,
+        render_geometry: &RenderGeometry,
+    ) -> Result<UserIntent> {
+        self.interaction.process_input_event(
+            event,
+            instance_manager,
+            &mut self.presenter,
+            render_geometry,
+        )
+    }
+
+    pub fn focus(
+        &mut self,
+        focus_path: DesktopFocusPath,
+        instance_manager: &InstanceManager,
+    ) -> Result<UserIntent> {
+        self.interaction
+            .focus(focus_path, instance_manager, &mut self.presenter)
+    }
+
+    pub fn refocus_pointer(
+        &mut self,
+        instance_manager: &InstanceManager,
+        render_geometry: &RenderGeometry,
+    ) -> Result<UserIntent> {
+        self.interaction
+            .refocus_pointer(instance_manager, &mut self.presenter, render_geometry)
     }
 }
 

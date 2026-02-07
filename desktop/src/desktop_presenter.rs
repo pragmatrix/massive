@@ -9,7 +9,6 @@ use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_layout::LayoutAxis;
 use massive_layout::{self as layout, Layout};
 use massive_renderer::text::FontSystem;
-use massive_renderer::text::skrifa::instance;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
