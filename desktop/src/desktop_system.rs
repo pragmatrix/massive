@@ -59,7 +59,8 @@ impl DesktopSystem {
         scene: &Scene,
         instance_manager: &InstanceManager,
     ) -> Result<Self> {
-        let transaction = project_to_transaction(&project).map(DesktopCommand::Project);
+        let project_setup_transaction =
+            project_to_transaction(&project).map(DesktopCommand::Project);
 
         // Set up static hierarchy parts and layout specs.
 
@@ -124,25 +125,48 @@ impl DesktopSystem {
             startup_profile: None,
         };
 
-        system.transact(transaction)?;
+        system.transact(project_setup_transaction, scene, instance_manager)?;
         Ok(system)
     }
 
     // Architecture: Is it really necessary to think in terms of transaction, if we update the
     // effects explicitly?
-    fn transact(&mut self, transaction: Transaction<DesktopCommand>) -> Result<()> {
+    fn transact(
+        &mut self,
+        transaction: Transaction<DesktopCommand>,
+        scene: &Scene,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
         for command in transaction {
-            self.apply_command(command)?;
+            self.apply_command(command, scene, instance_manager)?;
         }
 
         Ok(())
     }
 
     // Architecture: The current focus is part of the system, so DesktopInteraction should probably be embedded here.
-    fn apply_command(&mut self, command: DesktopCommand) -> Result<()> {
+    fn apply_command(
+        &mut self,
+        command: DesktopCommand,
+        scene: &Scene,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
         match command {
             DesktopCommand::PresentInstance(instance) => {
-                todo!()
+                let focused = self.interaction.focused();
+                let new_focus = self.presenter.present_instance(
+                    focused,
+                    instance,
+                    self.default_panel_size,
+                    scene,
+                )?;
+
+                let intent =
+                    self.interaction
+                        .focus(new_focus, instance_manager, &mut self.presenter)?;
+
+                assert_eq!(intent, UserIntent::None);
+                Ok(())
             }
             DesktopCommand::Project(project_command) => self.apply_project_command(project_command),
         }
