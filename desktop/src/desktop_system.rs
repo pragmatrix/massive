@@ -87,32 +87,11 @@ impl DesktopSystem {
 
         let mut presenter = DesktopPresenter::new(project, scene);
 
-        // Present the default terminal inside of the top band.
-        {
-            presenter.present_instance(
-                &[DesktopTarget::Desktop, DesktopTarget::TopBand]
-                    .to_vec()
-                    .into(),
-                primary_instance,
-                default_panel_size,
-                scene,
-            )?;
-            presenter.present_view(primary_instance, &primary_view)?;
-        }
+        let initial_focus = [DesktopTarget::Desktop, DesktopTarget::TopBand];
 
-        // Architecture: This is the wrong way around, we need to create the desktop interaction
-        // with the focus on the TopBand first and then add the primary instance.
         let interaction = DesktopInteraction::new(
-            [
-                DesktopTarget::Desktop,
-                DesktopTarget::TopBand,
-                DesktopTarget::Instance(primary_instance),
-                DesktopTarget::View(primary_view.id),
-            ]
-            .to_vec()
-            .into(),
+            initial_focus.to_vec().into(),
             instance_manager,
-            // This pushes the initial focus events to the presenter. Not sure if this makes sense, because Instance and View does not exist yet.
             &mut presenter,
             scene,
         )?;
@@ -127,7 +106,19 @@ impl DesktopSystem {
             startup_profile: None,
         };
 
-        system.transact(project_setup_transaction, scene, instance_manager)?;
+        let primary_view_transaction: Transaction<_> = [
+            DesktopCommand::PresentInstance(primary_instance),
+            DesktopCommand::PresentView(primary_instance, primary_view),
+        ]
+        .into_iter()
+        .collect::<Vec<_>>()
+        .into();
+
+        system.transact(
+            project_setup_transaction + primary_view_transaction,
+            scene,
+            instance_manager,
+        )?;
         Ok(system)
     }
 
@@ -163,14 +154,15 @@ impl DesktopSystem {
                     scene,
                 )?;
 
-                assert!(matches!(
-                    focused.last(),
+                let instance_target = new_focus.last();
+
+                assert!(matches!(instance_target,
                     Some(DesktopTarget::Instance(i)) if *i == instance
                 ));
 
                 // Add new layout leaf for the instance.
                 self.layout_specs
-                    .insert_or_update(focused.last().unwrap().clone(), self.default_panel_size);
+                    .insert_or_update(instance_target.unwrap().clone(), self.default_panel_size);
 
                 // Focus it.
                 let intent =
