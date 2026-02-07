@@ -45,13 +45,27 @@ impl DesktopSystem {
     pub fn new(project: Project, default_panel_size: SizePx, scene: &Scene) -> Result<Self> {
         let transaction = project_to_transaction(&project).map(DesktopCommand::Project);
         let presenter = DesktopPresenter::new(project, scene);
+
+        // Set up static hierarchy parts and layout specs.
+
+        let hierarchy = OrderedHierarchy::default();
+        // hierarchy.add_root(DesktopTarget::Desktop)?;
+        // hierarchy.append_nested(
+        //     DesktopTarget::Desktop,
+        //     &[
+        //         DesktopTarget::TopBand,
+        //         DesktopTarget::Group(project.root.id),
+        //     ],
+        // )?;
+
         let mut system = Self {
             default_panel_size,
-            hierarchy: Default::default(),
+            hierarchy,
             layout_specs: Default::default(),
             presenter,
             startup_profile: None,
         };
+
         system.transact(transaction)?;
         Ok(system)
     }
@@ -72,13 +86,12 @@ impl DesktopSystem {
 
     fn apply_project_command(&mut self, command: ProjectCommand) -> Result<()> {
         match command {
-            ProjectCommand::InsertLaunchGroup {
+            ProjectCommand::AddLaunchGroup {
                 parent,
                 id,
                 properties,
             } => {
-                self.hierarchy
-                    .insert_mapped(id, parent, DesktopTarget::Group)?;
+                self.hierarchy.add(parent.map(Into::into), id.into())?;
                 let spec = properties
                     .layout
                     .axis()
@@ -92,14 +105,14 @@ impl DesktopSystem {
                 self.layout_specs.remove(&target)?;
                 self.hierarchy.remove(&target)?;
             }
-            ProjectCommand::InsertLauncher {
+            ProjectCommand::AddLauncher {
                 group,
                 id,
                 profile: _,
             } => {
                 let target = DesktopTarget::Launcher(id);
                 self.hierarchy
-                    .insert(target.clone(), group.map(DesktopTarget::Group))?;
+                    .add(Some(DesktopTarget::Group(group)), target.clone())?;
                 self.layout_specs
                     .insert_or_update(target, LayoutSpec::Leaf(self.default_panel_size))?;
             }
@@ -193,7 +206,7 @@ fn launch_group_commands(
     group: &LaunchGroup,
     commands: &mut Vec<ProjectCommand>,
 ) {
-    commands.push(ProjectCommand::InsertLaunchGroup {
+    commands.push(ProjectCommand::AddLaunchGroup {
         parent: parent.map(Into::into),
         id: group.id,
         properties: group.properties.clone(),
@@ -214,7 +227,7 @@ fn launch_group_commands(
 }
 
 fn launcher_commands(group: GroupId, launcher: &Launcher, commands: &mut Vec<ProjectCommand>) {
-    commands.push(ProjectCommand::InsertLauncher {
+    commands.push(ProjectCommand::AddLauncher {
         group: group.into(),
         id: launcher.id,
         profile: launcher.profile.clone(),

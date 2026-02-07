@@ -22,7 +22,6 @@ use super::{
 };
 use crate::{
     EventTransition, UserIntent,
-    event_sourcing::OrderedInsertion,
     instance_manager::ViewPath,
     navigation::{self, NavigationNode},
     projects::{
@@ -33,14 +32,14 @@ use crate::{
 
 #[derive(Debug)]
 pub enum ProjectCommand {
-    InsertLaunchGroup {
-        parent: Option<OrderedInsertion<GroupId>>,
+    AddLaunchGroup {
+        parent: Option<GroupId>,
         id: GroupId,
         properties: LaunchGroupProperties,
     },
     RemoveLaunchGroup(GroupId),
-    InsertLauncher {
-        group: OrderedInsertion<GroupId>,
+    AddLauncher {
+        group: GroupId,
         id: LaunchProfileId,
         profile: LaunchProfile,
     },
