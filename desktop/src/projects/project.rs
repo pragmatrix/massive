@@ -15,10 +15,15 @@ pub struct Project {
 #[derive(Debug)]
 pub struct LaunchGroup {
     pub id: GroupId,
+    pub properties: LaunchGroupProperties,
+    pub contents: LaunchGroupContents,
+}
+
+#[derive(Debug, Clone)]
+pub struct LaunchGroupProperties {
     pub name: String,
     pub tag: ScopedTag,
     pub layout: LayoutDirection,
-    pub contents: LaunchGroupContents,
 }
 
 #[derive(Debug)]
@@ -133,7 +138,7 @@ impl LaunchGroup {
 
         output.push_str(prefix);
         output.push_str(connector);
-        output.push_str(&self.name);
+        output.push_str(&self.properties.name);
         output.push('\n');
 
         let child_prefix = format!("{}{}", prefix, extension);
@@ -196,9 +201,11 @@ fn convert_group(
 
     LaunchGroup {
         id,
-        name: group.name,
-        tag: group.tag,
-        layout: group.layout,
+        properties: LaunchGroupProperties {
+            name: group.name,
+            tag: group.tag,
+            layout: group.layout,
+        },
         contents,
     }
 }

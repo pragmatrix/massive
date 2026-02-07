@@ -16,8 +16,8 @@ mod project_presenter;
 
 pub use configuration::ProjectConfiguration;
 pub use launcher_presenter::LauncherPresenter;
-pub use project::{GroupId, LaunchProfileId, Project};
-pub use project_presenter::ProjectPresenter;
+pub use project::*;
+pub use project_presenter::*;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 

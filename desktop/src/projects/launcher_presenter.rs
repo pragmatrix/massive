@@ -13,14 +13,13 @@ use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Trans
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
-use super::{
-    ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile, project::Launcher,
-};
+use super::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile};
 use crate::{
     UserIntent,
     band_presenter::BandPresenter,
     instance_manager::ViewPath,
     navigation::{NavigationNode, leaf},
+    projects::Launcher,
 };
 
 // TODO: Need proper color palettes for UI elements.

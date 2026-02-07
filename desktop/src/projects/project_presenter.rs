@@ -24,8 +24,28 @@ use crate::{
     EventTransition, UserIntent,
     instance_manager::ViewPath,
     navigation::{self, NavigationNode},
-    projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION},
+    projects::{
+        ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile,
+        project::LaunchGroupProperties,
+    },
 };
+
+#[derive(Debug)]
+pub enum ProjectCommand {
+    AddLaunchGroup {
+        parent: Option<GroupId>,
+        id: GroupId,
+        properties: LaunchGroupProperties,
+    },
+    RemoveLaunchGroup(GroupId),
+    AddLauncher {
+        group: GroupId,
+        id: LaunchProfileId,
+        profile: LaunchProfile,
+    },
+    RemoveLauncher(LaunchProfileId),
+    SetStartupProfile(Option<LaunchProfileId>),
+}
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -357,19 +377,22 @@ impl ProjectPresenter {
 fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<ProjectTarget, 2> {
     let group_id = group.id;
 
-    let mut builder = container(ProjectTarget::Group(group_id), group.layout.axis())
-        .spacing(10)
-        .padding(10, 10);
+    let mut builder = container(
+        ProjectTarget::Group(group_id),
+        group.properties.layout.axis(),
+    )
+    .spacing(10)
+    .padding(10);
 
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
             for child_group in launch_groups {
-                builder.child(layout_launch_group(child_group, default_size));
+                builder.nested(layout_launch_group(child_group, default_size));
             }
         }
         LaunchGroupContents::Launchers(launchers) => {
             for launcher in launchers {
-                builder.child(leaf(ProjectTarget::Launcher(launcher.id), default_size));
+                builder.nested(leaf(ProjectTarget::Launcher(launcher.id), default_size));
             }
         }
     }

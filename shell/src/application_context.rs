@@ -95,7 +95,8 @@ impl ApplicationContext {
         let event = self.event_receiver.recv().await?;
 
         if matches!(event, ShellEvent::ApplyAnimations(..)) {
-            self.animation_coordinator.upgrade_to_apply_animations_cycle();
+            self.animation_coordinator
+                .upgrade_to_apply_animations_cycle();
         }
 
         Ok(event)
