@@ -42,41 +42,6 @@ impl BandPresenter {
         self.ordered.is_empty()
     }
 
-    /// Present the primary instance and its primary role view.
-    ///
-    /// For now this can not be done by separately presenting an instance and a view because we
-    /// don't support creating an instance with an undefined panel size.
-    ///
-    /// This is also only possible if there are no other instances yet present.
-    pub fn present_primary_instance(
-        &mut self,
-        instance: InstanceId,
-        view_creation_info: &ViewCreationInfo,
-        scene: &Scene,
-    ) -> Result<()> {
-        if !self.instances.is_empty() {
-            bail!("Primary instance is already presenting");
-        }
-
-        let view_presenter = PrimaryViewPresenter {
-            creation_info: view_creation_info.clone(),
-        };
-
-        let presenter = InstancePresenter {
-            state: InstancePresenterState::Presenting {
-                view: view_presenter,
-            },
-            panel_size: view_creation_info.size(),
-            rect: RectPx::zero(),
-            center_animation: scene.animated(Default::default()),
-        };
-
-        self.instances.insert(instance, presenter);
-        self.ordered.push(instance);
-
-        Ok(())
-    }
-
     /// Present an instance originating from another.
     ///
     /// The originating is used for two purposes.

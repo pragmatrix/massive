@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail};
+use euclid::default;
 use log::info;
 use massive_geometry::SizePx;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
@@ -104,17 +105,33 @@ impl Desktop {
         // Initial setup
 
         let mut presenter = DesktopSystem::new(project, default_size, &scene)?;
-        presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
+        // presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
+
+        // Present the default terminal inside of the top band.
+        {
+            presenter.present_instance(
+                &[DesktopTarget::Desktop, DesktopTarget::TopBand]
+                    .to_vec()
+                    .into(),
+                primary_instance,
+                None,
+                default_size,
+                &scene,
+            )?;
+            presenter.present_view(primary_instance, &creation_info)?;
+        }
+
         presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
         instance_manager.add_view(primary_instance, &creation_info);
 
         let ui = DesktopInteraction::new(
-            vec![
+            [
                 DesktopTarget::Desktop,
                 DesktopTarget::TopBand,
                 DesktopTarget::Instance(primary_instance),
                 DesktopTarget::View(primary_view),
             ]
+            .to_vec()
             .into(),
             &instance_manager,
             &mut presenter,

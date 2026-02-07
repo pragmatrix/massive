@@ -86,17 +86,9 @@ impl DesktopPresenter {
         }
     }
 
+    //
     // BandPresenter delegation
-
-    pub fn present_primary_instance(
-        &mut self,
-        instance: InstanceId,
-        view_creation_info: &ViewCreationInfo,
-        scene: &Scene,
-    ) -> Result<()> {
-        self.top_band
-            .present_primary_instance(instance, view_creation_info, scene)
-    }
+    //
 
     pub fn present_instance(
         &mut self,
