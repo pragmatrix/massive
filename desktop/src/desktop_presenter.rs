@@ -90,6 +90,8 @@ impl DesktopPresenter {
     // BandPresenter delegation
     //
 
+    // Ergonomics: Perhaps pass the instance parent directly herein, or just return it? See how
+    // clients use this function.
     pub fn present_instance(
         &mut self,
         focused: &DesktopFocusPath,
@@ -219,7 +221,7 @@ impl DesktopPresenter {
                 );
             }
             DesktopTarget::View(..) => {
-                panic!("View layout isn't supported ");
+                panic!("View layout isn't supported (instance target defines its size)");
             }
         });
     }

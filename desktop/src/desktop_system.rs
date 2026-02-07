@@ -11,6 +11,7 @@
 use anyhow::Result;
 use derive_more::{Deref, DerefMut, From};
 
+use massive_applications::ViewRole;
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
 use massive_geometry::SizePx;
 use massive_input::Event;
@@ -32,6 +33,7 @@ use crate::{
 #[derive(Debug)]
 pub enum DesktopCommand {
     PresentInstance(InstanceId),
+    PresentView(InstanceId, ViewCreationInfo),
     Project(ProjectCommand),
 }
 
@@ -161,11 +163,37 @@ impl DesktopSystem {
                     scene,
                 )?;
 
+                assert!(matches!(
+                    focused.last(),
+                    Some(DesktopTarget::Instance(i)) if *i == instance
+                ));
+
+                // Add new layout leaf for the instance.
+                self.layout_specs
+                    .insert_or_update(focused.last().unwrap().clone(), self.default_panel_size);
+
+                // Focus it.
                 let intent =
                     self.interaction
                         .focus(new_focus, instance_manager, &mut self.presenter)?;
 
                 assert_eq!(intent, UserIntent::None);
+                Ok(())
+            }
+            DesktopCommand::PresentView(instance, creation_info) => {
+                self.presenter.present_view(instance, &creation_info)?;
+
+                let focused = self.interaction.focused();
+                // If this instance is currently focused and the new view is primary, make it
+                // foreground so that the view is focused.
+                if matches!(focused.last(), Some(DesktopTarget::Instance(i)) if *i == instance)
+                    && creation_info.role == ViewRole::Primary
+                {
+                    let view_focus = focused.clone().join(DesktopTarget::View(creation_info.id));
+                    let intent = self.focus(view_focus, instance_manager)?;
+                    assert_eq!(intent, UserIntent::None)
+                }
+
                 Ok(())
             }
             DesktopCommand::Project(project_command) => self.apply_project_command(project_command),
