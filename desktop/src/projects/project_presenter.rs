@@ -382,17 +382,17 @@ fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<Proj
         group.properties.layout.axis(),
     )
     .spacing(10)
-    .padding(10, 10);
+    .padding(10);
 
     match &group.contents {
         LaunchGroupContents::Groups(launch_groups) => {
             for child_group in launch_groups {
-                builder.child(layout_launch_group(child_group, default_size));
+                builder.nested(layout_launch_group(child_group, default_size));
             }
         }
         LaunchGroupContents::Launchers(launchers) => {
             for launcher in launchers {
-                builder.child(leaf(ProjectTarget::Launcher(launcher.id), default_size));
+                builder.nested(leaf(ProjectTarget::Launcher(launcher.id), default_size));
             }
         }
     }

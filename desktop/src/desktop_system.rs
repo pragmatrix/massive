@@ -11,13 +11,15 @@
 use anyhow::Result;
 use derive_more::{Deref, DerefMut, From};
 
+use massive_applications::InstanceId;
 use massive_geometry::SizePx;
-use massive_layout::{LayoutAxis, Padding, Thickness};
+use massive_layout::{Layout, LayoutAxis, Padding, Thickness, container, leaf};
+use massive_renderer::text::FontSystem;
 use massive_shell::Scene;
 
 use crate::{
     DesktopPresenter, Map, OrderedHierarchy,
-    desktop_presenter::DesktopTarget,
+    desktop_presenter::{DesktopFocusPath, DesktopTarget, SECTION_SPACING},
     event_sourcing::Transaction,
     projects::{
         GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher, Project,
@@ -27,6 +29,7 @@ use crate::{
 
 #[derive(Debug)]
 pub enum DesktopCommand {
+    PresentInstance(InstanceId),
     Project(ProjectCommand),
 }
 
@@ -56,12 +59,22 @@ impl DesktopSystem {
             ],
         )?;
 
+        let mut layout_specs = Map::default();
+        layout_specs.insert_or_update(
+            DesktopTarget::Desktop,
+            LayoutAxis::VERTICAL.to_container().spacing(SECTION_SPACING),
+        );
+        layout_specs.insert_or_update(
+            DesktopTarget::TopBand,
+            LayoutAxis::HORIZONTAL.to_container(),
+        );
+
         let presenter = DesktopPresenter::new(project, scene);
 
         let mut system = Self {
             default_panel_size,
             hierarchy,
-            layout_specs: Default::default(),
+            layout_specs,
             presenter,
             startup_profile: None,
         };
@@ -70,6 +83,8 @@ impl DesktopSystem {
         Ok(system)
     }
 
+    // Architecture: Is it really necessary to think in terms of transaction, if we update the
+    // effects explicitly?
     fn transact(&mut self, transaction: Transaction<DesktopCommand>) -> Result<()> {
         for command in transaction {
             self.apply_command(command)?;
@@ -78,8 +93,12 @@ impl DesktopSystem {
         Ok(())
     }
 
+    // Architecture: The current focus is part of the system, so DesktopInteraction should probably be embedded here.
     fn apply_command(&mut self, command: DesktopCommand) -> Result<()> {
         match command {
+            DesktopCommand::PresentInstance(instance) => {
+                todo!()
+            }
             DesktopCommand::Project(project_command) => self.apply_project_command(project_command),
         }
     }
@@ -100,7 +119,7 @@ impl DesktopSystem {
                     .to_container()
                     .spacing(10)
                     .padding(10, 10);
-                self.layout_specs.insert_or_update(id.into(), spec)?;
+                self.layout_specs.insert_or_update(id.into(), spec);
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
                 let target = group.into();
@@ -115,7 +134,7 @@ impl DesktopSystem {
                 let target = DesktopTarget::Launcher(id);
                 self.hierarchy.add(group.into(), target.clone())?;
                 self.layout_specs
-                    .insert_or_update(target, self.default_panel_size)?;
+                    .insert_or_update(target, self.default_panel_size);
             }
             ProjectCommand::RemoveLauncher(launch_profile) => {
                 let target = DesktopTarget::Launcher(launch_profile);
@@ -128,6 +147,46 @@ impl DesktopSystem {
         }
 
         Ok(())
+    }
+
+    /// Update all effects.
+    pub fn update_effects(
+        &mut self,
+        animate: bool,
+        scene: &Scene,
+        font_system: &mut FontSystem,
+    ) -> Result<()> {
+        let layout = self.desktop_layout();
+        self.presenter
+            .apply_layout(layout, animate, scene, font_system);
+        Ok(())
+    }
+
+    // Architecture: We should probably not go through the old layout engine and think of something
+    // more incremental.
+    fn desktop_layout(&self) -> Layout<DesktopTarget, 2> {
+        self.build_layout_for(DesktopTarget::Desktop)
+    }
+
+    fn build_layout_for(&self, target: DesktopTarget) -> Layout<DesktopTarget, 2> {
+        match self.layout_specs[&target] {
+            LayoutSpec::Container {
+                axis,
+                padding,
+                spacing,
+            } => {
+                let mut container = container(target.clone(), axis)
+                    .padding(padding)
+                    .spacing(spacing);
+
+                for nested in self.hierarchy.nested(&target) {
+                    container.nested(self.build_layout_for(nested.clone()));
+                }
+
+                container.layout()
+            }
+            LayoutSpec::Leaf(size) => leaf(target, size),
+        }
     }
 }
 
@@ -183,6 +242,15 @@ impl ContainerBuilder {
     }
 }
 
+// We seem to benefit from .into() and to_container() invocations. to_container is useful for
+// chaining follow ups to the builder.
+
+impl From<LayoutAxis> for ContainerBuilder {
+    fn from(axis: LayoutAxis) -> Self {
+        ContainerBuilder::new(axis)
+    }
+}
+
 trait ToContainer {
     fn to_container(self) -> ContainerBuilder;
 }
@@ -209,7 +277,7 @@ fn launch_group_commands(
     commands: &mut Vec<ProjectCommand>,
 ) {
     commands.push(ProjectCommand::AddLaunchGroup {
-        parent: parent.map(Into::into),
+        parent,
         id: group.id,
         properties: group.properties.clone(),
     });
@@ -230,7 +298,7 @@ fn launch_group_commands(
 
 fn launcher_commands(group: GroupId, launcher: &Launcher, commands: &mut Vec<ProjectCommand>) {
     commands.push(ProjectCommand::AddLauncher {
-        group: group.into(),
+        group,
         id: launcher.id,
         profile: launcher.profile.clone(),
     })

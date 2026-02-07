@@ -2,9 +2,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, anyhow, bail};
-use euclid::default;
 use log::info;
-use massive_geometry::SizePx;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
 
@@ -12,6 +10,7 @@ use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId,
     InstanceParameters, ViewCommand, ViewEvent, ViewId, ViewRole,
 };
+use massive_geometry::SizePx;
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
@@ -33,7 +32,7 @@ pub struct Desktop {
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
     primary_instance_panel_size: SizePx,
-    presenter: DesktopSystem,
+    system: DesktopSystem,
 
     event_manager: EventManager<ViewEvent>,
 
@@ -104,24 +103,24 @@ impl Desktop {
 
         // Initial setup
 
-        let mut presenter = DesktopSystem::new(project, default_size, &scene)?;
+        let mut system = DesktopSystem::new(project, default_size, &scene)?;
         // presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
 
         // Present the default terminal inside of the top band.
         {
-            presenter.present_instance(
+            system.present_instance(
                 &[DesktopTarget::Desktop, DesktopTarget::TopBand]
                     .to_vec()
                     .into(),
                 primary_instance,
-                None,
                 default_size,
                 &scene,
             )?;
-            presenter.present_view(primary_instance, &creation_info)?;
+            system.present_view(primary_instance, &creation_info)?;
         }
 
-        presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
+        system.update_effects(false, &scene, &mut fonts.lock())?;
+        // presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
         instance_manager.add_view(primary_instance, &creation_info);
 
         let ui = DesktopInteraction::new(
@@ -134,7 +133,7 @@ impl Desktop {
             .to_vec()
             .into(),
             &instance_manager,
-            &mut presenter,
+            &mut system,
             &scene,
         )?;
 
@@ -144,7 +143,7 @@ impl Desktop {
             renderer,
             window,
             primary_instance_panel_size: default_size,
-            presenter,
+            system,
             event_manager,
             instance_manager,
             instance_commands: requests_rx,
@@ -173,7 +172,7 @@ impl Desktop {
                                let cmd = self.interaction.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
-                                    &mut self.presenter,
+                                    &mut self.system,
                                     self.renderer.geometry(),
                                 )?;
                                 self.process_user_intent(cmd)?;
@@ -184,7 +183,7 @@ impl Desktop {
                         ShellEvent::ApplyAnimations(_) => {
                             // Performance: Not every instance needs that, only the ones animating.
                             self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
-                            self.presenter.apply_animations();
+                            self.system.apply_animations();
                         }
                     }
                 }
@@ -230,7 +229,7 @@ impl Desktop {
             UserIntent::Focus(path) => {
                 assert_eq!(
                     self.interaction
-                        .focus(path, &self.instance_manager, &mut self.presenter)?,
+                        .focus(path, &self.instance_manager, &mut self.system)?,
                     UserIntent::None
                 );
             }
@@ -247,12 +246,10 @@ impl Desktop {
                     .spawn(application, CreationMode::New(parameters))?;
 
                 let focused = self.interaction.focused();
-                let originating_instance = focused.instance();
 
-                let presented_instance_path = self.presenter.present_instance(
+                let presented_instance_path = self.system.present_instance(
                     focused,
                     instance,
-                    originating_instance,
                     self.primary_instance_panel_size,
                     &self.scene,
                 )?;
@@ -260,19 +257,19 @@ impl Desktop {
                 let intent = self.interaction.focus(
                     presented_instance_path,
                     &self.instance_manager,
-                    &mut self.presenter,
+                    &mut self.system,
                 )?;
 
                 assert_eq!(intent, UserIntent::None);
 
                 // Performance: We might not need a global re-layout, if we present an instance
                 // to the project's band (This has to work incremental some day).
-                self.presenter.layout(
-                    self.primary_instance_panel_size,
-                    true,
-                    &self.scene,
-                    &mut self.fonts.lock(),
-                );
+                // self.system.layout(
+                //     self.primary_instance_panel_size,
+                //     true,
+                //     &self.scene,
+                //     &mut self.fonts.lock(),
+                // );
             }
             UserIntent::StopInstance { instance } => {
                 // Remove the instance from the focus first.
@@ -287,7 +284,7 @@ impl Desktop {
                     let intent = self.interaction.focus(
                         instance_parent,
                         &self.instance_manager,
-                        &mut self.presenter,
+                        &mut self.system,
                     )?;
                     assert_eq!(intent, UserIntent::None);
                 }
@@ -297,12 +294,12 @@ impl Desktop {
 
                 // We hide the instance as soon we trigger a shutdown so that they can't be in the
                 // navigation tree anymore.
-                self.presenter.hide_instance(instance)?;
+                self.system.hide_instance(instance)?;
 
                 // Refocus the cursor since it may be pointing to the removed instance.
                 let intent = self.interaction.refocus_pointer(
                     &self.instance_manager,
-                    &mut self.presenter,
+                    &mut self.system,
                     self.renderer.geometry(),
                 )?;
                 // No intent on refocusing allowed.
@@ -321,7 +318,7 @@ impl Desktop {
         match command {
             InstanceCommand::CreateView(info) => {
                 self.instance_manager.add_view(instance, &info);
-                self.presenter.present_view(instance, &info)?;
+                self.system.present_view(instance, &info)?;
 
                 let focused = self.interaction.focused();
                 // If this instance is currently focused and the new view is primary, make it
@@ -334,14 +331,14 @@ impl Desktop {
                     let intent = self.interaction.focus(
                         view_focus,
                         &self.instance_manager,
-                        &mut self.presenter,
+                        &mut self.system,
                     )?;
 
                     assert_eq!(intent, UserIntent::None)
                 }
             }
             InstanceCommand::DestroyView(id, collector) => {
-                self.presenter.hide_view((instance, id).into())?;
+                self.system.hide_view((instance, id).into())?;
                 self.instance_manager.remove_view((instance, id).into());
                 // Feature: Don't push the remaining changes immediately and fade the remaining
                 // visuals out. (We do have the root location and should be able to do at least

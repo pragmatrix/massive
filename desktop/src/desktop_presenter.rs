@@ -6,9 +6,10 @@ use log::error;
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_layout as layout;
 use massive_layout::LayoutAxis;
+use massive_layout::{self as layout, Layout};
 use massive_renderer::text::FontSystem;
+use massive_renderer::text::skrifa::instance;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
@@ -22,7 +23,7 @@ use crate::{
 };
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
-const SECTION_SPACING: u32 = 20;
+pub const SECTION_SPACING: u32 = 20;
 
 /// Architecture: We need "unified" target enums. One that encapsulate the full path, but has parent
 /// / add_nested or something like that trait implementations?
@@ -94,10 +95,10 @@ impl DesktopPresenter {
         &mut self,
         focused: &DesktopFocusPath,
         new_instance: InstanceId,
-        originating_from: Option<InstanceId>,
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<DesktopFocusPath> {
+        let originating_from = focused.instance();
         let instance_parent = focused.instance_parent().ok_or(anyhow!(
             "Failed to present instance when no parent is focused that can take on a new one"
         ))?;
@@ -165,7 +166,7 @@ impl DesktopPresenter {
             .spacing(SECTION_SPACING);
 
         // Band section (instances layouted horizontally)
-        root_builder.child(
+        root_builder.nested(
             self.top_band
                 .layout()
                 .map_id(DesktopTarget::Instance)
@@ -178,42 +179,50 @@ impl DesktopPresenter {
                 .project
                 .layout(default_panel_size)
                 .map_id(|pt| pt.into());
-            root_builder.child(project_layout);
+            root_builder.nested(project_layout);
         }
 
-        root_builder
-            .layout()
-            .place_inline(PointPx::origin(), |id, rect_px: RectPx| match id {
-                DesktopTarget::Desktop => {
-                    self.rect = rect_px.into();
-                }
-                DesktopTarget::TopBand => {
-                    self.top_band_rect = rect_px.into();
-                }
-                DesktopTarget::Instance(instance_id) => {
-                    self.top_band
-                        .set_instance_rect(instance_id, rect_px, animate);
-                }
-                DesktopTarget::Group(group_id) => {
-                    self.project.set_rect(
-                        ProjectTarget::Group(group_id),
-                        rect_px.into(),
-                        scene,
-                        font_system,
-                    );
-                }
-                DesktopTarget::Launcher(launcher_id) => {
-                    self.project.set_rect(
-                        ProjectTarget::Launcher(launcher_id),
-                        rect_px.into(),
-                        scene,
-                        font_system,
-                    );
-                }
-                DesktopTarget::View(..) => {
-                    panic!("View layout isn't supported ");
-                }
-            });
+        self.apply_layout(root_builder.layout(), animate, scene, font_system);
+    }
+
+    pub fn apply_layout(
+        &mut self,
+        layout: Layout<DesktopTarget, 2>,
+        animate: bool,
+        scene: &Scene,
+        font_system: &mut FontSystem,
+    ) {
+        layout.place_inline(PointPx::origin(), |id, rect_px: RectPx| match id {
+            DesktopTarget::Desktop => {
+                self.rect = rect_px.into();
+            }
+            DesktopTarget::TopBand => {
+                self.top_band_rect = rect_px.into();
+            }
+            DesktopTarget::Instance(instance_id) => {
+                self.top_band
+                    .set_instance_rect(instance_id, rect_px, animate);
+            }
+            DesktopTarget::Group(group_id) => {
+                self.project.set_rect(
+                    ProjectTarget::Group(group_id),
+                    rect_px.into(),
+                    scene,
+                    font_system,
+                );
+            }
+            DesktopTarget::Launcher(launcher_id) => {
+                self.project.set_rect(
+                    ProjectTarget::Launcher(launcher_id),
+                    rect_px.into(),
+                    scene,
+                    font_system,
+                );
+            }
+            DesktopTarget::View(..) => {
+                panic!("View layout isn't supported ");
+            }
+        });
     }
 
     pub fn apply_animations(&mut self) {

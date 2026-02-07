@@ -177,7 +177,7 @@ impl BandPresenter {
 
         for instance_id in &self.ordered {
             let presenter = &self.instances[instance_id];
-            band_builder.child(layout::leaf(*instance_id, presenter.panel_size));
+            band_builder.nested(layout::leaf(*instance_id, presenter.panel_size));
         }
 
         band_builder.layout()
