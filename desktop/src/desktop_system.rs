@@ -9,7 +9,7 @@
 //! and aggregates that are event driven.
 
 use anyhow::Result;
-use derive_more::{Deref, DerefMut};
+use derive_more::{Deref, DerefMut, From};
 
 use massive_geometry::SizePx;
 use massive_layout::{LayoutAxis, Padding, Thickness};
@@ -100,10 +100,10 @@ impl DesktopSystem {
                     .to_container()
                     .spacing(10)
                     .padding(10, 10);
-                self.layout_specs.insert_or_update(id.into(), spec.into())?;
+                self.layout_specs.insert_or_update(id.into(), spec)?;
             }
-            ProjectCommand::RemoveLaunchGroup(group_id) => {
-                let target = group_id.into();
+            ProjectCommand::RemoveLaunchGroup(group) => {
+                let target = group.into();
                 self.layout_specs.remove(&target)?;
                 self.hierarchy.remove(&target)?;
             }
@@ -115,10 +115,10 @@ impl DesktopSystem {
                 let target = DesktopTarget::Launcher(id);
                 self.hierarchy.add(group.into(), target.clone())?;
                 self.layout_specs
-                    .insert_or_update(target, LayoutSpec::Leaf(self.default_panel_size))?;
+                    .insert_or_update(target, self.default_panel_size)?;
             }
-            ProjectCommand::RemoveLauncher(launch_profile_id) => {
-                let target = DesktopTarget::Launcher(launch_profile_id);
+            ProjectCommand::RemoveLauncher(launch_profile) => {
+                let target = DesktopTarget::Launcher(launch_profile);
                 self.layout_specs.remove(&target)?;
                 self.hierarchy.remove(&target)?;
             }
@@ -131,13 +131,14 @@ impl DesktopSystem {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, From)]
 pub enum LayoutSpec {
     Container {
         axis: LayoutAxis,
         padding: Thickness<2>,
         spacing: u32,
     },
+    #[from]
     Leaf(SizePx),
 }
 

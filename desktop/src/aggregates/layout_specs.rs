@@ -16,9 +16,9 @@ impl<Target, Value> Default for Map<Target, Value> {
     }
 }
 
-impl<Target: Eq + hash::Hash, Value> Map<Target, Value> {
-    pub fn insert_or_update(&mut self, target: Target, value: Value) -> Result<()> {
-        self.map.insert(target, value);
+impl<Target: Eq + hash::Hash, Value: Sized> Map<Target, Value> {
+    pub fn insert_or_update(&mut self, target: Target, value: impl Into<Value>) -> Result<()> {
+        self.map.insert(target, value.into());
         Ok(())
     }
 
