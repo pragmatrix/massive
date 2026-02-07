@@ -92,7 +92,7 @@ impl DesktopSystem {
                     .into(),
                 primary_instance,
                 default_panel_size,
-                &scene,
+                scene,
             )?;
             presenter.present_view(primary_instance, &primary_view)?;
         }
@@ -108,10 +108,10 @@ impl DesktopSystem {
             ]
             .to_vec()
             .into(),
-            &instance_manager,
+            instance_manager,
             // This pushes the initial focus events to the presenter. Not sure if this makes sense, because Instance and View does not exist yet.
             &mut presenter,
-            &scene,
+            scene,
         )?;
 
         let mut system = Self {
