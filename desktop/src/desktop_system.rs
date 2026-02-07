@@ -44,19 +44,19 @@ pub struct DesktopSystem {
 impl DesktopSystem {
     pub fn new(project: Project, default_panel_size: SizePx, scene: &Scene) -> Result<Self> {
         let transaction = project_to_transaction(&project).map(DesktopCommand::Project);
-        let presenter = DesktopPresenter::new(project, scene);
 
         // Set up static hierarchy parts and layout specs.
 
-        let hierarchy = OrderedHierarchy::default();
-        // hierarchy.add_root(DesktopTarget::Desktop)?;
-        // hierarchy.append_nested(
-        //     DesktopTarget::Desktop,
-        //     &[
-        //         DesktopTarget::TopBand,
-        //         DesktopTarget::Group(project.root.id),
-        //     ],
-        // )?;
+        let mut hierarchy = OrderedHierarchy::default();
+        hierarchy.add_nested(
+            DesktopTarget::Desktop,
+            [
+                DesktopTarget::TopBand,
+                DesktopTarget::Group(project.root.id),
+            ],
+        )?;
+
+        let presenter = DesktopPresenter::new(project, scene);
 
         let mut system = Self {
             default_panel_size,

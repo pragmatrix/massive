@@ -23,13 +23,21 @@ impl<Id> Default for OrderedHierarchy<Id> {
 }
 
 impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
-    /// Add a target to the end of the parent's nested list.
-    pub fn add(&mut self, parent: Id, target: Id) -> Result<()> {
-        if self.parent.insert(target.clone(), parent.clone()).is_some() {
+    /// Add an id of targets to the end of the parent's nested list.
+    pub fn add_nested(&mut self, parent: Id, nested: impl IntoIterator<Item = Id>) -> Result<()> {
+        for n in nested {
+            self.add(parent.clone(), n.clone())?;
+        }
+        Ok(())
+    }
+
+    /// Add an id to the end of the parent's nested list.
+    pub fn add(&mut self, parent: Id, nested: Id) -> Result<()> {
+        if self.parent.insert(nested.clone(), parent.clone()).is_some() {
             bail!("Internal error: target had already a parent");
         };
         let children = self.nested.entry(parent).or_default();
-        children.push(target);
+        children.push(nested);
         Ok(())
     }
 
