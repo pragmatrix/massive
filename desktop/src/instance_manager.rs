@@ -95,7 +95,7 @@ impl InstanceManager {
 
     /// Begin the shutdown of an instance by sending [`InstanceEvent::Shutdown`]. Returns immediately
     /// after sending the event
-    pub fn trigger_shutdown(&self, instance_id: InstanceId) -> Result<()> {
+    pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self
             .instances
             .get(&instance_id)

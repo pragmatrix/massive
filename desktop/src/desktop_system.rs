@@ -182,10 +182,9 @@ impl DesktopSystem {
                     assert!(intent.is_none());
                 }
 
-                // Trigger the shutdown.
-                instance_manager.trigger_shutdown(instance)?;
+                instance_manager.request_shutdown(instance)?;
 
-                // We hide the instance as soon we trigger a shutdown so that they can't be in the
+                // We hide the instance as soon we request a shutdown so that they can't be in the
                 // navigation tree anymore.
                 self.hide_instance(instance)?;
 
@@ -193,6 +192,10 @@ impl DesktopSystem {
                 let cmd = self.refocus_pointer(instance_manager, geometry)?;
                 // No intent on refocusing allowed.
                 assert!(cmd.is_none());
+
+                // remove it from the hierarchy.
+                self.hierarchy.remove(&DesktopTarget::Instance(instance))?;
+
                 Ok(())
             }
 
