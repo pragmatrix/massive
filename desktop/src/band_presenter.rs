@@ -54,7 +54,7 @@ impl BandPresenter {
         originating_from: Option<InstanceId>,
         default_panel_size: SizePx,
         scene: &Scene,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let originating_presenter =
             originating_from.and_then(|originating_from| self.instances.get(&originating_from));
 
@@ -86,7 +86,7 @@ impl BandPresenter {
         // Even though it's not yet visible, make place for it.
         self.ordered.insert(pos, instance);
 
-        Ok(())
+        Ok(pos)
     }
 
     pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {

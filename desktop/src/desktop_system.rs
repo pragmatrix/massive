@@ -9,8 +9,11 @@
 //! and aggregates that are event driven.
 
 use anyhow::Result;
+use anyhow::anyhow;
 use derive_more::{Deref, DerefMut, From};
 
+use massive_applications::CreationMode;
+use massive_applications::InstanceParameters;
 use massive_applications::ViewRole;
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
 use massive_geometry::SizePx;
@@ -19,8 +22,9 @@ use massive_layout::{Layout, LayoutAxis, Padding, Thickness, container, leaf};
 use massive_renderer::{RenderGeometry, text::FontSystem};
 use massive_shell::Scene;
 
+use crate::event_sourcing;
 use crate::{
-    DesktopInteraction, DesktopPresenter, Map, OrderedHierarchy, UserIntent,
+    DesktopEnvironment, DesktopInteraction, DesktopPresenter, Map, OrderedHierarchy,
     desktop_presenter::{DesktopFocusPath, DesktopTarget, SECTION_SPACING},
     event_sourcing::Transaction,
     instance_manager::InstanceManager,
@@ -30,15 +34,22 @@ use crate::{
     },
 };
 
+/// The commands the desktop system can execute.
 #[derive(Debug)]
 pub enum DesktopCommand {
+    Project(ProjectCommand),
     PresentInstance(InstanceId),
     PresentView(InstanceId, ViewCreationInfo),
-    Project(ProjectCommand),
+    StartInstance { parameters: InstanceParameters },
+    StopInstance(InstanceId),
+    Focus(DesktopFocusPath),
 }
+
+pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
 #[derive(Debug, Deref, DerefMut)]
 pub struct DesktopSystem {
+    env: DesktopEnvironment,
     default_panel_size: SizePx,
 
     pub interaction: DesktopInteraction,
@@ -54,12 +65,13 @@ pub struct DesktopSystem {
 
 impl DesktopSystem {
     pub fn new(
-        primary_instance: InstanceId,
-        primary_view: ViewCreationInfo,
+        env: DesktopEnvironment,
         project: Project,
+        (primary_instance, primary_view): (InstanceId, ViewCreationInfo),
         default_panel_size: SizePx,
         scene: &Scene,
-        instance_manager: &InstanceManager,
+        instance_manager: &mut InstanceManager,
+        geometry: &RenderGeometry,
     ) -> Result<Self> {
         let project_setup_transaction =
             project_to_transaction(&project).map(DesktopCommand::Project);
@@ -97,6 +109,7 @@ impl DesktopSystem {
         )?;
 
         let mut system = Self {
+            env,
             default_panel_size,
             interaction,
             presenter,
@@ -118,20 +131,22 @@ impl DesktopSystem {
             project_setup_transaction + primary_view_transaction,
             scene,
             instance_manager,
+            geometry,
         )?;
         Ok(system)
     }
 
     // Architecture: Is it really necessary to think in terms of transaction, if we update the
     // effects explicitly?
-    fn transact(
+    pub fn transact(
         &mut self,
-        transaction: Transaction<DesktopCommand>,
+        transaction: impl Into<Transaction<DesktopCommand>>,
         scene: &Scene,
-        instance_manager: &InstanceManager,
+        instance_manager: &mut InstanceManager,
+        geometry: &RenderGeometry,
     ) -> Result<()> {
-        for command in transaction {
-            self.apply_command(command, scene, instance_manager)?;
+        for command in transaction.into() {
+            self.apply_command(command, scene, instance_manager, geometry)?;
         }
 
         Ok(())
@@ -142,34 +157,95 @@ impl DesktopSystem {
         &mut self,
         command: DesktopCommand,
         scene: &Scene,
-        instance_manager: &InstanceManager,
+        instance_manager: &mut InstanceManager,
+        geometry: &RenderGeometry,
     ) -> Result<()> {
         match command {
+            DesktopCommand::StartInstance { parameters } => {
+                // Feature: Support starting non-primary applications.
+                let application = self
+                    .env
+                    .applications
+                    .get_named(&self.env.primary_application)
+                    .ok_or(anyhow!("Internal error, application not registered"))?;
+
+                let instance =
+                    instance_manager.spawn(application, CreationMode::New(parameters))?;
+
+                // Robustness: Should this be a real, logged event?
+                self.apply_command(
+                    DesktopCommand::PresentInstance(instance),
+                    scene,
+                    instance_manager,
+                    geometry,
+                )
+            }
+
+            DesktopCommand::StopInstance(instance) => {
+                // Remove the instance from the focus first.
+                //
+                // Detail: This causes an unfocus event sent to the instance's view. I don't think
+                // this should happen on teardown.
+                let focus = self.interaction.focused();
+                if let Some(focused_instance) = self.interaction.focused().instance()
+                    && focused_instance == instance
+                {
+                    let instance_parent = focus.instance_parent().expect("Internal error: Instance parent failed even though instance() returned one.");
+                    let intent = self.focus(instance_parent, instance_manager)?;
+                    assert!(intent.is_none());
+                }
+
+                // Trigger the shutdown.
+                instance_manager.trigger_shutdown(instance)?;
+
+                // We hide the instance as soon we trigger a shutdown so that they can't be in the
+                // navigation tree anymore.
+                self.hide_instance(instance)?;
+
+                // Refocus the cursor since it may be pointing to the removed instance.
+                let cmd = self.refocus_pointer(instance_manager, geometry)?;
+                // No intent on refocusing allowed.
+                assert!(cmd.is_none());
+                Ok(())
+            }
+
             DesktopCommand::PresentInstance(instance) => {
                 let focused = self.interaction.focused();
-                let new_focus = self.presenter.present_instance(
-                    focused,
+                let originating_from = focused.instance();
+                let instance_parent_path = focused.instance_parent().ok_or(anyhow!(
+                "Failed to present instance when no parent is focused that can take on a new one"
+            ))?;
+
+                let instance_parent = instance_parent_path.last().unwrap().clone();
+
+                let insertion_index = self.presenter.present_instance(
+                    instance_parent.clone(),
+                    originating_from,
                     instance,
                     self.default_panel_size,
                     scene,
                 )?;
 
-                let instance_target = new_focus.last();
+                let instance_target = DesktopTarget::Instance(instance);
+                let instance_path = instance_parent_path.join(instance_target.clone());
 
-                assert!(matches!(instance_target,
-                    Some(DesktopTarget::Instance(i)) if *i == instance
-                ));
+                // Add this instance to the hierarchy.
+                self.hierarchy.insert_at(
+                    instance_parent,
+                    insertion_index,
+                    instance_target.clone(),
+                )?;
 
-                // Add new layout leaf for the instance.
+                // Register the size of this instance.
                 self.layout_specs
-                    .insert_or_update(instance_target.unwrap().clone(), self.default_panel_size);
+                    .insert_or_update(instance_target, self.default_panel_size);
 
                 // Focus it.
-                let intent =
+                let cmd =
                     self.interaction
-                        .focus(new_focus, instance_manager, &mut self.presenter)?;
+                        .focus(instance_path, instance_manager, &mut self.presenter)?;
 
-                assert_eq!(intent, UserIntent::None);
+                assert!(cmd.is_none());
                 Ok(())
             }
             DesktopCommand::PresentView(instance, creation_info) => {
@@ -182,13 +258,18 @@ impl DesktopSystem {
                     && creation_info.role == ViewRole::Primary
                 {
                     let view_focus = focused.clone().join(DesktopTarget::View(creation_info.id));
-                    let intent = self.focus(view_focus, instance_manager)?;
-                    assert_eq!(intent, UserIntent::None)
+                    let cmd = self.focus(view_focus, instance_manager)?;
+                    assert!(cmd.is_none())
                 }
 
                 Ok(())
             }
             DesktopCommand::Project(project_command) => self.apply_project_command(project_command),
+
+            DesktopCommand::Focus(path) => {
+                assert!(self.focus(path, instance_manager)?.is_none());
+                Ok(())
+            }
         }
     }
 
@@ -283,7 +364,7 @@ impl DesktopSystem {
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         self.interaction.process_input_event(
             event,
             instance_manager,
@@ -296,7 +377,7 @@ impl DesktopSystem {
         &mut self,
         focus_path: DesktopFocusPath,
         instance_manager: &InstanceManager,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         self.interaction
             .focus(focus_path, instance_manager, &mut self.presenter)
     }
@@ -305,7 +386,7 @@ impl DesktopSystem {
         &mut self,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         self.interaction
             .refocus_pointer(instance_manager, &mut self.presenter, render_geometry)
     }

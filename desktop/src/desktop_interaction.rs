@@ -5,7 +5,7 @@ use winit::{
 };
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
+use massive_applications::ViewEvent;
 use massive_geometry::PixelCamera;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
@@ -13,21 +13,11 @@ use massive_shell::Scene;
 
 use crate::{
     desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
+    desktop_system::{Cmd, DesktopCommand},
     event_router,
     instance_manager::InstanceManager,
     navigation::NavigationHitTester,
 };
-
-#[must_use]
-#[derive(Debug, PartialEq, Eq)]
-pub enum UserIntent {
-    // Architecture: Review if `None` is such a good idea here, it almost never is.
-    None,
-    // Architecture: Could just always Focus an explicit thing?
-    Focus(DesktopFocusPath),
-    StartInstance { parameters: InstanceParameters },
-    StopInstance { instance: InstanceId },
-}
 
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
 type EventRouter = event_router::EventRouter<DesktopTarget>;
@@ -54,7 +44,7 @@ impl DesktopInteraction {
         assert!(
             presenter
                 .forward_event_transitions(initial_transitions.transitions, instance_manager)?
-                == UserIntent::None
+                .is_none()
         );
 
         // We can't call apply_changes yet as it needs a mutable presenter reference
@@ -83,7 +73,7 @@ impl DesktopInteraction {
         focus_path: DesktopFocusPath,
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         let transitions = self.event_router.focus(focus_path);
         let user_intent =
             presenter.forward_event_transitions(transitions.transitions, instance_manager)?;
@@ -106,9 +96,9 @@ impl DesktopInteraction {
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         let intent = self.preprocess_keyboard_commands(event)?;
-        if intent != UserIntent::None {
+        if !intent.is_none() {
             return Ok(intent);
         }
 
@@ -125,7 +115,7 @@ impl DesktopInteraction {
 
         if let Some(focus) = transitions.keyboard_focus_changed {
             let intent = self.focus(focus, instance_manager, presenter)?;
-            assert_eq!(intent, UserIntent::None);
+            assert!(intent.is_none());
         }
 
         Ok(intent)
@@ -139,7 +129,7 @@ impl DesktopInteraction {
         instance_manager: &InstanceManager,
         presenter: &mut DesktopPresenter,
         render_geometry: &RenderGeometry,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         let transitions = self
             .event_router
             .reset_pointer_focus(&NavigationHitTester::new(
@@ -152,7 +142,7 @@ impl DesktopInteraction {
         presenter.forward_event_transitions(transitions.transitions, instance_manager)
     }
 
-    fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<UserIntent> {
+    fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
         // Catch CMD+t and CMD+w if an instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
@@ -165,14 +155,15 @@ impl DesktopInteraction {
             if let Some(instance) = self.event_router.focused().instance() {
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
-                        return Ok(UserIntent::StartInstance {
+                        return Ok(DesktopCommand::StartInstance {
                             parameters: Default::default(),
-                        });
+                        }
+                        .into());
                     }
                     Key::Character(c) if c.as_str() == "w" => {
                         // Architecture: Shouldn't this just end the current view, and let the
                         // instance decide then?
-                        return Ok(UserIntent::StopInstance { instance });
+                        return Ok(DesktopCommand::StopInstance(instance).into());
                     }
                     _ => {}
                 }
@@ -181,10 +172,10 @@ impl DesktopInteraction {
             if let Some(parent_focus) = self.event_router.focused().parent()
                 && let Key::Named(NamedKey::Escape) = &key_event.logical_key
             {
-                return Ok(UserIntent::Focus(parent_focus));
+                return Ok(DesktopCommand::Focus(parent_focus).into());
             }
         }
 
-        Ok(UserIntent::None)
+        Ok(Cmd::None)
     }
 }

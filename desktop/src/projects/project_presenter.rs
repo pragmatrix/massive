@@ -21,7 +21,8 @@ use super::{
     project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
 };
 use crate::{
-    EventTransition, UserIntent,
+    EventTransition,
+    desktop_system::Cmd,
     instance_manager::ViewPath,
     navigation::{self, NavigationNode},
     projects::{
@@ -87,13 +88,13 @@ impl ProjectPresenter {
     pub fn process_transition(
         &mut self,
         event_transition: EventTransition<ProjectTarget>,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         let intent = match event_transition {
             EventTransition::Directed(focus_path, view_event) => {
                 if let Some(id) = focus_path.last() {
                     self.handle_directed_event(id.clone(), view_event)?
                 } else {
-                    UserIntent::None
+                    Cmd::None
                 }
             }
             EventTransition::Broadcast(view_event) => {
@@ -102,13 +103,13 @@ impl ProjectPresenter {
                 }
                 for launcher in self.launchers.values_mut() {
                     let intent = launcher.process(view_event.clone())?;
-                    if intent != UserIntent::None {
+                    if !intent.is_none() {
                         error!(
                             "Unsupported user intent in response to a Broadcast event: {intent:?}"
                         );
                     }
                 }
-                UserIntent::None
+                Cmd::None
             }
         };
 
@@ -117,18 +118,14 @@ impl ProjectPresenter {
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
-    fn handle_directed_event(
-        &mut self,
-        id: ProjectTarget,
-        view_event: ViewEvent,
-    ) -> Result<UserIntent> {
+    fn handle_directed_event(&mut self, id: ProjectTarget, view_event: ViewEvent) -> Result<Cmd> {
         Ok(match id {
             ProjectTarget::Group(group_id) => {
                 self.groups
                     .get_mut(&group_id)
                     .expect("Internal Error: Missing group")
                     .process(view_event)?;
-                UserIntent::None
+                Cmd::None
             }
             ProjectTarget::Launcher(launch_profile_id) => {
                 match view_event {
@@ -325,7 +322,7 @@ impl ProjectPresenter {
         originating_from: Option<InstanceId>,
         default_panel_size: SizePx,
         scene: &Scene,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         self.launchers
             .get_mut(&launcher)
             .expect("Launcher does not exist")

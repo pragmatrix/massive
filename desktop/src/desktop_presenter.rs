@@ -1,20 +1,20 @@
 use std::time::Duration;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use derive_more::From;
 use log::error;
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_layout::LayoutAxis;
-use massive_layout::{self as layout, Layout};
+use massive_layout::{self as layout, Layout, LayoutAxis};
 use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
 use crate::{
-    EventTransition, UserIntent,
+    EventTransition,
     band_presenter::{BandPresenter, BandTarget},
+    desktop_system::Cmd,
     focus_path::FocusPath,
     instance_manager::{InstanceManager, ViewPath},
     navigation::{NavigationNode, container},
@@ -92,19 +92,18 @@ impl DesktopPresenter {
 
     // Ergonomics: Perhaps pass the instance parent directly herein, or just return it? See how
     // clients use this function.
+
+    // This returns the insertion index. Later we don't need this anymore, because the hierarchy
+    // will be the single source of truth.
     pub fn present_instance(
         &mut self,
-        focused: &DesktopFocusPath,
+        instance_parent: DesktopTarget,
+        originating_from: Option<InstanceId>,
         new_instance: InstanceId,
         default_panel_size: SizePx,
         scene: &Scene,
-    ) -> Result<DesktopFocusPath> {
-        let originating_from = focused.instance();
-        let instance_parent = focused.instance_parent().ok_or(anyhow!(
-            "Failed to present instance when no parent is focused that can take on a new one"
-        ))?;
-
-        match instance_parent.last().unwrap() {
+    ) -> Result<usize> {
+        let index = match instance_parent {
             DesktopTarget::TopBand => self.top_band.present_instance(
                 new_instance,
                 originating_from,
@@ -112,7 +111,7 @@ impl DesktopPresenter {
                 scene,
             )?,
             DesktopTarget::Launcher(launch_profile_id) => self.project.present_instance(
-                *launch_profile_id,
+                launch_profile_id,
                 new_instance,
                 originating_from,
                 default_panel_size,
@@ -121,9 +120,8 @@ impl DesktopPresenter {
             invalid => {
                 bail!("Invalid instance parent: {invalid:?}");
             }
-        }
-
-        Ok(instance_parent.join(DesktopTarget::Instance(new_instance)))
+        };
+        Ok(index)
     }
 
     /// The instance is shutting down. Begin hiding them.
@@ -297,15 +295,15 @@ impl DesktopPresenter {
         // Don't use EventTransitions here for now, it contains more information than we need.
         transitions: Vec<EventTransition<DesktopTarget>>,
         instance_manager: &InstanceManager,
-    ) -> Result<UserIntent> {
-        let mut user_intent = UserIntent::None;
+    ) -> Result<Cmd> {
+        let mut cmd = Cmd::None;
 
         // Robustness: While we need to forward all transitions we currently process only one intent.
         for transition in transitions {
-            user_intent = self.forward_event_transition(transition, instance_manager)?;
+            cmd += self.forward_event_transition(transition, instance_manager)?;
         }
 
-        Ok(user_intent)
+        Ok(cmd)
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
@@ -313,10 +311,10 @@ impl DesktopPresenter {
         &mut self,
         transition: EventTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         let band_presenter = &self.top_band;
         let project_presenter = &mut self.project;
-        let mut user_intent = UserIntent::None;
+        let mut cmd = Cmd::None;
         match transition {
             EventTransition::Directed(path, _) if path.is_empty() => {
                 // This happens if hit testing hits no presenter and a CursorMove event gets
@@ -350,7 +348,7 @@ impl DesktopPresenter {
                             vec![ProjectTarget::Group(*group_id)].into(),
                             view_event,
                         );
-                        user_intent = project_presenter.process_transition(project_transition)?;
+                        cmd += project_presenter.process_transition(project_transition)?;
                     }
                     DesktopTarget::Launcher(launcher_id) => {
                         // Forward to project presenter
@@ -358,7 +356,7 @@ impl DesktopPresenter {
                             vec![ProjectTarget::Launcher(*launcher_id)].into(),
                             view_event,
                         );
-                        user_intent = project_presenter.process_transition(project_transition)?;
+                        cmd += project_presenter.process_transition(project_transition)?;
                     }
                 }
             }
@@ -370,10 +368,10 @@ impl DesktopPresenter {
 
                 // Also broadcast to project presenter
                 let project_transition = EventTransition::Broadcast(view_event);
-                user_intent = project_presenter.process_transition(project_transition)?;
+                cmd += project_presenter.process_transition(project_transition)?;
             }
         }
-        Ok(user_intent)
+        Ok(cmd)
     }
 }
 

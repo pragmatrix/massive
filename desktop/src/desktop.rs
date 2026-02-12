@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use anyhow::{Context, Result, anyhow, bail};
+use anyhow::{Context, Result, bail};
 use log::info;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
@@ -10,19 +10,17 @@ use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId,
     InstanceParameters, ViewCommand, ViewEvent, ViewId, ViewRole,
 };
-use massive_geometry::SizePx;
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::desktop_presenter::DesktopTarget;
-use crate::desktop_system::DesktopSystem;
-use crate::projects::Project;
 use crate::{
-    DesktopEnvironment, UserIntent,
+    DesktopEnvironment,
+    desktop_presenter::DesktopTarget,
+    desktop_system::DesktopSystem,
     instance_manager::{InstanceManager, ViewPath},
-    projects::ProjectConfiguration,
+    projects::{Project, ProjectConfiguration},
 };
 
 #[derive(Debug)]
@@ -30,7 +28,6 @@ pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
-    primary_instance_panel_size: SizePx,
     system: DesktopSystem,
 
     event_manager: EventManager<ViewEvent>,
@@ -38,7 +35,6 @@ pub struct Desktop {
     instance_manager: InstanceManager,
     instance_commands: UnboundedReceiver<(InstanceId, InstanceCommand)>,
     context: ApplicationContext,
-    env: DesktopEnvironment,
     fonts: FontManager,
 }
 
@@ -102,12 +98,13 @@ impl Desktop {
         // Initial setup
 
         let mut system = DesktopSystem::new(
-            primary_instance,
-            creation_info.clone(),
+            env,
             project,
+            (primary_instance, creation_info.clone()),
             default_size,
             &scene,
-            &instance_manager,
+            &mut instance_manager,
+            renderer.geometry(),
         )?;
         // presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
 
@@ -120,13 +117,11 @@ impl Desktop {
             scene,
             renderer,
             window,
-            primary_instance_panel_size: default_size,
             system,
             event_manager,
             instance_manager,
             instance_commands: requests_rx,
             context,
-            env,
             fonts,
         })
     }
@@ -147,12 +142,13 @@ impl Desktop {
                                 && let Some(input_event) = self.event_manager.add_event(
                                 ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
                             ) {
-                               let intent = self.system.process_input_event(
+                               let cmd = self.system.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
                                     self.renderer.geometry(),
                                 )?;
-                                self.process_user_intent(intent)?;
+                                self.system.transact(cmd, &self.scene, &mut self.instance_manager, self.renderer.geometry())?;
+                                self.system.update_effects(true, &self.scene, &mut self.fonts.lock())?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -200,84 +196,6 @@ impl Desktop {
         }
     }
 
-    fn process_user_intent(&mut self, cmd: UserIntent) -> Result<()> {
-        match cmd {
-            UserIntent::None => {}
-            UserIntent::Focus(path) => {
-                assert_eq!(
-                    self.system.focus(path, &self.instance_manager)?,
-                    UserIntent::None
-                );
-            }
-            UserIntent::StartInstance { parameters } => {
-                // Feature: Support starting non-primary applications.
-                let application = self
-                    .env
-                    .applications
-                    .get_named(&self.env.primary_application)
-                    .ok_or(anyhow!("Internal error, application not registered"))?;
-
-                let instance = self
-                    .instance_manager
-                    .spawn(application, CreationMode::New(parameters))?;
-
-                let focused = self.system.interaction.focused().clone();
-
-                let presented_instance_path = self.system.present_instance(
-                    &focused,
-                    instance,
-                    self.primary_instance_panel_size,
-                    &self.scene,
-                )?;
-
-                let intent = self
-                    .system
-                    .focus(presented_instance_path, &self.instance_manager)?;
-
-                assert_eq!(intent, UserIntent::None);
-
-                // Performance: We might not need a global re-layout, if we present an instance
-                // to the project's band (This has to work incremental some day).
-                // self.system.layout(
-                //     self.primary_instance_panel_size,
-                //     true,
-                //     &self.scene,
-                //     &mut self.fonts.lock(),
-                // );
-            }
-            UserIntent::StopInstance { instance } => {
-                // Remove the instance from the focus first.
-                //
-                // Detail: This causes an unfocus event sent to the instance's view. I don't think
-                // this should happen on teardown.
-                let focus = self.system.interaction.focused();
-                if let Some(focused_instance) = self.system.interaction.focused().instance()
-                    && focused_instance == instance
-                {
-                    let instance_parent = focus.instance_parent().expect("Internal error: Instance parent failed even though instance() returned one.");
-                    let intent = self.system.focus(instance_parent, &self.instance_manager)?;
-                    assert_eq!(intent, UserIntent::None);
-                }
-
-                // Trigger the shutdown.
-                self.instance_manager.trigger_shutdown(instance)?;
-
-                // We hide the instance as soon we trigger a shutdown so that they can't be in the
-                // navigation tree anymore.
-                self.system.hide_instance(instance)?;
-
-                // Refocus the cursor since it may be pointing to the removed instance.
-                let intent = self
-                    .system
-                    .refocus_pointer(&self.instance_manager, self.renderer.geometry())?;
-                // No intent on refocusing allowed.
-                assert_eq!(intent, UserIntent::None);
-            }
-        }
-
-        Ok(())
-    }
-
     fn handle_instance_command(
         &mut self,
         instance: InstanceId,
@@ -296,9 +214,8 @@ impl Desktop {
                     && info.role == ViewRole::Primary
                 {
                     let view_focus = focused.clone().join(DesktopTarget::View(info.id));
-                    let intent = self.system.focus(view_focus, &self.instance_manager)?;
-
-                    assert_eq!(intent, UserIntent::None)
+                    let cmd = self.system.focus(view_focus, &self.instance_manager)?;
+                    assert!(cmd.is_none());
                 }
             }
             InstanceCommand::DestroyView(id, collector) => {

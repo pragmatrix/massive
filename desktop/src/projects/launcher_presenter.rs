@@ -15,8 +15,8 @@ use massive_shell::Scene;
 
 use super::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile};
 use crate::{
-    UserIntent,
     band_presenter::BandPresenter,
+    desktop_system::{Cmd, DesktopCommand},
     instance_manager::ViewPath,
     navigation::{NavigationNode, leaf},
     projects::Launcher,
@@ -126,7 +126,7 @@ impl LauncherPresenter {
     }
 
     // Architecture: I don't want the launcher here to directly generate UserIntent, may be LauncherIntent? Not sure.
-    pub fn process(&mut self, view_event: ViewEvent) -> Result<UserIntent> {
+    pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
         // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
         // arbitrary hierarchies? May be the EventManager directly defines the scope id?
         // Ergonomics: Create a fluent constructor for events with Scope?
@@ -135,7 +135,7 @@ impl LauncherPresenter {
             view_event,
             Instant::now(),
         )) else {
-            return Ok(UserIntent::None);
+            return Ok(Cmd::None);
         };
 
         if let Some(point) = event.detect_click(MouseButton::Left) {
@@ -145,9 +145,10 @@ impl LauncherPresenter {
         match event.event() {
             ViewEvent::Focused(true) if self.band.is_empty() => {
                 // Usability: Should pass this rect?
-                return Ok(UserIntent::StartInstance {
+                return Ok(DesktopCommand::StartInstance {
                     parameters: self.profile.params.clone(),
-                });
+                }
+                .into());
             }
             ViewEvent::CursorEntered { .. } => {
                 warn!("CursorEntered: {}", self.profile.name);
@@ -158,11 +159,11 @@ impl LauncherPresenter {
             _ => {}
         }
 
-        Ok(UserIntent::None)
+        Ok(Cmd::None)
     }
 
-    pub fn process_band(&mut self, view_event: ViewEvent) -> Result<UserIntent> {
-        self.band.process(view_event).map(|()| UserIntent::None)
+    pub fn process_band(&mut self, view_event: ViewEvent) -> Result<Cmd> {
+        self.band.process(view_event).map(|()| Cmd::None)
     }
 
     pub fn set_rect(&mut self, rect: Rect) {
@@ -182,17 +183,18 @@ impl LauncherPresenter {
         originating_from: Option<InstanceId>,
         default_panel_size: SizePx,
         scene: &Scene,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         let was_empty = self.band.is_empty();
-        self.band
-            .present_instance(instance, originating_from, default_panel_size, scene)?;
+        let insertion_index =
+            self.band
+                .present_instance(instance, originating_from, default_panel_size, scene)?;
         if was_empty && !self.band.is_empty() {
             self.fader
                 .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
         }
 
         // self.layout_band(true);
-        Ok(())
+        Ok(insertion_index)
     }
 
     pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
