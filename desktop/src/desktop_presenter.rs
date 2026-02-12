@@ -6,20 +6,18 @@ use log::error;
 
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_layout::{self as layout, Layout, LayoutAxis};
+use massive_layout::Layout;
 use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-use crate::{
-    EventTransition,
-    band_presenter::{BandPresenter, BandTarget},
-    desktop_system::Cmd,
-    focus_path::FocusPath,
-    instance_manager::{InstanceManager, ViewPath},
-    navigation::{NavigationNode, container},
-    projects::{GroupId, LaunchProfileId, Project, ProjectPresenter, ProjectTarget},
-};
+use crate::EventTransition;
+use crate::band_presenter::{BandPresenter, BandTarget};
+use crate::desktop_system::Cmd;
+use crate::focus_path::FocusPath;
+use crate::instance_manager::{InstanceManager, ViewPath};
+use crate::navigation::{NavigationNode, container};
+use crate::projects::{GroupId, LaunchProfileId, Project, ProjectPresenter, ProjectTarget};
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 pub const SECTION_SPACING: u32 = 20;
@@ -191,17 +189,13 @@ impl DesktopPresenter {
                 }
             }
             DesktopTarget::Group(group_id) => {
-                self.project.set_rect(
-                    ProjectTarget::Group(group_id),
-                    rect_px.into(),
-                    scene,
-                    font_system,
-                );
+                self.project
+                    .set_rect(ProjectTarget::Group(group_id), rect_px, scene, font_system);
             }
             DesktopTarget::Launcher(launcher_id) => {
                 self.project.set_rect(
                     ProjectTarget::Launcher(launcher_id),
-                    rect_px.into(),
+                    rect_px,
                     scene,
                     font_system,
                 );

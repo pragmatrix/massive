@@ -1,19 +1,16 @@
 use std::{collections::HashMap, time::Duration};
 
 use anyhow::{Result, bail};
-
 use log::{info, warn};
+
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent, ViewId, ViewRole};
 use massive_geometry::{RectPx, SizePx};
-use massive_layout::{self as layout, LayoutAxis};
 use massive_scene::Transform;
 use massive_shell::Scene;
 
-use crate::{
-    instance_manager::ViewPath,
-    instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter},
-    navigation::{self, NavigationNode},
-};
+use crate::instance_manager::ViewPath;
+use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
+use crate::navigation::{self, NavigationNode};
 
 #[derive(Debug, Default)]
 /// Manages the presentation of a horizontal band of instances.
@@ -170,17 +167,6 @@ impl BandPresenter {
                 Ok(())
             }
         }
-    }
-
-    pub fn layout(&self) -> layout::Layout<InstanceId, 2> {
-        let mut band_builder = layout::container(None, LayoutAxis::HORIZONTAL);
-
-        for instance_id in &self.ordered {
-            let presenter = &self.instances[instance_id];
-            band_builder.nested(layout::leaf(*instance_id, presenter.panel_size));
-        }
-
-        band_builder.layout()
     }
 
     pub fn set_instance_rect(&mut self, instance_id: InstanceId, rect: RectPx, animate: bool) {

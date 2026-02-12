@@ -10,27 +10,21 @@ use log::error;
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
 use massive_geometry::{Color, Rect, RectPx, SizePx};
-use massive_layout::{Layout, container, leaf};
 use massive_renderer::text::FontSystem;
 use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
-use super::{
-    LauncherPresenter, Project,
-    project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId},
-};
-use crate::{
-    EventTransition,
-    band_presenter::BandTarget,
-    desktop_system::Cmd,
-    instance_manager::ViewPath,
-    navigation::{self, NavigationNode},
-    projects::{
-        ProjectTarget, STRUCTURAL_ANIMATION_DURATION, configuration::LaunchProfile,
-        project::LaunchGroupProperties,
-    },
-};
+use super::project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId};
+use super::{LauncherPresenter, Project};
+use crate::EventTransition;
+use crate::band_presenter::BandTarget;
+use crate::desktop_system::Cmd;
+use crate::instance_manager::ViewPath;
+use crate::navigation::{self, NavigationNode};
+use crate::projects::configuration::LaunchProfile;
+use crate::projects::project::LaunchGroupProperties;
+use crate::projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION};
 
 #[derive(Debug)]
 pub enum ProjectCommand {
@@ -185,10 +179,6 @@ impl ProjectPresenter {
         }
     }
 
-    pub fn layout(&self, default_panel_size: SizePx) -> Layout<ProjectTarget, 2> {
-        layout_launch_group(&self.project.root, default_panel_size)
-    }
-
     // Architecture: layout() has to be called before the navigation structure can return anything.
     // Perhaps manifest this in a better constructor.
     pub fn navigation(&self) -> NavigationNode<'_, ProjectTarget> {
@@ -255,7 +245,7 @@ impl ProjectPresenter {
                 let launcher = self.launchers.get_mut(&launcher_id).unwrap();
                 launcher.set_instance_rect(instance, rect);
             }
-            ProjectTarget::Band(id, _) => {
+            ProjectTarget::Band(..) => {
                 panic!("Invalid set_rect on a Band inside the project")
             }
         }
@@ -378,33 +368,6 @@ impl ProjectPresenter {
             .values_mut()
             .find(|l| l.is_presenting_instance(instance))
     }
-}
-
-/// Recursively layout a launch group and its children.
-fn layout_launch_group(group: &LaunchGroup, default_size: SizePx) -> Layout<ProjectTarget, 2> {
-    let group_id = group.id;
-
-    let mut builder = container(
-        ProjectTarget::Group(group_id),
-        group.properties.layout.axis(),
-    )
-    .spacing(10)
-    .padding(10);
-
-    match &group.contents {
-        LaunchGroupContents::Groups(launch_groups) => {
-            for child_group in launch_groups {
-                builder.nested(layout_launch_group(child_group, default_size));
-            }
-        }
-        LaunchGroupContents::Launchers(launchers) => {
-            for launcher in launchers {
-                builder.nested(leaf(ProjectTarget::Launcher(launcher.id), default_size));
-            }
-        }
-    }
-
-    builder.layout()
 }
 
 fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
