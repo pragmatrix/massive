@@ -24,6 +24,7 @@ use massive_shell::Scene;
 use crate::desktop_presenter::{DesktopFocusPath, DesktopTarget, SECTION_SPACING};
 use crate::event_sourcing::{self, Transaction};
 use crate::instance_manager::InstanceManager;
+use crate::projects::LaunchGroupProperties;
 use crate::projects::{
     GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher, Project, ProjectCommand,
 };
@@ -54,8 +55,8 @@ pub struct DesktopSystem {
     presenter: DesktopPresenter,
 
     hierarchy: OrderedHierarchy<DesktopTarget>,
-    layout_specs: Map<DesktopTarget, LayoutSpec>,
     startup_profile: Option<LaunchProfileId>,
+    launch_groups: Map<GroupId, LaunchGroupProperties>,
 }
 
 impl DesktopSystem {
@@ -82,13 +83,6 @@ impl DesktopSystem {
             ],
         )?;
 
-        let mut layout_specs = Map::default();
-        layout_specs.insert_or_update(
-            DesktopTarget::Desktop,
-            LayoutAxis::VERTICAL.to_container().spacing(SECTION_SPACING),
-        );
-        layout_specs.insert_or_update(DesktopTarget::TopBand, LayoutAxis::HORIZONTAL);
-
         let mut presenter = DesktopPresenter::new(project, scene);
 
         let initial_focus = [DesktopTarget::Desktop, DesktopTarget::TopBand];
@@ -107,8 +101,8 @@ impl DesktopSystem {
             presenter,
 
             hierarchy,
-            layout_specs,
             startup_profile: None,
+            launch_groups: Map::default(),
         };
 
         let primary_view_transaction: Transaction<_> = [
@@ -229,17 +223,6 @@ impl DesktopSystem {
                     instance_target.clone(),
                 )?;
 
-                // Overwrite the parent's layout (make sure this is horizontal band for now). In case of a project, this is currently set to fixed panel size.
-
-                self.layout_specs.insert_or_update(
-                    instance_parent_path.last().unwrap().clone(),
-                    LayoutAxis::HORIZONTAL,
-                );
-
-                // Register the size of this instance.
-                self.layout_specs
-                    .insert_or_update(instance_target, self.default_panel_size);
-
                 // Focus it.
                 let cmd =
                     self.interaction
@@ -283,18 +266,12 @@ impl DesktopSystem {
                 if let Some(parent) = parent {
                     self.hierarchy.add(parent.into(), id.into())?;
                 };
-                let spec = properties
-                    .layout
-                    .axis()
-                    .to_container()
-                    .spacing(10)
-                    .padding(10, 10);
-                self.layout_specs.insert_or_update(id.into(), spec);
+                self.launch_groups.insert(id, properties)?;
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
                 let target = group.into();
-                self.layout_specs.remove(&target)?;
                 self.hierarchy.remove(&target)?;
+                self.launch_groups.remove(&group)?;
             }
             ProjectCommand::AddLauncher {
                 group,
@@ -303,12 +280,9 @@ impl DesktopSystem {
             } => {
                 let target = DesktopTarget::Launcher(id);
                 self.hierarchy.add(group.into(), target.clone())?;
-                self.layout_specs
-                    .insert_or_update(target, self.default_panel_size);
             }
             ProjectCommand::RemoveLauncher(launch_profile) => {
                 let target = DesktopTarget::Launcher(launch_profile);
-                self.layout_specs.remove(&target)?;
                 self.hierarchy.remove(&target)?;
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
@@ -339,7 +313,7 @@ impl DesktopSystem {
     }
 
     fn build_layout_for(&self, target: DesktopTarget) -> Layout<DesktopTarget, 2> {
-        match self.layout_specs[&target] {
+        match self.resolve_layout_spec(&target) {
             LayoutSpec::Container {
                 axis,
                 padding,
@@ -356,6 +330,37 @@ impl DesktopSystem {
                 container.layout()
             }
             LayoutSpec::Leaf(size) => leaf(target, size),
+        }
+    }
+
+    fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
+        match target {
+            DesktopTarget::Desktop => LayoutAxis::VERTICAL
+                .to_container()
+                .spacing(SECTION_SPACING)
+                .into(),
+            DesktopTarget::TopBand => LayoutAxis::HORIZONTAL.into(),
+            DesktopTarget::Group(group_id) => self.launch_groups[group_id]
+                .layout
+                .axis()
+                .to_container()
+                .spacing(10)
+                .padding(10, 10)
+                .into(),
+            DesktopTarget::Launcher(_) => {
+                // A launcher depends on the nested ones, if any, it's a horizontal, if none, its a
+                // absolute size.
+                // Architecture: A min size would make the nested check obsolete.
+                if self.hierarchy.nested(target).is_empty() {
+                    self.default_panel_size.into()
+                } else {
+                    LayoutAxis::HORIZONTAL.into()
+                }
+            }
+            DesktopTarget::Instance(_) => self.default_panel_size.into(),
+            DesktopTarget::View(_) => {
+                panic!("Views are not part of the layout hierarchy");
+            }
         }
     }
 

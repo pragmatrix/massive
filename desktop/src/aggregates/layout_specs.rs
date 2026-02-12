@@ -1,4 +1,4 @@
-use std::{any::type_name, collections::HashMap, hash};
+use std::{any::type_name, collections::HashMap, fmt, hash};
 
 use anyhow::{Result, bail};
 use derive_more::Index;
@@ -16,7 +16,14 @@ impl<Key, Value> Default for Map<Key, Value> {
     }
 }
 
-impl<Key: Eq + hash::Hash, Value: Sized> Map<Key, Value> {
+impl<Key: fmt::Debug + Eq + hash::Hash, Value: Sized> Map<Key, Value> {
+    pub fn insert(&mut self, key: Key, value: impl Into<Value>) -> Result<()> {
+        if self.map.insert(key, value.into()).is_some() {
+            bail!("Insertion failed, there is already existing");
+        }
+        Ok(())
+    }
+
     pub fn insert_or_update(&mut self, key: Key, value: impl Into<Value>) {
         self.map.insert(key, value.into());
     }
