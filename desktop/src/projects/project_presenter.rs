@@ -15,16 +15,16 @@ use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
-use super::project::{GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId};
-use super::{LauncherPresenter, Project};
 use crate::EventTransition;
 use crate::band_presenter::BandTarget;
 use crate::desktop_system::Cmd;
 use crate::instance_manager::ViewPath;
 use crate::navigation::{self, NavigationNode};
-use crate::projects::configuration::LaunchProfile;
-use crate::projects::project::LaunchGroupProperties;
-use crate::projects::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION};
+
+use super::{
+    GroupId, LaunchGroup, LaunchGroupContents, LaunchGroupProperties, LaunchProfile,
+    LaunchProfileId, LauncherPresenter, Project, ProjectTarget, STRUCTURAL_ANIMATION_DURATION,
+};
 
 #[derive(Debug)]
 pub enum ProjectCommand {

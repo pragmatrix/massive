@@ -4,20 +4,18 @@ use anyhow::{Context, Result};
 use derive_more::From;
 use log::warn;
 
-use crate::{
-    band_presenter::BandTarget,
-    projects::configuration::{GroupContents, LaunchProfile, LayoutDirection, ScopedTag},
-};
+use crate::band_presenter::BandTarget;
+use crate::projects::configuration::{GroupContents, LaunchProfile, LayoutDirection, ScopedTag};
 
 mod configuration;
 mod launcher_presenter;
 mod project;
 mod project_presenter;
 
-pub use configuration::ProjectConfiguration;
-pub use launcher_presenter::LauncherPresenter;
-pub use project::*;
-pub use project_presenter::*;
+pub use self::configuration::ProjectConfiguration;
+pub use self::launcher_presenter::LauncherPresenter;
+pub use self::project::*;
+pub use self::project_presenter::*;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 

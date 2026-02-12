@@ -8,8 +8,7 @@
 //! The goal here is to remove as much as possible from the specific instances into separate systems
 //! and aggregates that are event driven.
 
-use anyhow::Result;
-use anyhow::anyhow;
+use anyhow::{Result, anyhow};
 use derive_more::{Deref, DerefMut, From};
 
 use massive_applications::CreationMode;
@@ -22,17 +21,13 @@ use massive_layout::{Layout, LayoutAxis, Padding, Thickness, container, leaf};
 use massive_renderer::{RenderGeometry, text::FontSystem};
 use massive_shell::Scene;
 
-use crate::event_sourcing;
-use crate::{
-    DesktopEnvironment, DesktopInteraction, DesktopPresenter, Map, OrderedHierarchy,
-    desktop_presenter::{DesktopFocusPath, DesktopTarget, SECTION_SPACING},
-    event_sourcing::Transaction,
-    instance_manager::InstanceManager,
-    projects::{
-        GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher, Project,
-        ProjectCommand,
-    },
+use crate::desktop_presenter::{DesktopFocusPath, DesktopTarget, SECTION_SPACING};
+use crate::event_sourcing::{self, Transaction};
+use crate::instance_manager::InstanceManager;
+use crate::projects::{
+    GroupId, LaunchGroup, LaunchGroupContents, LaunchProfileId, Launcher, Project, ProjectCommand,
 };
+use crate::{DesktopEnvironment, DesktopInteraction, DesktopPresenter, Map, OrderedHierarchy};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]

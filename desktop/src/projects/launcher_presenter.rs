@@ -13,13 +13,14 @@ use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Trans
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
-use super::configuration::LaunchProfile;
-use super::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION};
 use crate::band_presenter::BandPresenter;
 use crate::desktop_system::{Cmd, DesktopCommand};
 use crate::instance_manager::ViewPath;
 use crate::navigation::{NavigationNode, leaf};
 use crate::projects::{LaunchProfileId, Launcher};
+
+use super::configuration::LaunchProfile;
+use super::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION};
 
 // TODO: Need proper color palettes for UI elements.
 // const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
