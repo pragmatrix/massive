@@ -36,19 +36,18 @@ impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
         if self.parent.insert(nested.clone(), parent.clone()).is_some() {
             bail!("Internal error: target had already a parent");
         };
-        let children = self.nested.entry(parent).or_default();
-        children.push(nested);
+        self.nested.entry(parent).or_default().push(nested);
         Ok(())
     }
 
     pub fn insert_at(&mut self, parent: Id, index: usize, target: Id) -> Result<()> {
-        let children = self.nested.entry(parent.clone()).or_default();
+        let nested = self.nested.entry(parent.clone()).or_default();
 
-        if index > children.len() {
+        if index > nested.len() {
             anyhow::bail!(
-                "Index {} is out of bounds for parent with {} children",
+                "Index {} is out of bounds for parent with {} nested items",
                 index,
-                children.len()
+                nested.len()
             );
         }
 
@@ -56,7 +55,7 @@ impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
             bail!("Internal error: target had already a parent");
         };
 
-        children.insert(index, target);
+        nested.insert(index, target);
         Ok(())
     }
 
@@ -84,10 +83,10 @@ impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
     }
 
     fn remove_nested(&mut self, id: &Id) -> Result<()> {
-        let children = self.nested.remove(id).unwrap_or_default();
-        for child in children {
-            assert!(self.parent.remove(&child).is_some());
-            self.remove_nested(&child)?;
+        let nested = self.nested.remove(id).unwrap_or_default();
+        for nested_item in nested {
+            assert!(self.parent.remove(&nested_item).is_some());
+            self.remove_nested(&nested_item)?;
         }
         Ok(())
     }
@@ -114,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_child_append() {
+    fn insert_nested_append() {
         let mut hierarchy = hierarchy();
         hierarchy.add(1, 2).unwrap();
 
@@ -123,7 +122,7 @@ mod tests {
     }
 
     #[test]
-    fn insert_child_at_index() {
+    fn insert_nested_at_index() {
         let mut hierarchy = hierarchy();
         hierarchy.add(1, 2).unwrap();
         hierarchy.insert_at(1, 0, 3).unwrap();
