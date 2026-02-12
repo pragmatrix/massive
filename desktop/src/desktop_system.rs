@@ -92,10 +92,7 @@ impl DesktopSystem {
             DesktopTarget::Desktop,
             LayoutAxis::VERTICAL.to_container().spacing(SECTION_SPACING),
         );
-        layout_specs.insert_or_update(
-            DesktopTarget::TopBand,
-            LayoutAxis::HORIZONTAL.to_container(),
-        );
+        layout_specs.insert_or_update(DesktopTarget::TopBand, LayoutAxis::HORIZONTAL);
 
         let mut presenter = DesktopPresenter::new(project, scene);
 
@@ -173,6 +170,7 @@ impl DesktopSystem {
                     instance_manager.spawn(application, CreationMode::New(parameters))?;
 
                 // Robustness: Should this be a real, logged event?
+                // Architecture: Better to start up the primary directly, so that we can remove the PresentInstance command?
                 self.apply_command(
                     DesktopCommand::PresentInstance(instance),
                     scene,
@@ -213,8 +211,8 @@ impl DesktopSystem {
                 let focused = self.interaction.focused();
                 let originating_from = focused.instance();
                 let instance_parent_path = focused.instance_parent().ok_or(anyhow!(
-                "Failed to present instance when no parent is focused that can take on a new one"
-            ))?;
+                    "Failed to present instance when no parent is focused that can take on a new one"
+                ))?;
 
                 let instance_parent = instance_parent_path.last().unwrap().clone();
 
@@ -227,7 +225,7 @@ impl DesktopSystem {
                 )?;
 
                 let instance_target = DesktopTarget::Instance(instance);
-                let instance_path = instance_parent_path.join(instance_target.clone());
+                let instance_path = instance_parent_path.clone().join(instance_target.clone());
 
                 // Add this instance to the hierarchy.
                 self.hierarchy.insert_at(
@@ -235,6 +233,13 @@ impl DesktopSystem {
                     insertion_index,
                     instance_target.clone(),
                 )?;
+
+                // Overwrite the parent's layout (make sure this is horizontal band for now). In case of a project, this is currently set to fixed panel size.
+
+                self.layout_specs.insert_or_update(
+                    instance_parent_path.last().unwrap().clone(),
+                    LayoutAxis::HORIZONTAL,
+                );
 
                 // Register the size of this instance.
                 self.layout_specs
@@ -401,6 +406,16 @@ pub enum LayoutSpec {
     },
     #[from]
     Leaf(SizePx),
+}
+
+impl From<LayoutAxis> for LayoutSpec {
+    fn from(axis: LayoutAxis) -> Self {
+        Self::Container {
+            axis,
+            padding: Default::default(),
+            spacing: 0,
+        }
+    }
 }
 
 impl From<ContainerBuilder> for LayoutSpec {

@@ -26,7 +26,6 @@ pub enum ProjectTarget {
     Group(GroupId),
     Launcher(LaunchProfileId),
     // Under Launcher
-    // Architecture: Why do we need to have the LaunchProfileId here for navigating down?
     Band(LaunchProfileId, BandTarget),
 }
 

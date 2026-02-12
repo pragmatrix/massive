@@ -154,36 +154,6 @@ impl DesktopPresenter {
         }
     }
 
-    pub fn layout(
-        &mut self,
-        default_panel_size: SizePx,
-        animate: bool,
-        scene: &Scene,
-        font_system: &mut FontSystem,
-    ) {
-        let mut root_builder = layout::container(DesktopTarget::Desktop, LayoutAxis::VERTICAL)
-            .spacing(SECTION_SPACING);
-
-        // Band section (instances layouted horizontally)
-        root_builder.nested(
-            self.top_band
-                .layout()
-                .map_id(DesktopTarget::Instance)
-                .with_id(DesktopTarget::TopBand),
-        );
-
-        // Project section
-        {
-            let project_layout = self
-                .project
-                .layout(default_panel_size)
-                .map_id(|pt| pt.into());
-            root_builder.nested(project_layout);
-        }
-
-        self.apply_layout(root_builder.layout(), animate, scene, font_system);
-    }
-
     pub fn apply_layout(
         &mut self,
         layout: Layout<DesktopTarget, 2>,
@@ -199,8 +169,26 @@ impl DesktopPresenter {
                 self.top_band_rect = rect_px.into();
             }
             DesktopTarget::Instance(instance_id) => {
-                self.top_band
-                    .set_instance_rect(instance_id, rect_px, animate);
+                if self.top_band.presents_instance(instance_id) {
+                    self.top_band
+                        .set_instance_rect(instance_id, rect_px, animate);
+                } else {
+                    let launcher_id_for_instance = self
+                        .project
+                        .mut_launcher_for_instance(instance_id)
+                        .unwrap()
+                        .id;
+
+                    self.project.set_rect(
+                        ProjectTarget::Band(
+                            launcher_id_for_instance,
+                            BandTarget::Instance(instance_id),
+                        ),
+                        rect_px,
+                        scene,
+                        font_system,
+                    );
+                }
             }
             DesktopTarget::Group(group_id) => {
                 self.project.set_rect(

@@ -9,7 +9,7 @@ use log::error;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
-use massive_geometry::{Color, Rect, SizePx};
+use massive_geometry::{Color, Rect, RectPx, SizePx};
 use massive_layout::{Layout, container, leaf};
 use massive_renderer::text::FontSystem;
 use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
@@ -22,6 +22,7 @@ use super::{
 };
 use crate::{
     EventTransition,
+    band_presenter::BandTarget,
     desktop_system::Cmd,
     instance_manager::ViewPath,
     navigation::{self, NavigationNode},
@@ -241,27 +242,35 @@ impl ProjectPresenter {
     pub fn set_rect(
         &mut self,
         id: ProjectTarget,
-        rect: Rect,
+        rect: RectPx,
         scene: &Scene,
         font_system: &mut FontSystem,
     ) {
         match id {
             ProjectTarget::Group(group_id) => self.set_group_rect(group_id, rect, scene),
             ProjectTarget::Launcher(launch_profile_id) => {
-                self.set_launcher_rect(launch_profile_id, rect, scene, font_system)
+                self.set_launcher_rect(launch_profile_id, rect.into(), scene, font_system)
             }
-            ProjectTarget::Band(..) => {
+            ProjectTarget::Band(launcher_id, BandTarget::Instance(instance)) => {
+                let launcher = self.launchers.get_mut(&launcher_id).unwrap();
+                launcher.set_instance_rect(instance, rect);
+            }
+            ProjectTarget::Band(id, _) => {
                 panic!("Invalid set_rect on a Band inside the project")
             }
         }
     }
 
-    fn set_group_rect(&mut self, id: GroupId, rect: Rect, scene: &Scene) {
+    fn set_group_rect(&mut self, id: GroupId, rect: RectPx, scene: &Scene) {
         use hash_map::Entry;
         match self.groups.entry(id) {
-            Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect),
+            Entry::Occupied(mut entry) => entry.get_mut().set_rect(rect.into()),
             Entry::Vacant(entry) => {
-                entry.insert(GroupPresenter::new(self.location.clone(), rect, scene));
+                entry.insert(GroupPresenter::new(
+                    self.location.clone(),
+                    rect.into(),
+                    scene,
+                ));
             }
         }
     }
@@ -283,6 +292,7 @@ impl ProjectPresenter {
             Entry::Vacant(entry) => {
                 entry.insert(LauncherPresenter::new(
                     self.location.clone(),
+                    id,
                     profile.clone(),
                     rect,
                     scene,
@@ -360,7 +370,7 @@ impl ProjectPresenter {
         launcher.hide_view(view)
     }
 
-    fn mut_launcher_for_instance(
+    pub fn mut_launcher_for_instance(
         &mut self,
         instance: InstanceId,
     ) -> Option<&mut LauncherPresenter> {

@@ -6,7 +6,7 @@ use winit::event::MouseButton;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
-use massive_geometry::{Color, PointPx, Rect, SizePx, ToPixels};
+use massive_geometry::{Color, PointPx, Rect, RectPx, SizePx, ToPixels};
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
@@ -19,7 +19,7 @@ use crate::{
     desktop_system::{Cmd, DesktopCommand},
     instance_manager::ViewPath,
     navigation::{NavigationNode, leaf},
-    projects::Launcher,
+    projects::{LaunchProfileId, Launcher},
 };
 
 // TODO: Need proper color palettes for UI elements.
@@ -33,6 +33,7 @@ const FADING_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 pub struct LauncherPresenter {
+    pub id: LaunchProfileId,
     profile: LaunchProfile,
     transform: Handle<Transform>,
     // location: Handle<Location>,
@@ -62,6 +63,7 @@ impl LauncherPresenter {
 
     pub fn new(
         parent_location: Handle<Location>,
+        id: LaunchProfileId,
         profile: LaunchProfile,
         rect: Rect,
         scene: &Scene,
@@ -101,6 +103,7 @@ impl LauncherPresenter {
             .enter(scene);
 
         Self {
+            id,
             profile,
             transform: our_transform,
             // location: parent_location,
@@ -170,7 +173,7 @@ impl LauncherPresenter {
         self.rect
             .animate_if_changed(rect, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
 
-        self.layout_band(true);
+        // self.layout_band(true);
     }
 
     pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
@@ -217,16 +220,20 @@ impl LauncherPresenter {
         self.band.hide_view(view)
     }
 
-    fn layout_band(&mut self, animate: bool) {
-        // Layout the band's instances.
-
-        let band_layout = self.band.layout();
-        let r: PointPx = self.rect.final_value().origin().to_pixels();
-
-        band_layout.place_inline(r, |instance_id, bx| {
-            self.band.set_instance_rect(instance_id, bx, animate);
-        });
+    pub fn set_instance_rect(&mut self, instance: InstanceId, rect: RectPx) {
+        self.band.set_instance_rect(instance, rect, true);
     }
+
+    // fn layout_band(&mut self, animate: bool) {
+    //     // Layout the band's instances.
+
+    //     let band_layout = self.band.layout();
+    //     let r: PointPx = self.rect.final_value().origin().to_pixels();
+
+    //     band_layout.place_inline(r, |instance_id, bx| {
+    //         self.band.set_instance_rect(instance_id, bx, animate);
+    //     });
+    // }
 
     pub fn apply_animations(&mut self) {
         let (origin, size) = self.rect.value().origin_and_size();
