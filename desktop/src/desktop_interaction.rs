@@ -11,13 +11,11 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 use massive_shell::Scene;
 
-use crate::{
-    desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget},
-    desktop_system::{Cmd, DesktopCommand},
-    event_router,
-    instance_manager::InstanceManager,
-    navigation::NavigationHitTester,
-};
+use crate::desktop_presenter::{DesktopFocusPath, DesktopPresenter, DesktopTarget};
+use crate::desktop_system::{Cmd, DesktopCommand};
+use crate::event_router;
+use crate::instance_manager::InstanceManager;
+use crate::navigation::NavigationHitTester;
 
 // Naming: Should probably get another, just Path or TargetPath / EventPath / RoutingPath?
 type EventRouter = event_router::EventRouter<DesktopTarget>;

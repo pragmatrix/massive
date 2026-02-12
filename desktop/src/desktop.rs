@@ -15,13 +15,11 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::{
-    DesktopEnvironment,
-    desktop_presenter::DesktopTarget,
-    desktop_system::DesktopSystem,
-    instance_manager::{InstanceManager, ViewPath},
-    projects::{Project, ProjectConfiguration},
-};
+use crate::DesktopEnvironment;
+use crate::desktop_presenter::DesktopTarget;
+use crate::desktop_system::DesktopSystem;
+use crate::instance_manager::{InstanceManager, ViewPath};
+use crate::projects::{Project, ProjectConfiguration};
 
 #[derive(Debug)]
 pub struct Desktop {
