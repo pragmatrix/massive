@@ -2,7 +2,7 @@ use std::{collections::HashMap, hash};
 
 use anyhow::{Result, bail};
 
-/// A representation of a ordered hierarchy.
+/// A representation of an ordered hierarchy.
 ///
 /// This implementation does not represent roots. It only maintains relationships between the ids.
 #[derive(Debug)]
