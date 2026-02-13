@@ -157,16 +157,19 @@ impl BandPresenter {
                 if view.creation_info.id == path.view {
                     // Feature: this should initiate a disappearing animation?
                     instance_presenter.state = InstancePresenterState::Disappearing;
-                    Ok(())
                 } else {
                     bail!("Invalid view: It's not related to anything we present");
                 }
             }
             InstancePresenterState::Disappearing => {
                 // ignored, we are already disappearing.
-                Ok(())
             }
         }
+
+        // We remove the instance for now so that we don't keep dangling references to Handle<>
+        // types and be sure that they are sent to the renderer in the Desktop.
+        self.instances.remove(&path.instance);
+        Ok(())
     }
 
     pub fn set_instance_rect(&mut self, instance_id: InstanceId, rect: RectPx, animate: bool) {
