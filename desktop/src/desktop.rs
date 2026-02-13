@@ -164,7 +164,6 @@ impl Desktop {
                     // Hiding is done on shutdown, but what if it's ended by itself?
                     // self.presenter.hide_instance(instance_id)?;
 
-
                     // Feature: Display the error to the user?
 
                     if let Err(e) = instance_result {
