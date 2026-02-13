@@ -188,7 +188,7 @@ impl DesktopSystem {
                 // navigation tree anymore.
                 self.hide_instance(instance)?;
 
-                // Refocus the cursor since it may be pointing to the removed instance.
+                // Refocus the pointer since it may be pointing to the removed instance.
                 let cmd = self.refocus_pointer(instance_manager, geometry)?;
                 // No intent on refocusing allowed.
                 assert!(cmd.is_none());
