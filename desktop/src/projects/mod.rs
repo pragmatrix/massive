@@ -5,14 +5,14 @@ use derive_more::From;
 use log::warn;
 
 use crate::band_presenter::BandTarget;
-use crate::projects::configuration::{GroupContents, LaunchProfile, LayoutDirection, ScopedTag};
+use crate::projects::configuration::{GroupContents, LayoutDirection, ScopedTag};
 
 mod configuration;
 mod launcher_presenter;
 mod project;
 mod project_presenter;
 
-pub use self::configuration::ProjectConfiguration;
+pub use self::configuration::{LaunchProfile, ProjectConfiguration};
 pub use self::launcher_presenter::LauncherPresenter;
 pub use self::project::*;
 pub use self::project_presenter::*;

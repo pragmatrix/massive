@@ -137,33 +137,33 @@ impl<'a, Target> NavigationHitTester<'a, Target> {
     }
 }
 
-impl<'a, Target: Clone + PartialEq> HitTester<Target> for NavigationHitTester<'a, Target> {
-    fn hit_test(&self, screen_pos: Point) -> (FocusPath<Target>, Vector3) {
-        let mut hits = Vec::new();
-        self.collect_hits(
-            screen_pos,
-            &self.navigation,
-            self.base_transform,
-            &mut hits,
-            Vec::new(),
-        );
+// impl<'a, Target: Clone + PartialEq> HitTester<Target> for NavigationHitTester<'a, Target> {
+//     fn hit_test(&self, screen_pos: Point) -> (FocusPath<Target>, Vector3) {
+//         let mut hits = Vec::new();
+//         self.collect_hits(
+//             screen_pos,
+//             &self.navigation,
+//             self.base_transform,
+//             &mut hits,
+//             Vec::new(),
+//         );
 
-        // Sort by z descending to get topmost hit
-        hits.sort_by(|a, b| {
-            b.1.z
-                .partial_cmp(&a.1.z)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+//         // Sort by z descending to get topmost hit
+//         hits.sort_by(|a, b| {
+//             b.1.z
+//                 .partial_cmp(&a.1.z)
+//                 .unwrap_or(std::cmp::Ordering::Equal)
+//         });
 
-        hits.first()
-            .map(|(path, pos)| (path.clone(), *pos))
-            .unwrap_or_else(|| (FocusPath::EMPTY, screen_pos.with_z(0.0)))
-    }
+//         hits.first()
+//             .map(|(path, pos)| (path.clone(), *pos))
+//             .unwrap_or_else(|| (FocusPath::EMPTY, screen_pos.with_z(0.0)))
+//     }
 
-    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<Target>) -> Option<Vector3> {
-        self.hit_test_target_recursive(screen_pos, &self.navigation, self.base_transform, target, 0)
-    }
-}
+//     fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<Target>) -> Option<Vector3> {
+//         self.hit_test_target_recursive(screen_pos, &self.navigation, self.base_transform, target, 0)
+//     }
+// }
 
 impl<'a, Target: Clone + PartialEq> NavigationHitTester<'a, Target> {
     fn collect_hits(

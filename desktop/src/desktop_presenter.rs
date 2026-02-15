@@ -63,10 +63,10 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 #[derive(Debug)]
 pub struct DesktopPresenter {
     top_band: BandPresenter,
-    project: ProjectPresenter,
+    pub project: ProjectPresenter,
 
-    rect: Rect,
-    top_band_rect: Rect,
+    pub rect: Rect,
+    pub top_band_rect: Rect,
 }
 
 impl DesktopPresenter {
@@ -150,60 +150,6 @@ impl DesktopPresenter {
         } else {
             self.project.hide_view(view)
         }
-    }
-
-    pub fn apply_layout(
-        &mut self,
-        layout: Layout<DesktopTarget, 2>,
-        animate: bool,
-        scene: &Scene,
-        font_system: &mut FontSystem,
-    ) {
-        layout.place_inline(PointPx::origin(), |id, rect_px: RectPx| match id {
-            DesktopTarget::Desktop => {
-                self.rect = rect_px.into();
-            }
-            DesktopTarget::TopBand => {
-                self.top_band_rect = rect_px.into();
-            }
-            DesktopTarget::Instance(instance_id) => {
-                if self.top_band.presents_instance(instance_id) {
-                    self.top_band
-                        .set_instance_rect(instance_id, rect_px, animate);
-                } else {
-                    let launcher_id_for_instance = self
-                        .project
-                        .mut_launcher_for_instance(instance_id)
-                        .unwrap()
-                        .id;
-
-                    self.project.set_rect(
-                        ProjectTarget::Band(
-                            launcher_id_for_instance,
-                            BandTarget::Instance(instance_id),
-                        ),
-                        rect_px,
-                        scene,
-                        font_system,
-                    );
-                }
-            }
-            DesktopTarget::Group(group_id) => {
-                self.project
-                    .set_rect(ProjectTarget::Group(group_id), rect_px, scene, font_system);
-            }
-            DesktopTarget::Launcher(launcher_id) => {
-                self.project.set_rect(
-                    ProjectTarget::Launcher(launcher_id),
-                    rect_px,
-                    scene,
-                    font_system,
-                );
-            }
-            DesktopTarget::View(..) => {
-                panic!("View layout isn't supported (instance target defines its size)");
-            }
-        });
     }
 
     pub fn apply_animations(&mut self) {

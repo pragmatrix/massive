@@ -1,4 +1,8 @@
+use std::hash;
+
 use derive_more::{Deref, From, Into};
+
+use crate::OrderedHierarchy;
 
 /// A path into a focus tree / hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq, Deref, From, Into)]
@@ -67,6 +71,27 @@ impl<T: PartialEq> FocusPath<T> {
 pub enum FocusPathTransition<T> {
     Exit(FocusPath<T>),
     Enter(FocusPath<T>),
+}
+
+pub trait PathResolver<Id: Clone> {
+    fn parent(&self, id: &Id) -> Option<&Id>;
+
+    fn resolve(&self, mut id: Id) -> FocusPath<Id> {
+        let mut components: Vec<Id> = vec![id.clone()];
+        while let Some(parent) = self.parent(&id) {
+            let parent = parent.clone();
+            components.push(parent.clone());
+            id = parent
+        }
+        components.reverse();
+        components.into()
+    }
+}
+
+impl<Id: Clone + Eq + hash::Hash> PathResolver<Id> for OrderedHierarchy<Id> {
+    fn parent(&self, id: &Id) -> Option<&Id> {
+        self.parent(id)
+    }
 }
 
 #[cfg(test)]

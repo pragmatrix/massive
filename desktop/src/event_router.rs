@@ -13,8 +13,11 @@ use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::{DeviceStates, Event};
 
-use crate::focus_path::{FocusPath, FocusPathTransition};
+use crate::focus_path::{FocusPath, FocusPathTransition, PathResolver};
 
+/// Architecture: We might not need to use FocusPaths here anymore at all, and use PathResolver<T>
+/// if needed for hierarchy resolution. This also could be externalized to compute enter / exit
+/// focus / pointer events.
 #[derive(Debug)]
 pub struct EventRouter<T> {
     /// The recently touched target with the cursor / mouse.
@@ -76,6 +79,7 @@ where
     pub fn process(
         &mut self,
         input_event: &Event<ViewEvent>,
+        path_resolver: &dyn PathResolver<T>,
         hit_tester: &dyn HitTester<T>,
     ) -> Result<EventTransitions<T>> {
         let view_event = input_event.event();
@@ -103,18 +107,24 @@ where
                 //
                 // Robustness: There might be a change of the device here.
                 let hit = if !any_pressed {
-                    let (path, hit) = hit_tester.hit_test(screen_pos);
-                    set_pointer_focus(
-                        &mut self.pointer_focus,
-                        path,
-                        *device_id,
-                        &mut event_transitions,
-                    );
-                    Some(hit)
+                    if let Some((path, hit)) = hit_tester.hit_test(screen_pos, None) {
+                        set_pointer_focus(
+                            &mut self.pointer_focus,
+                            path_resolver.resolve(path),
+                            *device_id,
+                            &mut event_transitions,
+                        );
+                        Some(hit)
+                    } else {
+                        None
+                    }
                 } else {
                     // Button is pressed, hit directly on the previous target.
 
-                    if let Some(hit) = hit_tester.hit_test_target(screen_pos, &self.pointer_focus) {
+                    if let Some((_, hit)) =
+                        // Robustness: What if pointer_focus is EMPTY?
+                        hit_tester.hit_test(screen_pos, self.pointer_focus.last())
+                    {
                         Some(hit)
                     } else {
                         // No hit on the previous target? This happens if it does not exist anymore,
@@ -209,6 +219,7 @@ where
     /// otherwise the current position may be off?
     pub fn reset_pointer_focus(
         &mut self,
+        path_resolver: &dyn PathResolver<T>,
         hit_tester: &dyn HitTester<T>,
     ) -> Result<EventTransitions<T>> {
         let (path, device) = {
@@ -217,8 +228,12 @@ where
             if let Some(device) = self.device_states.most_recent_moved_pointing_device()
                 && let Some(pos) = self.device_states.pos(device)
             {
-                let (path, _hit) = hit_tester.hit_test(pos);
-                (path, device)
+                if let Some((path, _hit)) = hit_tester.hit_test(pos, None) {
+                    (path_resolver.resolve(path), device)
+                } else {
+                    // Robustness: Is this even correct here to store a hit on EMPTY?
+                    (FocusPath::EMPTY, device)
+                }
             } else {
                 warn!("Resetting pointer focus: No most recent position was found");
                 if self.pointer_focus == FocusPath::EMPTY {
@@ -366,17 +381,16 @@ impl<T> TransitionLog<T> {
 #[derive(Debug)]
 pub enum EventTransition<T> {
     Directed(FocusPath<T>, ViewEvent),
+    /// Architecture: Do we really need this. Shouldn't we provide a context, say for the modifier changes?
     Broadcast(ViewEvent),
 }
 
 // Architecture: The two functions can probably be combined into one. But is this a good thing?
 pub trait HitTester<Target> {
     /// Return the topmost hit at screen_pos in the target's coordinate system.
-    fn hit_test(&self, screen_pos: Point) -> (FocusPath<Target>, Vector3);
-
-    /// Returns the position in the target's coordinate system, even if a regular hit test would
-    /// return another target or the point is outside of the hit area.
-    fn hit_test_target(&self, screen_pos: Point, target: &FocusPath<Target>) -> Option<Vector3>;
+    ///
+    /// If target is set, returns the hit inside the specific Target's coordinate system only.
+    fn hit_test(&self, screen_pos: Point, target: Option<&Target>) -> Option<(Target, Vector3)>;
 }
 
 #[derive(Debug)]

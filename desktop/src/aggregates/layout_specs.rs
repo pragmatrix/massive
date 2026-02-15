@@ -1,9 +1,9 @@
 use std::{any::type_name, collections::HashMap, fmt, hash};
 
 use anyhow::{Result, bail};
-use derive_more::Index;
+use derive_more::{Deref, Index};
 
-#[derive(Debug, Index)]
+#[derive(Debug, Index, Deref)]
 pub struct Map<Key, Value> {
     map: HashMap<Key, Value>,
 }
@@ -28,17 +28,21 @@ impl<Key: fmt::Debug + Eq + hash::Hash, Value: Sized> Map<Key, Value> {
         self.map.insert(key, value.into());
     }
 
-    pub fn remove(&mut self, target: &Key) -> Result<()> {
-        if self.map.remove(target).is_none() {
+    pub fn remove(&mut self, key: &Key) -> Result<()> {
+        if self.map.remove(key).is_none() {
             bail!(
-                "Can't find target to remove from map of type `{}`",
+                "Can't find key to remove from map of type `{}`",
                 type_name::<Value>()
             );
         }
         Ok(())
     }
 
-    pub fn get(&self, target: &Key) -> Option<&Value> {
-        self.map.get(target)
+    pub fn get_mut(&mut self, key: &Key) -> Option<&mut Value> {
+        self.map.get_mut(key)
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Value> {
+        self.map.values_mut()
     }
 }

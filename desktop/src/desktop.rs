@@ -8,18 +8,20 @@ use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId,
-    InstanceParameters, ViewCommand, ViewEvent, ViewId, ViewRole,
+    InstanceParameters, ViewCommand, ViewEvent, ViewId,
 };
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
-use crate::DesktopEnvironment;
-use crate::desktop_presenter::DesktopTarget;
-use crate::desktop_system::DesktopSystem;
+use crate::desktop_system::{DesktopCommand, DesktopSystem, ProjectCommand};
+use crate::event_sourcing::Transaction;
 use crate::instance_manager::{InstanceManager, ViewPath};
-use crate::projects::{Project, ProjectConfiguration};
+use crate::projects::{
+    GroupId, LaunchGroup, LaunchGroupContents, Launcher, Project, ProjectConfiguration,
+};
+use crate::{DesktopEnvironment, DesktopTarget};
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -80,6 +82,8 @@ impl Desktop {
             bail!("Did not or received an unexpected request from the application");
         };
 
+        instance_manager.add_view(primary_instance, &creation_info);
+
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.
         let default_size = creation_info.size();
@@ -95,21 +99,29 @@ impl Desktop {
 
         // Initial setup
 
-        let mut system = DesktopSystem::new(
-            env,
-            project,
-            (primary_instance, creation_info.clone()),
-            default_size,
+        let mut system =
+            DesktopSystem::new(env, fonts.clone(), project.root.id, default_size, &scene)?;
+
+        let project_setup_transaction =
+            project_to_transaction(&project).map(DesktopCommand::Project);
+
+        let primary_view_transaction: Transaction<_> = [
+            // Focus top band first.
+            DesktopCommand::Focus(vec![DesktopTarget::Desktop, DesktopTarget::TopBand].into()),
+            // Then present the primary instance / view
+            DesktopCommand::PresentInstance(primary_instance),
+            DesktopCommand::PresentView(primary_instance, creation_info),
+        ]
+        .into();
+
+        system.transact(
+            project_setup_transaction + primary_view_transaction,
             &scene,
             &mut instance_manager,
             renderer.geometry(),
         )?;
-        // presenter.present_primary_instance(primary_instance, &creation_info, &scene)?;
 
         system.update_effects(false, &scene, &mut fonts.lock())?;
-
-        // presenter.layout(creation_info.size(), false, &scene, &mut fonts.lock());
-        instance_manager.add_view(primary_instance, &creation_info);
 
         Ok(Self {
             scene,
@@ -128,7 +140,7 @@ impl Desktop {
         loop {
             tokio::select! {
                 Some((instance_id, request)) = self.instance_commands.recv() => {
-                    self.handle_instance_command(instance_id, request)?;
+                    self.process_instance_command(instance_id, request)?;
                 }
 
                 shell_event = self.context.wait_for_shell_event() => {
@@ -183,7 +195,7 @@ impl Desktop {
 
             // Get the camera, build the frame, and submit it to the renderer.
             {
-                let camera = self.system.interaction.camera();
+                let camera = self.system.camera();
                 let mut frame = self.scene.begin_frame().with_camera(camera);
                 if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                     frame = frame.with_pacing(RenderPacing::Smooth);
@@ -193,7 +205,7 @@ impl Desktop {
         }
     }
 
-    fn handle_instance_command(
+    fn process_instance_command(
         &mut self,
         instance: InstanceId,
         command: InstanceCommand,
@@ -201,19 +213,12 @@ impl Desktop {
         match command {
             InstanceCommand::CreateView(info) => {
                 self.instance_manager.add_view(instance, &info);
-                self.system.present_view(instance, &info)?;
-
-                let focused = self.system.interaction.focused();
-                // If this instance is currently focused and the new view is primary, make it
-                // foreground so that the view is focused.
-                if matches!(focused.last(), Some(DesktopTarget::Instance(..)))
-                    && focused.instance() == Some(instance)
-                    && info.role == ViewRole::Primary
-                {
-                    let view_focus = focused.clone().join(DesktopTarget::View(info.id));
-                    let cmd = self.system.focus(view_focus, &self.instance_manager)?;
-                    assert!(cmd.is_none());
-                }
+                self.system.transact(
+                    DesktopCommand::PresentView(instance, info),
+                    &self.scene,
+                    &mut self.instance_manager,
+                    self.renderer.geometry(),
+                )?;
             }
             InstanceCommand::DestroyView(id, collector) => {
                 self.system.hide_view((instance, id).into())?;
@@ -258,4 +263,47 @@ impl Desktop {
         }
         Ok(())
     }
+}
+
+fn project_to_transaction(project: &Project) -> Transaction<ProjectCommand> {
+    let mut commands = Vec::new();
+
+    commands.push(ProjectCommand::SetStartupProfile(project.start));
+
+    launch_group_commands(None, &project.root, &mut commands);
+
+    commands.into()
+}
+
+fn launch_group_commands(
+    parent: Option<GroupId>,
+    group: &LaunchGroup,
+    commands: &mut Vec<ProjectCommand>,
+) {
+    commands.push(ProjectCommand::AddLaunchGroup {
+        parent,
+        id: group.id,
+        properties: group.properties.clone(),
+    });
+
+    match &group.contents {
+        LaunchGroupContents::Groups(launch_groups) => {
+            for launch_group in launch_groups {
+                launch_group_commands(Some(group.id), launch_group, commands);
+            }
+        }
+        LaunchGroupContents::Launchers(launchers) => {
+            for launcher in launchers {
+                launcher_commands(group.id, launcher, commands)
+            }
+        }
+    }
+}
+
+fn launcher_commands(group: GroupId, launcher: &Launcher, commands: &mut Vec<ProjectCommand>) {
+    commands.push(ProjectCommand::AddLauncher {
+        group,
+        id: launcher.id,
+        profile: launcher.profile.clone(),
+    })
 }

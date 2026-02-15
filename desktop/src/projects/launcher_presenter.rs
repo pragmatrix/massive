@@ -51,7 +51,7 @@ pub struct LauncherPresenter {
     events: EventManager<ViewEvent>,
 
     /// The instances.
-    band: BandPresenter,
+    // band: BandPresenter,
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
@@ -111,22 +111,22 @@ impl LauncherPresenter {
             background,
             name,
             events: EventManager::default(),
-            band: BandPresenter::default(),
+            // band: BandPresenter::default(),
             fader: scene.animated(1.0),
         }
     }
 
-    pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, ProjectTarget> {
-        if self.band.is_empty() {
-            return leaf(launcher.id, self.rect.final_value());
-        }
-        let launcher_id = launcher.id;
-        self.band
-            .navigation()
-            .map_target(move |band_target| ProjectTarget::Band(launcher_id, band_target))
-            .with_target(ProjectTarget::Launcher(launcher_id))
-            .with_rect(self.rect.final_value())
-    }
+    // pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, ProjectTarget> {
+    //     if self.band.is_empty() {
+    //         return leaf(launcher.id, self.rect.final_value());
+    //     }
+    //     let launcher_id = launcher.id;
+    //     self.band
+    //         .navigation()
+    //         .map_target(move |band_target| ProjectTarget::Band(launcher_id, band_target))
+    //         .with_target(ProjectTarget::Launcher(launcher_id))
+    //         .with_rect(self.rect.final_value())
+    // }
 
     // Architecture: I don't want the launcher here to directly generate UserIntent, may be LauncherIntent? Not sure.
     pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
@@ -146,7 +146,7 @@ impl LauncherPresenter {
         }
 
         match event.event() {
-            ViewEvent::Focused(true) if self.band.is_empty() => {
+            ViewEvent::Focused(true) /* if self.band.is_empty() */ => {
                 // Usability: Should pass this rect?
                 return Ok(DesktopCommand::StartInstance {
                     parameters: self.profile.params.clone(),
@@ -165,9 +165,9 @@ impl LauncherPresenter {
         Ok(Cmd::None)
     }
 
-    pub fn process_band(&mut self, view_event: ViewEvent) -> Result<Cmd> {
-        self.band.process(view_event).map(|()| Cmd::None)
-    }
+    // pub fn process_band(&mut self, view_event: ViewEvent) -> Result<Cmd> {
+    //     self.band.process(view_event).map(|()| Cmd::None)
+    // }
 
     pub fn set_rect(&mut self, rect: Rect) {
         self.rect
@@ -176,53 +176,53 @@ impl LauncherPresenter {
         // self.layout_band(true);
     }
 
-    pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
-        self.band.presents_instance(instance)
-    }
+    // pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
+    //     self.band.presents_instance(instance)
+    // }
 
-    pub fn present_instance(
-        &mut self,
-        instance: InstanceId,
-        originating_from: Option<InstanceId>,
-        default_panel_size: SizePx,
-        scene: &Scene,
-    ) -> Result<usize> {
-        let was_empty = self.band.is_empty();
-        let insertion_index =
-            self.band
-                .present_instance(instance, originating_from, default_panel_size, scene)?;
-        if was_empty && !self.band.is_empty() {
-            self.fader
-                .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
-        }
+    // pub fn present_instance(
+    //     &mut self,
+    //     instance: InstanceId,
+    //     originating_from: Option<InstanceId>,
+    //     default_panel_size: SizePx,
+    //     scene: &Scene,
+    // ) -> Result<usize> {
+    //     let was_empty = self.band.is_empty();
+    //     let insertion_index =
+    //         self.band
+    //             .present_instance(instance, originating_from, default_panel_size, scene)?;
+    //     if was_empty && !self.band.is_empty() {
+    //         self.fader
+    //             .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
+    //     }
 
-        // self.layout_band(true);
-        Ok(insertion_index)
-    }
+    //     // self.layout_band(true);
+    //     Ok(insertion_index)
+    // }
 
-    pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
-        self.band.hide_instance(instance)?;
-        if self.band.is_empty() {
-            self.fader
-                .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
-        }
-        Ok(())
-    }
+    // pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+    //     self.band.hide_instance(instance)?;
+    //     if self.band.is_empty() {
+    //         self.fader
+    //             .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
+    //     }
+    //     Ok(())
+    // }
 
-    pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
-        self.band.present_view(instance, view)?;
+    // pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
+    //     self.band.present_view(instance, view)?;
 
-        // self.layout_band(false);
-        Ok(())
-    }
+    //     // self.layout_band(false);
+    //     Ok(())
+    // }
 
-    pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
-        self.band.hide_view(view)
-    }
+    // pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
+    //     self.band.hide_view(view)
+    // }
 
-    pub fn set_instance_rect(&mut self, instance: InstanceId, rect: RectPx) {
-        self.band.set_instance_rect(instance, rect, true);
-    }
+    // pub fn set_instance_rect(&mut self, instance: InstanceId, rect: RectPx) {
+    //     self.band.set_instance_rect(instance, rect, true);
+    // }
 
     // fn layout_band(&mut self, animate: bool) {
     //     // Layout the band's instances.
@@ -266,7 +266,7 @@ impl LauncherPresenter {
 
         // Robustness: Forgot to forward this once. How can we make sure that animations are
         // always applied if needed?
-        self.band.apply_animations();
+        // self.band.apply_animations();
     }
 }
 

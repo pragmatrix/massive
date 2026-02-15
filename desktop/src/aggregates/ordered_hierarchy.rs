@@ -95,7 +95,7 @@ impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
         self.parent.get(target)
     }
 
-    pub fn nested(&self, target: &Id) -> &[Id] {
+    pub fn get_nested(&self, target: &Id) -> &[Id] {
         self.nested.get(target).map(Vec::as_slice).unwrap_or(&[])
     }
 }
@@ -109,7 +109,7 @@ mod tests {
         let hierarchy = hierarchy();
 
         assert_eq!(hierarchy.parent(&1), None);
-        assert_eq!(hierarchy.nested(&1), &[] as &[i32]);
+        assert_eq!(hierarchy.get_nested(&1), &[] as &[i32]);
     }
 
     #[test]
@@ -118,7 +118,7 @@ mod tests {
         hierarchy.add(1, 2).unwrap();
 
         assert_eq!(hierarchy.parent(&2), Some(&1));
-        assert_eq!(hierarchy.nested(&1), &[2]);
+        assert_eq!(hierarchy.get_nested(&1), &[2]);
     }
 
     #[test]
@@ -127,7 +127,7 @@ mod tests {
         hierarchy.add(1, 2).unwrap();
         hierarchy.insert_at(1, 0, 3).unwrap();
 
-        assert_eq!(hierarchy.nested(&1), &[3, 2]);
+        assert_eq!(hierarchy.get_nested(&1), &[3, 2]);
     }
 
     #[test]
@@ -149,8 +149,8 @@ mod tests {
         assert_eq!(hierarchy.parent(&1), None);
         assert_eq!(hierarchy.parent(&2), None);
         assert_eq!(hierarchy.parent(&3), None);
-        assert_eq!(hierarchy.nested(&1), &[] as &[i32]);
-        assert_eq!(hierarchy.nested(&2), &[] as &[i32]);
+        assert_eq!(hierarchy.get_nested(&1), &[] as &[i32]);
+        assert_eq!(hierarchy.get_nested(&2), &[] as &[i32]);
     }
 
     #[test]
@@ -161,7 +161,7 @@ mod tests {
 
         hierarchy.remove(&2).unwrap();
 
-        assert_eq!(hierarchy.nested(&1), &[3]);
+        assert_eq!(hierarchy.get_nested(&1), &[3]);
     }
 
     #[test]
@@ -174,7 +174,7 @@ mod tests {
 
         hierarchy.remove(&3).unwrap();
 
-        assert_eq!(hierarchy.nested(&1), &[2, 4, 5]);
+        assert_eq!(hierarchy.get_nested(&1), &[2, 4, 5]);
     }
 
     fn hierarchy() -> OrderedHierarchy<i32> {

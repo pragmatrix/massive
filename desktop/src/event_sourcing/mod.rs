@@ -10,6 +10,19 @@ pub struct Transaction<Command> {
     commands: Vec<Command>,
 }
 
+impl<Command> From<Command> for Transaction<Command> {
+    fn from(value: Command) -> Self {
+        vec![value].into()
+    }
+}
+
+impl<Command, const LEN: usize> From<[Command; LEN]> for Transaction<Command> {
+    fn from(value: [Command; LEN]) -> Self {
+        let v: Vec<Command> = value.into();
+        v.into()
+    }
+}
+
 impl<Command> Transaction<Command> {
     pub fn map<Cmd2>(self, f: impl Fn(Command) -> Cmd2) -> Transaction<Cmd2> {
         self.commands.into_iter().map(f).collect::<Vec<_>>().into()

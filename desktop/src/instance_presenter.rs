@@ -15,7 +15,7 @@ pub struct InstancePresenter {
     pub rect: RectPx,
     /// The center of the instance's panel. This is also the point the camera should look at at
     /// rest.
-    pub center_animation: Animated<Vector3>,
+    pub center_translation_animation: Animated<Vector3>,
 }
 
 #[derive(Debug)]
@@ -44,13 +44,13 @@ impl InstancePresenter {
         let translation = (x, y, z).into();
 
         if animate {
-            self.center_animation.animate_if_changed(
+            self.center_translation_animation.animate_if_changed(
                 translation,
                 BandPresenter::STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {
-            self.center_animation.set_immediately(translation);
+            self.center_translation_animation.set_immediately(translation);
             self.apply_animations();
         }
     }
@@ -75,7 +75,7 @@ impl InstancePresenter {
         };
 
         // Get the translation for the instance.
-        let mut translation = self.center_animation.value();
+        let mut translation = self.center_translation_animation.value();
 
         // And correct the view's position.
         // Since the centering uses i32, we snap to pixel here (what we want!).

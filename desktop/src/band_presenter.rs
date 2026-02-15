@@ -62,9 +62,9 @@ impl BandPresenter {
                 .unwrap_or(default_panel_size),
             rect: RectPx::zero(),
             // Correctness: We animate from 0,0 if no originating exist. Need a position here.
-            center_animation: scene.animated(
+            center_translation_animation: scene.animated(
                 originating_presenter
-                    .map(|op| op.center_animation.value())
+                    .map(|op| op.center_translation_animation.value())
                     .unwrap_or_default(),
             ),
         };
@@ -213,6 +213,6 @@ impl BandPresenter {
     pub fn instance_transform(&self, instance: InstanceId) -> Option<Transform> {
         self.instances
             .get(&instance)
-            .map(|instance| instance.center_animation.final_value().into())
+            .map(|instance| instance.center_translation_animation.final_value().into())
     }
 }
