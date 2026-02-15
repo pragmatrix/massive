@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, hash, sync::Arc};
 
 use parking_lot::{Mutex, MutexGuard};
 
@@ -26,12 +26,26 @@ where
     }
 }
 
+// PartialEq implements reference equality based on the Id.
+//
+// Robustness: Should probably be based on the Arc ptr.
 impl<T: Object> PartialEq for Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
     fn eq(&self, other: &Self) -> bool {
         self.inner.id.eq(&other.inner.id)
+    }
+}
+
+impl<T: Object> Eq for Handle<T> where SceneChange: From<Change<T::Change>> {}
+
+impl<T: Object> hash::Hash for Handle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.inner.id.hash(state);
     }
 }
 
