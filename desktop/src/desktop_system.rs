@@ -8,6 +8,8 @@
 //! The goal here is to remove as much as possible from the specific instances into separate systems
 //! and aggregates that are event driven.
 
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow, bail};
 use derive_more::From;
 use log::{error, warn};
@@ -19,7 +21,7 @@ use massive_applications::{
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_input::Event;
 use massive_layout::{Layout, LayoutAxis, Padding, Thickness, container, leaf};
-use massive_renderer::{RenderGeometry, text::FontSystem};
+use massive_renderer::RenderGeometry;
 use massive_scene::{Location, Object, ToCamera, Transform};
 use massive_shell::{FontManager, Scene};
 use winit::event::ElementState;
@@ -102,11 +104,9 @@ pub struct DesktopSystem {
 #[derive(Debug)]
 struct Aggregates {
     hierarchy: OrderedHierarchy<DesktopTarget>,
-    startup_profile: Option<LaunchProfileId>,
+    rects: HashMap<DesktopTarget, Rect>,
 
-    // For hit testing.
-    desktop_rect: Rect,
-    top_band_rect: Rect,
+    startup_profile: Option<LaunchProfileId>,
 
     // presenters
     project_presenter: ProjectPresenter,
@@ -122,11 +122,9 @@ impl Aggregates {
     ) -> Self {
         Self {
             hierarchy,
+            rects: HashMap::default(),
             startup_profile: None,
             groups: Map::default(),
-
-            desktop_rect: Rect::default(),
-            top_band_rect: Rect::default(),
 
             project_presenter,
             launchers: Map::default(),
@@ -331,7 +329,7 @@ impl DesktopSystem {
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
                 let target = group.into();
-                self.aggregates.hierarchy.remove(&target)?;
+                self.aggregates.remove_target(&target)?;
                 self.aggregates.groups.remove(&group)?;
             }
             ProjectCommand::AddLauncher { group, id, profile } => {
@@ -352,7 +350,7 @@ impl DesktopSystem {
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);
-                self.aggregates.hierarchy.remove(&target)?;
+                self.aggregates.remove_target(&target)?;
 
                 self.aggregates.launchers.remove(&id)?;
             }
@@ -611,37 +609,39 @@ impl DesktopSystem {
     }
 
     fn apply_layout(&mut self, layout: Layout<DesktopTarget, 2>, animate: bool) {
-        layout.place_inline(PointPx::origin(), |id, rect_px: RectPx| match id {
-            DesktopTarget::Desktop => {
-                self.aggregates.desktop_rect = rect_px.into();
-            }
-            DesktopTarget::TopBand => {
-                self.aggregates.top_band_rect = rect_px.into();
-            }
-            DesktopTarget::Instance(instance_id) => {
-                self.aggregates
-                    .instances
-                    .get_mut(&instance_id)
-                    .expect("Instance missing")
-                    .set_rect(rect_px, animate);
-            }
-            DesktopTarget::Group(group_id) => {
-                self.aggregates
-                    .groups
-                    .get_mut(&group_id)
-                    .expect("Missing group")
-                    .rect = rect_px.into();
-            }
-            DesktopTarget::Launcher(launcher_id) => {
-                self.aggregates
-                    .launchers
-                    .get_mut(&launcher_id)
-                    .expect("Launcher missing")
-                    .set_rect(rect_px.into(), animate);
-            }
-            DesktopTarget::View(..) => {
-                panic!("View layout isn't supported (instance target defines its size)");
-            }
+        layout.place_inline(PointPx::origin(), |id, rect_px: RectPx| {
+            let rect: Rect = rect_px.into();
+
+            self.aggregates.rects.insert(id.clone(), rect);
+
+            match id {
+                DesktopTarget::Desktop => {}
+                DesktopTarget::TopBand => {}
+                DesktopTarget::Instance(instance_id) => {
+                    self.aggregates
+                        .instances
+                        .get_mut(&instance_id)
+                        .expect("Instance missing")
+                        .set_rect(rect_px, animate);
+                }
+                DesktopTarget::Group(group_id) => {
+                    self.aggregates
+                        .groups
+                        .get_mut(&group_id)
+                        .expect("Missing group")
+                        .rect = rect;
+                }
+                DesktopTarget::Launcher(launcher_id) => {
+                    self.aggregates
+                        .launchers
+                        .get_mut(&launcher_id)
+                        .expect("Launcher missing")
+                        .set_rect(rect, animate);
+                }
+                DesktopTarget::View(..) => {
+                    panic!("View layout isn't supported (instance target defines its size)");
+                }
+            };
         });
     }
 
@@ -766,18 +766,11 @@ impl DesktopSystem {
     pub fn camera_for_focus(&self, focus: &DesktopFocusPath) -> Option<PixelCamera> {
         match focus.last()? {
             // Desktop and TopBand are constrained to their size.
-            DesktopTarget::Desktop => Some(self.aggregates.desktop_rect.to_camera()),
-            DesktopTarget::TopBand => Some(self.aggregates.top_band_rect.to_camera()),
-
-            DesktopTarget::Instance(instance_id) => {
-                let instance = &self.aggregates.instances[instance_id];
-                let transform: Transform =
-                    instance.center_translation_animation.final_value().into();
-                Some(transform.to_camera())
+            DesktopTarget::Desktop => {
+                Some(self.aggregates.rects[&DesktopTarget::Desktop].to_camera())
             }
-            DesktopTarget::View(_) => {
-                // Forward this to the parent (which must be a ::Instance).
-                self.camera_for_focus(&focus.parent()?)
+            DesktopTarget::TopBand => {
+                Some(self.aggregates.rects[&DesktopTarget::TopBand].to_camera())
             }
 
             DesktopTarget::Group(group) => {
@@ -790,6 +783,17 @@ impl DesktopSystem {
                     .center()
                     .to_camera(),
             ),
+
+            DesktopTarget::Instance(instance_id) => {
+                let instance = &self.aggregates.instances[instance_id];
+                let transform: Transform =
+                    instance.center_translation_animation.final_value().into();
+                Some(transform.to_camera())
+            }
+            DesktopTarget::View(_) => {
+                // Forward this to the parent (which must be a ::Instance).
+                self.camera_for_focus(&focus.parent()?)
+            }
         }
     }
 }
@@ -881,6 +885,14 @@ impl Aggregates {
             aggregates: self,
             geometry,
         }
+    }
+
+    /// Remove the target from the hierarchy and rects. Specific targets are left untouched (they may
+    /// be needed for fading out, etc.).
+    pub fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
+        self.hierarchy.remove(target)?;
+        let _ = self.rects.remove(target);
+        Ok(())
     }
 }
 
