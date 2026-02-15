@@ -121,7 +121,7 @@ impl Desktop {
             renderer.geometry(),
         )?;
 
-        system.update_effects(false, &scene, &mut fonts.lock())?;
+        system.update_effects(false)?;
 
         Ok(Self {
             scene,
@@ -158,7 +158,7 @@ impl Desktop {
                                     self.renderer.geometry(),
                                 )?;
                                 self.system.transact(cmd, &self.scene, &mut self.instance_manager, self.renderer.geometry())?;
-                                self.system.update_effects(true, &self.scene, &mut self.fonts.lock())?;
+                                self.system.update_effects(true)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;

@@ -5,22 +5,19 @@ use log::warn;
 use winit::event::MouseButton;
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewCreationInfo, ViewEvent};
-use massive_geometry::{Color, Rect, RectPx, SizePx};
+use massive_applications::ViewEvent;
+use massive_geometry::{Color, Rect};
 use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
-use crate::band_presenter::BandPresenter;
 use crate::desktop_system::{Cmd, DesktopCommand};
-use crate::instance_manager::ViewPath;
-use crate::navigation::{NavigationNode, leaf};
-use crate::projects::{LaunchProfileId, Launcher};
+use crate::projects::LaunchProfileId;
 
+use super::STRUCTURAL_ANIMATION_DURATION;
 use super::configuration::LaunchProfile;
-use super::{ProjectTarget, STRUCTURAL_ANIMATION_DURATION};
 
 // TODO: Need proper color palettes for UI elements.
 // const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
