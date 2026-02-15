@@ -18,7 +18,9 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{
     CreationMode, InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
-use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
+use massive_geometry::{
+    Contains, Matrix4, PixelCamera, Point, PointPx, Rect, RectPx, SizePx, Vector3,
+};
 use massive_input::Event;
 use massive_layout::{Layout, LayoutAxis, Padding, Thickness, container, leaf};
 use massive_renderer::RenderGeometry;
@@ -887,11 +889,11 @@ impl Aggregates {
         }
     }
 
-    /// Remove the target from the hierarchy and rects. Specific targets are left untouched (they may
-    /// be needed for fading out, etc.).
+    /// Remove the target from the hierarchy and rects. Specific target aggregates are left
+    /// untouched (they may be needed for fading out, etc.).
     pub fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
         self.hierarchy.remove(target)?;
-        let _ = self.rects.remove(target);
+        self.rects.remove(target);
         Ok(())
     }
 }
@@ -901,13 +903,49 @@ struct AggregateHitTester<'a> {
     geometry: &'a RenderGeometry,
 }
 
+impl AggregateHitTester<'_> {
+    fn hit_test_hierarchy(
+        &self,
+        screen_pos: Point,
+        root: &DesktopTarget,
+    ) -> Option<(DesktopTarget, Vector3)> {
+        let rect = self.aggregates.rects.get(root)?;
+        let model = Matrix4::IDENTITY;
+        let local_pos = self.geometry.unproject_to_model_z0(screen_pos, &model)?;
+        let point = Point::new(local_pos.x, local_pos.y);
+        if rect.contains(point) {
+            // Prefer nested hits over container hits.
+            for nested in self.aggregates.hierarchy.get_nested(root) {
+                if let Some(target_hit) = self.hit_test_hierarchy(screen_pos, nested) {
+                    return Some(target_hit);
+                }
+            }
+            // No nested hit, container hits.
+            return Some((root.clone(), local_pos));
+        }
+
+        None
+    }
+
+    fn hit_test_target_plane(&self, screen_pos: Point) -> Option<Vector3> {
+        // let rect = self.aggregates.rects.get(target)?;
+        let model = Matrix4::IDENTITY;
+        self.geometry.unproject_to_model_z0(screen_pos, &model)
+    }
+}
+
 impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
     fn hit_test(
         &self,
         screen_pos: massive_geometry::Point,
         target: Option<&DesktopTarget>,
     ) -> Option<(DesktopTarget, massive_geometry::Vector3)> {
-        todo!()
+        match target {
+            Some(target) => self
+                .hit_test_target_plane(screen_pos)
+                .map(|hit| (target.clone(), hit)),
+            None => self.hit_test_hierarchy(screen_pos, &DesktopTarget::Desktop),
+        }
     }
 }
 
