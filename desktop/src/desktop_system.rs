@@ -625,13 +625,19 @@ impl DesktopSystem {
                     .expect("Instance missing")
                     .set_rect(rect_px, animate);
             }
-            DesktopTarget::Group(..) => {}
+            DesktopTarget::Group(group_id) => {
+                self.aggregates
+                    .groups
+                    .get_mut(&group_id)
+                    .expect("Missing group")
+                    .rect = rect_px.into();
+            }
             DesktopTarget::Launcher(launcher_id) => {
                 self.aggregates
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .set_rect(rect_px.into());
+                    .set_rect(rect_px.into(), animate);
             }
             DesktopTarget::View(..) => {
                 panic!("View layout isn't supported (instance target defines its size)");

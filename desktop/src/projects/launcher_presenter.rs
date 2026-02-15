@@ -166,9 +166,17 @@ impl LauncherPresenter {
     //     self.band.process(view_event).map(|()| Cmd::None)
     // }
 
-    pub fn set_rect(&mut self, rect: Rect) {
-        self.rect
-            .animate_if_changed(rect, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
+    pub fn set_rect(&mut self, rect: Rect, animate: bool) {
+        if animate {
+            self.rect.animate_if_changed(
+                rect,
+                STRUCTURAL_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
+        } else {
+            self.rect.set_immediately(rect);
+            self.apply_animations();
+        }
 
         // self.layout_band(true);
     }
