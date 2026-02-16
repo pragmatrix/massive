@@ -64,6 +64,7 @@ pub enum DesktopCommand {
     Project(ProjectCommand),
     PresentInstance(InstanceId),
     PresentView(InstanceId, ViewCreationInfo),
+    HideView(ViewPath),
     StartInstance { parameters: InstanceParameters },
     StopInstance(InstanceId),
     // Simplify: Use only DesktopTarget here, DesktopFocusPath can be resolved.
@@ -303,6 +304,7 @@ impl DesktopSystem {
 
                 Ok(())
             }
+            DesktopCommand::HideView(view_path) => self.hide_view(view_path),
 
             DesktopCommand::Project(project_command) => {
                 self.apply_project_command(project_command, scene)
@@ -602,7 +604,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn hide_view(&mut self, path: ViewPath) -> Result<()> {
+    fn hide_view(&mut self, path: ViewPath) -> Result<()> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&path.instance) else {
             warn!("Can't hide view: Instance for view not found");
             // Robustness: Decide if this should return an error.
@@ -630,9 +632,9 @@ impl DesktopSystem {
 
         // We remove the instance for now so that we don't keep dangling references to Handle<>
         // types and be sure that they are sent to the renderer in the Desktop.
-        self.aggregates
-            .remove_target(&DesktopTarget::Instance(path.instance))?;
-        self.aggregates.instances.remove(&path.instance)?;
+        // self.aggregates
+        //     .remove_target(&DesktopTarget::Instance(path.instance))?;
+        // self.aggregates.instances.remove(&path.instance)?;
 
         // And remove the view.
         self.aggregates

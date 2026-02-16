@@ -221,7 +221,12 @@ impl Desktop {
                 )?;
             }
             InstanceCommand::DestroyView(id, collector) => {
-                self.system.hide_view((instance, id).into())?;
+                self.system.transact(
+                    DesktopCommand::HideView((instance, id).into()),
+                    &self.scene,
+                    &mut self.instance_manager,
+                    self.renderer.geometry(),
+                )?;
                 self.instance_manager.remove_view((instance, id).into());
                 // Feature: Don't push the remaining changes immediately and fade the remaining
                 // visuals out. (We do have the root location and should be able to do at least
