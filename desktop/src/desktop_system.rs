@@ -457,9 +457,22 @@ impl DesktopSystem {
                     LayoutAxis::HORIZONTAL.into()
                 }
             }
-            DesktopTarget::Instance(_) => self.default_panel_size.into(),
-            DesktopTarget::View(_) => {
-                panic!("Views are not part of the layout hierarchy");
+            DesktopTarget::Instance(instance) => {
+                let instance = &self.aggregates.instances[instance];
+                if !instance.presents_primary_view() {
+                    self.default_panel_size.into()
+                } else {
+                    // We need to put the View below it
+                    //
+                    // Architecture: This feels wrong somehow, this mixes the focus hierarchy with
+                    // the layout hierarchy. Do we need to separate them?
+                    LayoutAxis::HORIZONTAL.into()
+                }
+            }
+            DesktopTarget::View(_) =>
+            // Assuming this is a primary view (for now).
+            {
+                self.default_panel_size.into()
             }
         }
     }
@@ -571,6 +584,12 @@ impl DesktopSystem {
             },
         };
 
+        // Add the view to the hierarchy
+        self.aggregates.hierarchy.add(
+            DesktopTarget::Instance(instance),
+            DesktopTarget::View(view_creation_info.id),
+        )?;
+
         Ok(())
     }
 
@@ -603,6 +622,11 @@ impl DesktopSystem {
         // We remove the instance for now so that we don't keep dangling references to Handle<>
         // types and be sure that they are sent to the renderer in the Desktop.
         self.aggregates.instances.remove(&path.instance)?;
+
+        // And remove the view.
+        self.aggregates
+            .remove_target(&DesktopTarget::View(path.view))?;
+
         Ok(())
     }
 
@@ -641,7 +665,7 @@ impl DesktopSystem {
                         .set_rect(rect, animate);
                 }
                 DesktopTarget::View(..) => {
-                    panic!("View layout isn't supported (instance target defines its size)");
+                    // Robustness: Support resize here?
                 }
             };
         });
@@ -882,7 +906,7 @@ impl ToContainer for LayoutAxis {
 }
 
 impl Aggregates {
-    pub fn hit_tester<'a>(&'a self, geometry: &'a RenderGeometry) -> AggregateHitTester {
+    pub fn hit_tester<'a>(&'a self, geometry: &'a RenderGeometry) -> AggregateHitTester<'a> {
         AggregateHitTester {
             aggregates: self,
             geometry,

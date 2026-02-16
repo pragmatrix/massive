@@ -38,6 +38,10 @@ impl InstancePresenter {
         self.rect
     }
 
+    pub fn presents_primary_view(&self) -> bool {
+        matches!(self.state, InstancePresenterState::Presenting { .. })
+    }
+
     pub fn set_rect(&mut self, rect: RectPx, animate: bool) {
         self.rect = rect;
         let (x, y, z) = rect.center().cast().to_3d().into();
@@ -50,7 +54,8 @@ impl InstancePresenter {
                 Interpolation::CubicOut,
             );
         } else {
-            self.center_translation_animation.set_immediately(translation);
+            self.center_translation_animation
+                .set_immediately(translation);
             self.apply_animations();
         }
     }

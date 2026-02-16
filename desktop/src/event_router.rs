@@ -4,6 +4,8 @@
 //! This type is generic over T, which is the element's type. An target is a reference to a concrete
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
+use std::fmt;
+
 use anyhow::{Result, bail};
 use derive_more::IntoIterator;
 use log::warn;
@@ -59,7 +61,7 @@ impl<T: PartialEq> Default for EventRouter<T> {
 
 impl<T: PartialEq> EventRouter<T>
 where
-    T: Clone,
+    T: Clone + fmt::Debug,
 {
     pub fn focused(&self) -> &FocusPath<T> {
         &self.keyboard_focus
@@ -307,9 +309,11 @@ fn set_pointer_focus<T>(
     device_id: DeviceId,
     event_transitions: &mut TransitionLog<T>,
 ) where
-    T: PartialEq + Clone,
+    T: PartialEq + Clone + fmt::Debug,
 {
-    let focus_transitions = focus_path.transition(new_path.into());
+    let new_path = new_path.into();
+    log::info!("Setting pointer focus: {new_path:?}");
+    let focus_transitions = focus_path.transition(new_path);
 
     for transition in focus_transitions {
         let (path, event) = match transition {
