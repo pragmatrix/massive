@@ -28,6 +28,7 @@ pub struct InstanceManager {
 
 #[derive(Debug)]
 struct RunningInstance {
+    #[allow(unused)]
     application_name: String,
     events_tx: UnboundedSender<InstanceEvent>,
     views: HashMap<ViewId, ViewInfo>,
@@ -95,7 +96,7 @@ impl InstanceManager {
 
     /// Begin the shutdown of an instance by sending [`InstanceEvent::Shutdown`]. Returns immediately
     /// after sending the event
-    pub fn trigger_shutdown(&self, instance_id: InstanceId) -> Result<()> {
+    pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self
             .instances
             .get(&instance_id)
@@ -130,6 +131,7 @@ impl InstanceManager {
     }
 
     /// Is the instance, or the combination of instance / view valid right now?
+    #[allow(unused)]
     pub fn exists(&self, instance: InstanceId, view: Option<ViewId>) -> bool {
         self.instances
             .get(&instance)
@@ -193,6 +195,7 @@ impl InstanceManager {
         })
     }
 
+    #[allow(unused)]
     pub fn instance_of_view(&self, id: ViewId) -> Option<InstanceId> {
         self.instances
             .iter()
@@ -200,6 +203,7 @@ impl InstanceManager {
             .map(|(iid, _)| *iid)
     }
 
+    #[allow(unused)]
     pub fn get_application_name(&self, instance: InstanceId) -> Result<&str> {
         self.get_instance(instance)
             .map(|ri| ri.application_name.as_str())

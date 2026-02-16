@@ -15,10 +15,16 @@ pub struct Project {
 #[derive(Debug)]
 pub struct LaunchGroup {
     pub id: GroupId,
+    pub properties: LaunchGroupProperties,
+    pub contents: LaunchGroupContents,
+}
+
+#[allow(unused)]
+#[derive(Debug, Clone)]
+pub struct LaunchGroupProperties {
     pub name: String,
     pub tag: ScopedTag,
     pub layout: LayoutDirection,
-    pub contents: LaunchGroupContents,
 }
 
 #[derive(Debug)]
@@ -28,6 +34,7 @@ pub enum LaunchGroupContents {
 }
 
 impl LaunchGroupContents {
+    #[allow(unused)]
     pub fn len(&self) -> usize {
         match self {
             LaunchGroupContents::Groups(launch_groups) => launch_groups.len(),
@@ -69,6 +76,7 @@ impl Project {
         Ok(Project { start, root })
     }
 
+    #[allow(unused)]
     pub fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
         self.root.get_launch_profile(id)
     }
@@ -116,6 +124,7 @@ impl LaunchGroup {
     }
 
     /// Returns an ASCII tree visualization of the group hierarchy.
+    #[allow(unused)]
     pub fn visualize(&self) -> String {
         let mut output = String::new();
         self.visualize_impl(&mut output, "", true, true);
@@ -133,7 +142,7 @@ impl LaunchGroup {
 
         output.push_str(prefix);
         output.push_str(connector);
-        output.push_str(&self.name);
+        output.push_str(&self.properties.name);
         output.push('\n');
 
         let child_prefix = format!("{}{}", prefix, extension);
@@ -196,9 +205,11 @@ fn convert_group(
 
     LaunchGroup {
         id,
-        name: group.name,
-        tag: group.tag,
-        layout: group.layout,
+        properties: LaunchGroupProperties {
+            name: group.name,
+            tag: group.tag,
+            layout: group.layout,
+        },
         contents,
     }
 }

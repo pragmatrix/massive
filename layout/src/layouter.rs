@@ -38,7 +38,7 @@ pub fn container<Id: Clone, const RANK: usize>(
             layout_axis,
             padding: Thickness::ZERO,
             spacing: 0,
-            children: Vec::new(),
+            nested: Vec::new(),
         },
     }
 }
@@ -50,15 +50,8 @@ pub struct ContainerBuilder<Id: Clone, const RANK: usize> {
 }
 
 impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
-    pub fn padding(
-        mut self,
-        leading: impl Into<Padding<RANK>>,
-        trailing: impl Into<Padding<RANK>>,
-    ) -> Self {
-        self.container.padding = Thickness {
-            leading: leading.into().into(),
-            trailing: trailing.into().into(),
-        };
+    pub fn padding(mut self, padding: impl Into<Thickness<RANK>>) -> Self {
+        self.container.padding = padding.into();
         self
     }
 
@@ -67,12 +60,12 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
         self
     }
 
-    pub fn child(&mut self, child: Layout<Id, RANK>) {
-        self.container.children.push(child);
+    pub fn nested(&mut self, nested: Layout<Id, RANK>) {
+        self.container.nested.push(nested);
     }
 
-    pub fn with_child(mut self, child: Layout<Id, RANK>) -> Self {
-        self.container.children.push(child);
+    pub fn with_nested(mut self, nested: Layout<Id, RANK>) -> Self {
+        self.container.nested.push(nested);
         self
     }
 
@@ -81,30 +74,30 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
         let mut size = Size::EMPTY;
         let mut offset: Offset<RANK> = self.container.padding.leading.into();
 
-        // Position children and compute container size
-        for (i, child) in self.container.children.iter_mut().enumerate() {
-            let child_outer_size = child.outer_size();
+        // Position nested and compute container size
+        for (i, nested) in self.container.nested.iter_mut().enumerate() {
+            let nested_outer_size = nested.outer_size();
 
-            // Add spacing before this child (except for the first)
+            // Add spacing before this nested (except for the first)
             if i > 0 {
                 offset[axis] += self.container.spacing as i32;
             }
 
-            // Set child's offset relative to this container's content area
-            child.rect.offset = offset;
+            // Set nested's offset relative to this container's content area
+            nested.rect.offset = offset;
 
             // Advance offset along layout axis
-            offset[axis] += child_outer_size[axis] as i32;
+            offset[axis] += nested_outer_size[axis] as i32;
 
             // Accumulate size: sum along axis, max perpendicular
             for dim in 0..RANK {
                 if dim == axis {
-                    size[dim] += child_outer_size[dim];
+                    size[dim] += nested_outer_size[dim];
                     if i > 0 {
                         size[dim] += self.container.spacing;
                     }
                 } else {
-                    size[dim] = max(size[dim], child_outer_size[dim]);
+                    size[dim] = max(size[dim], nested_outer_size[dim]);
                 }
             }
         }
@@ -135,7 +128,7 @@ struct Container<Id: Clone, const RANK: usize> {
 
     padding: Thickness<RANK>,
     spacing: u32,
-    children: Vec<Layout<Id, RANK>>,
+    nested: Vec<Layout<Id, RANK>>,
 }
 
 impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
@@ -144,10 +137,10 @@ impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
             layout_axis: self.layout_axis,
             padding: self.padding,
             spacing: self.spacing,
-            children: self
-                .children
+            nested: self
+                .nested
                 .into_iter()
-                .map(|child| child.map_id_ref(f))
+                .map(|nested| nested.map_id_ref(f))
                 .collect(),
         }
     }
@@ -214,10 +207,10 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
             out(id, Rect::new(abs_offset, outer_size));
         }
 
-        // Recursively place children with accumulated offset
+        // Recursively place nested with accumulated offset
         if let Some(container) = container {
-            for child in container.children {
-                child.place_rec(abs_offset, out);
+            for nested in container.nested {
+                nested.place_rec(abs_offset, out);
             }
         }
     }
@@ -240,6 +233,24 @@ impl<const RANK: usize> From<[u32; RANK]> for Padding<RANK> {
     }
 }
 
+impl<const RANK: usize> From<([u32; RANK], [u32; RANK])> for Thickness<RANK> {
+    fn from((leading, trailing): ([u32; RANK], [u32; RANK])) -> Self {
+        Thickness {
+            leading: leading.into(),
+            trailing: trailing.into(),
+        }
+    }
+}
+
+impl<const RANK: usize> From<u32> for Thickness<RANK> {
+    fn from(value: u32) -> Self {
+        Thickness {
+            leading: Padding::from(value).into(),
+            trailing: Padding::from(value).into(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,7 +258,7 @@ mod tests {
     #[test]
     fn single_leaf() {
         let mut root = container(0, LayoutAxis::HORIZONTAL);
-        root.child(leaf(1, size(100, 50)));
+        root.nested(leaf(1, size(100, 50)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 2);
@@ -258,15 +269,15 @@ mod tests {
     #[test]
     fn horizontal_container_with_leaves() {
         let mut root = container(0, LayoutAxis::HORIZONTAL);
-        root.child(leaf(1, size(100, 50)));
-        root.child(leaf(2, size(200, 30)));
-        root.child(leaf(3, size(150, 40)));
+        root.nested(leaf(1, size(100, 50)));
+        root.nested(leaf(2, size(200, 30)));
+        root.nested(leaf(3, size(150, 40)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 4);
         // Root should have width = sum, height = max
         assert_eq!(results[0], (0, rect(0, 0, 450, 50)));
-        // Children laid out horizontally in forward order (1, 2, 3)
+        // Nested laid out horizontally in forward order (1, 2, 3)
         assert_eq!(results[1], (1, rect(0, 0, 100, 50)));
         assert_eq!(results[2], (2, rect(100, 0, 200, 30)));
         assert_eq!(results[3], (3, rect(300, 0, 150, 40)));
@@ -275,15 +286,15 @@ mod tests {
     #[test]
     fn vertical_container() {
         let mut root = container(0, LayoutAxis::VERTICAL);
-        root.child(leaf(1, size(100, 50)));
-        root.child(leaf(2, size(200, 30)));
-        root.child(leaf(3, size(150, 40)));
+        root.nested(leaf(1, size(100, 50)));
+        root.nested(leaf(2, size(200, 30)));
+        root.nested(leaf(3, size(150, 40)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 4);
         // Root should have width = max, height = sum
         assert_eq!(results[0], (0, rect(0, 0, 200, 120)));
-        // Children laid out vertically in forward order (1, 2, 3)
+        // Nested laid out vertically in forward order (1, 2, 3)
         assert_eq!(results[1], (1, rect(0, 0, 100, 50)));
         assert_eq!(results[2], (2, rect(0, 50, 200, 30)));
         assert_eq!(results[3], (3, rect(0, 80, 150, 40)));
@@ -301,12 +312,12 @@ mod tests {
     #[test]
     fn custom_offset() {
         let mut root = container(0, LayoutAxis::HORIZONTAL);
-        root.child(leaf(1, size(10, 10)));
-        root.child(leaf(2, size(20, 20)));
+        root.nested(leaf(1, size(10, 10)));
+        root.nested(leaf(2, size(20, 20)));
         let results = root.layout().place(point(100, 200));
 
         assert_eq!(results.len(), 3);
-        // All positions should be offset by (100, 200), children in forward order
+        // All positions should be offset by (100, 200), nested in forward order
         assert_eq!(results[0], (0, rect(100, 200, 30, 20)));
         assert_eq!(results[1], (1, rect(100, 200, 10, 10)));
         assert_eq!(results[2], (2, rect(110, 200, 20, 20)));
@@ -315,9 +326,9 @@ mod tests {
     #[test]
     fn size_accumulation_along_axis() {
         let mut root = container(0, LayoutAxis::HORIZONTAL);
-        root.child(leaf(1, size(10, 50)));
-        root.child(leaf(2, size(20, 30)));
-        root.child(leaf(3, size(30, 40)));
+        root.nested(leaf(1, size(10, 50)));
+        root.nested(leaf(2, size(20, 30)));
+        root.nested(leaf(3, size(30, 40)));
         let results = root.layout().place(point(0, 0));
 
         // Along horizontal axis: widths sum (10+20+30=60)
@@ -331,7 +342,7 @@ mod tests {
         // Test that using DEPTH axis (index 2) on 2D rects properly panics
         // since RANK is 2
         let mut root = container(0, LayoutAxis::DEPTH);
-        root.child(leaf(1, size(100, 200))); // This should panic when accessing index 2
+        root.nested(leaf(1, size(100, 200))); // This should panic when accessing index 2
         let _: Vec<(usize, Rect<2>)> = root.layout().place(point(0, 0));
     }
 
@@ -340,16 +351,16 @@ mod tests {
     fn nested_container_with_siblings() {
         let mut root = container(0, LayoutAxis::HORIZONTAL);
 
-        root.child(leaf(1, size(50, 50)));
+        root.nested(leaf(1, size(50, 50)));
 
         {
             let mut nested = container(2, LayoutAxis::VERTICAL);
-            nested.child(leaf(3, size(20, 30)));
-            nested.child(leaf(4, size(25, 35)));
-            root.child(nested.layout());
+            nested.nested(leaf(3, size(20, 30)));
+            nested.nested(leaf(4, size(25, 35)));
+            root.nested(nested.layout());
         }
 
-        root.child(leaf(5, size(60, 60)));
+        root.nested(leaf(5, size(60, 60)));
 
         let results = root.layout().place(point(0, 0));
 
@@ -358,7 +369,7 @@ mod tests {
         // Root horizontal: width=50+25+60=135, height=max(50,65,60)=65
         assert_eq!(results.len(), 6);
         assert_eq!(results[0], (0, rect(0, 0, 135, 65)));
-        // Children in forward order: 1, 2 (with nested 3, 4), 5
+        // Nested in forward order: 1, 2 (with nested 3, 4), 5
         assert_eq!(results[1], (1, rect(0, 0, 50, 50)));
         assert_eq!(results[2], (2, rect(50, 0, 25, 65)));
         assert_eq!(results[3], (3, rect(50, 0, 20, 30)));
@@ -383,9 +394,9 @@ mod tests {
 
     #[test]
     fn horizontal_container_with_padding() {
-        let mut root = container(0, LayoutAxis::HORIZONTAL).padding(size(10, 20), size(30, 40));
-        root.child(leaf(1, size(100, 50)));
-        root.child(leaf(2, size(200, 30)));
+        let mut root = container(0, LayoutAxis::HORIZONTAL).padding((size(10, 20), size(30, 40)));
+        root.nested(leaf(1, size(100, 50)));
+        root.nested(leaf(2, size(200, 30)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 3);
@@ -393,16 +404,16 @@ mod tests {
         // Width: 10 + (100 + 200) + 30 = 340
         // Height: 20 + max(50, 30) + 40 = 110
         assert_eq!(results[0], (0, rect(0, 0, 340, 110)));
-        // Children offset by leading padding (10, 20), laid out in forward order
+        // Nested offset by leading padding (10, 20), laid out in forward order
         assert_eq!(results[1], (1, rect(10, 20, 100, 50)));
         assert_eq!(results[2], (2, rect(110, 20, 200, 30)));
     }
 
     #[test]
     fn vertical_container_with_padding() {
-        let mut root = container(0, LayoutAxis::VERTICAL).padding(size(5, 10), size(15, 20));
-        root.child(leaf(1, size(100, 50)));
-        root.child(leaf(2, size(200, 30)));
+        let mut root = container(0, LayoutAxis::VERTICAL).padding((size(5, 10), size(15, 20)));
+        root.nested(leaf(1, size(100, 50)));
+        root.nested(leaf(2, size(200, 30)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 3);
@@ -410,27 +421,27 @@ mod tests {
         // Width: 5 + max(100, 200) + 15 = 220
         // Height: 10 + (50 + 30) + 20 = 110
         assert_eq!(results[0], (0, rect(0, 0, 220, 110)));
-        // Children offset by leading padding (5, 10), laid out vertically in forward order
+        // Nested offset by leading padding (5, 10), laid out vertically in forward order
         assert_eq!(results[1], (1, rect(5, 10, 100, 50)));
         assert_eq!(results[2], (2, rect(5, 60, 200, 30)));
     }
 
     #[test]
     fn nested_container_with_padding() {
-        let mut root = container(0, LayoutAxis::HORIZONTAL).padding(size(10, 10), size(10, 10));
+        let mut root = container(0, LayoutAxis::HORIZONTAL).padding((size(10, 10), size(10, 10)));
 
-        root.child(leaf(1, size(50, 50)));
+        root.nested(leaf(1, size(50, 50)));
 
         {
-            let mut nested = container(2, LayoutAxis::VERTICAL).padding(size(5, 5), size(5, 5));
-            nested.child(leaf(3, size(20, 30)));
-            nested.child(leaf(4, size(25, 35)));
+            let mut nested = container(2, LayoutAxis::VERTICAL).padding((size(5, 5), size(5, 5)));
+            nested.nested(leaf(3, size(20, 30)));
+            nested.nested(leaf(4, size(25, 35)));
             // Container inner size: width=max(20,25)=25, height=30+35=65
             // Container outer size: width=5+25+5=35, height=5+65+5=75
-            root.child(nested.layout());
+            root.nested(nested.layout());
         }
 
-        root.child(leaf(5, size(60, 60)));
+        root.nested(leaf(5, size(60, 60)));
 
         let results = root.layout().place(point(0, 0));
 
@@ -439,10 +450,10 @@ mod tests {
         // Root outer: width=10+145+10=165, height=10+75+10=95
         assert_eq!(results.len(), 6);
         assert_eq!(results[0], (0, rect(0, 0, 165, 95)));
-        // Root children offset by (10, 10), in forward order: 1, 2, 5
+        // Root nested offset by (10, 10), in forward order: 1, 2, 5
         assert_eq!(results[1], (1, rect(10, 10, 50, 50)));
         assert_eq!(results[2], (2, rect(60, 10, 35, 75)));
-        // Container(2) children offset by container's abs position (60, 10) + padding (5, 5)
+        // Container(2) nested offset by container's abs position (60, 10) + padding (5, 5)
         // Leaf 3 at relative (5, 5), absolute (65, 15)
         // Leaf 4 at relative (5, 35), absolute (65, 45)
         assert_eq!(results[3], (3, rect(65, 15, 20, 30)));
@@ -452,7 +463,7 @@ mod tests {
 
     #[test]
     fn padding_with_empty_container() {
-        let root = container(0, LayoutAxis::HORIZONTAL).padding(size(10, 20), size(30, 40));
+        let root = container(0, LayoutAxis::HORIZONTAL).padding((size(10, 20), size(30, 40)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 1);
@@ -462,8 +473,8 @@ mod tests {
 
     #[test]
     fn zero_padding() {
-        let mut root = container(0, LayoutAxis::HORIZONTAL).padding(size(0, 0), size(0, 0));
-        root.child(leaf(1, size(100, 50)));
+        let mut root = container(0, LayoutAxis::HORIZONTAL).padding((size(0, 0), size(0, 0)));
+        root.nested(leaf(1, size(100, 50)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 2);
@@ -474,31 +485,31 @@ mod tests {
 
     #[test]
     fn asymmetric_padding() {
-        let mut root = container(0, LayoutAxis::VERTICAL).padding(size(0, 10), size(20, 0));
-        root.child(leaf(1, size(100, 50)));
+        let mut root = container(0, LayoutAxis::VERTICAL).padding((size(0, 10), size(20, 0)));
+        root.nested(leaf(1, size(100, 50)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 2);
         // Width: 0 + 100 + 20 = 120
         // Height: 10 + 50 + 0 = 60
         assert_eq!(results[0], (0, rect(0, 0, 120, 60)));
-        // Child offset by leading padding (0, 10)
+        // Nested offset by leading padding (0, 10)
         assert_eq!(results[1], (1, rect(0, 10, 100, 50)));
     }
 
     #[test]
     fn horizontal_container_with_spacing() {
         let mut root = container(0, LayoutAxis::HORIZONTAL).spacing(10);
-        root.child(leaf(1, size(100, 50)));
-        root.child(leaf(2, size(80, 60)));
-        root.child(leaf(3, size(120, 40)));
+        root.nested(leaf(1, size(100, 50)));
+        root.nested(leaf(2, size(80, 60)));
+        root.nested(leaf(3, size(120, 40)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 4);
         // Width: 100 + 10 + 80 + 10 + 120 = 320
         // Height: max(50, 60, 40) = 60
         assert_eq!(results[0], (0, rect(0, 0, 320, 60)));
-        // Children in forward order: 1, 2, 3
+        // Nested in forward order: 1, 2, 3
         assert_eq!(results[1], (1, rect(0, 0, 100, 50)));
         assert_eq!(results[2], (2, rect(110, 0, 80, 60)));
         assert_eq!(results[3], (3, rect(200, 0, 120, 40)));
@@ -507,20 +518,20 @@ mod tests {
     #[test]
     fn spacing_with_padding() {
         let mut root = container(0, LayoutAxis::HORIZONTAL)
-            .padding(size(5, 3), size(7, 4))
+            .padding((size(5, 3), size(7, 4)))
             .spacing(10);
-        root.child(leaf(1, size(100, 50)));
-        root.child(leaf(2, size(80, 60)));
+        root.nested(leaf(1, size(100, 50)));
+        root.nested(leaf(2, size(80, 60)));
         let results = root.layout().place(point(0, 0));
 
         assert_eq!(results.len(), 3);
         // Width: 5 + 100 + 10 + 80 + 7 = 202
         // Height: 3 + max(50, 60) + 4 = 67
         assert_eq!(results[0], (0, rect(0, 0, 202, 67)));
-        // Children in forward order: 1, 2
-        // First child offset by leading padding
+        // Nested in forward order: 1, 2
+        // First nested offset by leading padding
         assert_eq!(results[1], (1, rect(5, 3, 100, 50)));
-        // Second child: 5 (leading) + 100 (first) + 10 (spacing)
+        // Second nested: 5 (leading) + 100 (first) + 10 (spacing)
         assert_eq!(results[2], (2, rect(115, 3, 80, 60)));
     }
 }

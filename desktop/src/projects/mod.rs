@@ -1,34 +1,19 @@
-use std::{fs, path::Path, time::Duration};
+use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
-use derive_more::From;
 use log::warn;
 
-use crate::{
-    band_presenter::BandTarget,
-    projects::configuration::{GroupContents, LaunchProfile, LayoutDirection, ScopedTag},
-};
+use crate::projects::configuration::{GroupContents, LayoutDirection, ScopedTag};
 
 mod configuration;
 mod launcher_presenter;
 mod project;
 mod project_presenter;
 
-pub use configuration::ProjectConfiguration;
-pub use launcher_presenter::LauncherPresenter;
-pub use project::{GroupId, LaunchProfileId, Project};
-pub use project_presenter::ProjectPresenter;
-
-pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
-
-#[derive(Debug, Clone, PartialEq, Eq, From)]
-pub enum ProjectTarget {
-    Group(GroupId),
-    Launcher(LaunchProfileId),
-    // Under Launcher
-    // Architecture: Why do we need to have the LaunchProfileId here for navigating down?
-    Band(LaunchProfileId, BandTarget),
-}
+pub use self::configuration::{LaunchProfile, ProjectConfiguration};
+pub use self::launcher_presenter::LauncherPresenter;
+pub use self::project::*;
+pub use self::project_presenter::*;
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,

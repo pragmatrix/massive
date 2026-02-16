@@ -31,6 +31,7 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Error Handling
 - Use `anyhow::Result` for application code.
 - Add context to errors with `.context()` or `.with_context()` including relevant details (file paths, operations); return errors rather than fallback values.
+- Don't do defensive programming; anything unexpected should lead to an error rather than being silently handled.
 
 ## Data Loading & Conversion
 - When loading data from external formats, create intermediate types for deserialization that are separate from runtime types.

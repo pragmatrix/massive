@@ -32,6 +32,7 @@ mod handle;
 mod id;
 mod objects;
 mod scene;
+mod transform_resolver;
 mod type_id_generator;
 
 pub use change::*;
@@ -42,6 +43,7 @@ pub use handle::*;
 pub use id::Id;
 pub use objects::*;
 pub use scene::Scene;
+pub use transform_resolver::*;
 pub use type_id_generator::id_generator;
 
 // Re-exports

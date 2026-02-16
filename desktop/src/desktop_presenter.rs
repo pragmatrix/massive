@@ -1,32 +1,30 @@
 use std::time::Duration;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, bail};
 use derive_more::From;
-
 use log::error;
+
 use massive_applications::{InstanceId, ViewCreationInfo, ViewId};
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_layout as layout;
-use massive_layout::LayoutAxis;
+use massive_layout::Layout;
 use massive_renderer::text::FontSystem;
 use massive_scene::{Object, ToCamera, ToLocation, Transform};
 use massive_shell::Scene;
 
-use crate::{
-    EventTransition, UserIntent,
-    band_presenter::{BandPresenter, BandTarget},
-    focus_path::FocusPath,
-    instance_manager::{InstanceManager, ViewPath},
-    navigation::{NavigationNode, container},
-    projects::{GroupId, LaunchProfileId, Project, ProjectPresenter, ProjectTarget},
-};
+use crate::EventTransition;
+use crate::band_presenter::{BandPresenter, BandTarget};
+use crate::desktop_system::Cmd;
+use crate::focus_path::FocusPath;
+use crate::instance_manager::{InstanceManager, ViewPath};
+use crate::navigation::{NavigationNode, container};
+use crate::projects::{GroupId, LaunchProfileId, Project, ProjectPresenter, ProjectTarget};
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
-const SECTION_SPACING: u32 = 20;
+pub const SECTION_SPACING: u32 = 20;
 
 /// Architecture: We need "unified" target enums. One that encapsulate the full path, but has parent
 /// / add_nested or something like that trait implementations?
-#[derive(Debug, Clone, PartialEq, Eq, From)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
 pub enum DesktopTarget {
     // The whole area, covering the top band and
     Desktop,
@@ -65,10 +63,10 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 #[derive(Debug)]
 pub struct DesktopPresenter {
     top_band: BandPresenter,
-    project: ProjectPresenter,
+    pub project: ProjectPresenter,
 
-    rect: Rect,
-    top_band_rect: Rect,
+    pub rect: Rect,
+    pub top_band_rect: Rect,
 }
 
 impl DesktopPresenter {
@@ -86,31 +84,24 @@ impl DesktopPresenter {
         }
     }
 
+    //
     // BandPresenter delegation
+    //
 
-    pub fn present_primary_instance(
-        &mut self,
-        instance: InstanceId,
-        view_creation_info: &ViewCreationInfo,
-        scene: &Scene,
-    ) -> Result<()> {
-        self.top_band
-            .present_primary_instance(instance, view_creation_info, scene)
-    }
+    // Ergonomics: Perhaps pass the instance parent directly herein, or just return it? See how
+    // clients use this function.
 
+    // This returns the insertion index. Later we don't need this anymore, because the hierarchy
+    // will be the single source of truth.
     pub fn present_instance(
         &mut self,
-        focused: &DesktopFocusPath,
-        new_instance: InstanceId,
+        instance_parent: DesktopTarget,
         originating_from: Option<InstanceId>,
+        new_instance: InstanceId,
         default_panel_size: SizePx,
         scene: &Scene,
-    ) -> Result<DesktopFocusPath> {
-        let instance_parent = focused.instance_parent().ok_or(anyhow!(
-            "Failed to present instance when no parent is focused that can take on a new one"
-        ))?;
-
-        match instance_parent.last().unwrap() {
+    ) -> Result<usize> {
+        let index = match instance_parent {
             DesktopTarget::TopBand => self.top_band.present_instance(
                 new_instance,
                 originating_from,
@@ -118,7 +109,7 @@ impl DesktopPresenter {
                 scene,
             )?,
             DesktopTarget::Launcher(launch_profile_id) => self.project.present_instance(
-                *launch_profile_id,
+                launch_profile_id,
                 new_instance,
                 originating_from,
                 default_panel_size,
@@ -127,9 +118,8 @@ impl DesktopPresenter {
             invalid => {
                 bail!("Invalid instance parent: {invalid:?}");
             }
-        }
-
-        Ok(instance_parent.join(DesktopTarget::Instance(new_instance)))
+        };
+        Ok(index)
     }
 
     /// The instance is shutting down. Begin hiding them.
@@ -160,68 +150,6 @@ impl DesktopPresenter {
         } else {
             self.project.hide_view(view)
         }
-    }
-
-    pub fn layout(
-        &mut self,
-        default_panel_size: SizePx,
-        animate: bool,
-        scene: &Scene,
-        font_system: &mut FontSystem,
-    ) {
-        let mut root_builder = layout::container(DesktopTarget::Desktop, LayoutAxis::VERTICAL)
-            .spacing(SECTION_SPACING);
-
-        // Band section (instances layouted horizontally)
-        root_builder.child(
-            self.top_band
-                .layout()
-                .map_id(DesktopTarget::Instance)
-                .with_id(DesktopTarget::TopBand),
-        );
-
-        // Project section
-        {
-            let project_layout = self
-                .project
-                .layout(default_panel_size)
-                .map_id(|pt| pt.into());
-            root_builder.child(project_layout);
-        }
-
-        root_builder
-            .layout()
-            .place_inline(PointPx::origin(), |id, rect_px: RectPx| match id {
-                DesktopTarget::Desktop => {
-                    self.rect = rect_px.into();
-                }
-                DesktopTarget::TopBand => {
-                    self.top_band_rect = rect_px.into();
-                }
-                DesktopTarget::Instance(instance_id) => {
-                    self.top_band
-                        .set_instance_rect(instance_id, rect_px, animate);
-                }
-                DesktopTarget::Group(group_id) => {
-                    self.project.set_rect(
-                        ProjectTarget::Group(group_id),
-                        rect_px.into(),
-                        scene,
-                        font_system,
-                    );
-                }
-                DesktopTarget::Launcher(launcher_id) => {
-                    self.project.set_rect(
-                        ProjectTarget::Launcher(launcher_id),
-                        rect_px.into(),
-                        scene,
-                        font_system,
-                    );
-                }
-                DesktopTarget::View(..) => {
-                    panic!("View layout isn't supported ");
-                }
-            });
     }
 
     pub fn apply_animations(&mut self) {
@@ -295,15 +223,15 @@ impl DesktopPresenter {
         // Don't use EventTransitions here for now, it contains more information than we need.
         transitions: Vec<EventTransition<DesktopTarget>>,
         instance_manager: &InstanceManager,
-    ) -> Result<UserIntent> {
-        let mut user_intent = UserIntent::None;
+    ) -> Result<Cmd> {
+        let mut cmd = Cmd::None;
 
         // Robustness: While we need to forward all transitions we currently process only one intent.
         for transition in transitions {
-            user_intent = self.forward_event_transition(transition, instance_manager)?;
+            cmd += self.forward_event_transition(transition, instance_manager)?;
         }
 
-        Ok(user_intent)
+        Ok(cmd)
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
@@ -311,10 +239,10 @@ impl DesktopPresenter {
         &mut self,
         transition: EventTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
-    ) -> Result<UserIntent> {
+    ) -> Result<Cmd> {
         let band_presenter = &self.top_band;
         let project_presenter = &mut self.project;
-        let mut user_intent = UserIntent::None;
+        let mut cmd = Cmd::None;
         match transition {
             EventTransition::Directed(path, _) if path.is_empty() => {
                 // This happens if hit testing hits no presenter and a CursorMove event gets
@@ -348,7 +276,7 @@ impl DesktopPresenter {
                             vec![ProjectTarget::Group(*group_id)].into(),
                             view_event,
                         );
-                        user_intent = project_presenter.process_transition(project_transition)?;
+                        cmd += project_presenter.process_transition(project_transition)?;
                     }
                     DesktopTarget::Launcher(launcher_id) => {
                         // Forward to project presenter
@@ -356,7 +284,7 @@ impl DesktopPresenter {
                             vec![ProjectTarget::Launcher(*launcher_id)].into(),
                             view_event,
                         );
-                        user_intent = project_presenter.process_transition(project_transition)?;
+                        cmd += project_presenter.process_transition(project_transition)?;
                     }
                 }
             }
@@ -368,10 +296,10 @@ impl DesktopPresenter {
 
                 // Also broadcast to project presenter
                 let project_transition = EventTransition::Broadcast(view_event);
-                user_intent = project_presenter.process_transition(project_transition)?;
+                cmd += project_presenter.process_transition(project_transition)?;
             }
         }
-        Ok(user_intent)
+        Ok(cmd)
     }
 }
 
