@@ -48,6 +48,15 @@ impl<const RANK: usize> From<(Padding<RANK>, Padding<RANK>)> for Thickness<RANK>
     }
 }
 
+impl<const RANK: usize> From<(u32, u32)> for Thickness<RANK> {
+    fn from((leading, trailing): (u32, u32)) -> Self {
+        Self {
+            leading: Padding::from(leading).into(),
+            trailing: Padding::from(trailing).into(),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From, Into)]
 pub struct Offset<const RANK: usize>(pub [i32; RANK]);
 

@@ -11,6 +11,7 @@ mod focus_path;
 mod focus_target;
 mod instance_manager;
 mod instance_presenter;
+mod layout;
 mod projects;
 
 pub use aggregates::*;

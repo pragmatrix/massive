@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use anyhow::{Result, anyhow, bail};
 use derive_more::From;
 use log::{error, warn};
+use winit::event::ElementState;
+use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{
@@ -22,25 +24,23 @@ use massive_geometry::{
     Contains, Matrix4, PixelCamera, Point, PointPx, Rect, RectPx, SizePx, Vector3,
 };
 use massive_input::Event;
-use massive_layout::{Layout, LayoutAxis, Padding, Thickness, container, leaf};
+use massive_layout::{Layout, LayoutAxis, container, leaf};
 use massive_renderer::RenderGeometry;
 use massive_scene::{Location, Object, ToCamera, Transform};
 use massive_shell::{FontManager, Scene};
-use winit::event::ElementState;
-use winit::keyboard::{Key, NamedKey};
 
-use crate::HitTester;
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::FocusPath;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
     InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
 };
+use crate::layout::{LayoutSpec, ToContainer};
 use crate::projects::{
     GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
     LauncherPresenter, ProjectPresenter,
 };
-use crate::{DesktopEnvironment, EventRouter, EventTransition, Map, OrderedHierarchy};
+use crate::{DesktopEnvironment, EventRouter, EventTransition, HitTester, Map, OrderedHierarchy};
 
 const SECTION_SPACING: u32 = 20;
 
@@ -451,7 +451,7 @@ impl DesktopSystem {
                 .axis()
                 .to_container()
                 .spacing(10)
-                .padding(10, 10)
+                .padding((10, 10))
                 .into(),
             DesktopTarget::Launcher(_) => {
                 // A launcher depends on the nested ones, if any, it's a horizontal, if none, its a
@@ -850,87 +850,6 @@ impl DesktopSystem {
                 self.camera_for_focus(&focus.parent()?)
             }
         }
-    }
-}
-
-#[derive(Debug, From)]
-pub enum LayoutSpec {
-    Container {
-        axis: LayoutAxis,
-        padding: Thickness<2>,
-        spacing: u32,
-    },
-    #[from]
-    Leaf(SizePx),
-}
-
-impl From<LayoutAxis> for LayoutSpec {
-    fn from(axis: LayoutAxis) -> Self {
-        Self::Container {
-            axis,
-            padding: Default::default(),
-            spacing: 0,
-        }
-    }
-}
-
-impl From<ContainerBuilder> for LayoutSpec {
-    fn from(value: ContainerBuilder) -> Self {
-        LayoutSpec::Container {
-            axis: value.axis,
-            padding: value.padding,
-            spacing: value.spacing,
-        }
-    }
-}
-
-#[derive(Debug)]
-struct ContainerBuilder {
-    axis: LayoutAxis,
-    padding: Thickness<2>,
-    spacing: u32,
-}
-
-impl ContainerBuilder {
-    pub fn new(axis: LayoutAxis) -> Self {
-        Self {
-            axis,
-            padding: Default::default(),
-            spacing: 0,
-        }
-    }
-
-    pub fn padding(
-        mut self,
-        leading: impl Into<Padding<2>>,
-        trailing: impl Into<Padding<2>>,
-    ) -> Self {
-        self.padding = (leading.into(), trailing.into()).into();
-        self
-    }
-
-    pub fn spacing(mut self, spacing: u32) -> Self {
-        self.spacing = spacing;
-        self
-    }
-}
-
-// We seem to benefit from .into() and to_container() invocations. to_container is useful for
-// chaining follow ups to the builder.
-
-impl From<LayoutAxis> for ContainerBuilder {
-    fn from(axis: LayoutAxis) -> Self {
-        ContainerBuilder::new(axis)
-    }
-}
-
-trait ToContainer {
-    fn to_container(self) -> ContainerBuilder;
-}
-
-impl ToContainer for LayoutAxis {
-    fn to_container(self) -> ContainerBuilder {
-        ContainerBuilder::new(self)
     }
 }
 
