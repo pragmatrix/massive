@@ -312,7 +312,6 @@ fn set_pointer_focus<T>(
     T: PartialEq + Clone + fmt::Debug,
 {
     let new_path = new_path.into();
-    log::info!("Setting pointer focus: {new_path:?}");
     let focus_transitions = focus_path.transition(new_path);
 
     for transition in focus_transitions {

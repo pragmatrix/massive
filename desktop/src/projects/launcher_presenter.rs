@@ -113,53 +113,24 @@ impl LauncherPresenter {
         }
     }
 
-    // pub fn navigation(&self, launcher: &Launcher) -> NavigationNode<'_, ProjectTarget> {
-    //     if self.band.is_empty() {
-    //         return leaf(launcher.id, self.rect.final_value());
-    //     }
-    //     let launcher_id = launcher.id;
-    //     self.band
-    //         .navigation()
-    //         .map_target(move |band_target| ProjectTarget::Band(launcher_id, band_target))
-    //         .with_target(ProjectTarget::Launcher(launcher_id))
-    //         .with_rect(self.rect.final_value())
-    // }
-
-    // Architecture: I don't want the launcher here to directly generate UserIntent, may be LauncherIntent? Not sure.
+    // Architecture: I don't want the launcher here to directly generate commands. may be
+    // LauncherCommand? Not sure.
     pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
-        // Architecture: Need something other than predefined scope if we want to reuse ViewEvent in
-        // arbitrary hierarchies? May be the EventManager directly defines the scope id?
-        // Ergonomics: Create a fluent constructor for events with Scope?
-        let Some(event) = self.events.add_event(ExternalEvent::new(
-            uuid::Uuid::nil().into(),
-            view_event,
-            Instant::now(),
-        )) else {
-            return Ok(Cmd::None);
-        };
-
-        if let Some(point) = event.detect_click(MouseButton::Left) {
-            warn!("CLICKED on {point:?}");
-        }
-
-        match event.event() {
-            ViewEvent::Focused(true) /* if self.band.is_empty() */ => {
-                // Usability: Should pass this rect?
-                return Ok(DesktopCommand::StartInstance {
-                    parameters: self.profile.params.clone(),
-                }
-                .into());
+        if !self.presents_instance()
+            && let ViewEvent::Focused(true) = view_event
+        {
+            // Usability: Should pass this rect?
+            return Ok(DesktopCommand::StartInstance {
+                parameters: self.profile.params.clone(),
             }
-            ViewEvent::CursorEntered { .. } => {
-                warn!("CursorEntered: {}", self.profile.name);
-            }
-            ViewEvent::CursorLeft { .. } => {
-                warn!("CursorLeft   : {}", self.profile.name);
-            }
-            _ => {}
+            .into());
         }
 
         Ok(Cmd::None)
+    }
+
+    fn presents_instance(&self) -> bool {
+        self.fader.final_value() == 0.0
     }
 
     // pub fn process_band(&mut self, view_event: ViewEvent) -> Result<Cmd> {
@@ -185,34 +156,15 @@ impl LauncherPresenter {
     //     self.band.presents_instance(instance)
     // }
 
-    // pub fn present_instance(
-    //     &mut self,
-    //     instance: InstanceId,
-    //     originating_from: Option<InstanceId>,
-    //     default_panel_size: SizePx,
-    //     scene: &Scene,
-    // ) -> Result<usize> {
-    //     let was_empty = self.band.is_empty();
-    //     let insertion_index =
-    //         self.band
-    //             .present_instance(instance, originating_from, default_panel_size, scene)?;
-    //     if was_empty && !self.band.is_empty() {
-    //         self.fader
-    //             .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
-    //     }
+    pub fn fade_out(&mut self) {
+        self.fader
+            .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
+    }
 
-    //     // self.layout_band(true);
-    //     Ok(insertion_index)
-    // }
-
-    // pub fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
-    //     self.band.hide_instance(instance)?;
-    //     if self.band.is_empty() {
-    //         self.fader
-    //             .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
-    //     }
-    //     Ok(())
-    // }
+    pub fn fade_in(&mut self) {
+        self.fader
+            .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
+    }
 
     // pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
     //     self.band.present_view(instance, view)?;

@@ -552,6 +552,15 @@ impl DesktopSystem {
             0
         };
 
+        // Inform the launcher to fade out.
+        if let DesktopTarget::Launcher(launcher) = &instance_parent {
+            self.aggregates
+                .launchers
+                .get_mut(launcher)
+                .expect("Launcher not found")
+                .fade_out();
+        }
+
         Ok(pos)
     }
 
@@ -621,6 +630,8 @@ impl DesktopSystem {
 
         // We remove the instance for now so that we don't keep dangling references to Handle<>
         // types and be sure that they are sent to the renderer in the Desktop.
+        self.aggregates
+            .remove_target(&DesktopTarget::Instance(path.instance))?;
         self.aggregates.instances.remove(&path.instance)?;
 
         // And remove the view.
@@ -631,6 +642,18 @@ impl DesktopSystem {
     }
 
     fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+        if let Some(DesktopTarget::Launcher(launcher)) =
+            self.aggregates.hierarchy.parent(&instance.into())
+        {
+            self.aggregates
+                .launchers
+                .get_mut(launcher)
+                .expect("Launcher not found")
+                .fade_in();
+        }
+
+        self.aggregates
+            .remove_target(&DesktopTarget::Instance(instance))?;
         self.aggregates.instances.remove(&instance)
     }
 
