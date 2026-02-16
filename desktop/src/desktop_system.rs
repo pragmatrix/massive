@@ -483,6 +483,11 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<Cmd> {
+        let keyboard_cmd = self.preprocess_keyboard_input(event)?;
+        if !keyboard_cmd.is_none() {
+            return Ok(keyboard_cmd);
+        }
+
         let hit_tester = &self.aggregates.hit_tester(render_geometry);
 
         let transitions =
@@ -671,7 +676,7 @@ impl DesktopSystem {
         });
     }
 
-    fn preprocess_keyboard_commands(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
+    fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
         // Catch CMD+t and CMD+w if an instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
