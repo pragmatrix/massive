@@ -1,18 +1,12 @@
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{ViewCreationInfo, ViewId};
-use massive_geometry::{RectPx, SizePx, Vector3};
+use massive_applications::ViewCreationInfo;
+use massive_geometry::{RectPx, Vector3};
 
-use crate::{
-    band_presenter::BandPresenter,
-    navigation::{NavigationNode, container, leaf},
-};
+use crate::band_presenter::BandPresenter;
 
 #[derive(Debug)]
 pub struct InstancePresenter {
     pub state: InstancePresenterState,
-    pub panel_size: SizePx,
-    /// The rectangle after layout.
-    pub rect: RectPx,
     /// The center of the instance's panel. This is also the point the camera should look at at
     /// rest.
     pub center_translation_animation: Animated<Vector3>,
@@ -34,16 +28,11 @@ pub struct PrimaryViewPresenter {
 }
 
 impl InstancePresenter {
-    pub fn rect(&self) -> RectPx {
-        self.rect
-    }
-
     pub fn presents_primary_view(&self) -> bool {
-        matches!(self.state, InstancePresenterState::Presenting { .. })
+        self.state.view().is_some()
     }
 
     pub fn set_rect(&mut self, rect: RectPx, animate: bool) {
-        self.rect = rect;
         let (x, y, z) = rect.center().cast().to_3d().into();
         let translation = (x, y, z).into();
 
@@ -58,19 +47,6 @@ impl InstancePresenter {
                 .set_immediately(translation);
             self.apply_animations();
         }
-    }
-
-    /// This returns a container without an id and contains a leaf with the view id, if there is a
-    /// view. This way the instance can be focused / navigated without focusing the view.
-    pub fn navigation(&self) -> NavigationNode<'_, ViewId> {
-        container(None, || {
-            if let Some(view) = self.state.view() {
-                [leaf(view.creation_info.id, self.rect().into())].into()
-            } else {
-                Vec::new()
-            }
-        })
-        .with_rect(self.rect.into())
     }
 
     pub fn apply_animations(&self) {

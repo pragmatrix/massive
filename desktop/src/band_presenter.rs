@@ -10,7 +10,6 @@ use massive_shell::Scene;
 
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
-use crate::navigation::{self, NavigationNode};
 
 #[derive(Debug, Default)]
 /// Manages the presentation of a horizontal band of instances.
@@ -57,10 +56,6 @@ impl BandPresenter {
 
         let presenter = InstancePresenter {
             state: InstancePresenterState::WaitingForPrimaryView,
-            panel_size: originating_presenter
-                .map(|p| p.panel_size)
-                .unwrap_or(default_panel_size),
-            rect: RectPx::zero(),
             // Correctness: We animate from 0,0 if no originating exist. Need a position here.
             center_translation_animation: scene.animated(
                 originating_presenter
@@ -130,7 +125,6 @@ impl BandPresenter {
         }
 
         // Feature: Add a alpha animation just for the view.
-        instance_presenter.panel_size = view_creation_info.size();
         instance_presenter.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
                 creation_info: view_creation_info.clone(),
@@ -177,23 +171,6 @@ impl BandPresenter {
             .get_mut(&instance_id)
             .expect("Internal error: Instance not found")
             .set_rect(rect, animate);
-    }
-
-    pub fn navigation(&self) -> NavigationNode<'_, BandTarget> {
-        navigation::container(None, || {
-            let mut nodes = Vec::new();
-
-            for instance_id in &self.ordered {
-                let presenter = &self.instances[instance_id];
-                let instance_nav = presenter
-                    .navigation()
-                    .map_target(BandTarget::View)
-                    .with_target(BandTarget::Instance(*instance_id));
-                nodes.push(instance_nav);
-            }
-
-            nodes
-        })
     }
 
     /// Process an event directly targeted at the band itself (i.e. its border / title)

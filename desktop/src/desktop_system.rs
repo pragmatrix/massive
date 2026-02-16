@@ -531,10 +531,6 @@ impl DesktopSystem {
 
         let presenter = InstancePresenter {
             state: InstancePresenterState::WaitingForPrimaryView,
-            panel_size: originating_presenter
-                .map(|p| p.panel_size)
-                .unwrap_or(self.default_panel_size),
-            rect: RectPx::zero(),
             // Correctness: We animate from 0,0 if no originating exist. Need a position here.
             center_translation_animation: scene.animated(
                 originating_presenter
@@ -582,7 +578,6 @@ impl DesktopSystem {
         // Architecture: Move this transition in the InstancePresenter
         //
         // Feature: Add a alpha animation just for the view.
-        instance_presenter.panel_size = view_creation_info.size();
         instance_presenter.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
                 creation_info: view_creation_info.clone(),
