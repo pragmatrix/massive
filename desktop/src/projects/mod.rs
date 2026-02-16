@@ -1,10 +1,8 @@
-use std::{fs, path::Path, time::Duration};
+use std::{fs, path::Path};
 
 use anyhow::{Context, Result};
-use derive_more::From;
 use log::warn;
 
-use crate::band_presenter::BandTarget;
 use crate::projects::configuration::{GroupContents, LayoutDirection, ScopedTag};
 
 mod configuration;
@@ -16,16 +14,6 @@ pub use self::configuration::{LaunchProfile, ProjectConfiguration};
 pub use self::launcher_presenter::LauncherPresenter;
 pub use self::project::*;
 pub use self::project_presenter::*;
-
-pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
-
-#[derive(Debug, Clone, PartialEq, Eq, From)]
-pub enum ProjectTarget {
-    Group(GroupId),
-    Launcher(LaunchProfileId),
-    // Under Launcher
-    Band(LaunchProfileId, BandTarget),
-}
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,

@@ -19,6 +19,7 @@ pub struct LaunchGroup {
     pub contents: LaunchGroupContents,
 }
 
+#[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct LaunchGroupProperties {
     pub name: String,
@@ -33,6 +34,7 @@ pub enum LaunchGroupContents {
 }
 
 impl LaunchGroupContents {
+    #[allow(unused)]
     pub fn len(&self) -> usize {
         match self {
             LaunchGroupContents::Groups(launch_groups) => launch_groups.len(),
@@ -74,6 +76,7 @@ impl Project {
         Ok(Project { start, root })
     }
 
+    #[allow(unused)]
     pub fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
         self.root.get_launch_profile(id)
     }
@@ -121,6 +124,7 @@ impl LaunchGroup {
     }
 
     /// Returns an ASCII tree visualization of the group hierarchy.
+    #[allow(unused)]
     pub fn visualize(&self) -> String {
         let mut output = String::new();
         self.visualize_impl(&mut output, "", true, true);

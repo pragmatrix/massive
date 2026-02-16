@@ -35,7 +35,6 @@ pub struct Desktop {
     instance_manager: InstanceManager,
     instance_commands: UnboundedReceiver<(InstanceId, InstanceCommand)>,
     context: ApplicationContext,
-    fonts: FontManager,
 }
 
 impl Desktop {
@@ -132,7 +131,6 @@ impl Desktop {
             instance_manager,
             instance_commands: requests_rx,
             context,
-            fonts,
         })
     }
 

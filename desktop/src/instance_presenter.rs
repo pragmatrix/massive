@@ -1,8 +1,10 @@
+use std::time::Duration;
+
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewCreationInfo;
 use massive_geometry::{RectPx, Vector3};
 
-use crate::band_presenter::BandPresenter;
+pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -39,7 +41,7 @@ impl InstancePresenter {
         if animate {
             self.center_translation_animation.animate_if_changed(
                 translation,
-                BandPresenter::STRUCTURAL_ANIMATION_DURATION,
+                STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {

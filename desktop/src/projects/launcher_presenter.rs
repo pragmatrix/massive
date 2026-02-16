@@ -1,13 +1,10 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use anyhow::Result;
-use log::warn;
-use winit::event::MouseButton;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewEvent;
 use massive_geometry::{Color, Rect};
-use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
@@ -16,7 +13,6 @@ use massive_shell::Scene;
 use crate::desktop_system::{Cmd, DesktopCommand};
 use crate::projects::LaunchProfileId;
 
-use super::STRUCTURAL_ANIMATION_DURATION;
 use super::configuration::LaunchProfile;
 
 // TODO: Need proper color palettes for UI elements.
@@ -28,27 +24,20 @@ const BACKGROUND_COLOR: Color = MIDNIGHT_BLUE;
 const TEXT_COLOR: Color = Color::WHITE;
 const FADING_DURATION: Duration = Duration::from_millis(500);
 
+const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+
 #[derive(Debug)]
 pub struct LauncherPresenter {
-    pub id: LaunchProfileId,
+    #[allow(unused)]
+    id: LaunchProfileId,
     profile: LaunchProfile,
     transform: Handle<Transform>,
     // location: Handle<Location>,
     pub rect: Animated<Rect>,
 
     background: Handle<Visual>,
-    // border: Handle<Visual>,
-
-    // name_rect: Animated<Box>,
     // The text, either centered, or on top of the border.
     name: Handle<Visual>,
-    /// Architecture: We don't want a history per presenter. What we want is a global one, but one
-    /// that takes local coordinate spaces (and interaction spaces / CursorEnter / Exits) into
-    /// account.
-    events: EventManager<ViewEvent>,
-
-    /// The instances.
-    // band: BandPresenter,
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
@@ -107,8 +96,6 @@ impl LauncherPresenter {
             rect: scene.animated(rect),
             background,
             name,
-            events: EventManager::default(),
-            // band: BandPresenter::default(),
             fader: scene.animated(1.0),
         }
     }
@@ -165,32 +152,6 @@ impl LauncherPresenter {
         self.fader
             .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
     }
-
-    // pub fn present_view(&mut self, instance: InstanceId, view: &ViewCreationInfo) -> Result<()> {
-    //     self.band.present_view(instance, view)?;
-
-    //     // self.layout_band(false);
-    //     Ok(())
-    // }
-
-    // pub fn hide_view(&mut self, view: ViewPath) -> Result<()> {
-    //     self.band.hide_view(view)
-    // }
-
-    // pub fn set_instance_rect(&mut self, instance: InstanceId, rect: RectPx) {
-    //     self.band.set_instance_rect(instance, rect, true);
-    // }
-
-    // fn layout_band(&mut self, animate: bool) {
-    //     // Layout the band's instances.
-
-    //     let band_layout = self.band.layout();
-    //     let r: PointPx = self.rect.final_value().origin().to_pixels();
-
-    //     band_layout.place_inline(r, |instance_id, bx| {
-    //         self.band.set_instance_rect(instance_id, bx, animate);
-    //     });
-    // }
 
     pub fn apply_animations(&mut self) {
         let (origin, size) = self.rect.value().origin_and_size();

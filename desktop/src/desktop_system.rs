@@ -33,10 +33,12 @@ use crate::HitTester;
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::FocusPath;
 use crate::instance_manager::{InstanceManager, ViewPath};
-use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
+use crate::instance_presenter::{
+    InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
+};
 use crate::projects::{
     GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
-    LauncherPresenter, ProjectPresenter, STRUCTURAL_ANIMATION_DURATION,
+    LauncherPresenter, ProjectPresenter,
 };
 use crate::{DesktopEnvironment, EventRouter, EventTransition, Map, OrderedHierarchy};
 
@@ -79,12 +81,14 @@ pub enum ProjectCommand {
         id: GroupId,
         properties: LaunchGroupProperties,
     },
+    #[allow(unused)]
     RemoveLaunchGroup(GroupId),
     AddLauncher {
         group: GroupId,
         id: LaunchProfileId,
         profile: LaunchProfile,
     },
+    #[allow(unused)]
     RemoveLauncher(LaunchProfileId),
     SetStartupProfile(Option<LaunchProfileId>),
 }
@@ -499,7 +503,7 @@ impl DesktopSystem {
         self.forward_event_transitions(transitions.transitions, instance_manager)
     }
 
-    pub fn focus(
+    fn focus(
         &mut self,
         focus_path: DesktopFocusPath,
         instance_manager: &InstanceManager,
@@ -508,7 +512,7 @@ impl DesktopSystem {
         self.forward_event_transitions(transitions.transitions, instance_manager)
     }
 
-    pub fn refocus_pointer(
+    fn refocus_pointer(
         &mut self,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
@@ -564,6 +568,22 @@ impl DesktopSystem {
         }
 
         Ok(pos)
+    }
+
+    fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+        if let Some(DesktopTarget::Launcher(launcher)) =
+            self.aggregates.hierarchy.parent(&instance.into())
+        {
+            self.aggregates
+                .launchers
+                .get_mut(launcher)
+                .expect("Launcher not found")
+                .fade_in();
+        }
+
+        self.aggregates
+            .remove_target(&DesktopTarget::Instance(instance))?;
+        self.aggregates.instances.remove(&instance)
     }
 
     fn present_view(
@@ -641,22 +661,6 @@ impl DesktopSystem {
             .remove_target(&DesktopTarget::View(path.view))?;
 
         Ok(())
-    }
-
-    fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
-        if let Some(DesktopTarget::Launcher(launcher)) =
-            self.aggregates.hierarchy.parent(&instance.into())
-        {
-            self.aggregates
-                .launchers
-                .get_mut(launcher)
-                .expect("Launcher not found")
-                .fade_in();
-        }
-
-        self.aggregates
-            .remove_target(&DesktopTarget::Instance(instance))?;
-        self.aggregates.instances.remove(&instance)
     }
 
     fn apply_layout(&mut self, layout: Layout<DesktopTarget, 2>, animate: bool) {
