@@ -64,8 +64,8 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
         self.container.nested.push(nested);
     }
 
-    pub fn with_child(mut self, child: Layout<Id, RANK>) -> Self {
-        self.container.nested.push(child);
+    pub fn with_nested(mut self, nested: Layout<Id, RANK>) -> Self {
+        self.container.nested.push(nested);
         self
     }
 
@@ -74,30 +74,30 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
         let mut size = Size::EMPTY;
         let mut offset: Offset<RANK> = self.container.padding.leading.into();
 
-        // Position children and compute container size
-        for (i, child) in self.container.nested.iter_mut().enumerate() {
-            let child_outer_size = child.outer_size();
+        // Position nested and compute container size
+        for (i, nested) in self.container.nested.iter_mut().enumerate() {
+            let nested_outer_size = nested.outer_size();
 
-            // Add spacing before this child (except for the first)
+            // Add spacing before this nested (except for the first)
             if i > 0 {
                 offset[axis] += self.container.spacing as i32;
             }
 
-            // Set child's offset relative to this container's content area
-            child.rect.offset = offset;
+            // Set nested's offset relative to this container's content area
+            nested.rect.offset = offset;
 
             // Advance offset along layout axis
-            offset[axis] += child_outer_size[axis] as i32;
+            offset[axis] += nested_outer_size[axis] as i32;
 
             // Accumulate size: sum along axis, max perpendicular
             for dim in 0..RANK {
                 if dim == axis {
-                    size[dim] += child_outer_size[dim];
+                    size[dim] += nested_outer_size[dim];
                     if i > 0 {
                         size[dim] += self.container.spacing;
                     }
                 } else {
-                    size[dim] = max(size[dim], child_outer_size[dim]);
+                    size[dim] = max(size[dim], nested_outer_size[dim]);
                 }
             }
         }
@@ -140,7 +140,7 @@ impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
             nested: self
                 .nested
                 .into_iter()
-                .map(|child| child.map_id_ref(f))
+                .map(|nested| nested.map_id_ref(f))
                 .collect(),
         }
     }
@@ -207,10 +207,10 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
             out(id, Rect::new(abs_offset, outer_size));
         }
 
-        // Recursively place children with accumulated offset
+        // Recursively place nested with accumulated offset
         if let Some(container) = container {
-            for child in container.nested {
-                child.place_rec(abs_offset, out);
+            for nested in container.nested {
+                nested.place_rec(abs_offset, out);
             }
         }
     }
@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(results.len(), 4);
         // Root should have width = sum, height = max
         assert_eq!(results[0], (0, rect(0, 0, 450, 50)));
-        // Children laid out horizontally in forward order (1, 2, 3)
+        // Nested laid out horizontally in forward order (1, 2, 3)
         assert_eq!(results[1], (1, rect(0, 0, 100, 50)));
         assert_eq!(results[2], (2, rect(100, 0, 200, 30)));
         assert_eq!(results[3], (3, rect(300, 0, 150, 40)));
@@ -294,7 +294,7 @@ mod tests {
         assert_eq!(results.len(), 4);
         // Root should have width = max, height = sum
         assert_eq!(results[0], (0, rect(0, 0, 200, 120)));
-        // Children laid out vertically in forward order (1, 2, 3)
+        // Nested laid out vertically in forward order (1, 2, 3)
         assert_eq!(results[1], (1, rect(0, 0, 100, 50)));
         assert_eq!(results[2], (2, rect(0, 50, 200, 30)));
         assert_eq!(results[3], (3, rect(0, 80, 150, 40)));
@@ -317,7 +317,7 @@ mod tests {
         let results = root.layout().place(point(100, 200));
 
         assert_eq!(results.len(), 3);
-        // All positions should be offset by (100, 200), children in forward order
+        // All positions should be offset by (100, 200), nested in forward order
         assert_eq!(results[0], (0, rect(100, 200, 30, 20)));
         assert_eq!(results[1], (1, rect(100, 200, 10, 10)));
         assert_eq!(results[2], (2, rect(110, 200, 20, 20)));
@@ -369,7 +369,7 @@ mod tests {
         // Root horizontal: width=50+25+60=135, height=max(50,65,60)=65
         assert_eq!(results.len(), 6);
         assert_eq!(results[0], (0, rect(0, 0, 135, 65)));
-        // Children in forward order: 1, 2 (with nested 3, 4), 5
+        // Nested in forward order: 1, 2 (with nested 3, 4), 5
         assert_eq!(results[1], (1, rect(0, 0, 50, 50)));
         assert_eq!(results[2], (2, rect(50, 0, 25, 65)));
         assert_eq!(results[3], (3, rect(50, 0, 20, 30)));
@@ -404,7 +404,7 @@ mod tests {
         // Width: 10 + (100 + 200) + 30 = 340
         // Height: 20 + max(50, 30) + 40 = 110
         assert_eq!(results[0], (0, rect(0, 0, 340, 110)));
-        // Children offset by leading padding (10, 20), laid out in forward order
+        // Nested offset by leading padding (10, 20), laid out in forward order
         assert_eq!(results[1], (1, rect(10, 20, 100, 50)));
         assert_eq!(results[2], (2, rect(110, 20, 200, 30)));
     }
@@ -421,7 +421,7 @@ mod tests {
         // Width: 5 + max(100, 200) + 15 = 220
         // Height: 10 + (50 + 30) + 20 = 110
         assert_eq!(results[0], (0, rect(0, 0, 220, 110)));
-        // Children offset by leading padding (5, 10), laid out vertically in forward order
+        // Nested offset by leading padding (5, 10), laid out vertically in forward order
         assert_eq!(results[1], (1, rect(5, 10, 100, 50)));
         assert_eq!(results[2], (2, rect(5, 60, 200, 30)));
     }
@@ -450,10 +450,10 @@ mod tests {
         // Root outer: width=10+145+10=165, height=10+75+10=95
         assert_eq!(results.len(), 6);
         assert_eq!(results[0], (0, rect(0, 0, 165, 95)));
-        // Root children offset by (10, 10), in forward order: 1, 2, 5
+        // Root nested offset by (10, 10), in forward order: 1, 2, 5
         assert_eq!(results[1], (1, rect(10, 10, 50, 50)));
         assert_eq!(results[2], (2, rect(60, 10, 35, 75)));
-        // Container(2) children offset by container's abs position (60, 10) + padding (5, 5)
+        // Container(2) nested offset by container's abs position (60, 10) + padding (5, 5)
         // Leaf 3 at relative (5, 5), absolute (65, 15)
         // Leaf 4 at relative (5, 35), absolute (65, 45)
         assert_eq!(results[3], (3, rect(65, 15, 20, 30)));
@@ -493,7 +493,7 @@ mod tests {
         // Width: 0 + 100 + 20 = 120
         // Height: 10 + 50 + 0 = 60
         assert_eq!(results[0], (0, rect(0, 0, 120, 60)));
-        // Child offset by leading padding (0, 10)
+        // Nested offset by leading padding (0, 10)
         assert_eq!(results[1], (1, rect(0, 10, 100, 50)));
     }
 
@@ -509,7 +509,7 @@ mod tests {
         // Width: 100 + 10 + 80 + 10 + 120 = 320
         // Height: max(50, 60, 40) = 60
         assert_eq!(results[0], (0, rect(0, 0, 320, 60)));
-        // Children in forward order: 1, 2, 3
+        // Nested in forward order: 1, 2, 3
         assert_eq!(results[1], (1, rect(0, 0, 100, 50)));
         assert_eq!(results[2], (2, rect(110, 0, 80, 60)));
         assert_eq!(results[3], (3, rect(200, 0, 120, 40)));
@@ -528,10 +528,10 @@ mod tests {
         // Width: 5 + 100 + 10 + 80 + 7 = 202
         // Height: 3 + max(50, 60) + 4 = 67
         assert_eq!(results[0], (0, rect(0, 0, 202, 67)));
-        // Children in forward order: 1, 2
-        // First child offset by leading padding
+        // Nested in forward order: 1, 2
+        // First nested offset by leading padding
         assert_eq!(results[1], (1, rect(5, 3, 100, 50)));
-        // Second child: 5 (leading) + 100 (first) + 10 (spacing)
+        // Second nested: 5 (leading) + 100 (first) + 10 (spacing)
         assert_eq!(results[2], (2, rect(115, 3, 80, 60)));
     }
 }
