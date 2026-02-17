@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::cmp::Ordering;
 
 use massive_geometry::{Point, Rect};

@@ -40,7 +40,9 @@ use crate::projects::{
     GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
     LauncherPresenter, ProjectPresenter,
 };
-use crate::{DesktopEnvironment, EventRouter, EventTransition, HitTester, Map, OrderedHierarchy};
+use crate::{
+    DesktopEnvironment, EventRouter, EventTransition, HitTester, Map, OrderedHierarchy, navigation,
+};
 
 const SECTION_SPACING: u32 = 20;
 
@@ -710,7 +712,9 @@ impl DesktopSystem {
             && !key_event.repeat
             && event.device_states().is_command()
         {
-            if let Some(instance) = self.event_router.focused().instance() {
+            let focused = self.event_router.focused();
+
+            if let Some(instance) = focused.instance() {
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
                         return Ok(DesktopCommand::StartInstance {
@@ -727,7 +731,20 @@ impl DesktopSystem {
                 }
             }
 
-            if let Some(parent_focus) = self.event_router.focused().parent()
+            if let Some(move_from) = focused.can_move_directionally()
+                && let Some(direction) = match &key_event.logical_key {
+                    Key::Named(NamedKey::ArrowLeft) => Some(navigation::Direction::Left),
+                    Key::Named(NamedKey::ArrowRight) => Some(navigation::Direction::Right),
+                    Key::Named(NamedKey::ArrowUp) => Some(navigation::Direction::Up),
+                    Key::Named(NamedKey::ArrowDown) => Some(navigation::Direction::Down),
+                    _ => None,
+                }
+                && let Some(new_focus) = self.move_directionally(move_from, direction)
+            {
+                return Ok(DesktopCommand::Focus(new_focus).into());
+            }
+
+            if let Some(parent_focus) = focused.parent()
                 && let Key::Named(NamedKey::Escape) = &key_event.logical_key
             {
                 return Ok(DesktopCommand::Focus(parent_focus).into());
@@ -851,6 +868,15 @@ impl DesktopSystem {
             }
         }
     }
+
+    fn move_directionally(
+        &self,
+        from: &DesktopTarget,
+        _direction: navigation::Direction,
+    ) -> Option<DesktopFocusPath> {
+        let _from_rect = self.aggregates.rects.get(from)?;
+        todo!();
+    }
 }
 
 impl Aggregates {
@@ -948,5 +974,11 @@ impl DesktopFocusPath {
                 }
             })
             .map(|i| self.iter().take(i).cloned().collect::<Vec<_>>().into())
+    }
+
+    pub fn can_move_directionally(&self) -> Option<&DesktopTarget> {
+        self.iter()
+            .rev()
+            .find(|t| matches!(t, DesktopTarget::Launcher(..) | DesktopTarget::Instance(..)))
     }
 }
