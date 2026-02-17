@@ -108,6 +108,7 @@ impl LauncherPresenter {
         {
             // Usability: Should pass this rect?
             return Ok(DesktopCommand::StartInstance {
+                launcher: self.id,
                 parameters: self.profile.params.clone(),
             }
             .into());
@@ -119,10 +120,6 @@ impl LauncherPresenter {
     fn presents_instance(&self) -> bool {
         self.fader.final_value() == 0.0
     }
-
-    // pub fn process_band(&mut self, view_event: ViewEvent) -> Result<Cmd> {
-    //     self.band.process(view_event).map(|()| Cmd::None)
-    // }
 
     pub fn set_rect(&mut self, rect: Rect, animate: bool) {
         if animate {
@@ -181,10 +178,6 @@ impl LauncherPresenter {
                 rest => rest.into(),
             }
         });
-
-        // Robustness: Forgot to forward this once. How can we make sure that animations are
-        // always applied if needed?
-        // self.band.apply_animations();
     }
 }
 

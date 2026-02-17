@@ -3,7 +3,7 @@ use serde_json::{Map, Value};
 use massive_layout::LayoutAxis;
 
 #[derive(Debug)]
-pub struct LaunchGroup {
+pub struct LaunchGroupSpec {
     pub name: String,
     pub tag: ScopedTag,
     pub layout: LayoutDirection,
@@ -28,7 +28,7 @@ impl LayoutDirection {
 /// A group can only contain either groups or applications.
 #[derive(Debug)]
 pub enum GroupContents {
-    Groups(Vec<LaunchGroup>),
+    Groups(Vec<LaunchGroupSpec>),
     Profiles(Vec<LaunchProfile>),
 }
 

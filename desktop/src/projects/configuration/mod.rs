@@ -13,7 +13,7 @@ use toml_reader::ConfigFile;
 pub struct ProjectConfiguration {
     /// The startup profile.
     pub startup: Option<String>,
-    pub root: LaunchGroup,
+    pub root: LaunchGroupSpec,
 }
 
 impl ProjectConfiguration {

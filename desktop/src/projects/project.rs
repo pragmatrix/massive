@@ -1,6 +1,6 @@
 //! A configuration derived hierarchy with assigned ids.
 use anyhow::{Context, Result, bail};
-use derive_more::{Constructor, Deref};
+use uuid::Uuid;
 
 use crate::projects::configuration::{
     self, GroupContents, LaunchProfile, LayoutDirection, ProjectConfiguration, ScopedTag,
@@ -49,17 +49,27 @@ pub struct Launcher {
     pub profile: LaunchProfile,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref, Constructor)]
-pub struct GroupId(u32);
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct GroupId(Uuid);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deref, Constructor)]
-pub struct LaunchProfileId(u32);
+impl GroupId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct LaunchProfileId(Uuid);
+
+impl LaunchProfileId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 impl Project {
     pub fn from_configuration(config: ProjectConfiguration) -> Result<Self> {
-        let mut group_id_counter = GroupId(1);
-        let mut profile_id_counter = LaunchProfileId(1);
-        let root = convert_group(config.root, &mut group_id_counter, &mut profile_id_counter);
+        let root = convert_group(config.root);
 
         let start = match config.startup {
             Some(profile_name) => {
@@ -172,19 +182,14 @@ impl LaunchGroup {
     }
 }
 
-fn convert_group(
-    group: configuration::LaunchGroup,
-    group_id: &mut GroupId,
-    profile_id: &mut LaunchProfileId,
-) -> LaunchGroup {
-    let id = *group_id;
-    group_id.0 += 1;
+fn convert_group(group: configuration::LaunchGroupSpec) -> LaunchGroup {
+    let id = GroupId::new();
 
     let contents = match group.content {
         GroupContents::Groups(groups) => {
             let mut converted_groups = Vec::with_capacity(groups.len());
             for child_group in groups {
-                let converted = convert_group(child_group, group_id, profile_id);
+                let converted = convert_group(child_group);
                 converted_groups.push(converted);
             }
             LaunchGroupContents::Groups(converted_groups)
@@ -193,10 +198,9 @@ fn convert_group(
             let mut slots = Vec::with_capacity(profiles.len());
             for profile in profiles {
                 let slot = Launcher {
-                    id: *profile_id,
+                    id: LaunchProfileId::new(),
                     profile,
                 };
-                profile_id.0 += 1;
                 slots.push(slot);
             }
             LaunchGroupContents::Launchers(slots)

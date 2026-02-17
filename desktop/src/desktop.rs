@@ -15,13 +15,14 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
+use crate::DesktopEnvironment;
 use crate::desktop_system::{DesktopCommand, DesktopSystem, ProjectCommand};
 use crate::event_sourcing::Transaction;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::projects::{
-    GroupId, LaunchGroup, LaunchGroupContents, Launcher, Project, ProjectConfiguration,
+    GroupId, LaunchGroup, LaunchGroupContents, LaunchGroupProperties, LaunchProfile,
+    LaunchProfileId, Launcher, LayoutDirection, Project, ProjectConfiguration, ScopedTag,
 };
-use crate::{DesktopEnvironment, DesktopTarget};
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -98,23 +99,30 @@ impl Desktop {
 
         // Initial setup
 
-        let mut system =
-            DesktopSystem::new(env, fonts.clone(), project.root.id, default_size, &scene)?;
+        let desktop_groups = desktop_groups();
 
+        // Architecture: Providing the root group here is conceptually wrong I guess, because it
+        // does not exist yet.
+        let mut system = DesktopSystem::new(env, fonts.clone(), default_size, &scene)?;
+
+        let desktop_groups_transaction = desktop_groups.transaction.map(DesktopCommand::Project);
+
+        // Add the project under the desktop group.
         let project_setup_transaction =
-            project_to_transaction(&project).map(DesktopCommand::Project);
+            project_to_transaction(None, &project).map(DesktopCommand::Project);
 
         let primary_view_transaction: Transaction<_> = [
-            // Focus top band first.
-            DesktopCommand::Focus(vec![DesktopTarget::Desktop, DesktopTarget::TopBand].into()),
-            // Then present the primary instance / view
-            DesktopCommand::PresentInstance(primary_instance),
+            // Present the primary instance / view
+            DesktopCommand::PresentInstance {
+                launcher: desktop_groups.primary_launcher,
+                instance: primary_instance,
+            },
             DesktopCommand::PresentView(primary_instance, creation_info),
         ]
         .into();
 
         system.transact(
-            project_setup_transaction + primary_view_transaction,
+            desktop_groups_transaction + project_setup_transaction + primary_view_transaction,
             &scene,
             &mut instance_manager,
             renderer.geometry(),
@@ -268,12 +276,54 @@ impl Desktop {
     }
 }
 
-fn project_to_transaction(project: &Project) -> Transaction<ProjectCommand> {
+#[derive(Debug)]
+struct DesktopGroups {
+    primary_group: GroupId,
+    primary_launcher: LaunchProfileId,
+    transaction: Transaction<ProjectCommand>,
+}
+
+fn desktop_groups() -> DesktopGroups {
+    let mut cmds = Vec::new();
+
+    let primary_group = GroupId::new();
+    let primary_launcher = LaunchProfileId::new();
+
+    cmds.push(ProjectCommand::AddLaunchGroup {
+        parent: None,
+        id: primary_group,
+        properties: LaunchGroupProperties {
+            name: "TopBand".into(),
+            tag: ScopedTag::new("", ""),
+            layout: LayoutDirection::Horizontal,
+        },
+    });
+    cmds.push(ProjectCommand::AddLauncher {
+        group: primary_group,
+        id: primary_launcher,
+        profile: LaunchProfile {
+            name: "Primary / Local".into(),
+            params: Default::default(),
+            tags: Default::default(),
+        },
+    });
+
+    DesktopGroups {
+        primary_group,
+        primary_launcher,
+        transaction: cmds.into(),
+    }
+}
+
+fn project_to_transaction(
+    parent: Option<GroupId>,
+    project: &Project,
+) -> Transaction<ProjectCommand> {
     let mut commands = Vec::new();
 
     commands.push(ProjectCommand::SetStartupProfile(project.start));
 
-    launch_group_commands(None, &project.root, &mut commands);
+    launch_group_commands(parent, &project.root, &mut commands);
 
     commands.into()
 }

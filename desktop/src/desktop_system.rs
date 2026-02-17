@@ -30,7 +30,7 @@ use massive_scene::{Location, Object, ToCamera, Transform};
 use massive_shell::{FontManager, Scene};
 
 use crate::event_sourcing::{self, Transaction};
-use crate::focus_path::FocusPath;
+use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
     InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
@@ -49,9 +49,7 @@ const SECTION_SPACING: u32 = 20;
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
 pub enum DesktopTarget {
-    // The whole area, covering the top band and
     Desktop,
-    TopBand,
 
     Group(GroupId),
     Launcher(LaunchProfileId),
@@ -66,13 +64,19 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 #[derive(Debug)]
 pub enum DesktopCommand {
     Project(ProjectCommand),
-    PresentInstance(InstanceId),
+    StartInstance {
+        launcher: LaunchProfileId,
+        parameters: InstanceParameters,
+    },
+    StopInstance(InstanceId),
+    PresentInstance {
+        launcher: LaunchProfileId,
+        instance: InstanceId,
+    },
     PresentView(InstanceId, ViewCreationInfo),
     HideView(ViewPath),
-    StartInstance { parameters: InstanceParameters },
-    StopInstance(InstanceId),
-    // Simplify: Use only DesktopTarget here, DesktopFocusPath can be resolved.
-    Focus(DesktopFocusPath),
+    ZoomOut,
+    Navigate(navigation::Direction),
 }
 
 #[derive(Debug)]
@@ -101,6 +105,7 @@ pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 pub struct DesktopSystem {
     env: DesktopEnvironment,
     fonts: FontManager,
+
     default_panel_size: SizePx,
 
     event_router: EventRouter<DesktopTarget>,
@@ -146,18 +151,9 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         fonts: FontManager,
-        root_group: GroupId,
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<Self> {
-        // Set up static hierarchy parts and layout specs.
-
-        let mut hierarchy = OrderedHierarchy::default();
-        hierarchy.add_nested(
-            DesktopTarget::Desktop,
-            [DesktopTarget::TopBand, DesktopTarget::Group(root_group)],
-        )?;
-
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let identity_matrix = Transform::IDENTITY.enter(scene);
@@ -170,12 +166,13 @@ impl DesktopSystem {
         let system = Self {
             env,
             fonts,
+
             default_panel_size,
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
 
-            aggregates: Aggregates::new(hierarchy, project_presenter),
+            aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
         };
 
         Ok(system)
@@ -206,7 +203,10 @@ impl DesktopSystem {
         geometry: &RenderGeometry,
     ) -> Result<()> {
         match command {
-            DesktopCommand::StartInstance { parameters } => {
+            DesktopCommand::StartInstance {
+                launcher,
+                parameters,
+            } => {
                 // Feature: Support starting non-primary applications.
                 let application = self
                     .env
@@ -220,7 +220,7 @@ impl DesktopSystem {
                 // Robustness: Should this be a real, logged event?
                 // Architecture: Better to start up the primary directly, so that we can remove the PresentInstance command?
                 self.apply_command(
-                    DesktopCommand::PresentInstance(instance),
+                    DesktopCommand::PresentInstance { launcher, instance },
                     scene,
                     instance_manager,
                     geometry,
@@ -260,28 +260,20 @@ impl DesktopSystem {
                 Ok(())
             }
 
-            DesktopCommand::PresentInstance(instance) => {
+            DesktopCommand::PresentInstance { launcher, instance } => {
                 let focused = self.event_router.focused();
                 let originating_from = focused.instance();
-                let instance_parent_path = focused.instance_parent().ok_or(anyhow!(
-                    "Failed to present instance when no parent is focused that can take on a new one: {focused:?}"
-                ))?;
+                let launcher_path = self.aggregates.hierarchy.resolve_path(launcher.into());
 
-                let instance_parent = instance_parent_path.last().unwrap().clone();
-
-                let insertion_index = self.present_instance(
-                    instance_parent.clone(),
-                    originating_from,
-                    instance,
-                    scene,
-                )?;
+                let insertion_index =
+                    self.present_instance(launcher, originating_from, instance, scene)?;
 
                 let instance_target = DesktopTarget::Instance(instance);
-                let instance_path = instance_parent_path.clone().join(instance_target.clone());
+                let instance_path = launcher_path.clone().join(instance_target.clone());
 
                 // Add this instance to the hierarchy.
                 self.aggregates.hierarchy.insert_at(
-                    instance_parent,
+                    launcher.into(),
                     insertion_index,
                     instance_target.clone(),
                 )?;
@@ -316,9 +308,14 @@ impl DesktopSystem {
                 self.apply_project_command(project_command, scene)
             }
 
-            DesktopCommand::Focus(path) => {
-                assert!(self.focus(path, instance_manager)?.is_none());
+            DesktopCommand::ZoomOut => {
+                if let Some(parent) = self.event_router.focused().parent() {
+                    assert!(self.focus(parent, instance_manager)?.is_none());
+                }
                 Ok(())
+            }
+            DesktopCommand::Navigate(_direction) => {
+                todo!()
             }
         }
     }
@@ -330,16 +327,14 @@ impl DesktopSystem {
                 id,
                 properties,
             } => {
-                if let Some(parent) = parent {
-                    self.aggregates.hierarchy.add(parent.into(), id.into())?;
-                };
+                let parent = parent.map(|p| p.into()).unwrap_or(DesktopTarget::Desktop);
+                self.aggregates.hierarchy.add(parent, id.into())?;
                 self.aggregates
                     .groups
                     .insert(id, GroupPresenter::new(properties))?;
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
-                let target = group.into();
-                self.aggregates.remove_target(&target)?;
+                self.aggregates.remove_target(&group.into())?;
                 self.aggregates.groups.remove(&group)?;
             }
             ProjectCommand::AddLauncher { group, id, profile } => {
@@ -353,10 +348,7 @@ impl DesktopSystem {
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
 
-                let target = DesktopTarget::Launcher(id);
-                self.aggregates
-                    .hierarchy
-                    .add(group.into(), target.clone())?;
+                self.aggregates.hierarchy.add(group.into(), id.into())?;
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);
@@ -446,7 +438,6 @@ impl DesktopSystem {
                 .to_container()
                 .spacing(SECTION_SPACING)
                 .into(),
-            DesktopTarget::TopBand => LayoutAxis::HORIZONTAL.into(),
             DesktopTarget::Group(group_id) => self.aggregates.groups[group_id]
                 .properties
                 .layout
@@ -529,7 +520,7 @@ impl DesktopSystem {
 
     fn present_instance(
         &mut self,
-        instance_parent: DesktopTarget,
+        launcher: LaunchProfileId,
         originating_from: Option<InstanceId>,
         instance: InstanceId,
         scene: &Scene,
@@ -549,7 +540,7 @@ impl DesktopSystem {
 
         self.aggregates.instances.insert(instance, presenter)?;
 
-        let nested = self.aggregates.hierarchy.get_nested(&instance_parent);
+        let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
         let pos = if let Some(originating_from) = originating_from {
             nested
                 .iter()
@@ -561,13 +552,11 @@ impl DesktopSystem {
         };
 
         // Inform the launcher to fade out.
-        if let DesktopTarget::Launcher(launcher) = &instance_parent {
-            self.aggregates
-                .launchers
-                .get_mut(launcher)
-                .expect("Launcher not found")
-                .fade_out();
-        }
+        self.aggregates
+            .launchers
+            .get_mut(&launcher)
+            .expect("Launcher not found")
+            .fade_out();
 
         Ok(pos)
     }
@@ -673,7 +662,6 @@ impl DesktopSystem {
 
             match id {
                 DesktopTarget::Desktop => {}
-                DesktopTarget::TopBand => {}
                 DesktopTarget::Instance(instance_id) => {
                     self.aggregates
                         .instances
@@ -714,10 +702,15 @@ impl DesktopSystem {
         {
             let focused = self.event_router.focused();
 
-            if let Some(instance) = focused.instance() {
+            // Simplify: Instance should probably return the launcher, too now.
+            if let Some(instance) = focused.instance()
+                && let Some(DesktopTarget::Launcher(launcher)) =
+                    self.aggregates.hierarchy.parent(&instance.into())
+            {
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
                         return Ok(DesktopCommand::StartInstance {
+                            launcher: *launcher,
                             parameters: Default::default(),
                         }
                         .into());
@@ -731,23 +724,18 @@ impl DesktopSystem {
                 }
             }
 
-            if let Some(move_from) = focused.can_move_directionally()
-                && let Some(direction) = match &key_event.logical_key {
-                    Key::Named(NamedKey::ArrowLeft) => Some(navigation::Direction::Left),
-                    Key::Named(NamedKey::ArrowRight) => Some(navigation::Direction::Right),
-                    Key::Named(NamedKey::ArrowUp) => Some(navigation::Direction::Up),
-                    Key::Named(NamedKey::ArrowDown) => Some(navigation::Direction::Down),
-                    _ => None,
-                }
-                && let Some(new_focus) = self.move_directionally(move_from, direction)
-            {
-                return Ok(DesktopCommand::Focus(new_focus).into());
+            if let Some(direction) = match &key_event.logical_key {
+                Key::Named(NamedKey::ArrowLeft) => Some(navigation::Direction::Left),
+                Key::Named(NamedKey::ArrowRight) => Some(navigation::Direction::Right),
+                Key::Named(NamedKey::ArrowUp) => Some(navigation::Direction::Up),
+                Key::Named(NamedKey::ArrowDown) => Some(navigation::Direction::Down),
+                _ => None,
+            } {
+                return Ok(DesktopCommand::Navigate(direction).into());
             }
 
-            if let Some(parent_focus) = focused.parent()
-                && let Key::Named(NamedKey::Escape) = &key_event.logical_key
-            {
-                return Ok(DesktopCommand::Focus(parent_focus).into());
+            if let Key::Named(NamedKey::Escape) = &key_event.logical_key {
+                return Ok(DesktopCommand::ZoomOut.into());
             }
         }
 
@@ -786,7 +774,6 @@ impl DesktopSystem {
                 // Route to the appropriate handler based on the last target in the path
                 match focus_path.last().expect("Internal Error") {
                     DesktopTarget::Desktop => {}
-                    DesktopTarget::TopBand => {}
                     DesktopTarget::Instance(..) => {}
                     DesktopTarget::View(view_id) => {
                         let Some(instance) = focus_path.instance() else {
@@ -840,9 +827,6 @@ impl DesktopSystem {
             // Desktop and TopBand are constrained to their size.
             DesktopTarget::Desktop => {
                 Some(self.aggregates.rects[&DesktopTarget::Desktop].to_camera())
-            }
-            DesktopTarget::TopBand => {
-                Some(self.aggregates.rects[&DesktopTarget::TopBand].to_camera())
             }
 
             DesktopTarget::Group(group) => {
@@ -964,7 +948,6 @@ impl DesktopFocusPath {
             .rev()
             .find_map(|(i, t)| match t {
                 DesktopTarget::Desktop => None,
-                DesktopTarget::TopBand => Some(i + 1),
                 DesktopTarget::Group(..) => None,
                 DesktopTarget::Launcher(..) => Some(i + 1),
                 DesktopTarget::Instance(..) => Some(i),
