@@ -6,7 +6,7 @@ use serde::Deserialize;
 use serde_json::Map;
 use toml::Value;
 
-use super::types::{GroupContents, LaunchGroup, LaunchProfile, LayoutDirection, ScopedTag};
+use super::types::{GroupContents, LaunchGroupSpec, LaunchProfile, LayoutDirection, ScopedTag};
 
 /// Intermediate representation for deserializing TOML configuration files.
 #[derive(Debug, Deserialize)]
@@ -41,7 +41,7 @@ pub type LaunchProfileSection = IndexMap<String, Value>;
 impl ConfigFile {
     /// Convert the intermediate TOML representation into a launch group, which is itself
     /// an ApplicationGroup.
-    pub fn into_launch_group(self, name: String) -> Result<LaunchGroup> {
+    pub fn into_launch_group(self, name: String) -> Result<LaunchGroupSpec> {
         let layout = self.layout.unwrap_or_default();
 
         // First generate all profiles. Use the layout_groups for separating parameters from tags.
@@ -55,7 +55,7 @@ impl ConfigFile {
         let all_profiles_ref: Vec<_> = all_profiles.iter().collect();
         let groups = build_group_hierarchy(&all_profiles_ref, &layout, 0)?;
 
-        Ok(LaunchGroup {
+        Ok(LaunchGroupSpec {
             name,
             tag: ScopedTag::new("", ""),
             layout: LayoutDirection::Horizontal,
@@ -89,7 +89,7 @@ fn build_group_hierarchy(
     profiles: &[&LaunchProfile],
     layout: &LayoutSection,
     depth: usize,
-) -> Result<Vec<LaunchGroup>> {
+) -> Result<Vec<LaunchGroupSpec>> {
     if depth >= layout.groups.len() {
         return Ok(Vec::new());
     }
@@ -119,7 +119,7 @@ fn build_group_hierarchy(
         }
     };
 
-    let mut groups: Vec<LaunchGroup> = Vec::new();
+    let mut groups: Vec<LaunchGroupSpec> = Vec::new();
 
     // Add ordered profiles first
     for value in &ordered_values {
@@ -151,7 +151,7 @@ fn build_launch_group(
     profiles: &[&LaunchProfile],
     layout: &LayoutSection,
     depth: usize,
-) -> Result<LaunchGroup> {
+) -> Result<LaunchGroupSpec> {
     let is_last_level = depth == layout.groups.len() - 1;
     let content = if is_last_level {
         GroupContents::Profiles(profiles.iter().map(|&profile| profile.clone()).collect())
@@ -166,7 +166,7 @@ fn build_launch_group(
         LayoutDirection::Vertical
     };
 
-    Ok(LaunchGroup {
+    Ok(LaunchGroupSpec {
         name: name.to_string(),
         tag: ScopedTag::new(group_name, name),
         layout: layout_direction,

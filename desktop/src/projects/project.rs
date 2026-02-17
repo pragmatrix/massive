@@ -182,7 +182,7 @@ impl LaunchGroup {
     }
 }
 
-fn convert_group(group: configuration::LaunchGroup) -> LaunchGroup {
+fn convert_group(group: configuration::LaunchGroupSpec) -> LaunchGroup {
     let id = GroupId::new();
 
     let contents = match group.content {

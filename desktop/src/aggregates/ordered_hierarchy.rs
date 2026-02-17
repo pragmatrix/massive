@@ -1,4 +1,4 @@
-use std::{collections::HashMap, hash};
+use std::{collections::HashMap, fmt, hash};
 
 use anyhow::{Result, bail};
 
@@ -22,7 +22,7 @@ impl<Id> Default for OrderedHierarchy<Id> {
     }
 }
 
-impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
+impl<Id: fmt::Debug + Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
     /// Add an id of targets to the end of the parent's nested list.
     pub fn add_nested(&mut self, parent: Id, nested: impl IntoIterator<Item = Id>) -> Result<()> {
         for n in nested {
@@ -34,7 +34,7 @@ impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
     /// Add an id to the end of the parent's nested list.
     pub fn add(&mut self, parent: Id, nested: Id) -> Result<()> {
         if self.parent.insert(nested.clone(), parent.clone()).is_some() {
-            bail!("Internal error: target had already a parent");
+            bail!("Internal error (add): nested {nested:?} had already a parent");
         };
         self.nested.entry(parent).or_default().push(nested);
         Ok(())
@@ -45,14 +45,13 @@ impl<Id: Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
 
         if index > nested.len() {
             anyhow::bail!(
-                "Index {} is out of bounds for parent with {} nested items",
-                index,
+                "Index {index} is out of bounds for parent with {} nested items",
                 nested.len()
             );
         }
 
         if self.parent.insert(target.clone(), parent).is_some() {
-            bail!("Internal error: target had already a parent");
+            bail!("Internal error (insert_at): target {target:?} had already a parent");
         };
 
         nested.insert(index, target);

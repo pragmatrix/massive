@@ -3,14 +3,12 @@ use std::{fs, path::Path};
 use anyhow::{Context, Result};
 use log::warn;
 
-use crate::projects::configuration::{GroupContents, LayoutDirection, ScopedTag};
-
 mod configuration;
 mod launcher_presenter;
 mod project;
 mod project_presenter;
 
-pub use self::configuration::{LaunchProfile, ProjectConfiguration};
+pub use self::configuration::*;
 pub use self::launcher_presenter::LauncherPresenter;
 pub use self::project::*;
 pub use self::project_presenter::*;
@@ -48,7 +46,7 @@ impl Default for ProjectConfiguration {
 
         ProjectConfiguration {
             startup: Some(DEFAULT_PROFILE.into()),
-            root: configuration::LaunchGroup {
+            root: configuration::LaunchGroupSpec {
                 name: "/".into(),
                 tag: ScopedTag::new("", ""),
                 layout: LayoutDirection::Horizontal,

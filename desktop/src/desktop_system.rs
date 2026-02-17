@@ -353,10 +353,7 @@ impl DesktopSystem {
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
 
-                let target = DesktopTarget::Launcher(id);
-                self.aggregates
-                    .hierarchy
-                    .add(group.into(), target.clone())?;
+                self.aggregates.hierarchy.add(group.into(), id.into())?;
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);

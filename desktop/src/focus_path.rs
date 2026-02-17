@@ -1,4 +1,4 @@
-use std::hash;
+use std::{fmt, hash};
 
 use derive_more::{Deref, From, Into};
 
@@ -88,7 +88,7 @@ pub trait PathResolver<Id: Clone> {
     }
 }
 
-impl<Id: Clone + Eq + hash::Hash> PathResolver<Id> for OrderedHierarchy<Id> {
+impl<Id: fmt::Debug + Clone + Eq + hash::Hash> PathResolver<Id> for OrderedHierarchy<Id> {
     fn parent(&self, id: &Id) -> Option<&Id> {
         self.parent(id)
     }
