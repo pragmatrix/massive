@@ -1,6 +1,5 @@
 //! A configuration derived hierarchy with assigned ids.
 use anyhow::{Context, Result, bail};
-use derive_more::Constructor;
 use uuid::Uuid;
 
 use crate::projects::configuration::{
@@ -50,11 +49,23 @@ pub struct Launcher {
     pub profile: LaunchProfile,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Constructor)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GroupId(Uuid);
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Constructor)]
+impl GroupId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct LaunchProfileId(Uuid);
+
+impl LaunchProfileId {
+    pub fn new() -> Self {
+        Self(Uuid::new_v4())
+    }
+}
 
 impl Project {
     pub fn from_configuration(config: ProjectConfiguration) -> Result<Self> {
@@ -172,7 +183,7 @@ impl LaunchGroup {
 }
 
 fn convert_group(group: configuration::LaunchGroup) -> LaunchGroup {
-    let id = GroupId::new(Uuid::new_v4());
+    let id = GroupId::new();
 
     let contents = match group.content {
         GroupContents::Groups(groups) => {
@@ -187,7 +198,7 @@ fn convert_group(group: configuration::LaunchGroup) -> LaunchGroup {
             let mut slots = Vec::with_capacity(profiles.len());
             for profile in profiles {
                 let slot = Launcher {
-                    id: LaunchProfileId::new(Uuid::new_v4()),
+                    id: LaunchProfileId::new(),
                     profile,
                 };
                 slots.push(slot);
