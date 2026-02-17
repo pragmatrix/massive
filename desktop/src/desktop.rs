@@ -100,24 +100,27 @@ impl Desktop {
         // Initial setup
 
         let desktop_groups = desktop_groups();
-        let mut system = DesktopSystem::new(
-            env,
-            fonts.clone(),
-            desktop_groups.desktop_group,
-            default_size,
-            &scene,
-        )?;
+
+        // Architecture: Providing the root group here is conceptually wrong I guess, because it
+        // does not exist yet.
+        let mut system = DesktopSystem::new(env, fonts.clone(), default_size, &scene)?;
 
         let desktop_groups_transaction = desktop_groups.transaction.map(DesktopCommand::Project);
 
         // Add the project under the desktop group.
         let project_setup_transaction =
-            project_to_transaction(Some(desktop_groups.desktop_group), &project)
-                .map(DesktopCommand::Project);
+            project_to_transaction(None, &project).map(DesktopCommand::Project);
 
         let primary_view_transaction: Transaction<_> = [
             // Focus top band first.
-            DesktopCommand::Focus(vec![DesktopTarget::Desktop, DesktopTarget::TopBand].into()),
+            DesktopCommand::Focus(
+                vec![
+                    DesktopTarget::Desktop,
+                    DesktopTarget::Group(desktop_groups.primary_group),
+                    DesktopTarget::Launcher(desktop_groups.primary_launcher),
+                ]
+                .into(),
+            ),
             // Then present the primary instance / view
             DesktopCommand::PresentInstance(primary_instance),
             DesktopCommand::PresentView(primary_instance, creation_info),
@@ -281,7 +284,6 @@ impl Desktop {
 
 #[derive(Debug)]
 struct DesktopGroups {
-    desktop_group: GroupId,
     primary_group: GroupId,
     primary_launcher: LaunchProfileId,
     transaction: Transaction<ProjectCommand>,
@@ -290,22 +292,11 @@ struct DesktopGroups {
 fn desktop_groups() -> DesktopGroups {
     let mut cmds = Vec::new();
 
-    let desktop_group = GroupId::new();
     let primary_group = GroupId::new();
-
     let primary_launcher = LaunchProfileId::new();
 
     cmds.push(ProjectCommand::AddLaunchGroup {
         parent: None,
-        id: desktop_group,
-        properties: LaunchGroupProperties {
-            name: "Desktop".into(),
-            tag: ScopedTag::new("", ""),
-            layout: LayoutDirection::Vertical,
-        },
-    });
-    cmds.push(ProjectCommand::AddLaunchGroup {
-        parent: Some(desktop_group),
         id: primary_group,
         properties: LaunchGroupProperties {
             name: "TopBand".into(),
@@ -324,7 +315,6 @@ fn desktop_groups() -> DesktopGroups {
     });
 
     DesktopGroups {
-        desktop_group,
         primary_group,
         primary_launcher,
         transaction: cmds.into(),

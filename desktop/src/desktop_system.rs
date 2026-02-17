@@ -49,9 +49,7 @@ const SECTION_SPACING: u32 = 20;
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
 pub enum DesktopTarget {
-    // The whole area, covering the top band and
     Desktop,
-    TopBand,
 
     Group(GroupId),
     Launcher(LaunchProfileId),
@@ -101,6 +99,7 @@ pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 pub struct DesktopSystem {
     env: DesktopEnvironment,
     fonts: FontManager,
+
     default_panel_size: SizePx,
 
     event_router: EventRouter<DesktopTarget>,
@@ -146,18 +145,9 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         fonts: FontManager,
-        root_group: GroupId,
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<Self> {
-        // Set up static hierarchy parts and layout specs.
-
-        let mut hierarchy = OrderedHierarchy::default();
-        hierarchy.add_nested(
-            DesktopTarget::Desktop,
-            [DesktopTarget::TopBand, DesktopTarget::Group(root_group)],
-        )?;
-
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let identity_matrix = Transform::IDENTITY.enter(scene);
@@ -170,12 +160,13 @@ impl DesktopSystem {
         let system = Self {
             env,
             fonts,
+
             default_panel_size,
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
 
-            aggregates: Aggregates::new(hierarchy, project_presenter),
+            aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
         };
 
         Ok(system)
@@ -443,7 +434,6 @@ impl DesktopSystem {
                 .to_container()
                 .spacing(SECTION_SPACING)
                 .into(),
-            DesktopTarget::TopBand => LayoutAxis::HORIZONTAL.into(),
             DesktopTarget::Group(group_id) => self.aggregates.groups[group_id]
                 .properties
                 .layout
@@ -670,7 +660,6 @@ impl DesktopSystem {
 
             match id {
                 DesktopTarget::Desktop => {}
-                DesktopTarget::TopBand => {}
                 DesktopTarget::Instance(instance_id) => {
                     self.aggregates
                         .instances
@@ -783,7 +772,6 @@ impl DesktopSystem {
                 // Route to the appropriate handler based on the last target in the path
                 match focus_path.last().expect("Internal Error") {
                     DesktopTarget::Desktop => {}
-                    DesktopTarget::TopBand => {}
                     DesktopTarget::Instance(..) => {}
                     DesktopTarget::View(view_id) => {
                         let Some(instance) = focus_path.instance() else {
@@ -837,9 +825,6 @@ impl DesktopSystem {
             // Desktop and TopBand are constrained to their size.
             DesktopTarget::Desktop => {
                 Some(self.aggregates.rects[&DesktopTarget::Desktop].to_camera())
-            }
-            DesktopTarget::TopBand => {
-                Some(self.aggregates.rects[&DesktopTarget::TopBand].to_camera())
             }
 
             DesktopTarget::Group(group) => {
@@ -961,7 +946,6 @@ impl DesktopFocusPath {
             .rev()
             .find_map(|(i, t)| match t {
                 DesktopTarget::Desktop => None,
-                DesktopTarget::TopBand => Some(i + 1),
                 DesktopTarget::Group(..) => None,
                 DesktopTarget::Launcher(..) => Some(i + 1),
                 DesktopTarget::Instance(..) => Some(i),
