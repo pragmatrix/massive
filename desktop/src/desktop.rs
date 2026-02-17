@@ -102,7 +102,7 @@ impl Desktop {
             DesktopSystem::new(env, fonts.clone(), project.root.id, default_size, &scene)?;
 
         let project_setup_transaction =
-            project_to_transaction(&project).map(DesktopCommand::Project);
+            project_to_transaction(None, &project).map(DesktopCommand::Project);
 
         let primary_view_transaction: Transaction<_> = [
             // Focus top band first.
@@ -268,12 +268,15 @@ impl Desktop {
     }
 }
 
-fn project_to_transaction(project: &Project) -> Transaction<ProjectCommand> {
+fn project_to_transaction(
+    parent: Option<GroupId>,
+    project: &Project,
+) -> Transaction<ProjectCommand> {
     let mut commands = Vec::new();
 
     commands.push(ProjectCommand::SetStartupProfile(project.start));
 
-    launch_group_commands(None, &project.root, &mut commands);
+    launch_group_commands(parent, &project.root, &mut commands);
 
     commands.into()
 }
