@@ -1,14 +1,17 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewEvent;
+use massive_applications::{ViewEvent, ViewId};
 use massive_geometry::{Color, Rect};
+use massive_input::{Event, EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
+use uuid::Uuid;
+use winit::event::MouseButton;
 
 use crate::desktop_system::{Cmd, DesktopCommand};
 use crate::projects::LaunchProfileId;
@@ -41,6 +44,8 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
+
+    events: EventManager<ViewEvent>,
 }
 
 impl LauncherPresenter {
@@ -97,14 +102,27 @@ impl LauncherPresenter {
             background,
             name,
             fader: scene.animated(1.0),
+            events: EventManager::default(),
         }
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be
     // LauncherCommand? Not sure.
     pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
-        if !self.presents_instance()
-            && let ViewEvent::Focused(true) = view_event
+        // Architecture: This looks horrible, what about just hiding ExternalEvent and passing each
+        // member (also make the scope type optional, generic over the EventManager?).
+        let Some(input_event) = self.events.add_event(ExternalEvent::new(
+            ViewId::from(Uuid::nil()),
+            view_event,
+            Instant::now(),
+        )) else {
+            return Ok(Cmd::None);
+        };
+
+        // Can't go on focus here, we might focus launchers by other means (for example cursor
+        // navigation).
+        if let Some(_) = input_event.detect_click(MouseButton::Left)
+            && !self.presents_instance()
         {
             // Usability: Should pass this rect?
             return Ok(DesktopCommand::StartInstance {
