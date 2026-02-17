@@ -76,7 +76,7 @@ pub enum FocusPathTransition<T> {
 pub trait PathResolver<Id: Clone> {
     fn parent(&self, id: &Id) -> Option<&Id>;
 
-    fn resolve(&self, mut id: Id) -> FocusPath<Id> {
+    fn resolve_path(&self, mut id: Id) -> FocusPath<Id> {
         let mut components: Vec<Id> = vec![id.clone()];
         while let Some(parent) = self.parent(&id) {
             let parent = parent.clone();

@@ -112,7 +112,7 @@ where
                     if let Some((path, hit)) = hit_tester.hit_test(screen_pos, None) {
                         set_pointer_focus(
                             &mut self.pointer_focus,
-                            path_resolver.resolve(path),
+                            path_resolver.resolve_path(path),
                             *device_id,
                             &mut event_transitions,
                         );
@@ -231,7 +231,7 @@ where
                 && let Some(pos) = self.device_states.pos(device)
             {
                 if let Some((path, _hit)) = hit_tester.hit_test(pos, None) {
-                    (path_resolver.resolve(path), device)
+                    (path_resolver.resolve_path(path), device)
                 } else {
                     // Robustness: Is this even correct here to store a hit on EMPTY?
                     (FocusPath::EMPTY, device)

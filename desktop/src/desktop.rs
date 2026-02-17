@@ -15,6 +15,7 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
+use crate::DesktopEnvironment;
 use crate::desktop_system::{DesktopCommand, DesktopSystem, ProjectCommand};
 use crate::event_sourcing::Transaction;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -22,7 +23,6 @@ use crate::projects::{
     GroupId, LaunchGroup, LaunchGroupContents, LaunchGroupProperties, LaunchProfile,
     LaunchProfileId, Launcher, LayoutDirection, Project, ProjectConfiguration, ScopedTag,
 };
-use crate::{DesktopEnvironment, DesktopTarget};
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -112,17 +112,11 @@ impl Desktop {
             project_to_transaction(None, &project).map(DesktopCommand::Project);
 
         let primary_view_transaction: Transaction<_> = [
-            // Focus top band first.
-            DesktopCommand::Focus(
-                vec![
-                    DesktopTarget::Desktop,
-                    DesktopTarget::Group(desktop_groups.primary_group),
-                    DesktopTarget::Launcher(desktop_groups.primary_launcher),
-                ]
-                .into(),
-            ),
-            // Then present the primary instance / view
-            DesktopCommand::PresentInstance(primary_instance),
+            // Present the primary instance / view
+            DesktopCommand::PresentInstance {
+                launcher: desktop_groups.primary_launcher,
+                instance: primary_instance,
+            },
             DesktopCommand::PresentView(primary_instance, creation_info),
         ]
         .into();
