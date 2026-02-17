@@ -1,19 +1,26 @@
+use std::fmt;
 use std::time::{Duration, Instant};
 
 use winit::event::{DeviceId, ElementState, MouseButton};
 
 use massive_geometry::{Point, Vector};
 
-use super::{ButtonSensor, event_history::EventRecord, tracker::Movement};
-use crate::{
-    AggregationEvent, InputEvent, MouseGesture, PointingDeviceState,
-    event_aggregator::DeviceStates, event_history::EventHistory,
-};
+use crate::event_aggregator::DeviceStates;
+use crate::event_history::{EventHistory, EventRecord};
+use crate::tracker::Movement;
+use crate::{AggregationEvent, ButtonSensor, InputEvent, MouseGesture, PointingDeviceState};
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Event<'history, E: InputEvent> {
     /// Gorilla: The event history, including the most recent event which represents this event.
     history: &'history EventHistory<E>,
+}
+
+// Custom Debug implementation, so that we don't print the full history.
+impl<E: InputEvent> fmt::Debug for Event<'_, E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.record().fmt(f)
+    }
 }
 
 impl<'history, E: InputEvent> Event<'history, E> {
