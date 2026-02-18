@@ -167,18 +167,14 @@ where
                         self.pointer_focus.clone(),
                         &mut event_transitions,
                     );
-                    // Detail: We don't want to forward the event if the focused changed in response
-                    // to it, because it would cause a selection to be marked if we animate views in
-                    // response to a focus change.
+                    // Detail: We do forward the event if the focused changed in response to it, even
+                    // though is might cause an accidental selection if the camera moves in response to
+                    // a click.
                     //
-                    // This would only work when we would move the mouse cursor.
-                    //
-                    // Feature: We could respond only to a click and let movements get through
-                    // without focusing. This way users could select / copy, etc. without moving the
-                    // focus?
-                } else {
-                    event_transitions.send(&self.pointer_focus, view_event.clone());
+                    // To get around this, the system must make sure that the camera does not move while
+                    // a button is pressed.
                 }
+                event_transitions.send(&self.pointer_focus, view_event.clone());
             }
 
             // Forward to the current cursor focus.
