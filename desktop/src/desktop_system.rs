@@ -877,14 +877,7 @@ impl DesktopSystem {
             return None;
         }
 
-        // If it's a view, we don't have a rect for it, so get its instance.
-        let mut from = from.clone();
-        if let DesktopTarget::View(..) = from {
-            from = self.aggregates.hierarchy.parent(&from).unwrap().clone();
-            assert!(matches!(from, DesktopTarget::Instance(..)));
-        }
-
-        let from_rect = self.aggregates.rects.get(&from)?;
+        let from_rect = self.aggregates.rects.get(from)?;
         let launcher_targets_without_instances = self
             .aggregates
             .launchers
