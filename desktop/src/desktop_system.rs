@@ -853,6 +853,7 @@ impl DesktopSystem {
         }
     }
 
+    #[allow(unused)]
     fn move_directionally(
         &self,
         from: &DesktopTarget,

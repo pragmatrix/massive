@@ -278,7 +278,6 @@ impl Desktop {
 
 #[derive(Debug)]
 struct DesktopGroups {
-    primary_group: GroupId,
     primary_launcher: LaunchProfileId,
     transaction: Transaction<ProjectCommand>,
 }
@@ -309,7 +308,6 @@ fn desktop_groups() -> DesktopGroups {
     });
 
     DesktopGroups {
-        primary_group,
         primary_launcher,
         transaction: cmds.into(),
     }

@@ -5,7 +5,7 @@ use anyhow::Result;
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewEvent, ViewId};
 use massive_geometry::{Color, Rect};
-use massive_input::{Event, EventManager, ExternalEvent};
+use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
