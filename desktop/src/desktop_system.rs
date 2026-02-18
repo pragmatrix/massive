@@ -867,9 +867,6 @@ impl DesktopSystem {
         from: &DesktopTarget,
         direction: navigation::Direction,
     ) -> Option<DesktopTarget> {
-        // We allow navigation from Launchers and Instances.
-        log::info!("from: {from:?}");
-
         if !matches!(
             from,
             DesktopTarget::Launcher(..) | DesktopTarget::Instance(..) | DesktopTarget::View(..),
