@@ -891,13 +891,15 @@ impl DesktopSystem {
             .keys()
             .map(|l| DesktopTarget::Launcher(*l))
             .filter(|t| self.aggregates.hierarchy.get_nested(t).is_empty());
-        let all_instances = self
-            .aggregates
-            .instances
-            .keys()
-            .map(|i| DesktopTarget::Instance(*i));
+        let all_instances_or_views = self.aggregates.instances.keys().map(|instance| {
+            if let Some(view) = self.aggregates.view_of_instance(*instance) {
+                DesktopTarget::View(view)
+            } else {
+                DesktopTarget::Instance(*instance)
+            }
+        });
         let navigation_candidates = launcher_targets_without_instances
-            .chain(all_instances)
+            .chain(all_instances_or_views)
             .map(|t| (t.clone(), self.aggregates.rects[&t]));
 
         let ordered =
@@ -923,6 +925,15 @@ impl Aggregates {
         self.hierarchy.remove(target)?;
         self.rects.remove(target);
         Ok(())
+    }
+
+    pub fn view_of_instance(&self, instance: InstanceId) -> Option<ViewId> {
+        let nested = self.hierarchy.get_nested(&instance.into());
+        if let [DesktopTarget::View(view)] = nested {
+            Some(*view)
+        } else {
+            None
+        }
     }
 }
 
