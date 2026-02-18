@@ -128,7 +128,7 @@ impl Desktop {
             renderer.geometry(),
         )?;
 
-        system.update_effects(false)?;
+        system.update_effects(false, true)?;
 
         Ok(Self {
             scene,
@@ -164,7 +164,9 @@ impl Desktop {
                                     self.renderer.geometry(),
                                 )?;
                                 self.system.transact(cmd, &self.scene, &mut self.instance_manager, self.renderer.geometry())?;
-                                self.system.update_effects(true)?;
+
+                                let allow_camera_movements = !input_event.any_buttons_pressed();
+                                self.system.update_effects(true, allow_camera_movements)?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;

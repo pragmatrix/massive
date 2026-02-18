@@ -225,6 +225,12 @@ impl DeviceStates {
             .rev()
     }
 
+    pub fn any_buttons_pressed(&self) -> bool {
+        self.pointing_devices
+            .iter()
+            .any(|(_, pd)| pd.any_button_pressed())
+    }
+
     pub fn pointing_device(&self, id: DeviceId) -> Option<&PointingDeviceState> {
         self.pointing_devices
             .iter()

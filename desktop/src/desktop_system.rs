@@ -365,24 +365,26 @@ impl DesktopSystem {
     }
 
     /// Update all effects.
-    pub fn update_effects(&mut self, animate: bool) -> Result<()> {
-        // Layout & Apple rects.
+    pub fn update_effects(&mut self, animate: bool, allow_move_camera: bool) -> Result<()> {
+        // Layout & apply rects.
 
         let layout = self.desktop_layout();
         self.apply_layout(layout, animate);
 
         // Camera
 
-        let camera = self.camera_for_focus(self.event_router.focused());
-        if let Some(camera) = camera {
-            if animate {
-                self.camera.animate_if_changed(
-                    camera,
-                    STRUCTURAL_ANIMATION_DURATION,
-                    Interpolation::CubicOut,
-                );
-            } else {
-                self.camera.set_immediately(camera);
+        if allow_move_camera {
+            let camera = self.camera_for_focus(self.event_router.focused());
+            if let Some(camera) = camera {
+                if animate {
+                    self.camera.animate_if_changed(
+                        camera,
+                        STRUCTURAL_ANIMATION_DURATION,
+                        Interpolation::CubicOut,
+                    );
+                } else {
+                    self.camera.set_immediately(camera);
+                }
             }
         }
 

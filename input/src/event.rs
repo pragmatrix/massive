@@ -70,6 +70,11 @@ impl<'history, E: InputEvent> Event<'history, E> {
             .map(|(sensor, _)| sensor)
     }
 
+    /// The usage here answer more the question: Any gestures active?
+    pub fn any_buttons_pressed(&self) -> bool {
+        self.record().states.any_buttons_pressed()
+    }
+
     /// If this is a mouse button event, return its sensor and state.
     pub fn button_sensor_and_state(&self) -> Option<(ButtonSensor, ElementState)> {
         match self.event().to_aggregation_event() {
