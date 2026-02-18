@@ -150,13 +150,7 @@ impl LauncherPresenter {
             self.rect.set_immediately(rect);
             self.apply_animations();
         }
-
-        // self.layout_band(true);
     }
-
-    // pub fn is_presenting_instance(&self, instance: InstanceId) -> bool {
-    //     self.band.presents_instance(instance)
-    // }
 
     pub fn fade_out(&mut self) {
         self.fader

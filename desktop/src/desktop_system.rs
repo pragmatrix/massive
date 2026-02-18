@@ -36,6 +36,7 @@ use crate::instance_presenter::{
     InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
 };
 use crate::layout::{LayoutSpec, ToContainer};
+use crate::navigation::ordered_rects_in_direction;
 use crate::projects::{
     GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
     LauncherPresenter, ProjectPresenter,
@@ -314,8 +315,14 @@ impl DesktopSystem {
                 }
                 Ok(())
             }
-            DesktopCommand::Navigate(_direction) => {
-                todo!()
+            DesktopCommand::Navigate(direction) => {
+                if let Some(focused) = self.event_router.focused().last()
+                    && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
+                {
+                    let candidate = self.aggregates.hierarchy.resolve_path(candidate);
+                    assert!(self.focus(candidate, instance_manager)?.is_none());
+                }
+                Ok(())
             }
         }
     }
@@ -608,7 +615,7 @@ impl DesktopSystem {
             },
         };
 
-        // Add the view to the hierarchy
+        // Add the view to the hierarchy.
         self.aggregates.hierarchy.add(
             DesktopTarget::Instance(instance),
             DesktopTarget::View(view_creation_info.id),
@@ -855,14 +862,50 @@ impl DesktopSystem {
         }
     }
 
-    #[allow(unused)]
-    fn move_directionally(
+    fn locate_navigation_candidate(
         &self,
         from: &DesktopTarget,
-        _direction: navigation::Direction,
-    ) -> Option<DesktopFocusPath> {
-        let _from_rect = self.aggregates.rects.get(from)?;
-        todo!();
+        direction: navigation::Direction,
+    ) -> Option<DesktopTarget> {
+        // We allow navigation from Launchers and Instances.
+        log::info!("from: {from:?}");
+
+        if !matches!(
+            from,
+            DesktopTarget::Launcher(..) | DesktopTarget::Instance(..) | DesktopTarget::View(..),
+        ) {
+            return None;
+        }
+
+        // If it's a view, we don't have a rect for it, so get its instance.
+        let mut from = from.clone();
+        if let DesktopTarget::View(..) = from {
+            from = self.aggregates.hierarchy.parent(&from).unwrap().clone();
+            assert!(matches!(from, DesktopTarget::Instance(..)));
+        }
+
+        let from_rect = self.aggregates.rects.get(&from)?;
+        let launcher_targets_without_instances = self
+            .aggregates
+            .launchers
+            .keys()
+            .map(|l| DesktopTarget::Launcher(*l))
+            .filter(|t| self.aggregates.hierarchy.get_nested(t).is_empty());
+        let all_instances = self
+            .aggregates
+            .instances
+            .keys()
+            .map(|i| DesktopTarget::Instance(*i));
+        let navigation_candidates = launcher_targets_without_instances
+            .chain(all_instances)
+            .map(|t| (t.clone(), self.aggregates.rects[&t]));
+
+        let ordered =
+            ordered_rects_in_direction(from_rect.center(), direction, navigation_candidates);
+        if let Some((nearest, _rect)) = ordered.first() {
+            return Some(nearest.clone());
+        }
+        None
     }
 }
 
