@@ -3,11 +3,12 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use uuid::Uuid;
 use winit::event::MouseButton;
+use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewEvent, ViewId};
 use massive_geometry::{Color, Rect};
-use massive_input::{EventManager, ExternalEvent, InputEvent};
+use massive_input::{EventManager, ExternalEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
@@ -109,6 +110,8 @@ impl LauncherPresenter {
     // Architecture: I don't want the launcher here to directly generate commands. may be
     // LauncherCommand? Not sure.
     pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
+        let presents_instance = self.presents_instance();
+
         // Architecture: This looks horrible, what about just hiding ExternalEvent and passing each
         // member (also make the scope type optional, generic over the EventManager?).
         let Some(input_event) = self.events.add_event(ExternalEvent::new(
@@ -119,12 +122,24 @@ impl LauncherPresenter {
             return Ok(Cmd::None);
         };
 
+        if presents_instance {
+            return Ok(Cmd::None);
+        }
+
         // Can't go on focus here, we might focus launchers by other means (for example cursor
         // navigation).
-        if let Some(_) = input_event.detect_click(MouseButton::Left)
-            && !self.presents_instance()
-        {
+        if input_event.detect_click(MouseButton::Left).is_some() {
             // Usability: Should pass this rect?
+            return Ok(DesktopCommand::StartInstance {
+                launcher: self.id,
+                parameters: self.profile.params.clone(),
+            }
+            .into());
+        }
+
+        if input_event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
+            && input_event.keyboard_modifiers().super_key()
+        {
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
                 parameters: self.profile.params.clone(),

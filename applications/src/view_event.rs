@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
-use winit::event::{self, DeviceId, WindowEvent};
+use winit::event::{self, DeviceId, ElementState, KeyEvent, WindowEvent};
+use winit::keyboard::Key;
 
 use massive_geometry::SizePx;
 use massive_input::{AggregationEvent, InputEvent};
@@ -133,6 +134,26 @@ impl ViewEvent {
             WindowEvent::ThemeChanged(..) => None,
             WindowEvent::Occluded(..) => None,
             WindowEvent::RedrawRequested => None,
+        }
+    }
+
+    /// if this is a keyboard event that indicate that a key was recently pressed
+    /// on any keyboard device and is not repeating, returns the key.
+    pub fn pressed_key(&self) -> Option<&Key> {
+        if let Self::KeyboardInput {
+            event:
+                KeyEvent {
+                    logical_key,
+                    state: ElementState::Pressed,
+                    repeat: false,
+                    ..
+                },
+            ..
+        } = self
+        {
+            Some(logical_key)
+        } else {
+            None
         }
     }
 }

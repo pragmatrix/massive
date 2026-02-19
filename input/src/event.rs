@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use winit::event::{DeviceId, ElementState, MouseButton};
 
 use massive_geometry::{Point, Vector};
+use winit::keyboard::ModifiersState;
 
 use crate::event_aggregator::DeviceStates;
 use crate::event_history::{EventHistory, EventRecord};
@@ -210,6 +211,12 @@ impl<'history, E: InputEvent> Event<'history, E> {
 
     fn record(&self) -> &EventRecord<E> {
         self.history.current().unwrap()
+    }
+
+    // Keyboard helpers.
+
+    pub fn keyboard_modifiers(&self) -> ModifiersState {
+        self.device_states().keyboard_modifiers()
     }
 
     /// The actual underlying event.
