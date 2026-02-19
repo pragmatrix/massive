@@ -135,7 +135,7 @@ impl ViewEvent {
         }
     }
 
-    /// if this is a keyboard event that indicate that a key was recently pressed
+    /// If this is a keyboard event that indicate that a key was recently pressed
     /// on any keyboard device and is not repeating, returns the key.
     pub fn pressed_key(&self) -> Option<&Key> {
         if let Self::KeyboardInput {
