@@ -1,17 +1,17 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use uuid::Uuid;
+use winit::event::MouseButton;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewEvent, ViewId};
 use massive_geometry::{Color, Rect};
-use massive_input::{EventManager, ExternalEvent};
+use massive_input::{EventManager, ExternalEvent, InputEvent};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
-use uuid::Uuid;
-use winit::event::MouseButton;
 
 use crate::desktop_system::{Cmd, DesktopCommand};
 use crate::projects::LaunchProfileId;
