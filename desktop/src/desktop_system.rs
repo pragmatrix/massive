@@ -775,11 +775,11 @@ impl DesktopSystem {
     ) -> Result<Cmd> {
         let mut cmd = Cmd::None;
         match transition {
-            EventTransition::Directed(path, _) if path.is_empty() => {
+            EventTransition::Targeted(path, _) if path.is_empty() => {
                 // This happens if hit testing hits no presenter and a CursorMove event gets
                 // forwarded: FocusPath::EMPTY represents the Window itself.
             }
-            EventTransition::Directed(focus_path, view_event) => {
+            EventTransition::Targeted(focus_path, view_event) => {
                 // Route to the appropriate handler based on the last target in the path
                 match focus_path.last().expect("Internal Error") {
                     DesktopTarget::Desktop => {}

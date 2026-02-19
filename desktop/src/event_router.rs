@@ -357,7 +357,7 @@ impl<T> TransitionLog<T> {
         T: Clone,
     {
         self.transitions
-            .push(EventTransition::Directed(path.clone(), event));
+            .push(EventTransition::Targeted(path.clone(), event));
     }
 
     fn broadcast(&mut self, event: ViewEvent) {
@@ -379,7 +379,7 @@ impl<T> TransitionLog<T> {
 
 #[derive(Debug)]
 pub enum EventTransition<T> {
-    Directed(FocusPath<T>, ViewEvent),
+    Targeted(FocusPath<T>, ViewEvent),
     /// Architecture: Do we really need this. Shouldn't we provide a context, say for the modifier changes?
     Broadcast(ViewEvent),
 }
