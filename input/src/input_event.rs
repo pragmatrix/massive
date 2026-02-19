@@ -1,35 +1,12 @@
-use std::{fmt, time::Instant};
+use std::fmt;
 
-use winit::{
-    event::{self, DeviceId, ElementState, Modifiers, MouseButton},
-    window::WindowId,
-};
+use winit::event::{self, DeviceId, ElementState, Modifiers, MouseButton};
 
-use super::WindowEvent;
 use massive_geometry::Point;
 
-#[derive(Debug)]
-pub struct ExternalEvent<E: InputEvent> {
-    pub scope: E::ScopeId,
-    pub event: E,
-    pub time: Instant,
-}
-
-impl<E: InputEvent> ExternalEvent<E> {
-    pub fn new(scope: E::ScopeId, event: E, time: Instant) -> Self {
-        Self { scope, event, time }
-    }
-}
-
-impl<E: InputEvent> ExternalEvent<E> {
-    pub fn time(&self) -> Instant {
-        self.time
-    }
-}
+use super::WindowEvent;
 
 pub trait InputEvent: fmt::Debug + 'static {
-    type ScopeId: fmt::Debug;
-
     /// See [`AggregationEvent`].
     fn to_aggregation_event(&self) -> Option<AggregationEvent>;
 
@@ -60,8 +37,6 @@ pub enum AggregationEvent {
 
 // Architecture: This does not belong here.
 impl InputEvent for WindowEvent {
-    type ScopeId = WindowId;
-
     fn to_aggregation_event(&self) -> Option<AggregationEvent> {
         match *self {
             WindowEvent::CursorMoved {

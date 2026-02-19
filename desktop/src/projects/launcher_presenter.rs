@@ -1,14 +1,13 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{ViewEvent, ViewId};
+use massive_applications::ViewEvent;
 use massive_geometry::{Color, Rect};
-use massive_input::{EventManager, ExternalEvent};
+use massive_input::EventManager;
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
@@ -114,11 +113,7 @@ impl LauncherPresenter {
 
         // Architecture: This looks horrible, what about just hiding ExternalEvent and passing each
         // member (also make the scope type optional, generic over the EventManager?).
-        let Some(input_event) = self.events.add_event(ExternalEvent::new(
-            ViewId::from(Uuid::nil()),
-            view_event,
-            Instant::now(),
-        )) else {
+        let Some(input_event) = self.events.add_event(view_event, Instant::now()) else {
             return Ok(Cmd::None);
         };
 

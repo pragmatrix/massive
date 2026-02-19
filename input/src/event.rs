@@ -206,7 +206,7 @@ impl<'history, E: InputEvent> Event<'history, E> {
     }
 
     pub fn time(&self) -> Instant {
-        self.record().event.time()
+        self.record().time()
     }
 
     fn record(&self) -> &EventRecord<E> {

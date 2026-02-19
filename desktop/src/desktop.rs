@@ -4,13 +4,12 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use log::info;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
-use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId,
-    InstanceParameters, ViewCommand, ViewEvent, ViewId,
+    InstanceParameters, ViewCommand, ViewEvent,
 };
-use massive_input::{EventManager, ExternalEvent};
+use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
@@ -155,9 +154,7 @@ impl Desktop {
                     match event {
                         ShellEvent::WindowEvent(_window_id, window_event) => {
                             if let Some(view_event) = ViewEvent::from_window_event(&window_event)
-                                && let Some(input_event) = self.event_manager.add_event(
-                                ExternalEvent::new(ViewId::from(Uuid::nil()), view_event, Instant::now())
-                            ) {
+                                && let Some(input_event) = self.event_manager.add_event(view_event, Instant::now()) {
                                let cmd = self.system.process_input_event(
                                     &input_event,
                                     &self.instance_manager,

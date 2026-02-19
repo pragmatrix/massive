@@ -6,8 +6,6 @@ use winit::keyboard::Key;
 use massive_geometry::SizePx;
 use massive_input::{AggregationEvent, InputEvent};
 
-use crate::ViewId;
-
 /// The events a view can receive.
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
@@ -159,8 +157,6 @@ impl ViewEvent {
 }
 
 impl InputEvent for ViewEvent {
-    type ScopeId = ViewId;
-
     fn to_aggregation_event(&self) -> Option<AggregationEvent> {
         match self {
             ViewEvent::CursorMoved {

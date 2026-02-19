@@ -1,9 +1,6 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::{
-    AggregationReport, Event, EventAggregator, ExternalEvent, InputEvent,
-    event_history::EventHistory,
-};
+use crate::{AggregationReport, Event, EventAggregator, InputEvent, event_history::EventHistory};
 
 // Naming: GestureDetector?
 #[derive(Debug)]
@@ -37,12 +34,13 @@ impl<E: InputEvent> EventManager<E> {
     /// is changed, for example.
     ///
     /// Architecture: Even aggregation and event queries should be part of the massive shell.
-    pub fn add_event(&mut self, event: ExternalEvent<E>) -> Option<Event<'_, E>> {
-        if self.aggregator.update(&event.event, event.time) == AggregationReport::Redundant {
+    pub fn add_event(&mut self, event: E, time: Instant) -> Option<Event<'_, E>> {
+        if self.aggregator.update(&event, time) == AggregationReport::Redundant {
             return None;
         }
 
-        self.history.push(event, self.aggregator.to_device_states());
+        self.history
+            .push(event, Instant::now(), self.aggregator.to_device_states());
         Some(Event::new(&self.history))
     }
 }

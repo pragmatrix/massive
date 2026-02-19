@@ -5,9 +5,9 @@ use std::{
 
 use winit::event::{DeviceId, ElementState, MouseButton};
 
-use super::ExternalEvent;
-use crate::{AggregationEvent, InputEvent, event_aggregator::DeviceStates};
 use massive_geometry::Point;
+
+use crate::{AggregationEvent, InputEvent, event_aggregator::DeviceStates};
 
 #[derive(Debug)]
 pub struct EventHistory<E: InputEvent> {
@@ -26,8 +26,7 @@ impl<E: InputEvent> EventHistory<E> {
         }
     }
 
-    pub fn push(&mut self, event: ExternalEvent<E>, states: DeviceStates) {
-        let time = event.time();
+    pub fn push(&mut self, event: E, time: Instant, states: DeviceStates) {
         if let Some(front) = self.records.front()
             && front.time() > time
         {
@@ -39,6 +38,7 @@ impl<E: InputEvent> EventHistory<E> {
         let record = EventRecord {
             id: self.next_id(),
             event,
+            time,
             states,
         };
 
@@ -100,7 +100,8 @@ impl<E: InputEvent> EventHistory<E> {
 #[derive(Debug)]
 pub struct EventRecord<E: InputEvent> {
     pub id: u64,
-    pub event: ExternalEvent<E>,
+    pub event: E,
+    pub time: Instant,
     // Memory: may recycle states if they don't change (e.g. use `Arc`).
     pub states: DeviceStates,
 }
@@ -132,11 +133,11 @@ impl<E: InputEvent> EventRecord<E> {
     }
 
     pub fn event(&self) -> &E {
-        &self.event.event
+        &self.event
     }
 
     pub fn time(&self) -> Instant {
-        self.event.time()
+        self.time
     }
 }
 
