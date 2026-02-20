@@ -186,6 +186,7 @@ impl InstanceManager {
         Ok(())
     }
 
+    #[allow(unused)]
     pub fn views(&self) -> impl Iterator<Item = (ViewPath, &ViewInfo)> {
         self.instances.iter().flat_map(|(instance_id, instance)| {
             instance

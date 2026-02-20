@@ -124,7 +124,6 @@ impl Desktop {
             desktop_groups_transaction + project_setup_transaction + primary_view_transaction,
             &scene,
             &mut instance_manager,
-            renderer.geometry(),
         )?;
 
         system.update_effects(false, true)?;
@@ -160,7 +159,7 @@ impl Desktop {
                                     &self.instance_manager,
                                     self.renderer.geometry(),
                                 )?;
-                                self.system.transact(cmd, &self.scene, &mut self.instance_manager, self.renderer.geometry())?;
+                                self.system.transact(cmd, &self.scene, &mut self.instance_manager)?;
 
                                 let allow_camera_movements = !input_event.any_buttons_pressed();
                                 self.system.update_effects(true, allow_camera_movements)?;
@@ -222,7 +221,6 @@ impl Desktop {
                     DesktopCommand::PresentView(instance, info),
                     &self.scene,
                     &mut self.instance_manager,
-                    self.renderer.geometry(),
                 )?;
             }
             InstanceCommand::DestroyView(id, collector) => {
@@ -230,7 +228,6 @@ impl Desktop {
                     DesktopCommand::HideView((instance, id).into()),
                     &self.scene,
                     &mut self.instance_manager,
-                    self.renderer.geometry(),
                 )?;
                 self.instance_manager.remove_view((instance, id).into());
                 // Feature: Don't push the remaining changes immediately and fade the remaining

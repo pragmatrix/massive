@@ -29,6 +29,7 @@ use massive_renderer::RenderGeometry;
 use massive_scene::{Location, Object, ToCamera, Transform};
 use massive_shell::{FontManager, Scene};
 
+use crate::event_router::EventTransitions;
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -41,9 +42,8 @@ use crate::projects::{
     GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
     LauncherPresenter, ProjectPresenter,
 };
-use crate::{
-    DesktopEnvironment, EventRouter, EventTransition, HitTester, Map, OrderedHierarchy, navigation,
-};
+use crate::send_transition::{SendTransition, convert_to_send_transitions};
+use crate::{DesktopEnvironment, EventRouter, HitTester, Map, OrderedHierarchy, navigation};
 
 const SECTION_SPACING: u32 = 20;
 
@@ -162,7 +162,7 @@ impl DesktopSystem {
 
         let project_presenter = ProjectPresenter::new(location, scene);
 
-        let event_router = EventRouter::default();
+        let event_router = EventRouter::new();
 
         let system = Self {
             env,
@@ -186,10 +186,9 @@ impl DesktopSystem {
         transaction: impl Into<Transaction<DesktopCommand>>,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-        geometry: &RenderGeometry,
     ) -> Result<()> {
         for command in transaction.into() {
-            self.apply_command(command, scene, instance_manager, geometry)?;
+            self.apply_command(command, scene, instance_manager)?;
         }
 
         Ok(())
@@ -201,7 +200,6 @@ impl DesktopSystem {
         command: DesktopCommand,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-        geometry: &RenderGeometry,
     ) -> Result<()> {
         match command {
             DesktopCommand::StartInstance {
@@ -224,7 +222,6 @@ impl DesktopSystem {
                     DesktopCommand::PresentInstance { launcher, instance },
                     scene,
                     instance_manager,
-                    geometry,
                 )
             }
 
@@ -233,14 +230,8 @@ impl DesktopSystem {
                 //
                 // Detail: This causes an unfocus event sent to the instance's view. I don't think
                 // this should happen on teardown.
-                let focus = self.event_router.focused();
-                if let Some(focused_instance) = self.event_router.focused().instance()
-                    && focused_instance == instance
-                {
-                    let instance_parent = focus.instance_parent().expect("Internal error: Instance parent failed even though instance() returned one.");
-                    let intent = self.focus(instance_parent, instance_manager)?;
-                    assert!(intent.is_none());
-                }
+
+                self.unfocus(instance.into(), instance_manager)?;
 
                 instance_manager.request_shutdown(instance)?;
 
@@ -248,29 +239,19 @@ impl DesktopSystem {
                 // navigation tree anymore.
                 self.hide_instance(instance)?;
 
-                // Refocus the pointer since it may be pointing to the removed instance.
-                let cmd = self.refocus_pointer(instance_manager, geometry)?;
-                // No intent on refocusing allowed.
-                assert!(cmd.is_none());
-
-                // remove it from the hierarchy.
-                self.aggregates
-                    .hierarchy
-                    .remove(&DesktopTarget::Instance(instance))?;
-
                 Ok(())
             }
 
             DesktopCommand::PresentInstance { launcher, instance } => {
                 let focused = self.event_router.focused();
-                let originating_from = focused.instance();
-                let launcher_path = self.aggregates.hierarchy.resolve_path(launcher.into());
+                let focused_path = self.aggregates.hierarchy.resolve_path(focused);
+
+                let originating_from = focused_path.instance();
 
                 let insertion_index =
                     self.present_instance(launcher, originating_from, instance, scene)?;
 
                 let instance_target = DesktopTarget::Instance(instance);
-                let instance_path = launcher_path.clone().join(instance_target.clone());
 
                 // Add this instance to the hierarchy.
                 self.aggregates.hierarchy.insert_at(
@@ -280,9 +261,8 @@ impl DesktopSystem {
                 )?;
 
                 // Focus it.
-                let transitions = self.event_router.focus(instance_path);
-                let cmd =
-                    self.forward_event_transitions(transitions.transitions, instance_manager)?;
+                let transitions = self.event_router.focus(&instance_target);
+                let cmd = self.forward_event_transitions(transitions, instance_manager)?;
                 assert!(cmd.is_none());
                 Ok(())
             }
@@ -293,11 +273,11 @@ impl DesktopSystem {
                 let focused = self.event_router.focused();
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if matches!(focused.last(), Some(DesktopTarget::Instance(i)) if *i == instance)
+                if matches!(focused, Some(DesktopTarget::Instance(i)) if *i == instance)
                     && creation_info.role == ViewRole::Primary
                 {
-                    let view_focus = focused.clone().join(DesktopTarget::View(creation_info.id));
-                    let cmd = self.focus(view_focus, instance_manager)?;
+                    let cmd =
+                        self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
                     assert!(cmd.is_none())
                 }
 
@@ -310,17 +290,18 @@ impl DesktopSystem {
             }
 
             DesktopCommand::ZoomOut => {
-                if let Some(parent) = self.event_router.focused().parent() {
-                    assert!(self.focus(parent, instance_manager)?.is_none());
+                if let Some(focused) = self.event_router.focused()
+                    && let Some(parent) = self.aggregates.hierarchy.parent(focused)
+                {
+                    assert!(self.focus(&parent.clone(), instance_manager)?.is_none());
                 }
                 Ok(())
             }
             DesktopCommand::Navigate(direction) => {
-                if let Some(focused) = self.event_router.focused().last()
+                if let Some(focused) = self.event_router.focused()
                     && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
                 {
-                    let candidate = self.aggregates.hierarchy.resolve_path(candidate);
-                    assert!(self.focus(candidate, instance_manager)?.is_none());
+                    assert!(self.focus(&candidate, instance_manager)?.is_none());
                 }
                 Ok(())
             }
@@ -372,7 +353,7 @@ impl DesktopSystem {
     }
 
     /// Update all effects.
-    pub fn update_effects(&mut self, animate: bool, allow_move_camera: bool) -> Result<()> {
+    pub fn update_effects(&mut self, animate: bool, permit_camera_moves: bool) -> Result<()> {
         // Layout & apply rects.
 
         let layout = self.desktop_layout();
@@ -380,8 +361,8 @@ impl DesktopSystem {
 
         // Camera
 
-        if allow_move_camera {
-            let camera = self.camera_for_focus(self.event_router.focused());
+        if permit_camera_moves && let Some(focused) = self.event_router.focused() {
+            let camera = self.camera_for_focus(focused);
             if let Some(camera) = camera {
                 if animate {
                     self.camera.animate_if_changed(
@@ -498,33 +479,57 @@ impl DesktopSystem {
 
         let hit_tester = &self.aggregates.hit_tester(render_geometry);
 
-        let transitions =
-            self.event_router
-                .process(event, &self.aggregates.hierarchy, hit_tester)?;
+        let transitions = self.event_router.process(event, hit_tester)?;
 
-        self.forward_event_transitions(transitions.transitions, instance_manager)
+        self.forward_event_transitions(transitions, instance_manager)
     }
 
-    fn focus(
-        &mut self,
-        focus_path: DesktopFocusPath,
-        instance_manager: &InstanceManager,
-    ) -> Result<Cmd> {
-        let transitions = self.event_router.focus(focus_path);
-        self.forward_event_transitions(transitions.transitions, instance_manager)
+    fn focus(&mut self, target: &DesktopTarget, instance_manager: &InstanceManager) -> Result<Cmd> {
+        let transitions = self.event_router.focus(target);
+        self.forward_event_transitions(transitions, instance_manager)
     }
 
+    /// If the target is involved in any focus path, unfocus it.
+    ///
+    /// For the keyboard focus, this focuses the parent.
+    ///
+    /// For the cursor focus, this clears the focus (we can't refocus here using the hit tester,
+    /// because the target may be in the hierarchy).
+    fn unfocus(&mut self, target: DesktopTarget, instance_manager: &InstanceManager) -> Result<()> {
+        // Keyboard focus
+
+        let focus = self.event_router.focused();
+        let focus_path = self.aggregates.hierarchy.resolve_path(focus);
+        // Optimization: The parent can be resolved directly from the focus path.
+        if focus_path.contains(&target)
+            && let Some(parent) = self.aggregates.hierarchy.parent(&target)
+        {
+            assert!(self.focus(&parent.clone(), instance_manager)?.is_none());
+        }
+
+        let pointer_focus = self.event_router.pointer_focus();
+        let focus_path = self.aggregates.hierarchy.resolve_path(pointer_focus);
+        if focus_path.contains(&target) {
+            let transitions = self.event_router.unfocus_pointer()?;
+            assert!(
+                self.forward_event_transitions(transitions, instance_manager)?
+                    .is_none()
+            );
+        }
+        Ok(())
+    }
+
+    #[allow(unused)]
     fn refocus_pointer(
         &mut self,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<Cmd> {
-        let transitions = self.event_router.reset_pointer_focus(
-            &self.aggregates.hierarchy,
-            &self.aggregates.hit_tester(render_geometry),
-        )?;
+        let transitions = self
+            .event_router
+            .reset_pointer_focus(&self.aggregates.hit_tester(render_geometry))?;
 
-        self.forward_event_transitions(transitions.transitions, instance_manager)
+        self.forward_event_transitions(transitions, instance_manager)
     }
 
     fn present_instance(
@@ -550,7 +555,7 @@ impl DesktopSystem {
         self.aggregates.instances.insert(instance, presenter)?;
 
         let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
-        let pos = if let Some(originating_from) = originating_from {
+        let insertion_pos = if let Some(originating_from) = originating_from {
             nested
                 .iter()
                 .position(|i| *i == DesktopTarget::Instance(originating_from))
@@ -567,7 +572,7 @@ impl DesktopSystem {
             .expect("Launcher not found")
             .fade_out();
 
-        Ok(pos)
+        Ok(insertion_pos)
     }
 
     fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
@@ -710,6 +715,7 @@ impl DesktopSystem {
             && event.device_states().is_command()
         {
             let focused = self.event_router.focused();
+            let focused = self.aggregates.hierarchy.resolve_path(focused);
 
             // Simplify: Instance should probably return the launcher, too now.
             if let Some(instance) = focused.instance()
@@ -753,14 +759,21 @@ impl DesktopSystem {
 
     pub fn forward_event_transitions(
         &mut self,
-        // Don't use EventTransitions here for now, it contains more information than we need.
-        transitions: Vec<EventTransition<DesktopTarget>>,
+        transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
         let mut cmd = Cmd::None;
 
+        let keyboard_modifiers = self.event_router.keyboard_modifiers();
+
+        let send_transitions = convert_to_send_transitions(
+            transitions,
+            keyboard_modifiers,
+            &self.aggregates.hierarchy,
+        );
+
         // Robustness: While we need to forward all transitions we currently process only one intent.
-        for transition in transitions {
+        for transition in send_transitions {
             cmd += self.forward_event_transition(transition, instance_manager)?;
         }
 
@@ -770,26 +783,26 @@ impl DesktopSystem {
     /// Forward event transitions to the appropriate handler based on the target type.
     pub fn forward_event_transition(
         &mut self,
-        transition: EventTransition<DesktopTarget>,
+        transition: SendTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
         let mut cmd = Cmd::None;
         match transition {
-            EventTransition::Targeted(path, _) if path.is_empty() => {
-                // This happens if hit testing hits no presenter and a CursorMove event gets
-                // forwarded: FocusPath::EMPTY represents the Window itself.
-            }
-            EventTransition::Targeted(focus_path, view_event) => {
+            SendTransition::Send(target, view_event) => {
                 // Route to the appropriate handler based on the last target in the path
-                match focus_path.last().expect("Internal Error") {
+                match target {
                     DesktopTarget::Desktop => {}
                     DesktopTarget::Instance(..) => {}
                     DesktopTarget::View(view_id) => {
-                        let Some(instance) = focus_path.instance() else {
+                        let path = self
+                            .aggregates
+                            .hierarchy
+                            .resolve_path(Some(&view_id.into()));
+                        let Some(instance) = path.instance() else {
                             bail!("Internal error: Instance of view {view_id:?} not found");
                         };
                         if let Err(e) = instance_manager
-                            .send_view_event((instance, *view_id), view_event.clone())
+                            .send_view_event((instance, view_id), view_event.clone())
                         {
                             // This is not an error we want to stop the world for now.
                             error!("Sending view event {view_event:?} failed with {e:?}");
@@ -800,7 +813,7 @@ impl DesktopSystem {
                         // Architecture: Shouldn't we move the hovering into the launcher presenters or even into the system?
                         match view_event {
                             ViewEvent::CursorEntered { .. } => {
-                                let launcher = &self.aggregates.launchers[launcher_id];
+                                let launcher = &self.aggregates.launchers[&launcher_id];
                                 let rect = launcher.rect.final_value();
                                 self.aggregates.project_presenter.show_hover_rect(rect);
                             }
@@ -811,18 +824,12 @@ impl DesktopSystem {
                                 let launcher = self
                                     .aggregates
                                     .launchers
-                                    .get_mut(launcher_id)
+                                    .get_mut(&launcher_id)
                                     .expect("Launcher not found");
                                 cmd += launcher.process(view_event)?;
                             }
                         }
                     }
-                }
-            }
-            EventTransition::Broadcast(view_event) => {
-                // Broadcast to all views in instance manager
-                for (view_path, _) in instance_manager.views() {
-                    instance_manager.send_view_event(view_path, view_event.clone())?;
                 }
             }
         }
@@ -831,8 +838,8 @@ impl DesktopSystem {
 
     // Camera
 
-    pub fn camera_for_focus(&self, focus: &DesktopFocusPath) -> Option<PixelCamera> {
-        match focus.last()? {
+    pub fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
+        match focus {
             // Desktop and TopBand are constrained to their size.
             DesktopTarget::Desktop => {
                 Some(self.aggregates.rects[&DesktopTarget::Desktop].to_camera())
@@ -857,7 +864,7 @@ impl DesktopSystem {
             }
             DesktopTarget::View(_) => {
                 // Forward this to the parent (which must be a ::Instance).
-                self.camera_for_focus(&focus.parent()?)
+                self.camera_for_focus(self.aggregates.hierarchy.parent(focus)?)
             }
         }
     }
@@ -1004,11 +1011,5 @@ impl DesktopFocusPath {
                 }
             })
             .map(|i| self.iter().take(i).cloned().collect::<Vec<_>>().into())
-    }
-
-    pub fn can_move_directionally(&self) -> Option<&DesktopTarget> {
-        self.iter()
-            .rev()
-            .find(|t| matches!(t, DesktopTarget::Launcher(..) | DesktopTarget::Instance(..)))
     }
 }
