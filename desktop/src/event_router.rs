@@ -44,9 +44,15 @@ pub struct EventRouter<T> {
     device_states: DeviceStates,
 }
 
-impl<T: PartialEq> EventRouter<T>
+impl<T: PartialEq + Clone + fmt::Debug> Default for EventRouter<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T> EventRouter<T>
 where
-    T: Clone + fmt::Debug,
+    T: Clone + fmt::Debug + PartialEq,
 {
     pub fn new() -> Self {
         Self {
@@ -343,7 +349,6 @@ fn set_pointer_focus<T>(
 ) where
     T: PartialEq + Clone + fmt::Debug,
 {
-    let new = new.into();
     if current.as_ref() == new {
         return;
     }
