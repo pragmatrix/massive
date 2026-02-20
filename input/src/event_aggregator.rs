@@ -8,7 +8,7 @@ use std::{collections::HashMap, time::Instant};
 use itertools::Itertools;
 use massive_geometry::Point;
 use winit::{
-    event::{ElementState, MouseButton},
+    event::{ElementState, Modifiers, MouseButton},
     keyboard::ModifiersState,
 };
 
@@ -19,7 +19,7 @@ use super::DeviceId;
 #[derive(Debug, Clone, Default)]
 pub struct EventAggregator {
     pointing_devices: HashMap<DeviceId, PointingDeviceState>,
-    keyboard_modifiers: ModifiersState,
+    keyboard_modifiers: Modifiers,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,9 +55,7 @@ impl EventAggregator {
                 button,
                 ..
             } => self.mouse_button_state_changed(time, device_id, button, state),
-            AggregationEvent::ModifiersChanged(modifiers) => {
-                self.modifiers_changed(modifiers.state())
-            }
+            AggregationEvent::ModifiersChanged(modifiers) => self.modifiers_changed(modifiers),
         }
     }
 
@@ -126,12 +124,12 @@ impl EventAggregator {
         AggregationReport::Integrated
     }
 
-    fn modifiers_changed(&mut self, state: ModifiersState) -> AggregationReport {
-        if self.keyboard_modifiers == state {
+    fn modifiers_changed(&mut self, modifiers: Modifiers) -> AggregationReport {
+        if self.keyboard_modifiers == modifiers {
             return AggregationReport::Redundant;
         }
 
-        self.keyboard_modifiers = state;
+        self.keyboard_modifiers = modifiers;
         AggregationReport::Integrated
     }
 
@@ -156,38 +154,48 @@ impl EventAggregator {
 #[derive(Debug, Clone, Default)]
 pub struct DeviceStates {
     pointing_devices: Vec<(DeviceId, PointingDeviceState)>,
-    keyboard_modifiers: ModifiersState,
+    keyboard_modifiers: Modifiers,
 }
 
 impl DeviceStates {
     /// `true` if the Shift button is pressed.
     pub fn is_shift(&self) -> bool {
-        self.keyboard_modifiers.contains(ModifiersState::SHIFT)
+        self.keyboard_modifiers
+            .state()
+            .contains(ModifiersState::SHIFT)
     }
 
     /// `true` if the Ctrl button is pressed.
     pub fn is_ctrl(&self) -> bool {
-        self.keyboard_modifiers.contains(ModifiersState::CONTROL)
+        self.keyboard_modifiers
+            .state()
+            .contains(ModifiersState::CONTROL)
     }
 
     /// `true` if the Alt button is pressed.
     pub fn is_alt(&self) -> bool {
-        self.keyboard_modifiers.contains(ModifiersState::ALT)
+        self.keyboard_modifiers
+            .state()
+            .contains(ModifiersState::ALT)
     }
 
     /// `true` if the Windows key on Windows or the Command key on a Mac is pressed.
     #[deprecated(note = "use is_command()")]
     pub fn is_logo(&self) -> bool {
-        self.keyboard_modifiers.contains(ModifiersState::SUPER)
+        self.keyboard_modifiers
+            .state()
+            .contains(ModifiersState::SUPER)
     }
 
     /// `true` if the Windows key on Windows or the Command key on a Mac is pressed.
     pub fn is_command(&self) -> bool {
-        self.keyboard_modifiers.contains(ModifiersState::SUPER)
+        self.keyboard_modifiers
+            .state()
+            .contains(ModifiersState::SUPER)
     }
 
     /// Architecture: May introduce our own modifiers state and add the is_* functions to it?
-    pub fn keyboard_modifiers(&self) -> ModifiersState {
+    pub fn keyboard_modifiers(&self) -> Modifiers {
         self.keyboard_modifiers
     }
 

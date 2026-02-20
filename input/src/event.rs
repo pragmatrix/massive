@@ -1,7 +1,7 @@
 use std::fmt;
 use std::time::{Duration, Instant};
 
-use winit::event::{DeviceId, ElementState, MouseButton};
+use winit::event::{DeviceId, ElementState, Modifiers, MouseButton};
 
 use massive_geometry::{Point, Vector};
 use winit::keyboard::ModifiersState;
@@ -215,8 +215,12 @@ impl<'history, E: InputEvent> Event<'history, E> {
 
     // Keyboard helpers.
 
-    pub fn keyboard_modifiers(&self) -> ModifiersState {
+    pub fn modifiers(&self) -> Modifiers {
         self.device_states().keyboard_modifiers()
+    }
+
+    pub fn keyboard_modifiers(&self) -> ModifiersState {
+        self.modifiers().state()
     }
 
     /// The actual underlying event.

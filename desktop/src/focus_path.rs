@@ -1,4 +1,4 @@
-use std::{fmt, hash};
+use std::{fmt, hash, iter};
 
 use derive_more::{Deref, From, Into};
 
@@ -36,7 +36,7 @@ impl<T: PartialEq> FocusPath<T> {
 
     /// Transition to a new path and return the nested exit / enter sequence.
     #[must_use]
-    pub fn transition(&mut self, other: Self) -> Vec<FocusPathTransition<T>>
+    pub fn transitions(&self, other: Self) -> Vec<FocusTransition<T>>
     where
         T: Clone,
     {
@@ -52,39 +52,33 @@ impl<T: PartialEq> FocusPath<T> {
         // Generate exit transitions bottom-up (from leaf to common ancestor)
         // Exit indices from (self.focused.len() - 1) down to common_prefix_len
         for i in (common_prefix_len..self.len()).rev() {
-            transitions.push(FocusPathTransition::Exit(self[..=i].to_vec().into()));
+            transitions.push(FocusTransition::Exit(self[i].clone()));
         }
 
         // Generate enter transitions top-down (from common ancestor to leaf)
         // Enter indices from common_prefix_len to (new_path.len() - 1)
         for i in common_prefix_len..other.len() {
-            transitions.push(FocusPathTransition::Enter(other[..=i].to_vec().into()));
+            transitions.push(FocusTransition::Enter(other[i].clone()));
         }
-
-        *self = other;
 
         transitions
     }
 }
 
 #[derive(Debug)]
-pub enum FocusPathTransition<T> {
-    Exit(FocusPath<T>),
-    Enter(FocusPath<T>),
+pub enum FocusTransition<T> {
+    Exit(T),
+    Enter(T),
 }
 
 pub trait PathResolver<Id: Clone> {
     fn parent(&self, id: &Id) -> Option<&Id>;
 
-    fn resolve_path(&self, mut id: Id) -> FocusPath<Id> {
-        let mut components: Vec<Id> = vec![id.clone()];
-        while let Some(parent) = self.parent(&id) {
-            let parent = parent.clone();
-            components.push(parent.clone());
-            id = parent
-        }
-        components.reverse();
-        components.into()
+    fn resolve_path(&self, id: &Id) -> FocusPath<Id> {
+        let mut v: Vec<_> =
+            iter::successors(Some(id.clone()), |id| self.parent(id).cloned()).collect();
+        v.reverse();
+        v.into()
     }
 }
 
@@ -103,37 +97,33 @@ mod tests {
     #[test]
     fn test_focus_transitions() {
         test_focus(vec![1, 2, 3], vec![1, 2, 3], "");
-        test_focus(vec![1, 2], vec![1, 3], "Exit[1, 2], Enter[1, 3]");
-        test_focus(vec![1], vec![1, 2, 3], "Enter[1, 2], Enter[1, 2, 3]");
-        test_focus(vec![1, 2, 3], vec![1], "Exit[1, 2, 3], Exit[1, 2]");
-        test_focus(
-            vec![1, 2],
-            vec![3, 4],
-            "Exit[1, 2], Exit[1], Enter[3], Enter[3, 4]",
-        );
+        test_focus(vec![1, 2], vec![1, 3], "Exit2, Enter3");
+        test_focus(vec![1], vec![1, 2, 3], "Enter2, Enter3");
+        test_focus(vec![1, 2, 3], vec![1], "Exit3, Exit2");
+        test_focus(vec![1, 2], vec![3, 4], "Exit2, Exit1, Enter3, Enter4");
         test_focus(
             vec!['A', 'B', 'C', 'D'],
             vec!['A', 'B', 'E', 'F'],
-            "Exit['A', 'B', 'C', 'D'], Exit['A', 'B', 'C'], Enter['A', 'B', 'E'], Enter['A', 'B', 'E', 'F']",
+            "Exit'D', Exit'C', Enter'E', Enter'F'",
         );
-        test_focus(vec![], vec![1, 2], "Enter[1], Enter[1, 2]");
-        test_focus(vec![1, 2], vec![], "Exit[1, 2], Exit[1]");
+        test_focus(vec![], vec![1, 2], "Enter1, Enter2");
+        test_focus(vec![1, 2], vec![], "Exit2, Exit1");
     }
 
-    fn format_transitions<T: fmt::Debug>(transitions: &[FocusPathTransition<T>]) -> String {
+    fn format_transitions<T: fmt::Debug>(transitions: &[FocusTransition<T>]) -> String {
         transitions
             .iter()
             .map(|t| match t {
-                FocusPathTransition::Enter(path) => format!("Enter{:?}", &**path),
-                FocusPathTransition::Exit(path) => format!("Exit{:?}", &**path),
+                FocusTransition::Enter(target) => format!("Enter{:?}", target),
+                FocusTransition::Exit(target) => format!("Exit{:?}", target),
             })
             .collect::<Vec<_>>()
             .join(", ")
     }
 
     fn test_focus<T: PartialEq + Clone + fmt::Debug>(from: Vec<T>, to: Vec<T>, expected: &str) {
-        let mut path: FocusPath<T> = from.into();
-        let transitions = path.transition(to.into());
+        let path: FocusPath<T> = from.into();
+        let transitions = path.transitions(to.into());
         assert_eq!(format_transitions(&transitions), expected);
     }
 }
