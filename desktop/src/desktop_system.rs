@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use anyhow::{Result, anyhow, bail};
 use derive_more::From;
-use log::{error, warn};
+use log::warn;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
@@ -429,7 +429,7 @@ impl DesktopSystem {
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
-        self.aggregates.instances.contains_key(&instance)
+        self.aggregates.instances.contains_key(instance)
     }
 
     pub fn camera(&self) -> PixelCamera {
@@ -838,7 +838,6 @@ impl DesktopSystem {
         SendTransition(target, event): SendTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
-        let mut cmd = Cmd::None;
         // Route to the appropriate handler based on the last target in the path
         match target {
             DesktopTarget::Desktop => {}
