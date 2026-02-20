@@ -94,6 +94,10 @@ impl<Id: fmt::Debug + Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
         self.parent.get(target)
     }
 
+    pub fn has_nested(&self, target: &Id) -> bool {
+        !self.get_nested(target).is_empty()
+    }
+
     pub fn get_nested(&self, target: &Id) -> &[Id] {
         self.nested.get(target).map(Vec::as_slice).unwrap_or(&[])
     }

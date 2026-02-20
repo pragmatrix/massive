@@ -578,6 +578,7 @@ impl DesktopSystem {
     fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
         if let Some(DesktopTarget::Launcher(launcher)) =
             self.aggregates.hierarchy.parent(&instance.into())
+            && !self.aggregates.hierarchy.has_nested(&(*launcher).into())
         {
             self.aggregates
                 .launchers
