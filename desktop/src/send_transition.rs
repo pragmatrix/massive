@@ -5,9 +5,7 @@ use crate::EventTransition;
 use crate::focus_path::{FocusTransition, PathResolver};
 
 #[derive(Debug)]
-pub enum SendTransition<T> {
-    Send(T, ViewEvent),
-}
+pub struct SendTransition<T>(pub T, pub ViewEvent);
 
 pub fn convert_to_send_transitions<T>(
     transitions: impl IntoIterator<Item = EventTransition<T>>,
@@ -22,7 +20,7 @@ where
     for transition in transitions {
         match transition {
             EventTransition::Send(target, event) => {
-                send_transitions.push(SendTransition::Send(target, event));
+                send_transitions.push(SendTransition(target, event));
             }
             EventTransition::ChangeKeyboardFocus { from, to } => {
                 send_transitions.extend(focus_change_to_send_transitions(
@@ -73,17 +71,17 @@ where
         match transition {
             FocusTransition::Exit(target) => {
                 let event = on_exit(&target);
-                send_transitions.push(SendTransition::Send(target, event));
+                send_transitions.push(SendTransition(target, event));
             }
             FocusTransition::Enter(target) => {
                 let event = on_enter(&target);
-                send_transitions.push(SendTransition::Send(target, event));
+                send_transitions.push(SendTransition(target, event));
             }
         }
     }
 
     if let Some(to) = to {
-        send_transitions.push(SendTransition::Send(
+        send_transitions.push(SendTransition(
             to.clone(),
             ViewEvent::ModifiersChanged(modifiers),
         ));

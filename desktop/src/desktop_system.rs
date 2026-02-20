@@ -266,7 +266,11 @@ impl DesktopSystem {
                     }
                 }
 
-                instance_manager.request_shutdown(instance)?;
+                // This might fail if StopInstance gets triggered with an instance that ended in
+                // itself (shouldn't the instance_manager keep it until we finally free it).
+                if let Err(e) = instance_manager.request_shutdown(instance) {
+                    warn!("Failed to shutdown instance, it may be gone already: {e}");
+                };
 
                 // We hide the instance as soon we request a shutdown so that they can't be in the
                 // navigation tree anymore.
@@ -422,6 +426,10 @@ impl DesktopSystem {
             .instances
             .values_mut()
             .for_each(|i| i.apply_animations());
+    }
+
+    pub fn is_present(&self, instance: &InstanceId) -> bool {
+        self.aggregates.instances.contains_key(&instance)
     }
 
     pub fn camera(&self) -> PixelCamera {
@@ -612,7 +620,7 @@ impl DesktopSystem {
         let Some(DesktopTarget::Launcher(launcher)) =
             self.aggregates.hierarchy.parent(&instance.into()).cloned()
         else {
-            bail!("Internal Error: Launcher not found");
+            bail!("Internal error: Launcher not found");
         };
 
         self.aggregates
@@ -827,57 +835,57 @@ impl DesktopSystem {
     /// Forward event transitions to the appropriate handler based on the target type.
     pub fn forward_event_transition(
         &mut self,
-        transition: SendTransition<DesktopTarget>,
+        SendTransition(target, event): SendTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
         let mut cmd = Cmd::None;
-        match transition {
-            SendTransition::Send(target, view_event) => {
-                // Route to the appropriate handler based on the last target in the path
-                match target {
-                    DesktopTarget::Desktop => {}
-                    DesktopTarget::Instance(..) => {}
-                    DesktopTarget::View(view_id) => {
-                        let path = self
-                            .aggregates
-                            .hierarchy
-                            .resolve_path(Some(&view_id.into()));
-                        let Some(instance) = path.instance() else {
-                            bail!("Internal error: Instance of view {view_id:?} not found");
-                        };
-                        if let Err(e) = instance_manager
-                            .send_view_event((instance, view_id), view_event.clone())
-                        {
-                            // This is not an error we want to stop the world for now.
-                            error!("Sending view event {view_event:?} failed with {e:?}");
-                        }
+        // Route to the appropriate handler based on the last target in the path
+        match target {
+            DesktopTarget::Desktop => {}
+            DesktopTarget::Instance(..) => {}
+            DesktopTarget::View(view_id) => {
+                let path = self
+                    .aggregates
+                    .hierarchy
+                    .resolve_path(Some(&view_id.into()));
+                let Some(instance) = path.instance() else {
+                    // This happens when the instance is gone (resolve_path returns only the view, because it puts it by default in the first position).
+                    warn!(
+                        "Instance of view {view_id:?} not found (path: {path:?}), can't deliver event: {event:?}"
+                    );
+                    return Ok(Cmd::None);
+                };
+                if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
+                {
+                    // This is not an error we want to stop the world for now.
+                    warn!("Sending view event {event:?} failed with {e}");
+                }
+            }
+            DesktopTarget::Group(..) => {}
+            DesktopTarget::Launcher(launcher_id) => {
+                // Architecture: Shouldn't we move the hovering into the launcher presenters or even into the system?
+                match event {
+                    ViewEvent::CursorEntered { .. } => {
+                        let launcher = &self.aggregates.launchers[&launcher_id];
+                        let rect = launcher.rect.final_value();
+                        self.aggregates.project_presenter.show_hover_rect(rect);
                     }
-                    DesktopTarget::Group(..) => {}
-                    DesktopTarget::Launcher(launcher_id) => {
-                        // Architecture: Shouldn't we move the hovering into the launcher presenters or even into the system?
-                        match view_event {
-                            ViewEvent::CursorEntered { .. } => {
-                                let launcher = &self.aggregates.launchers[&launcher_id];
-                                let rect = launcher.rect.final_value();
-                                self.aggregates.project_presenter.show_hover_rect(rect);
-                            }
-                            ViewEvent::CursorLeft { .. } => {
-                                self.aggregates.project_presenter.hide_hover_rect();
-                            }
-                            view_event => {
-                                let launcher = self
-                                    .aggregates
-                                    .launchers
-                                    .get_mut(&launcher_id)
-                                    .expect("Launcher not found");
-                                cmd += launcher.process(view_event)?;
-                            }
-                        }
+                    ViewEvent::CursorLeft { .. } => {
+                        self.aggregates.project_presenter.hide_hover_rect();
+                    }
+                    event => {
+                        let launcher = self
+                            .aggregates
+                            .launchers
+                            .get_mut(&launcher_id)
+                            .expect("Launcher not found");
+                        return launcher.process(event);
                     }
                 }
             }
         }
-        Ok(cmd)
+
+        Ok(Cmd::None)
     }
 
     // Camera

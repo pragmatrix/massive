@@ -1,12 +1,11 @@
-use std::{collections::HashMap, panic::AssertUnwindSafe};
+use std::collections::HashMap;
+use std::panic::AssertUnwindSafe;
 
 use anyhow::{Context, anyhow};
 use derive_more::{Debug, Deref, From, Into};
 use futures::FutureExt;
-use tokio::{
-    sync::mpsc::{UnboundedSender, unbounded_channel},
-    task::JoinSet,
-};
+use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use massive_applications::{
@@ -97,10 +96,12 @@ impl InstanceManager {
     /// Begin the shutdown of an instance by sending [`InstanceEvent::Shutdown`]. Returns immediately
     /// after sending the event
     pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
-        let instance = self
-            .instances
-            .get(&instance_id)
-            .ok_or_else(|| anyhow!("Instance {:?} not found", instance_id))?;
+        let instance = self.instances.get(&instance_id).ok_or_else(|| {
+            anyhow!(
+                "Failed to request a shutdown: Instance {:?} not found",
+                instance_id
+            )
+        })?;
 
         instance
             .events_tx
@@ -128,14 +129,6 @@ impl InstanceManager {
 
     pub fn is_empty(&self) -> bool {
         self.instances.is_empty()
-    }
-
-    /// Is the instance, or the combination of instance / view valid right now?
-    #[allow(unused)]
-    pub fn exists(&self, instance: InstanceId, view: Option<ViewId>) -> bool {
-        self.instances
-            .get(&instance)
-            .is_some_and(|i| view.is_none_or(|v| i.views.contains_key(&v)))
     }
 
     pub fn send_view_event(&self, path: impl Into<ViewPath>, event: ViewEvent) -> Result<()> {
@@ -213,13 +206,13 @@ impl InstanceManager {
     fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {
         self.instances
             .get(&instance)
-            .ok_or_else(|| anyhow!("Internal error: Instance {:?} does not exist", instance))
+            .ok_or_else(|| anyhow!("Instance {:?} does not exist", instance))
     }
 
     fn mut_instance(&mut self, instance: InstanceId) -> Result<&mut RunningInstance> {
         self.instances
             .get_mut(&instance)
-            .ok_or_else(|| anyhow!("Internal error: Instance {:?} does not exist", instance))
+            .ok_or_else(|| anyhow!("Instance {:?} does not exist", instance))
     }
 
     /// Returns the effective pacing across all views.

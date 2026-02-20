@@ -177,13 +177,16 @@ impl Desktop {
 
                 Ok((instance_id, instance_result)) = self.instance_manager.join_next() => {
                     info!("Instance ended: {instance_id:?}");
-                    // Hiding is done on shutdown, but what if it's ended by itself?
-                    // self.presenter.hide_instance(instance_id)?;
+                    if self.system.is_present(&instance_id) {
+                        // Did it end on its own? -> Act as the user ended it.
+                        // Robustness: This should probably handled differently.
+                        self.system.transact(DesktopCommand::StopInstance(instance_id), &self.scene, &mut self.instance_manager)?;
+                    }
 
                     // Feature: Display the error to the user?
 
                     if let Err(e) = instance_result {
-                        log::error!("Instance error: {e:?}");
+                        log::warn!("Instance returned error: {e}");
                     }
 
                     // If all instances have finished, exit
