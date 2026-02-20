@@ -283,7 +283,6 @@ where
     }
 
     fn set_outer_focus(&mut self, focused: bool, transitions: &mut EventTransitions<T>) {
-        log::info!("OUTER FOCUS: {focused}");
         match (&self.outer_focus, focused) {
             (OuterFocusState::Unfocused { focused_previously }, true) => {
                 // Restore focus if nothing is focused.

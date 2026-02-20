@@ -493,16 +493,17 @@ impl DesktopSystem {
     ///
     /// For the keyboard focus, this focuses the parent.
     ///
-    /// For the cursor focus, this resets the focus to the Desktop (we can't refocus here using the
-    /// hit tester, because the target may be in hierarchy).
+    /// For the cursor focus, this clears the focus (we can't refocus here using the hit tester,
+    /// because the target may be in the hierarchy).
     fn unfocus(&mut self, target: DesktopTarget, instance_manager: &InstanceManager) -> Result<()> {
         // Keyboard focus
 
         let focus = self.event_router.focused();
         let focus_path = self.aggregates.hierarchy.resolve_path(focus);
-        if focus_path.contains(&target) {
-            // Optimization: The parent can be resolved directly from the focus path.
-            let parent = self.aggregates.hierarchy.parent(&target).unwrap();
+        // Optimization: The parent can be resolved directly from the focus path.
+        if focus_path.contains(&target)
+            && let Some(parent) = self.aggregates.hierarchy.parent(&target)
+        {
             assert!(self.focus(&parent.clone(), instance_manager)?.is_none());
         }
 

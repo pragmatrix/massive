@@ -23,8 +23,8 @@ pub enum ViewEvent {
         event: event::KeyEvent,
         is_synthetic: bool,
     },
-    /// Modifiers are not updated when the component has neither pointer nor keyboard focus, but are
-    /// updated as soon its gets either of them back.
+    /// Modifiers are not updated when the target has neither pointer nor keyboard focus, but are
+    /// updated as soon it gets either of them back.
     ModifiersChanged(event::Modifiers),
     Ime(event::Ime),
     CursorMoved {

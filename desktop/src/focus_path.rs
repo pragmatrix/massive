@@ -34,8 +34,7 @@ impl<T: PartialEq> FocusPath<T> {
         self.0.split_last().map(|(_, rest)| rest.to_vec().into())
     }
 
-    /// Transition to a new path and return the nested exit / enter sequence.
-    #[must_use]
+    /// Compute the nested exit / enter sequence required to move from this path to `other`.
     pub fn transitions(&self, other: Self) -> Vec<FocusTransition<T>>
     where
         T: Clone,

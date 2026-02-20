@@ -72,10 +72,12 @@ where
     for transition in from_path.transitions(to_path) {
         match transition {
             FocusTransition::Exit(target) => {
-                send_transitions.push(SendTransition::Send(target.clone(), on_exit(&target)));
+                let event = on_exit(&target);
+                send_transitions.push(SendTransition::Send(target, event));
             }
             FocusTransition::Enter(target) => {
-                send_transitions.push(SendTransition::Send(target.clone(), on_enter(&target)));
+                let event = on_enter(&target);
+                send_transitions.push(SendTransition::Send(target, event));
             }
         }
     }
