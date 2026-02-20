@@ -43,7 +43,9 @@ use crate::projects::{
     LauncherPresenter, ProjectPresenter,
 };
 use crate::send_transition::{SendTransition, convert_to_send_transitions};
-use crate::{DesktopEnvironment, EventRouter, HitTester, Map, OrderedHierarchy, navigation};
+use crate::{
+    DesktopEnvironment, DirectionBias, EventRouter, HitTester, Map, OrderedHierarchy, navigation,
+};
 
 const SECTION_SPACING: u32 = 20;
 
@@ -228,10 +230,41 @@ impl DesktopSystem {
             DesktopCommand::StopInstance(instance) => {
                 // Remove the instance from the focus first.
                 //
-                // Detail: This causes an unfocus event sent to the instance's view. I don't think
-                // this should happen on teardown.
+                // Detail: This causes an unfocus event sent to the instance's view which may
+                // unexpected while teardown.
+
+                let target = instance.into();
+                let focused_path = self
+                    .aggregates
+                    .hierarchy
+                    .resolve_path(self.event_router.focused());
+
+                let was_focused = focused_path.instance() == Some(instance);
+                let focus_neighbor = if was_focused {
+                    self.aggregates
+                        .hierarchy
+                        .entry(&target)
+                        .neighbor(DirectionBias::Begin)
+                        .cloned()
+                } else {
+                    None
+                };
 
                 self.unfocus(instance.into(), instance_manager)?;
+
+                // Robustness: May add neighbor selection to unfocus as an option?
+                if let Some(neighbor_instance) = focus_neighbor {
+                    if let [DesktopTarget::View(view)] =
+                        self.aggregates.hierarchy.get_nested(&neighbor_instance)
+                    {
+                        assert!(
+                            self.focus(&DesktopTarget::View(*view), instance_manager)?
+                                .is_none()
+                        )
+                    } else {
+                        assert!(self.focus(&neighbor_instance, instance_manager)?.is_none())
+                    }
+                }
 
                 instance_manager.request_shutdown(instance)?;
 
@@ -578,7 +611,11 @@ impl DesktopSystem {
     fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
         if let Some(DesktopTarget::Launcher(launcher)) =
             self.aggregates.hierarchy.parent(&instance.into())
-            && !self.aggregates.hierarchy.has_nested(&(*launcher).into())
+            && !self
+                .aggregates
+                .hierarchy
+                .entry(&(*launcher).into())
+                .has_nested()
         {
             self.aggregates
                 .launchers

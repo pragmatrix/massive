@@ -22,7 +22,10 @@ impl<Id> Default for OrderedHierarchy<Id> {
     }
 }
 
-impl<Id: fmt::Debug + Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
+impl<Id> OrderedHierarchy<Id>
+where
+    Id: fmt::Debug + Clone + Eq + hash::Hash,
+{
     /// Add an id of targets to the end of the parent's nested list.
     pub fn add_nested(&mut self, parent: Id, nested: impl IntoIterator<Item = Id>) -> Result<()> {
         for n in nested {
@@ -94,13 +97,74 @@ impl<Id: fmt::Debug + Clone + Eq + hash::Hash> OrderedHierarchy<Id> {
         self.parent.get(target)
     }
 
-    pub fn has_nested(&self, target: &Id) -> bool {
-        !self.get_nested(target).is_empty()
-    }
-
     pub fn get_nested(&self, target: &Id) -> &[Id] {
         self.nested.get(target).map(Vec::as_slice).unwrap_or(&[])
     }
+
+    pub fn entry<'a>(&'a self, target: &'a Id) -> Entry<'a, Id> {
+        Entry {
+            hierarchy: self,
+            target,
+        }
+    }
+}
+
+#[derive(derive_more::Debug)]
+pub struct Entry<'a, Id> {
+    #[debug(skip)]
+    hierarchy: &'a OrderedHierarchy<Id>,
+    target: &'a Id,
+}
+
+impl<Id> Entry<'_, Id>
+where
+    Id: fmt::Debug + Clone + Eq + hash::Hash,
+{
+    pub fn parent(&self) -> Option<&Id> {
+        self.hierarchy.parent(self.target)
+    }
+
+    pub fn has_nested(&self) -> bool {
+        !self.hierarchy.get_nested(self.target).is_empty()
+    }
+
+    pub fn nested(&self) -> &[Id] {
+        self.hierarchy.get_nested(self.target)
+    }
+
+    pub fn index(&self) -> Option<usize> {
+        self.hierarchy
+            .get_nested(self.parent()?)
+            .iter()
+            .position(|t| t == self.target)
+    }
+
+    pub fn group(&self) -> &[Id] {
+        self.parent()
+            .map(|p| self.hierarchy.get_nested(p))
+            .unwrap_or(&[])
+    }
+
+    /// Find the next neighbor in the given preferred direction, if there is none in the direction
+    /// takes one in the opposite side. None if there is none.
+    pub fn neighbor(&self, direction_bias: DirectionBias) -> Option<&Id> {
+        let index = self.index()?;
+        let group = self.group();
+        match index {
+            0 => group.get(1),
+            i if i == group.len() - 1 => group.get(i - 1),
+            i => match direction_bias {
+                DirectionBias::Begin => group.get(i - 1),
+                DirectionBias::End => group.get(i + 1),
+            },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectionBias {
+    Begin,
+    End,
 }
 
 #[cfg(test)]
