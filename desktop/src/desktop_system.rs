@@ -609,24 +609,30 @@ impl DesktopSystem {
     }
 
     fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
-        if let Some(DesktopTarget::Launcher(launcher)) =
-            self.aggregates.hierarchy.parent(&instance.into())
-            && !self
-                .aggregates
-                .hierarchy
-                .entry(&(*launcher).into())
-                .has_nested()
+        let Some(DesktopTarget::Launcher(launcher)) =
+            self.aggregates.hierarchy.parent(&instance.into()).cloned()
+        else {
+            bail!("Internal Error: Launcher not found");
+        };
+
+        self.aggregates
+            .remove_target(&DesktopTarget::Instance(instance))?;
+        self.aggregates.instances.remove(&instance)?;
+
+        if !self
+            .aggregates
+            .hierarchy
+            .entry(&launcher.into())
+            .has_nested()
         {
             self.aggregates
                 .launchers
-                .get_mut(launcher)
+                .get_mut(&launcher)
                 .expect("Launcher not found")
                 .fade_in();
         }
 
-        self.aggregates
-            .remove_target(&DesktopTarget::Instance(instance))?;
-        self.aggregates.instances.remove(&instance)
+        Ok(())
     }
 
     fn present_view(
