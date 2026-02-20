@@ -19,15 +19,14 @@ use massive_input::{DeviceStates, Event};
 // (e.g. their hierarchical structure).
 #[derive(Debug)]
 pub struct EventRouter<T> {
-    root: T,
     /// The recently touched target with the cursor / mouse.
     ///
     /// If _any_ button is pressed while moving the cursor, its focus stays on the previous target.
-    pointer_focus: T,
+    pointer_focus: Option<T>,
 
     /// This decides to which view and instance the keyboard events are delivered. Basically the
     /// keyboard focus.
-    keyboard_focus: T,
+    keyboard_focus: Option<T>,
 
     /// The current state of the outer focus state (perhaps the Window).
     ///
@@ -49,34 +48,40 @@ impl<T: PartialEq> EventRouter<T>
 where
     T: Clone + fmt::Debug,
 {
-    pub fn new(root: T) -> Self {
+    pub fn new() -> Self {
         Self {
-            root: root.clone(),
             // Shouldn't we wait until the pointer actually move here (should this be optional).
-            pointer_focus: root.clone(),
-            keyboard_focus: root,
+            pointer_focus: None,
+            keyboard_focus: None,
             // For now, we assume that _we_ are focused by default but nothing below us.
             outer_focus: OuterFocusState::Focused,
             device_states: Default::default(),
         }
     }
 
-    pub fn focused(&self) -> &T {
-        &self.keyboard_focus
+    pub fn focused(&self) -> Option<&T> {
+        self.keyboard_focus.as_ref()
     }
 
-    pub fn pointer_focus(&self) -> &T {
-        &self.pointer_focus
+    pub fn pointer_focus(&self) -> Option<&T> {
+        self.pointer_focus.as_ref()
     }
 
     pub fn keyboard_modifiers(&self) -> Modifiers {
         self.device_states.keyboard_modifiers()
     }
 
-    /// Change focus to the given path.
-    pub fn focus(&mut self, focus: &T) -> EventTransitions<T> {
+    /// Change focus to the given target.
+    pub fn focus<'a>(&mut self, focus: impl Into<Option<&'a T>>) -> EventTransitions<T>
+    where
+        T: 'a,
+    {
         let mut event_transitions = EventTransitions::default();
-        set_keyboard_focus(&mut self.keyboard_focus, focus, &mut event_transitions);
+        set_keyboard_focus(
+            &mut self.keyboard_focus,
+            focus.into(),
+            &mut event_transitions,
+        );
         event_transitions
     }
 
@@ -111,7 +116,7 @@ where
                     if let Some((target, hit)) = hit_tester.hit_test(screen_pos, None) {
                         set_pointer_focus(
                             &mut self.pointer_focus,
-                            &target,
+                            Some(&target),
                             *device_id,
                             &mut event_transitions,
                         );
@@ -120,11 +125,11 @@ where
                         None
                     }
                 } else {
-                    // Button is pressed, hit directly on the previous target.
+                    // Button is pressed, hit directly on the previous target if there is one.
 
                     if let Some((_, hit)) =
                         // Robustness: What if pointer_focus is root?
-                        hit_tester.hit_test(screen_pos, Some(&self.pointer_focus))
+                        hit_tester.hit_test(screen_pos, self.pointer_focus.as_ref())
                     {
                         Some(hit)
                     } else {
@@ -135,7 +140,7 @@ where
                         warn!("Resetting pointer focus, no hit on previous target");
                         set_pointer_focus(
                             &mut self.pointer_focus,
-                            &self.root,
+                            None,
                             *device_id,
                             &mut event_transitions,
                         );
@@ -144,9 +149,11 @@ where
                 };
 
                 // If there is a current hit position, forward the event.
-                if let Some(hit) = hit {
+                if let Some(hit) = hit
+                    && let Some(focused) = &self.pointer_focus
+                {
                     event_transitions.send(
-                        self.pointer_focus.clone(),
+                        focused,
                         ViewEvent::CursorMoved {
                             device_id: *device_id,
                             position: (hit.x, hit.y),
@@ -163,7 +170,7 @@ where
                 if self.keyboard_focus != self.pointer_focus {
                     set_keyboard_focus(
                         &mut self.keyboard_focus,
-                        &self.pointer_focus,
+                        self.pointer_focus.as_ref(),
                         &mut event_transitions,
                     );
                     // Detail: We do forward the event if the focused changed in response to it, even
@@ -173,7 +180,9 @@ where
                     // To get around this, the system must make sure that the camera does not move while
                     // a button is pressed.
                 }
-                event_transitions.send(self.pointer_focus.clone(), view_event.clone());
+                if let Some(pointer_focus) = &self.pointer_focus {
+                    event_transitions.send(pointer_focus, view_event.clone());
+                }
             }
 
             // Forward to the current cursor focus.
@@ -182,7 +191,9 @@ where
             // focus here again with the current screen pos. The scene might have changed in the
             // meantime.
             ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. } => {
-                event_transitions.send(self.pointer_focus.clone(), view_event.clone());
+                if let Some(pointer_focus) = &self.pointer_focus {
+                    event_transitions.send(pointer_focus, view_event.clone());
+                }
             }
 
             ViewEvent::CursorEntered { .. } | ViewEvent::CursorLeft { .. } => {}
@@ -190,16 +201,21 @@ where
 
             // Keyboard focus
             ViewEvent::KeyboardInput { .. } | ViewEvent::Ime(..) => {
-                event_transitions.send(self.keyboard_focus.clone(), view_event.clone());
+                if let Some(keyboard_focus) = &self.keyboard_focus {
+                    event_transitions.send(keyboard_focus, view_event.clone());
+                }
             }
 
-            // All views
             ViewEvent::ModifiersChanged(_) => {
                 // Robustness: Not sure if this is the right call, we send modifiers changed to
                 // both, pointer focused _and_ the keyboard focused.
-                event_transitions.send(self.keyboard_focus.clone(), view_event.clone());
-                if self.pointer_focus != self.keyboard_focus {
-                    event_transitions.send(self.pointer_focus.clone(), view_event.clone());
+                if let Some(keyboard_focus) = &self.keyboard_focus {
+                    event_transitions.send(keyboard_focus, view_event.clone());
+                }
+                if let Some(pointer_focus) = &self.pointer_focus
+                    && self.pointer_focus != self.keyboard_focus
+                {
+                    event_transitions.send(pointer_focus, view_event.clone());
                 }
             }
 
@@ -230,14 +246,14 @@ where
                 && let Some(pos) = self.device_states.pos(device)
             {
                 if let Some((target, _hit)) = hit_tester.hit_test(pos, None) {
-                    (target, device)
+                    (Some(target), device)
                 } else {
-                    // Robustness: Is this even correct here to store a hit on EMPTY?
-                    (self.root.clone(), device)
+                    // Robustness: No hit -> No target, is this even correct?
+                    (None, device)
                 }
             } else {
                 warn!("Resetting pointer focus: No most recent position was found");
-                if self.pointer_focus == self.root {
+                if self.pointer_focus.is_none() {
                     return Ok(Default::default());
                 }
                 bail!(
@@ -248,7 +264,12 @@ where
 
         // We don't need a focus change tracking here.
         let mut transitions = EventTransitions::default();
-        set_pointer_focus(&mut self.pointer_focus, &target, device, &mut transitions);
+        set_pointer_focus(
+            &mut self.pointer_focus,
+            target.as_ref(),
+            device,
+            &mut transitions,
+        );
         Ok(transitions)
     }
 
@@ -256,26 +277,26 @@ where
         let mut transitions = EventTransitions::default();
         let device = self.device_states.most_recent_moved_pointing_device();
         if let Some(device) = device {
-            set_pointer_focus(
-                &mut self.pointer_focus,
-                &self.root,
-                device,
-                &mut transitions,
-            );
+            set_pointer_focus(&mut self.pointer_focus, None, device, &mut transitions);
         }
         Ok(transitions)
     }
 
     fn set_outer_focus(&mut self, focused: bool, transitions: &mut EventTransitions<T>) {
+        log::info!("OUTER FOCUS: {focused}");
         match (&self.outer_focus, focused) {
             (OuterFocusState::Unfocused { focused_previously }, true) => {
                 // Restore focus if nothing is focused.
                 //
                 // Detail: Focus does not change while the Window is unfocused, see set_foreground.
-                if self.keyboard_focus == self.root {
+                if self.keyboard_focus.is_none() {
                     // Robustness: We may need to check if instances / views are valid here at
                     // the latest, or event better while the Unfocused state is active.
-                    set_keyboard_focus(&mut self.keyboard_focus, focused_previously, transitions);
+                    set_keyboard_focus(
+                        &mut self.keyboard_focus,
+                        focused_previously.as_ref(),
+                        transitions,
+                    );
                 }
                 self.outer_focus = OuterFocusState::Focused
             }
@@ -284,7 +305,8 @@ where
                 self.outer_focus = OuterFocusState::Unfocused {
                     focused_previously: self.keyboard_focus.clone(),
                 };
-                set_keyboard_focus(&mut self.keyboard_focus, &self.root, transitions);
+                set_keyboard_focus(&mut self.keyboard_focus, None, transitions);
+                // Robustness: What about pointer focus?
             }
             _ => {
                 warn!("Redundant Window focus change")
@@ -293,11 +315,14 @@ where
     }
 }
 
-fn set_keyboard_focus<T>(current: &mut T, new: &T, event_transitions: &mut EventTransitions<T>)
-where
+fn set_keyboard_focus<T>(
+    current: &mut Option<T>,
+    new: Option<&T>,
+    event_transitions: &mut EventTransitions<T>,
+) where
     T: fmt::Debug + PartialEq + Clone,
 {
-    if *current == *new {
+    if current.as_ref() == new {
         return;
     }
 
@@ -305,32 +330,33 @@ where
     // the events?
     event_transitions.add(EventTransition::ChangeKeyboardFocus {
         from: current.clone(),
-        to: new.clone(),
+        to: new.cloned(),
     });
     // Commit
-    *current = new.clone();
+    *current = new.cloned();
 }
 
 fn set_pointer_focus<T>(
-    current: &mut T,
-    new: &T,
+    current: &mut Option<T>,
+    new: Option<&T>,
     device_id: DeviceId,
     event_transitions: &mut EventTransitions<T>,
 ) where
     T: PartialEq + Clone + fmt::Debug,
 {
-    if *current == *new {
+    let new = new.into();
+    if current.as_ref() == new {
         return;
     }
 
     event_transitions.add(EventTransition::ChangePointerFocus {
         from: current.clone(),
-        to: new.clone(),
+        to: new.cloned(),
         device_id,
     });
 
     // Commit
-    *current = new.clone();
+    *current = new.cloned();
 }
 
 #[must_use]
@@ -344,8 +370,11 @@ impl<T> Default for EventTransitions<T> {
 }
 
 impl<T> EventTransitions<T> {
-    fn send(&mut self, target: T, event: ViewEvent) {
-        self.add(EventTransition::Send(target, event));
+    fn send(&mut self, target: &T, event: ViewEvent)
+    where
+        T: Clone,
+    {
+        self.add(EventTransition::Send(target.clone(), event));
     }
 
     fn add(&mut self, transition: EventTransition<T>) {
@@ -357,8 +386,15 @@ impl<T> EventTransitions<T> {
 pub enum EventTransition<T> {
     // Send a targeted event.
     Send(T, ViewEvent),
-    ChangePointerFocus { from: T, to: T, device_id: DeviceId },
-    ChangeKeyboardFocus { from: T, to: T },
+    ChangePointerFocus {
+        from: Option<T>,
+        to: Option<T>,
+        device_id: DeviceId,
+    },
+    ChangeKeyboardFocus {
+        from: Option<T>,
+        to: Option<T>,
+    },
 }
 
 // Architecture: The two functions can probably be combined into one. But is this a good thing?
@@ -371,6 +407,6 @@ pub trait HitTester<Target> {
 
 #[derive(Debug)]
 enum OuterFocusState<T> {
-    Unfocused { focused_previously: T },
+    Unfocused { focused_previously: Option<T> },
     Focused,
 }

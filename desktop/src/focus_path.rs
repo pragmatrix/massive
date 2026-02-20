@@ -74,9 +74,13 @@ pub enum FocusTransition<T> {
 pub trait PathResolver<Id: Clone> {
     fn parent(&self, id: &Id) -> Option<&Id>;
 
-    fn resolve_path(&self, id: &Id) -> FocusPath<Id> {
-        let mut v: Vec<_> =
-            iter::successors(Some(id.clone()), |id| self.parent(id).cloned()).collect();
+    fn resolve_path<'a>(&'a self, id: impl Into<Option<&'a Id>>) -> FocusPath<Id>
+    where
+        Id: 'a,
+    {
+        let mut v: Vec<_> = iter::successors(id.into(), |id| self.parent(id))
+            .cloned()
+            .collect();
         v.reverse();
         v.into()
     }

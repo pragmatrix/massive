@@ -1,5 +1,5 @@
 use massive_applications::ViewEvent;
-use winit::event::{DeviceId, Modifiers};
+use winit::event::Modifiers;
 
 use crate::EventTransition;
 use crate::focus_path::{FocusTransition, PathResolver};
@@ -26,9 +26,11 @@ where
             }
             EventTransition::ChangeKeyboardFocus { from, to } => {
                 send_transitions.extend(focus_change_to_send_transitions(
-                    from,
-                    to,
+                    from.as_ref(),
+                    to.as_ref(),
                     keyboard_modifiers,
+                    |_| ViewEvent::Focused(false),
+                    |_| ViewEvent::Focused(true),
                     path_resolver,
                 ));
             }
@@ -37,10 +39,12 @@ where
                 to,
                 device_id,
             } => {
-                send_transitions.extend(pointer_focus_change_to_send_transitions(
-                    from,
-                    to,
-                    device_id,
+                send_transitions.extend(focus_change_to_send_transitions(
+                    from.as_ref(),
+                    to.as_ref(),
+                    keyboard_modifiers,
+                    |_| ViewEvent::CursorLeft { device_id },
+                    |_| ViewEvent::CursorEntered { device_id },
                     path_resolver,
                 ));
             }
@@ -51,65 +55,36 @@ where
 }
 
 fn focus_change_to_send_transitions<T>(
-    from: T,
-    to: T,
-    keyboard_modifiers: Modifiers,
+    from: Option<&T>,
+    to: Option<&T>,
+    modifiers: Modifiers,
+    on_exit: impl Fn(&T) -> ViewEvent,
+    on_enter: impl Fn(&T) -> ViewEvent,
     path_resolver: &impl PathResolver<T>,
 ) -> Vec<SendTransition<T>>
 where
     T: Clone + PartialEq,
 {
-    let from_path = path_resolver.resolve_path(&from);
-    let to_path = path_resolver.resolve_path(&to);
+    let from_path = path_resolver.resolve_path(from);
+    let to_path = path_resolver.resolve_path(to);
 
     let mut send_transitions = Vec::new();
     for transition in from_path.transitions(to_path) {
         match transition {
             FocusTransition::Exit(target) => {
-                send_transitions.push(SendTransition::Send(target, ViewEvent::Focused(false)));
+                send_transitions.push(SendTransition::Send(target.clone(), on_exit(&target)));
             }
             FocusTransition::Enter(target) => {
-                send_transitions.push(SendTransition::Send(target, ViewEvent::Focused(true)));
+                send_transitions.push(SendTransition::Send(target.clone(), on_enter(&target)));
             }
         }
     }
 
-    send_transitions.push(SendTransition::Send(
-        to,
-        ViewEvent::ModifiersChanged(keyboard_modifiers),
-    ));
-
-    send_transitions
-}
-
-fn pointer_focus_change_to_send_transitions<T>(
-    from: T,
-    to: T,
-    device_id: DeviceId,
-    path_resolver: &impl PathResolver<T>,
-) -> Vec<SendTransition<T>>
-where
-    T: Clone + PartialEq,
-{
-    let from_path = path_resolver.resolve_path(&from);
-    let to_path = path_resolver.resolve_path(&to);
-
-    let mut send_transitions = Vec::new();
-    for transition in from_path.transitions(to_path) {
-        match transition {
-            FocusTransition::Exit(target) => {
-                send_transitions.push(SendTransition::Send(
-                    target,
-                    ViewEvent::CursorLeft { device_id },
-                ));
-            }
-            FocusTransition::Enter(target) => {
-                send_transitions.push(SendTransition::Send(
-                    target,
-                    ViewEvent::CursorEntered { device_id },
-                ));
-            }
-        }
+    if let Some(to) = to {
+        send_transitions.push(SendTransition::Send(
+            to.clone(),
+            ViewEvent::ModifiersChanged(modifiers),
+        ));
     }
 
     send_transitions

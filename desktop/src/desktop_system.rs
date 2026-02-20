@@ -162,7 +162,7 @@ impl DesktopSystem {
 
         let project_presenter = ProjectPresenter::new(location, scene);
 
-        let event_router = EventRouter::new(DesktopTarget::Desktop);
+        let event_router = EventRouter::new();
 
         let system = Self {
             env,
@@ -273,7 +273,7 @@ impl DesktopSystem {
                 let focused = self.event_router.focused();
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                if matches!(focused, DesktopTarget::Instance(i) if *i == instance)
+                if matches!(focused, Some(DesktopTarget::Instance(i)) if *i == instance)
                     && creation_info.role == ViewRole::Primary
                 {
                     let cmd =
@@ -290,15 +290,16 @@ impl DesktopSystem {
             }
 
             DesktopCommand::ZoomOut => {
-                let focused = self.event_router.focused();
-                if let Some(parent) = self.aggregates.hierarchy.parent(focused) {
+                if let Some(focused) = self.event_router.focused()
+                    && let Some(parent) = self.aggregates.hierarchy.parent(focused)
+                {
                     assert!(self.focus(&parent.clone(), instance_manager)?.is_none());
                 }
                 Ok(())
             }
             DesktopCommand::Navigate(direction) => {
-                if let Some(candidate) =
-                    self.locate_navigation_candidate(self.event_router.focused(), direction)
+                if let Some(focused) = self.event_router.focused()
+                    && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
                 {
                     assert!(self.focus(&candidate, instance_manager)?.is_none());
                 }
@@ -352,7 +353,7 @@ impl DesktopSystem {
     }
 
     /// Update all effects.
-    pub fn update_effects(&mut self, animate: bool, allow_move_camera: bool) -> Result<()> {
+    pub fn update_effects(&mut self, animate: bool, permit_camera_moves: bool) -> Result<()> {
         // Layout & apply rects.
 
         let layout = self.desktop_layout();
@@ -360,8 +361,8 @@ impl DesktopSystem {
 
         // Camera
 
-        if allow_move_camera {
-            let camera = self.camera_for_focus(self.event_router.focused());
+        if permit_camera_moves && let Some(focused) = self.event_router.focused() {
+            let camera = self.camera_for_focus(focused);
             if let Some(camera) = camera {
                 if animate {
                     self.camera.animate_if_changed(
@@ -792,7 +793,10 @@ impl DesktopSystem {
                     DesktopTarget::Desktop => {}
                     DesktopTarget::Instance(..) => {}
                     DesktopTarget::View(view_id) => {
-                        let path = self.aggregates.hierarchy.resolve_path(&view_id.into());
+                        let path = self
+                            .aggregates
+                            .hierarchy
+                            .resolve_path(Some(&view_id.into()));
                         let Some(instance) = path.instance() else {
                             bail!("Internal error: Instance of view {view_id:?} not found");
                         };
