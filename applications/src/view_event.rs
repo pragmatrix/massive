@@ -31,6 +31,7 @@ pub enum ViewEvent {
     Ime(event::Ime),
     CursorMoved {
         device_id: event::DeviceId,
+        // This is in view relative coordinates.
         position: Point,
     },
     // Naming: Should probably be renamed to PointerEntered / PointerLeft?
@@ -175,7 +176,7 @@ impl InputEvent for ViewEvent {
                 position,
             } => Some(AggregationEvent::CursorMoved {
                 device_id: *device_id,
-                position: (*position),
+                position: *position,
             }),
             ViewEvent::CursorEntered { device_id } => Some(AggregationEvent::CursorEntered {
                 device_id: *device_id,

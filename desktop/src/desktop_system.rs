@@ -849,8 +849,8 @@ impl DesktopSystem {
                     );
                     return Ok(Cmd::None);
                 };
-                // Need to transform the event first, it has its own coordinate system.
 
+                // Need to translate the event. The view has its own coordinate system.
                 let event = if let Some(rect) = self.aggregates.rects.get(&target) {
                     event.translate(-rect.origin())
                 } else {
