@@ -24,7 +24,7 @@ pub fn leaf<Id: Clone, const RANK: usize>(
     Layout {
         id: id.into(),
         container: None,
-        rect: Rect::new(Offset::ZERO, size.into()),
+        size: size.into(),
     }
 }
 
@@ -61,11 +61,11 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
     }
 
     pub fn nested(&mut self, nested: Layout<Id, RANK>) {
-        self.container.nested.push(nested);
+        self.container.nested.push((Offset::ZERO, nested));
     }
 
     pub fn with_nested(mut self, nested: Layout<Id, RANK>) -> Self {
-        self.container.nested.push(nested);
+        self.container.nested.push((Offset::ZERO, nested));
         self
     }
 
@@ -75,7 +75,7 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
         let mut offset: Offset<RANK> = self.container.padding.leading.into();
 
         // Position nested and compute container size
-        for (i, nested) in self.container.nested.iter_mut().enumerate() {
+        for (i, (nested_offset, nested)) in self.container.nested.iter_mut().enumerate() {
             let nested_outer_size = nested.outer_size();
 
             // Add spacing before this nested (except for the first)
@@ -84,7 +84,7 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
             }
 
             // Set nested's offset relative to this container's content area
-            nested.rect.offset = offset;
+            *nested_offset = offset;
 
             // Advance offset along layout axis
             offset[axis] += nested_outer_size[axis] as i32;
@@ -105,7 +105,7 @@ impl<Id: Clone, const RANK: usize> ContainerBuilder<Id, RANK> {
         Layout {
             id: self.id,
             container: Some(self.container),
-            rect: Rect::new(Offset::ZERO, size),
+            size,
         }
     }
 }
@@ -117,9 +117,8 @@ pub struct Layout<Id: Clone, const RANK: usize> {
 
     container: Option<Container<Id, RANK>>,
 
-    // The rectangle of this layout (parent-relative offset and inner size)
-    // If this is a container, the offset includes leading padding but size does not include padding.
-    rect: Rect<RANK>,
+    // Inner size of this layout (offset is stored in parent for nested layouts).
+    size: Size<RANK>,
 }
 
 #[derive(Debug)]
@@ -128,7 +127,7 @@ struct Container<Id: Clone, const RANK: usize> {
 
     padding: Thickness<RANK>,
     spacing: u32,
-    nested: Vec<Layout<Id, RANK>>,
+    nested: Vec<(Offset<RANK>, Layout<Id, RANK>)>,
 }
 
 impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
@@ -140,7 +139,7 @@ impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
             nested: self
                 .nested
                 .into_iter()
-                .map(|nested| nested.map_id_ref(f))
+                .map(|(offset, nested)| (offset, nested.map_id_ref(f)))
                 .collect(),
         }
     }
@@ -149,9 +148,9 @@ impl<Id: Clone, const RANK: usize> Container<Id, RANK> {
 impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
     pub fn outer_size(&self) -> Size<RANK> {
         if let Some(ref container) = self.container {
-            container.padding.leading + self.rect.size + container.padding.trailing
+            container.padding.leading + self.size + container.padding.trailing
         } else {
-            self.rect.size
+            self.size
         }
     }
 
@@ -170,7 +169,7 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
         Layout {
             id: self.id.map(f),
             container: self.container.map(|c| c.map_id(f)),
-            rect: self.rect,
+            size: self.size,
         }
     }
 
@@ -195,8 +194,7 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
     }
 
     fn place_rec(self, absolute_offset: Offset<RANK>, out: &mut impl FnMut(Id, Rect<RANK>)) {
-        // Compute absolute position of this layout
-        let abs_offset = absolute_offset + self.rect.offset;
+        let abs_offset = absolute_offset;
 
         let outer_size = self.outer_size();
         let id = self.id;
@@ -209,8 +207,8 @@ impl<Id: Clone, const RANK: usize> Layout<Id, RANK> {
 
         // Recursively place nested with accumulated offset
         if let Some(container) = container {
-            for nested in container.nested {
-                nested.place_rec(abs_offset, out);
+            for (nested_offset, nested) in container.nested {
+                nested.place_rec(abs_offset + nested_offset, out);
             }
         }
     }
