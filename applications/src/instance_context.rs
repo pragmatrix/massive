@@ -124,7 +124,7 @@ impl CoalescingKey for InstanceEvent {
     fn coalescing_key(&self) -> Option<InstanceEventCoalescingKey> {
         match self {
             InstanceEvent::View(view_id, view_event) => match view_event {
-                ViewEvent::Resized { .. } => Some(InstanceEventCoalescingKey::ViewEvent(
+                ViewEvent::Resized(..) => Some(InstanceEventCoalescingKey::ViewEvent(
                     *view_id,
                     mem::discriminant(view_event),
                 )),
