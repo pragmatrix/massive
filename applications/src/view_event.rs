@@ -3,12 +3,14 @@ use std::path::PathBuf;
 use winit::event::{self, DeviceId, ElementState, KeyEvent, WindowEvent};
 use winit::keyboard::Key;
 
-use massive_geometry::SizePx;
+use massive_geometry::{Point, SizePx, Vector};
 use massive_input::{AggregationEvent, InputEvent};
 
 /// The events a view can receive.
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
+///
+/// Simplify: Actually DeviceId is not support on macOS, so remove it for simplicity?
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
     Resized(SizePx),
@@ -29,11 +31,7 @@ pub enum ViewEvent {
     Ime(event::Ime),
     CursorMoved {
         device_id: event::DeviceId,
-        /// (x,y) coords in pixels relative to the top-left corner of the view. Because the range
-        /// of this data is limited by the display area and it may have been transformed by
-        /// the OS to implement effects such as cursor acceleration, it should not be used
-        /// to implement non-cursor-like interactions such as 3D camera control.
-        position: (f64, f64),
+        position: Point,
     },
     // Naming: Should probably be renamed to PointerEntered / PointerLeft?
     CursorEntered {
@@ -110,7 +108,7 @@ impl ViewEvent {
                 position,
             } => Some(ViewEvent::CursorMoved {
                 device_id: *device_id,
-                position: (position.x, position.y),
+                position: (position.x, position.y).into(),
             }),
             WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
             WindowEvent::Resized(size) => {
@@ -154,6 +152,19 @@ impl ViewEvent {
             None
         }
     }
+
+    pub fn translate(self, v: Vector) -> ViewEvent {
+        match self {
+            ViewEvent::CursorMoved {
+                device_id,
+                position,
+            } => Self::CursorMoved {
+                device_id,
+                position: position + v,
+            },
+            _ => self,
+        }
+    }
 }
 
 impl InputEvent for ViewEvent {
@@ -164,7 +175,7 @@ impl InputEvent for ViewEvent {
                 position,
             } => Some(AggregationEvent::CursorMoved {
                 device_id: *device_id,
-                position: (*position).into(),
+                position: (*position),
             }),
             ViewEvent::CursorEntered { device_id } => Some(AggregationEvent::CursorEntered {
                 device_id: *device_id,

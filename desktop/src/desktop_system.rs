@@ -804,7 +804,7 @@ impl DesktopSystem {
         Ok(Cmd::None)
     }
 
-    pub fn forward_event_transitions(
+    fn forward_event_transitions(
         &mut self,
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
@@ -828,7 +828,7 @@ impl DesktopSystem {
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
-    pub fn forward_event_transition(
+    fn forward_event_transition(
         &mut self,
         SendTransition(target, event): SendTransition<DesktopTarget>,
         instance_manager: &InstanceManager,
@@ -849,9 +849,19 @@ impl DesktopSystem {
                     );
                     return Ok(Cmd::None);
                 };
+                // Need to transform the event first, it has its own coordinate system.
+
+                let event = if let Some(rect) = self.aggregates.rects.get(&target) {
+                    event.translate(-rect.origin())
+                } else {
+                    // This happens on startup on PresentView, because the layout isn't there yet.
+                    event
+                };
+
                 if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
                 {
-                    // This is not an error we want to stop the world for now.
+                    // This might happen when an instance ends, but we haven't yet received the
+                    // information.
                     warn!("Sending view event {event:?} failed with {e}");
                 }
             }
