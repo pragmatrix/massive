@@ -209,7 +209,7 @@ where
             }
 
             ViewEvent::CursorEntered | ViewEvent::CursorLeft => {}
-            ViewEvent::DroppedFile { .. } | ViewEvent::HoveredFile { .. } => {}
+            ViewEvent::DroppedFile(_) | ViewEvent::HoveredFile(_) => {}
 
             // Keyboard focus
             ViewEvent::KeyboardInput { .. } | ViewEvent::Ime(..) => {
