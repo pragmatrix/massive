@@ -10,7 +10,7 @@ use massive_input::{AggregationEvent, InputEvent};
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
 ///
-/// Because DeviceId is not support on macOS and iOS, we don't support that for simplicity.
+/// Because DeviceId is not supported on macOS and iOS, we don't support that for simplicity.
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
     Resized(SizePx),
