@@ -65,6 +65,24 @@ where
         }
     }
 
+    /// Internal function to check if there are dangling references.
+    pub fn notify_removed(&self, target: &T) -> Result<()> {
+        if self.keyboard_focus.as_ref() == Some(target) {
+            bail!("Removed target {target:?}, but it had keyboard focus");
+        }
+        if self.pointer_focus.as_ref() == Some(target) {
+            bail!("Removed target {target:?}, but it hat pointer focus");
+        }
+
+        if let OuterFocusState::Unfocused { focused_previously } = &self.outer_focus
+            && focused_previously.as_ref() == Some(target)
+        {
+            bail!("Removed target {target:?}, but it had captured in the outer focus");
+        }
+
+        Ok(())
+    }
+
     pub fn focused(&self) -> Option<&T> {
         self.keyboard_focus.as_ref()
     }
@@ -94,7 +112,7 @@ where
     pub fn process(
         &mut self,
         input_event: &Event<ViewEvent>,
-        hit_tester: &dyn HitTester<T>,
+        hit_tester: &impl HitTester<T>,
     ) -> Result<EventTransitions<T>> {
         let view_event = input_event.event();
 

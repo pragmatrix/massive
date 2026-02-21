@@ -359,7 +359,7 @@ impl DesktopSystem {
                     .insert(id, GroupPresenter::new(properties))?;
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
-                self.aggregates.remove_target(&group.into())?;
+                self.remove_target(&group.into())?;
                 self.aggregates.groups.remove(&group)?;
             }
             ProjectCommand::AddLauncher { group, id, profile } => {
@@ -377,7 +377,7 @@ impl DesktopSystem {
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);
-                self.aggregates.remove_target(&target)?;
+                self.remove_target(&target)?;
 
                 self.aggregates.launchers.remove(&id)?;
             }
@@ -623,8 +623,7 @@ impl DesktopSystem {
             bail!("Internal error: Launcher not found");
         };
 
-        self.aggregates
-            .remove_target(&DesktopTarget::Instance(instance))?;
+        self.remove_target(&DesktopTarget::Instance(instance))?;
         self.aggregates.instances.remove(&instance)?;
 
         if !self
@@ -714,8 +713,7 @@ impl DesktopSystem {
         // self.aggregates.instances.remove(&path.instance)?;
 
         // And remove the view.
-        self.aggregates
-            .remove_target(&DesktopTarget::View(path.view))?;
+        self.remove_target(&DesktopTarget::View(path.view))?;
 
         Ok(())
     }
@@ -957,6 +955,18 @@ impl DesktopSystem {
         }
         None
     }
+
+    /// Remove the target from the hierarchy and rects. Specific target aggregates are left
+    /// untouched (they may be needed for fading out, etc.).
+    pub fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
+        // Check if all components that hold reference actually removed them.
+        self.event_router.notify_removed(target)?;
+
+        // Finally remove them.
+        self.aggregates.hierarchy.remove(target)?;
+        self.aggregates.rects.remove(target);
+        Ok(())
+    }
 }
 
 impl Aggregates {
@@ -965,14 +975,6 @@ impl Aggregates {
             aggregates: self,
             geometry,
         }
-    }
-
-    /// Remove the target from the hierarchy and rects. Specific target aggregates are left
-    /// untouched (they may be needed for fading out, etc.).
-    pub fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
-        self.hierarchy.remove(target)?;
-        self.rects.remove(target);
-        Ok(())
     }
 
     pub fn view_of_instance(&self, instance: InstanceId) -> Option<ViewId> {
