@@ -180,7 +180,7 @@ where
                         focused,
                         ViewEvent::CursorMoved {
                             device_id: *device_id,
-                            position: (hit.x, hit.y),
+                            position: (hit.x, hit.y).into(),
                         },
                     );
                 }
