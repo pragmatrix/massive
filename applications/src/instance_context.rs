@@ -128,7 +128,7 @@ impl CoalescingKey for InstanceEvent {
                     *view_id,
                     mem::discriminant(view_event),
                 )),
-                ViewEvent::CursorMoved { .. } => Some(InstanceEventCoalescingKey::ViewEvent(
+                ViewEvent::CursorMoved(..) => Some(InstanceEventCoalescingKey::ViewEvent(
                     *view_id,
                     mem::discriminant(view_event),
                 )),
