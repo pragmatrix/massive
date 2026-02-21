@@ -869,12 +869,12 @@ impl DesktopSystem {
             DesktopTarget::Launcher(launcher_id) => {
                 // Architecture: Shouldn't we move the hovering into the launcher presenters or even into the system?
                 match event {
-                    ViewEvent::CursorEntered { .. } => {
+                    ViewEvent::CursorEntered => {
                         let launcher = &self.aggregates.launchers[&launcher_id];
                         let rect = launcher.rect.final_value();
                         self.aggregates.project_presenter.show_hover_rect(rect);
                     }
-                    ViewEvent::CursorLeft { .. } => {
+                    ViewEvent::CursorLeft => {
                         self.aggregates.project_presenter.hide_hover_rect();
                     }
                     event => {

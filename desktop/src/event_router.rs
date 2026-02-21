@@ -123,14 +123,14 @@ where
                 self.set_outer_focus(*focused, &mut event_transitions);
             }
 
-            ViewEvent::CursorMoved { device_id, .. } => {
+            ViewEvent::CursorMoved { .. } => {
                 let any_pressed = input_event
-                    .pointing_device_state(*device_id)
+                    .pointing_device_state(DeviceId::dummy())
                     .map(|d| d.any_button_pressed())
                     .unwrap_or(false);
 
                 let screen_pos = input_event
-                    .device_pos(*device_id)
+                    .device_pos(DeviceId::dummy())
                     .expect("Internal error: A CursorMoved event must have set a position");
 
                 // Change the cursor focus only if there is no button pressed.
@@ -141,7 +141,6 @@ where
                         set_pointer_focus(
                             &mut self.pointer_focus,
                             Some(&target),
-                            *device_id,
                             &mut event_transitions,
                         );
                         Some(hit)
@@ -162,12 +161,7 @@ where
                         // focus must be reset.
                         // Robustness: Shouldn't a regular hit test be attempted?
                         warn!("Resetting pointer focus, no hit on previous target");
-                        set_pointer_focus(
-                            &mut self.pointer_focus,
-                            None,
-                            *device_id,
-                            &mut event_transitions,
-                        );
+                        set_pointer_focus(&mut self.pointer_focus, None, &mut event_transitions);
                         None
                     }
                 };
@@ -176,13 +170,7 @@ where
                 if let Some(hit) = hit
                     && let Some(focused) = &self.pointer_focus
                 {
-                    event_transitions.send(
-                        focused,
-                        ViewEvent::CursorMoved {
-                            device_id: *device_id,
-                            position: (hit.x, hit.y).into(),
-                        },
-                    );
+                    event_transitions.send(focused, ViewEvent::CursorMoved((hit.x, hit.y).into()));
                 }
             }
 
@@ -220,8 +208,8 @@ where
                 }
             }
 
-            ViewEvent::CursorEntered { .. } | ViewEvent::CursorLeft { .. } => {}
-            ViewEvent::DroppedFile(_) | ViewEvent::HoveredFile(_) => {}
+            ViewEvent::CursorEntered | ViewEvent::CursorLeft => {}
+            ViewEvent::DroppedFile { .. } | ViewEvent::HoveredFile { .. } => {}
 
             // Keyboard focus
             ViewEvent::KeyboardInput { .. } | ViewEvent::Ime(..) => {
@@ -263,17 +251,15 @@ where
         &mut self,
         hit_tester: &dyn HitTester<T>,
     ) -> Result<EventTransitions<T>> {
-        let (target, device) = {
+        let target = {
             // This is somehow a shortcut, we just check for the latest Device's pos change.
             // Robustness: Support multiple pointers.
-            if let Some(device) = self.device_states.most_recent_moved_pointing_device()
-                && let Some(pos) = self.device_states.pos(device)
-            {
+            if let Some(pos) = self.device_states.pos(DeviceId::dummy()) {
                 if let Some((target, _hit)) = hit_tester.hit_test(pos, None) {
-                    (Some(target), device)
+                    Some(target)
                 } else {
                     // Robustness: No hit -> No target, is this even correct?
-                    (None, device)
+                    None
                 }
             } else {
                 warn!("Resetting pointer focus: No most recent position was found");
@@ -288,21 +274,13 @@ where
 
         // We don't need a focus change tracking here.
         let mut transitions = EventTransitions::default();
-        set_pointer_focus(
-            &mut self.pointer_focus,
-            target.as_ref(),
-            device,
-            &mut transitions,
-        );
+        set_pointer_focus(&mut self.pointer_focus, target.as_ref(), &mut transitions);
         Ok(transitions)
     }
 
     pub fn unfocus_pointer(&mut self) -> Result<EventTransitions<T>> {
         let mut transitions = EventTransitions::default();
-        let device = self.device_states.most_recent_moved_pointing_device();
-        if let Some(device) = device {
-            set_pointer_focus(&mut self.pointer_focus, None, device, &mut transitions);
-        }
+        set_pointer_focus(&mut self.pointer_focus, None, &mut transitions);
         Ok(transitions)
     }
 
@@ -362,7 +340,7 @@ fn set_keyboard_focus<T>(
 fn set_pointer_focus<T>(
     current: &mut Option<T>,
     new: Option<&T>,
-    device_id: DeviceId,
+
     event_transitions: &mut EventTransitions<T>,
 ) where
     T: PartialEq + Clone + fmt::Debug,
@@ -374,7 +352,6 @@ fn set_pointer_focus<T>(
     event_transitions.add(EventTransition::ChangePointerFocus {
         from: current.clone(),
         to: new.cloned(),
-        device_id,
     });
 
     // Commit
@@ -408,15 +385,8 @@ impl<T> EventTransitions<T> {
 pub enum EventTransition<T> {
     // Send a targeted event.
     Send(T, ViewEvent),
-    ChangePointerFocus {
-        from: Option<T>,
-        to: Option<T>,
-        device_id: DeviceId,
-    },
-    ChangeKeyboardFocus {
-        from: Option<T>,
-        to: Option<T>,
-    },
+    ChangePointerFocus { from: Option<T>, to: Option<T> },
+    ChangeKeyboardFocus { from: Option<T>, to: Option<T> },
 }
 
 // Architecture: The two functions can probably be combined into one. But is this a good thing?

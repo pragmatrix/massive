@@ -5,7 +5,6 @@ use std::{mem, sync::Arc};
 use anyhow::Result;
 use massive_scene::ChangeCollector;
 use tokio::sync::mpsc::UnboundedReceiver;
-use winit::event::DeviceId;
 
 use massive_animation::AnimationCoordinator;
 use massive_renderer::FontManager;
@@ -125,18 +124,14 @@ impl CoalescingKey for InstanceEvent {
     fn coalescing_key(&self) -> Option<InstanceEventCoalescingKey> {
         match self {
             InstanceEvent::View(view_id, view_event) => match view_event {
-                ViewEvent::Resized(..) => Some(InstanceEventCoalescingKey::ViewEvent(
+                ViewEvent::Resized { .. } => Some(InstanceEventCoalescingKey::ViewEvent(
                     *view_id,
-                    None,
                     mem::discriminant(view_event),
                 )),
-                ViewEvent::CursorMoved { device_id, .. } => {
-                    Some(InstanceEventCoalescingKey::ViewEvent(
-                        *view_id,
-                        Some(*device_id),
-                        mem::discriminant(view_event),
-                    ))
-                }
+                ViewEvent::CursorMoved { .. } => Some(InstanceEventCoalescingKey::ViewEvent(
+                    *view_id,
+                    mem::discriminant(view_event),
+                )),
                 _ => None,
             },
             InstanceEvent::ApplyAnimations => Some(InstanceEventCoalescingKey::ApplyAnimations),
@@ -148,5 +143,5 @@ impl CoalescingKey for InstanceEvent {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum InstanceEventCoalescingKey {
     ApplyAnimations,
-    ViewEvent(ViewId, Option<DeviceId>, mem::Discriminant<ViewEvent>),
+    ViewEvent(ViewId, mem::Discriminant<ViewEvent>),
 }
