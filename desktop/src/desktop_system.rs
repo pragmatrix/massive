@@ -687,6 +687,7 @@ impl DesktopSystem {
             return Ok(());
         };
 
+        // Architecture: Move this into the InstancePresenter (don't make state pub).
         match &instance_presenter.state {
             InstancePresenterState::WaitingForPrimaryView => {
                 bail!(
@@ -706,11 +707,7 @@ impl DesktopSystem {
             }
         }
 
-        // We remove the instance for now so that we don't keep dangling references to Handle<>
-        // types and be sure that they are sent to the renderer in the Desktop.
-        // self.aggregates
-        //     .remove_target(&DesktopTarget::Instance(path.instance))?;
-        // self.aggregates.instances.remove(&path.instance)?;
+        // Robustness: What about focus?
 
         // And remove the view.
         self.remove_target(&DesktopTarget::View(path.view))?;
