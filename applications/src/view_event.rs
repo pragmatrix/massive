@@ -10,7 +10,7 @@ use massive_input::{AggregationEvent, InputEvent};
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
 ///
-/// Simplify: Actually DeviceId is not support on macOS, so remove it for simplicity?
+/// Because DeviceId is not supported on macOS and iOS, we don't support that for simplicity.
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
     Resized(SizePx),
@@ -21,7 +21,6 @@ pub enum ViewEvent {
     /// Feature: This is probably related to a "level of detail" management.
     Focused(bool),
     KeyboardInput {
-        device_id: event::DeviceId,
         event: event::KeyEvent,
         is_synthetic: bool,
     },
@@ -29,25 +28,16 @@ pub enum ViewEvent {
     /// updated as soon it gets either of them back.
     ModifiersChanged(event::Modifiers),
     Ime(event::Ime),
-    CursorMoved {
-        device_id: event::DeviceId,
-        // This is in view relative coordinates.
-        position: Point,
-    },
+    // This is in view relative coordinates.
+    CursorMoved(Point),
     // Naming: Should probably be renamed to PointerEntered / PointerLeft?
-    CursorEntered {
-        device_id: event::DeviceId,
-    },
-    CursorLeft {
-        device_id: event::DeviceId,
-    },
+    CursorEntered,
+    CursorLeft,
     MouseWheel {
-        device_id: event::DeviceId,
         delta: event::MouseScrollDelta,
         phase: event::TouchPhase,
     },
     MouseInput {
-        device_id: event::DeviceId,
         state: event::ElementState,
         button: event::MouseButton,
     },
@@ -61,60 +51,47 @@ pub enum ViewEvent {
 impl ViewEvent {
     pub fn from_window_event(window_event: &WindowEvent) -> Option<Self> {
         match window_event {
-            WindowEvent::CursorEntered { device_id } => Some(ViewEvent::CursorEntered {
-                device_id: *device_id,
-            }),
-            WindowEvent::CursorLeft { device_id } => Some(ViewEvent::CursorLeft {
-                device_id: *device_id,
-            }),
+            WindowEvent::CursorEntered { device_id: _ } => Some(Self::CursorEntered),
+            WindowEvent::CursorLeft { device_id: _ } => Some(Self::CursorLeft),
             WindowEvent::MouseInput {
-                device_id,
+                device_id: _,
                 state,
                 button,
                 ..
             } => Some(ViewEvent::MouseInput {
-                device_id: *device_id,
                 state: *state,
                 button: *button,
             }),
             WindowEvent::MouseWheel {
-                device_id,
+                device_id: _,
                 delta,
                 phase,
-                ..
             } => Some(ViewEvent::MouseWheel {
-                device_id: *device_id,
                 delta: *delta,
                 phase: *phase,
             }),
             WindowEvent::ModifiersChanged(modifiers) => {
                 Some(ViewEvent::ModifiersChanged(*modifiers))
             }
-            WindowEvent::DroppedFile(path) => Some(ViewEvent::DroppedFile(path.clone())),
-            WindowEvent::HoveredFile(path) => Some(ViewEvent::HoveredFile(path.clone())),
-            WindowEvent::HoveredFileCancelled => Some(ViewEvent::HoveredFileCancelled),
-            WindowEvent::CloseRequested => Some(ViewEvent::CloseRequested),
+            WindowEvent::DroppedFile(path) => Some(Self::DroppedFile(path.clone())),
+            WindowEvent::HoveredFile(path) => Some(Self::HoveredFile(path.clone())),
+            WindowEvent::HoveredFileCancelled => Some(Self::HoveredFileCancelled),
+            WindowEvent::CloseRequested => Some(Self::CloseRequested),
             WindowEvent::KeyboardInput {
-                device_id,
+                device_id: _,
                 event,
                 is_synthetic,
-            } => Some(ViewEvent::KeyboardInput {
-                device_id: *device_id,
+            } => Some(Self::KeyboardInput {
                 event: event.clone(),
                 is_synthetic: *is_synthetic,
             }),
-            WindowEvent::Ime(ime) => Some(ViewEvent::Ime(ime.clone())),
+            WindowEvent::Ime(ime) => Some(Self::Ime(ime.clone())),
             WindowEvent::CursorMoved {
-                device_id,
+                device_id: _,
                 position,
-            } => Some(ViewEvent::CursorMoved {
-                device_id: *device_id,
-                position: (position.x, position.y).into(),
-            }),
-            WindowEvent::Focused(focused) => Some(ViewEvent::Focused(*focused)),
-            WindowEvent::Resized(size) => {
-                Some(ViewEvent::Resized((size.width, size.height).into()))
-            }
+            } => Some(Self::CursorMoved((position.x, position.y).into())),
+            WindowEvent::Focused(focused) => Some(Self::Focused(*focused)),
+            WindowEvent::Resized(size) => Some(Self::Resized((size.width, size.height).into())),
 
             // Unhandled events
             WindowEvent::ActivationTokenDone { .. } => None,
@@ -156,13 +133,7 @@ impl ViewEvent {
 
     pub fn translate(self, v: Vector) -> ViewEvent {
         match self {
-            ViewEvent::CursorMoved {
-                device_id,
-                position,
-            } => Self::CursorMoved {
-                device_id,
-                position: position + v,
-            },
+            Self::CursorMoved(position) => Self::CursorMoved(position + v),
             _ => self,
         }
     }
@@ -171,30 +142,22 @@ impl ViewEvent {
 impl InputEvent for ViewEvent {
     fn to_aggregation_event(&self) -> Option<AggregationEvent> {
         match self {
-            ViewEvent::CursorMoved {
-                device_id,
-                position,
-            } => Some(AggregationEvent::CursorMoved {
-                device_id: *device_id,
+            Self::CursorMoved(position) => Some(AggregationEvent::CursorMoved {
+                device_id: DeviceId::dummy(),
                 position: *position,
             }),
-            ViewEvent::CursorEntered { device_id } => Some(AggregationEvent::CursorEntered {
-                device_id: *device_id,
+            Self::CursorEntered => Some(AggregationEvent::CursorEntered {
+                device_id: DeviceId::dummy(),
             }),
-            ViewEvent::CursorLeft { device_id } => Some(AggregationEvent::CursorLeft {
-                device_id: *device_id,
+            Self::CursorLeft => Some(AggregationEvent::CursorLeft {
+                device_id: DeviceId::dummy(),
             }),
-            ViewEvent::MouseInput {
-                device_id,
-                state,
-                button,
-                ..
-            } => Some(AggregationEvent::MouseInput {
-                device_id: *device_id,
+            Self::MouseInput { state, button, .. } => Some(AggregationEvent::MouseInput {
+                device_id: DeviceId::dummy(),
                 state: *state,
                 button: *button,
             }),
-            ViewEvent::ModifiersChanged(modifiers) => {
+            Self::ModifiersChanged(modifiers) => {
                 Some(AggregationEvent::ModifiersChanged(*modifiers))
             }
             _ => None,
@@ -203,12 +166,12 @@ impl InputEvent for ViewEvent {
 
     fn device(&self) -> Option<DeviceId> {
         match self {
-            ViewEvent::KeyboardInput { device_id, .. }
-            | ViewEvent::CursorMoved { device_id, .. }
-            | ViewEvent::CursorEntered { device_id }
-            | ViewEvent::CursorLeft { device_id }
-            | ViewEvent::MouseWheel { device_id, .. }
-            | ViewEvent::MouseInput { device_id, .. } => Some(*device_id),
+            ViewEvent::KeyboardInput { .. }
+            | ViewEvent::CursorMoved(_)
+            | ViewEvent::CursorEntered
+            | ViewEvent::CursorLeft
+            | ViewEvent::MouseWheel { .. }
+            | ViewEvent::MouseInput { .. } => Some(DeviceId::dummy()),
             _ => None,
         }
     }
