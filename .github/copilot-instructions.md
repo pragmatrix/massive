@@ -25,6 +25,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Don't add tests unless explicitly asked.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
+- For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - In tests: place test functions before helpers, create concise constructor helpers to reduce verbosity, prefer static data structures, and use helper functions for common value construction patterns.
 - For test assertions, derive `PartialEq` and `Eq` rather than implementing manually; prefer `Debug` over `Display` for output.
 
@@ -46,3 +47,5 @@ Update it whenever you learn something new about the project's patterns, convent
 - Don't add documentation with examples unless explicitly asked.
 - Markdown documentation updates to existing files are fine.
 - Ask before creating new Markdown documentation files.
+- In code comments/doc comments, explain intent and tradeoffs.
+- Prefer concise inline comments at key decision points inside functions when intent is not obvious.
