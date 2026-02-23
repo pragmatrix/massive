@@ -65,6 +65,12 @@ where
     /// Pass 2 (`place_subtree_recursive`) computes offsets/rects top-down.
     /// Clean branches are reused from cache and shifted when only absolute offset changed.
     ///
+    /// Note on affected roots:
+    /// - In a normal single-root hierarchy, collecting pending nodes + all ancestors means the
+    ///   global root is in `affected`, so `collect_affected_roots` typically returns only root.
+    /// - Multiple affected roots only occur if topology is disconnected/forest-like or parent
+    ///   links are transiently inconsistent.
+    ///
     /// Work stays proportional to changed regions while placement remains deterministic.
     pub fn recompute(
         &mut self,
@@ -128,19 +134,17 @@ where
         affected.contains(child) || !self.rects.contains_key(child)
     }
 
-    /// Reads the best-known outer size for `id`.
+    /// Reads the authoritative outer size for `id`.
     ///
-    /// Measure writes `cached_outer_size`, while some clean branches are skipped in the current
-    /// generation; in that case, the last rect size remains a valid fallback.
-    fn cached_or_rect_size(&self, id: &Id) -> Size<RANK> {
-        self.nodes.get(id).map_or_else(
-            || {
-                self.rects.get(id).map(|rect| rect.size).unwrap_or_else(|| {
-                    Self::invariant_violation("missing node and rect for size lookup")
-                })
-            },
-            |state| state.cached_outer_size,
-        )
+    /// Size computations (measure accumulation and placement cursor advancement) must use
+    /// `nodes.cached_outer_size` so both passes see one coherent source of truth.
+    fn cached_outer_size(&self, id: &Id) -> Size<RANK> {
+        self.nodes
+            .get(id)
+            .map(|state| state.cached_outer_size)
+            .unwrap_or_else(|| {
+                Self::invariant_violation("missing node for cached outer size lookup")
+            })
     }
 
     fn cached_spec_of(&self, id: &Id) -> LayoutNodeSpec<RANK> {
@@ -193,7 +197,7 @@ where
                 let mut inner_size = Size::EMPTY;
 
                 for (index, child) in topology.children_of(id).iter().enumerate() {
-                    let child_size = self.cached_or_rect_size(child);
+                    let child_size = self.cached_outer_size(child);
 
                     for dim in 0..RANK {
                         if dim == axis {
@@ -243,7 +247,7 @@ where
                 padding,
                 spacing,
             } => {
-                let outer_size = self.cached_or_rect_size(id);
+                let outer_size = self.cached_outer_size(id);
                 self.update_rect(id, Rect::new(absolute_offset, outer_size), changed);
 
                 let axis = *layout_axis;
@@ -254,8 +258,9 @@ where
                     }
 
                     let child_offset = absolute_offset + cursor;
-                    let child_size = self.cached_or_rect_size(child);
-                    if self.should_walk_child(child, affected) {
+                    let should_walk = self.should_walk_child(child, affected);
+                    let child_size = self.cached_outer_size(child);
+                    if should_walk {
                         self.place_subtree_recursive(
                             topology,
                             child,
@@ -329,6 +334,9 @@ where
     /// - Step 1 (`refresh_pending_subtrees`): refresh pending roots and descendant spec cache.
     /// - Step 2: from remaining pending roots, include each node and all ancestors up to root.
     /// - Do not include descendants unless they are independently pending.
+    ///
+    /// Consequence in a connected single-root tree: `affected` contains root whenever any node is
+    /// pending.
     fn collect_affected_ancestors(
         &self,
         topology: &impl LayoutTopology<Id, RANK>,
@@ -367,9 +375,12 @@ where
             };
 
             self.refresh_spec_subtree(topology, &pending_id, pending_spec, &mut refreshed);
+
+            #[cfg(debug_assertions)]
             self.nodes.get(&pending_id).unwrap_or_else(|| {
                 Self::invariant_violation("missing node state after spec refresh")
             });
+
             pending_roots.push(pending_id);
         }
 
@@ -429,6 +440,9 @@ where
     /// In other words, each returned id is the topmost node of one connected affected region.
     /// Recompute can then run exactly one measure/place traversal per region instead of starting
     /// from every affected node (which would duplicate work on overlapping ancestor chains).
+    ///
+    /// In a connected single-root hierarchy where `affected` is built by ancestor-closure,
+    /// this will typically return exactly one id: the global root.
     fn collect_affected_roots(
         &self,
         topology: &impl LayoutTopology<Id, RANK>,
