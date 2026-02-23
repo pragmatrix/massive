@@ -14,7 +14,7 @@ where
     root: Id,
     nodes: HashMap<Id, NodeState<Id, RANK>>,
     rects: HashMap<Id, Rect<RANK>>,
-    reflow_pending_nodes: Vec<Id>,
+    reflow_pending: HashSet<Id>,
 }
 
 pub trait LayoutTopology<Id, const RANK: usize>
@@ -39,7 +39,7 @@ where
             root,
             nodes: HashMap::new(),
             rects: HashMap::new(),
-            reflow_pending_nodes: Vec::new(),
+            reflow_pending: HashSet::new(),
         }
     }
 
@@ -109,14 +109,6 @@ where
                     &mut changed,
                 );
             }
-
-            for affected_id in affected {
-                if let Some(node) = self.nodes.get_mut(&affected_id) {
-                    node.reflow_pending = false;
-                }
-            }
-            // Generation complete: all queued pending ids were either processed or removed.
-            self.reflow_pending_nodes.clear();
         }
         RecomputeResult { changed }
     }
@@ -128,20 +120,12 @@ where
     /// Internal reflow-pending index update.
     ///
     /// `collect_affected_ancestors` scales with changed nodes instead of total nodes.
-    /// `reflow_pending_nodes` is append-only for a generation and deduplicated by a clean->pending edge,
+    /// `reflow_pending` is deduplicated by set membership,
     /// which keeps mutation paths cheap and avoids full-map scans during recompute.
     fn mark_node_reflow_pending(&mut self, id: &Id) {
-        if let Some(node) = self.nodes.get_mut(id) {
-            let was_pending = node.reflow_pending;
-            node.reflow_pending = true;
-            if !was_pending {
-                // Record each id once per generation; this keeps affected-collection proportional
-                // to changed regions instead of all nodes.
-                self.reflow_pending_nodes.push(id.clone());
-            }
-        } else if !self.reflow_pending_nodes.contains(id) {
-            self.reflow_pending_nodes.push(id.clone());
-        }
+        // Record each id once per generation; this keeps affected-collection proportional
+        // to changed regions instead of all nodes.
+        self.reflow_pending.insert(id.clone());
     }
 
     /// Decides whether the current generation should traverse into `child`.
@@ -381,20 +365,20 @@ where
     ///
     /// Returns pending roots that should seed affected-ancestor collection.
     fn refresh_pending_subtrees(&mut self, topology: &impl LayoutTopology<Id, RANK>) -> Vec<Id> {
-        let pending_nodes = std::mem::take(&mut self.reflow_pending_nodes);
+        let pending_nodes = std::mem::take(&mut self.reflow_pending);
         let mut pending_roots = Vec::with_capacity(pending_nodes.len());
         let mut refreshed = HashSet::new();
 
         for pending_id in pending_nodes {
             if topology.spec_of(&pending_id).is_none() {
-                Self::invariant_violation("topology missing spec for traversed node");
+                self.evict_cached_subtree(&pending_id);
+                continue;
             }
 
             self.refresh_spec_subtree(topology, &pending_id, &mut refreshed);
-            let node = self.nodes.get_mut(&pending_id).unwrap_or_else(|| {
+            self.nodes.get(&pending_id).unwrap_or_else(|| {
                 Self::invariant_violation("missing node state after spec refresh")
             });
-            node.reflow_pending = true;
             pending_roots.push(pending_id);
         }
 
@@ -485,7 +469,6 @@ where
     Id: Eq + Hash + Clone,
 {
     cached_outer_size: Size<RANK>,
-    reflow_pending: bool,
     cached_spec: LayoutNodeSpec<RANK>,
     cached_children: Vec<Id>,
 }
@@ -497,7 +480,6 @@ where
     fn new(cached_spec: LayoutNodeSpec<RANK>, cached_children: Vec<Id>) -> Self {
         Self {
             cached_outer_size: Size::EMPTY,
-            reflow_pending: false,
             cached_spec,
             cached_children,
         }
@@ -851,8 +833,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn removing_pending_node_panics_on_recompute() {
+    fn removing_pending_node_is_ignored_on_recompute() {
         let mut topology = TestTopology::default();
         let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
         upsert_container(&mut layouter, &mut topology, 0, LayoutAxis::HORIZONTAL);
@@ -864,12 +845,14 @@ mod tests {
         remove_node(&mut layouter, &mut topology, 1);
         set_children(&mut layouter, &mut topology, 0, vec![]);
 
-        let _ = layouter.recompute(&topology, [0, 0]);
+        let update = layouter.recompute(&topology, [0, 0]);
+
+        assert!(layouter.rect(&1).is_none());
+        assert!(update.changed.iter().any(|(id, _)| id == &0));
     }
 
     #[test]
-    #[should_panic]
-    fn removing_pending_node_panics_before_parent_lookup() {
+    fn removing_pending_node_does_not_query_missing_parent() {
         let mut topology = TestTopology::default();
         let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
         upsert_container(&mut layouter, &mut topology, 0, LayoutAxis::HORIZONTAL);
@@ -882,7 +865,10 @@ mod tests {
         set_children(&mut layouter, &mut topology, 0, vec![]);
         topology.panic_on_missing_spec_parent_lookup = true;
 
-        let _ = layouter.recompute(&topology, [0, 0]);
+        let update = layouter.recompute(&topology, [0, 0]);
+
+        assert!(layouter.rect(&1).is_none());
+        assert!(update.changed.iter().any(|(id, _)| id == &0));
     }
 
     #[test]
