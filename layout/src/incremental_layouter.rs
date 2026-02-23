@@ -251,6 +251,11 @@ where
             .map(|child| self.cached_outer_size(child))
             .collect();
         let child_offsets = algorithm.place_children(id, absolute_offset, &child_sizes);
+        if child_offsets.len() != cached_children.len() {
+            Self::invariant_violation(
+                "layout algorithm returned a different number of child offsets than children",
+            );
+        }
 
         for (child, child_offset) in cached_children.iter().zip(child_offsets.iter()) {
             if self.should_walk_child(child, affected) {
@@ -1028,6 +1033,46 @@ mod tests {
         set_children(&mut layouter, &mut topology, 0, vec![99]);
 
         let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
+    }
+
+    struct BrokenPlaceChildrenAlgorithm<'a> {
+        inner: &'a TestAlgorithm,
+    }
+
+    impl LayoutAlgorithm<usize, 2> for BrokenPlaceChildrenAlgorithm<'_> {
+        fn measure(&self, id: &usize, child_sizes: &[Size<2>]) -> Size<2> {
+            self.inner.measure(id, child_sizes)
+        }
+
+        fn place_children(
+            &self,
+            _id: &usize,
+            _parent_offset: Offset<2>,
+            _child_sizes: &[Size<2>],
+        ) -> Vec<Offset<2>> {
+            Vec::new()
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn place_children_offset_count_mismatch_panics() {
+        let mut topology = TestTopology::default();
+        let mut algorithm = TestAlgorithm::default();
+        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        upsert_container(
+            &mut layouter,
+            &mut topology,
+            &mut algorithm,
+            0,
+            LayoutAxis::HORIZONTAL,
+        );
+        upsert_leaf(&mut layouter, &mut topology, &mut algorithm, 1, [10, 5]);
+        upsert_leaf(&mut layouter, &mut topology, &mut algorithm, 2, [7, 4]);
+        set_children(&mut layouter, &mut topology, 0, vec![1, 2]);
+
+        let broken = BrokenPlaceChildrenAlgorithm { inner: &algorithm };
+        let _ = layouter.recompute(&topology, &broken, [0, 0]);
     }
 
     fn upsert_leaf(
