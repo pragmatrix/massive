@@ -52,7 +52,9 @@ where
     /// - Descendants are not automatically marked pending; they are recomputed only when needed
     ///   during subtree traversal.
     pub fn mark_reflow_pending(&mut self, id: Id) {
-        self.mark_node_reflow_pending(&id);
+        // Record each id once per generation; this keeps affected-collection proportional
+        // to changed regions instead of all nodes.
+        self.reflow_pending.insert(id.clone());
     }
 
     /// Recomputes layout incrementally and returns changed rectangles.
@@ -73,9 +75,9 @@ where
         let root = self.root.clone();
         let offset = absolute_offset.into();
 
-        topology.spec_of(&root).unwrap_or_else(|| {
-            Self::invariant_violation("topology missing spec for referenced node")
-        });
+        topology
+            .spec_of(&root)
+            .unwrap_or_else(|| Self::invariant_violation("topology missing spec for root"));
 
         let root_moved = self
             .rects
@@ -115,17 +117,6 @@ where
 
     pub fn rect(&self, id: &Id) -> Option<&Rect<RANK>> {
         self.rects.get(id)
-    }
-
-    /// Internal reflow-pending index update.
-    ///
-    /// `collect_affected_ancestors` scales with changed nodes instead of total nodes.
-    /// `reflow_pending` is deduplicated by set membership,
-    /// which keeps mutation paths cheap and avoids full-map scans during recompute.
-    fn mark_node_reflow_pending(&mut self, id: &Id) {
-        // Record each id once per generation; this keeps affected-collection proportional
-        // to changed regions instead of all nodes.
-        self.reflow_pending.insert(id.clone());
     }
 
     /// Decides whether the current generation should traverse into `child`.
@@ -370,12 +361,12 @@ where
         let mut refreshed = HashSet::new();
 
         for pending_id in pending_nodes {
-            if topology.spec_of(&pending_id).is_none() {
+            let Some(pending_spec) = topology.spec_of(&pending_id) else {
                 self.evict_cached_subtree(&pending_id);
                 continue;
-            }
+            };
 
-            self.refresh_spec_subtree(topology, &pending_id, &mut refreshed);
+            self.refresh_spec_subtree(topology, &pending_id, pending_spec, &mut refreshed);
             self.nodes.get(&pending_id).unwrap_or_else(|| {
                 Self::invariant_violation("missing node state after spec refresh")
             });
@@ -389,15 +380,12 @@ where
         &mut self,
         topology: &impl LayoutTopology<Id, RANK>,
         id: &Id,
+        spec: LayoutNodeSpec<RANK>,
         refreshed: &mut HashSet<Id>,
     ) {
         if !refreshed.insert(id.clone()) {
             return;
         }
-
-        let spec = topology.spec_of(id).unwrap_or_else(|| {
-            Self::invariant_violation("topology missing spec for traversed node")
-        });
 
         let current_children = topology.children_of(id).to_vec();
         let removed_cached_children = self.nodes.get(id).map_or_else(Vec::new, |node| {
@@ -424,7 +412,10 @@ where
         }
 
         for child in &current_children {
-            self.refresh_spec_subtree(topology, child, refreshed);
+            let child_spec = topology.spec_of(child).unwrap_or_else(|| {
+                Self::invariant_violation("topology missing spec for traversed child")
+            });
+            self.refresh_spec_subtree(topology, child, child_spec, refreshed);
         }
     }
 
