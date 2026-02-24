@@ -75,6 +75,13 @@ where
         }
     }
 
+    /// Creates a layouter and marks one initial node as reflow-pending.
+    pub fn with_initial_reflow(initial_reflow: Id) -> Self {
+        let mut layouter = Self::new();
+        layouter.mark_reflow_pending(initial_reflow);
+        layouter
+    }
+
     /// Marks a node as needing reflow.
     ///
     /// Reflow-pending propagation and recompute contract:
@@ -86,7 +93,7 @@ where
     pub fn mark_reflow_pending(&mut self, id: Id) {
         // Record each id once per generation; this keeps affected-collection proportional
         // to changed regions instead of all nodes.
-        self.reflow_pending.insert(id.clone());
+        self.reflow_pending.insert(id);
     }
 
     /// Recomputes layout incrementally and returns changed rectangles.
@@ -1012,6 +1019,72 @@ mod tests {
 
         assert!(layouter.rect(&1).is_none());
         assert!(update.changed.iter().any(|(id, _)| id == &0));
+    }
+
+    #[test]
+    fn removal_requires_parent_mark_for_relayout() {
+        let mut topology = TestTopology::default();
+        let mut algorithm = TestAlgorithm::default();
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        upsert_container(
+            &mut layouter,
+            &mut topology,
+            &mut algorithm,
+            0,
+            LayoutAxis::HORIZONTAL,
+        );
+        upsert_leaf(&mut layouter, &mut topology, &mut algorithm, 1, [10, 5]);
+        upsert_leaf(&mut layouter, &mut topology, &mut algorithm, 2, [7, 5]);
+        set_children(&mut layouter, &mut topology, 0, vec![1, 2]);
+        let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
+
+        layouter.mark_reflow_pending(1);
+        let _ = topology.remove_node(1);
+        algorithm.remove_node(1);
+        let removed_only_update = layouter.recompute(&topology, &algorithm, [0, 0]);
+
+        assert!(layouter.rect(&1).is_none());
+        assert!(removed_only_update.changed.is_empty());
+        assert_eq!(
+            layouter.rect(&0).map(|rect| rect.size),
+            Some([17, 5].into())
+        );
+
+        let mut topology = TestTopology::default();
+        let mut algorithm = TestAlgorithm::default();
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        upsert_container(
+            &mut layouter,
+            &mut topology,
+            &mut algorithm,
+            0,
+            LayoutAxis::HORIZONTAL,
+        );
+        upsert_leaf(&mut layouter, &mut topology, &mut algorithm, 1, [10, 5]);
+        upsert_leaf(&mut layouter, &mut topology, &mut algorithm, 2, [7, 5]);
+        set_children(&mut layouter, &mut topology, 0, vec![1, 2]);
+        let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
+
+        layouter.mark_reflow_pending(1);
+        for dirty_id in topology.remove_node(1) {
+            layouter.mark_reflow_pending(dirty_id);
+        }
+        algorithm.remove_node(1);
+        let parent_marked_update = layouter.recompute(&topology, &algorithm, [0, 0]);
+
+        let mut changed_ids: Vec<usize> = parent_marked_update
+            .changed
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+        changed_ids.sort_unstable();
+
+        assert_eq!(changed_ids, vec![0, 2]);
+        assert_eq!(layouter.rect(&0).map(|rect| rect.size), Some([7, 5].into()));
+        assert_eq!(
+            layouter.rect(&2).map(|rect| rect.offset),
+            Some([0, 0].into())
+        );
     }
 
     #[test]

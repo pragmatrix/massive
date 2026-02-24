@@ -8,10 +8,10 @@
 //! The goal here is to remove as much as possible from the specific instances into separate systems
 //! and aggregates that are event driven.
 
-use std::collections::HashMap;
+use std::cmp::max;
 
 use anyhow::{Result, anyhow, bail};
-use derive_more::From;
+use derive_more::{Debug, From};
 use log::warn;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
@@ -24,7 +24,10 @@ use massive_geometry::{
     Contains, Matrix4, PixelCamera, Point, PointPx, Rect, RectPx, SizePx, Vector3,
 };
 use massive_input::Event;
-use massive_layout::{Layout, LayoutAxis, container, leaf};
+use massive_layout::{
+    IncrementalLayouter, LayoutAlgorithm, LayoutAxis, LayoutTopology, Offset, Rect as LayoutRect,
+    Size,
+};
 use massive_renderer::RenderGeometry;
 use massive_scene::{Location, Object, ToCamera, Transform};
 use massive_shell::{FontManager, Scene};
@@ -114,6 +117,9 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
 
+    #[debug(skip)]
+    layouter: IncrementalLayouter<DesktopTarget, 2>,
+
     aggregates: Aggregates,
 }
 
@@ -121,7 +127,6 @@ pub struct DesktopSystem {
 #[derive(Debug)]
 struct Aggregates {
     hierarchy: OrderedHierarchy<DesktopTarget>,
-    rects: HashMap<DesktopTarget, Rect>,
 
     startup_profile: Option<LaunchProfileId>,
 
@@ -139,7 +144,6 @@ impl Aggregates {
     ) -> Self {
         Self {
             hierarchy,
-            rects: HashMap::default(),
             startup_profile: None,
             groups: Map::default(),
 
@@ -166,6 +170,8 @@ impl DesktopSystem {
 
         let event_router = EventRouter::new();
 
+        let layouter = IncrementalLayouter::with_initial_reflow(DesktopTarget::Desktop);
+
         let system = Self {
             env,
             fonts,
@@ -174,6 +180,7 @@ impl DesktopSystem {
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
+            layouter,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
         };
@@ -296,6 +303,8 @@ impl DesktopSystem {
                     insertion_index,
                     instance_target.clone(),
                 )?;
+                self.layouter
+                    .mark_reflow_pending(DesktopTarget::Launcher(launcher));
 
                 // Focus it.
                 let transitions = self.event_router.focus(&instance_target);
@@ -353,10 +362,11 @@ impl DesktopSystem {
                 properties,
             } => {
                 let parent = parent.map(|p| p.into()).unwrap_or(DesktopTarget::Desktop);
-                self.aggregates.hierarchy.add(parent, id.into())?;
+                self.aggregates.hierarchy.add(parent.clone(), id.into())?;
                 self.aggregates
                     .groups
                     .insert(id, GroupPresenter::new(properties))?;
+                self.layouter.mark_reflow_pending(parent);
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
                 self.remove_target(&group.into())?;
@@ -374,6 +384,8 @@ impl DesktopSystem {
                 self.aggregates.launchers.insert(id, presenter)?;
 
                 self.aggregates.hierarchy.add(group.into(), id.into())?;
+                self.layouter
+                    .mark_reflow_pending(DesktopTarget::Group(group));
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);
@@ -392,9 +404,17 @@ impl DesktopSystem {
     /// Update all effects.
     pub fn update_effects(&mut self, animate: bool, permit_camera_moves: bool) -> Result<()> {
         // Layout & apply rects.
-
-        let layout = self.desktop_layout();
-        self.apply_layout(layout, animate);
+        let algorithm = DesktopLayoutAlgorithm {
+            hierarchy: &self.aggregates.hierarchy,
+            groups: &self.aggregates.groups,
+            instances: &self.aggregates.instances,
+            default_panel_size: self.default_panel_size,
+        };
+        let changed = self
+            .layouter
+            .recompute(&self.aggregates.hierarchy, &algorithm, PointPx::origin())
+            .changed;
+        self.apply_layout_changes(changed, animate);
 
         // Camera
 
@@ -436,77 +456,6 @@ impl DesktopSystem {
         self.camera.value()
     }
 
-    // Architecture: We should probably not go through the old layout engine and think of something
-    // more incremental.
-    fn desktop_layout(&self) -> Layout<DesktopTarget, 2> {
-        self.build_layout_for(DesktopTarget::Desktop)
-    }
-
-    fn build_layout_for(&self, target: DesktopTarget) -> Layout<DesktopTarget, 2> {
-        match self.resolve_layout_spec(&target) {
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let mut container = container(target.clone(), axis)
-                    .padding(padding)
-                    .spacing(spacing);
-
-                for nested in self.aggregates.hierarchy.get_nested(&target) {
-                    container.nested(self.build_layout_for(nested.clone()));
-                }
-
-                container.layout()
-            }
-            LayoutSpec::Leaf(size) => leaf(target, size),
-        }
-    }
-
-    fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
-        match target {
-            DesktopTarget::Desktop => LayoutAxis::VERTICAL
-                .to_container()
-                .spacing(SECTION_SPACING)
-                .into(),
-            DesktopTarget::Group(group_id) => self.aggregates.groups[group_id]
-                .properties
-                .layout
-                .axis()
-                .to_container()
-                .spacing(10)
-                .padding((10, 10))
-                .into(),
-            DesktopTarget::Launcher(_) => {
-                // A launcher depends on the nested ones, if any, it's a horizontal, if none, its a
-                // absolute size.
-                // Architecture: A min size would make the nested check obsolete.
-                if self.aggregates.hierarchy.get_nested(target).is_empty() {
-                    self.default_panel_size.into()
-                } else {
-                    LayoutAxis::HORIZONTAL.into()
-                }
-            }
-            DesktopTarget::Instance(instance) => {
-                let instance = &self.aggregates.instances[instance];
-                if !instance.presents_primary_view() {
-                    self.default_panel_size.into()
-                } else {
-                    // We need to put the View below it
-                    //
-                    // Architecture: This feels wrong somehow, this mixes the focus hierarchy with
-                    // the layout hierarchy. Do we need to separate them?
-                    LayoutAxis::HORIZONTAL.into()
-                }
-            }
-            DesktopTarget::View(_) =>
-            // Assuming this is a primary view (for now).
-            {
-                self.default_panel_size.into()
-            }
-        }
-    }
-
     pub fn process_input_event(
         &mut self,
         event: &Event<ViewEvent>,
@@ -518,9 +467,13 @@ impl DesktopSystem {
             return Ok(keyboard_cmd);
         }
 
-        let hit_tester = &self.aggregates.hit_tester(render_geometry);
+        let hit_tester = AggregateHitTester {
+            hierarchy: &self.aggregates.hierarchy,
+            layouter: &self.layouter,
+            geometry: render_geometry,
+        };
 
-        let transitions = self.event_router.process(event, hit_tester)?;
+        let transitions = self.event_router.process(event, &hit_tester)?;
 
         self.forward_event_transitions(transitions, instance_manager)
     }
@@ -566,9 +519,11 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<Cmd> {
-        let transitions = self
-            .event_router
-            .reset_pointer_focus(&self.aggregates.hit_tester(render_geometry))?;
+        let transitions = self.event_router.reset_pointer_focus(&AggregateHitTester {
+            hierarchy: &self.aggregates.hierarchy,
+            layouter: &self.layouter,
+            geometry: render_geometry,
+        })?;
 
         self.forward_event_transitions(transitions, instance_manager)
     }
@@ -676,6 +631,8 @@ impl DesktopSystem {
             DesktopTarget::Instance(instance),
             DesktopTarget::View(view_creation_info.id),
         )?;
+        self.layouter
+            .mark_reflow_pending(DesktopTarget::Instance(instance));
 
         Ok(())
     }
@@ -715,11 +672,14 @@ impl DesktopSystem {
         Ok(())
     }
 
-    fn apply_layout(&mut self, layout: Layout<DesktopTarget, 2>, animate: bool) {
-        layout.place_inline(PointPx::origin(), |id, rect_px: RectPx| {
+    fn apply_layout_changes(
+        &mut self,
+        changed: Vec<(DesktopTarget, LayoutRect<2>)>,
+        animate: bool,
+    ) {
+        for (id, layout_rect) in changed {
+            let rect_px: RectPx = layout_rect.into();
             let rect: Rect = rect_px.into();
-
-            self.aggregates.rects.insert(id.clone(), rect);
 
             match id {
                 DesktopTarget::Desktop => {}
@@ -747,8 +707,8 @@ impl DesktopSystem {
                 DesktopTarget::View(..) => {
                     // Robustness: Support resize here?
                 }
-            };
-        });
+            }
+        }
     }
 
     fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
@@ -851,7 +811,7 @@ impl DesktopSystem {
                 };
 
                 // Need to translate the event. The view has its own coordinate system.
-                let event = if let Some(rect) = self.aggregates.rects.get(&target) {
+                let event = if let Some(rect) = self.rect(&target) {
                     event.translate(-rect.origin())
                 } else {
                     // This happens on startup on PresentView, because the layout isn't there yet.
@@ -897,9 +857,9 @@ impl DesktopSystem {
     pub fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
         match focus {
             // Desktop and TopBand are constrained to their size.
-            DesktopTarget::Desktop => {
-                Some(self.aggregates.rects[&DesktopTarget::Desktop].to_camera())
-            }
+            DesktopTarget::Desktop => self
+                .rect(&DesktopTarget::Desktop)
+                .map(|rect| rect.to_camera()),
 
             DesktopTarget::Group(group) => {
                 Some(self.aggregates.groups[group].rect.center().to_camera())
@@ -937,7 +897,7 @@ impl DesktopSystem {
             return None;
         }
 
-        let from_rect = self.aggregates.rects.get(from)?;
+        let from_rect = self.rect(from)?;
         let launcher_targets_without_instances = self
             .aggregates
             .launchers
@@ -953,7 +913,7 @@ impl DesktopSystem {
         });
         let navigation_candidates = launcher_targets_without_instances
             .chain(all_instances_or_views)
-            .map(|t| (t.clone(), self.aggregates.rects[&t]));
+            .filter_map(|target| self.rect(&target).map(|rect| (target, rect)));
 
         let ordered =
             ordered_rects_in_direction(from_rect.center(), direction, navigation_candidates);
@@ -963,27 +923,37 @@ impl DesktopSystem {
         None
     }
 
-    /// Remove the target from the hierarchy and rects. Specific target aggregates are left
+    /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
     pub fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
+        let parent = self
+            .aggregates
+            .hierarchy
+            .parent(target)
+            .cloned()
+            .expect("Internal error: remove_target called for root target");
+
         // Finally remove them.
         self.aggregates.hierarchy.remove(target)?;
-        self.aggregates.rects.remove(target);
+        // Mark the surviving parent, not the removed node:
+        // - removed nodes are ignored by incremental recompute root collection,
+        // - parent refresh updates cached children and recomputes sibling placement.
+        self.layouter.mark_reflow_pending(parent);
         Ok(())
+    }
+
+    fn rect(&self, target: &DesktopTarget) -> Option<Rect> {
+        self.layouter.rect(target).map(|rect| {
+            let rect_px: RectPx = (*rect).into();
+            rect_px.into()
+        })
     }
 }
 
 impl Aggregates {
-    pub fn hit_tester<'a>(&'a self, geometry: &'a RenderGeometry) -> AggregateHitTester<'a> {
-        AggregateHitTester {
-            aggregates: self,
-            geometry,
-        }
-    }
-
     pub fn view_of_instance(&self, instance: InstanceId) -> Option<ViewId> {
         let nested = self.hierarchy.get_nested(&instance.into());
         if let [DesktopTarget::View(view)] = nested {
@@ -995,7 +965,8 @@ impl Aggregates {
 }
 
 struct AggregateHitTester<'a> {
-    aggregates: &'a Aggregates,
+    hierarchy: &'a OrderedHierarchy<DesktopTarget>,
+    layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
     geometry: &'a RenderGeometry,
 }
 
@@ -1005,13 +976,16 @@ impl AggregateHitTester<'_> {
         screen_pos: Point,
         root: &DesktopTarget,
     ) -> Option<(DesktopTarget, Vector3)> {
-        let rect = self.aggregates.rects.get(root)?;
+        let rect = self.layouter.rect(root).map(|rect| {
+            let rect_px: RectPx = (*rect).into();
+            Rect::from(rect_px)
+        })?;
         let model = Matrix4::IDENTITY;
         let local_pos = self.geometry.unproject_to_model_z0(screen_pos, &model)?;
         let point = Point::new(local_pos.x, local_pos.y);
         if rect.contains(point) {
             // Prefer nested hits over container hits.
-            for nested in self.aggregates.hierarchy.get_nested(root) {
+            for nested in self.hierarchy.get_nested(root) {
                 if let Some(target_hit) = self.hit_test_hierarchy(screen_pos, nested) {
                     return Some(target_hit);
                 }
@@ -1024,9 +998,125 @@ impl AggregateHitTester<'_> {
     }
 
     fn hit_test_target_plane(&self, screen_pos: Point) -> Option<Vector3> {
-        // let rect = self.aggregates.rects.get(target)?;
         let model = Matrix4::IDENTITY;
         self.geometry.unproject_to_model_z0(screen_pos, &model)
+    }
+}
+
+impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
+    fn exists(&self, id: &DesktopTarget) -> bool {
+        self.parent(id).is_some() || !self.get_nested(id).is_empty()
+    }
+
+    fn children_of(&self, id: &DesktopTarget) -> &[DesktopTarget] {
+        self.get_nested(id)
+    }
+
+    fn parent_of(&self, id: &DesktopTarget) -> Option<DesktopTarget> {
+        self.parent(id).cloned()
+    }
+}
+
+struct DesktopLayoutAlgorithm<'a> {
+    hierarchy: &'a OrderedHierarchy<DesktopTarget>,
+    groups: &'a Map<GroupId, GroupPresenter>,
+    instances: &'a Map<InstanceId, InstancePresenter>,
+    default_panel_size: SizePx,
+}
+
+impl DesktopLayoutAlgorithm<'_> {
+    fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
+        match target {
+            DesktopTarget::Desktop => LayoutAxis::VERTICAL
+                .to_container()
+                .spacing(SECTION_SPACING)
+                .into(),
+            DesktopTarget::Group(group_id) => self.groups[group_id]
+                .properties
+                .layout
+                .axis()
+                .to_container()
+                .spacing(10)
+                .padding((10, 10))
+                .into(),
+            DesktopTarget::Launcher(_) => {
+                if self.hierarchy.get_nested(target).is_empty() {
+                    self.default_panel_size.into()
+                } else {
+                    LayoutAxis::HORIZONTAL.into()
+                }
+            }
+            DesktopTarget::Instance(instance) => {
+                let instance = &self.instances[instance];
+                if !instance.presents_primary_view() {
+                    self.default_panel_size.into()
+                } else {
+                    LayoutAxis::HORIZONTAL.into()
+                }
+            }
+            DesktopTarget::View(_) => self.default_panel_size.into(),
+        }
+    }
+}
+
+impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
+    fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
+        match self.resolve_layout_spec(id) {
+            LayoutSpec::Leaf(size) => size.into(),
+            LayoutSpec::Container {
+                axis,
+                padding,
+                spacing,
+            } => {
+                let axis = *axis;
+                let mut inner_size = Size::EMPTY;
+
+                for (index, &child_size) in child_sizes.iter().enumerate() {
+                    for dim in 0..2 {
+                        if dim == axis {
+                            inner_size[dim] += child_size[dim];
+                            if index > 0 {
+                                inner_size[dim] += spacing;
+                            }
+                        } else {
+                            inner_size[dim] = max(inner_size[dim], child_size[dim]);
+                        }
+                    }
+                }
+
+                padding.leading + inner_size + padding.trailing
+            }
+        }
+    }
+
+    fn place_children(
+        &self,
+        id: &DesktopTarget,
+        parent_offset: Offset<2>,
+        child_sizes: &[Size<2>],
+    ) -> Vec<Offset<2>> {
+        match self.resolve_layout_spec(id) {
+            LayoutSpec::Leaf(_) => Vec::new(),
+            LayoutSpec::Container {
+                axis,
+                padding,
+                spacing,
+            } => {
+                let axis = *axis;
+                let mut child_offsets = Vec::with_capacity(child_sizes.len());
+                let mut cursor = parent_offset + Offset::from(padding.leading);
+
+                for (index, &child_size) in child_sizes.iter().enumerate() {
+                    if index > 0 {
+                        cursor[axis] += spacing as i32;
+                    }
+                    child_offsets.push(cursor);
+                    cursor[axis] += child_size[axis] as i32;
+                }
+
+                child_offsets
+            }
+        }
     }
 }
 
