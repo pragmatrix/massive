@@ -26,6 +26,8 @@ Update it whenever you learn something new about the project's patterns, convent
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
+- When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
+- For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
 - In tests: place test functions before helpers, create concise constructor helpers to reduce verbosity, prefer static data structures, and use helper functions for common value construction patterns.
 - For test assertions, derive `PartialEq` and `Eq` rather than implementing manually; prefer `Debug` over `Display` for output.
 
@@ -42,6 +44,11 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Communication
 - Explanations should be concise and strictly relevant.
 - When unsure, ask clarifying questions before making assumptions.
+
+## Continuous Learning
+- After completing meaningful work, update this file with high-level, reusable guidance learned from the task.
+- Keep additions general (patterns, principles, decision heuristics), not task- or file-specific details.
+- Prefer small, incremental updates over large rewrites, and avoid duplicating or restating existing guidance.
 
 ## Documentation
 - Don't add documentation with examples unless explicitly asked.

@@ -14,10 +14,18 @@ pub struct IncrementalLayouter<Id, const RANK: usize>
 where
     Id: Eq + Hash + Clone,
 {
-    root: Id,
     nodes: HashMap<Id, NodeState<Id, RANK>>,
     rects: HashMap<Id, Rect<RANK>>,
     reflow_pending: HashSet<Id>,
+}
+
+impl<Id, const RANK: usize> Default for IncrementalLayouter<Id, RANK>
+where
+    Id: Eq + Hash + Clone,
+{
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub trait LayoutTopology<Id>
@@ -59,9 +67,8 @@ where
         panic!("Internal error: {message}")
     }
 
-    pub fn new(root: Id) -> Self {
+    pub fn new() -> Self {
         Self {
-            root,
             nodes: HashMap::new(),
             rects: HashMap::new(),
             reflow_pending: HashSet::new(),
@@ -90,11 +97,15 @@ where
     /// Pass 2 (`place_subtree_recursive`) computes offsets/rects top-down.
     /// Clean branches are reused from cache and shifted when only absolute offset changed.
     ///
+    /// Contract:
+    /// - This layouter is rootless. Callers must mark all topology roots that should be recomputed
+    ///   as reflow-pending whenever absolute offset input changes.
+    ///
     /// Note on affected roots:
     /// - In a normal single-root hierarchy, collecting pending nodes + all ancestors means the
     ///   global root is in `affected`, so `collect_affected_roots` typically returns only root.
-    /// - Multiple affected roots only occur if topology is disconnected/forest-like or parent
-    ///   links are transiently inconsistent.
+    /// - Multiple affected roots occur for disconnected/forest-like topologies.
+    /// - Each affected root is expected to be a topology root (`parent_of == None`).
     ///
     /// Work stays proportional to changed regions while placement remains deterministic.
     pub fn recompute(
@@ -104,35 +115,18 @@ where
         absolute_offset: impl Into<Offset<RANK>>,
     ) -> RecomputeResult<Id, RANK> {
         let mut changed = Vec::new();
-        let root = self.root.clone();
         let offset = absolute_offset.into();
-
-        if !topology.exists(&root) {
-            Self::invariant_violation("topology missing node for root");
-        }
-
-        let root_moved = self
-            .rects
-            .get(&root)
-            .is_none_or(|current_rect| current_rect.offset != offset);
-        if root_moved {
-            // Root offset is an absolute input; movement should propagate even if geometry is unchanged.
-            self.mark_reflow_pending(root.clone());
-        }
 
         let pending_roots = self.refresh_pending_subtrees(topology);
         let affected = self.collect_affected_ancestors(topology, &pending_roots);
         if !affected.is_empty() {
             let affected_roots = self.collect_affected_roots(topology, &affected);
             for affected_root in affected_roots {
-                let root_offset = if affected_root == root {
-                    offset
-                } else {
-                    // Nested affected regions keep their previous absolute offset as starting point.
-                    self.rects
-                        .get(&affected_root)
-                        .map_or(offset, |rect| rect.offset)
-                };
+                debug_assert!(
+                    topology.parent_of(&affected_root).is_none(),
+                    "affected root unexpectedly has a parent"
+                );
+                let root_offset = offset;
 
                 self.measure_subtree_recursive(algorithm, &affected_root, &affected);
                 self.place_subtree_recursive(
@@ -701,7 +695,7 @@ mod tests {
     fn initial_recompute_emits_changed_then_stabilizes() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -723,7 +717,7 @@ mod tests {
     fn changing_leaf_size_updates_leaf_and_ancestor_rects() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -754,7 +748,7 @@ mod tests {
     fn remove_node_clears_cached_rect_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -781,7 +775,7 @@ mod tests {
     fn changing_one_branch_does_not_emit_unaffected_sibling_branch() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -827,7 +821,7 @@ mod tests {
     fn reparenting_child_detaches_from_previous_parent() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -876,7 +870,7 @@ mod tests {
     fn root_offset_change_updates_offsets() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -888,6 +882,7 @@ mod tests {
         set_children(&mut layouter, &mut topology, 0, vec![1]);
 
         let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
+        layouter.mark_reflow_pending(0);
         let moved = layouter.recompute(&topology, &algorithm, [8, 13]);
 
         assert_eq!(moved.changed.len(), 2);
@@ -913,7 +908,7 @@ mod tests {
     fn spacing_and_padding_affect_layout_geometry() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -944,11 +939,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn removing_root_panics() {
+    fn removing_root_clears_cached_root_rect_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -961,14 +955,17 @@ mod tests {
         let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
 
         remove_node(&mut layouter, &mut topology, &mut algorithm, 0);
-        let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
+        let update = layouter.recompute(&topology, &algorithm, [0, 0]);
+
+        assert!(layouter.rect(&0).is_none());
+        assert!(update.changed.is_empty());
     }
 
     #[test]
     fn removing_pending_node_is_ignored_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -994,7 +991,7 @@ mod tests {
     fn removing_pending_node_does_not_query_missing_parent() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1022,7 +1019,7 @@ mod tests {
     fn missing_child_node_panics_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1059,7 +1056,7 @@ mod tests {
     fn place_children_offset_count_mismatch_panics() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new(0);
+        let mut layouter = IncrementalLayouter::<usize, 2>::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1149,6 +1146,7 @@ mod tests {
         algorithm: &mut TestAlgorithm,
         id: usize,
     ) {
+        layouter.mark_reflow_pending(id);
         for node_id in topology.remove_node(id) {
             layouter.mark_reflow_pending(node_id);
         }
