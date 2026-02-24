@@ -4,20 +4,33 @@ use anyhow::{Result, bail};
 
 /// A representation of an ordered hierarchy.
 ///
-/// This implementation does not represent roots. It only maintains relationships between the ids.
+/// The hierarchy keeps one map with per-node state so existence checks can be answered directly
+/// from a single source of truth.
 #[derive(Debug)]
 pub struct OrderedHierarchy<Id> {
-    /// Map from Id to parent. Does not contain roots.
-    parent: HashMap<Id, Id>,
-    /// Map from Id to an ordered list of nested ids. Does not contain roots or empty lists.
-    nested: HashMap<Id, Vec<Id>>,
+    /// Map from Id to node state.
+    nodes: HashMap<Id, NodeState<Id>>,
+}
+
+#[derive(Debug)]
+struct NodeState<Id> {
+    parent: Option<Id>,
+    nested: Vec<Id>,
+}
+
+impl<Id> Default for NodeState<Id> {
+    fn default() -> Self {
+        Self {
+            parent: None,
+            nested: Vec::new(),
+        }
+    }
 }
 
 impl<Id> Default for OrderedHierarchy<Id> {
     fn default() -> Self {
         Self {
-            parent: Default::default(),
-            nested: Default::default(),
+            nodes: Default::default(),
         }
     }
 }
@@ -36,75 +49,117 @@ where
 
     /// Add an id to the end of the parent's nested list.
     pub fn add(&mut self, parent: Id, nested: Id) -> Result<()> {
-        if self.parent.insert(nested.clone(), parent.clone()).is_some() {
+        let nested_state = self.nodes.entry(nested.clone()).or_default();
+        if nested_state.parent.is_some() {
             bail!("Internal error (add): nested {nested:?} had already a parent");
-        };
-        self.nested.entry(parent).or_default().push(nested);
+        }
+        nested_state.parent = Some(parent.clone());
+
+        self.nodes.entry(parent).or_default().nested.push(nested);
         Ok(())
     }
 
-    pub fn insert_at(&mut self, parent: Id, index: usize, target: Id) -> Result<()> {
-        let nested = self.nested.entry(parent.clone()).or_default();
+    pub fn insert_at(&mut self, parent: Id, index: usize, nested: Id) -> Result<()> {
+        let nested_list = &self.nodes.entry(parent.clone()).or_default().nested;
 
-        if index > nested.len() {
+        if index > nested_list.len() {
             anyhow::bail!(
                 "Index {index} is out of bounds for parent with {} nested items",
-                nested.len()
+                nested_list.len()
             );
         }
 
-        if self.parent.insert(target.clone(), parent).is_some() {
-            bail!("Internal error (insert_at): target {target:?} had already a parent");
-        };
+        let nested_state = self.nodes.entry(nested.clone()).or_default();
+        if nested_state.parent.is_some() {
+            bail!("Internal error (insert_at): nested {nested:?} had already a parent");
+        }
+        nested_state.parent = Some(parent.clone());
 
-        nested.insert(index, target);
+        self.nodes
+            .entry(parent)
+            .or_default()
+            .nested
+            .insert(index, nested);
         Ok(())
     }
 
     pub fn remove(&mut self, id: &Id) -> Result<()> {
+        let parent = if let Some(node) = self.nodes.get(id) {
+            node.parent.clone()
+        } else {
+            bail!("Internal error (remove): id {id:?} not found");
+        };
+
         // Remove this from its parent first.
 
-        if let Some(parent) = self.parent.remove(id)
-            && let Some(nested) = self.nested.get_mut(&parent)
-        {
+        if let Some(parent) = parent.as_ref() {
+            let nested = &mut self
+                .nodes
+                .get_mut(parent)
+                .unwrap_or_else(|| {
+                    panic!("Internal error (remove): parent {parent:?} of id {id:?} not found")
+                })
+                .nested;
+
             // find + remove should be slightly faster than retain.
             if let Some(index) = nested.iter().position(|nested| nested == id) {
                 nested.remove(index);
             } else {
                 bail!("Nested not found");
             }
-            if nested.is_empty() {
-                self.nested.remove(&parent);
-            }
         }
 
-        // Remove the complete nested tree. Don't need to care for parents anymore.
-        self.remove_nested(id)?;
+        // Remove the complete nested tree.
+        self.remove_nested_with_expected_parent(id, parent.as_ref())?;
 
         Ok(())
     }
 
-    fn remove_nested(&mut self, id: &Id) -> Result<()> {
-        let nested = self.nested.remove(id).unwrap_or_default();
-        for nested_item in nested {
-            assert!(self.parent.remove(&nested_item).is_some());
-            self.remove_nested(&nested_item)?;
+    fn remove_nested_with_expected_parent(
+        &mut self,
+        id: &Id,
+        expected_parent: Option<&Id>,
+    ) -> Result<()> {
+        let node = self
+            .nodes
+            .remove(id)
+            .unwrap_or_else(|| panic!("Internal error (remove_nested): id {id:?} not found"));
+
+        debug_assert_eq!(
+            node.parent.as_ref(),
+            expected_parent,
+            "Internal error (remove_nested): nested item {id:?} had parent {:?}, expected {:?}",
+            node.parent,
+            expected_parent
+        );
+
+        for nested_item in node.nested {
+            self.remove_nested_with_expected_parent(&nested_item, Some(id))?;
         }
+
         Ok(())
     }
 
-    pub fn parent(&self, target: &Id) -> Option<&Id> {
-        self.parent.get(target)
+    pub fn parent(&self, id: &Id) -> Option<&Id> {
+        self.nodes.get(id).and_then(|node| node.parent.as_ref())
     }
 
-    pub fn get_nested(&self, target: &Id) -> &[Id] {
-        self.nested.get(target).map(Vec::as_slice).unwrap_or(&[])
+    /// Check whether a node exists in the hierarchy.
+    pub fn exists(&self, id: &Id) -> bool {
+        self.nodes.contains_key(id)
     }
 
-    pub fn entry<'a>(&'a self, target: &'a Id) -> Entry<'a, Id> {
+    pub fn get_nested(&self, id: &Id) -> &[Id] {
+        self.nodes
+            .get(id)
+            .map(|node| node.nested.as_slice())
+            .unwrap_or(&[])
+    }
+
+    pub fn entry<'a>(&'a self, id: &'a Id) -> Entry<'a, Id> {
         Entry {
             hierarchy: self,
-            target,
+            id,
         }
     }
 }
@@ -113,7 +168,7 @@ where
 pub struct Entry<'a, Id> {
     #[debug(skip)]
     hierarchy: &'a OrderedHierarchy<Id>,
-    target: &'a Id,
+    id: &'a Id,
 }
 
 impl<Id> Entry<'_, Id>
@@ -121,22 +176,22 @@ where
     Id: fmt::Debug + Clone + Eq + hash::Hash,
 {
     pub fn parent(&self) -> Option<&Id> {
-        self.hierarchy.parent(self.target)
+        self.hierarchy.parent(self.id)
     }
 
     pub fn has_nested(&self) -> bool {
-        !self.hierarchy.get_nested(self.target).is_empty()
+        !self.hierarchy.get_nested(self.id).is_empty()
     }
 
     pub fn nested(&self) -> &[Id] {
-        self.hierarchy.get_nested(self.target)
+        self.hierarchy.get_nested(self.id)
     }
 
     pub fn index(&self) -> Option<usize> {
         self.hierarchy
             .get_nested(self.parent()?)
             .iter()
-            .position(|t| t == self.target)
+            .position(|nested| nested == self.id)
     }
 
     pub fn group(&self) -> &[Id] {
@@ -244,10 +299,19 @@ mod tests {
         assert_eq!(hierarchy.get_nested(&1), &[2, 4, 5]);
     }
 
+    #[test]
+    fn exists_for_empty_parent_after_nested_remove() {
+        let mut hierarchy = hierarchy();
+        hierarchy.add(1, 2).unwrap();
+
+        hierarchy.remove(&2).unwrap();
+
+        assert!(hierarchy.exists(&1));
+    }
+
     fn hierarchy() -> OrderedHierarchy<i32> {
         OrderedHierarchy {
-            parent: HashMap::new(),
-            nested: HashMap::new(),
+            nodes: HashMap::new(),
         }
     }
 }
