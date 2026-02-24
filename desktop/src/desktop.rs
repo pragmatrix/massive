@@ -20,7 +20,8 @@ use crate::event_sourcing::Transaction;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::projects::{
     GroupId, LaunchGroup, LaunchGroupContents, LaunchGroupProperties, LaunchProfile,
-    LaunchProfileId, Launcher, LayoutDirection, Project, ProjectConfiguration, ScopedTag,
+    LaunchProfileId, Launcher, LauncherMode, LayoutDirection, Project, ProjectConfiguration,
+    ScopedTag,
 };
 
 #[derive(Debug)]
@@ -301,6 +302,7 @@ fn desktop_groups() -> DesktopGroups {
         id: primary_launcher,
         profile: LaunchProfile {
             name: "Primary / Local".into(),
+            mode: LauncherMode::Band,
             params: Default::default(),
             tags: Default::default(),
         },

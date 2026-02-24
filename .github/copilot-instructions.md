@@ -12,6 +12,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Comment only to explain non-obvious reasoning or intent.
 - Prefer `derive_more` traits (Debug, Deref) over manual implementations.
 - Import types and modules to limit qualification paths to 2 levels max (e.g., `mpsc::channel`).
+- Do not import enum discriminants into scope; prefer qualified variants (e.g., `LauncherMode::Visor`).
 - Order functions high-level first, utilities last; order types by importance (public API first, private helpers last).
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
 - Prefer adding fields to existing structs over creating parallel data structures.

@@ -34,9 +34,9 @@ impl InstancePresenter {
         self.state.view().is_some()
     }
 
-    pub fn set_rect(&mut self, rect: RectPx, animate: bool) {
-        let (x, y, z) = rect.center().cast().to_3d().into();
-        let translation = (x, y, z).into();
+    pub fn set_rect(&mut self, rect: RectPx, z_offset: f64, animate: bool) {
+        let center = rect.center().cast();
+        let translation = (center.x, center.y, z_offset).into();
 
         if animate {
             self.center_translation_animation.animate_if_changed(

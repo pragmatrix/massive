@@ -16,7 +16,7 @@ use massive_shell::Scene;
 use crate::desktop_system::{Cmd, DesktopCommand};
 use crate::projects::LaunchProfileId;
 
-use super::configuration::LaunchProfile;
+use super::configuration::{LaunchProfile, LauncherMode};
 
 // TODO: Need proper color palettes for UI elements.
 // const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
@@ -34,10 +34,10 @@ pub struct LauncherPresenter {
     #[allow(unused)]
     id: LaunchProfileId,
     profile: LaunchProfile,
+    mode: LauncherMode,
     transform: Handle<Transform>,
-    // location: Handle<Location>,
-    pub rect: Animated<Rect>,
 
+    pub rect: Animated<Rect>,
     background: Handle<Visual>,
     // The text, either centered, or on top of the border.
     name: Handle<Visual>,
@@ -51,7 +51,6 @@ pub struct LauncherPresenter {
 impl LauncherPresenter {
     // Ergonomics: Scene can be imported from two locations, use just the shell one, or somehow
     // introduce something new that exports more ergonomic UI components.
-
     pub fn new(
         parent_location: Handle<Location>,
         id: LaunchProfileId,
@@ -62,6 +61,7 @@ impl LauncherPresenter {
     ) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
         let background_shape = background_shape(rect.size().to_rect(), BACKGROUND_COLOR);
+        let mode = profile.mode;
 
         let our_transform = rect.origin().to_transform().enter(scene);
 
@@ -96,14 +96,18 @@ impl LauncherPresenter {
         Self {
             id,
             profile,
+            mode,
             transform: our_transform,
-            // location: parent_location,
             rect: scene.animated(rect),
             background,
             name,
             fader: scene.animated(1.0),
             events: EventManager::default(),
         }
+    }
+
+    pub fn mode(&self) -> LauncherMode {
+        self.mode
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be

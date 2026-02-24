@@ -53,6 +53,7 @@ impl Default for ProjectConfiguration {
                 content: GroupContents::Profiles(
                     [LaunchProfile {
                         name: DEFAULT_PROFILE.into(),
+                        mode: LauncherMode::Visor,
                         params: Default::default(),
                         tags: Vec::new(),
                     }]
