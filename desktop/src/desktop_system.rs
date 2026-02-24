@@ -1005,7 +1005,7 @@ impl AggregateHitTester<'_> {
 
 impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
     fn exists(&self, id: &DesktopTarget) -> bool {
-        self.parent(id).is_some() || !self.get_nested(id).is_empty()
+        OrderedHierarchy::exists(self, id)
     }
 
     fn children_of(&self, id: &DesktopTarget) -> &[DesktopTarget] {
