@@ -956,24 +956,14 @@ impl DesktopSystem {
 impl DesktopSystem {
     fn instance_layout_depth(&self, instance_id: InstanceId) -> f64 {
         let instance_target = DesktopTarget::Instance(instance_id);
-        let is_visor_with_multiple_instances = self
-            .aggregates
-            .hierarchy
-            .parent(&instance_target)
-            .and_then(|target| match target {
-                DesktopTarget::Launcher(launcher_id) => Some(*launcher_id),
-                _ => None,
-            })
-            .map(|launcher_id| {
-                self.aggregates.launchers[&launcher_id].mode() == LauncherMode::Visor
-                    && self
-                        .aggregates
-                        .hierarchy
-                        .get_nested(&DesktopTarget::Launcher(launcher_id))
-                        .len()
-                        > 1
-            })
-            .unwrap_or(false);
+        let is_visor_with_multiple_instances = match self.aggregates.hierarchy.parent(&instance_target)
+        {
+            Some(DesktopTarget::Launcher(launcher_id)) => {
+                self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
+                    && self.aggregates.hierarchy.group(&instance_target).len() > 1
+            }
+            _ => false,
+        };
 
         if is_visor_with_multiple_instances {
             VISOR_INSTANCE_FORWARD_Z
