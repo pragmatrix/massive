@@ -87,33 +87,25 @@ fn variant_label(base_label: &str, variant: PipelineVariant) -> String {
     }
 }
 
-pub fn depth_stencil_state(variant: PipelineVariant) -> wgpu::DepthStencilState {
+fn depth_stencil_state(variant: PipelineVariant) -> wgpu::DepthStencilState {
     match variant {
-        PipelineVariant::Standard => default_depth_stencil_state(),
-        PipelineVariant::Decal => decal_depth_stencil_state(),
-    }
-}
-
-pub fn default_depth_stencil_state() -> wgpu::DepthStencilState {
-    wgpu::DepthStencilState {
-        format: DEPTH_FORMAT,
-        depth_write_enabled: true,
-        depth_compare: wgpu::CompareFunction::LessEqual,
-        stencil: wgpu::StencilState::default(),
-        bias: wgpu::DepthBiasState::default(),
-    }
-}
-
-pub fn decal_depth_stencil_state() -> wgpu::DepthStencilState {
-    wgpu::DepthStencilState {
-        format: DEPTH_FORMAT,
-        depth_write_enabled: false,
-        depth_compare: wgpu::CompareFunction::LessEqual,
-        stencil: wgpu::StencilState::default(),
-        bias: wgpu::DepthBiasState {
-            constant: DECAL_DEPTH_BIAS_CONSTANT,
-            slope_scale: 0.0,
-            clamp: 0.0,
+        PipelineVariant::Standard => wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: true,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        },
+        PipelineVariant::Decal => wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: false,
+            depth_compare: wgpu::CompareFunction::LessEqual,
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState {
+                constant: DECAL_DEPTH_BIAS_CONSTANT,
+                slope_scale: 0.0,
+                clamp: 0.0,
+            },
         },
     }
 }
