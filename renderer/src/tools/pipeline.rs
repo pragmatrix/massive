@@ -79,6 +79,13 @@ pub fn create_pipeline(
     device.create_render_pipeline(&pipeline)
 }
 
+fn variant_label(base_label: &str, variant: PipelineVariant) -> String {
+    match variant {
+        PipelineVariant::Standard => base_label.to_owned(),
+        PipelineVariant::Decal => format!("{base_label} Decal"),
+    }
+}
+
 pub fn depth_stencil_state(variant: PipelineVariant) -> wgpu::DepthStencilState {
     match variant {
         PipelineVariant::Standard => default_depth_stencil_state(),
@@ -107,12 +114,5 @@ pub fn decal_depth_stencil_state() -> wgpu::DepthStencilState {
             slope_scale: 0.0,
             clamp: 0.0,
         },
-    }
-}
-
-fn variant_label(base_label: &str, variant: PipelineVariant) -> String {
-    match variant {
-        PipelineVariant::Standard => base_label.to_owned(),
-        PipelineVariant::Decal => format!("{base_label} Decal"),
     }
 }
