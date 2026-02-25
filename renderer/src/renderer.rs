@@ -5,6 +5,7 @@ use itertools::Itertools;
 use log::{info, warn};
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
+use crate::tools::PipelineVariant;
 use crate::{
     RenderDevice, Transaction, TransactionManager,
     config::RendererConfig,
@@ -30,6 +31,7 @@ pub struct Renderer {
 
     /// The pipelines for each batch producer.
     pipelines: Vec<wgpu::RenderPipeline>,
+    decal_pipelines: Vec<wgpu::RenderPipeline>,
     quads_index_buffer: QuadIndexBuffer,
     max_quads_in_use: usize,
 
@@ -58,7 +60,7 @@ struct DepthBuffer {
 #[derive(Debug)]
 pub struct RenderVisual {
     pub location_id: Id,
-    pub depth_bias: usize,
+    pub decal_order: Option<usize>,
     pub clip_bounds: Option<massive_geometry::Bounds>,
     pub batches: PipelineBatches,
 }
@@ -115,7 +117,9 @@ impl Renderer {
         initial_size: SizePx,
         config: RendererConfig,
     ) -> Self {
-        let pipelines = config.create_pipelines(&device.device);
+        let pipelines = config.create_pipelines(&device.device, PipelineVariant::Standard);
+        let decal_pipelines = config.create_pipelines(&device.device, PipelineVariant::Decal);
+        debug_assert_eq!(pipelines.len(), decal_pipelines.len());
 
         // Configure the surface.
 
@@ -153,6 +157,7 @@ impl Renderer {
             surface_config,
             depth_buffer,
             pipelines,
+            decal_pipelines,
 
             quads_index_buffer: index_buffer,
             max_quads_in_use: 0,
@@ -295,7 +300,7 @@ impl Renderer {
             id,
             RenderVisual {
                 location_id: visual.location,
-                depth_bias: visual.depth_bias,
+                decal_order: visual.decal_order,
                 clip_bounds: visual.clip_bounds,
                 batches,
             },
@@ -394,8 +399,17 @@ impl Renderer {
                         .set(&mut render_context.pass, self.max_quads_in_use);
                 }
 
-                for visuals in self.batches.by_depth_bias.values() {
-                    for (i, pipeline) in self.pipelines.iter().enumerate() {
+                for (i, pipeline) in self.pipelines.iter().enumerate() {
+                    self.render_pipeline_batches(
+                        self.batches.normal_visuals.values(),
+                        pipeline,
+                        |b| b.batches[i].as_ref(),
+                        render_context,
+                    );
+                }
+
+                for visuals in self.batches.decal_visuals_by_order.values() {
+                    for (i, pipeline) in self.decal_pipelines.iter().enumerate() {
                         self.render_pipeline_batches(
                             visuals.values(),
                             pipeline,

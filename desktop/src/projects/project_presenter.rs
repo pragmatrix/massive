@@ -78,7 +78,7 @@ impl ProjectPresenter {
             let visual = create_hover_shapes(rect_alpha)
                 .into_visual()
                 .at(&self.location)
-                .with_depth_bias(5);
+                .with_decal_order(5);
             self.hover_visual.update_if_changed(visual);
         }
     }

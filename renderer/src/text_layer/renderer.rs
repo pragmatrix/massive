@@ -16,6 +16,7 @@ use crate::{
     },
     renderer::{PreparationContext, RenderBatch},
     text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
+    tools::PipelineVariant,
 };
 
 pub struct TextLayerRenderer {
@@ -232,11 +233,19 @@ impl TextLayerRenderer {
         points.map(|f| f.with_z(0.0))
     }
 
-    pub fn create_sdf_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
-        self.sdf_renderer.create_pipeline(device)
+    pub fn create_sdf_pipeline(
+        &self,
+        device: &wgpu::Device,
+        variant: PipelineVariant,
+    ) -> wgpu::RenderPipeline {
+        self.sdf_renderer.create_pipeline(device, variant)
     }
 
-    pub fn create_color_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
-        self.color_renderer.create_pipeline(device)
+    pub fn create_color_pipeline(
+        &self,
+        device: &wgpu::Device,
+        variant: PipelineVariant,
+    ) -> wgpu::RenderPipeline {
+        self.color_renderer.create_pipeline(device, variant)
     }
 }
