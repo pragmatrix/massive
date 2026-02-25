@@ -70,10 +70,7 @@ impl LauncherPresenter {
             .relative_to(&parent_location)
             .enter(scene);
 
-        let background = background_shape
-            .at(&our_location)
-            .with_depth_bias(1)
-            .enter(scene);
+        let background = background_shape.at(&our_location).enter(scene);
 
         let name = profile
             .name
@@ -90,7 +87,7 @@ impl LauncherPresenter {
             .shape(font_system)
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(our_location)
-            .with_depth_bias(3)
+            .with_decal_order(0)
             .enter(scene);
 
         Self {

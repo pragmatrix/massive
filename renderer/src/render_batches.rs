@@ -9,29 +9,22 @@ use crate::renderer::RenderVisual;
 /// Why: This was introduced at the time we needed to support Z-Order / Depth Bias.
 #[derive(Debug, Default)]
 pub struct RenderBatches {
-    /// Per visual location and pipeline batches.
-    visuals_to_depth: HashMap<Id, usize>,
-    // Performance: Use a HashMap here, and sort the depths on demand.
-    pub by_depth_bias: BTreeMap<usize, HashMap<Id, RenderVisual>>,
+    visuals_to_decal_order: HashMap<Id, Option<usize>>,
+    pub normal_visuals: HashMap<Id, RenderVisual>,
+    pub decal_visuals_by_order: BTreeMap<usize, HashMap<Id, RenderVisual>>,
 }
 
 impl RenderBatches {
     pub fn insert(&mut self, id: Id, render_visual: RenderVisual) {
-        let depth = render_visual.depth_bias;
-        match self.visuals_to_depth.entry(id) {
+        let order = render_visual.decal_order;
+        match self.visuals_to_decal_order.entry(id) {
             hash_map::Entry::Vacant(vacant_entry) => {
-                vacant_entry.insert(depth);
-                self.by_depth_bias
-                    .entry(depth)
-                    .or_default()
-                    .insert(id, render_visual);
+                vacant_entry.insert(order);
+                self.insert_new(id, render_visual);
             }
             hash_map::Entry::Occupied(occupied_entry) => {
-                if *occupied_entry.get() == depth {
-                    self.by_depth_bias
-                        .get_mut(&depth)
-                        .expect("Internal error: Depth batches missing")
-                        .insert(id, render_visual);
+                if *occupied_entry.get() == order {
+                    self.update_existing(id, render_visual);
                 } else {
                     // Depth changed, re-insert.
                     self.remove(id);
@@ -42,24 +35,79 @@ impl RenderBatches {
     }
 
     pub fn remove(&mut self, id: Id) {
-        let Some(depth) = self.visuals_to_depth.remove(&id) else {
+        let Some(order) = self.visuals_to_decal_order.remove(&id) else {
             // Redundant removes might happen if a visual was inserted and removed in the same
             // cycle. So we keep this idempotent.
             return;
         };
 
-        let btree_map::Entry::Occupied(mut entry) = self.by_depth_bias.entry(depth) else {
-            panic!("Internal Error: Depth not found");
-        };
-        let map = entry.get_mut();
-        map.remove(&id)
-            .expect("Internal Error: Visual not found in depth map");
-        if map.is_empty() {
-            entry.remove();
+        self.remove_with_order(id, order)
+    }
+
+    fn remove_with_order(&mut self, id: Id, order: Option<usize>) {
+        match order {
+            Some(order) => {
+                let btree_map::Entry::Occupied(mut entry) =
+                    self.decal_visuals_by_order.entry(order)
+                else {
+                    panic!("Internal Error: Decal order not found");
+                };
+                let map = entry.get_mut();
+                map.remove(&id)
+                    .expect("Internal Error: Visual not found in decal order map");
+                if map.is_empty() {
+                    entry.remove();
+                }
+            }
+            None => {
+                self.normal_visuals
+                    .remove(&id)
+                    .expect("Internal Error: Visual not found in normal visuals");
+            }
         }
     }
 
     pub fn render_visuals(&self) -> impl Iterator<Item = &RenderVisual> {
-        self.by_depth_bias.values().flat_map(|v| v.values())
+        self.normal_visuals.values().chain(
+            self.decal_visuals_by_order
+                .values()
+                .flat_map(|v| v.values()),
+        )
+    }
+
+    fn insert_new(&mut self, id: Id, render_visual: RenderVisual) {
+        let order = render_visual.decal_order;
+        match order {
+            Some(order) => {
+                self.decal_visuals_by_order
+                    .entry(order)
+                    .or_default()
+                    .insert(id, render_visual);
+            }
+            None => {
+                self.normal_visuals.insert(id, render_visual);
+            }
+        }
+    }
+
+    fn update_existing(&mut self, id: Id, render_visual: RenderVisual) {
+        let order = render_visual.decal_order;
+        match order {
+            Some(order) => {
+                let btree_map::Entry::Occupied(mut entry) =
+                    self.decal_visuals_by_order.entry(order)
+                else {
+                    panic!("Internal Error: Decal order not found");
+                };
+                let map = entry.get_mut();
+                map.insert(id, render_visual)
+                    .expect("Internal Error: Visual not found in decal order map");
+            }
+            None => {
+                self.normal_visuals
+                    .insert(id, render_visual)
+                    .expect("Internal Error: Visual not found in normal visuals");
+            }
+        }
     }
 }

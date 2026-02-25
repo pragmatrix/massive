@@ -14,9 +14,11 @@ use crate::{Change, Handle, Id, Object, SceneChange};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Visual {
     pub location: Handle<Location>,
-    /// The current depth bias for this Visual. Default is 0, which renders it at first (without
-    /// z-buffer) or with the corresponding depth bias (with z-buffer).
-    pub depth_bias: usize,
+    /// Optional decal ordering value for this visual.
+    ///
+    /// If set, the renderer treats this visual as a decal and renders it in decal order using the
+    /// decal pipeline configuration.
+    pub decal_order: Option<usize>,
 
     /// An optional clip bounds in model space 2D only.
     pub clip_bounds: Option<Bounds>,
@@ -37,14 +39,17 @@ impl Visual {
     pub fn new(location: Handle<Location>, shapes: impl Into<Arc<[Shape]>>) -> Self {
         Self {
             location,
-            depth_bias: 0,
+            decal_order: None,
             clip_bounds: None,
             shapes: shapes.into(),
         }
     }
 
-    pub fn with_depth_bias(self, depth_bias: usize) -> Self {
-        Self { depth_bias, ..self }
+    pub fn with_decal_order(self, decal_order: usize) -> Self {
+        Self {
+            decal_order: Some(decal_order),
+            ..self
+        }
     }
 
     pub fn with_clip_bounds(self, bounds: impl Into<Bounds>) -> Self {
@@ -58,7 +63,7 @@ impl Visual {
 #[derive(Debug, Clone)]
 pub struct VisualRenderObj {
     pub location: Id,
-    pub depth_bias: usize,
+    pub decal_order: Option<usize>,
     pub clip_bounds: Option<Bounds>,
     pub shapes: Arc<[Shape]>,
 }
@@ -82,7 +87,7 @@ impl Object for Visual {
     fn to_change(&self) -> Self::Change {
         VisualRenderObj {
             location: self.location.id(),
-            depth_bias: self.depth_bias,
+            decal_order: self.decal_order,
             clip_bounds: self.clip_bounds,
             shapes: self.shapes.clone(),
         }

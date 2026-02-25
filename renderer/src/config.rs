@@ -12,6 +12,7 @@ use crate::{
     renderer::{PreparationContext, RenderBatch},
     shape_renderer::{self, ShapeRenderer},
     text_layer::TextLayerRenderer,
+    tools::PipelineVariant,
 };
 
 pub const DEFAULT_BACKGROUND_COLOR: Color = Color::WHITE;
@@ -66,11 +67,15 @@ impl RendererConfig {
         })
     }
 
-    /// Returns all pipelines for all batch producers.
-    pub fn create_pipelines(&self, device: &wgpu::Device) -> Vec<wgpu::RenderPipeline> {
+    /// Creates all pipelines for all batch producers and one variant.
+    pub fn create_pipelines(
+        &self,
+        device: &wgpu::Device,
+        variant: PipelineVariant,
+    ) -> Vec<wgpu::RenderPipeline> {
         self.batch_producers
             .iter()
-            .flat_map(|bp| bp.producer.create_pipelines(device))
+            .flat_map(|bp| bp.producer.create_pipelines(device, variant))
             .collect()
     }
 }
@@ -95,7 +100,11 @@ pub trait BatchProducer: Send {
     /// Create a new set of pipelines.
     ///
     /// This always has to be the same number of pipelines.
-    fn create_pipelines(&self, device: &wgpu::Device) -> Vec<wgpu::RenderPipeline>;
+    fn create_pipelines(
+        &self,
+        device: &wgpu::Device,
+        variant: PipelineVariant,
+    ) -> Vec<wgpu::RenderPipeline>;
 
     /// Produce batches for the pipelines.
     fn produce_batches(
@@ -107,10 +116,14 @@ pub trait BatchProducer: Send {
 }
 
 impl BatchProducer for TextLayerRenderer {
-    fn create_pipelines(&self, device: &wgpu::Device) -> Vec<wgpu::RenderPipeline> {
+    fn create_pipelines(
+        &self,
+        device: &wgpu::Device,
+        variant: PipelineVariant,
+    ) -> Vec<wgpu::RenderPipeline> {
         [
-            self.create_sdf_pipeline(device),
-            self.create_color_pipeline(device),
+            self.create_sdf_pipeline(device, variant),
+            self.create_color_pipeline(device, variant),
         ]
         .into()
     }
@@ -141,8 +154,12 @@ impl BatchProducer for TextLayerRenderer {
 }
 
 impl BatchProducer for ShapeRenderer {
-    fn create_pipelines(&self, device: &wgpu::Device) -> Vec<wgpu::RenderPipeline> {
-        [self.create_pipeline(device)].into()
+    fn create_pipelines(
+        &self,
+        device: &wgpu::Device,
+        variant: PipelineVariant,
+    ) -> Vec<wgpu::RenderPipeline> {
+        [self.create_pipeline(device, variant)].into()
     }
 
     fn produce_batches(

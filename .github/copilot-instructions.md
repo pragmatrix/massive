@@ -6,6 +6,7 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Project
 - Prefer small, self-contained changes unless explicitly asked for broader refactors.
 - For renderer depth support, configure depth/stencil state at pipeline creation and recreate depth attachments whenever the surface is reconfigured.
+- When multiple pipeline variants share structure (e.g., standard/decal), model the variant as an enum mode and route creation through one path instead of duplicating per-variant methods.
 
 ## Code Style
 - Match the surrounding code style.
