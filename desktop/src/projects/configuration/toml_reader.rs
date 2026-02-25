@@ -6,7 +6,9 @@ use serde::Deserialize;
 use serde_json::Map;
 use toml::Value;
 
-use super::types::{GroupContents, LaunchGroupSpec, LaunchProfile, LayoutDirection, ScopedTag};
+use super::types::{
+    GroupContents, LaunchGroupSpec, LaunchProfile, LauncherMode, LayoutDirection, ScopedTag,
+};
 
 /// Intermediate representation for deserializing TOML configuration files.
 #[derive(Debug, Deserialize)]
@@ -81,7 +83,12 @@ fn build_launch_profile(
         }
     }
 
-    Ok(LaunchProfile { name, params, tags })
+    Ok(LaunchProfile {
+        name,
+        mode: LauncherMode::Visor,
+        params,
+        tags,
+    })
 }
 
 /// Build a cross-product hierarchy of groups at the given depth level.
@@ -324,6 +331,7 @@ datacenter = "ber"
 
         LaunchProfile {
             name: name.to_string(),
+            mode: LauncherMode::Visor,
             params: param_map,
             tags: tags
                 .iter()

@@ -156,6 +156,15 @@ where
             .unwrap_or(&[])
     }
 
+    /// Return all items that share the same parent as `id`.
+    ///
+    /// The returned slice includes `id` itself when `id` is non-root.
+    pub fn group(&self, id: &Id) -> &[Id] {
+        self.parent(id)
+            .map(|parent| self.get_nested(parent))
+            .unwrap_or(&[])
+    }
+
     pub fn entry<'a>(&'a self, id: &'a Id) -> Entry<'a, Id> {
         Entry {
             hierarchy: self,
@@ -195,9 +204,7 @@ where
     }
 
     pub fn group(&self) -> &[Id] {
-        self.parent()
-            .map(|p| self.hierarchy.get_nested(p))
-            .unwrap_or(&[])
+        self.hierarchy.group(self.id)
     }
 
     /// Find the next neighbor in the given preferred direction, if there is none in the direction
@@ -307,6 +314,23 @@ mod tests {
         hierarchy.remove(&2).unwrap();
 
         assert!(hierarchy.exists(&1));
+    }
+
+    #[test]
+    fn group_returns_siblings_with_self() {
+        let mut hierarchy = hierarchy();
+        hierarchy.add(1, 2).unwrap();
+        hierarchy.add(1, 3).unwrap();
+        hierarchy.add(1, 4).unwrap();
+
+        assert_eq!(hierarchy.group(&3), &[2, 3, 4]);
+    }
+
+    #[test]
+    fn group_for_root_is_empty() {
+        let hierarchy = hierarchy();
+
+        assert_eq!(hierarchy.group(&1), &[] as &[i32]);
     }
 
     fn hierarchy() -> OrderedHierarchy<i32> {

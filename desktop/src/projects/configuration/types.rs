@@ -35,8 +35,15 @@ pub enum GroupContents {
 #[derive(Debug, Clone)]
 pub struct LaunchProfile {
     pub name: String,
+    pub mode: LauncherMode,
     pub params: Map<String, Value>,
     pub tags: Vec<ScopedTag>,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum LauncherMode {
+    Band,
+    Visor,
 }
 
 #[derive(Debug, Clone)]

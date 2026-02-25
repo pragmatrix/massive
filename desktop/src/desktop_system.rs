@@ -43,7 +43,7 @@ use crate::layout::{LayoutSpec, ToContainer};
 use crate::navigation::ordered_rects_in_direction;
 use crate::projects::{
     GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
-    LauncherPresenter, ProjectPresenter,
+    LauncherMode, LauncherPresenter, ProjectPresenter,
 };
 use crate::send_transition::{SendTransition, convert_to_send_transitions};
 use crate::{
@@ -51,6 +51,7 @@ use crate::{
 };
 
 const SECTION_SPACING: u32 = 20;
+const VISOR_INSTANCE_FORWARD_Z: f64 = 80.0;
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
@@ -405,9 +406,7 @@ impl DesktopSystem {
     pub fn update_effects(&mut self, animate: bool, permit_camera_moves: bool) -> Result<()> {
         // Layout & apply rects.
         let algorithm = DesktopLayoutAlgorithm {
-            hierarchy: &self.aggregates.hierarchy,
-            groups: &self.aggregates.groups,
-            instances: &self.aggregates.instances,
+            aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
         };
         let changed = self
@@ -684,11 +683,12 @@ impl DesktopSystem {
             match id {
                 DesktopTarget::Desktop => {}
                 DesktopTarget::Instance(instance_id) => {
+                    let z_offset = self.instance_layout_depth(instance_id);
                     self.aggregates
                         .instances
                         .get_mut(&instance_id)
                         .expect("Instance missing")
-                        .set_rect(rect_px, animate);
+                        .set_rect(rect_px, z_offset, animate);
                 }
                 DesktopTarget::Group(group_id) => {
                     self.aggregates
@@ -953,6 +953,26 @@ impl DesktopSystem {
     }
 }
 
+impl DesktopSystem {
+    fn instance_layout_depth(&self, instance_id: InstanceId) -> f64 {
+        let instance_target = DesktopTarget::Instance(instance_id);
+        let is_visor_with_multiple_instances = match self.aggregates.hierarchy.parent(&instance_target)
+        {
+            Some(DesktopTarget::Launcher(launcher_id)) => {
+                self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
+                    && self.aggregates.hierarchy.group(&instance_target).len() > 1
+            }
+            _ => false,
+        };
+
+        if is_visor_with_multiple_instances {
+            VISOR_INSTANCE_FORWARD_Z
+        } else {
+            0.0
+        }
+    }
+}
+
 impl Aggregates {
     pub fn view_of_instance(&self, instance: InstanceId) -> Option<ViewId> {
         let nested = self.hierarchy.get_nested(&instance.into());
@@ -1018,9 +1038,7 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
 }
 
 struct DesktopLayoutAlgorithm<'a> {
-    hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-    groups: &'a Map<GroupId, GroupPresenter>,
-    instances: &'a Map<InstanceId, InstancePresenter>,
+    aggregates: &'a Aggregates,
     default_panel_size: SizePx,
 }
 
@@ -1031,7 +1049,7 @@ impl DesktopLayoutAlgorithm<'_> {
                 .to_container()
                 .spacing(SECTION_SPACING)
                 .into(),
-            DesktopTarget::Group(group_id) => self.groups[group_id]
+            DesktopTarget::Group(group_id) => self.aggregates.groups[group_id]
                 .properties
                 .layout
                 .axis()
@@ -1040,14 +1058,14 @@ impl DesktopLayoutAlgorithm<'_> {
                 .padding((10, 10))
                 .into(),
             DesktopTarget::Launcher(_) => {
-                if self.hierarchy.get_nested(target).is_empty() {
+                if self.aggregates.hierarchy.get_nested(target).is_empty() {
                     self.default_panel_size.into()
                 } else {
                     LayoutAxis::HORIZONTAL.into()
                 }
             }
             DesktopTarget::Instance(instance) => {
-                let instance = &self.instances[instance];
+                let instance = &self.aggregates.instances[instance];
                 if !instance.presents_primary_view() {
                     self.default_panel_size.into()
                 } else {
@@ -1057,10 +1075,36 @@ impl DesktopLayoutAlgorithm<'_> {
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }
     }
+
+    fn place_container_children(
+        axis: LayoutAxis,
+        spacing: i32,
+        mut offset: Offset<2>,
+        child_sizes: &[Size<2>],
+    ) -> Vec<Offset<2>> {
+        let axis_index: usize = axis.into();
+        let mut child_offsets = Vec::with_capacity(child_sizes.len());
+
+        for (index, &child_size) in child_sizes.iter().enumerate() {
+            if index > 0 {
+                offset[axis_index] += spacing;
+            }
+            child_offsets.push(offset);
+            offset[axis_index] += child_size[axis_index] as i32;
+        }
+
+        child_offsets
+    }
 }
 
 impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
     fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
+        if let DesktopTarget::Launcher(launcher_id) = id
+            && self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
+        {
+            return self.default_panel_size.into();
+        }
+
         match self.resolve_layout_spec(id) {
             LayoutSpec::Leaf(size) => size.into(),
             LayoutSpec::Container {
@@ -1095,6 +1139,27 @@ impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
         parent_offset: Offset<2>,
         child_sizes: &[Size<2>],
     ) -> Vec<Offset<2>> {
+        if let DesktopTarget::Launcher(launcher_id) = id
+            && self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
+        {
+            let axis = LayoutAxis::HORIZONTAL;
+            let axis_index: usize = axis.into();
+            let spacing = 0i32;
+
+            let children_span: i32 = child_sizes
+                .iter()
+                .map(|size| size[axis_index] as i32)
+                .sum::<i32>()
+                + spacing * (child_sizes.len().saturating_sub(1) as i32);
+            let panel_span = self.default_panel_size.width as i32;
+            let center_offset = (panel_span - children_span) / 2;
+
+            let mut offset = parent_offset;
+            offset[axis_index] += center_offset;
+
+            return Self::place_container_children(axis, spacing, offset, child_sizes);
+        }
+
         match self.resolve_layout_spec(id) {
             LayoutSpec::Leaf(_) => Vec::new(),
             LayoutSpec::Container {
@@ -1102,19 +1167,9 @@ impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
                 padding,
                 spacing,
             } => {
-                let axis = *axis;
-                let mut child_offsets = Vec::with_capacity(child_sizes.len());
-                let mut cursor = parent_offset + Offset::from(padding.leading);
+                let offset = parent_offset + Offset::from(padding.leading);
 
-                for (index, &child_size) in child_sizes.iter().enumerate() {
-                    if index > 0 {
-                        cursor[axis] += spacing as i32;
-                    }
-                    child_offsets.push(cursor);
-                    cursor[axis] += child_size[axis] as i32;
-                }
-
-                child_offsets
+                Self::place_container_children(axis, spacing as i32, offset, child_sizes)
             }
         }
     }
