@@ -10,7 +10,7 @@ use wgpu::{
 use crate::{
     pods::ColorVertex,
     renderer::{PreparationContext, RenderContext},
-    tools::{PipelineVariant, QuadIndexBuffer, create_pipeline},
+    tools::{QuadIndexBuffer, create_pipeline},
 };
 
 pub struct QuadsRenderer {
@@ -56,7 +56,6 @@ impl QuadsRenderer {
             &vertex_layout,
             &pipeline_layout,
             &targets,
-            PipelineVariant::Standard,
         );
 
         Self {

@@ -7,7 +7,7 @@ use crate::{
     glyph::GlyphAtlas,
     pods::{self, AsBytes, VertexLayout},
     renderer::{PreparationContext, RenderBatch},
-    tools::{BindGroupLayoutBuilder, PipelineParams, PipelineVariant, texture_sampler},
+    tools::{BindGroupLayoutBuilder, PipelineParams, texture_sampler},
 };
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
@@ -58,17 +58,9 @@ impl AtlasRenderer {
         }
     }
 
-    pub fn create_pipeline(
-        &self,
-        device: &wgpu::Device,
-        variant: PipelineVariant,
-    ) -> wgpu::RenderPipeline {
-        self.pipeline_params.create_pipeline(
-            "Atlas Pipeline",
-            device,
-            FRAGMENT_SHADER_ENTRY,
-            variant,
-        )
+    pub fn create_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        self.pipeline_params
+            .create_pipeline("Atlas Pipeline", device, FRAGMENT_SHADER_ENTRY)
     }
 
     // Convert a number of instances to a batch.

@@ -6,7 +6,7 @@ use wgpu::util::{BufferInitDescriptor, DeviceExt};
 use crate::{
     pods::{self, AsBytes, VertexLayout},
     renderer::RenderBatch,
-    tools::{PipelineParams, PipelineVariant},
+    tools::PipelineParams,
 };
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
@@ -70,17 +70,9 @@ impl ShapeRenderer {
         }
     }
 
-    pub fn create_pipeline(
-        &self,
-        device: &wgpu::Device,
-        variant: PipelineVariant,
-    ) -> wgpu::RenderPipeline {
-        self.pipeline_params.create_pipeline(
-            "Shape Pipeline",
-            device,
-            FRAGMENT_SHADER_ENTRY,
-            variant,
-        )
+    pub fn create_pipeline(&self, device: &wgpu::Device) -> wgpu::RenderPipeline {
+        self.pipeline_params
+            .create_pipeline("Shape Pipeline", device, FRAGMENT_SHADER_ENTRY)
     }
 
     /// Build a batch directly from a slice of `massive_shapes::Shape` objects.

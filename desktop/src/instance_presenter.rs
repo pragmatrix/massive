@@ -8,7 +8,7 @@ use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
-const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
+const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x0a0a0a);
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -53,7 +53,7 @@ impl InstancePresenter {
             let local_location = transform.to_location().relative_to(location).enter(scene);
             let visual = background_shape(Rect::ZERO)
                 .at(local_location)
-                .with_decal_order(0)
+                .with_depth_bias(0)
                 .enter(scene);
 
             InstanceBackground {
