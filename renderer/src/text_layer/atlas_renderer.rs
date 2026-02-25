@@ -63,8 +63,12 @@ impl AtlasRenderer {
         device: &wgpu::Device,
         variant: PipelineVariant,
     ) -> wgpu::RenderPipeline {
-        self.pipeline_params
-            .create_pipeline("Atlas Pipeline", device, FRAGMENT_SHADER_ENTRY, variant)
+        self.pipeline_params.create_pipeline(
+            "Atlas Pipeline",
+            device,
+            FRAGMENT_SHADER_ENTRY,
+            variant,
+        )
     }
 
     // Convert a number of instances to a batch.

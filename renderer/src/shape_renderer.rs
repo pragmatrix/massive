@@ -75,8 +75,12 @@ impl ShapeRenderer {
         device: &wgpu::Device,
         variant: PipelineVariant,
     ) -> wgpu::RenderPipeline {
-        self.pipeline_params
-            .create_pipeline("Shape Pipeline", device, FRAGMENT_SHADER_ENTRY, variant)
+        self.pipeline_params.create_pipeline(
+            "Shape Pipeline",
+            device,
+            FRAGMENT_SHADER_ENTRY,
+            variant,
+        )
     }
 
     /// Build a batch directly from a slice of `massive_shapes::Shape` objects.

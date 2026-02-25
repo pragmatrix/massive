@@ -5,6 +5,7 @@ use itertools::Itertools;
 use log::{info, warn};
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
 
+use crate::tools::PipelineVariant;
 use crate::{
     RenderDevice, Transaction, TransactionManager,
     config::RendererConfig,
@@ -16,7 +17,6 @@ use crate::{
 };
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
 use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
-use crate::tools::PipelineVariant;
 
 const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
