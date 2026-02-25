@@ -5,6 +5,7 @@ Update it whenever you learn something new about the project's patterns, convent
 
 ## Project
 - Prefer small, self-contained changes unless explicitly asked for broader refactors.
+- For renderer depth support, configure depth/stencil state at pipeline creation and recreate depth attachments whenever the surface is reconfigured.
 
 ## Code Style
 - Match the surrounding code style.
@@ -15,12 +16,15 @@ Update it whenever you learn something new about the project's patterns, convent
 - Import types and modules to limit qualification paths to 2 levels max (e.g., `mpsc::channel`).
 - Do not import enum discriminants into scope; prefer qualified variants (e.g., `LauncherMode::Visor`).
 - Order functions high-level first, utilities last; order types by importance (public API first, private helpers last).
+- Apply ordering changes with minimal movement: only move the explicitly requested items and avoid reshuffling unrelated methods/types.
+- Prefer preserving established local grouping/readability unless the user asks for a broader reordering pass.
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
 - Prefer adding fields to existing structs over creating parallel data structures.
 - Consider consolidating multiple `Mutex` fields into a single `Mutex` around a state struct.
 - Use constructor functions and `derive_more::Deref` for newtype patterns.
 - When implementing newtypes with `derive_more`, include `Copy` and `Clone` derives when the wrapped type supports them.
 - Include complete state in events rather than deltas to provide full context to handlers.
+- Prefer tuple parameters for semantically paired values (e.g., `(width, height)`) over separate scalar arguments when the values are always passed together.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.

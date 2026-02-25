@@ -12,7 +12,7 @@ use crate::{
     render_batches::RenderBatches,
     scene::{LocationTransforms, Scene},
     stats::MeasureSeries,
-    tools::QuadIndexBuffer,
+    tools::{DEPTH_FORMAT, QuadIndexBuffer},
 };
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
 use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
@@ -25,6 +25,7 @@ pub struct Renderer {
     surface: wgpu::Surface<'static>,
     config: RendererConfig,
     pub surface_config: wgpu::SurfaceConfiguration,
+    depth_buffer: DepthBuffer,
     pub measure_series: MeasureSeries,
 
     /// The pipelines for each batch producer.
@@ -43,6 +44,15 @@ pub struct Renderer {
 
     visual_locations: LocationTransforms,
     batches: RenderBatches,
+}
+
+#[derive(Debug)]
+struct DepthBuffer {
+    // In wgpu, keeping the TextureView is sufficient for lifetime/usage in render passes.
+    // We still keep the Texture handle to make ownership explicit and to leave room for
+    // future depth operations that require direct texture access.
+    _texture: wgpu::Texture,
+    view: wgpu::TextureView,
 }
 
 #[derive(Debug)]
@@ -128,6 +138,10 @@ impl Renderer {
         };
 
         surface.configure(&device.device, &surface_config);
+        let depth_buffer = Self::create_depth_buffer(
+            &device.device,
+            (surface_config.width, surface_config.height),
+        );
 
         let index_buffer = QuadIndexBuffer::new(&device.device);
 
@@ -137,6 +151,7 @@ impl Renderer {
             measure_series: Default::default(),
             surface,
             surface_config,
+            depth_buffer,
             pipelines,
 
             quads_index_buffer: index_buffer,
@@ -352,6 +367,14 @@ impl Renderer {
                         },
                         depth_slice: None,
                     })],
+                    depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                        view: &self.depth_buffer.view,
+                        depth_ops: Some(wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(1.0),
+                            store: StoreOp::Store,
+                        }),
+                        stencil_ops: None,
+                    }),
                     ..Default::default()
                 });
 
@@ -502,9 +525,40 @@ impl Renderer {
         info!("Reconfiguring surface {:?}", self.surface_config);
         self.surface
             .configure(&self.device.device, &self.surface_config);
+        self.depth_buffer = Self::create_depth_buffer(
+            &self.device.device,
+            (self.surface_config.width, self.surface_config.height),
+        );
     }
 
     pub fn set_background_color(&mut self, color: Option<Color>) {
         self.config.background_color = color;
+    }
+
+    fn create_depth_buffer(device: &wgpu::Device, size: (u32, u32)) -> DepthBuffer {
+        let (width, height) = size;
+        let width = width.max(1);
+        let height = height.max(1);
+
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Depth Buffer"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+        DepthBuffer {
+            _texture: texture,
+            view,
+        }
     }
 }
