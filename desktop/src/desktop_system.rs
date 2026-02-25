@@ -42,8 +42,8 @@ use crate::instance_presenter::{
 use crate::layout::{LayoutSpec, ToContainer};
 use crate::navigation::ordered_rects_in_direction;
 use crate::projects::{
-    GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
-    LauncherMode, LauncherPresenter, ProjectPresenter,
+    GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId, LauncherMode,
+    LauncherPresenter, ProjectPresenter,
 };
 use crate::send_transition::{SendTransition, convert_to_send_transitions};
 use crate::{
@@ -51,7 +51,7 @@ use crate::{
 };
 
 const SECTION_SPACING: u32 = 20;
-const VISOR_INSTANCE_FORWARD_Z: f64 = 80.0;
+const VISOR_INSTANCE_FORWARD_Z: f64 = 128.0;
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
@@ -537,15 +537,25 @@ impl DesktopSystem {
         let originating_presenter = originating_from
             .and_then(|originating_from| self.aggregates.instances.get(&originating_from));
 
-        let presenter = InstancePresenter {
-            state: InstancePresenterState::WaitingForPrimaryView,
-            // Correctness: We animate from 0,0 if no originating exist. Need a position here.
-            center_translation_animation: scene.animated(
-                originating_presenter
-                    .map(|op| op.center_translation_animation.value())
-                    .unwrap_or_default(),
-            ),
-        };
+        let background_for_instance = self
+            .aggregates
+            .launchers
+            .get(&launcher)
+            .expect("Launcher not found")
+            .mode()
+            == LauncherMode::Visor;
+
+        // Correctness: We animate from 0,0 if no originating exist. Need a position here.
+        let initial_center_translation = originating_presenter
+            .map(|op| op.center_translation_animation.value())
+            .unwrap_or_default();
+
+        let presenter = InstancePresenter::new(
+            initial_center_translation,
+            background_for_instance,
+            self.aggregates.project_presenter.location.clone(),
+            scene,
+        );
 
         self.aggregates.instances.insert(instance, presenter)?;
 
@@ -956,14 +966,14 @@ impl DesktopSystem {
 impl DesktopSystem {
     fn instance_layout_depth(&self, instance_id: InstanceId) -> f64 {
         let instance_target = DesktopTarget::Instance(instance_id);
-        let is_visor_with_multiple_instances = match self.aggregates.hierarchy.parent(&instance_target)
-        {
-            Some(DesktopTarget::Launcher(launcher_id)) => {
-                self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
-                    && self.aggregates.hierarchy.group(&instance_target).len() > 1
-            }
-            _ => false,
-        };
+        let is_visor_with_multiple_instances =
+            match self.aggregates.hierarchy.parent(&instance_target) {
+                Some(DesktopTarget::Launcher(launcher_id)) => {
+                    self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
+                        && self.aggregates.hierarchy.group(&instance_target).len() > 1
+                }
+                _ => false,
+            };
 
         if is_visor_with_multiple_instances {
             VISOR_INSTANCE_FORWARD_Z
