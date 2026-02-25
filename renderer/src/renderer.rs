@@ -371,7 +371,11 @@ impl Renderer {
                         view: &self.depth_buffer.view,
                         depth_ops: Some(wgpu::Operations {
                             load: wgpu::LoadOp::Clear(1.0),
-                            store: StoreOp::Store,
+                            // Performance: We never sample/reuse depth after this pass.
+                            // Keep = Clear(1.0) every frame, so preserving depth contents is
+                            // unnecessary bandwidth work. Discard enables cheaper depth handling
+                            // on tile-based and deferred memory architectures.
+                            store: StoreOp::Discard,
                         }),
                         stencil_ops: None,
                     }),
