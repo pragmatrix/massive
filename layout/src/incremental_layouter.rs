@@ -1,3 +1,9 @@
+//! Incremental layout engine that caches per-node geometry and recomputes only affected subtrees.
+//!
+//! Uses a caller-provided `LayoutTopology` and `LayoutAlgorithm` to produce absolute `Rect<RANK>`
+//! values for all nodes keyed by stable `Id`s. Callers must provide a consistent, acyclic tree
+//! topology and reuse the same `Id`s across updates for incremental behavior to be valid.
+
 //! Developed together with Codex 5.3 and Claude Sonnet 4.6.
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
