@@ -41,10 +41,6 @@ impl RenderBatches {
             return;
         };
 
-        self.remove_with_order(id, order)
-    }
-
-    fn remove_with_order(&mut self, id: Id, order: Option<usize>) {
         match order {
             Some(order) => {
                 let btree_map::Entry::Occupied(mut entry) =
@@ -108,6 +104,74 @@ impl RenderBatches {
                     .insert(id, render_visual)
                     .expect("Internal Error: Visual not found in normal visuals");
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use massive_scene::{Id, id_generator};
+
+    use super::RenderBatches;
+    use crate::renderer::{PipelineBatches, RenderVisual};
+
+    #[test]
+    fn insert_move_and_remove_keeps_storage_consistent() {
+        let mut batches = RenderBatches::default();
+        let id = new_id();
+        let location = new_id();
+
+        batches.insert(id, visual(location, None));
+        assert_eq!(batches.visuals_to_decal_order.get(&id), Some(&None));
+        assert!(batches.normal_visuals.contains_key(&id));
+        assert!(batches.decal_visuals_by_order.is_empty());
+
+        batches.insert(id, visual(location, Some(2)));
+        assert_eq!(batches.visuals_to_decal_order.get(&id), Some(&Some(2)));
+        assert!(!batches.normal_visuals.contains_key(&id));
+        assert!(
+            batches
+                .decal_visuals_by_order
+                .get(&2)
+                .is_some_and(|m| m.contains_key(&id))
+        );
+
+        batches.remove(id);
+        assert!(!batches.visuals_to_decal_order.contains_key(&id));
+        assert!(!batches.normal_visuals.contains_key(&id));
+        assert!(!batches.decal_visuals_by_order.contains_key(&2));
+    }
+
+    #[test]
+    fn same_order_update_replaces_visual_in_place() {
+        let mut batches = RenderBatches::default();
+        let id = new_id();
+        let location_a = new_id();
+        let location_b = new_id();
+
+        batches.insert(id, visual(location_a, Some(4)));
+        batches.insert(id, visual(location_b, Some(4)));
+
+        let updated = batches
+            .decal_visuals_by_order
+            .get(&4)
+            .and_then(|m| m.get(&id))
+            .expect("expected visual in decal order bucket");
+
+        assert_eq!(updated.location_id, location_b);
+        assert_eq!(batches.visuals_to_decal_order.get(&id), Some(&Some(4)));
+    }
+
+    fn new_id() -> Id {
+        id_generator::acquire::<RenderBatches>()
+    }
+
+    fn visual(location_id: Id, decal_order: Option<usize>) -> RenderVisual {
+        RenderVisual {
+            location_id,
+            decal_order,
+            clip_bounds: None,
+            batches: PipelineBatches::new(0),
         }
     }
 }
