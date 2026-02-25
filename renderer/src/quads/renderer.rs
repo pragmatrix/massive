@@ -3,14 +3,14 @@ use massive_geometry::Matrix4;
 use massive_scene::Shape;
 use massive_shapes::{Quad, Quads};
 use wgpu::{
-    util::{BufferInitDescriptor, DeviceExt},
     BufferUsages,
+    util::{BufferInitDescriptor, DeviceExt},
 };
 
 use crate::{
     pods::ColorVertex,
     renderer::{PreparationContext, RenderContext},
-    tools::{create_pipeline, QuadIndexBuffer},
+    tools::{QuadIndexBuffer, create_pipeline},
 };
 
 pub struct QuadsRenderer {

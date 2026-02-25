@@ -1,4 +1,5 @@
 const VERTEX_SHADER_ENTRY: &str = "vs_main";
+pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
 /// A consolidated set of parameters for the pipeline creation.
 #[derive(Debug)]
@@ -56,11 +57,21 @@ pub fn create_pipeline(
             cull_mode: Some(wgpu::Face::Back),
             ..wgpu::PrimitiveState::default()
         },
-        depth_stencil: None,
+        depth_stencil: Some(default_depth_stencil_state()),
         multisample: wgpu::MultisampleState::default(),
         multiview_mask: None,
         cache: None,
     };
 
     device.create_render_pipeline(&pipeline)
+}
+
+pub fn default_depth_stencil_state() -> wgpu::DepthStencilState {
+    wgpu::DepthStencilState {
+        format: DEPTH_FORMAT,
+        depth_write_enabled: true,
+        depth_compare: wgpu::CompareFunction::LessEqual,
+        stencil: wgpu::StencilState::default(),
+        bias: wgpu::DepthBiasState::default(),
+    }
 }
