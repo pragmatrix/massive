@@ -5,23 +5,19 @@ Update it whenever you learn something new about the project's patterns, convent
 
 ## Project
 - Prefer small, self-contained changes unless explicitly asked for broader refactors.
-- For renderer depth support, configure depth/stencil state at pipeline creation and recreate depth attachments whenever the surface is reconfigured.
-- When multiple pipeline variants share structure (e.g., standard/decal), model the variant as an enum mode and route creation through one path instead of duplicating per-variant methods.
 
 ## Code Style
 - Match the surrounding code style.
 - Keep functions small, clear, and deterministic.
 - Avoid multiple exit points that return the same result; consolidate them when it improves readability.
 - Comment only to explain non-obvious reasoning or intent.
-- Prefer `derive_more` traits (Debug, Deref) over manual implementations.
-- Import types and modules to limit qualification paths to 2 levels max (e.g., `mpsc::channel`).
-- Do not import enum discriminants into scope; prefer qualified variants (e.g., `LauncherMode::Visor`).
 - Order functions high-level first, utilities last; order types by importance (public API first, private helpers last).
-- Apply ordering changes with minimal movement: only move the explicitly requested items and avoid reshuffling unrelated methods/types.
-- Prefer preserving established local grouping/readability unless the user asks for a broader reordering pass.
+
+## Rust
+- Prefer `derive_more` traits (Debug, Deref) over manual implementations.
+- Do not import enum discriminants into scope; prefer qualified variants (e.g., `LauncherMode::Visor`).
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
 - Prefer adding fields to existing structs over creating parallel data structures.
-- Consider consolidating multiple `Mutex` fields into a single `Mutex` around a state struct.
 - Use constructor functions and `derive_more::Deref` for newtype patterns.
 - When implementing newtypes with `derive_more`, include `Copy` and `Clone` derives when the wrapped type supports them.
 - Include complete state in events rather than deltas to provide full context to handlers.
@@ -29,14 +25,15 @@ Update it whenever you learn something new about the project's patterns, convent
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
-- Don't add tests unless explicitly asked.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
-- For tree/hierarchy aggregates, prefer a single node-state map that stores both parent reference and ordered children over maintaining separate directional maps.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
+
+## Testing
+- Don't add tests unless explicitly asked.
 - In tests: place test functions before helpers, create concise constructor helpers to reduce verbosity, prefer static data structures, and use helper functions for common value construction patterns.
 - For test assertions, derive `PartialEq` and `Eq` rather than implementing manually; prefer `Debug` over `Display` for output.
 
@@ -63,5 +60,3 @@ Update it whenever you learn something new about the project's patterns, convent
 - Don't add documentation with examples unless explicitly asked.
 - Markdown documentation updates to existing files are fine.
 - Ask before creating new Markdown documentation files.
-- In code comments/doc comments, explain intent and tradeoffs.
-- Prefer concise inline comments at key decision points inside functions when intent is not obvious.
