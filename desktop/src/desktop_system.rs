@@ -20,9 +20,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{
     CreationMode, InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
-use massive_geometry::{
-    Contains, Matrix4, PixelCamera, Point, PointPx, Rect, RectPx, SizePx, Vector3,
-};
+use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_input::Event;
 use massive_layout::{
     IncrementalLayouter, LayoutAlgorithm, LayoutAxis, LayoutTopology, Offset, Rect as LayoutRect,
@@ -35,6 +33,7 @@ use massive_shell::{FontManager, Scene};
 use crate::event_router::EventTransitions;
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::{FocusPath, PathResolver};
+use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
     InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
@@ -46,9 +45,7 @@ use crate::projects::{
     LauncherPresenter, ProjectPresenter,
 };
 use crate::send_transition::{SendTransition, convert_to_send_transitions};
-use crate::{
-    DesktopEnvironment, DirectionBias, EventRouter, HitTester, Map, OrderedHierarchy, navigation,
-};
+use crate::{DesktopEnvironment, DirectionBias, EventRouter, Map, OrderedHierarchy, navigation};
 
 const SECTION_SPACING: u32 = 20;
 const VISOR_INSTANCE_FORWARD_Z: f64 = 128.0;
@@ -466,11 +463,12 @@ impl DesktopSystem {
             return Ok(keyboard_cmd);
         }
 
-        let hit_tester = AggregateHitTester {
-            hierarchy: &self.aggregates.hierarchy,
-            layouter: &self.layouter,
-            geometry: render_geometry,
-        };
+        let hit_tester = AggregateHitTester::new(
+            &self.aggregates.hierarchy,
+            &self.layouter,
+            &self.aggregates.instances,
+            render_geometry,
+        );
 
         let transitions = self.event_router.process(event, &hit_tester)?;
 
@@ -518,11 +516,14 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<Cmd> {
-        let transitions = self.event_router.reset_pointer_focus(&AggregateHitTester {
-            hierarchy: &self.aggregates.hierarchy,
-            layouter: &self.layouter,
-            geometry: render_geometry,
-        })?;
+        let transitions = self
+            .event_router
+            .reset_pointer_focus(&AggregateHitTester::new(
+                &self.aggregates.hierarchy,
+                &self.layouter,
+                &self.aggregates.instances,
+                render_geometry,
+            ))?;
 
         self.forward_event_transitions(transitions, instance_manager)
     }
@@ -994,45 +995,6 @@ impl Aggregates {
     }
 }
 
-struct AggregateHitTester<'a> {
-    hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-    layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
-    geometry: &'a RenderGeometry,
-}
-
-impl AggregateHitTester<'_> {
-    fn hit_test_hierarchy(
-        &self,
-        screen_pos: Point,
-        root: &DesktopTarget,
-    ) -> Option<(DesktopTarget, Vector3)> {
-        let rect = self.layouter.rect(root).map(|rect| {
-            let rect_px: RectPx = (*rect).into();
-            Rect::from(rect_px)
-        })?;
-        let model = Matrix4::IDENTITY;
-        let local_pos = self.geometry.unproject_to_model_z0(screen_pos, &model)?;
-        let point = Point::new(local_pos.x, local_pos.y);
-        if rect.contains(point) {
-            // Prefer nested hits over container hits.
-            for nested in self.hierarchy.get_nested(root) {
-                if let Some(target_hit) = self.hit_test_hierarchy(screen_pos, nested) {
-                    return Some(target_hit);
-                }
-            }
-            // No nested hit, container hits.
-            return Some((root.clone(), local_pos));
-        }
-
-        None
-    }
-
-    fn hit_test_target_plane(&self, screen_pos: Point) -> Option<Vector3> {
-        let model = Matrix4::IDENTITY;
-        self.geometry.unproject_to_model_z0(screen_pos, &model)
-    }
-}
-
 impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
     fn exists(&self, id: &DesktopTarget) -> bool {
         OrderedHierarchy::exists(self, id)
@@ -1181,21 +1143,6 @@ impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
 
                 Self::place_container_children(axis, spacing as i32, offset, child_sizes)
             }
-        }
-    }
-}
-
-impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
-    fn hit_test(
-        &self,
-        screen_pos: massive_geometry::Point,
-        target: Option<&DesktopTarget>,
-    ) -> Option<(DesktopTarget, massive_geometry::Vector3)> {
-        match target {
-            Some(target) => self
-                .hit_test_target_plane(screen_pos)
-                .map(|hit| (target.clone(), hit)),
-            None => self.hit_test_hierarchy(screen_pos, &DesktopTarget::Desktop),
         }
     }
 }

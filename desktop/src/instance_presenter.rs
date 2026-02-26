@@ -136,6 +136,13 @@ impl InstancePresenter {
             .transform
             .update_if_changed(translation.into());
     }
+
+    // Architecture: Avoid passing a Rect here (we'll review this when instances may be displayed at an angle)
+    pub fn transform(&self, rect: Rect) -> Transform {
+        let z = self.center_translation_animation.final_value().z;
+        let origin = rect.origin();
+        Transform::from_translation((origin.x, origin.y, z))
+    }
 }
 
 impl InstancePresenterState {
