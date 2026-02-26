@@ -5,11 +5,13 @@ use massive_renderer::RenderGeometry;
 use massive_scene::Transform;
 
 use crate::instance_presenter::InstancePresenter;
+use crate::projects::{LaunchProfileId, LauncherMode, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
+    launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
     instances: &'a Map<InstanceId, InstancePresenter>,
     geometry: &'a RenderGeometry,
 }
@@ -23,12 +25,14 @@ impl<'a> AggregateHitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
+        launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
         instances: &'a Map<InstanceId, InstancePresenter>,
         geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
             hierarchy,
             layouter,
+            launchers,
             instances,
             geometry,
         }
@@ -55,11 +59,14 @@ impl<'a> AggregateHitTester<'a> {
     ) -> Option<(DesktopTarget, Vector3, f64)> {
         let hit_surface = self.resolve_hit_surface(root)?;
         let local_pos = self.hit_test_surface(screen_pos, &hit_surface)?;
-        if hit_surface
+        let is_inside_root = hit_surface
             .size
             .to_rect()
-            .contains(Point::new(local_pos.x, local_pos.y))
-        {
+            .contains(Point::new(local_pos.x, local_pos.y));
+        let allow_overflow_children =
+            self.is_in_visor_hierarchy(root) || self.has_visor_descendant(root);
+
+        if is_inside_root || allow_overflow_children {
             let mut nearest_nested_hit: Option<(DesktopTarget, Vector3, f64)> = None;
             for nested in self.hierarchy.get_nested(root) {
                 if let Some(target_hit) = self.hit_test_hierarchy_with_depth(screen_pos, nested)
@@ -74,10 +81,50 @@ impl<'a> AggregateHitTester<'a> {
                 return Some(hit);
             }
 
+            if !is_inside_root {
+                return None;
+            }
+
             return Some((root.clone(), local_pos, hit_surface.transform.translate.z));
         }
 
         None
+    }
+
+    fn is_in_visor_hierarchy(&self, target: &DesktopTarget) -> bool {
+        let mut current = Some(target);
+
+        while let Some(node) = current {
+            if let DesktopTarget::Launcher(launcher_id) = node {
+                return self
+                    .launchers
+                    .get(launcher_id)
+                    .is_some_and(|launcher| launcher.mode() == LauncherMode::Visor);
+            }
+
+            current = self.hierarchy.parent(node);
+        }
+
+        false
+    }
+
+    fn has_visor_descendant(&self, target: &DesktopTarget) -> bool {
+        for nested in self.hierarchy.get_nested(target) {
+            if let DesktopTarget::Launcher(launcher_id) = nested
+                && self
+                    .launchers
+                    .get(launcher_id)
+                    .is_some_and(|launcher| launcher.mode() == LauncherMode::Visor)
+            {
+                return true;
+            }
+
+            if self.has_visor_descendant(nested) {
+                return true;
+            }
+        }
+
+        false
     }
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {

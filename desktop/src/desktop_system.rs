@@ -466,6 +466,7 @@ impl DesktopSystem {
         let hit_tester = AggregateHitTester::new(
             &self.aggregates.hierarchy,
             &self.layouter,
+            &self.aggregates.launchers,
             &self.aggregates.instances,
             render_geometry,
         );
@@ -521,6 +522,7 @@ impl DesktopSystem {
             .reset_pointer_focus(&AggregateHitTester::new(
                 &self.aggregates.hierarchy,
                 &self.layouter,
+                &self.aggregates.launchers,
                 &self.aggregates.instances,
                 render_geometry,
             ))?;
