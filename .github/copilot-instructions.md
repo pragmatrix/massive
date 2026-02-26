@@ -3,10 +3,8 @@
 This file serves as the evolving knowledge base for working with this codebase.
 Update it whenever you learn something new about the project's patterns, conventions, or receive feedback that should guide future behavior.
 
-## Project
-- Prefer small, self-contained changes unless explicitly asked for broader refactors.
-
 ## Code Style
+- Prefer small, self-contained changes unless explicitly asked for broader refactors.
 - Match the surrounding code style.
 - Keep functions small, clear, and deterministic.
 - Avoid multiple exit points that return the same result; consolidate them when it improves readability.
@@ -54,6 +52,7 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Continuous Learning
 - After completing meaningful work, update this file with high-level, reusable guidance learned from the task.
 - Keep additions general (patterns, principles, decision heuristics), not task- or file-specific details.
+- Do not add project-specific implementation facts (feature behavior, constants, file-local decisions); keep guidance broadly reusable.
 - Prefer small, incremental updates over large rewrites, and avoid duplicating or restating existing guidance.
 
 ## Documentation
