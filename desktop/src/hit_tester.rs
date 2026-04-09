@@ -20,6 +20,7 @@ pub(crate) struct AggregateHitTester<'a> {
 struct HitSurface {
     transform: Transform,
     size: Size,
+    surface_z: f64,
 }
 
 #[derive(Debug)]
@@ -148,7 +149,7 @@ impl<'a> AggregateHitTester<'a> {
             return Some(HitTestResult {
                 target: root.clone(),
                 local_pos,
-                surface_z: hit_surface.transform.translate.z,
+                surface_z: hit_surface.surface_z,
             });
         }
 
@@ -162,11 +163,27 @@ impl<'a> AggregateHitTester<'a> {
         })?;
 
         let model = self.hit_test_transform(target, rect);
+        let surface_z = self.hit_surface_z(target, &model);
 
         Some(HitSurface {
             transform: model,
             size: rect.size(),
+            surface_z,
         })
+    }
+
+    fn hit_surface_z(&self, target: &DesktopTarget, model: &Transform) -> f64 {
+        if let Some(instance_id) = self.hit_target_instance_id(target) {
+            return self
+                .instances
+                .get(&instance_id)
+                .expect("Internal error: Missing instance presenter for hit test depth")
+                .center_translation_animation
+                .final_value()
+                .z;
+        }
+
+        model.translate.z
     }
 
     fn hit_test_surface(&self, screen_pos: Point, hit_surface: &HitSurface) -> Option<Vector3> {
@@ -180,7 +197,7 @@ impl<'a> AggregateHitTester<'a> {
                 .instances
                 .get(&instance_id)
                 .expect("Internal error: Missing instance presenter for hit test")
-                .transform(rect);
+                .transform(rect.center());
         }
 
         let origin = rect.origin();

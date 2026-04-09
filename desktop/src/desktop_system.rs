@@ -20,7 +20,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{
     CreationMode, InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
-use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
+use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx, Vector3};
 use massive_input::Event;
 use massive_layout::{
     IncrementalLayouter, LayoutAlgorithm, LayoutAxis, LayoutTopology, Offset, Rect as LayoutRect,
@@ -45,10 +45,10 @@ use crate::projects::{
     LauncherPresenter, ProjectPresenter,
 };
 use crate::send_transition::{SendTransition, convert_to_send_transitions};
+use crate::visor_layout;
 use crate::{DesktopEnvironment, DirectionBias, EventRouter, Map, OrderedHierarchy, navigation};
 
 const SECTION_SPACING: u32 = 20;
-const VISOR_INSTANCE_FORWARD_Z: f64 = 128.0;
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
@@ -696,12 +696,13 @@ impl DesktopSystem {
             match id {
                 DesktopTarget::Desktop => {}
                 DesktopTarget::Instance(instance_id) => {
-                    let z_offset = self.instance_layout_depth(instance_id);
+                    let (center_translation, yaw) =
+                        self.instance_layout_center_and_yaw(instance_id, rect_px);
                     self.aggregates
                         .instances
                         .get_mut(&instance_id)
                         .expect("Instance missing")
-                        .set_rect(rect_px, z_offset, animate);
+                        .set_layout(rect_px, center_translation, yaw, animate);
                 }
                 DesktopTarget::Group(group_id) => {
                     self.aggregates
@@ -967,22 +968,84 @@ impl DesktopSystem {
 }
 
 impl DesktopSystem {
-    fn instance_layout_depth(&self, instance_id: InstanceId) -> f64 {
-        let instance_target = DesktopTarget::Instance(instance_id);
-        let is_visor_with_multiple_instances =
-            match self.aggregates.hierarchy.parent(&instance_target) {
-                Some(DesktopTarget::Launcher(launcher_id)) => {
-                    self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
-                        && self.aggregates.hierarchy.group(&instance_target).len() > 1
-                }
-                _ => false,
-            };
+    fn instance_layout_center_and_yaw(
+        &self,
+        instance_id: InstanceId,
+        rect_px: RectPx,
+    ) -> (Vector3, f64) {
+        let center = rect_px.center().cast();
+        let default_layout = (Vector3::new(center.x, center.y, 0.0), 0.0);
 
-        if is_visor_with_multiple_instances {
-            VISOR_INSTANCE_FORWARD_Z
-        } else {
-            0.0
+        let instance_target = DesktopTarget::Instance(instance_id);
+        let Some(DesktopTarget::Launcher(launcher_id)) =
+            self.aggregates.hierarchy.parent(&instance_target)
+        else {
+            return default_layout;
+        };
+
+        if self.aggregates.launchers[launcher_id].mode() != LauncherMode::Visor {
+            return default_layout;
         }
+
+        let group = self.aggregates.hierarchy.group(&instance_target);
+        if group.len() <= 1 {
+            return default_layout;
+        }
+
+        let index = self
+            .aggregates
+            .hierarchy
+            .entry(&instance_target)
+            .index()
+            .expect("Internal error: Instance missing group index");
+
+        let focused_index = self.focused_index_in_group(group);
+        let (group_center_x, flat_span) = self.group_center_and_flat_span(group);
+        let placement = visor_layout::placement(index, group.len(), flat_span, focused_index)
+            .expect("Internal error: Visor placement requires at least two instances");
+
+        (
+            Vector3::new(
+                group_center_x + placement.center_x_offset,
+                center.y,
+                placement.center_z,
+            ),
+            placement.yaw,
+        )
+    }
+
+    fn group_center_and_flat_span(&self, group: &[DesktopTarget]) -> (f64, f64) {
+        let centers_x: Vec<f64> = group
+            .iter()
+            .map(|target| {
+                self.rect(target)
+                    .unwrap_or_else(|| panic!("Internal error: Missing layout rect for {target:?}"))
+                    .center()
+                    .x
+            })
+            .collect();
+
+        let first = *centers_x
+            .first()
+            .expect("Internal error: Group must contain at least one item");
+        let last = *centers_x
+            .last()
+            .expect("Internal error: Group must contain at least one item");
+
+        (((first + last) * 0.5), (last - first).abs())
+    }
+
+    fn focused_index_in_group(&self, group: &[DesktopTarget]) -> Option<usize> {
+        let focused_path = self
+            .aggregates
+            .hierarchy
+            .resolve_path(self.event_router.focused());
+        let focused_instance = focused_path.instance()?;
+
+        group.iter().position(|target| match target {
+            DesktopTarget::Instance(id) => *id == focused_instance,
+            _ => false,
+        })
     }
 }
 

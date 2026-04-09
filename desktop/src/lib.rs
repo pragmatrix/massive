@@ -14,6 +14,7 @@ mod layout;
 mod navigation;
 mod projects;
 mod send_transition;
+mod visor_layout;
 
 pub use aggregates::*;
 pub use application_registry::Application;
