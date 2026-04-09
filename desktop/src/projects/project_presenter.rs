@@ -68,19 +68,17 @@ impl ProjectPresenter {
     }
 
     pub fn apply_animations(&mut self) {
-        {
-            let alpha = self.hover_alpha.value();
-            let rect_alpha = (alpha != 0.0).then(|| (self.hover_rect.value(), alpha));
+        let alpha = self.hover_alpha.value();
+        let rect_alpha = (alpha != 0.0).then(|| (self.hover_rect.value(), alpha));
 
-            // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
-            //
-            // Performance: Can't be update just the shapes here with apply...
-            let visual = create_hover_shapes(rect_alpha)
-                .into_visual()
-                .at(&self.location)
-                .with_decal_order(5);
-            self.hover_visual.update_if_changed(visual);
-        }
+        // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
+        //
+        // Performance: Can't be update just the shapes here with apply...
+        let visual = create_hover_shapes(rect_alpha)
+            .into_visual()
+            .at(&self.location)
+            .with_decal_order(5);
+        self.hover_visual.update_if_changed(visual);
     }
 }
 
