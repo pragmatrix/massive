@@ -51,10 +51,7 @@ impl InstancePresenter {
         let background = show_background.then(|| {
             let transform = Transform::IDENTITY.enter(scene);
             let local_location = transform.to_location().relative_to(location).enter(scene);
-            let visual = background_shape(Rect::ZERO)
-                .at(local_location)
-                .with_decal_order(0)
-                .enter(scene);
+            let visual = background_shape(Rect::ZERO).at(local_location).enter(scene);
 
             InstanceBackground {
                 transform,
