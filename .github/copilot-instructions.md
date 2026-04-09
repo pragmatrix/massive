@@ -26,6 +26,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
+- For mode-specific interaction behavior, prefer a focused second-pass evaluation over broad global rule changes that affect unrelated paths.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
