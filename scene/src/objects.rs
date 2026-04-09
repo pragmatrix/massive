@@ -18,6 +18,11 @@ pub struct Visual {
     ///
     /// If set, the renderer treats this visual as a decal and renders it in decal order using the
     /// decal pipeline configuration.
+    ///
+    /// Decals are drawn with depth testing but without z-buffer writes.
+    ///
+    /// Decal layers render after non-decal visuals in ascending order, so `decal_order = 0` is
+    /// the first decal layer.
     pub decal_order: Option<usize>,
 
     /// An optional clip bounds in model space 2D only.
