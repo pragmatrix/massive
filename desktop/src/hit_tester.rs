@@ -5,7 +5,7 @@ use massive_renderer::RenderGeometry;
 use massive_scene::Transform;
 
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::{LaunchProfileId, LauncherMode, LauncherPresenter};
+use crate::projects::{LaunchProfileId, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) struct AggregateHitTester<'a> {
@@ -71,25 +71,25 @@ impl<'a> AggregateHitTester<'a> {
 
     fn hit_test_hierarchy(&self, screen_pos: Point, root: &DesktopTarget) -> Option<HitTestResult> {
         let regular_hit = self.hit_test_hierarchy_with_depth(screen_pos, root, false);
-        let visor_overlay_hit = self.hit_test_visor_overlays_with_depth(screen_pos);
+        let overlay_hit = self.hit_test_overflow_overlays_with_depth(screen_pos);
 
-        match (regular_hit, visor_overlay_hit) {
-            (Some(regular), Some(visor)) => Some(if visor.surface_z > regular.surface_z {
-                visor
+        match (regular_hit, overlay_hit) {
+            (Some(regular), Some(overlay)) => Some(if overlay.surface_z > regular.surface_z {
+                overlay
             } else {
                 regular
             }),
             (Some(regular), None) => Some(regular),
-            (None, Some(visor)) => Some(visor),
+            (None, Some(overlay)) => Some(overlay),
             (None, None) => None,
         }
     }
 
-    fn hit_test_visor_overlays_with_depth(&self, screen_pos: Point) -> Option<HitTestResult> {
+    fn hit_test_overflow_overlays_with_depth(&self, screen_pos: Point) -> Option<HitTestResult> {
         let mut topmost_hit: Option<HitTestResult> = None;
 
         for (launcher_id, launcher) in self.launchers.iter() {
-            if launcher.mode() != LauncherMode::Visor {
+            if !launcher.includes_overflow_children_in_hit_testing() {
                 continue;
             }
 

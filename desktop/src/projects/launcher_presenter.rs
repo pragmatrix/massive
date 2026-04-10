@@ -6,14 +6,15 @@ use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
-use massive_geometry::{Color, Quaternion, Rect, RectPx, Vector3};
+use massive_geometry::{Color, Quaternion, Rect, RectPx, SizePx, Vector3};
 use massive_input::EventManager;
+use massive_layout::{LayoutAxis, Offset, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
-use crate::desktop_system::{Cmd, DesktopCommand};
+use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
 use crate::projects::LaunchProfileId;
 use crate::visor_layout;
 
@@ -117,20 +118,59 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn mode(&self) -> LauncherMode {
-        self.mode
+    pub fn should_render_instance_background(&self) -> bool {
+        self.mode == LauncherMode::Visor
     }
 
-    pub fn visor_layout_targets(
+    pub fn includes_overflow_children_in_hit_testing(&self) -> bool {
+        matches!(self.mode, LauncherMode::Visor)
+    }
+
+    pub fn compute_instance_layout_targets(
         &self,
         instances: &[LauncherInstanceLayoutInput],
         focused_instance: Option<InstanceId>,
     ) -> Vec<LauncherInstanceLayoutTarget> {
-        debug_assert!(self.mode == LauncherMode::Visor);
-
-        if instances.len() <= 1 {
-            return Vec::new();
+        match self.mode {
+            LauncherMode::Band => self.flat_layout_targets(instances),
+            LauncherMode::Visor if instances.len() <= 1 => self.flat_layout_targets(instances),
+            LauncherMode::Visor => self.visor_layout_targets(instances, focused_instance),
         }
+    }
+
+    pub fn panel_measure_size(&self, default_panel_size: SizePx) -> Option<LayoutSize<2>> {
+        match self.mode {
+            LauncherMode::Band => None,
+            LauncherMode::Visor => Some(default_panel_size.into()),
+        }
+    }
+
+    pub fn panel_child_offsets(
+        &self,
+        parent_offset: Offset<2>,
+        child_sizes: &[LayoutSize<2>],
+        default_panel_size: SizePx,
+    ) -> Option<Vec<Offset<2>>> {
+        match self.mode {
+            LauncherMode::Band => None,
+            LauncherMode::Visor => Some(centered_horizontal_offsets(
+                parent_offset,
+                child_sizes,
+                default_panel_size.width as i32,
+            )),
+        }
+    }
+
+    pub fn should_relayout_on_focus_change(&self, instance_count: usize) -> bool {
+        matches!(self.mode, LauncherMode::Visor) && instance_count > 1
+    }
+
+    fn visor_layout_targets(
+        &self,
+        instances: &[LauncherInstanceLayoutInput],
+        focused_instance: Option<InstanceId>,
+    ) -> Vec<LauncherInstanceLayoutTarget> {
+        debug_assert!(matches!(self.mode, LauncherMode::Visor));
 
         let focused_index = focused_instance
             .and_then(|focused| instances.iter().position(|i| i.instance_id == focused));
@@ -177,6 +217,25 @@ impl LauncherPresenter {
                     instance_id: input.instance_id,
                     rect: input.rect,
                     layout_transform,
+                }
+            })
+            .collect()
+    }
+
+    fn flat_layout_targets(
+        &self,
+        instances: &[LauncherInstanceLayoutInput],
+    ) -> Vec<LauncherInstanceLayoutTarget> {
+        instances
+            .iter()
+            .map(|input| {
+                let center = input.rect.center().cast::<f64>();
+                let center_translation = Vector3::new(center.x, center.y, 0.0);
+
+                LauncherInstanceLayoutTarget {
+                    instance_id: input.instance_id,
+                    rect: input.rect,
+                    layout_transform: Transform::from_translation(center_translation),
                 }
             })
             .collect()
@@ -281,4 +340,20 @@ impl LauncherPresenter {
 
 fn background_shape(rect: Rect, color: Color) -> Shape {
     shapes::Rect::new(rect, color).into()
+}
+
+fn centered_horizontal_offsets(
+    parent_offset: Offset<2>,
+    child_sizes: &[LayoutSize<2>],
+    panel_width: i32,
+) -> Vec<Offset<2>> {
+    let spacing = 0i32;
+    let children_span: i32 = child_sizes.iter().map(|size| size[0] as i32).sum::<i32>()
+        + spacing * (child_sizes.len().saturating_sub(1) as i32);
+    let center_offset = (panel_width - children_span) / 2;
+
+    let mut offset = parent_offset;
+    offset[0] += center_offset;
+
+    place_container_children(LayoutAxis::HORIZONTAL, spacing, offset, child_sizes)
 }

@@ -21,7 +21,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{
     CreationMode, InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
-use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx, Vector3};
+use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_input::Event;
 use massive_layout::{
     IncrementalLayouter, LayoutAlgorithm, LayoutAxis, LayoutTopology, Offset, Rect as LayoutRect,
@@ -43,8 +43,7 @@ use crate::layout::{LayoutSpec, ToContainer};
 use crate::navigation::ordered_rects_in_direction;
 use crate::projects::{
     GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
-    LauncherInstanceLayoutInput, LauncherInstanceLayoutTarget, LauncherMode, LauncherPresenter,
-    ProjectPresenter,
+    LauncherInstanceLayoutInput, LauncherInstanceLayoutTarget, LauncherPresenter, ProjectPresenter,
 };
 use crate::send_transition::{SendTransition, convert_to_send_transitions};
 use crate::{DesktopEnvironment, DirectionBias, EventRouter, Map, OrderedHierarchy, navigation};
@@ -475,19 +474,19 @@ impl DesktopSystem {
         // Capture focus before routing the event so we can detect focus transitions afterwards.
         let focused_before = self.event_router.focused().cloned();
         let transitions = self.event_router.process(event, &hit_tester)?;
-        // Read focus after routing and immediately re-orient visor cylinders when it changed.
+        // Read focus after routing and immediately recompute launcher layouts when it changed.
         let focused_after = self.event_router.focused().cloned();
-        self.apply_visor_layout_for_focus_change(focused_before, focused_after, true);
+        self.apply_launcher_layout_for_focus_change(focused_before, focused_after, true);
 
         self.forward_event_transitions(transitions, instance_manager)
     }
 
     fn focus(&mut self, target: &DesktopTarget, instance_manager: &InstanceManager) -> Result<Cmd> {
-        // Focus changes can alter which visor instance should be front-and-center.
+        // Focus changes can alter launcher layout targets.
         let focused_before = self.event_router.focused().cloned();
         let transitions = self.event_router.focus(target);
         let focused_after = self.event_router.focused().cloned();
-        self.apply_visor_layout_for_focus_change(focused_before, focused_after, true);
+        self.apply_launcher_layout_for_focus_change(focused_before, focused_after, true);
         self.forward_event_transitions(transitions, instance_manager)
     }
 
@@ -555,8 +554,7 @@ impl DesktopSystem {
             .launchers
             .get(&launcher)
             .expect("Launcher not found")
-            .mode()
-            == LauncherMode::Visor;
+            .should_render_instance_background();
 
         // Correctness: We animate from 0,0 if no originating exist. Need a position here.
         let initial_center_translation = originating_presenter
@@ -699,7 +697,7 @@ impl DesktopSystem {
         changed: Vec<(DesktopTarget, LayoutRect<2>)>,
         animate: bool,
     ) {
-        let mut visor_launchers_to_update: HashSet<LaunchProfileId> = HashSet::new();
+        let mut launchers_to_relayout: HashSet<LaunchProfileId> = HashSet::new();
 
         for (id, layout_rect) in changed {
             let rect_px: RectPx = layout_rect.into();
@@ -708,21 +706,9 @@ impl DesktopSystem {
             match id {
                 DesktopTarget::Desktop => {}
                 DesktopTarget::Instance(instance_id) => {
-                    if let Some(launcher_id) = self.instance_visor_launcher(instance_id)
-                    {
-                        visor_launchers_to_update.insert(launcher_id);
+                    if let Some(launcher_id) = self.instance_launcher(instance_id) {
+                        launchers_to_relayout.insert(launcher_id);
                     }
-
-                    let center = rect_px.center().cast::<f64>();
-                    let center_translation = Vector3::new(center.x, center.y, 0.0);
-                    // Base fallback: apply flat instance transforms from layout rects.
-                    // Visor-specific yaw/depth is computed and applied in
-                    // `apply_visor_layout_for_launcher`.
-                    self.aggregates
-                        .instances
-                        .get_mut(&instance_id)
-                        .expect("Instance missing")
-                        .set_layout(rect_px, center_translation.into(), animate);
                 }
                 DesktopTarget::Group(group_id) => {
                     self.aggregates
@@ -732,14 +718,7 @@ impl DesktopSystem {
                         .rect = rect;
                 }
                 DesktopTarget::Launcher(launcher_id) => {
-                    if self
-                        .aggregates
-                        .launchers
-                        .get(&launcher_id)
-                        .is_some_and(|launcher| launcher.mode() == LauncherMode::Visor)
-                    {
-                        visor_launchers_to_update.insert(launcher_id);
-                    }
+                    launchers_to_relayout.insert(launcher_id);
 
                     self.aggregates
                         .launchers
@@ -753,36 +732,20 @@ impl DesktopSystem {
             }
         }
 
-        for launcher_id in visor_launchers_to_update {
-            self.apply_visor_layout_for_launcher(launcher_id, animate);
+        for launcher_id in launchers_to_relayout {
+            self.apply_launcher_instance_layout(launcher_id, animate);
         }
     }
 
-    fn instance_visor_launcher(&self, instance_id: InstanceId) -> Option<LaunchProfileId> {
+    fn instance_launcher(&self, instance_id: InstanceId) -> Option<LaunchProfileId> {
         let instance_target = DesktopTarget::Instance(instance_id);
-        let launcher_id = match self.aggregates.hierarchy.parent(&instance_target) {
-            Some(DesktopTarget::Launcher(id)) => *id,
-            _ => return None,
-        };
-
-        if self.aggregates.launchers[&launcher_id].mode() != LauncherMode::Visor {
-            return None;
+        match self.aggregates.hierarchy.parent(&instance_target) {
+            Some(DesktopTarget::Launcher(id)) => Some(*id),
+            _ => None,
         }
-
-        Some(launcher_id)
     }
 
-    fn apply_visor_layout_for_launcher(&mut self, launcher_id: LaunchProfileId, animate: bool) {
-        // Only visor launchers use cylinder transforms.
-        if self
-            .aggregates
-            .launchers
-            .get(&launcher_id)
-            .is_none_or(|launcher| launcher.mode() != LauncherMode::Visor)
-        {
-            return;
-        }
-
+    fn apply_launcher_instance_layout(&mut self, launcher_id: LaunchProfileId, animate: bool) {
         let launcher_target = DesktopTarget::Launcher(launcher_id);
         let instance_inputs: Vec<LauncherInstanceLayoutInput> = self
             .aggregates
@@ -817,7 +780,7 @@ impl DesktopSystem {
             .launchers
             .get(&launcher_id)
             .expect("Launcher missing")
-            .visor_layout_targets(&instance_inputs, focused_instance);
+            .compute_instance_layout_targets(&instance_inputs, focused_instance);
 
         // Apply transform updates so presenter animations can interpolate to the new cylinder state.
         for layout in layouts {
@@ -829,7 +792,7 @@ impl DesktopSystem {
         }
     }
 
-    fn apply_visor_layout_for_focus_change(
+    fn apply_launcher_layout_for_focus_change(
         &mut self,
         from: Option<DesktopTarget>,
         to: Option<DesktopTarget>,
@@ -844,19 +807,18 @@ impl DesktopSystem {
         // Update at most the launchers touched by the old/new focus targets.
         let mut launchers_to_update: HashSet<LaunchProfileId> = HashSet::new();
         for target in [from.as_ref(), to.as_ref()] {
-            if let Some(launcher_id) = self.focus_target_visor_launcher(target)
-            {
+            if let Some(launcher_id) = self.focus_target_launcher_for_layout(target) {
                 launchers_to_update.insert(launcher_id);
             }
         }
 
-        // Recompute cylinder transforms immediately so the focus move animates right away.
+        // Recompute launcher transforms immediately so the focus move animates right away.
         for launcher_id in launchers_to_update {
-            self.apply_visor_layout_for_launcher(launcher_id, animate);
+            self.apply_launcher_instance_layout(launcher_id, animate);
         }
     }
 
-    fn focus_target_visor_launcher(
+    fn focus_target_launcher_for_layout(
         &self,
         target: Option<&DesktopTarget>,
     ) -> Option<LaunchProfileId> {
@@ -864,19 +826,18 @@ impl DesktopSystem {
         let target = target?;
         let focused_path = self.aggregates.hierarchy.resolve_path(Some(target));
         let focused_instance = focused_path.instance()?;
-        let launcher_id = self.instance_visor_launcher(focused_instance)?;
+        let launcher_id = self.instance_launcher(focused_instance)?;
+        let instance_count = self
+            .aggregates
+            .hierarchy
+            .get_nested(&DesktopTarget::Launcher(launcher_id))
+            .len();
 
-        // Skip trivial single-instance groups where no rotation is needed.
-        if !self.visor_launcher_has_multiple_instances(launcher_id) {
-            return None;
-        }
-
-        Some(launcher_id)
-    }
-
-    fn visor_launcher_has_multiple_instances(&self, launcher_id: LaunchProfileId) -> bool {
-        let launcher_target = DesktopTarget::Launcher(launcher_id);
-        self.aggregates.hierarchy.get_nested(&launcher_target).len() > 1
+        self.aggregates
+            .launchers
+            .get(&launcher_id)
+            .filter(|launcher| launcher.should_relayout_on_focus_change(instance_count))
+            .map(|_| launcher_id)
     }
 
     fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
@@ -1187,34 +1148,35 @@ impl DesktopLayoutAlgorithm<'_> {
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }
     }
+}
 
-    fn place_container_children(
-        axis: LayoutAxis,
-        spacing: i32,
-        mut offset: Offset<2>,
-        child_sizes: &[Size<2>],
-    ) -> Vec<Offset<2>> {
-        let axis_index: usize = axis.into();
-        let mut child_offsets = Vec::with_capacity(child_sizes.len());
+pub(crate) fn place_container_children(
+    axis: LayoutAxis,
+    spacing: i32,
+    mut offset: Offset<2>,
+    child_sizes: &[Size<2>],
+) -> Vec<Offset<2>> {
+    let axis_index: usize = axis.into();
+    let mut child_offsets = Vec::with_capacity(child_sizes.len());
 
-        for (index, &child_size) in child_sizes.iter().enumerate() {
-            if index > 0 {
-                offset[axis_index] += spacing;
-            }
-            child_offsets.push(offset);
-            offset[axis_index] += child_size[axis_index] as i32;
+    for (index, &child_size) in child_sizes.iter().enumerate() {
+        if index > 0 {
+            offset[axis_index] += spacing;
         }
-
-        child_offsets
+        child_offsets.push(offset);
+        offset[axis_index] += child_size[axis_index] as i32;
     }
+
+    child_offsets
 }
 
 impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
     fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
         if let DesktopTarget::Launcher(launcher_id) = id
-            && self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
+            && let Some(size) =
+                self.aggregates.launchers[launcher_id].panel_measure_size(self.default_panel_size)
         {
-            return self.default_panel_size.into();
+            return size;
         }
 
         match self.resolve_layout_spec(id) {
@@ -1252,24 +1214,13 @@ impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
         child_sizes: &[Size<2>],
     ) -> Vec<Offset<2>> {
         if let DesktopTarget::Launcher(launcher_id) = id
-            && self.aggregates.launchers[launcher_id].mode() == LauncherMode::Visor
+            && let Some(offsets) = self.aggregates.launchers[launcher_id].panel_child_offsets(
+                parent_offset,
+                child_sizes,
+                self.default_panel_size,
+            )
         {
-            let axis = LayoutAxis::HORIZONTAL;
-            let axis_index: usize = axis.into();
-            let spacing = 0i32;
-
-            let children_span: i32 = child_sizes
-                .iter()
-                .map(|size| size[axis_index] as i32)
-                .sum::<i32>()
-                + spacing * (child_sizes.len().saturating_sub(1) as i32);
-            let panel_span = self.default_panel_size.width as i32;
-            let center_offset = (panel_span - children_span) / 2;
-
-            let mut offset = parent_offset;
-            offset[axis_index] += center_offset;
-
-            return Self::place_container_children(axis, spacing, offset, child_sizes);
+            return offsets;
         }
 
         match self.resolve_layout_spec(id) {
@@ -1281,7 +1232,7 @@ impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
             } => {
                 let offset = parent_offset + Offset::from(padding.leading);
 
-                Self::place_container_children(axis, spacing as i32, offset, child_sizes)
+                place_container_children(axis, spacing as i32, offset, child_sizes)
             }
         }
     }

@@ -21,6 +21,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Include complete state in events rather than deltas to provide full context to handlers.
 - Prefer grouping semantically paired values into a single parameter or type when they are always used together.
 - Use cohesive domain types as API boundaries when related values are expected to move together.
+- Prefer behavior-named capability methods on presenters/components over exposing raw mode enums to system-level callers.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
