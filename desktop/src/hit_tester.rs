@@ -5,7 +5,7 @@ use massive_renderer::RenderGeometry;
 use massive_scene::Transform;
 
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::{LaunchProfileId, LauncherMode, LauncherPresenter};
+use crate::projects::{LaunchProfileId, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) struct AggregateHitTester<'a> {
@@ -20,6 +20,7 @@ pub(crate) struct AggregateHitTester<'a> {
 struct HitSurface {
     transform: Transform,
     size: Size,
+    surface_z: f64,
 }
 
 #[derive(Debug)]
@@ -70,25 +71,25 @@ impl<'a> AggregateHitTester<'a> {
 
     fn hit_test_hierarchy(&self, screen_pos: Point, root: &DesktopTarget) -> Option<HitTestResult> {
         let regular_hit = self.hit_test_hierarchy_with_depth(screen_pos, root, false);
-        let visor_overlay_hit = self.hit_test_visor_overlays_with_depth(screen_pos);
+        let overlay_hit = self.hit_test_overflow_overlays_with_depth(screen_pos);
 
-        match (regular_hit, visor_overlay_hit) {
-            (Some(regular), Some(visor)) => Some(if visor.surface_z > regular.surface_z {
-                visor
+        match (regular_hit, overlay_hit) {
+            (Some(regular), Some(overlay)) => Some(if overlay.surface_z > regular.surface_z {
+                overlay
             } else {
                 regular
             }),
             (Some(regular), None) => Some(regular),
-            (None, Some(visor)) => Some(visor),
+            (None, Some(overlay)) => Some(overlay),
             (None, None) => None,
         }
     }
 
-    fn hit_test_visor_overlays_with_depth(&self, screen_pos: Point) -> Option<HitTestResult> {
+    fn hit_test_overflow_overlays_with_depth(&self, screen_pos: Point) -> Option<HitTestResult> {
         let mut topmost_hit: Option<HitTestResult> = None;
 
         for (launcher_id, launcher) in self.launchers.iter() {
-            if launcher.mode() != LauncherMode::Visor {
+            if !launcher.includes_overflow_children_in_hit_testing() {
                 continue;
             }
 
@@ -148,7 +149,7 @@ impl<'a> AggregateHitTester<'a> {
             return Some(HitTestResult {
                 target: root.clone(),
                 local_pos,
-                surface_z: hit_surface.transform.translate.z,
+                surface_z: hit_surface.surface_z,
             });
         }
 
@@ -162,11 +163,30 @@ impl<'a> AggregateHitTester<'a> {
         })?;
 
         let model = self.hit_test_transform(target, rect);
+        let surface_z = self.hit_surface_z(target, &model);
 
         Some(HitSurface {
             transform: model,
             size: rect.size(),
+            surface_z,
         })
+    }
+
+    fn hit_surface_z(&self, target: &DesktopTarget, model: &Transform) -> f64 {
+        if let Some(instance_id) = self.hit_target_instance_id(target) {
+            return self
+                .instances
+                .get(&instance_id)
+                .expect("Internal error: Missing instance presenter for hit test depth")
+                .layout_transform_animation
+                // Keep hit depth stable across short structural animations.
+                // We intentionally pick against the settled layout target for now.
+                .final_value()
+                .translate
+                .z;
+        }
+
+        model.translate.z
     }
 
     fn hit_test_surface(&self, screen_pos: Point, hit_surface: &HitSurface) -> Option<Vector3> {
@@ -176,11 +196,14 @@ impl<'a> AggregateHitTester<'a> {
 
     fn hit_test_transform(&self, target: &DesktopTarget, rect: Rect) -> Transform {
         if let Some(instance_id) = self.hit_target_instance_id(target) {
+            // InstancePresenter::transform expects a local center (panel-local coordinates), not
+            // the global layout center.
+            let local_center = rect.size().to_rect().center();
             return self
                 .instances
                 .get(&instance_id)
                 .expect("Internal error: Missing instance presenter for hit test")
-                .transform(rect);
+                .transform(local_center);
         }
 
         let origin = rect.origin();
