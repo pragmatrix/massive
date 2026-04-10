@@ -698,6 +698,8 @@ impl DesktopSystem {
         changed: Vec<(DesktopTarget, LayoutRect<2>)>,
         animate: bool,
     ) {
+        let mut visor_launchers_to_update: Vec<LaunchProfileId> = Vec::new();
+
         for (id, layout_rect) in changed {
             let rect_px: RectPx = layout_rect.into();
             let rect: Rect = rect_px.into();
@@ -705,6 +707,12 @@ impl DesktopSystem {
             match id {
                 DesktopTarget::Desktop => {}
                 DesktopTarget::Instance(instance_id) => {
+                    if let Some(launcher_id) = self.instance_visor_launcher(instance_id)
+                        && !visor_launchers_to_update.contains(&launcher_id)
+                    {
+                        visor_launchers_to_update.push(launcher_id);
+                    }
+
                     let center = rect_px.center().cast::<f64>();
                     let center_translation = Vector3::new(center.x, center.y, 0.0);
                     // Base fallback: apply flat instance transforms from layout rects.
@@ -724,6 +732,16 @@ impl DesktopSystem {
                         .rect = rect;
                 }
                 DesktopTarget::Launcher(launcher_id) => {
+                    if self
+                        .aggregates
+                        .launchers
+                        .get(&launcher_id)
+                        .is_some_and(|launcher| launcher.mode() == LauncherMode::Visor)
+                        && !visor_launchers_to_update.contains(&launcher_id)
+                    {
+                        visor_launchers_to_update.push(launcher_id);
+                    }
+
                     self.aggregates
                         .launchers
                         .get_mut(&launcher_id)
@@ -735,6 +753,24 @@ impl DesktopSystem {
                 }
             }
         }
+
+        for launcher_id in visor_launchers_to_update {
+            self.apply_visor_layout_for_launcher(launcher_id, animate);
+        }
+    }
+
+    fn instance_visor_launcher(&self, instance_id: InstanceId) -> Option<LaunchProfileId> {
+        let instance_target = DesktopTarget::Instance(instance_id);
+        let launcher_id = match self.aggregates.hierarchy.parent(&instance_target) {
+            Some(DesktopTarget::Launcher(id)) => *id,
+            _ => return None,
+        };
+
+        if self.aggregates.launchers[&launcher_id].mode() != LauncherMode::Visor {
+            return None;
+        }
+
+        Some(launcher_id)
     }
 
     fn apply_visor_layout_for_launcher(&mut self, launcher_id: LaunchProfileId, animate: bool) {
