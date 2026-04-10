@@ -13,22 +13,22 @@ Update it whenever you learn something new about the project's patterns, convent
 
 ## Rust
 - Prefer `derive_more` traits (Debug, Deref) over manual implementations.
-- Do not import enum discriminants into scope; prefer qualified variants (e.g., `LauncherMode::Visor`).
+- Prefer qualified enum variants when it improves clarity over imported discriminants.
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
 - Prefer adding fields to existing structs over creating parallel data structures.
 - Use constructor functions and `derive_more::Deref` for newtype patterns.
 - When implementing newtypes with `derive_more`, include `Copy` and `Clone` derives when the wrapped type supports them.
 - Include complete state in events rather than deltas to provide full context to handlers.
-- Prefer tuple parameters for semantically paired values (e.g., `(width, height)`) over separate scalar arguments when the values are always passed together.
-- When translation and rotation values always move together, prefer a single `Transform` as the API/state boundary and let position-only consumers read `transform.translate` to preserve behavior.
+- Prefer grouping semantically paired values into a single parameter or type when they are always used together.
+- Use cohesive domain types as API boundaries when related values are expected to move together.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
-- For mode-specific interaction behavior, prefer a focused second-pass evaluation over broad global rule changes that affect unrelated paths.
-- When a generic layout pass writes fallback transforms, run mode-specific transform recomputation immediately after layout for affected entities.
+- For context-specific behavior, prefer targeted follow-up evaluation over broad global rule changes that affect unrelated paths.
+- When a generic pass applies fallback state, recompute context-specific state immediately afterward for impacted entities.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
