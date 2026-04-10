@@ -5,8 +5,8 @@ use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewEvent;
-use massive_geometry::{Color, Rect};
+use massive_applications::{InstanceId, ViewEvent};
+use massive_geometry::{Color, Rect, RectPx, Vector3};
 use massive_input::EventManager;
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
@@ -15,6 +15,7 @@ use massive_shell::Scene;
 
 use crate::desktop_system::{Cmd, DesktopCommand};
 use crate::projects::LaunchProfileId;
+use crate::visor_layout;
 
 use super::configuration::{LaunchProfile, LauncherMode};
 
@@ -28,6 +29,20 @@ const TEXT_COLOR: Color = Color::WHITE;
 const FADING_DURATION: Duration = Duration::from_millis(500);
 
 const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+
+#[derive(Debug, Clone, Copy)]
+pub struct LauncherInstanceLayoutInput {
+    pub instance_id: InstanceId,
+    pub rect: RectPx,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct LauncherInstanceLayoutTarget {
+    pub instance_id: InstanceId,
+    pub rect: RectPx,
+    pub center_translation: Vector3,
+    pub yaw: f64,
+}
 
 #[derive(Debug)]
 pub struct LauncherPresenter {
@@ -105,6 +120,61 @@ impl LauncherPresenter {
 
     pub fn mode(&self) -> LauncherMode {
         self.mode
+    }
+
+    pub fn visor_layout_targets(
+        &self,
+        instances: &[LauncherInstanceLayoutInput],
+        focused_instance: Option<InstanceId>,
+    ) -> Vec<LauncherInstanceLayoutTarget> {
+        if self.mode != LauncherMode::Visor || instances.len() <= 1 {
+            return Vec::new();
+        }
+
+        let focused_index = focused_instance
+            .and_then(|focused| instances.iter().position(|i| i.instance_id == focused));
+
+        let first_center = instances
+            .first()
+            .expect("Internal error: Expected at least one instance")
+            .rect
+            .center()
+            .cast::<f64>()
+            .x;
+        let last_center = instances
+            .last()
+            .expect("Internal error: Expected at least one instance")
+            .rect
+            .center()
+            .cast::<f64>()
+            .x;
+
+        let group_center_x = (first_center + last_center) * 0.5;
+        let flat_span = (last_center - first_center).abs();
+
+        instances
+            .iter()
+            .enumerate()
+            .map(|(index, input)| {
+                let placement =
+                    visor_layout::placement(index, instances.len(), flat_span, focused_index)
+                        .expect("Internal error: Visor placement requires at least two instances");
+
+                let center = input.rect.center().cast::<f64>();
+                let center_translation = Vector3::new(
+                    group_center_x + placement.center_x_offset,
+                    center.y,
+                    placement.center_z,
+                );
+
+                LauncherInstanceLayoutTarget {
+                    instance_id: input.instance_id,
+                    rect: input.rect,
+                    center_translation,
+                    yaw: placement.yaw,
+                }
+            })
+            .collect()
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be

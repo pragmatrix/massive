@@ -9,7 +9,9 @@ mod project;
 mod project_presenter;
 
 pub use self::configuration::*;
-pub use self::launcher_presenter::LauncherPresenter;
+pub use self::launcher_presenter::{
+    LauncherInstanceLayoutInput, LauncherInstanceLayoutTarget, LauncherPresenter,
+};
 pub use self::project::*;
 pub use self::project_presenter::*;
 
