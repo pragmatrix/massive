@@ -471,13 +471,22 @@ impl DesktopSystem {
             render_geometry,
         );
 
+        // Capture focus before routing the event so we can detect focus transitions afterwards.
+        let focused_before = self.event_router.focused().cloned();
         let transitions = self.event_router.process(event, &hit_tester)?;
+        // Read focus after routing and immediately re-orient visor cylinders when it changed.
+        let focused_after = self.event_router.focused().cloned();
+        self.apply_visor_layout_for_focus_change(focused_before, focused_after, true);
 
         self.forward_event_transitions(transitions, instance_manager)
     }
 
     fn focus(&mut self, target: &DesktopTarget, instance_manager: &InstanceManager) -> Result<Cmd> {
+        // Focus changes can alter which visor instance should be front-and-center.
+        let focused_before = self.event_router.focused().cloned();
         let transitions = self.event_router.focus(target);
+        let focused_after = self.event_router.focused().cloned();
+        self.apply_visor_layout_for_focus_change(focused_before, focused_after, true);
         self.forward_event_transitions(transitions, instance_manager)
     }
 
@@ -723,6 +732,118 @@ impl DesktopSystem {
                 }
             }
         }
+    }
+
+    fn apply_visor_layout_for_launcher(&mut self, launcher_id: LaunchProfileId, animate: bool) {
+        // Only visor launchers use cylinder transforms.
+        if self
+            .aggregates
+            .launchers
+            .get(&launcher_id)
+            .is_none_or(|launcher| launcher.mode() != LauncherMode::Visor)
+        {
+            return;
+        }
+
+        let launcher_target = DesktopTarget::Launcher(launcher_id);
+        let instance_ids: Vec<InstanceId> = self
+            .aggregates
+            .hierarchy
+            .get_nested(&launcher_target)
+            .iter()
+            .filter_map(|target| match target {
+                DesktopTarget::Instance(id) => Some(*id),
+                _ => None,
+            })
+            .collect();
+
+        // A single instance doesn't form a cylinder segment and stays flat.
+        if instance_ids.len() <= 1 {
+            return;
+        }
+
+        // Resolve all target transforms first to avoid mixing immutable and mutable borrows.
+        let layouts: Vec<(InstanceId, RectPx, Vector3, f64)> = instance_ids
+            .into_iter()
+            .map(|instance_id| {
+                let instance_target = DesktopTarget::Instance(instance_id);
+                let rect_px: RectPx = (*self
+                    .layouter
+                    .rect(&instance_target)
+                    .unwrap_or_else(|| {
+                        panic!("Internal error: Missing layout rect for {instance_target:?}")
+                    }))
+                    .into();
+
+                let (center_translation, yaw) =
+                    self.instance_layout_center_and_yaw(instance_id, rect_px);
+
+                (instance_id, rect_px, center_translation, yaw)
+            })
+            .collect();
+
+        // Apply transform updates so presenter animations can interpolate to the new cylinder state.
+        for (instance_id, rect_px, center_translation, yaw) in layouts {
+            self.aggregates
+                .instances
+                .get_mut(&instance_id)
+                .expect("Instance missing")
+                .set_layout(rect_px, center_translation, yaw, animate);
+        }
+    }
+
+    fn apply_visor_layout_for_focus_change(
+        &mut self,
+        from: Option<DesktopTarget>,
+        to: Option<DesktopTarget>,
+        animate: bool,
+    ) {
+        // Architecture: I don't like this before/after focus comparison test.
+        // No focus transition means there is no cylinder rotation target change.
+        if from == to {
+            return;
+        }
+
+        // Update at most the launchers touched by the old/new focus targets.
+        let mut launchers_to_update: Vec<LaunchProfileId> = Vec::new();
+        for target in [from.as_ref(), to.as_ref()] {
+            if let Some(launcher_id) = self.focus_target_visor_launcher(target)
+                && !launchers_to_update.contains(&launcher_id)
+            {
+                launchers_to_update.push(launcher_id);
+            }
+        }
+
+        // Recompute cylinder transforms immediately so the focus move animates right away.
+        for launcher_id in launchers_to_update {
+            self.apply_visor_layout_for_launcher(launcher_id, animate);
+        }
+    }
+
+    fn focus_target_visor_launcher(&self, target: Option<&DesktopTarget>) -> Option<LaunchProfileId> {
+        // Resolve from any focus target (instance/view/etc.) to its owning instance.
+        let target = target?;
+        let focused_path = self.aggregates.hierarchy.resolve_path(Some(target));
+        let focused_instance = focused_path.instance()?;
+        let instance_target = DesktopTarget::Instance(focused_instance);
+
+        let launcher_id = match self.aggregates.hierarchy.parent(&instance_target) {
+            Some(DesktopTarget::Launcher(id)) => *id,
+            _ => return None,
+        };
+
+        // Non-visor launchers do not participate in cylinder rotation.
+        if self.aggregates.launchers[&launcher_id].mode() != LauncherMode::Visor {
+            return None;
+        }
+
+        let launcher_target = DesktopTarget::Launcher(launcher_id);
+        // Skip trivial single-instance groups where no rotation is needed.
+        if self.aggregates.hierarchy.get_nested(&launcher_target).len() <= 1 {
+            return None;
+        }
+
+        Some(launcher_id)
     }
 
     fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
