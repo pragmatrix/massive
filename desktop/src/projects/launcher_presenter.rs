@@ -6,7 +6,7 @@ use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
-use massive_geometry::{Color, Rect, RectPx, Vector3};
+use massive_geometry::{Color, Quaternion, Rect, RectPx, Vector3};
 use massive_input::EventManager;
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
@@ -40,8 +40,7 @@ pub struct LauncherInstanceLayoutInput {
 pub struct LauncherInstanceLayoutTarget {
     pub instance_id: InstanceId,
     pub rect: RectPx,
-    pub center_translation: Vector3,
-    pub yaw: f64,
+    pub layout_transform: Transform,
 }
 
 #[derive(Debug)]
@@ -166,12 +165,16 @@ impl LauncherPresenter {
                     center.y,
                     placement.center_z,
                 );
+                let layout_transform = Transform::new(
+                    center_translation,
+                    Quaternion::from_rotation_y(placement.yaw),
+                    1.0,
+                );
 
                 LauncherInstanceLayoutTarget {
                     instance_id: input.instance_id,
                     rect: input.rect,
-                    center_translation,
-                    yaw: placement.yaw,
+                    layout_transform,
                 }
             })
             .collect()

@@ -20,6 +20,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When implementing newtypes with `derive_more`, include `Copy` and `Clone` derives when the wrapped type supports them.
 - Include complete state in events rather than deltas to provide full context to handlers.
 - Prefer tuple parameters for semantically paired values (e.g., `(width, height)`) over separate scalar arguments when the values are always passed together.
+- When translation and rotation values always move together, prefer a single `Transform` as the API/state boundary and let position-only consumers read `transform.translate` to preserve behavior.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.

@@ -559,7 +559,7 @@ impl DesktopSystem {
 
         // Correctness: We animate from 0,0 if no originating exist. Need a position here.
         let initial_center_translation = originating_presenter
-            .map(|op| op.center_translation_animation.value())
+            .map(|op| op.layout_transform_animation.value().translate)
             .unwrap_or_default();
 
         let presenter = InstancePresenter::new(
@@ -714,7 +714,7 @@ impl DesktopSystem {
                         .instances
                         .get_mut(&instance_id)
                         .expect("Instance missing")
-                        .set_layout(rect_px, center_translation, 0.0, animate);
+                        .set_layout(rect_px, center_translation.into(), animate);
                 }
                 DesktopTarget::Group(group_id) => {
                     self.aggregates
@@ -793,7 +793,7 @@ impl DesktopSystem {
                 .instances
                 .get_mut(&layout.instance_id)
                 .expect("Instance missing")
-                .set_layout(layout.rect, layout.center_translation, layout.yaw, animate);
+                .set_layout(layout.rect, layout.layout_transform, animate);
         }
     }
 
@@ -1015,7 +1015,7 @@ impl DesktopSystem {
             DesktopTarget::Instance(instance_id) => {
                 let instance = &self.aggregates.instances[instance_id];
                 let transform: Transform =
-                    instance.center_translation_animation.final_value().into();
+                    instance.layout_transform_animation.final_value().translate.into();
                 Some(transform.to_camera())
             }
             DesktopTarget::View(_) => {

@@ -178,8 +178,9 @@ impl<'a> AggregateHitTester<'a> {
                 .instances
                 .get(&instance_id)
                 .expect("Internal error: Missing instance presenter for hit test depth")
-                .center_translation_animation
+                .layout_transform_animation
                 .final_value()
+                .translate
                 .z;
         }
 
