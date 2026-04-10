@@ -9,6 +9,7 @@
 //! and aggregates that are event driven.
 
 use std::cmp::max;
+use std::collections::HashSet;
 
 use anyhow::{Result, anyhow, bail};
 use derive_more::{Debug, From};
@@ -698,7 +699,7 @@ impl DesktopSystem {
         changed: Vec<(DesktopTarget, LayoutRect<2>)>,
         animate: bool,
     ) {
-        let mut visor_launchers_to_update: Vec<LaunchProfileId> = Vec::new();
+        let mut visor_launchers_to_update: HashSet<LaunchProfileId> = HashSet::new();
 
         for (id, layout_rect) in changed {
             let rect_px: RectPx = layout_rect.into();
@@ -708,9 +709,8 @@ impl DesktopSystem {
                 DesktopTarget::Desktop => {}
                 DesktopTarget::Instance(instance_id) => {
                     if let Some(launcher_id) = self.instance_visor_launcher(instance_id)
-                        && !visor_launchers_to_update.contains(&launcher_id)
                     {
-                        visor_launchers_to_update.push(launcher_id);
+                        visor_launchers_to_update.insert(launcher_id);
                     }
 
                     let center = rect_px.center().cast::<f64>();
@@ -737,9 +737,8 @@ impl DesktopSystem {
                         .launchers
                         .get(&launcher_id)
                         .is_some_and(|launcher| launcher.mode() == LauncherMode::Visor)
-                        && !visor_launchers_to_update.contains(&launcher_id)
                     {
-                        visor_launchers_to_update.push(launcher_id);
+                        visor_launchers_to_update.insert(launcher_id);
                     }
 
                     self.aggregates
@@ -808,11 +807,6 @@ impl DesktopSystem {
             })
             .collect();
 
-        // A single instance doesn't form a cylinder segment and stays flat.
-        if instance_inputs.len() <= 1 {
-            return;
-        }
-
         let focused_instance = self
             .aggregates
             .hierarchy
@@ -848,12 +842,11 @@ impl DesktopSystem {
         }
 
         // Update at most the launchers touched by the old/new focus targets.
-        let mut launchers_to_update: Vec<LaunchProfileId> = Vec::new();
+        let mut launchers_to_update: HashSet<LaunchProfileId> = HashSet::new();
         for target in [from.as_ref(), to.as_ref()] {
             if let Some(launcher_id) = self.focus_target_visor_launcher(target)
-                && !launchers_to_update.contains(&launcher_id)
             {
-                launchers_to_update.push(launcher_id);
+                launchers_to_update.insert(launcher_id);
             }
         }
 
@@ -871,25 +864,19 @@ impl DesktopSystem {
         let target = target?;
         let focused_path = self.aggregates.hierarchy.resolve_path(Some(target));
         let focused_instance = focused_path.instance()?;
-        let instance_target = DesktopTarget::Instance(focused_instance);
+        let launcher_id = self.instance_visor_launcher(focused_instance)?;
 
-        let launcher_id = match self.aggregates.hierarchy.parent(&instance_target) {
-            Some(DesktopTarget::Launcher(id)) => *id,
-            _ => return None,
-        };
-
-        // Non-visor launchers do not participate in cylinder rotation.
-        if self.aggregates.launchers[&launcher_id].mode() != LauncherMode::Visor {
-            return None;
-        }
-
-        let launcher_target = DesktopTarget::Launcher(launcher_id);
         // Skip trivial single-instance groups where no rotation is needed.
-        if self.aggregates.hierarchy.get_nested(&launcher_target).len() <= 1 {
+        if !self.visor_launcher_has_multiple_instances(launcher_id) {
             return None;
         }
 
         Some(launcher_id)
+    }
+
+    fn visor_launcher_has_multiple_instances(&self, launcher_id: LaunchProfileId) -> bool {
+        let launcher_target = DesktopTarget::Launcher(launcher_id);
+        self.aggregates.hierarchy.get_nested(&launcher_target).len() > 1
     }
 
     fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {

@@ -126,7 +126,9 @@ impl LauncherPresenter {
         instances: &[LauncherInstanceLayoutInput],
         focused_instance: Option<InstanceId>,
     ) -> Vec<LauncherInstanceLayoutTarget> {
-        if self.mode != LauncherMode::Visor || instances.len() <= 1 {
+        debug_assert!(self.mode == LauncherMode::Visor);
+
+        if instances.len() <= 1 {
             return Vec::new();
         }
 

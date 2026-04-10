@@ -29,6 +29,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
 - For context-specific behavior, prefer targeted follow-up evaluation over broad global rule changes that affect unrelated paths.
 - When a generic pass applies fallback state, recompute context-specific state immediately afterward for impacted entities.
+- Keep invariant gating at a single layer where practical; avoid repeating identical mode/eligibility checks across caller and callee.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
