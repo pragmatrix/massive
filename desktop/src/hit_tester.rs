@@ -179,6 +179,8 @@ impl<'a> AggregateHitTester<'a> {
                 .get(&instance_id)
                 .expect("Internal error: Missing instance presenter for hit test depth")
                 .layout_transform_animation
+                // Keep hit depth stable across short structural animations.
+                // We intentionally pick against the settled layout target for now.
                 .final_value()
                 .translate
                 .z;
@@ -194,11 +196,14 @@ impl<'a> AggregateHitTester<'a> {
 
     fn hit_test_transform(&self, target: &DesktopTarget, rect: Rect) -> Transform {
         if let Some(instance_id) = self.hit_target_instance_id(target) {
+            // InstancePresenter::transform expects a local center (panel-local coordinates), not
+            // the global layout center.
+            let local_center = rect.size().to_rect().center();
             return self
                 .instances
                 .get(&instance_id)
                 .expect("Internal error: Missing instance presenter for hit test")
-                .transform(rect.center());
+                .transform(local_center);
         }
 
         let origin = rect.origin();
