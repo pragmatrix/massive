@@ -73,7 +73,6 @@ impl InstancePresenter {
     }
 
     pub fn set_layout(&mut self, rect: RectPx, layout_transform: Transform, animate: bool) {
-
         if let Some(background) = &mut self.background {
             let rect: Rect = rect.into();
             background.local_rect = rect.size().to_rect();
@@ -101,10 +100,12 @@ impl InstancePresenter {
 
         if let Some(background) = &self.background {
             let local_center = background.local_rect.center();
-            background.transform.update_if_changed(Self::transform_with_local_center(
-                layout_transform,
-                (local_center.x, local_center.y),
-            ));
+            background
+                .transform
+                .update_if_changed(Self::transform_with_local_center(
+                    layout_transform,
+                    (local_center.x, local_center.y),
+                ));
         }
 
         // Feature: Hiding animation.
@@ -115,10 +116,7 @@ impl InstancePresenter {
         // Correct the view's position around its local center.
         // Since the centering uses i32, we preserve snapping behavior from the layouter.
         let center = view.creation_info.extents.center().to_f64();
-        let transform = Self::transform_with_local_center(
-            layout_transform,
-            (center.x, center.y),
-        );
+        let transform = Self::transform_with_local_center(layout_transform, (center.x, center.y));
 
         view.creation_info
             .location
@@ -132,10 +130,18 @@ impl InstancePresenter {
         Self::transform_with_local_center(layout_transform, (local_center.x, local_center.y))
     }
 
-    fn transform_with_local_center(layout_transform: Transform, local_center: (f64, f64)) -> Transform {
+    fn transform_with_local_center(
+        layout_transform: Transform,
+        local_center: (f64, f64),
+    ) -> Transform {
         let local_center = Vector3::new(local_center.0, local_center.1, 0.0);
-        let origin_translation = layout_transform.translate - layout_transform.rotate * local_center;
-        Transform::new(origin_translation, layout_transform.rotate, layout_transform.scale)
+        let origin_translation =
+            layout_transform.translate - layout_transform.rotate * local_center;
+        Transform::new(
+            origin_translation,
+            layout_transform.rotate,
+            layout_transform.scale,
+        )
     }
 }
 

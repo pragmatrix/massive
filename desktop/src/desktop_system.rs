@@ -757,10 +757,8 @@ impl DesktopSystem {
             .filter_map(|target| match target {
                 DesktopTarget::Instance(instance_id) => {
                     let instance_target = DesktopTarget::Instance(*instance_id);
-                    let rect_px: RectPx = (*self
-                        .layouter
-                        .rect(&instance_target)
-                        .unwrap_or_else(|| {
+                    let rect_px: RectPx =
+                        (*self.layouter.rect(&instance_target).unwrap_or_else(|| {
                             panic!("Internal error: Missing layout rect for {instance_target:?}")
                         }))
                         .into();
@@ -779,7 +777,11 @@ impl DesktopSystem {
             return;
         }
 
-        let focused_instance = self.aggregates.hierarchy.resolve_path(self.event_router.focused()).instance();
+        let focused_instance = self
+            .aggregates
+            .hierarchy
+            .resolve_path(self.event_router.focused())
+            .instance();
         let layouts: Vec<LauncherInstanceLayoutTarget> = self
             .aggregates
             .launchers
@@ -825,7 +827,10 @@ impl DesktopSystem {
         }
     }
 
-    fn focus_target_visor_launcher(&self, target: Option<&DesktopTarget>) -> Option<LaunchProfileId> {
+    fn focus_target_visor_launcher(
+        &self,
+        target: Option<&DesktopTarget>,
+    ) -> Option<LaunchProfileId> {
         // Resolve from any focus target (instance/view/etc.) to its owning instance.
         let target = target?;
         let focused_path = self.aggregates.hierarchy.resolve_path(Some(target));
@@ -1014,8 +1019,11 @@ impl DesktopSystem {
 
             DesktopTarget::Instance(instance_id) => {
                 let instance = &self.aggregates.instances[instance_id];
-                let transform: Transform =
-                    instance.layout_transform_animation.final_value().translate.into();
+                let transform: Transform = instance
+                    .layout_transform_animation
+                    .final_value()
+                    .translate
+                    .into();
                 Some(transform.to_camera())
             }
             DesktopTarget::View(_) => {
