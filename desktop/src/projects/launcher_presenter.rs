@@ -14,9 +14,9 @@ use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Trans
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
 use massive_shell::Scene;
 
+use super::visor_layout;
 use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
 use crate::projects::LaunchProfileId;
-use crate::visor_layout;
 
 use super::configuration::{LaunchProfile, LauncherMode};
 
