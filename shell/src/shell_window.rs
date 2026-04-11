@@ -7,7 +7,7 @@ use tokio::sync::{mpsc::WeakUnboundedSender, oneshot};
 use wgpu::rwh;
 use winit::{
     event_loop::EventLoopProxy,
-    window::{CursorIcon, Fullscreen, Window, WindowId},
+    window::{CursorIcon, Window, WindowId},
 };
 
 use crate::{ShellEvent, WindowRendererBuilder, shell::ShellCommand};
@@ -59,10 +59,6 @@ impl ShellWindow {
         self.shared.window().set_cursor(icon);
     }
 
-    pub fn toggle_fullscreen(&self) {
-        self.shared.toggle_fullscreen();
-    }
-
     // DI: Use SizeI to represent initial_size.
     pub fn renderer(&self) -> WindowRendererBuilder {
         WindowRendererBuilder::new(self.shared.clone())
@@ -111,16 +107,6 @@ impl ShellWindowShared {
     pub fn inner_size(&self) -> SizePx {
         let (w, h) = self.window().inner_size().into();
         (w, h).into()
-    }
-
-    pub fn toggle_fullscreen(&self) {
-        let fullscreen = if self.window().fullscreen().is_some() {
-            None
-        } else {
-            Some(Fullscreen::Borderless(None))
-        };
-
-        self.window().set_fullscreen(fullscreen);
     }
 
     fn window(&self) -> &Window {
