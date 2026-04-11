@@ -43,8 +43,6 @@ pub(crate) fn initialize_platform_menu() {
         NSEventModifierFlags::Command | NSEventModifierFlags::Control,
     );
 
-    // Allow user-defined App Shortcut overrides to replace key equivalents.
-    NSMenuItem::setUsesUserKeyEquivalents(true, mtm);
     view_submenu.addItem(&fullscreen_item);
 }
 
