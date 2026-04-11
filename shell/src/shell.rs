@@ -234,6 +234,8 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             panic!("Resumed called in an invalid state");
         };
 
+        crate::platform::initialize_platform_menu();
+
         let (event_sender, event_receiver) = tokio::sync::mpsc::unbounded_channel();
 
         let scale_factor = event_loop
