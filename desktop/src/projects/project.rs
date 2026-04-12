@@ -86,22 +86,30 @@ impl LaunchGroup {
     /// Searches for a launch profile by name in this group and its descendants.
     /// Returns the LaunchProfileId if found, or an error if not found.
     fn find_profile_by_name(&self, name: &str) -> Result<LaunchProfileId> {
+        if let Some(id) = self.find_profile_by_name_recursive(name) {
+            return Ok(id);
+        }
+
+        bail!("Launch profile '{}' not found", name)
+    }
+
+    fn find_profile_by_name_recursive(&self, name: &str) -> Option<LaunchProfileId> {
         for child in &self.children {
             match child {
                 LaunchGroupChild::Launcher(launcher) => {
                     if launcher.profile.name == name {
-                        return Ok(launcher.id);
+                        return Some(launcher.id);
                     }
                 }
                 LaunchGroupChild::Group(group) => {
-                    if let Ok(id) = group.find_profile_by_name(name) {
-                        return Ok(id);
+                    if let Some(id) = group.find_profile_by_name_recursive(name) {
+                        return Some(id);
                     }
                 }
             }
         }
 
-        bail!("Launch profile '{}' not found", name)
+        None
     }
 
     fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
