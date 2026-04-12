@@ -4,7 +4,7 @@ use derive_more::{From, Into};
 use uuid::Uuid;
 
 use crate::projects::configuration::{
-    self, GroupContents, LaunchProfile, LayoutDirection, ProjectConfiguration, ScopedTag,
+    self, GroupChildSpec, LaunchProfile, LayoutDirection, ProjectConfiguration,
 };
 
 #[derive(Debug)]
@@ -17,31 +17,20 @@ pub struct Project {
 pub struct LaunchGroup {
     pub id: GroupId,
     pub properties: LaunchGroupProperties,
-    pub contents: LaunchGroupContents,
+    pub children: Vec<LaunchGroupChild>,
 }
 
 #[allow(unused)]
 #[derive(Debug, Clone)]
 pub struct LaunchGroupProperties {
     pub name: String,
-    pub tag: ScopedTag,
     pub layout: LayoutDirection,
 }
 
 #[derive(Debug)]
-pub enum LaunchGroupContents {
-    Groups(Vec<LaunchGroup>),
-    Launchers(Vec<Launcher>),
-}
-
-impl LaunchGroupContents {
-    #[allow(unused)]
-    pub fn len(&self) -> usize {
-        match self {
-            LaunchGroupContents::Groups(launch_groups) => launch_groups.len(),
-            LaunchGroupContents::Launchers(launchers) => launchers.len(),
-        }
-    }
+pub enum LaunchGroupChild {
+    Group(LaunchGroup),
+    Launcher(Launcher),
 }
 
 #[derive(Debug)]
@@ -97,41 +86,41 @@ impl LaunchGroup {
     /// Searches for a launch profile by name in this group and its descendants.
     /// Returns the LaunchProfileId if found, or an error if not found.
     fn find_profile_by_name(&self, name: &str) -> Result<LaunchProfileId> {
-        match &self.contents {
-            LaunchGroupContents::Launchers(slots) => {
-                for launcher in slots {
+        for child in &self.children {
+            match child {
+                LaunchGroupChild::Launcher(launcher) => {
                     if launcher.profile.name == name {
                         return Ok(launcher.id);
                     }
                 }
-                bail!("Launch profile '{}' not found", name)
-            }
-            LaunchGroupContents::Groups(groups) => {
-                for group in groups {
+                LaunchGroupChild::Group(group) => {
                     if let Ok(id) = group.find_profile_by_name(name) {
                         return Ok(id);
                     }
                 }
-                bail!("Launch profile '{}' not found", name)
             }
         }
+
+        bail!("Launch profile '{}' not found", name)
     }
 
     fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
-        match &self.contents {
-            LaunchGroupContents::Launchers(launchers) => launchers
-                .iter()
-                .find(|launcher| launcher.id == id)
-                .map(|launcher| &launcher.profile),
-            LaunchGroupContents::Groups(groups) => {
-                for group in groups {
+        for child in &self.children {
+            match child {
+                LaunchGroupChild::Launcher(launcher) => {
+                    if launcher.id == id {
+                        return Some(&launcher.profile);
+                    }
+                }
+                LaunchGroupChild::Group(group) => {
                     if let Some(profile) = group.get_launch_profile(id) {
                         return Some(profile);
                     }
                 }
-                None
             }
         }
+
+        None
     }
 
     /// Returns an ASCII tree visualization of the group hierarchy.
@@ -158,21 +147,15 @@ impl LaunchGroup {
 
         let child_prefix = format!("{}{}", prefix, extension);
 
-        match &self.contents {
-            LaunchGroupContents::Groups(groups) => {
-                for (i, group) in groups.iter().enumerate() {
-                    let is_last_child = i == groups.len() - 1;
+        for (index, child) in self.children.iter().enumerate() {
+            let is_last_child = index == self.children.len() - 1;
+
+            match child {
+                LaunchGroupChild::Group(group) => {
                     group.visualize_impl(output, &child_prefix, is_last_child, false);
                 }
-            }
-            LaunchGroupContents::Launchers(launchers) => {
-                for (i, launcher) in launchers.iter().enumerate() {
-                    let is_last_child = i == launchers.len() - 1;
-                    let connector = if is_last_child {
-                        "└── "
-                    } else {
-                        "├── "
-                    };
+                LaunchGroupChild::Launcher(launcher) => {
+                    let connector = if is_last_child { "└── " } else { "├── " };
                     output.push_str(&child_prefix);
                     output.push_str(connector);
                     output.push_str(&launcher.profile.name);
@@ -186,35 +169,27 @@ impl LaunchGroup {
 fn convert_group(group: configuration::LaunchGroupSpec) -> LaunchGroup {
     let id = GroupId::new();
 
-    let contents = match group.content {
-        GroupContents::Groups(groups) => {
-            let mut converted_groups = Vec::with_capacity(groups.len());
-            for child_group in groups {
-                let converted = convert_group(child_group);
-                converted_groups.push(converted);
+    let mut children = Vec::with_capacity(group.children.len());
+    for child in group.children {
+        match child {
+            GroupChildSpec::Group(child_group) => {
+                children.push(LaunchGroupChild::Group(convert_group(child_group)));
             }
-            LaunchGroupContents::Groups(converted_groups)
-        }
-        GroupContents::Profiles(profiles) => {
-            let mut slots = Vec::with_capacity(profiles.len());
-            for profile in profiles {
-                let slot = Launcher {
+            GroupChildSpec::Launcher(profile) => {
+                children.push(LaunchGroupChild::Launcher(Launcher {
                     id: LaunchProfileId::new(),
                     profile,
-                };
-                slots.push(slot);
+                }));
             }
-            LaunchGroupContents::Launchers(slots)
         }
-    };
+    }
 
     LaunchGroup {
         id,
         properties: LaunchGroupProperties {
             name: group.name,
-            tag: group.tag,
             layout: group.layout,
         },
-        contents,
+        children,
     }
 }

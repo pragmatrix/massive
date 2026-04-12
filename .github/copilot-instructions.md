@@ -54,6 +54,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Design intermediate types to match the source format structure, then convert to domain-appropriate runtime structures.
 - Extract identifying information from source metadata (e.g., filenames, paths) when appropriate, returning errors if extraction fails rather than using defaults.
 - For cross-crate command flows, define transport-layer command types in the upstream crate and perform explicit conversion at the consumer boundary.
+- For configuration-format migrations, refactor domain types first, then adapt readers and conversion layers so compiler errors clearly guide the remaining integration changes.
 
 ## Communication
 - Explanations should be concise and strictly relevant.
