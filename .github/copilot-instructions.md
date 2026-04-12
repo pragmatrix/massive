@@ -53,6 +53,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When loading data from external formats, create intermediate types for deserialization that are separate from runtime types.
 - Design intermediate types to match the source format structure, then convert to domain-appropriate runtime structures.
 - Extract identifying information from source metadata (e.g., filenames, paths) when appropriate, returning errors if extraction fails rather than using defaults.
+- For cross-crate command flows, define transport-layer command types in the upstream crate and perform explicit conversion at the consumer boundary.
 
 ## Communication
 - Explanations should be concise and strictly relevant.

@@ -1,5 +1,6 @@
 //! A configuration derived hierarchy with assigned ids.
 use anyhow::{Context, Result, bail};
+use derive_more::{From, Into};
 use uuid::Uuid;
 
 use crate::projects::configuration::{
@@ -49,7 +50,7 @@ pub struct Launcher {
     pub profile: LaunchProfile,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From, Into)]
 pub struct GroupId(Uuid);
 
 impl GroupId {
@@ -58,7 +59,7 @@ impl GroupId {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From, Into)]
 pub struct LaunchProfileId(Uuid);
 
 impl LaunchProfileId {
