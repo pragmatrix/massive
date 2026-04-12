@@ -155,7 +155,11 @@ impl LaunchGroup {
                     group.visualize_impl(output, &child_prefix, is_last_child, false);
                 }
                 LaunchGroupChild::Launcher(launcher) => {
-                    let connector = if is_last_child { "└── " } else { "├── " };
+                    let connector = if is_last_child {
+                        "└── "
+                    } else {
+                        "├── "
+                    };
                     output.push_str(&child_prefix);
                     output.push_str(connector);
                     output.push_str(&launcher.profile.name);
