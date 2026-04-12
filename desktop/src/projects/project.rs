@@ -172,13 +172,22 @@ fn convert_group(group: configuration::LaunchGroupSpec) -> LaunchGroup {
     let mut children = Vec::with_capacity(group.children.len());
     for child in group.children {
         match child {
-            GroupChildSpec::Group(child_group) => {
+            GroupChildSpec::Group {
+                name,
+                layout,
+                children: nested,
+            } => {
+                let child_group = configuration::LaunchGroupSpec {
+                    name,
+                    layout,
+                    children: nested,
+                };
                 children.push(LaunchGroupChild::Group(convert_group(child_group)));
             }
-            GroupChildSpec::Launcher(profile) => {
+            GroupChildSpec::Launcher { name, mode, params } => {
                 children.push(LaunchGroupChild::Launcher(Launcher {
                     id: LaunchProfileId::new(),
-                    profile,
+                    profile: LaunchProfile { name, mode, params },
                 }));
             }
         }

@@ -4,6 +4,7 @@ use super::types::{LaunchGroupSpec, LayoutDirection};
 
 /// Intermediate representation for deserializing JSON configuration files.
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ConfigFile {
     /// The startup launch profile.
     #[serde(default)]

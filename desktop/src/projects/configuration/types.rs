@@ -4,6 +4,7 @@ use serde_json::{Map, Value};
 use massive_layout::LayoutAxis;
 
 #[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LaunchGroupSpec {
     pub name: String,
     #[serde(default)]
@@ -30,10 +31,22 @@ impl LayoutDirection {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+#[serde(tag = "type", rename_all = "camelCase")]
 pub enum GroupChildSpec {
-    Group(LaunchGroupSpec),
-    Launcher(LaunchProfile),
+    Group {
+        name: String,
+        #[serde(default)]
+        layout: LayoutDirection,
+        #[serde(default)]
+        children: Vec<GroupChildSpec>,
+    },
+    Launcher {
+        name: String,
+        #[serde(default)]
+        mode: LauncherMode,
+        #[serde(default)]
+        params: Map<String, Value>,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize)]

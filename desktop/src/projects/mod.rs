@@ -52,11 +52,11 @@ impl Default for ProjectConfiguration {
             root: configuration::LaunchGroupSpec {
                 name: "/".into(),
                 layout: LayoutDirection::Horizontal,
-                children: [GroupChildSpec::Launcher(LaunchProfile {
-                        name: DEFAULT_PROFILE.into(),
-                        mode: LauncherMode::Visor,
-                        params: Default::default(),
-                    })]
+                children: [GroupChildSpec::Launcher {
+                    name: DEFAULT_PROFILE.into(),
+                    mode: LauncherMode::Visor,
+                    params: Default::default(),
+                }]
                 .into(),
             },
         }
