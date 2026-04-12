@@ -48,11 +48,14 @@ Update it whenever you learn something new about the project's patterns, convent
 - Use `anyhow::Result` for application code.
 - Add context to errors with `.context()` or `.with_context()` including relevant details (file paths, operations); return errors rather than fallback values.
 - Don't do defensive programming; anything unexpected should lead to an error rather than being silently handled.
+- For recursive tree searches, prefer `Option` in recursive helpers and convert to `Result` once at the public entry point.
 
 ## Data Loading & Conversion
 - When loading data from external formats, create intermediate types for deserialization that are separate from runtime types.
 - Design intermediate types to match the source format structure, then convert to domain-appropriate runtime structures.
 - Extract identifying information from source metadata (e.g., filenames, paths) when appropriate, returning errors if extraction fails rather than using defaults.
+- For cross-crate command flows, define transport-layer command types in the upstream crate and perform explicit conversion at the consumer boundary.
+- For configuration-format migrations, refactor domain types first, then adapt readers and conversion layers so compiler errors clearly guide the remaining integration changes.
 
 ## Communication
 - Explanations should be concise and strictly relevant.

@@ -18,7 +18,7 @@ pub use self::project_presenter::*;
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,
-    /// or if the file "desktop.toml" is not found, falls back to the default configuration.
+    /// or if the file "desktop.json" is not found, falls back to the default configuration.
     pub fn from_dir(projects_dir: Option<&Path>) -> Result<Self> {
         let Some(projects_dir) = projects_dir else {
             return Ok(Self::default());
@@ -26,7 +26,7 @@ impl ProjectConfiguration {
 
         const DESKTOP_CONFIG: &str = "desktop";
 
-        let path = projects_dir.join(format!("{DESKTOP_CONFIG}.toml"));
+        let path = projects_dir.join(format!("{DESKTOP_CONFIG}.json"));
 
         if !fs::exists(&path)? {
             warn!(
@@ -36,10 +36,10 @@ impl ProjectConfiguration {
             return Ok(Self::default());
         }
 
-        let toml = fs::read_to_string(&path)
-            .with_context(|| format!("Failed to read toml file: {}", path.display()))?;
+        let json = fs::read_to_string(&path)
+            .with_context(|| format!("Failed to read json file: {}", path.display()))?;
 
-        ProjectConfiguration::from_toml(&toml, DESKTOP_CONFIG)
+        ProjectConfiguration::from_json(&json, DESKTOP_CONFIG)
     }
 }
 
@@ -51,17 +51,13 @@ impl Default for ProjectConfiguration {
             startup: Some(DEFAULT_PROFILE.into()),
             root: configuration::LaunchGroupSpec {
                 name: "/".into(),
-                tag: ScopedTag::new("", ""),
                 layout: LayoutDirection::Horizontal,
-                content: GroupContents::Profiles(
-                    [LaunchProfile {
-                        name: DEFAULT_PROFILE.into(),
-                        mode: LauncherMode::Visor,
-                        params: Default::default(),
-                        tags: Vec::new(),
-                    }]
-                    .into(),
-                ),
+                children: [GroupChildSpec::Launcher {
+                    name: DEFAULT_PROFILE.into(),
+                    mode: LauncherMode::Visor,
+                    params: Default::default(),
+                }]
+                .into(),
             },
         }
     }

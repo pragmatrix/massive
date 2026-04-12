@@ -19,9 +19,8 @@ use crate::desktop_system::{DesktopCommand, DesktopSystem, ProjectCommand};
 use crate::event_sourcing::Transaction;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::projects::{
-    GroupId, LaunchGroup, LaunchGroupContents, LaunchGroupProperties, LaunchProfile,
-    LaunchProfileId, Launcher, LauncherMode, LayoutDirection, Project, ProjectConfiguration,
-    ScopedTag,
+    GroupId, LaunchGroup, LaunchGroupChild, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
+    Launcher, LauncherMode, LayoutDirection, Project, ProjectConfiguration,
 };
 
 #[derive(Debug)]
@@ -250,6 +249,12 @@ impl Desktop {
             InstanceCommand::View(view_id, command) => {
                 self.handle_view_command((instance, view_id).into(), command)?;
             }
+            InstanceCommand::Project(_command) => {
+                bail!(
+                    "Project requests are not handled directly by desktop: instance={:?}",
+                    instance
+                );
+            }
         }
         Ok(())
     }
@@ -293,7 +298,6 @@ fn desktop_groups() -> DesktopGroups {
         id: primary_group,
         properties: LaunchGroupProperties {
             name: "TopBand".into(),
-            tag: ScopedTag::new("", ""),
             layout: LayoutDirection::Horizontal,
         },
     });
@@ -304,7 +308,6 @@ fn desktop_groups() -> DesktopGroups {
             name: "Primary / Local".into(),
             mode: LauncherMode::Band,
             params: Default::default(),
-            tags: Default::default(),
         },
     });
 
@@ -338,16 +341,12 @@ fn launch_group_commands(
         properties: group.properties.clone(),
     });
 
-    match &group.contents {
-        LaunchGroupContents::Groups(launch_groups) => {
-            for launch_group in launch_groups {
+    for child in &group.children {
+        match child {
+            LaunchGroupChild::Group(launch_group) => {
                 launch_group_commands(Some(group.id), launch_group, commands);
             }
-        }
-        LaunchGroupContents::Launchers(launchers) => {
-            for launcher in launchers {
-                launcher_commands(group.id, launcher, commands)
-            }
+            LaunchGroupChild::Launcher(launcher) => launcher_commands(group.id, launcher, commands),
         }
     }
 }

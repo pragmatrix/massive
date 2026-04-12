@@ -11,7 +11,8 @@ use massive_renderer::FontManager;
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::{
-    InstanceEnvironment, InstanceId, InstanceParameters, Scene, ViewEvent, ViewExtent, ViewId,
+    InstanceEnvironment, InstanceId, InstanceParameters, ProjectCommand, Scene, ViewEvent,
+    ViewExtent, ViewId,
     view::{ViewCommand, ViewCreationInfo},
     view_builder::ViewBuilder,
 };
@@ -99,6 +100,13 @@ impl InstanceContext {
             self.new_scene(),
         )
     }
+
+    pub fn project(&self, command: ProjectCommand) -> Result<()> {
+        self.environment
+            .command_sender
+            .send((self.id, InstanceCommand::Project(command)))?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -109,6 +117,7 @@ pub enum InstanceEvent {
     ApplyAnimations,
 }
 
+/// Commands emitted by an instance and handled by the desktop layer.
 #[derive(Debug)]
 pub enum InstanceCommand {
     CreateView(ViewCreationInfo),
@@ -116,6 +125,7 @@ pub enum InstanceCommand {
     // pending changes are sent to the renderer.
     DestroyView(ViewId, Arc<ChangeCollector>),
     View(ViewId, ViewCommand),
+    Project(ProjectCommand),
 }
 
 impl CoalescingKey for InstanceEvent {

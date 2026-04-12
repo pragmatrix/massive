@@ -1,17 +1,22 @@
+use serde::Deserialize;
 use serde_json::{Map, Value};
 
 use massive_layout::LayoutAxis;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct LaunchGroupSpec {
     pub name: String,
-    pub tag: ScopedTag,
+    #[serde(default)]
     pub layout: LayoutDirection,
-    pub content: GroupContents,
+    #[serde(default)]
+    pub children: Vec<GroupChildSpec>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum LayoutDirection {
+    #[default]
     Horizontal,
     Vertical,
 }
@@ -25,38 +30,38 @@ impl LayoutDirection {
     }
 }
 
-/// A group can only contain either groups or applications.
-#[derive(Debug)]
-pub enum GroupContents {
-    Groups(Vec<LaunchGroupSpec>),
-    Profiles(Vec<LaunchProfile>),
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum GroupChildSpec {
+    Group {
+        name: String,
+        #[serde(default)]
+        layout: LayoutDirection,
+        #[serde(default)]
+        children: Vec<GroupChildSpec>,
+    },
+    Launcher {
+        name: String,
+        #[serde(default)]
+        mode: LauncherMode,
+        #[serde(default)]
+        params: Map<String, Value>,
+    },
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct LaunchProfile {
     pub name: String,
+    #[serde(default)]
     pub mode: LauncherMode,
+    #[serde(default)]
     pub params: Map<String, Value>,
-    pub tags: Vec<ScopedTag>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum LauncherMode {
     Band,
+    #[default]
     Visor,
-}
-
-#[derive(Debug, Clone)]
-pub struct ScopedTag {
-    pub scope: String,
-    pub tag: String,
-}
-
-impl ScopedTag {
-    pub fn new(scope: impl Into<String>, tag: impl Into<String>) -> Self {
-        Self {
-            scope: scope.into(),
-            tag: tag.into(),
-        }
-    }
 }
