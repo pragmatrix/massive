@@ -21,7 +21,7 @@ pub struct ProjectPresenter {
     // Idea: Use a type that combines Alpha with another Interpolatable type.
     // Robustness: Alpha should be a type.
     hover_alpha: Animated<f32>,
-    hover_rect: Animated<Rect>,
+    hover_rect: Rect,
     // Idea: can't we just animate a visual / Handle<Visual>?
     // Performance: This is a visual that _always_ lives inside the renderer, even though it does not contain a single shape when alpha = 0.0
     hover_visual: Handle<Visual>,
@@ -29,11 +29,12 @@ pub struct ProjectPresenter {
 
 impl ProjectPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
+
     pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
         Self {
             location: location.clone(),
             hover_alpha: scene.animated(0.0),
-            hover_rect: scene.animated(Rect::ZERO),
+            hover_rect: Rect::ZERO,
             hover_visual: create_hover_shapes(None)
                 .into_visual()
                 .at(location)
@@ -46,23 +47,13 @@ impl ProjectPresenter {
     pub fn set_hover_rect(&mut self, rect: Option<Rect>) {
         match rect {
             Some(rect) => {
-                let was_visible = self.hover_alpha.final_value() == 1.0;
-
                 self.hover_alpha.animate_if_changed(
                     1.0,
                     Self::HOVER_ANIMATION_DURATION,
                     Interpolation::CubicOut,
                 );
 
-                if was_visible {
-                    self.hover_rect.animate_if_changed(
-                        rect,
-                        Self::HOVER_ANIMATION_DURATION,
-                        Interpolation::CubicOut,
-                    );
-                } else {
-                    self.hover_rect.set_immediately(rect);
-                }
+                self.hover_rect = rect;
             }
             None => {
                 self.hover_alpha.animate_if_changed(
@@ -76,7 +67,7 @@ impl ProjectPresenter {
 
     pub fn apply_animations(&mut self) {
         let alpha = self.hover_alpha.value();
-        let rect_alpha = (alpha != 0.0).then(|| (self.hover_rect.value(), alpha));
+        let rect_alpha = (alpha != 0.0).then_some((self.hover_rect, alpha));
 
         // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
         //

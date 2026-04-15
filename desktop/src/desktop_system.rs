@@ -8,12 +8,12 @@
 //! The goal here is to remove as much as possible from the specific instances into separate systems
 //! and aggregates that are event driven.
 
-use std::cmp::max;
-use std::collections::HashSet;
-
 use anyhow::{Result, anyhow, bail};
 use derive_more::{Debug, From};
 use log::warn;
+use std::cmp::max;
+use std::collections::HashSet;
+use std::time::Duration;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
@@ -49,7 +49,8 @@ use crate::send_transition::{SendTransition, convert_to_send_transitions};
 use crate::{DesktopEnvironment, DirectionBias, EventRouter, Map, OrderedHierarchy, navigation};
 
 const SECTION_SPACING: u32 = 20;
-
+const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
+const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
 pub enum DesktopTarget {
@@ -114,6 +115,7 @@ pub struct DesktopSystem {
 
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
+    pointer_feedback_enabled: bool,
 
     #[debug(skip)]
     layouter: IncrementalLayouter<DesktopTarget, 2>,
@@ -178,6 +180,7 @@ impl DesktopSystem {
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
+            pointer_feedback_enabled: true,
             layouter,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
@@ -452,6 +455,10 @@ impl DesktopSystem {
         self.camera.value()
     }
 
+    pub fn cursor_visible(&self) -> bool {
+        self.pointer_feedback_enabled
+    }
+
     pub fn process_input_event(
         &mut self,
         event: &Event<ViewEvent>,
@@ -459,34 +466,67 @@ impl DesktopSystem {
         render_geometry: &RenderGeometry,
     ) -> Result<Cmd> {
         let keyboard_cmd = self.preprocess_keyboard_input(event)?;
-        if !keyboard_cmd.is_none() {
-            return Ok(keyboard_cmd);
+
+        let cmd = if !keyboard_cmd.is_none() {
+            keyboard_cmd
+        } else {
+            let hit_tester = AggregateHitTester::new(
+                &self.aggregates.hierarchy,
+                &self.layouter,
+                &self.aggregates.launchers,
+                &self.aggregates.instances,
+                render_geometry,
+            );
+
+            let transitions = self.event_router.process(event, &hit_tester)?;
+            if let Some((from, to)) = transitions.keyboard_focus_change() {
+                self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
+            }
+
+            self.forward_event_transitions(transitions, instance_manager)?
+        };
+
+        self.update_pointer_feedback(event);
+
+        Ok(cmd)
+    }
+
+    fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
+        match (self.pointer_feedback_enabled, event.event()) {
+            (
+                true,
+                ViewEvent::KeyboardInput {
+                    event: key_event, ..
+                },
+            ) if key_event.state == ElementState::Pressed && !key_event.repeat => {
+                self.pointer_feedback_enabled = false;
+                self.aggregates.project_presenter.set_hover_rect(None);
+            }
+            (false, ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. }) => {
+                self.pointer_feedback_enabled = true;
+                let pointer_focus = self.event_router.pointer_focus().cloned();
+                self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
+            }
+            (false, ViewEvent::CursorMoved { .. })
+                if event.cursor_has_velocity(
+                    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
+                    POINTER_FEEDBACK_REENABLE_MAX_DURATION,
+                ) =>
+            {
+                self.pointer_feedback_enabled = true;
+                let pointer_focus = self.event_router.pointer_focus().cloned();
+                self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
+            }
+            _ => {}
         }
-
-        let hit_tester = AggregateHitTester::new(
-            &self.aggregates.hierarchy,
-            &self.layouter,
-            &self.aggregates.launchers,
-            &self.aggregates.instances,
-            render_geometry,
-        );
-
-        // Capture focus before routing the event so we can detect focus transitions afterwards.
-        let focused_before = self.event_router.focused().cloned();
-        let transitions = self.event_router.process(event, &hit_tester)?;
-        // Read focus after routing and immediately recompute launcher layouts when it changed.
-        let focused_after = self.event_router.focused().cloned();
-        self.apply_launcher_layout_for_focus_change(focused_before, focused_after, true);
-
-        self.forward_event_transitions(transitions, instance_manager)
     }
 
     fn focus(&mut self, target: &DesktopTarget, instance_manager: &InstanceManager) -> Result<Cmd> {
         // Focus changes can alter launcher layout targets.
-        let focused_before = self.event_router.focused().cloned();
         let transitions = self.event_router.focus(target);
-        let focused_after = self.event_router.focused().cloned();
-        self.apply_launcher_layout_for_focus_change(focused_before, focused_after, true);
+        if let Some((from, to)) = transitions.keyboard_focus_change() {
+            self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
+        }
         self.forward_event_transitions(transitions, instance_manager)
     }
 
@@ -923,7 +963,9 @@ impl DesktopSystem {
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
-        if let Some(pointer_focus) = transitions.pointer_focus_target() {
+        if self.pointer_feedback_enabled
+            && let Some(pointer_focus) = transitions.pointer_focus_target()
+        {
             self.sync_hover_rect_to_pointer_path(pointer_focus);
         }
 

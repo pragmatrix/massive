@@ -38,6 +38,8 @@ Update it whenever you learn something new about the project's patterns, convent
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
 - For platform-specific window commands, detect shortcuts where aggregated input state is available and keep the actual window mutation in the shell/window abstraction.
+- When multiple transient affordances represent the same interaction mode, keep them behind one shared state instead of parallel flags.
+- Cache repeated window state requests at the caller when the underlying platform mutation may hop to the main thread or otherwise be non-trivial.
 - On macOS, prefer native menu selector wiring for commands that users can remap in App Shortcuts, instead of hardcoded key-chord matching.
 
 ## Testing
