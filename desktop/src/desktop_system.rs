@@ -10,6 +10,7 @@
 
 use std::cmp::max;
 use std::collections::HashSet;
+use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use derive_more::{Debug, From};
@@ -49,6 +50,8 @@ use crate::send_transition::{SendTransition, convert_to_send_transitions};
 use crate::{DesktopEnvironment, DirectionBias, EventRouter, Map, OrderedHierarchy, navigation};
 
 const SECTION_SPACING: u32 = 20;
+const HOVER_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
+const HOVER_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
@@ -114,6 +117,7 @@ pub struct DesktopSystem {
 
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
+    hover_rect_enabled: bool,
 
     #[debug(skip)]
     layouter: IncrementalLayouter<DesktopTarget, 2>,
@@ -178,6 +182,7 @@ impl DesktopSystem {
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
+            hover_rect_enabled: true,
             layouter,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
@@ -458,6 +463,8 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<Cmd> {
+        self.disable_hover_rect_on_keyboard_input(event);
+
         let keyboard_cmd = self.preprocess_keyboard_input(event)?;
         if !keyboard_cmd.is_none() {
             return Ok(keyboard_cmd);
@@ -478,7 +485,34 @@ impl DesktopSystem {
         let focused_after = self.event_router.focused().cloned();
         self.apply_launcher_layout_for_focus_change(focused_before, focused_after, true);
 
+        self.reenable_hover_rect_on_fast_cursor_move(event);
+
         self.forward_event_transitions(transitions, instance_manager)
+    }
+
+    fn disable_hover_rect_on_keyboard_input(&mut self, event: &Event<ViewEvent>) {
+        let should_disable = matches!(
+            event.event(),
+            ViewEvent::KeyboardInput { event: key_event, .. }
+                if key_event.state == ElementState::Pressed && !key_event.repeat
+        ) || matches!(event.event(), ViewEvent::Ime(..));
+
+        if should_disable && self.hover_rect_enabled {
+            self.hover_rect_enabled = false;
+            self.aggregates.project_presenter.set_hover_rect(None);
+        }
+    }
+
+    fn reenable_hover_rect_on_fast_cursor_move(&mut self, event: &Event<ViewEvent>) {
+        if self.hover_rect_enabled {
+            return;
+        }
+
+        if event.cursor_has_velocity(HOVER_REENABLE_MIN_DISTANCE_PX, HOVER_REENABLE_MAX_DURATION) {
+            self.hover_rect_enabled = true;
+            let pointer_focus = self.event_router.pointer_focus().cloned();
+            self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
+        }
     }
 
     fn focus(&mut self, target: &DesktopTarget, instance_manager: &InstanceManager) -> Result<Cmd> {
@@ -923,7 +957,9 @@ impl DesktopSystem {
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
-        if let Some(pointer_focus) = transitions.pointer_focus_target() {
+        if self.hover_rect_enabled
+            && let Some(pointer_focus) = transitions.pointer_focus_target()
+        {
             self.sync_hover_rect_to_pointer_path(pointer_focus);
         }
 

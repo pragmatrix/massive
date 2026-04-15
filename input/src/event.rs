@@ -7,7 +7,7 @@ use massive_geometry::{Point, Vector};
 use winit::keyboard::ModifiersState;
 
 use crate::event_aggregator::DeviceStates;
-use crate::event_history::{EventHistory, EventRecord};
+use crate::event_history::{EventHistory, EventRecord, HistoryIterator};
 use crate::tracker::Movement;
 use crate::{AggregationEvent, ButtonSensor, InputEvent, MouseGesture, PointingDeviceState};
 
@@ -96,6 +96,23 @@ impl<'history, E: InputEvent> Event<'history, E> {
             AggregationEvent::CursorMoved { device_id, .. } => Some(device_id),
             _ => None,
         }
+    }
+
+    /// Returns `true` when the current cursor move covers at least `min_distance` within
+    /// `max_duration`.
+    pub fn cursor_has_velocity(&self, min_distance: f64, max_duration: Duration) -> bool {
+        let Some(device) = self.cursor_moved() else {
+            return false;
+        };
+        let Some(pos) = self.device_pos(device) else {
+            return false;
+        };
+
+        self.history
+            .iter()
+            .until(self.time() - max_duration)
+            .max_distance_moved(device, pos)
+            >= min_distance
     }
 
     pub fn detect_click(&self, mouse_button: MouseButton) -> Option<Point> {

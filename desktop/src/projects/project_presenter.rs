@@ -29,6 +29,7 @@ pub struct ProjectPresenter {
 
 impl ProjectPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
+
     pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
         Self {
             location: location.clone(),
