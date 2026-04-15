@@ -59,6 +59,11 @@ impl ShellWindow {
         self.shared.window().set_cursor(icon);
     }
 
+    // Note: This may schedule work on the main thread, so callers should avoid redundant updates.
+    pub fn set_cursor_visible(&self, visible: bool) {
+        self.shared.window().set_cursor_visible(visible);
+    }
+
     // DI: Use SizeI to represent initial_size.
     pub fn renderer(&self) -> WindowRendererBuilder {
         WindowRendererBuilder::new(self.shared.clone())

@@ -370,6 +370,13 @@ impl<T> Default for EventTransitions<T> {
 }
 
 impl<T> EventTransitions<T> {
+    pub fn keyboard_focus_change(&self) -> Option<(Option<&T>, Option<&T>)> {
+        self.0.iter().find_map(|transition| match transition {
+            EventTransition::ChangeKeyboardFocus { from, to } => Some((from.as_ref(), to.as_ref())),
+            _ => None,
+        })
+    }
+
     pub fn pointer_focus_target(&self) -> Option<Option<&T>> {
         self.0.iter().find_map(|transition| match transition {
             EventTransition::ChangePointerFocus { to, .. } => Some(to.as_ref()),

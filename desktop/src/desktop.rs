@@ -28,6 +28,7 @@ pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
     window: ShellWindow,
+    cursor_visible: bool,
     system: DesktopSystem,
 
     event_manager: EventManager<ViewEvent>,
@@ -132,6 +133,7 @@ impl Desktop {
             scene,
             renderer,
             window,
+            cursor_visible: true,
             system,
             event_manager,
             instance_manager,
@@ -153,13 +155,21 @@ impl Desktop {
                     match event {
                         ShellEvent::WindowEvent(_window_id, window_event) => {
                             if let Some(view_event) = ViewEvent::from_window_event(&window_event)
-                                && let Some(input_event) = self.event_manager.add_event(view_event, Instant::now()) {
-                               let cmd = self.system.process_input_event(
+                                && let Some(input_event) =
+                                    self.event_manager.add_event(view_event, Instant::now())
+                            {
+                                let cmd = self.system.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
                                     self.renderer.geometry(),
                                 )?;
-                                self.system.transact(cmd, &self.scene, &mut self.instance_manager)?;
+                                let cursor_visible = self.system.cursor_visible();
+                                if self.cursor_visible != cursor_visible {
+                                    self.window.set_cursor_visible(cursor_visible);
+                                    self.cursor_visible = cursor_visible;
+                                }
+                                self.system
+                                    .transact(cmd, &self.scene, &mut self.instance_manager)?;
 
                                 let allow_camera_movements = !input_event.any_buttons_pressed();
                                 self.system.update_effects(true, allow_camera_movements)?;
