@@ -30,6 +30,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
+- For transient UI indicators (hover/focus highlights), derive visibility/target from current resolved state rather than only from enter/exit edge events.
 - For context-specific behavior, prefer targeted follow-up evaluation over broad global rule changes that affect unrelated paths.
 - When a generic pass applies fallback state, recompute context-specific state immediately afterward for impacted entities.
 - Keep invariant gating at a single layer where practical; avoid repeating identical mode/eligibility checks across caller and callee.

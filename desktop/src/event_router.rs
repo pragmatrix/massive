@@ -145,6 +145,7 @@ where
                         );
                         Some(hit)
                     } else {
+                        set_pointer_focus(&mut self.pointer_focus, None, &mut event_transitions);
                         None
                     }
                 } else {
@@ -369,6 +370,13 @@ impl<T> Default for EventTransitions<T> {
 }
 
 impl<T> EventTransitions<T> {
+    pub fn pointer_focus_target(&self) -> Option<Option<&T>> {
+        self.0.iter().find_map(|transition| match transition {
+            EventTransition::ChangePointerFocus { to, .. } => Some(to.as_ref()),
+            _ => None,
+        })
+    }
+
     fn send(&mut self, target: &T, event: ViewEvent)
     where
         T: Clone,

@@ -28,6 +28,7 @@ pub struct ProjectPresenter {
 }
 
 impl ProjectPresenter {
+    const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
     pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
         Self {
             location: location.clone(),
@@ -40,31 +41,37 @@ impl ProjectPresenter {
         }
     }
 
-    const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+    const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
-    pub fn show_hover_rect(&mut self, rect: Rect) {
-        let was_visible = self.hover_alpha.final_value() == 1.0;
+    pub fn set_hover_rect(&mut self, rect: Option<Rect>) {
+        match rect {
+            Some(rect) => {
+                let was_visible = self.hover_alpha.final_value() == 1.0;
 
-        self.hover_alpha.animate_if_changed(
-            1.0,
-            Self::HOVER_ANIMATION_DURATION,
-            Interpolation::CubicOut,
-        );
+                self.hover_alpha.animate_if_changed(
+                    1.0,
+                    Self::HOVER_ANIMATION_DURATION,
+                    Interpolation::CubicOut,
+                );
 
-        if was_visible {
-            self.hover_rect.animate_if_changed(
-                rect,
-                Self::HOVER_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.hover_rect.set_immediately(rect);
+                if was_visible {
+                    self.hover_rect.animate_if_changed(
+                        rect,
+                        Self::HOVER_ANIMATION_DURATION,
+                        Interpolation::CubicOut,
+                    );
+                } else {
+                    self.hover_rect.set_immediately(rect);
+                }
+            }
+            None => {
+                self.hover_alpha.animate_if_changed(
+                    0.0,
+                    Self::HOVER_ANIMATION_DURATION,
+                    Interpolation::CubicOut,
+                );
+            }
         }
-    }
-
-    pub fn hide_hover_rect(&mut self) {
-        self.hover_alpha
-            .animate(0.0, Self::HOVER_ANIMATION_DURATION, Interpolation::CubicOut);
     }
 
     pub fn apply_animations(&mut self) {
@@ -85,9 +92,10 @@ impl ProjectPresenter {
 fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
     rect_alpha
         .map(|(r, a)| {
+            let stroke = ProjectPresenter::HOVER_STROKE;
             StrokeRect {
-                rect: r,
-                stroke: (10., 10.).into(),
+                rect: r.with_outset(stroke),
+                stroke: stroke.into(),
                 color: Color::rgb_u32(0xff0000).with_alpha(a),
             }
             .into()

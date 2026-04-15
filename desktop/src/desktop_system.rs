@@ -818,6 +818,31 @@ impl DesktopSystem {
         }
     }
 
+    fn sync_hover_rect_to_pointer_path(&mut self, pointer_focus: Option<&DesktopTarget>) {
+        let hover_rect = match pointer_focus {
+            Some(DesktopTarget::Instance(instance_id)) => {
+                self.rect(&DesktopTarget::Instance(*instance_id))
+            }
+            Some(DesktopTarget::View(view_id)) => match self
+                .aggregates
+                .hierarchy
+                .parent(&DesktopTarget::View(*view_id))
+            {
+                Some(DesktopTarget::Instance(instance_id)) => {
+                    self.rect(&DesktopTarget::Instance(*instance_id))
+                }
+                Some(_) => panic!("Internal error: View parent is not an instance"),
+                None => None,
+            },
+            Some(DesktopTarget::Launcher(launcher_id)) => {
+                self.rect(&DesktopTarget::Launcher(*launcher_id))
+            }
+            _ => None,
+        };
+
+        self.aggregates.project_presenter.set_hover_rect(hover_rect);
+    }
+
     fn focus_target_launcher_for_layout(
         &self,
         target: Option<&DesktopTarget>,
@@ -898,6 +923,10 @@ impl DesktopSystem {
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
+        if let Some(pointer_focus) = transitions.pointer_focus_target() {
+            self.sync_hover_rect_to_pointer_path(pointer_focus);
+        }
+
         let mut cmd = Cmd::None;
 
         let keyboard_modifiers = self.event_router.keyboard_modifiers();
@@ -956,25 +985,12 @@ impl DesktopSystem {
             }
             DesktopTarget::Group(..) => {}
             DesktopTarget::Launcher(launcher_id) => {
-                // Architecture: Shouldn't we move the hovering into the launcher presenters or even into the system?
-                match event {
-                    ViewEvent::CursorEntered => {
-                        let launcher = &self.aggregates.launchers[&launcher_id];
-                        let rect = launcher.rect.final_value();
-                        self.aggregates.project_presenter.show_hover_rect(rect);
-                    }
-                    ViewEvent::CursorLeft => {
-                        self.aggregates.project_presenter.hide_hover_rect();
-                    }
-                    event => {
-                        let launcher = self
-                            .aggregates
-                            .launchers
-                            .get_mut(&launcher_id)
-                            .expect("Launcher not found");
-                        return launcher.process(event);
-                    }
-                }
+                let launcher = self
+                    .aggregates
+                    .launchers
+                    .get_mut(&launcher_id)
+                    .expect("Launcher not found");
+                return launcher.process(event);
             }
         }
 
