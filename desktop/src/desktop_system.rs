@@ -8,10 +8,15 @@
 //! The goal here is to remove as much as possible from the specific instances into separate systems
 //! and aggregates that are event driven.
 
+mod commands;
+mod focus_path_ext;
+mod hierarchy_focus;
+mod layout_algorithm;
+mod navigation;
+
 use anyhow::{Result, anyhow, bail};
 use derive_more::{Debug, From};
 use log::warn;
-use std::cmp::max;
 use std::collections::HashSet;
 use std::time::Duration;
 use winit::event::ElementState;
@@ -19,17 +24,18 @@ use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{
-    CreationMode, InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent, ViewId, ViewRole,
+    CreationMode, InstanceId, ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
 use massive_input::Event;
-use massive_layout::{
-    IncrementalLayouter, LayoutAlgorithm, LayoutAxis, LayoutTopology, Offset, Rect as LayoutRect,
-    Size,
-};
+use massive_layout::{IncrementalLayouter, LayoutTopology, Rect as LayoutRect};
 use massive_renderer::RenderGeometry;
-use massive_scene::{Location, Object, ToCamera, Transform};
+use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
+
+pub use commands::{DesktopCommand, ProjectCommand};
+use layout_algorithm::DesktopLayoutAlgorithm;
+pub(crate) use layout_algorithm::place_container_children;
 
 use crate::event_router::EventTransitions;
 use crate::event_sourcing::{self, Transaction};
@@ -39,16 +45,13 @@ use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{
     InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
 };
-use crate::layout::{LayoutSpec, ToContainer};
-use crate::navigation::ordered_rects_in_direction;
 use crate::projects::{
-    GroupId, GroupPresenter, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
-    LauncherInstanceLayoutInput, LauncherInstanceLayoutTarget, LauncherPresenter, ProjectPresenter,
+    GroupId, GroupPresenter, LaunchProfileId, LauncherInstanceLayoutInput,
+    LauncherInstanceLayoutTarget, LauncherPresenter, ProjectPresenter,
 };
 use crate::send_transition::{SendTransition, convert_to_send_transitions};
-use crate::{DesktopEnvironment, DirectionBias, EventRouter, Map, OrderedHierarchy, navigation};
+use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
-const SECTION_SPACING: u32 = 20;
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
 const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 /// This enum specifies a unique target inside the navigation and layout history.
@@ -64,45 +67,6 @@ pub enum DesktopTarget {
 }
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
-
-/// The commands the desktop system can execute.
-#[derive(Debug)]
-pub enum DesktopCommand {
-    Project(ProjectCommand),
-    StartInstance {
-        launcher: LaunchProfileId,
-        parameters: InstanceParameters,
-    },
-    StopInstance(InstanceId),
-    PresentInstance {
-        launcher: LaunchProfileId,
-        instance: InstanceId,
-    },
-    PresentView(InstanceId, ViewCreationInfo),
-    HideView(ViewPath),
-    ZoomOut,
-    Navigate(navigation::Direction),
-}
-
-#[derive(Debug)]
-pub enum ProjectCommand {
-    // Project Configuration
-    AddLaunchGroup {
-        parent: Option<GroupId>,
-        id: GroupId,
-        properties: LaunchGroupProperties,
-    },
-    #[allow(unused)]
-    RemoveLaunchGroup(GroupId),
-    AddLauncher {
-        group: GroupId,
-        id: LaunchProfileId,
-        profile: LaunchProfile,
-    },
-    #[allow(unused)]
-    RemoveLauncher(LaunchProfileId),
-    SetStartupProfile(Option<LaunchProfileId>),
-}
 
 pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
@@ -933,10 +897,10 @@ impl DesktopSystem {
             }
 
             if let Some(direction) = match &key_event.logical_key {
-                Key::Named(NamedKey::ArrowLeft) => Some(navigation::Direction::Left),
-                Key::Named(NamedKey::ArrowRight) => Some(navigation::Direction::Right),
-                Key::Named(NamedKey::ArrowUp) => Some(navigation::Direction::Up),
-                Key::Named(NamedKey::ArrowDown) => Some(navigation::Direction::Down),
+                Key::Named(NamedKey::ArrowLeft) => Some(crate::navigation::Direction::Left),
+                Key::Named(NamedKey::ArrowRight) => Some(crate::navigation::Direction::Right),
+                Key::Named(NamedKey::ArrowUp) => Some(crate::navigation::Direction::Up),
+                Key::Named(NamedKey::ArrowDown) => Some(crate::navigation::Direction::Down),
                 _ => None,
             } {
                 return Ok(DesktopCommand::Navigate(direction).into());
@@ -1031,80 +995,6 @@ impl DesktopSystem {
         Ok(Cmd::None)
     }
 
-    // Camera
-
-    pub fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
-        match focus {
-            // Desktop and TopBand are constrained to their size.
-            DesktopTarget::Desktop => self
-                .rect(&DesktopTarget::Desktop)
-                .map(|rect| rect.to_camera()),
-
-            DesktopTarget::Group(group) => {
-                Some(self.aggregates.groups[group].rect.center().to_camera())
-            }
-            DesktopTarget::Launcher(launcher) => Some(
-                self.aggregates.launchers[launcher]
-                    .rect
-                    .final_value()
-                    .center()
-                    .to_camera(),
-            ),
-
-            DesktopTarget::Instance(instance_id) => {
-                let instance = &self.aggregates.instances[instance_id];
-                let transform: Transform = instance
-                    .layout_transform_animation
-                    .final_value()
-                    .translate
-                    .into();
-                Some(transform.to_camera())
-            }
-            DesktopTarget::View(_) => {
-                // Forward this to the parent (which must be a ::Instance).
-                self.camera_for_focus(self.aggregates.hierarchy.parent(focus)?)
-            }
-        }
-    }
-
-    fn locate_navigation_candidate(
-        &self,
-        from: &DesktopTarget,
-        direction: navigation::Direction,
-    ) -> Option<DesktopTarget> {
-        if !matches!(
-            from,
-            DesktopTarget::Launcher(..) | DesktopTarget::Instance(..) | DesktopTarget::View(..),
-        ) {
-            return None;
-        }
-
-        let from_rect = self.rect(from)?;
-        let launcher_targets_without_instances = self
-            .aggregates
-            .launchers
-            .keys()
-            .map(|l| DesktopTarget::Launcher(*l))
-            .filter(|t| self.aggregates.hierarchy.get_nested(t).is_empty());
-        let all_instances_or_views = self.aggregates.instances.keys().map(|instance| {
-            if let Some(view) = self.aggregates.view_of_instance(*instance) {
-                DesktopTarget::View(view)
-            } else {
-                DesktopTarget::Instance(*instance)
-            }
-        });
-        let navigation_candidates = launcher_targets_without_instances
-            .chain(all_instances_or_views)
-            .filter_map(|target| self.rect(&target).map(|rect| (target, rect)));
-
-        let ordered =
-            ordered_rects_in_direction(from_rect.center(), direction, navigation_candidates);
-        if let Some((nearest, _rect)) = ordered.first() {
-            return Some(nearest.clone());
-        }
-        None
-    }
-
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
     pub fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
@@ -1157,223 +1047,6 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
 
     fn parent_of(&self, id: &DesktopTarget) -> Option<DesktopTarget> {
         self.parent(id).cloned()
-    }
-}
-
-impl OrderedHierarchy<DesktopTarget> {
-    fn resolve_replacement_focus_for_stopping_instance(
-        &self,
-        focused: Option<&DesktopTarget>,
-        instance: InstanceId,
-    ) -> Option<DesktopTarget> {
-        let instance_target = DesktopTarget::Instance(instance);
-        if !self.path_contains_target(focused, &instance_target) {
-            return None;
-        }
-
-        if let Some(neighbor) = self.resolve_neighbor_for_stopping_instance(focused, instance) {
-            return Some(self.resolve_neighbor_focus_target(&neighbor));
-        }
-
-        Some(
-            self.parent(&instance_target)
-                .expect("Internal error: instance has no parent")
-                .clone(),
-        )
-    }
-
-    fn resolve_neighbor_for_stopping_instance(
-        &self,
-        focused: Option<&DesktopTarget>,
-        instance: InstanceId,
-    ) -> Option<DesktopTarget> {
-        let focused_path = self.resolve_path(focused);
-        if focused_path.instance() != Some(instance) {
-            return None;
-        }
-
-        let instance_target = DesktopTarget::Instance(instance);
-        self.entry(&instance_target)
-            .neighbor(DirectionBias::Begin)
-            .cloned()
-    }
-
-    fn resolve_neighbor_focus_target(&self, neighbor: &DesktopTarget) -> DesktopTarget {
-        match neighbor {
-            DesktopTarget::Instance(_) => {
-                if let [DesktopTarget::View(view)] = self.get_nested(neighbor) {
-                    DesktopTarget::View(*view)
-                } else {
-                    neighbor.clone()
-                }
-            }
-            _ => neighbor.clone(),
-        }
-    }
-
-    fn path_contains_target(
-        &self,
-        focused: Option<&DesktopTarget>,
-        target: &DesktopTarget,
-    ) -> bool {
-        self.resolve_path(focused).contains(target)
-    }
-}
-
-struct DesktopLayoutAlgorithm<'a> {
-    aggregates: &'a Aggregates,
-    default_panel_size: SizePx,
-}
-
-impl DesktopLayoutAlgorithm<'_> {
-    fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
-        match target {
-            DesktopTarget::Desktop => LayoutAxis::VERTICAL
-                .to_container()
-                .spacing(SECTION_SPACING)
-                .into(),
-            DesktopTarget::Group(group_id) => self.aggregates.groups[group_id]
-                .properties
-                .layout
-                .axis()
-                .to_container()
-                .spacing(10)
-                .padding((10, 10))
-                .into(),
-            DesktopTarget::Launcher(_) => {
-                if self.aggregates.hierarchy.get_nested(target).is_empty() {
-                    self.default_panel_size.into()
-                } else {
-                    LayoutAxis::HORIZONTAL.into()
-                }
-            }
-            DesktopTarget::Instance(instance) => {
-                let instance = &self.aggregates.instances[instance];
-                if !instance.presents_primary_view() {
-                    self.default_panel_size.into()
-                } else {
-                    LayoutAxis::HORIZONTAL.into()
-                }
-            }
-            DesktopTarget::View(_) => self.default_panel_size.into(),
-        }
-    }
-}
-
-pub(crate) fn place_container_children(
-    axis: LayoutAxis,
-    spacing: i32,
-    mut offset: Offset<2>,
-    child_sizes: &[Size<2>],
-) -> Vec<Offset<2>> {
-    let axis_index: usize = axis.into();
-    let mut child_offsets = Vec::with_capacity(child_sizes.len());
-
-    for (index, &child_size) in child_sizes.iter().enumerate() {
-        if index > 0 {
-            offset[axis_index] += spacing;
-        }
-        child_offsets.push(offset);
-        offset[axis_index] += child_size[axis_index] as i32;
-    }
-
-    child_offsets
-}
-
-impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
-    fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
-        if let DesktopTarget::Launcher(launcher_id) = id
-            && let Some(size) =
-                self.aggregates.launchers[launcher_id].panel_measure_size(self.default_panel_size)
-        {
-            return size;
-        }
-
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(size) => size.into(),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let axis = *axis;
-                let mut inner_size = Size::EMPTY;
-
-                for (index, &child_size) in child_sizes.iter().enumerate() {
-                    for dim in 0..2 {
-                        if dim == axis {
-                            inner_size[dim] += child_size[dim];
-                            if index > 0 {
-                                inner_size[dim] += spacing;
-                            }
-                        } else {
-                            inner_size[dim] = max(inner_size[dim], child_size[dim]);
-                        }
-                    }
-                }
-
-                padding.leading + inner_size + padding.trailing
-            }
-        }
-    }
-
-    fn place_children(
-        &self,
-        id: &DesktopTarget,
-        parent_offset: Offset<2>,
-        child_sizes: &[Size<2>],
-    ) -> Vec<Offset<2>> {
-        if let DesktopTarget::Launcher(launcher_id) = id
-            && let Some(offsets) = self.aggregates.launchers[launcher_id].panel_child_offsets(
-                parent_offset,
-                child_sizes,
-                self.default_panel_size,
-            )
-        {
-            return offsets;
-        }
-
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(_) => Vec::new(),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let offset = parent_offset + Offset::from(padding.leading);
-
-                place_container_children(axis, spacing as i32, offset, child_sizes)
-            }
-        }
-    }
-}
-
-// Path utilities
-
-impl DesktopFocusPath {
-    pub fn instance(&self) -> Option<InstanceId> {
-        self.iter().rev().find_map(|t| match t {
-            DesktopTarget::Instance(id) => Some(*id),
-            _ => None,
-        })
-    }
-
-    /// Is this or a parent something that can be added new instances to?
-    pub fn instance_parent(&self) -> Option<DesktopFocusPath> {
-        self.iter()
-            .enumerate()
-            .rev()
-            .find_map(|(i, t)| match t {
-                DesktopTarget::Desktop => None,
-                DesktopTarget::Group(..) => None,
-                DesktopTarget::Launcher(..) => Some(i + 1),
-                DesktopTarget::Instance(..) => Some(i),
-                DesktopTarget::View(..) => {
-                    assert!(matches!(self[i - 1], DesktopTarget::Instance(..)));
-                    Some(i - 1)
-                }
-            })
-            .map(|i| self.iter().take(i).cloned().collect::<Vec<_>>().into())
     }
 }
 

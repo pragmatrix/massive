@@ -11,6 +11,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Comment only to explain non-obvious reasoning or intent.
 - Order functions high-level first, utilities last; order types by importance (public API first, private helpers last).
 - Prefer directory submodules with `mod.rs` over sibling `foo.rs` submodule files when introducing new submodule trees.
+- When splitting large modules, extract low-coupling impl blocks first and preserve existing external imports via local re-exports in the parent module.
 
 ## Rust
 - Prefer `derive_more` traits (Debug, Deref) over manual implementations.
