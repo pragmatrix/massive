@@ -7,8 +7,8 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::{
-    navigation::Direction, Cmd, DesktopCommand, DesktopSystem, DesktopTarget,
-    POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
+    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, POINTER_FEEDBACK_REENABLE_MAX_DURATION,
+    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX, navigation::Direction,
 };
 use crate::focus_path::PathResolver;
 use crate::hit_tester::AggregateHitTester;
