@@ -158,8 +158,10 @@ impl DesktopSystem {
         transaction: impl Into<Transaction<DesktopCommand>>,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-        effects_mode: Option<TransactionEffectsMode>,
+        effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
+        let effects_mode = effects_mode.into();
+
         for command in transaction.into() {
             self.apply_command(command, scene, instance_manager)?;
         }

@@ -127,7 +127,7 @@ impl Desktop {
             desktop_groups_transaction + project_setup_transaction + primary_view_transaction,
             &scene,
             &mut instance_manager,
-            Some(TransactionEffectsMode::Setup),
+            TransactionEffectsMode::Setup,
         )?;
 
         Ok(Self {
@@ -175,7 +175,7 @@ impl Desktop {
                                         &self.scene,
                                         &mut self.instance_manager,
                                         if input_event.any_buttons_pressed() {
-                                            Some(TransactionEffectsMode::CameraLocked)
+                                            TransactionEffectsMode::CameraLocked.into()
                                         } else {
                                             None
                                         },
