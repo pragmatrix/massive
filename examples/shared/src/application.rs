@@ -142,17 +142,15 @@ impl Application {
             } => {
                 self.rotation = VectorPx::default();
             }
-            WindowEvent::ModifiersChanged(modifiers) => {
-                if self.modifiers != *modifiers {
-                    // If there is an ongoing move and modifiers change, reset origins.
-                    // if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
-                    //     mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
-                    //     mouse_pressed.translation_origin = self.translation;
-                    //     mouse_pressed.rotation_origin = self.rotation;
-                    // }
+            WindowEvent::ModifiersChanged(modifiers) if self.modifiers != *modifiers => {
+                // If there is an ongoing move and modifiers change, reset origins.
+                // if let Some(ref mut mouse_pressed) = self.left_mouse_button_pressed {
+                //     mouse_pressed.origin = self.positions[&mouse_pressed.device_id];
+                //     mouse_pressed.translation_origin = self.translation;
+                //     mouse_pressed.rotation_origin = self.rotation;
+                // }
 
-                    self.modifiers = *modifiers
-                }
+                self.modifiers = *modifiers
             }
             WindowEvent::KeyboardInput {
                 event:

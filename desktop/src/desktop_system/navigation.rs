@@ -16,7 +16,7 @@ pub enum Direction {
 impl Direction {
     // Given a 45 degree code starting from center in the direction, return true if the other point
     // is visible. Also returns false if it's the same point.
-    pub fn is_visible(&self, center: Point, other: Point) -> bool {
+    fn is_visible(&self, center: Point, other: Point) -> bool {
         let dx = other.x - center.x;
         let dy = other.y - center.y;
 
@@ -30,7 +30,7 @@ impl Direction {
 }
 
 impl DesktopSystem {
-    pub fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
+    pub(super) fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
         match focus {
             DesktopTarget::Desktop => self
                 .rect(&DesktopTarget::Desktop)

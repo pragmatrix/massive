@@ -163,7 +163,7 @@ impl Desktop {
                                     &self.instance_manager,
                                     self.renderer.geometry(),
                                 )?;
-                                let cursor_visible = self.system.cursor_visible();
+                                let cursor_visible = self.system.is_cursor_visible();
                                 if self.cursor_visible != cursor_visible {
                                     self.window.set_cursor_visible(cursor_visible);
                                     self.cursor_visible = cursor_visible;

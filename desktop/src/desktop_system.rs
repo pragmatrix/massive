@@ -180,13 +180,13 @@ impl DesktopSystem {
         self.camera.value()
     }
 
-    pub fn cursor_visible(&self) -> bool {
+    pub fn is_cursor_visible(&self) -> bool {
         self.pointer_feedback_enabled
     }
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    pub fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
