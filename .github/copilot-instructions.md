@@ -41,6 +41,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When multiple transient affordances represent the same interaction mode, keep them behind one shared state instead of parallel flags.
 - Cache repeated window state requests at the caller when the underlying platform mutation may hop to the main thread or otherwise be non-trivial.
 - On macOS, prefer native menu selector wiring for commands that users can remap in App Shortcuts, instead of hardcoded key-chord matching.
+- When refactoring eventful flows, extract pure target/decision helpers first and keep side-effect dispatch ordering unchanged until tests lock transition semantics.
 
 ## Testing
 - Don't add tests unless explicitly asked.
