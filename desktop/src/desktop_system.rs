@@ -9,27 +9,24 @@
 //! and aggregates that are event driven.
 
 mod commands;
+mod event_forwarding;
+mod focus_input;
 mod focus_path_ext;
 mod hierarchy_focus;
 mod layout_algorithm;
 mod navigation;
+mod presentation;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::{Result, anyhow};
 use derive_more::{Debug, From};
 use log::warn;
 use std::collections::HashSet;
 use std::time::Duration;
-use winit::event::ElementState;
-use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{
-    CreationMode, InstanceId, ViewCreationInfo, ViewEvent, ViewId, ViewRole,
-};
+use massive_applications::{CreationMode, InstanceId, ViewId, ViewRole};
 use massive_geometry::{PixelCamera, PointPx, Rect, RectPx, SizePx};
-use massive_input::Event;
 use massive_layout::{IncrementalLayouter, LayoutTopology, Rect as LayoutRect};
-use massive_renderer::RenderGeometry;
 use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
 
@@ -37,19 +34,14 @@ pub use commands::{DesktopCommand, ProjectCommand};
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub(crate) use layout_algorithm::place_container_children;
 
-use crate::event_router::EventTransitions;
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::{FocusPath, PathResolver};
-use crate::hit_tester::AggregateHitTester;
-use crate::instance_manager::{InstanceManager, ViewPath};
-use crate::instance_presenter::{
-    InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
-};
+use crate::instance_manager::InstanceManager;
+use crate::instance_presenter::{InstancePresenter, STRUCTURAL_ANIMATION_DURATION};
 use crate::projects::{
     GroupId, GroupPresenter, LaunchProfileId, LauncherInstanceLayoutInput,
     LauncherInstanceLayoutTarget, LauncherPresenter, ProjectPresenter,
 };
-use crate::send_transition::{SendTransition, convert_to_send_transitions};
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
@@ -408,286 +400,6 @@ impl DesktopSystem {
         self.pointer_feedback_enabled
     }
 
-    pub fn process_input_event(
-        &mut self,
-        event: &Event<ViewEvent>,
-        instance_manager: &InstanceManager,
-        render_geometry: &RenderGeometry,
-    ) -> Result<Cmd> {
-        let keyboard_cmd = self.preprocess_keyboard_input(event)?;
-
-        let cmd = if !keyboard_cmd.is_none() {
-            keyboard_cmd
-        } else {
-            let hit_tester = AggregateHitTester::new(
-                &self.aggregates.hierarchy,
-                &self.layouter,
-                &self.aggregates.launchers,
-                &self.aggregates.instances,
-                render_geometry,
-            );
-
-            let transitions = self.event_router.process(event, &hit_tester)?;
-            if let Some((from, to)) = transitions.keyboard_focus_change() {
-                self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
-            }
-
-            self.forward_event_transitions(transitions, instance_manager)?
-        };
-
-        self.update_pointer_feedback(event);
-
-        Ok(cmd)
-    }
-
-    fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
-        match (self.pointer_feedback_enabled, event.event()) {
-            (
-                true,
-                ViewEvent::KeyboardInput {
-                    event: key_event, ..
-                },
-            ) if key_event.state == ElementState::Pressed && !key_event.repeat => {
-                self.pointer_feedback_enabled = false;
-                self.aggregates.project_presenter.set_hover_rect(None);
-            }
-            (false, ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. }) => {
-                self.pointer_feedback_enabled = true;
-                let pointer_focus = self.event_router.pointer_focus().cloned();
-                self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
-            }
-            (false, ViewEvent::CursorMoved { .. })
-                if event.cursor_has_velocity(
-                    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
-                    POINTER_FEEDBACK_REENABLE_MAX_DURATION,
-                ) =>
-            {
-                self.pointer_feedback_enabled = true;
-                let pointer_focus = self.event_router.pointer_focus().cloned();
-                self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
-            }
-            _ => {}
-        }
-    }
-
-    fn focus(&mut self, target: &DesktopTarget, instance_manager: &InstanceManager) -> Result<Cmd> {
-        // Focus changes can alter launcher layout targets.
-        let transitions = self.event_router.focus(target);
-        if let Some((from, to)) = transitions.keyboard_focus_change() {
-            self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
-        }
-        self.forward_event_transitions(transitions, instance_manager)
-    }
-
-    fn set_keyboard_focus_without_command(
-        &mut self,
-        target: Option<&DesktopTarget>,
-        instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        let transitions = self.event_router.focus(target);
-        if let Some((from, to)) = transitions.keyboard_focus_change() {
-            self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
-        }
-
-        assert!(
-            self.forward_event_transitions(transitions, instance_manager)?
-                .is_none()
-        );
-
-        Ok(())
-    }
-
-    fn unfocus_pointer_if_path_contains(
-        &mut self,
-        target: &DesktopTarget,
-        instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        if self
-            .aggregates
-            .hierarchy
-            .path_contains_target(self.event_router.pointer_focus(), target)
-        {
-            let transitions = self.event_router.unfocus_pointer()?;
-            assert!(
-                self.forward_event_transitions(transitions, instance_manager)?
-                    .is_none()
-            );
-        }
-        Ok(())
-    }
-
-    #[allow(unused)]
-    fn refocus_pointer(
-        &mut self,
-        instance_manager: &InstanceManager,
-        render_geometry: &RenderGeometry,
-    ) -> Result<Cmd> {
-        let transitions = self
-            .event_router
-            .reset_pointer_focus(&AggregateHitTester::new(
-                &self.aggregates.hierarchy,
-                &self.layouter,
-                &self.aggregates.launchers,
-                &self.aggregates.instances,
-                render_geometry,
-            ))?;
-
-        self.forward_event_transitions(transitions, instance_manager)
-    }
-
-    fn present_instance(
-        &mut self,
-        launcher: LaunchProfileId,
-        originating_from: Option<InstanceId>,
-        instance: InstanceId,
-        scene: &Scene,
-    ) -> Result<usize> {
-        let originating_presenter = originating_from
-            .and_then(|originating_from| self.aggregates.instances.get(&originating_from));
-
-        let background_for_instance = self
-            .aggregates
-            .launchers
-            .get(&launcher)
-            .expect("Launcher not found")
-            .should_render_instance_background();
-
-        // Correctness: We animate from 0,0 if no originating exist. Need a position here.
-        let initial_center_translation = originating_presenter
-            .map(|op| op.layout_transform_animation.value().translate)
-            .unwrap_or_default();
-
-        let presenter = InstancePresenter::new(
-            initial_center_translation,
-            background_for_instance,
-            self.aggregates.project_presenter.location.clone(),
-            scene,
-        );
-
-        self.aggregates.instances.insert(instance, presenter)?;
-
-        let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
-        let insertion_pos = if let Some(originating_from) = originating_from {
-            nested
-                .iter()
-                .position(|i| *i == DesktopTarget::Instance(originating_from))
-                .map(|i| i + 1)
-                .unwrap_or(nested.len())
-        } else {
-            0
-        };
-
-        // Inform the launcher to fade out.
-        self.aggregates
-            .launchers
-            .get_mut(&launcher)
-            .expect("Launcher not found")
-            .fade_out();
-
-        Ok(insertion_pos)
-    }
-
-    fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
-        let Some(DesktopTarget::Launcher(launcher)) =
-            self.aggregates.hierarchy.parent(&instance.into()).cloned()
-        else {
-            bail!("Internal error: Launcher not found");
-        };
-
-        self.remove_target(&DesktopTarget::Instance(instance))?;
-        self.aggregates.instances.remove(&instance)?;
-
-        if !self
-            .aggregates
-            .hierarchy
-            .entry(&launcher.into())
-            .has_nested()
-        {
-            self.aggregates
-                .launchers
-                .get_mut(&launcher)
-                .expect("Launcher not found")
-                .fade_in();
-        }
-
-        Ok(())
-    }
-
-    fn present_view(
-        &mut self,
-        instance: InstanceId,
-        view_creation_info: &ViewCreationInfo,
-    ) -> Result<()> {
-        if view_creation_info.role != ViewRole::Primary {
-            todo!("Only primary views are supported yet");
-        }
-
-        let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
-            bail!("Instance not found");
-        };
-
-        if !matches!(
-            instance_presenter.state,
-            InstancePresenterState::WaitingForPrimaryView
-        ) {
-            bail!("Primary view is already presenting");
-        }
-
-        // Architecture: Move this transition in the InstancePresenter
-        //
-        // Feature: Add a alpha animation just for the view.
-        instance_presenter.state = InstancePresenterState::Presenting {
-            view: PrimaryViewPresenter {
-                creation_info: view_creation_info.clone(),
-            },
-        };
-
-        // Add the view to the hierarchy.
-        self.aggregates.hierarchy.add(
-            DesktopTarget::Instance(instance),
-            DesktopTarget::View(view_creation_info.id),
-        )?;
-        self.layouter
-            .mark_reflow_pending(DesktopTarget::Instance(instance));
-
-        Ok(())
-    }
-
-    fn hide_view(&mut self, path: ViewPath) -> Result<()> {
-        let Some(instance_presenter) = self.aggregates.instances.get_mut(&path.instance) else {
-            warn!("Can't hide view: Instance for view not found");
-            // Robustness: Decide if this should return an error.
-            return Ok(());
-        };
-
-        // Architecture: Move this into the InstancePresenter (don't make state pub).
-        match &instance_presenter.state {
-            InstancePresenterState::WaitingForPrimaryView => {
-                bail!(
-                    "A view needs to be hidden, but instance presenter waits for a view with a primary role."
-                )
-            }
-            InstancePresenterState::Presenting { view } => {
-                if view.creation_info.id == path.view {
-                    // Feature: this should initiate a disappearing animation?
-                    instance_presenter.state = InstancePresenterState::Disappearing;
-                } else {
-                    bail!("Invalid view: It's not related to anything we present");
-                }
-            }
-            InstancePresenterState::Disappearing => {
-                // ignored, we are already disappearing.
-            }
-        }
-
-        // Robustness: What about focus?
-
-        // And remove the view.
-        self.remove_target(&DesktopTarget::View(path.view))?;
-
-        Ok(())
-    }
-
     fn apply_layout_changes(
         &mut self,
         changed: Vec<(DesktopTarget, LayoutRect<2>)>,
@@ -814,31 +526,6 @@ impl DesktopSystem {
         }
     }
 
-    fn sync_hover_rect_to_pointer_path(&mut self, pointer_focus: Option<&DesktopTarget>) {
-        let hover_rect = match pointer_focus {
-            Some(DesktopTarget::Instance(instance_id)) => {
-                self.rect(&DesktopTarget::Instance(*instance_id))
-            }
-            Some(DesktopTarget::View(view_id)) => match self
-                .aggregates
-                .hierarchy
-                .parent(&DesktopTarget::View(*view_id))
-            {
-                Some(DesktopTarget::Instance(instance_id)) => {
-                    self.rect(&DesktopTarget::Instance(*instance_id))
-                }
-                Some(_) => panic!("Internal error: View parent is not an instance"),
-                None => None,
-            },
-            Some(DesktopTarget::Launcher(launcher_id)) => {
-                self.rect(&DesktopTarget::Launcher(*launcher_id))
-            }
-            _ => None,
-        };
-
-        self.aggregates.project_presenter.set_hover_rect(hover_rect);
-    }
-
     fn focus_target_launcher_for_layout(
         &self,
         target: Option<&DesktopTarget>,
@@ -859,140 +546,6 @@ impl DesktopSystem {
             .get(&launcher_id)
             .filter(|launcher| launcher.should_relayout_on_focus_change(instance_count))
             .map(|_| launcher_id)
-    }
-
-    fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
-        // Catch CMD+t and CMD+w if an instance has the keyboard focus.
-
-        if let ViewEvent::KeyboardInput {
-            event: key_event, ..
-        } = event.event()
-            && key_event.state == ElementState::Pressed
-            && !key_event.repeat
-            && event.device_states().is_command()
-        {
-            let focused = self.event_router.focused();
-            let focused = self.aggregates.hierarchy.resolve_path(focused);
-
-            // Simplify: Instance should probably return the launcher, too now.
-            if let Some(instance) = focused.instance()
-                && let Some(DesktopTarget::Launcher(launcher)) =
-                    self.aggregates.hierarchy.parent(&instance.into())
-            {
-                match &key_event.logical_key {
-                    Key::Character(c) if c.as_str() == "t" => {
-                        return Ok(DesktopCommand::StartInstance {
-                            launcher: *launcher,
-                            parameters: Default::default(),
-                        }
-                        .into());
-                    }
-                    Key::Character(c) if c.as_str() == "w" => {
-                        // Architecture: Shouldn't this just end the current view, and let the
-                        // instance decide then?
-                        return Ok(DesktopCommand::StopInstance(instance).into());
-                    }
-                    _ => {}
-                }
-            }
-
-            if let Some(direction) = match &key_event.logical_key {
-                Key::Named(NamedKey::ArrowLeft) => Some(crate::navigation::Direction::Left),
-                Key::Named(NamedKey::ArrowRight) => Some(crate::navigation::Direction::Right),
-                Key::Named(NamedKey::ArrowUp) => Some(crate::navigation::Direction::Up),
-                Key::Named(NamedKey::ArrowDown) => Some(crate::navigation::Direction::Down),
-                _ => None,
-            } {
-                return Ok(DesktopCommand::Navigate(direction).into());
-            }
-
-            if let Key::Named(NamedKey::Escape) = &key_event.logical_key {
-                return Ok(DesktopCommand::ZoomOut.into());
-            }
-        }
-
-        Ok(Cmd::None)
-    }
-
-    fn forward_event_transitions(
-        &mut self,
-        transitions: EventTransitions<DesktopTarget>,
-        instance_manager: &InstanceManager,
-    ) -> Result<Cmd> {
-        if self.pointer_feedback_enabled
-            && let Some(pointer_focus) = transitions.pointer_focus_target()
-        {
-            self.sync_hover_rect_to_pointer_path(pointer_focus);
-        }
-
-        let mut cmd = Cmd::None;
-
-        let keyboard_modifiers = self.event_router.keyboard_modifiers();
-
-        let send_transitions = convert_to_send_transitions(
-            transitions,
-            keyboard_modifiers,
-            &self.aggregates.hierarchy,
-        );
-
-        // Robustness: While we need to forward all transitions we currently process only one intent.
-        for transition in send_transitions {
-            cmd += self.forward_event_transition(transition, instance_manager)?;
-        }
-
-        Ok(cmd)
-    }
-
-    /// Forward event transitions to the appropriate handler based on the target type.
-    fn forward_event_transition(
-        &mut self,
-        SendTransition(target, event): SendTransition<DesktopTarget>,
-        instance_manager: &InstanceManager,
-    ) -> Result<Cmd> {
-        // Route to the appropriate handler based on the last target in the path
-        match target {
-            DesktopTarget::Desktop => {}
-            DesktopTarget::Instance(..) => {}
-            DesktopTarget::View(view_id) => {
-                let path = self
-                    .aggregates
-                    .hierarchy
-                    .resolve_path(Some(&view_id.into()));
-                let Some(instance) = path.instance() else {
-                    // This happens when the instance is gone (resolve_path returns only the view, because it puts it by default in the first position).
-                    warn!(
-                        "Instance of view {view_id:?} not found (path: {path:?}), can't deliver event: {event:?}"
-                    );
-                    return Ok(Cmd::None);
-                };
-
-                // Need to translate the event. The view has its own coordinate system.
-                let event = if let Some(rect) = self.rect(&target) {
-                    event.translate(-rect.origin())
-                } else {
-                    // This happens on startup on PresentView, because the layout isn't there yet.
-                    event
-                };
-
-                if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
-                {
-                    // This might happen when an instance ends, but we haven't yet received the
-                    // information.
-                    warn!("Sending view event {event:?} failed with {e}");
-                }
-            }
-            DesktopTarget::Group(..) => {}
-            DesktopTarget::Launcher(launcher_id) => {
-                let launcher = self
-                    .aggregates
-                    .launchers
-                    .get_mut(&launcher_id)
-                    .expect("Launcher not found");
-                return launcher.process(event);
-            }
-        }
-
-        Ok(Cmd::None)
     }
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
