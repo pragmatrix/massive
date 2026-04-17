@@ -89,21 +89,6 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub(super) fn set_keyboard_focus_without_command(
-        &mut self,
-        target: Option<&DesktopTarget>,
-        instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        let transitions = self.event_router.focus(target);
-
-        assert!(
-            self.forward_event_transitions(transitions, instance_manager)?
-                .is_none()
-        );
-
-        Ok(())
-    }
-
     pub(super) fn unfocus_pointer_if_path_contains(
         &mut self,
         target: &DesktopTarget,

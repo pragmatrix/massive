@@ -56,10 +56,7 @@ impl DesktopSystem {
                     );
 
                 if let Some(replacement_focus) = replacement_focus {
-                    self.set_keyboard_focus_without_command(
-                        Some(&replacement_focus),
-                        instance_manager,
-                    )?;
+                    self.focus(&replacement_focus, instance_manager)?;
                 }
 
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
@@ -78,10 +75,11 @@ impl DesktopSystem {
             }
 
             DesktopCommand::PresentInstance { launcher, instance } => {
-                let focused = self.event_router.focused();
-                let focused_path = self.aggregates.hierarchy.resolve_path(focused);
-
-                let originating_from = focused_path.instance();
+                let originating_from = self
+                    .aggregates
+                    .hierarchy
+                    .resolve_path(self.event_router.focused())
+                    .instance();
 
                 let insertion_index =
                     self.present_instance(launcher, originating_from, instance, scene)?;
@@ -98,9 +96,7 @@ impl DesktopSystem {
                     .mark_reflow_pending(DesktopTarget::Launcher(launcher));
 
                 // Focus it.
-                let transitions = self.event_router.focus(&instance_target);
-                let cmd = self.forward_event_transitions(transitions, instance_manager)?;
-                assert!(cmd.is_none());
+                self.focus(&instance_target, instance_manager)?;
                 Ok(())
             }
 
