@@ -1441,7 +1441,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_replacement_focus_for_stopping_instance_returns_none_when_target_not_in_focus_path() {
+    fn resolve_replacement_focus_for_stopping_instance_returns_none_when_target_not_in_focus_path()
+    {
         let first = instance_id();
         let second = instance_id();
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
@@ -1480,10 +1481,16 @@ mod tests {
         let (mut hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         hierarchy
-            .add(DesktopTarget::Instance(first), DesktopTarget::View(first_view))
+            .add(
+                DesktopTarget::Instance(first),
+                DesktopTarget::View(first_view),
+            )
             .unwrap();
         hierarchy
-            .add(DesktopTarget::Instance(second), DesktopTarget::View(second_view))
+            .add(
+                DesktopTarget::Instance(second),
+                DesktopTarget::View(second_view),
+            )
             .unwrap();
 
         let focused = DesktopTarget::View(first_view);
@@ -1499,8 +1506,8 @@ mod tests {
         let (hierarchy, launcher) = hierarchy_with_instances(&[instance]);
 
         let focused = DesktopTarget::Instance(instance);
-        let replacement = hierarchy
-            .resolve_replacement_focus_for_stopping_instance(Some(&focused), instance);
+        let replacement =
+            hierarchy.resolve_replacement_focus_for_stopping_instance(Some(&focused), instance);
 
         assert_eq!(replacement, Some(DesktopTarget::Launcher(launcher)));
     }
@@ -1515,7 +1522,8 @@ mod tests {
             .add(DesktopTarget::Instance(instance), DesktopTarget::View(view))
             .unwrap();
 
-        let focus_target = hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Instance(instance));
+        let focus_target =
+            hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Instance(instance));
         assert_eq!(focus_target, DesktopTarget::View(view));
     }
 
@@ -1524,7 +1532,8 @@ mod tests {
         let instance = instance_id();
         let (hierarchy, _launcher) = hierarchy_with_instances(&[instance]);
 
-        let focus_target = hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Instance(instance));
+        let focus_target =
+            hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Instance(instance));
         assert_eq!(focus_target, DesktopTarget::Instance(instance));
     }
 
@@ -1533,7 +1542,8 @@ mod tests {
         let launcher = launcher_id();
         let hierarchy = OrderedHierarchy::default();
 
-        let focus_target = hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Launcher(launcher));
+        let focus_target =
+            hierarchy.resolve_neighbor_focus_target(&DesktopTarget::Launcher(launcher));
         assert_eq!(focus_target, DesktopTarget::Launcher(launcher));
     }
 }
