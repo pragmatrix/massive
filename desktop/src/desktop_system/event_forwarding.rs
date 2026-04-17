@@ -24,8 +24,11 @@ impl DesktopSystem {
 
         let keyboard_modifiers = self.event_router.keyboard_modifiers();
 
-        let send_transitions =
-            convert_to_send_transitions(transitions, keyboard_modifiers, &self.aggregates.hierarchy);
+        let send_transitions = convert_to_send_transitions(
+            transitions,
+            keyboard_modifiers,
+            &self.aggregates.hierarchy,
+        );
 
         // Robustness: While we need to forward all transitions we currently process only one intent.
         for transition in send_transitions {
