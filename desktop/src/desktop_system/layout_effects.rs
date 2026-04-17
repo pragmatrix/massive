@@ -7,14 +7,20 @@ use massive_applications::InstanceId;
 use massive_geometry::{PointPx, Rect, RectPx};
 use massive_layout::Rect as LayoutRect;
 
-use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget};
+use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::projects::{LaunchProfileId, LauncherInstanceLayoutInput, LauncherInstanceLayoutTarget};
 
 impl DesktopSystem {
     /// Update layout changes and the camera position.
-    pub fn update_effects(&mut self, animate: bool, permit_camera_moves: bool) -> Result<()> {
+    pub fn update_effects(&mut self, mode: Option<TransactionEffectsMode>) -> Result<()> {
+        let (animate, permit_camera_moves) = match mode {
+            Some(TransactionEffectsMode::Setup) => (false, true),
+            Some(TransactionEffectsMode::CameraLocked) => (true, false),
+            None => (true, true),
+        };
+
         // Layout & apply rects.
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,

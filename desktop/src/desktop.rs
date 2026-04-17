@@ -15,7 +15,9 @@ use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
-use crate::desktop_system::{DesktopCommand, DesktopSystem, ProjectCommand};
+use crate::desktop_system::{
+    DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
+};
 use crate::event_sourcing::Transaction;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::projects::{
@@ -125,9 +127,8 @@ impl Desktop {
             desktop_groups_transaction + project_setup_transaction + primary_view_transaction,
             &scene,
             &mut instance_manager,
+            Some(TransactionEffectsMode::Setup),
         )?;
-
-        system.update_effects(false, true)?;
 
         Ok(Self {
             scene,
@@ -169,10 +170,16 @@ impl Desktop {
                                     self.cursor_visible = cursor_visible;
                                 }
                                 self.system
-                                    .transact(cmd, &self.scene, &mut self.instance_manager)?;
-
-                                let allow_camera_movements = !input_event.any_buttons_pressed();
-                                self.system.update_effects(true, allow_camera_movements)?;
+                                    .transact(
+                                        cmd,
+                                        &self.scene,
+                                        &mut self.instance_manager,
+                                        if input_event.any_buttons_pressed() {
+                                            Some(TransactionEffectsMode::CameraLocked)
+                                        } else {
+                                            None
+                                        },
+                                    )?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -190,7 +197,12 @@ impl Desktop {
                     if self.system.is_present(&instance_id) {
                         // Did it end on its own? -> Act as the user ended it.
                         // Robustness: This should probably handled differently.
-                        self.system.transact(DesktopCommand::StopInstance(instance_id), &self.scene, &mut self.instance_manager)?;
+                        self.system.transact(
+                            DesktopCommand::StopInstance(instance_id),
+                            &self.scene,
+                            &mut self.instance_manager,
+                            None,
+                        )?;
                     }
 
                     // Feature: Display the error to the user?
@@ -234,6 +246,7 @@ impl Desktop {
                     DesktopCommand::PresentView(instance, info),
                     &self.scene,
                     &mut self.instance_manager,
+                    None,
                 )?;
             }
             InstanceCommand::DestroyView(id, collector) => {
@@ -241,6 +254,7 @@ impl Desktop {
                     DesktopCommand::HideView((instance, id).into()),
                     &self.scene,
                     &mut self.instance_manager,
+                    None,
                 )?;
                 self.instance_manager.remove_view((instance, id).into());
                 // Feature: Don't push the remaining changes immediately and fade the remaining

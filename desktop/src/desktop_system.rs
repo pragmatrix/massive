@@ -62,6 +62,12 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionEffectsMode {
+    Setup,
+    CameraLocked,
+}
+
 #[derive(Debug)]
 pub struct DesktopSystem {
     env: DesktopEnvironment,
@@ -152,10 +158,13 @@ impl DesktopSystem {
         transaction: impl Into<Transaction<DesktopCommand>>,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
+        effects_mode: Option<TransactionEffectsMode>,
     ) -> Result<()> {
         for command in transaction.into() {
             self.apply_command(command, scene, instance_manager)?;
         }
+
+        self.update_effects(effects_mode)?;
 
         Ok(())
     }
