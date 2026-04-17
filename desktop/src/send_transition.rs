@@ -85,3 +85,98 @@ where
 
     send_transitions
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::OrderedHierarchy;
+
+    fn transition_signature(transitions: Vec<SendTransition<i32>>) -> Vec<(i32, &'static str)> {
+        transitions
+            .into_iter()
+            .map(|SendTransition(target, event)| {
+                let kind = match event {
+                    ViewEvent::Focused(true) => "FocusIn",
+                    ViewEvent::Focused(false) => "FocusOut",
+                    ViewEvent::CursorEntered => "CursorEntered",
+                    ViewEvent::CursorLeft => "CursorLeft",
+                    ViewEvent::ModifiersChanged(_) => "ModifiersChanged",
+                    _ => "Other",
+                };
+                (target, kind)
+            })
+            .collect()
+    }
+
+    fn tree_with_shared_root() -> OrderedHierarchy<i32> {
+        let mut hierarchy = OrderedHierarchy::default();
+        hierarchy.add(1, 2).unwrap();
+        hierarchy.add(2, 3).unwrap();
+        hierarchy.add(1, 4).unwrap();
+        hierarchy.add(4, 5).unwrap();
+        hierarchy
+    }
+
+    #[test]
+    fn keyboard_focus_change_adds_enter_exit_and_modifiers_tail() {
+        let hierarchy = tree_with_shared_root();
+        let transitions = convert_to_send_transitions(
+            [EventTransition::ChangeKeyboardFocus {
+                from: Some(3),
+                to: Some(5),
+            }],
+            Modifiers::default(),
+            &hierarchy,
+        );
+
+        assert_eq!(
+            transition_signature(transitions),
+            vec![
+                (3, "FocusOut"),
+                (2, "FocusOut"),
+                (4, "FocusIn"),
+                (5, "FocusIn"),
+                (5, "ModifiersChanged"),
+            ]
+        );
+    }
+
+    #[test]
+    fn pointer_focus_change_also_includes_modifiers_tail() {
+        let hierarchy = tree_with_shared_root();
+        let transitions = convert_to_send_transitions(
+            [EventTransition::ChangePointerFocus {
+                from: Some(3),
+                to: Some(5),
+            }],
+            Modifiers::default(),
+            &hierarchy,
+        );
+
+        assert_eq!(
+            transition_signature(transitions),
+            vec![
+                (3, "CursorLeft"),
+                (2, "CursorLeft"),
+                (4, "CursorEntered"),
+                (5, "CursorEntered"),
+                (5, "ModifiersChanged"),
+            ]
+        );
+    }
+
+    #[test]
+    fn none_to_none_focus_change_produces_no_transitions() {
+        let hierarchy = tree_with_shared_root();
+        let transitions = convert_to_send_transitions(
+            [EventTransition::ChangeKeyboardFocus {
+                from: None,
+                to: None,
+            }],
+            Modifiers::default(),
+            &hierarchy,
+        );
+
+        assert!(transitions.is_empty());
+    }
+}

@@ -11,7 +11,6 @@ mod hit_tester;
 mod instance_manager;
 mod instance_presenter;
 mod layout;
-mod navigation;
 mod projects;
 mod send_transition;
 

@@ -11,6 +11,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Comment only to explain non-obvious reasoning or intent.
 - Order functions high-level first, utilities last; order types by importance (public API first, private helpers last).
 - Prefer directory submodules with `mod.rs` over sibling `foo.rs` submodule files when introducing new submodule trees.
+- When splitting large modules, extract low-coupling impl blocks first and preserve existing external imports via local re-exports in the parent module.
 
 ## Rust
 - Prefer `derive_more` traits (Debug, Deref) over manual implementations.
@@ -33,7 +34,9 @@ Update it whenever you learn something new about the project's patterns, convent
 - For transient UI indicators (hover/focus highlights), derive visibility/target from current resolved state rather than only from enter/exit edge events.
 - For context-specific behavior, prefer targeted follow-up evaluation over broad global rule changes that affect unrelated paths.
 - When a generic pass applies fallback state, recompute context-specific state immediately afterward for impacted entities.
+- For visual side effects derived from state transitions, prefer computing them in the centralized effects/update phase using previous/current state snapshots instead of duplicating eager updates across input and command paths.
 - Keep invariant gating at a single layer where practical; avoid repeating identical mode/eligibility checks across caller and callee.
+- When an operation must not emit follow-up commands, model it as `Result<()>` and enforce the invariant at the forwarding boundary.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
@@ -41,6 +44,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When multiple transient affordances represent the same interaction mode, keep them behind one shared state instead of parallel flags.
 - Cache repeated window state requests at the caller when the underlying platform mutation may hop to the main thread or otherwise be non-trivial.
 - On macOS, prefer native menu selector wiring for commands that users can remap in App Shortcuts, instead of hardcoded key-chord matching.
+- When refactoring eventful flows, extract pure target/decision helpers first and keep side-effect dispatch ordering unchanged until tests lock transition semantics.
 
 ## Testing
 - Don't add tests unless explicitly asked.
