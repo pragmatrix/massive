@@ -2,8 +2,8 @@ use derive_more::Debug;
 
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 
+use super::navigation::Direction;
 use crate::instance_manager::ViewPath;
-use crate::navigation;
 use crate::projects::{LaunchGroupProperties, LaunchProfile, LaunchProfileId};
 
 /// The commands the desktop system can execute.
@@ -22,7 +22,7 @@ pub enum DesktopCommand {
     PresentView(InstanceId, ViewCreationInfo),
     HideView(ViewPath),
     ZoomOut,
-    Navigate(navigation::Direction),
+    Navigate(Direction),
 }
 
 #[derive(Debug)]

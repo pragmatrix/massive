@@ -7,8 +7,8 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::{
-    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, POINTER_FEEDBACK_REENABLE_MAX_DURATION,
-    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
+    navigation::Direction, Cmd, DesktopCommand, DesktopSystem, DesktopTarget,
+    POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
 };
 use crate::focus_path::PathResolver;
 use crate::hit_tester::AggregateHitTester;
@@ -182,10 +182,10 @@ impl DesktopSystem {
             }
 
             if let Some(direction) = match &key_event.logical_key {
-                Key::Named(NamedKey::ArrowLeft) => Some(crate::navigation::Direction::Left),
-                Key::Named(NamedKey::ArrowRight) => Some(crate::navigation::Direction::Right),
-                Key::Named(NamedKey::ArrowUp) => Some(crate::navigation::Direction::Up),
-                Key::Named(NamedKey::ArrowDown) => Some(crate::navigation::Direction::Down),
+                Key::Named(NamedKey::ArrowLeft) => Some(Direction::Left),
+                Key::Named(NamedKey::ArrowRight) => Some(Direction::Right),
+                Key::Named(NamedKey::ArrowUp) => Some(Direction::Up),
+                Key::Named(NamedKey::ArrowDown) => Some(Direction::Down),
                 _ => None,
             } {
                 return Ok(DesktopCommand::Navigate(direction).into());
