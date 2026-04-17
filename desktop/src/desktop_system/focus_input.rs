@@ -35,10 +35,6 @@ impl DesktopSystem {
             );
 
             let transitions = self.event_router.process(event, &hit_tester)?;
-            if let Some((from, to)) = transitions.keyboard_focus_change() {
-                self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
-            }
-
             self.forward_event_transitions(transitions, instance_manager)?
         };
 
@@ -82,11 +78,7 @@ impl DesktopSystem {
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
-        // Focus changes can alter launcher layout targets.
         let transitions = self.event_router.focus(target);
-        if let Some((from, to)) = transitions.keyboard_focus_change() {
-            self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
-        }
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(
@@ -103,9 +95,6 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         let transitions = self.event_router.focus(target);
-        if let Some((from, to)) = transitions.keyboard_focus_change() {
-            self.apply_launcher_layout_for_focus_change(from.cloned(), to.cloned(), true);
-        }
 
         assert!(
             self.forward_event_transitions(transitions, instance_manager)?

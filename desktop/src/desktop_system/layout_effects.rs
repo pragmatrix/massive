@@ -32,6 +32,11 @@ impl DesktopSystem {
             .changed;
         self.apply_layout_changes(changed, animate);
 
+        let from_focus = self.last_effects_focus.take();
+        let to_focus = self.event_router.focused().cloned();
+        self.apply_launcher_layout_for_focus_change(from_focus, to_focus.clone(), animate);
+        self.last_effects_focus = to_focus;
+
         // Camera
 
         if permit_camera_moves && let Some(focused) = self.event_router.focused() {
@@ -152,6 +157,17 @@ impl DesktopSystem {
         }
     }
 
+    /// Recomputes instance layout transforms for launchers impacted by a keyboard focus change.
+    ///
+    /// This does not change panel geometry; it only updates per-instance layout targets
+    /// (for example visor cylinder yaw/translation) by rerunning
+    /// [`Self::apply_launcher_instance_layout`] for affected launchers.
+    ///
+    /// Behavior:
+    /// - If `from == to`, this is a no-op.
+    /// - Only launchers that own either the old or new focus target are considered.
+    /// - A launcher is updated only when `should_relayout_on_focus_change` says its current
+    ///   mode/instance-count requires focus-driven relayout.
     pub(super) fn apply_launcher_layout_for_focus_change(
         &mut self,
         from: Option<DesktopTarget>,
