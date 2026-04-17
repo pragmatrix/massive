@@ -113,9 +113,7 @@ impl DesktopSystem {
                 if matches!(focused, Some(DesktopTarget::Instance(i)) if *i == instance)
                     && creation_info.role == ViewRole::Primary
                 {
-                    let cmd =
-                        self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
-                    assert!(cmd.is_none())
+                    self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
                 }
 
                 Ok(())
@@ -130,7 +128,7 @@ impl DesktopSystem {
                 if let Some(focused) = self.event_router.focused()
                     && let Some(parent) = self.aggregates.hierarchy.parent(focused)
                 {
-                    assert!(self.focus(&parent.clone(), instance_manager)?.is_none());
+                    self.focus(&parent.clone(), instance_manager)?;
                 }
                 Ok(())
             }
@@ -138,7 +136,7 @@ impl DesktopSystem {
                 if let Some(focused) = self.event_router.focused()
                     && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
                 {
-                    assert!(self.focus(&candidate, instance_manager)?.is_none());
+                    self.focus(&candidate, instance_manager)?;
                 }
                 Ok(())
             }
