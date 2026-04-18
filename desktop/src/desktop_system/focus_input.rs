@@ -52,12 +52,9 @@ impl DesktopSystem {
                 },
             ) if key_event.state == ElementState::Pressed && !key_event.repeat => {
                 self.pointer_feedback_enabled = false;
-                self.aggregates.project_presenter.set_hover_rect(None);
             }
             (false, ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. }) => {
                 self.pointer_feedback_enabled = true;
-                let pointer_focus = self.event_router.pointer_focus().cloned();
-                self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
             }
             (false, ViewEvent::CursorMoved { .. })
                 if event.cursor_has_velocity(
@@ -66,8 +63,6 @@ impl DesktopSystem {
                 ) =>
             {
                 self.pointer_feedback_enabled = true;
-                let pointer_focus = self.event_router.pointer_focus().cloned();
-                self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
             }
             _ => {}
         }

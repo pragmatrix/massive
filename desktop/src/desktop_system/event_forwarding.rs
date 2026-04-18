@@ -14,12 +14,6 @@ impl DesktopSystem {
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
-        if self.pointer_feedback_enabled
-            && let Some(pointer_focus) = transitions.pointer_focus_target()
-        {
-            self.sync_hover_rect_to_pointer_path(pointer_focus);
-        }
-
         let mut cmd = Cmd::None;
 
         let keyboard_modifiers = self.event_router.keyboard_modifiers();
@@ -88,33 +82,5 @@ impl DesktopSystem {
         }
 
         Ok(Cmd::None)
-    }
-
-    pub(super) fn sync_hover_rect_to_pointer_path(
-        &mut self,
-        pointer_focus: Option<&DesktopTarget>,
-    ) {
-        let hover_rect = match pointer_focus {
-            Some(DesktopTarget::Instance(instance_id)) => {
-                self.rect(&DesktopTarget::Instance(*instance_id))
-            }
-            Some(DesktopTarget::View(view_id)) => match self
-                .aggregates
-                .hierarchy
-                .parent(&DesktopTarget::View(*view_id))
-            {
-                Some(DesktopTarget::Instance(instance_id)) => {
-                    self.rect(&DesktopTarget::Instance(*instance_id))
-                }
-                Some(_) => panic!("Internal error: View parent is not an instance"),
-                None => None,
-            },
-            Some(DesktopTarget::Launcher(launcher_id)) => {
-                self.rect(&DesktopTarget::Launcher(*launcher_id))
-            }
-            _ => None,
-        };
-
-        self.aggregates.project_presenter.set_hover_rect(hover_rect);
     }
 }

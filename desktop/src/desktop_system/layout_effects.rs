@@ -54,6 +54,15 @@ impl DesktopSystem {
             }
         }
 
+        // Hover
+
+        let pointer_focus = if self.pointer_feedback_enabled {
+            self.event_router.pointer_focus().cloned()
+        } else {
+            None
+        };
+        self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
+
         Ok(())
     }
 
@@ -214,5 +223,33 @@ impl DesktopSystem {
             .get(&launcher_id)
             .filter(|launcher| launcher.should_relayout_on_focus_change(instance_count))
             .map(|_| launcher_id)
+    }
+
+    fn sync_hover_rect_to_pointer_path(
+        &mut self,
+        pointer_focus: Option<&DesktopTarget>,
+    ) {
+        let hover_rect = match pointer_focus {
+            Some(DesktopTarget::Instance(instance_id)) => {
+                self.rect(&DesktopTarget::Instance(*instance_id))
+            }
+            Some(DesktopTarget::View(view_id)) => match self
+                .aggregates
+                .hierarchy
+                .parent(&DesktopTarget::View(*view_id))
+            {
+                Some(DesktopTarget::Instance(instance_id)) => {
+                    self.rect(&DesktopTarget::Instance(*instance_id))
+                }
+                Some(_) => panic!("Internal error: View parent is not an instance"),
+                None => None,
+            },
+            Some(DesktopTarget::Launcher(launcher_id)) => {
+                self.rect(&DesktopTarget::Launcher(*launcher_id))
+            }
+            _ => None,
+        };
+
+        self.aggregates.project_presenter.set_hover_rect(hover_rect);
     }
 }
