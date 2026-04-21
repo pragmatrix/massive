@@ -34,7 +34,11 @@ impl DesktopSystem {
                 render_geometry,
             );
 
+            let from = self.event_router.focused().cloned();
             let transitions = self.event_router.process(event, &hit_tester)?;
+            let to = self.event_router.focused().cloned();
+            self.invalidate_layout_for_focus_change(from.as_ref(), to.as_ref());
+
             self.forward_event_transitions(transitions, instance_manager)?
         };
 
@@ -73,7 +77,10 @@ impl DesktopSystem {
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
+        let from = self.event_router.focused().cloned();
         let transitions = self.event_router.focus(target);
+        let to = self.event_router.focused().cloned();
+        self.invalidate_layout_for_focus_change(from.as_ref(), to.as_ref());
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(

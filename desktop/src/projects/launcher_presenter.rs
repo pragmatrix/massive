@@ -40,7 +40,6 @@ pub struct LauncherInstanceLayoutInput {
 #[derive(Debug, Clone, Copy)]
 pub struct LauncherInstanceLayoutTarget {
     pub instance_id: InstanceId,
-    pub rect: RectPx,
     pub layout_transform: Transform,
 }
 
@@ -150,7 +149,7 @@ impl LauncherPresenter {
         parent_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         default_panel_size: SizePx,
-    ) -> Option<Vec<Offset<2>>> {
+    ) -> Option<Vec<(Offset<2>, Transform)>> {
         match self.mode {
             LauncherMode::Band => None,
             LauncherMode::Visor => Some(centered_horizontal_offsets(
@@ -215,7 +214,6 @@ impl LauncherPresenter {
 
                 LauncherInstanceLayoutTarget {
                     instance_id: input.instance_id,
-                    rect: input.rect,
                     layout_transform,
                 }
             })
@@ -234,7 +232,6 @@ impl LauncherPresenter {
 
                 LauncherInstanceLayoutTarget {
                     instance_id: input.instance_id,
-                    rect: input.rect,
                     layout_transform: Transform::from_translation(center_translation),
                 }
             })
@@ -346,7 +343,7 @@ fn centered_horizontal_offsets(
     parent_offset: Offset<2>,
     child_sizes: &[LayoutSize<2>],
     panel_width: i32,
-) -> Vec<Offset<2>> {
+) -> Vec<(Offset<2>, Transform)> {
     let spacing = 0i32;
     let children_span: i32 = child_sizes.iter().map(|size| size[0] as i32).sum::<i32>()
         + spacing * (child_sizes.len().saturating_sub(1) as i32);

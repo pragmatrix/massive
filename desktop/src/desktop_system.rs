@@ -78,7 +78,6 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     pointer_feedback_enabled: bool,
-    last_effects_focus: Option<DesktopTarget>,
 
     #[debug(skip)]
     layouter: IncrementalLayouter<DesktopTarget, 2>,
@@ -144,7 +143,6 @@ impl DesktopSystem {
             event_router,
             camera: scene.animated(PixelCamera::default()),
             pointer_feedback_enabled: true,
-            last_effects_focus: None,
             layouter,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
@@ -224,6 +222,19 @@ impl DesktopSystem {
             let rect_px: RectPx = (*rect).into();
             rect_px.into()
         })
+    }
+
+    fn rect_and_transform(&self, target: &DesktopTarget) -> Option<(Rect, Transform)> {
+        let rect = self.layouter.rect(target).map(|rect| {
+            let rect_px: RectPx = (*rect).into();
+            Rect::from(rect_px)
+        })?;
+        let transform = self
+            .layouter
+            .transform(target)
+            .copied()
+            .unwrap_or(Transform::IDENTITY);
+        Some((rect, transform))
     }
 }
 

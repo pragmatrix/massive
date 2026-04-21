@@ -1,8 +1,7 @@
 use massive_applications::InstanceId;
-use massive_geometry::{Contains, Point, Rect, RectPx, Size, Vector3};
+use massive_geometry::{Contains, Point, Rect, RectPx, Size, Transform, Vector3};
 use massive_layout::IncrementalLayouter;
 use massive_renderer::RenderGeometry;
-use massive_scene::Transform;
 
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, LauncherPresenter};
@@ -162,31 +161,34 @@ impl<'a> AggregateHitTester<'a> {
             Rect::from(rect_px)
         })?;
 
-        let model = self.hit_test_transform(target, rect);
-        let surface_z = self.hit_surface_z(target, &model);
+        let transform = self.hit_test_transform(target, rect);
+        let surface_z = self.hit_surface_z(target);
 
         Some(HitSurface {
-            transform: model,
+            transform,
             size: rect.size(),
             surface_z,
         })
     }
 
-    fn hit_surface_z(&self, target: &DesktopTarget, model: &Transform) -> f64 {
+    fn hit_surface_z(&self, target: &DesktopTarget) -> f64 {
+        // For instances and views, use the instance's layout transform z from the layouter.
+        // We use the instance presenter's final_value() for hit depth stability during animations.
         if let Some(instance_id) = self.hit_target_instance_id(target) {
             return self
                 .instances
                 .get(&instance_id)
                 .expect("Internal error: Missing instance presenter for hit test depth")
                 .layout_transform_animation
-                // Keep hit depth stable across short structural animations.
-                // We intentionally pick against the settled layout target for now.
                 .final_value()
                 .translate
                 .z;
         }
 
-        model.translate.z
+        // For non-instance targets, use the layouter's stored transform.
+        self.layouter
+            .transform(target)
+            .map_or(0.0, |t| t.translate.z)
     }
 
     fn hit_test_surface(&self, screen_pos: Point, hit_surface: &HitSurface) -> Option<Vector3> {
@@ -198,16 +200,17 @@ impl<'a> AggregateHitTester<'a> {
     /// Unprojecting through this transform yields target-local coordinates.
     fn hit_test_transform(&self, target: &DesktopTarget, rect: Rect) -> Transform {
         if let Some(instance_id) = self.hit_target_instance_id(target) {
-            let instance_presenter = self
-                .instances
-                .get(&instance_id)
-                .expect("Internal error: Missing instance presenter for hit test");
+            let instance_target = DesktopTarget::Instance(instance_id);
+            let instance_transform = self
+                .layouter
+                .transform(&instance_target)
+                .copied()
+                .unwrap_or(Transform::IDENTITY);
 
             // For View targets, offset the instance transform by the view's position within the
             // instance so that unprojection returns view-local coordinates.
             let view_offset = match target {
                 DesktopTarget::View(_) => {
-                    let instance_target = DesktopTarget::Instance(instance_id);
                     let instance_rect = self.layouter.rect(&instance_target).map(|r| {
                         let r_px: RectPx = (*r).into();
                         Rect::from(r_px)
@@ -221,13 +224,10 @@ impl<'a> AggregateHitTester<'a> {
             };
 
             let local_center = rect.size().to_rect().center();
-            let mut layout_transform = instance_presenter.layout_transform_animation.final_value();
+            let mut layout_transform = instance_transform;
             layout_transform.translate =
                 layout_transform.translate + layout_transform.rotate * view_offset;
-            return InstancePresenter::transform_with_layout(
-                layout_transform,
-                local_center,
-            );
+            return InstancePresenter::transform_with_layout(layout_transform, local_center);
         }
 
         let origin = rect.origin();

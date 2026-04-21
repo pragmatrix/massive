@@ -9,6 +9,8 @@ use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
 
+use massive_geometry::Transform;
+
 use crate::dimensional_types::{Offset, Rect, Size};
 
 #[cfg(test)]
@@ -22,6 +24,7 @@ where
 {
     nodes: HashMap<Id, NodeState<Id, RANK>>,
     rects: HashMap<Id, Rect<RANK>>,
+    transforms: HashMap<Id, Transform>,
     reflow_pending: HashSet<Id>,
 }
 
@@ -54,15 +57,18 @@ where
     /// For leaf nodes `child_sizes` is empty.
     fn measure(&self, id: &Id, child_sizes: &[Size<RANK>]) -> Size<RANK>;
 
-    /// Returns one absolute child offset per entry in `child_sizes`, in the same order.
-    /// `parent_offset` is the absolute position of `id`.
+    /// Returns one `(absolute_child_offset, transform)` pair per entry in `child_sizes`, in the
+    /// same order. `parent_offset` is the absolute position of `id`.
     /// Only called for non-leaf nodes (i.e. when the node has children).
+    ///
+    /// The `Transform` positions each child in 3D world space. For flat 2D layouts, return
+    /// `Transform::IDENTITY` (the default implementation does this).
     fn place_children(
         &self,
         id: &Id,
         parent_offset: Offset<RANK>,
         child_sizes: &[Size<RANK>],
-    ) -> Vec<Offset<RANK>>;
+    ) -> Vec<(Offset<RANK>, Transform)>;
 }
 
 impl<Id, const RANK: usize> IncrementalLayouter<Id, RANK>
@@ -77,6 +83,7 @@ where
         Self {
             nodes: HashMap::new(),
             rects: HashMap::new(),
+            transforms: HashMap::new(),
             reflow_pending: HashSet::new(),
         }
     }
@@ -146,6 +153,7 @@ where
                     algorithm,
                     &affected_root,
                     root_offset,
+                    Transform::IDENTITY,
                     &affected,
                     &mut changed,
                 );
@@ -156,6 +164,10 @@ where
 
     pub fn rect(&self, id: &Id) -> Option<&Rect<RANK>> {
         self.rects.get(id)
+    }
+
+    pub fn transform(&self, id: &Id) -> Option<&Transform> {
+        self.transforms.get(id)
     }
 
     /// Decides whether the current generation should traverse into `child`.
@@ -187,6 +199,7 @@ where
             }
         }
         self.rects.remove(id);
+        self.transforms.remove(id);
     }
 
     /// Recursive pass 1: measure affected subtree sizes bottom-up.
@@ -237,11 +250,12 @@ where
         algorithm: &impl LayoutAlgorithm<Id, RANK>,
         id: &Id,
         absolute_offset: Offset<RANK>,
+        transform: Transform,
         affected: &HashSet<Id>,
-        changed: &mut Vec<(Id, Rect<RANK>)>,
+        changed: &mut Vec<(Id, Rect<RANK>, Transform)>,
     ) {
         let outer_size = self.cached_outer_size(id);
-        self.update_rect(id, Rect::new(absolute_offset, outer_size), changed);
+        self.update_placement(id, Rect::new(absolute_offset, outer_size), transform, changed);
 
         let cached_children = self
             .nodes
@@ -257,24 +271,45 @@ where
             .iter()
             .map(|child| self.cached_outer_size(child))
             .collect();
-        let child_offsets = algorithm.place_children(id, absolute_offset, &child_sizes);
-        if child_offsets.len() != cached_children.len() {
+        let child_placements = algorithm.place_children(id, absolute_offset, &child_sizes);
+        if child_placements.len() != cached_children.len() {
             Self::invariant_violation(
                 "layout algorithm returned a different number of child offsets than children",
             );
         }
 
-        for (child, child_offset) in cached_children.iter().zip(child_offsets.iter()) {
+        for (child, (child_offset, child_transform)) in
+            cached_children.iter().zip(child_placements.iter())
+        {
             if self.should_walk_child(child, affected) {
-                self.place_subtree_recursive(algorithm, child, *child_offset, affected, changed);
+                self.place_subtree_recursive(
+                    algorithm,
+                    child,
+                    *child_offset,
+                    *child_transform,
+                    affected,
+                    changed,
+                );
             } else {
-                // Clean child: translate cached subtree if parent offset changed.
+                // Clean child: apply offset shift and/or transform update.
                 let previous_rect = self.rects.get(child).copied().unwrap_or_else(|| {
                     Self::invariant_violation("clean child missing rect during placement")
                 });
-                if previous_rect.offset != *child_offset {
+                let offset_changed = previous_rect.offset != *child_offset;
+                let transform_changed = self
+                    .transforms
+                    .get(child)
+                    .is_none_or(|t| t != child_transform);
+
+                if offset_changed {
                     let offset_delta = Self::offset_delta(*child_offset, previous_rect.offset);
                     self.shift_subtree_recursive(child, offset_delta, changed);
+                }
+                if transform_changed {
+                    self.transforms.insert(child.clone(), *child_transform);
+                    // Re-emit the (possibly shifted) rect with the new transform.
+                    let current_rect = self.rects.get(child).copied().unwrap_or(previous_rect);
+                    changed.push((child.clone(), current_rect, *child_transform));
                 }
             }
         }
@@ -288,7 +323,7 @@ where
         &mut self,
         id: &Id,
         offset_delta: Offset<RANK>,
-        changed: &mut Vec<(Id, Rect<RANK>)>,
+        changed: &mut Vec<(Id, Rect<RANK>, Transform)>,
     ) {
         if offset_delta == Offset::ZERO {
             // Common fast path when parent move does not change this branch position.
@@ -299,7 +334,13 @@ where
             Self::invariant_violation("shift traversal encountered missing rect")
         });
         let shifted = Rect::new(rect.offset + offset_delta, rect.size);
-        self.update_rect(id, shifted, changed);
+        // Preserve existing transform; shift only affects 2D rect offset.
+        let transform = self
+            .transforms
+            .get(id)
+            .copied()
+            .unwrap_or(Transform::IDENTITY);
+        self.update_placement(id, shifted, transform, changed);
 
         let cached_children = self
             .nodes
@@ -311,18 +352,29 @@ where
         }
     }
 
-    /// Writes rect cache and emits into `changed` only on actual value change.
+    /// Writes rect and transform cache and emits into `changed` only on actual value change.
     ///
     /// Callers consume `changed` as a delta stream, so suppressing equal writes avoids redundant
     /// downstream work.
-    fn update_rect(&mut self, id: &Id, next_rect: Rect<RANK>, changed: &mut Vec<(Id, Rect<RANK>)>) {
-        let has_changed = self
+    fn update_placement(
+        &mut self,
+        id: &Id,
+        next_rect: Rect<RANK>,
+        next_transform: Transform,
+        changed: &mut Vec<(Id, Rect<RANK>, Transform)>,
+    ) {
+        let rect_changed = self
             .rects
             .get(id)
             .is_none_or(|current_rect| current_rect != &next_rect);
-        if has_changed {
+        let transform_changed = self
+            .transforms
+            .get(id)
+            .is_none_or(|current_transform| current_transform != &next_transform);
+        if rect_changed || transform_changed {
             self.rects.insert(id.clone(), next_rect);
-            changed.push((id.clone(), next_rect));
+            self.transforms.insert(id.clone(), next_transform);
+            changed.push((id.clone(), next_rect, next_transform));
         }
     }
 
@@ -481,7 +533,7 @@ where
 
 #[derive(Debug)]
 pub struct RecomputeResult<Id: Clone, const RANK: usize> {
-    pub changed: Vec<(Id, Rect<RANK>)>,
+    pub changed: Vec<(Id, Rect<RANK>, Transform)>,
 }
 
 #[cfg(test)]
@@ -570,7 +622,7 @@ mod tests {
             id: &usize,
             parent_offset: Offset<2>,
             child_sizes: &[Size<2>],
-        ) -> Vec<Offset<2>> {
+        ) -> Vec<(Offset<2>, Transform)> {
             let spec = self
                 .container_specs
                 .get(id)
@@ -579,15 +631,15 @@ mod tests {
             let padding = spec.padding;
             let spacing = spec.spacing;
             let mut cursor: Offset<2> = padding.leading.into();
-            let mut offsets = Vec::with_capacity(child_sizes.len());
+            let mut placements = Vec::with_capacity(child_sizes.len());
             for (index, &child_size) in child_sizes.iter().enumerate() {
                 if index > 0 {
                     cursor[axis] += spacing as i32;
                 }
-                offsets.push(parent_offset + cursor);
+                placements.push((parent_offset + cursor, Transform::IDENTITY));
                 cursor[axis] += child_size[axis] as i32;
             }
-            offsets
+            placements
         }
     }
 
@@ -822,7 +874,7 @@ mod tests {
         set_intrinsic_size(&mut layouter, &mut algorithm, 1, [12, 10]);
         let update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
-        let mut changed_ids: Vec<usize> = update.changed.into_iter().map(|(id, _)| id).collect();
+        let mut changed_ids: Vec<usize> = update.changed.into_iter().map(|(id, ..)| id).collect();
         changed_ids.sort_unstable();
 
         assert_eq!(changed_ids, vec![0, 1, 10]);
@@ -997,7 +1049,7 @@ mod tests {
         let update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
         assert!(layouter.rect(&1).is_none());
-        assert!(update.changed.iter().any(|(id, _)| id == &0));
+        assert!(update.changed.iter().any(|(id, ..)| id == &0));
     }
 
     #[test]
@@ -1024,7 +1076,7 @@ mod tests {
         let update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
         assert!(layouter.rect(&1).is_none());
-        assert!(update.changed.iter().any(|(id, _)| id == &0));
+        assert!(update.changed.iter().any(|(id, ..)| id == &0));
     }
 
     #[test]
@@ -1081,7 +1133,7 @@ mod tests {
         let mut changed_ids: Vec<usize> = parent_marked_update
             .changed
             .into_iter()
-            .map(|(id, _)| id)
+            .map(|(id, ..)| id)
             .collect();
         changed_ids.sort_unstable();
 
@@ -1125,7 +1177,7 @@ mod tests {
             _id: &usize,
             _parent_offset: Offset<2>,
             _child_sizes: &[Size<2>],
-        ) -> Vec<Offset<2>> {
+        ) -> Vec<(Offset<2>, Transform)> {
             Vec::new()
         }
     }

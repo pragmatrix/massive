@@ -1,12 +1,13 @@
 use std::{sync::Arc, time::Duration};
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Color, Rect};
+use massive_geometry::{Color, Point, Rect, Transform};
 use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
 use super::LaunchGroupProperties;
+use crate::instance_presenter::InstancePresenter;
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -22,6 +23,9 @@ pub struct ProjectPresenter {
     // Robustness: Alpha should be a type.
     hover_alpha: Animated<f32>,
     hover_rect: Rect,
+    hover_transform: Transform,
+    hover_scene_transform: Handle<Transform>,
+    hover_location: Handle<Location>,
     // Idea: can't we just animate a visual / Handle<Visual>?
     // Performance: This is a visual that _always_ lives inside the renderer, even though it does not contain a single shape when alpha = 0.0
     hover_visual: Handle<Visual>,
@@ -31,22 +35,29 @@ impl ProjectPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
 
     pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
+        let hover_scene_transform = Transform::IDENTITY.enter(scene);
+        let hover_location =
+            Location::new(None, hover_scene_transform.clone()).enter(scene);
+
         Self {
             location: location.clone(),
             hover_alpha: scene.animated(0.0),
             hover_rect: Rect::ZERO,
+            hover_transform: Transform::IDENTITY,
+            hover_scene_transform,
+            hover_location: hover_location.clone(),
             hover_visual: create_hover_shapes(None)
                 .into_visual()
-                .at(location)
+                .at(hover_location)
                 .enter(scene),
         }
     }
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
-    pub fn set_hover_rect(&mut self, rect: Option<Rect>) {
-        match rect {
-            Some(rect) => {
+    pub fn set_hover_rect(&mut self, placement: Option<(Rect, Transform)>) {
+        match placement {
+            Some((rect, transform)) => {
                 self.hover_alpha.animate_if_changed(
                     1.0,
                     Self::HOVER_ANIMATION_DURATION,
@@ -54,6 +65,7 @@ impl ProjectPresenter {
                 );
 
                 self.hover_rect = rect;
+                self.hover_transform = transform;
             }
             None => {
                 self.hover_alpha.animate_if_changed(
@@ -69,12 +81,21 @@ impl ProjectPresenter {
         let alpha = self.hover_alpha.value();
         let rect_alpha = (alpha != 0.0).then_some((self.hover_rect, alpha));
 
+        // Update the hover visual's scene transform to position the rect in 3D.
+        let center = self.hover_rect.center();
+        let scene_transform = InstancePresenter::transform_with_layout(
+            self.hover_transform,
+            Point::new(center.x, center.y),
+        );
+        self.hover_scene_transform
+            .update_if_changed(scene_transform);
+
         // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
         //
         // Performance: Can't be update just the shapes here with apply...
         let visual = create_hover_shapes(rect_alpha)
             .into_visual()
-            .at(&self.location)
+            .at(&self.hover_location)
             .with_decal_order(5);
         self.hover_visual.update_if_changed(visual);
     }
