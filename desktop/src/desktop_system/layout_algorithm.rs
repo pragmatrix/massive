@@ -119,11 +119,9 @@ impl LayoutAlgorithm<DesktopTarget, 2, Transform> for DesktopLayoutAlgorithm<'_>
             let launcher = &self.aggregates.launchers[launcher_id];
 
             // Compute child offsets: custom (Visor) or default container layout (Band).
-            let child_placements = if let Some(placements) = launcher.panel_child_offsets(
-                parent_offset,
-                child_sizes,
-                self.default_panel_size,
-            ) {
+            let child_placements = if let Some(placements) =
+                launcher.panel_child_offsets(parent_offset, child_sizes, self.default_panel_size)
+            {
                 placements
             } else {
                 match self.resolve_layout_spec(id) {
@@ -157,10 +155,8 @@ impl LayoutAlgorithm<DesktopTarget, 2, Transform> for DesktopLayoutAlgorithm<'_>
                 })
                 .collect();
 
-            let layout_targets = launcher.compute_instance_layout_targets(
-                &instance_inputs,
-                self.focused_instance,
-            );
+            let layout_targets =
+                launcher.compute_instance_layout_targets(&instance_inputs, self.focused_instance);
 
             // Rebuild placements: match each child with its computed transform.
             let mut transform_by_instance: std::collections::HashMap<InstanceId, Transform> =

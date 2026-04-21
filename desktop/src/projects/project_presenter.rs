@@ -1,7 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Color, Point, Rect, Transform, Vector3};
+use massive_geometry::{Color, Point, Rect, RectPx, Transform, Vector3};
+use massive_layout::Placement;
 use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
@@ -36,8 +37,7 @@ impl ProjectPresenter {
 
     pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
         let hover_scene_transform = Transform::IDENTITY.enter(scene);
-        let hover_location =
-            Location::new(None, hover_scene_transform.clone()).enter(scene);
+        let hover_location = Location::new(None, hover_scene_transform.clone()).enter(scene);
 
         Self {
             location: location.clone(),
@@ -55,17 +55,20 @@ impl ProjectPresenter {
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
-    pub fn set_hover_rect(&mut self, placement: Option<(Rect, Transform)>) {
+    pub fn set_hover_rect(&mut self, placement: Option<Placement<2, Transform>>) {
         match placement {
-            Some((rect, transform)) => {
+            Some(placement) => {
                 self.hover_alpha.animate_if_changed(
                     1.0,
                     Self::HOVER_ANIMATION_DURATION,
                     Interpolation::CubicOut,
                 );
 
+                let rect_px: RectPx = placement.rect.into();
+                let rect: Rect = rect_px.into();
+
                 self.hover_rect = rect;
-                self.hover_transform = transform;
+                self.hover_transform = placement.transform;
             }
             None => {
                 self.hover_alpha.animate_if_changed(

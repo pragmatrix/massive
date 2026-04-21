@@ -23,12 +23,14 @@ Update it whenever you learn something new about the project's patterns, convent
 - Include complete state in events rather than deltas to provide full context to handlers.
 - Prefer grouping semantically paired values into a single parameter or type when they are always used together.
 - Use cohesive domain types as API boundaries when related values are expected to move together.
+- When a domain struct already models paired values, prefer it over tuple payloads in change streams and method signatures.
 - Prefer behavior-named capability methods on presenters/components over exposing raw mode enums to system-level callers.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
+- For event transition summaries used by side effects, collect all relevant transition payloads rather than stopping at the first match.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
 - For transient UI indicators (hover/focus highlights), derive visibility/target from current resolved state rather than only from enter/exit edge events.

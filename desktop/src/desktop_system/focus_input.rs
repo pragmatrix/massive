@@ -35,9 +35,7 @@ impl DesktopSystem {
             );
 
             let transitions = self.event_router.process(event, &hit_tester)?;
-            if let Some((from, to)) = transitions.keyboard_focus_change() {
-                self.invalidate_layout_for_focus_change(from, to);
-            }
+            self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
             self.forward_event_transitions(transitions, instance_manager)?
         };
 
@@ -77,9 +75,7 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         let transitions = self.event_router.focus(target);
-        if let Some((from, to)) = transitions.keyboard_focus_change() {
-            self.invalidate_layout_for_focus_change(from, to);
-        }
+        self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(

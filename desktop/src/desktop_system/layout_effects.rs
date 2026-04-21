@@ -3,7 +3,7 @@ use anyhow::Result;
 use massive_animation::Interpolation;
 use massive_applications::InstanceId;
 use massive_geometry::{PointPx, Rect, RectPx, Transform};
-use massive_layout::Rect as LayoutRect;
+use massive_layout::Placement;
 
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::focus_path::PathResolver;
@@ -67,12 +67,13 @@ impl DesktopSystem {
 
     fn apply_layout_changes(
         &mut self,
-        changed: Vec<(DesktopTarget, LayoutRect<2>, Transform)>,
+        changed: Vec<(DesktopTarget, Placement<2, Transform>)>,
         animate: bool,
     ) {
-        for (id, layout_rect, transform) in changed {
-            let rect_px: RectPx = layout_rect.into();
+        for (id, placement) in changed {
+            let rect_px: RectPx = placement.rect.into();
             let rect: Rect = rect_px.into();
+            let transform = placement.transform;
 
             match id {
                 DesktopTarget::Desktop => {}
@@ -112,13 +113,22 @@ impl DesktopSystem {
         }
     }
 
+    /// Marks launchers that need relayout due to a keyboard focus change as reflow-pending.
+    pub(super) fn invalidate_layout_for_focus_change<'a>(
+        &mut self,
+        targets: impl IntoIterator<Item = &'a DesktopTarget>,
+    ) {
+        for target in targets {
+            if let Some(launcher_id) = self.focus_target_launcher_for_layout(target) {
+                self.layouter
+                    .mark_reflow_pending(DesktopTarget::Launcher(launcher_id));
+            }
+        }
+    }
+
     /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or
     /// `None` if the target's launcher does not require focus-driven relayout.
-    fn focus_target_launcher_for_layout(
-        &self,
-        target: Option<&DesktopTarget>,
-    ) -> Option<LaunchProfileId> {
-        let target = target?;
+    fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
         let focused_path = self.aggregates.hierarchy.resolve_path(Some(target));
         let focused_instance = focused_path.instance()?;
         let launcher_id = self.instance_launcher(focused_instance)?;
@@ -135,27 +145,10 @@ impl DesktopSystem {
             .map(|_| launcher_id)
     }
 
-    /// Marks launchers that need relayout due to a keyboard focus change as reflow-pending.
-    pub(super) fn invalidate_layout_for_focus_change(
-        &mut self,
-        from: Option<&DesktopTarget>,
-        to: Option<&DesktopTarget>,
-    ) {
-        for target in [from, to] {
-            if let Some(launcher_id) = self.focus_target_launcher_for_layout(target) {
-                self.layouter
-                    .mark_reflow_pending(DesktopTarget::Launcher(launcher_id));
-            }
-        }
-    }
-
-    fn sync_hover_rect_to_pointer_path(
-        &mut self,
-        pointer_focus: Option<&DesktopTarget>,
-    ) {
+    fn sync_hover_rect_to_pointer_path(&mut self, pointer_focus: Option<&DesktopTarget>) {
         let hover_placement = match pointer_focus {
             Some(DesktopTarget::Instance(instance_id)) => {
-                self.rect_and_transform(&DesktopTarget::Instance(*instance_id))
+                self.placement(&DesktopTarget::Instance(*instance_id))
             }
             Some(DesktopTarget::View(view_id)) => match self
                 .aggregates
@@ -163,13 +156,13 @@ impl DesktopSystem {
                 .parent(&DesktopTarget::View(*view_id))
             {
                 Some(DesktopTarget::Instance(instance_id)) => {
-                    self.rect_and_transform(&DesktopTarget::Instance(*instance_id))
+                    self.placement(&DesktopTarget::Instance(*instance_id))
                 }
                 Some(_) => panic!("Internal error: View parent is not an instance"),
                 None => None,
             },
             Some(DesktopTarget::Launcher(launcher_id)) => {
-                self.rect_and_transform(&DesktopTarget::Launcher(*launcher_id))
+                self.placement(&DesktopTarget::Launcher(*launcher_id))
             }
             _ => None,
         };

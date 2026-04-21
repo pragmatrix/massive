@@ -3,8 +3,6 @@
 //! Uses a caller-provided `LayoutTopology` and `LayoutAlgorithm` to produce absolute `Rect<RANK>`
 //! values for all nodes keyed by stable `Id`s. Callers must provide a consistent, acyclic tree
 //! topology and reuse the same `Id`s across updates for incremental behavior to be valid.
-
-//! Developed together with Codex 5.3 and Claude Sonnet 4.6.
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
@@ -17,13 +15,6 @@ pub struct Placement<const RANK: usize, T> {
     pub rect: Rect<RANK>,
     pub transform: T,
 }
-
-#[cfg(test)]
-use crate::LayoutAxis;
-#[cfg(test)]
-use crate::dimensional_types::Thickness;
-#[cfg(test)]
-use massive_geometry::Transform;
 
 pub struct IncrementalLayouter<Id, const RANK: usize, T>
 where
@@ -118,7 +109,7 @@ where
         self.reflow_pending.insert(id);
     }
 
-    /// Recomputes layout incrementally and returns changed rectangles.
+    /// Recomputes layout incrementally and returns changed placements.
     ///
     /// Reflow changes are typically sparse, so recompute first builds an affected closure
     /// (pending nodes + ancestors) and starts only from top-most affected nodes.
@@ -264,10 +255,15 @@ where
         absolute_offset: Offset<RANK>,
         transform: T,
         affected: &HashSet<Id>,
-        changed: &mut Vec<(Id, Rect<RANK>, T)>,
+        changed: &mut Vec<(Id, Placement<RANK, T>)>,
     ) {
         let outer_size = self.cached_outer_size(id);
-        self.update_placement(id, Rect::new(absolute_offset, outer_size), transform, changed);
+        self.update_placement(
+            id,
+            Rect::new(absolute_offset, outer_size),
+            transform,
+            changed,
+        );
 
         let cached_children = self
             .nodes
@@ -316,9 +312,12 @@ where
                 }
                 if transform_changed {
                     let current_rect = self.placements.get(child).map_or(previous.rect, |p| p.rect);
-                    let next = Placement { rect: current_rect, transform: *child_transform };
+                    let next = Placement {
+                        rect: current_rect,
+                        transform: *child_transform,
+                    };
                     self.placements.insert(child.clone(), next);
-                    changed.push((child.clone(), current_rect, *child_transform));
+                    changed.push((child.clone(), next));
                 }
             }
         }
@@ -332,7 +331,7 @@ where
         &mut self,
         id: &Id,
         offset_delta: Offset<RANK>,
-        changed: &mut Vec<(Id, Rect<RANK>, T)>,
+        changed: &mut Vec<(Id, Placement<RANK, T>)>,
     ) {
         if offset_delta == Offset::ZERO {
             // Common fast path when parent move does not change this branch position.
@@ -365,16 +364,19 @@ where
         id: &Id,
         next_rect: Rect<RANK>,
         next_transform: T,
-        changed: &mut Vec<(Id, Rect<RANK>, T)>,
+        changed: &mut Vec<(Id, Placement<RANK, T>)>,
     ) {
-        let next = Placement { rect: next_rect, transform: next_transform };
+        let next = Placement {
+            rect: next_rect,
+            transform: next_transform,
+        };
         let is_changed = self
             .placements
             .get(id)
             .is_none_or(|current| current != &next);
         if is_changed {
             self.placements.insert(id.clone(), next);
-            changed.push((id.clone(), next_rect, next_transform));
+            changed.push((id.clone(), next));
         }
     }
 
@@ -533,12 +535,15 @@ where
 
 #[derive(Debug)]
 pub struct RecomputeResult<Id: Clone, const RANK: usize, T> {
-    pub changed: Vec<(Id, Rect<RANK>, T)>,
+    pub changed: Vec<(Id, Placement<RANK, T>)>,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LayoutAxis;
+    use crate::dimensional_types::Thickness;
+    use massive_geometry::Transform;
     use std::cmp::max;
     use std::collections::{HashMap, HashSet};
 
@@ -876,7 +881,7 @@ mod tests {
         set_intrinsic_size(&mut layouter, &mut algorithm, 1, [12, 10]);
         let update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
-        let mut changed_ids: Vec<usize> = update.changed.into_iter().map(|(id, ..)| id).collect();
+        let mut changed_ids: Vec<usize> = update.changed.into_iter().map(|(id, _)| id).collect();
         changed_ids.sort_unstable();
 
         assert_eq!(changed_ids, vec![0, 1, 10]);
@@ -1135,7 +1140,7 @@ mod tests {
         let mut changed_ids: Vec<usize> = parent_marked_update
             .changed
             .into_iter()
-            .map(|(id, ..)| id)
+            .map(|(id, _)| id)
             .collect();
         changed_ids.sort_unstable();
 

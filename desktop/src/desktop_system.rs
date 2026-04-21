@@ -27,7 +27,7 @@ use std::time::Duration;
 use massive_animation::Animated;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, Rect, RectPx, SizePx};
-use massive_layout::{IncrementalLayouter, LayoutTopology};
+use massive_layout::{IncrementalLayouter, LayoutTopology, Placement};
 use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
 
@@ -224,17 +224,8 @@ impl DesktopSystem {
         })
     }
 
-    fn rect_and_transform(&self, target: &DesktopTarget) -> Option<(Rect, Transform)> {
-        let rect = self.layouter.rect(target).map(|rect| {
-            let rect_px: RectPx = (*rect).into();
-            Rect::from(rect_px)
-        })?;
-        let transform = self
-            .layouter
-            .transform(target)
-            .copied()
-            .unwrap_or(Transform::IDENTITY);
-        Some((rect, transform))
+    fn placement(&self, target: &DesktopTarget) -> Option<Placement<2, Transform>> {
+        self.layouter.placement(target).copied()
     }
 }
 

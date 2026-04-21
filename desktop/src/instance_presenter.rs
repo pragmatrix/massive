@@ -102,10 +102,7 @@ impl InstancePresenter {
             let local_center = background.local_rect.center();
             background
                 .transform
-                .update_if_changed(Self::transform_with_layout(
-                    layout_transform,
-                    local_center,
-                ));
+                .update_if_changed(Self::transform_with_layout(layout_transform, local_center));
         }
 
         // Feature: Hiding animation.
