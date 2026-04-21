@@ -194,16 +194,40 @@ impl<'a> AggregateHitTester<'a> {
             .unproject_to_model_z0(screen_pos, &hit_surface.transform.to_matrix4())
     }
 
+    /// Returns a transform whose model space is the target's local coordinate system.
+    /// Unprojecting through this transform yields target-local coordinates.
     fn hit_test_transform(&self, target: &DesktopTarget, rect: Rect) -> Transform {
         if let Some(instance_id) = self.hit_target_instance_id(target) {
-            // InstancePresenter::transform expects a local center (panel-local coordinates), not
-            // the global layout center.
-            let local_center = rect.size().to_rect().center();
-            return self
+            let instance_presenter = self
                 .instances
                 .get(&instance_id)
-                .expect("Internal error: Missing instance presenter for hit test")
-                .transform(local_center);
+                .expect("Internal error: Missing instance presenter for hit test");
+
+            // For View targets, offset the instance transform by the view's position within the
+            // instance so that unprojection returns view-local coordinates.
+            let view_offset = match target {
+                DesktopTarget::View(_) => {
+                    let instance_target = DesktopTarget::Instance(instance_id);
+                    let instance_rect = self.layouter.rect(&instance_target).map(|r| {
+                        let r_px: RectPx = (*r).into();
+                        Rect::from(r_px)
+                    });
+                    instance_rect.map_or(Vector3::ZERO, |ir| {
+                        let offset = rect.origin() - ir.origin();
+                        Vector3::new(offset.x, offset.y, 0.0)
+                    })
+                }
+                _ => Vector3::ZERO,
+            };
+
+            let local_center = rect.size().to_rect().center();
+            let mut layout_transform = instance_presenter.layout_transform_animation.final_value();
+            layout_transform.translate =
+                layout_transform.translate + layout_transform.rotate * view_offset;
+            return InstancePresenter::transform_with_layout(
+                layout_transform,
+                local_center,
+            );
         }
 
         let origin = rect.origin();

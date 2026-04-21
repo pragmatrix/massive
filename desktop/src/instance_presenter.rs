@@ -102,9 +102,9 @@ impl InstancePresenter {
             let local_center = background.local_rect.center();
             background
                 .transform
-                .update_if_changed(Self::transform_with_local_center(
+                .update_if_changed(Self::transform_with_layout(
                     layout_transform,
-                    (local_center.x, local_center.y),
+                    local_center,
                 ));
         }
 
@@ -116,7 +116,8 @@ impl InstancePresenter {
         // Correct the view's position around its local center.
         // Since the centering uses i32, we preserve snapping behavior from the layouter.
         let center = view.creation_info.extents.center().to_f64();
-        let transform = Self::transform_with_local_center(layout_transform, (center.x, center.y));
+        let transform =
+            Self::transform_with_layout(layout_transform, Point::new(center.x, center.y));
 
         view.creation_info
             .location
@@ -125,16 +126,8 @@ impl InstancePresenter {
             .update_if_changed(transform);
     }
 
-    pub fn transform(&self, local_center: Point) -> Transform {
-        let layout_transform = self.layout_transform_animation.final_value();
-        Self::transform_with_local_center(layout_transform, (local_center.x, local_center.y))
-    }
-
-    fn transform_with_local_center(
-        layout_transform: Transform,
-        local_center: (f64, f64),
-    ) -> Transform {
-        let local_center = Vector3::new(local_center.0, local_center.1, 0.0);
+    pub fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
+        let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
         let origin_translation =
             layout_transform.translate - layout_transform.rotate * local_center;
         Transform::new(
