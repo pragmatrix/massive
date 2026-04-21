@@ -13,6 +13,12 @@ use massive_geometry::Transform;
 
 use crate::dimensional_types::{Offset, Rect, Size};
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement<const RANK: usize> {
+    pub rect: Rect<RANK>,
+    pub transform: Transform,
+}
+
 #[cfg(test)]
 use crate::LayoutAxis;
 #[cfg(test)]
@@ -23,8 +29,7 @@ where
     Id: Eq + Hash + Clone,
 {
     nodes: HashMap<Id, NodeState<Id, RANK>>,
-    rects: HashMap<Id, Rect<RANK>>,
-    transforms: HashMap<Id, Transform>,
+    placements: HashMap<Id, Placement<RANK>>,
     reflow_pending: HashSet<Id>,
 }
 
@@ -82,8 +87,7 @@ where
     pub fn new() -> Self {
         Self {
             nodes: HashMap::new(),
-            rects: HashMap::new(),
-            transforms: HashMap::new(),
+            placements: HashMap::new(),
             reflow_pending: HashSet::new(),
         }
     }
@@ -162,12 +166,16 @@ where
         RecomputeResult { changed }
     }
 
+    pub fn placement(&self, id: &Id) -> Option<&Placement<RANK>> {
+        self.placements.get(id)
+    }
+
     pub fn rect(&self, id: &Id) -> Option<&Rect<RANK>> {
-        self.rects.get(id)
+        self.placements.get(id).map(|p| &p.rect)
     }
 
     pub fn transform(&self, id: &Id) -> Option<&Transform> {
-        self.transforms.get(id)
+        self.placements.get(id).map(|p| &p.transform)
     }
 
     /// Decides whether the current generation should traverse into `child`.
@@ -176,7 +184,7 @@ where
     /// needed for affected children or missing cache entries.
     fn should_walk_child(&self, child: &Id, affected: &HashSet<Id>) -> bool {
         // Traverse only when data is stale/missing; otherwise placement can reuse cached branch.
-        affected.contains(child) || !self.rects.contains_key(child)
+        affected.contains(child) || !self.placements.contains_key(child)
     }
 
     /// Reads the authoritative outer size for `id`.
@@ -198,8 +206,7 @@ where
                 self.evict_cached_subtree(&child);
             }
         }
-        self.rects.remove(id);
-        self.transforms.remove(id);
+        self.placements.remove(id);
     }
 
     /// Recursive pass 1: measure affected subtree sizes bottom-up.
@@ -292,23 +299,20 @@ where
                 );
             } else {
                 // Clean child: apply offset shift and/or transform update.
-                let previous_rect = self.rects.get(child).copied().unwrap_or_else(|| {
-                    Self::invariant_violation("clean child missing rect during placement")
+                let previous = self.placements.get(child).copied().unwrap_or_else(|| {
+                    Self::invariant_violation("clean child missing placement during placement")
                 });
-                let offset_changed = previous_rect.offset != *child_offset;
-                let transform_changed = self
-                    .transforms
-                    .get(child)
-                    .is_none_or(|t| t != child_transform);
+                let offset_changed = previous.rect.offset != *child_offset;
+                let transform_changed = previous.transform != *child_transform;
 
                 if offset_changed {
-                    let offset_delta = Self::offset_delta(*child_offset, previous_rect.offset);
+                    let offset_delta = Self::offset_delta(*child_offset, previous.rect.offset);
                     self.shift_subtree_recursive(child, offset_delta, changed);
                 }
                 if transform_changed {
-                    self.transforms.insert(child.clone(), *child_transform);
-                    // Re-emit the (possibly shifted) rect with the new transform.
-                    let current_rect = self.rects.get(child).copied().unwrap_or(previous_rect);
+                    let current_rect = self.placements.get(child).map_or(previous.rect, |p| p.rect);
+                    let next = Placement { rect: current_rect, transform: *child_transform };
+                    self.placements.insert(child.clone(), next);
                     changed.push((child.clone(), current_rect, *child_transform));
                 }
             }
@@ -330,17 +334,12 @@ where
             return;
         }
 
-        let rect = self.rects.get(id).copied().unwrap_or_else(|| {
-            Self::invariant_violation("shift traversal encountered missing rect")
+        let current = self.placements.get(id).copied().unwrap_or_else(|| {
+            Self::invariant_violation("shift traversal encountered missing placement")
         });
-        let shifted = Rect::new(rect.offset + offset_delta, rect.size);
+        let shifted = Rect::new(current.rect.offset + offset_delta, current.rect.size);
         // Preserve existing transform; shift only affects 2D rect offset.
-        let transform = self
-            .transforms
-            .get(id)
-            .copied()
-            .unwrap_or(Transform::IDENTITY);
-        self.update_placement(id, shifted, transform, changed);
+        self.update_placement(id, shifted, current.transform, changed);
 
         let cached_children = self
             .nodes
@@ -363,17 +362,13 @@ where
         next_transform: Transform,
         changed: &mut Vec<(Id, Rect<RANK>, Transform)>,
     ) {
-        let rect_changed = self
-            .rects
+        let next = Placement { rect: next_rect, transform: next_transform };
+        let is_changed = self
+            .placements
             .get(id)
-            .is_none_or(|current_rect| current_rect != &next_rect);
-        let transform_changed = self
-            .transforms
-            .get(id)
-            .is_none_or(|current_transform| current_transform != &next_transform);
-        if rect_changed || transform_changed {
-            self.rects.insert(id.clone(), next_rect);
-            self.transforms.insert(id.clone(), next_transform);
+            .is_none_or(|current| current != &next);
+        if is_changed {
+            self.placements.insert(id.clone(), next);
             changed.push((id.clone(), next_rect, next_transform));
         }
     }
