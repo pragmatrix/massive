@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Color, Point, Rect, Transform};
+use massive_geometry::{Color, Point, Rect, Transform, Vector3};
 use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
@@ -79,13 +79,28 @@ impl ProjectPresenter {
 
     pub fn apply_animations(&mut self) {
         let alpha = self.hover_alpha.value();
-        let rect_alpha = (alpha != 0.0).then_some((self.hover_rect, alpha));
+        // Hover shapes are drawn in local coordinates (origin-based rect).
+        let local_rect = self.hover_rect.size().to_rect();
+        let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
 
-        // Update the hover visual's scene transform to position the rect in 3D.
-        let center = self.hover_rect.center();
+        // Position the hover visual in world space. For instances, the layout transform's
+        // translate IS the center position (possibly offset for visor layout). For launchers,
+        // the transform is IDENTITY so we derive position from the rect's center.
+        let local_center = local_rect.center();
+        let has_translate = self.hover_transform.translate != Vector3::ZERO;
+        let center_transform = if has_translate {
+            self.hover_transform
+        } else {
+            let center = self.hover_rect.center();
+            Transform::new(
+                Vector3::new(center.x, center.y, 0.0),
+                self.hover_transform.rotate,
+                self.hover_transform.scale,
+            )
+        };
         let scene_transform = InstancePresenter::transform_with_layout(
-            self.hover_transform,
-            Point::new(center.x, center.y),
+            center_transform,
+            Point::new(local_center.x, local_center.y),
         );
         self.hover_scene_transform
             .update_if_changed(scene_transform);

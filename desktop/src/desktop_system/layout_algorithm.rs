@@ -72,7 +72,7 @@ pub(crate) fn place_container_children(
     child_placements
 }
 
-impl LayoutAlgorithm<DesktopTarget, 2> for DesktopLayoutAlgorithm<'_> {
+impl LayoutAlgorithm<DesktopTarget, 2, Transform> for DesktopLayoutAlgorithm<'_> {
     fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
         if let DesktopTarget::Launcher(launcher_id) = id
             && let Some(size) =

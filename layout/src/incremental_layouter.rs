@@ -7,35 +7,38 @@
 //! Developed together with Codex 5.3 and Claude Sonnet 4.6.
 use std::collections::hash_map::Entry;
 use std::collections::{HashMap, HashSet};
+use std::fmt::Debug;
 use std::hash::Hash;
-
-use massive_geometry::Transform;
 
 use crate::dimensional_types::{Offset, Rect, Size};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Placement<const RANK: usize> {
+pub struct Placement<const RANK: usize, T> {
     pub rect: Rect<RANK>,
-    pub transform: Transform,
+    pub transform: T,
 }
 
 #[cfg(test)]
 use crate::LayoutAxis;
 #[cfg(test)]
 use crate::dimensional_types::Thickness;
+#[cfg(test)]
+use massive_geometry::Transform;
 
-pub struct IncrementalLayouter<Id, const RANK: usize>
+pub struct IncrementalLayouter<Id, const RANK: usize, T>
 where
     Id: Eq + Hash + Clone,
+    T: Debug + Copy + PartialEq + Default,
 {
     nodes: HashMap<Id, NodeState<Id, RANK>>,
-    placements: HashMap<Id, Placement<RANK>>,
+    placements: HashMap<Id, Placement<RANK, T>>,
     reflow_pending: HashSet<Id>,
 }
 
-impl<Id, const RANK: usize> Default for IncrementalLayouter<Id, RANK>
+impl<Id, const RANK: usize, T> Default for IncrementalLayouter<Id, RANK, T>
 where
     Id: Eq + Hash + Clone,
+    T: Debug + Copy + PartialEq + Default,
 {
     fn default() -> Self {
         Self::new()
@@ -53,9 +56,10 @@ where
     fn parent_of(&self, id: &Id) -> Option<Id>;
 }
 
-pub trait LayoutAlgorithm<Id, const RANK: usize>
+pub trait LayoutAlgorithm<Id, const RANK: usize, T>
 where
     Id: Eq + Hash + Clone,
+    T: Debug + Copy + PartialEq + Default,
 {
     /// Returns the outer size of `id` given its children's already-measured outer sizes.
     /// Called in post-order (all children measured before parent).
@@ -66,19 +70,20 @@ where
     /// same order. `parent_offset` is the absolute position of `id`.
     /// Only called for non-leaf nodes (i.e. when the node has children).
     ///
-    /// The `Transform` positions each child in 3D world space. For flat 2D layouts, return
-    /// `Transform::IDENTITY` (the default implementation does this).
+    /// The transform positions each child in world space. For flat 2D layouts, return
+    /// `T::default()`.
     fn place_children(
         &self,
         id: &Id,
         parent_offset: Offset<RANK>,
         child_sizes: &[Size<RANK>],
-    ) -> Vec<(Offset<RANK>, Transform)>;
+    ) -> Vec<(Offset<RANK>, T)>;
 }
 
-impl<Id, const RANK: usize> IncrementalLayouter<Id, RANK>
+impl<Id, const RANK: usize, T> IncrementalLayouter<Id, RANK, T>
 where
     Id: Eq + Hash + Clone,
+    T: Debug + Copy + PartialEq + Default,
 {
     fn invariant_violation(message: &str) -> ! {
         panic!("Internal error: {message}")
@@ -135,9 +140,9 @@ where
     pub fn recompute(
         &mut self,
         topology: &impl LayoutTopology<Id>,
-        algorithm: &impl LayoutAlgorithm<Id, RANK>,
+        algorithm: &impl LayoutAlgorithm<Id, RANK, T>,
         absolute_offset: impl Into<Offset<RANK>>,
-    ) -> RecomputeResult<Id, RANK> {
+    ) -> RecomputeResult<Id, RANK, T> {
         let mut changed = Vec::new();
         let offset = absolute_offset.into();
 
@@ -157,7 +162,7 @@ where
                     algorithm,
                     &affected_root,
                     root_offset,
-                    Transform::IDENTITY,
+                    T::default(),
                     &affected,
                     &mut changed,
                 );
@@ -166,7 +171,7 @@ where
         RecomputeResult { changed }
     }
 
-    pub fn placement(&self, id: &Id) -> Option<&Placement<RANK>> {
+    pub fn placement(&self, id: &Id) -> Option<&Placement<RANK, T>> {
         self.placements.get(id)
     }
 
@@ -174,7 +179,7 @@ where
         self.placements.get(id).map(|p| &p.rect)
     }
 
-    pub fn transform(&self, id: &Id) -> Option<&Transform> {
+    pub fn transform(&self, id: &Id) -> Option<&T> {
         self.placements.get(id).map(|p| &p.transform)
     }
 
@@ -216,7 +221,7 @@ where
     /// Sibling order is not semantically important for current size math (sum/max).
     fn measure_subtree_recursive(
         &mut self,
-        algorithm: &impl LayoutAlgorithm<Id, RANK>,
+        algorithm: &impl LayoutAlgorithm<Id, RANK, T>,
         id: &Id,
         affected: &HashSet<Id>,
     ) {
@@ -254,12 +259,12 @@ where
     /// - clean cached children are offset-shifted when needed.
     fn place_subtree_recursive(
         &mut self,
-        algorithm: &impl LayoutAlgorithm<Id, RANK>,
+        algorithm: &impl LayoutAlgorithm<Id, RANK, T>,
         id: &Id,
         absolute_offset: Offset<RANK>,
-        transform: Transform,
+        transform: T,
         affected: &HashSet<Id>,
-        changed: &mut Vec<(Id, Rect<RANK>, Transform)>,
+        changed: &mut Vec<(Id, Rect<RANK>, T)>,
     ) {
         let outer_size = self.cached_outer_size(id);
         self.update_placement(id, Rect::new(absolute_offset, outer_size), transform, changed);
@@ -327,7 +332,7 @@ where
         &mut self,
         id: &Id,
         offset_delta: Offset<RANK>,
-        changed: &mut Vec<(Id, Rect<RANK>, Transform)>,
+        changed: &mut Vec<(Id, Rect<RANK>, T)>,
     ) {
         if offset_delta == Offset::ZERO {
             // Common fast path when parent move does not change this branch position.
@@ -359,8 +364,8 @@ where
         &mut self,
         id: &Id,
         next_rect: Rect<RANK>,
-        next_transform: Transform,
-        changed: &mut Vec<(Id, Rect<RANK>, Transform)>,
+        next_transform: T,
+        changed: &mut Vec<(Id, Rect<RANK>, T)>,
     ) {
         let next = Placement { rect: next_rect, transform: next_transform };
         let is_changed = self
@@ -527,8 +532,8 @@ where
 }
 
 #[derive(Debug)]
-pub struct RecomputeResult<Id: Clone, const RANK: usize> {
-    pub changed: Vec<(Id, Rect<RANK>, Transform)>,
+pub struct RecomputeResult<Id: Clone, const RANK: usize, T> {
+    pub changed: Vec<(Id, Rect<RANK>, T)>,
 }
 
 #[cfg(test)]
@@ -536,6 +541,8 @@ mod tests {
     use super::*;
     use std::cmp::max;
     use std::collections::{HashMap, HashSet};
+
+    type TestLayouter = IncrementalLayouter<usize, 2, Transform>;
 
     #[derive(Default)]
     struct TestTopology {
@@ -584,7 +591,7 @@ mod tests {
         container_specs: HashMap<usize, ContainerSpec>,
     }
 
-    impl LayoutAlgorithm<usize, 2> for TestAlgorithm {
+    impl LayoutAlgorithm<usize, 2, Transform> for TestAlgorithm {
         fn measure(&self, id: &usize, child_sizes: &[Size<2>]) -> Size<2> {
             if let Some(&size) = self.leaf_sizes.get(id) {
                 return size;
@@ -755,7 +762,7 @@ mod tests {
     fn initial_recompute_emits_changed_then_stabilizes() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -777,7 +784,7 @@ mod tests {
     fn changing_leaf_size_updates_leaf_and_ancestor_rects() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -808,7 +815,7 @@ mod tests {
     fn remove_node_clears_cached_rect_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -835,7 +842,7 @@ mod tests {
     fn changing_one_branch_does_not_emit_unaffected_sibling_branch() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -881,7 +888,7 @@ mod tests {
     fn reparenting_child_detaches_from_previous_parent() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -930,7 +937,7 @@ mod tests {
     fn root_offset_change_updates_offsets() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -968,7 +975,7 @@ mod tests {
     fn spacing_and_padding_affect_layout_geometry() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1002,7 +1009,7 @@ mod tests {
     fn removing_root_clears_cached_root_rect_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1025,7 +1032,7 @@ mod tests {
     fn removing_pending_node_is_ignored_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1051,7 +1058,7 @@ mod tests {
     fn removing_pending_node_does_not_query_missing_parent() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1078,7 +1085,7 @@ mod tests {
     fn removal_requires_parent_mark_for_relayout() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1105,7 +1112,7 @@ mod tests {
 
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1145,7 +1152,7 @@ mod tests {
     fn missing_child_node_panics_on_recompute() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1162,7 +1169,7 @@ mod tests {
         inner: &'a TestAlgorithm,
     }
 
-    impl LayoutAlgorithm<usize, 2> for BrokenPlaceChildrenAlgorithm<'_> {
+    impl LayoutAlgorithm<usize, 2, Transform> for BrokenPlaceChildrenAlgorithm<'_> {
         fn measure(&self, id: &usize, child_sizes: &[Size<2>]) -> Size<2> {
             self.inner.measure(id, child_sizes)
         }
@@ -1182,7 +1189,7 @@ mod tests {
     fn place_children_offset_count_mismatch_panics() {
         let mut topology = TestTopology::default();
         let mut algorithm = TestAlgorithm::default();
-        let mut layouter = IncrementalLayouter::<usize, 2>::new();
+        let mut layouter = TestLayouter::new();
         upsert_container(
             &mut layouter,
             &mut topology,
@@ -1199,7 +1206,7 @@ mod tests {
     }
 
     fn upsert_leaf(
-        layouter: &mut IncrementalLayouter<usize, 2>,
+        layouter: &mut TestLayouter,
         topology: &mut TestTopology,
         algorithm: &mut TestAlgorithm,
         id: usize,
@@ -1211,7 +1218,7 @@ mod tests {
     }
 
     fn upsert_container(
-        layouter: &mut IncrementalLayouter<usize, 2>,
+        layouter: &mut TestLayouter,
         topology: &mut TestTopology,
         algorithm: &mut TestAlgorithm,
         id: usize,
@@ -1223,7 +1230,7 @@ mod tests {
     }
 
     fn set_children(
-        layouter: &mut IncrementalLayouter<usize, 2>,
+        layouter: &mut TestLayouter,
         topology: &mut TestTopology,
         id: usize,
         children: Vec<usize>,
@@ -1234,7 +1241,7 @@ mod tests {
     }
 
     fn set_intrinsic_size(
-        layouter: &mut IncrementalLayouter<usize, 2>,
+        layouter: &mut TestLayouter,
         algorithm: &mut TestAlgorithm,
         id: usize,
         size: impl Into<Size<2>>,
@@ -1245,7 +1252,7 @@ mod tests {
     }
 
     fn set_padding(
-        layouter: &mut IncrementalLayouter<usize, 2>,
+        layouter: &mut TestLayouter,
         algorithm: &mut TestAlgorithm,
         id: usize,
         padding: impl Into<Thickness<2>>,
@@ -1256,7 +1263,7 @@ mod tests {
     }
 
     fn set_spacing(
-        layouter: &mut IncrementalLayouter<usize, 2>,
+        layouter: &mut TestLayouter,
         algorithm: &mut TestAlgorithm,
         id: usize,
         spacing: u32,
@@ -1267,7 +1274,7 @@ mod tests {
     }
 
     fn remove_node(
-        layouter: &mut IncrementalLayouter<usize, 2>,
+        layouter: &mut TestLayouter,
         topology: &mut TestTopology,
         algorithm: &mut TestAlgorithm,
         id: usize,

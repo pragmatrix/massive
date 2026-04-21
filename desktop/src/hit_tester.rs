@@ -9,7 +9,7 @@ use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-    layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
+    layouter: &'a IncrementalLayouter<DesktopTarget, 2, Transform>,
     launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
     instances: &'a Map<InstanceId, InstancePresenter>,
     geometry: &'a RenderGeometry,
@@ -49,7 +49,7 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
 impl<'a> AggregateHitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-        layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
+        layouter: &'a IncrementalLayouter<DesktopTarget, 2, Transform>,
         launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
         instances: &'a Map<InstanceId, InstancePresenter>,
         geometry: &'a RenderGeometry,

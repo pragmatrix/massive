@@ -80,7 +80,7 @@ pub struct DesktopSystem {
     pointer_feedback_enabled: bool,
 
     #[debug(skip)]
-    layouter: IncrementalLayouter<DesktopTarget, 2>,
+    layouter: IncrementalLayouter<DesktopTarget, 2, Transform>,
 
     aggregates: Aggregates,
 }
