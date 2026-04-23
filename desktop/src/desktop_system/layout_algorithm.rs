@@ -19,7 +19,145 @@ pub(super) struct DesktopLayoutAlgorithm<'a> {
     pub(super) focused_instance: Option<InstanceId>,
 }
 
+impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
+    fn place_children(
+        &self,
+        id: &DesktopTarget,
+        parent_offset: Offset<2>,
+        child_sizes: &[Size<2>],
+    ) -> Vec<TransformOffset<Transform, 2>> {
+        if let DesktopTarget::Launcher(_) = id {
+            // Launcher panels run a dedicated path because transform assignment is
+            // a second phase over the regular 2D child placement.
+            return self.place_launcher_children(id, parent_offset, child_sizes);
+        }
+
+        self.place_standard_children(id, parent_offset, child_sizes)
+    }
+
+    fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
+        if let DesktopTarget::Launcher(launcher_id) = id
+            && let Some(size) =
+                self.aggregates.launchers[launcher_id].panel_measure_size(self.default_panel_size)
+        {
+            return size;
+        }
+
+        match self.resolve_layout_spec(id) {
+            LayoutSpec::Leaf(size) => size.into(),
+            LayoutSpec::Container {
+                axis,
+                padding,
+                spacing,
+            } => {
+                let axis = *axis;
+                let mut inner_size = Size::EMPTY;
+
+                for (index, &child_size) in child_sizes.iter().enumerate() {
+                    for dim in 0..2 {
+                        if dim == axis {
+                            inner_size[dim] += child_size[dim];
+                            if index > 0 {
+                                inner_size[dim] += spacing;
+                            }
+                        } else {
+                            inner_size[dim] = max(inner_size[dim], child_size[dim]);
+                        }
+                    }
+                }
+
+                padding.leading + inner_size + padding.trailing
+            }
+        }
+    }
+}
+
 impl DesktopLayoutAlgorithm<'_> {
+    fn place_launcher_children(
+        &self,
+        id: &DesktopTarget,
+        parent_offset: Offset<2>,
+        child_sizes: &[Size<2>],
+    ) -> Vec<TransformOffset<Transform, 2>> {
+        let DesktopTarget::Launcher(launcher_id) = id else {
+            panic!("place_launcher_children requires a launcher target")
+        };
+
+        let launcher = &self.aggregates.launchers[launcher_id];
+
+        // Launchers can provide a custom 2D placement pass. If unavailable,
+        // we reuse the standard container algorithm to keep behavior consistent.
+        let child_placements = if let Some(placements) =
+            launcher.panel_child_offsets(parent_offset, child_sizes, self.default_panel_size)
+        {
+            placements
+        } else {
+            self.place_standard_children(id, parent_offset, child_sizes)
+        };
+
+        let children = self.aggregates.hierarchy.get_nested(id);
+
+        // The launcher then upgrades instance transforms based on panel context
+        // (focus/depth/arrangement), while preserving offsets from the 2D pass.
+        let instance_inputs: Vec<LauncherInstanceLayoutInput> = children
+            .iter()
+            .zip(child_placements.iter().zip(child_sizes.iter()))
+            .filter_map(|(target, (child_transform_offset, size))| match target {
+                DesktopTarget::Instance(instance_id) => {
+                    let rect_px: RectPx =
+                        LayoutRect::new(child_transform_offset.offset, *size).into();
+                    Some(LauncherInstanceLayoutInput {
+                        instance_id: *instance_id,
+                        rect: rect_px,
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+
+        let layout_targets =
+            launcher.compute_instance_layout_targets(&instance_inputs, self.focused_instance);
+
+        let mut transform_by_instance: std::collections::HashMap<InstanceId, Transform> =
+            layout_targets
+                .into_iter()
+                .map(|target| (target.instance_id, target.layout_transform))
+                .collect();
+
+        children
+            .iter()
+            .zip(child_placements)
+            .map(|(target, child_transform_offset)| {
+                let transform = match target {
+                    DesktopTarget::Instance(instance_id) => transform_by_instance
+                        .remove(instance_id)
+                        .unwrap_or(child_transform_offset.transform),
+                    _ => child_transform_offset.transform,
+                };
+                TransformOffset::new(transform, child_transform_offset.offset)
+            })
+            .collect()
+    }
+
+    fn place_standard_children(
+        &self,
+        id: &DesktopTarget,
+        parent_offset: Offset<2>,
+        child_sizes: &[Size<2>],
+    ) -> Vec<TransformOffset<Transform, 2>> {
+        match self.resolve_layout_spec(id) {
+            LayoutSpec::Leaf(_) => Vec::new(),
+            LayoutSpec::Container {
+                axis,
+                padding,
+                spacing,
+            } => {
+                let offset = parent_offset + Offset::from(padding.leading);
+                place_container_children(axis, spacing as i32, offset, child_sizes)
+            }
+        }
+    }
+
     fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
         match target {
             DesktopTarget::Desktop => LayoutAxis::VERTICAL
@@ -72,127 +210,4 @@ pub(crate) fn place_container_children(
     }
 
     child_placements
-}
-
-impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
-    fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
-        if let DesktopTarget::Launcher(launcher_id) = id
-            && let Some(size) =
-                self.aggregates.launchers[launcher_id].panel_measure_size(self.default_panel_size)
-        {
-            return size;
-        }
-
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(size) => size.into(),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let axis = *axis;
-                let mut inner_size = Size::EMPTY;
-
-                for (index, &child_size) in child_sizes.iter().enumerate() {
-                    for dim in 0..2 {
-                        if dim == axis {
-                            inner_size[dim] += child_size[dim];
-                            if index > 0 {
-                                inner_size[dim] += spacing;
-                            }
-                        } else {
-                            inner_size[dim] = max(inner_size[dim], child_size[dim]);
-                        }
-                    }
-                }
-
-                padding.leading + inner_size + padding.trailing
-            }
-        }
-    }
-
-    fn place_children(
-        &self,
-        id: &DesktopTarget,
-        parent_offset: Offset<2>,
-        child_sizes: &[Size<2>],
-    ) -> Vec<TransformOffset<Transform, 2>> {
-        if let DesktopTarget::Launcher(launcher_id) = id {
-            let launcher = &self.aggregates.launchers[launcher_id];
-
-            // Compute child offsets: custom (Visor) or default container layout (Band).
-            let child_placements = if let Some(placements) =
-                launcher.panel_child_offsets(parent_offset, child_sizes, self.default_panel_size)
-            {
-                placements
-            } else {
-                match self.resolve_layout_spec(id) {
-                    LayoutSpec::Container {
-                        axis,
-                        padding,
-                        spacing,
-                    } => {
-                        let offset = parent_offset + Offset::from(padding.leading);
-                        place_container_children(axis, spacing as i32, offset, child_sizes)
-                    }
-                    _ => Vec::new(),
-                }
-            };
-
-            // Compute 3D transforms for instance children.
-            let children = self.aggregates.hierarchy.get_nested(id);
-            let instance_inputs: Vec<LauncherInstanceLayoutInput> = children
-                .iter()
-                .zip(child_placements.iter().zip(child_sizes.iter()))
-                .filter_map(|(target, (child_transform_offset, size))| match target {
-                    DesktopTarget::Instance(instance_id) => {
-                        let rect_px: RectPx =
-                            LayoutRect::new(child_transform_offset.offset, *size).into();
-                        Some(LauncherInstanceLayoutInput {
-                            instance_id: *instance_id,
-                            rect: rect_px,
-                        })
-                    }
-                    _ => None,
-                })
-                .collect();
-
-            let layout_targets =
-                launcher.compute_instance_layout_targets(&instance_inputs, self.focused_instance);
-
-            // Rebuild placements: match each child with its computed transform.
-            let mut transform_by_instance: std::collections::HashMap<InstanceId, Transform> =
-                layout_targets
-                    .into_iter()
-                    .map(|lt| (lt.instance_id, lt.layout_transform))
-                    .collect();
-
-            return children
-                .iter()
-                .zip(child_placements)
-                .map(|(target, child_transform_offset)| {
-                    let transform = match target {
-                        DesktopTarget::Instance(instance_id) => transform_by_instance
-                            .remove(instance_id)
-                            .unwrap_or(child_transform_offset.transform),
-                        _ => child_transform_offset.transform,
-                    };
-                    TransformOffset::new(transform, child_transform_offset.offset)
-                })
-                .collect();
-        }
-
-        match self.resolve_layout_spec(id) {
-            LayoutSpec::Leaf(_) => Vec::new(),
-            LayoutSpec::Container {
-                axis,
-                padding,
-                spacing,
-            } => {
-                let offset = parent_offset + Offset::from(padding.leading);
-
-                place_container_children(axis, spacing as i32, offset, child_sizes)
-            }
-        }
-    }
 }
