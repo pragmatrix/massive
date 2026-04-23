@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, Point, Rect, RectPx, Transform, Vector3};
-use massive_layout::Placement;
+use massive_layout::{Placement, Rect as LayoutRect};
 use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
@@ -23,8 +23,7 @@ pub struct ProjectPresenter {
     // Idea: Use a type that combines Alpha with another Interpolatable type.
     // Robustness: Alpha should be a type.
     hover_alpha: Animated<f32>,
-    hover_transform: Transform,
-    hover_rect: Rect,
+    hover_placement: Placement<Transform, 2>,
     hover_scene_transform: Handle<Transform>,
     hover_location: Handle<Location>,
     // Idea: can't we just animate a visual / Handle<Visual>?
@@ -42,8 +41,7 @@ impl ProjectPresenter {
         Self {
             location: location.clone(),
             hover_alpha: scene.animated(0.0),
-            hover_transform: Transform::IDENTITY,
-            hover_rect: Rect::ZERO,
+            hover_placement: Placement::new(Transform::IDENTITY, LayoutRect::EMPTY),
             hover_scene_transform,
             hover_location: hover_location.clone(),
             hover_visual: create_hover_shapes(None)
@@ -63,12 +61,7 @@ impl ProjectPresenter {
                     Self::HOVER_ANIMATION_DURATION,
                     Interpolation::CubicOut,
                 );
-
-                let rect_px: RectPx = placement.rect.into();
-                let rect: Rect = rect_px.into();
-
-                self.hover_rect = rect;
-                self.hover_transform = placement.transform;
+                self.hover_placement = placement;
             }
             None => {
                 self.hover_alpha.animate_if_changed(
@@ -82,23 +75,28 @@ impl ProjectPresenter {
 
     pub fn apply_animations(&mut self) {
         let alpha = self.hover_alpha.value();
+        let hover_placement = self.hover_placement;
+
+        let rect_px: RectPx = hover_placement.rect.into();
+        let hover_rect: Rect = rect_px.into();
+
         // Hover shapes are drawn in local coordinates (origin-based rect).
-        let local_rect = self.hover_rect.size().to_rect();
+        let local_rect = hover_rect.size().to_rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
 
         // Position the hover visual in world space. For instances, the layout transform's
         // translate IS the center position (possibly offset for visor layout). For launchers,
         // the transform is IDENTITY so we derive position from the rect's center.
         let local_center = local_rect.center();
-        let has_translate = self.hover_transform.translate != Vector3::ZERO;
+        let has_translate = hover_placement.transform.translate != Vector3::ZERO;
         let center_transform = if has_translate {
-            self.hover_transform
+            hover_placement.transform
         } else {
-            let center = self.hover_rect.center();
+            let center = hover_rect.center();
             Transform::new(
                 Vector3::new(center.x, center.y, 0.0),
-                self.hover_transform.rotate,
-                self.hover_transform.scale,
+                hover_placement.transform.rotate,
+                hover_placement.transform.scale,
             )
         };
         let scene_transform = InstancePresenter::transform_with_layout(
