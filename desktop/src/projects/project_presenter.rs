@@ -55,7 +55,7 @@ impl ProjectPresenter {
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
-    pub fn set_hover_rect(&mut self, placement: Option<Placement<Transform, 2>>) {
+    pub fn set_hover_placement(&mut self, placement: Option<Placement<Transform, 2>>) {
         match placement {
             Some(placement) => {
                 self.hover_alpha.animate_if_changed(

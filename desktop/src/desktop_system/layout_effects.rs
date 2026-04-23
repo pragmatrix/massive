@@ -169,6 +169,6 @@ impl DesktopSystem {
 
         self.aggregates
             .project_presenter
-            .set_hover_rect(hover_placement);
+            .set_hover_placement(hover_placement);
     }
 }
