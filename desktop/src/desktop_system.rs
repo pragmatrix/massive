@@ -80,7 +80,7 @@ pub struct DesktopSystem {
     pointer_feedback_enabled: bool,
 
     #[debug(skip)]
-    layouter: IncrementalLayouter<DesktopTarget, 2, Transform>,
+    layouter: IncrementalLayouter<DesktopTarget, Transform, 2>,
 
     aggregates: Aggregates,
 }
@@ -224,7 +224,7 @@ impl DesktopSystem {
         })
     }
 
-    fn placement(&self, target: &DesktopTarget) -> Option<Placement<2, Transform>> {
+    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
         self.layouter.placement(target).copied()
     }
 }

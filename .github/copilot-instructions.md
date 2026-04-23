@@ -24,6 +24,8 @@ Update it whenever you learn something new about the project's patterns, convent
 - Prefer grouping semantically paired values into a single parameter or type when they are always used together.
 - Use cohesive domain types as API boundaries when related values are expected to move together.
 - When a domain struct already models paired values, prefer it over tuple payloads in change streams and method signatures.
+- For layout APIs, prefer named transform+offset structs over tuple returns so ordering and intent stay explicit.
+- For small paired-value structs, prefer constructor derives (for example `derive_more::Constructor`) and use constructors at call sites instead of field-literal repetition.
 - Prefer behavior-named capability methods on presenters/components over exposing raw mode enums to system-level callers.
 
 ## Safety & Quality

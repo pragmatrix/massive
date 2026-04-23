@@ -67,7 +67,7 @@ impl DesktopSystem {
 
     fn apply_layout_changes(
         &mut self,
-        changed: Vec<(DesktopTarget, Placement<2, Transform>)>,
+        changed: Vec<(DesktopTarget, Placement<Transform, 2>)>,
         animate: bool,
     ) {
         for (id, placement) in changed {

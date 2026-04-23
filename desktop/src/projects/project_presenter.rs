@@ -23,8 +23,8 @@ pub struct ProjectPresenter {
     // Idea: Use a type that combines Alpha with another Interpolatable type.
     // Robustness: Alpha should be a type.
     hover_alpha: Animated<f32>,
-    hover_rect: Rect,
     hover_transform: Transform,
+    hover_rect: Rect,
     hover_scene_transform: Handle<Transform>,
     hover_location: Handle<Location>,
     // Idea: can't we just animate a visual / Handle<Visual>?
@@ -42,8 +42,8 @@ impl ProjectPresenter {
         Self {
             location: location.clone(),
             hover_alpha: scene.animated(0.0),
-            hover_rect: Rect::ZERO,
             hover_transform: Transform::IDENTITY,
+            hover_rect: Rect::ZERO,
             hover_scene_transform,
             hover_location: hover_location.clone(),
             hover_visual: create_hover_shapes(None)
@@ -55,7 +55,7 @@ impl ProjectPresenter {
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
-    pub fn set_hover_rect(&mut self, placement: Option<Placement<2, Transform>>) {
+    pub fn set_hover_rect(&mut self, placement: Option<Placement<Transform, 2>>) {
         match placement {
             Some(placement) => {
                 self.hover_alpha.animate_if_changed(

@@ -1,7 +1,9 @@
 use std::cmp::max;
 
 use massive_geometry::{RectPx, SizePx, Transform};
-use massive_layout::{LayoutAlgorithm, LayoutAxis, Offset, Rect as LayoutRect, Size};
+use massive_layout::{
+    LayoutAlgorithm, LayoutAxis, Offset, Rect as LayoutRect, Size, TransformOffset,
+};
 
 use massive_applications::InstanceId;
 
@@ -57,7 +59,7 @@ pub(crate) fn place_container_children(
     spacing: i32,
     mut offset: Offset<2>,
     child_sizes: &[Size<2>],
-) -> Vec<(Offset<2>, Transform)> {
+) -> Vec<TransformOffset<Transform, 2>> {
     let axis_index: usize = axis.into();
     let mut child_placements = Vec::with_capacity(child_sizes.len());
 
@@ -65,14 +67,14 @@ pub(crate) fn place_container_children(
         if index > 0 {
             offset[axis_index] += spacing;
         }
-        child_placements.push((offset, Transform::IDENTITY));
+        child_placements.push(TransformOffset::new(Transform::IDENTITY, offset));
         offset[axis_index] += child_size[axis_index] as i32;
     }
 
     child_placements
 }
 
-impl LayoutAlgorithm<DesktopTarget, 2, Transform> for DesktopLayoutAlgorithm<'_> {
+impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
     fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
         if let DesktopTarget::Launcher(launcher_id) = id
             && let Some(size) =
@@ -114,7 +116,7 @@ impl LayoutAlgorithm<DesktopTarget, 2, Transform> for DesktopLayoutAlgorithm<'_>
         id: &DesktopTarget,
         parent_offset: Offset<2>,
         child_sizes: &[Size<2>],
-    ) -> Vec<(Offset<2>, Transform)> {
+    ) -> Vec<TransformOffset<Transform, 2>> {
         if let DesktopTarget::Launcher(launcher_id) = id {
             let launcher = &self.aggregates.launchers[launcher_id];
 
@@ -142,10 +144,10 @@ impl LayoutAlgorithm<DesktopTarget, 2, Transform> for DesktopLayoutAlgorithm<'_>
             let instance_inputs: Vec<LauncherInstanceLayoutInput> = children
                 .iter()
                 .zip(child_placements.iter().zip(child_sizes.iter()))
-                .filter_map(|(target, ((offset, _), size))| match target {
+                .filter_map(|(target, (child_transform_offset, size))| match target {
                     DesktopTarget::Instance(instance_id) => {
-                        let layout_rect = LayoutRect::new(*offset, *size);
-                        let rect_px: RectPx = layout_rect.into();
+                        let rect_px: RectPx =
+                            LayoutRect::new(child_transform_offset.offset, *size).into();
                         Some(LauncherInstanceLayoutInput {
                             instance_id: *instance_id,
                             rect: rect_px,
@@ -168,14 +170,14 @@ impl LayoutAlgorithm<DesktopTarget, 2, Transform> for DesktopLayoutAlgorithm<'_>
             return children
                 .iter()
                 .zip(child_placements)
-                .map(|(target, (offset, default_transform))| {
+                .map(|(target, child_transform_offset)| {
                     let transform = match target {
                         DesktopTarget::Instance(instance_id) => transform_by_instance
                             .remove(instance_id)
-                            .unwrap_or(default_transform),
-                        _ => default_transform,
+                            .unwrap_or(child_transform_offset.transform),
+                        _ => child_transform_offset.transform,
                     };
-                    (offset, transform)
+                    TransformOffset::new(transform, child_transform_offset.offset)
                 })
                 .collect();
         }

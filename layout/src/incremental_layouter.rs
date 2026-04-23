@@ -8,25 +8,33 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::Debug;
 use std::hash::Hash;
 
+use derive_more::Constructor;
+
 use crate::dimensional_types::{Offset, Rect, Size};
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Placement<const RANK: usize, T> {
-    pub rect: Rect<RANK>,
+#[derive(Constructor, Debug, Clone, Copy, PartialEq)]
+pub struct Placement<T, const RANK: usize> {
     pub transform: T,
+    pub rect: Rect<RANK>,
 }
 
-pub struct IncrementalLayouter<Id, const RANK: usize, T>
+#[derive(Constructor, Debug, Clone, Copy, PartialEq)]
+pub struct TransformOffset<T, const RANK: usize> {
+    pub transform: T,
+    pub offset: Offset<RANK>,
+}
+
+pub struct IncrementalLayouter<Id, T, const RANK: usize>
 where
     Id: Eq + Hash + Clone,
     T: Debug + Copy + PartialEq + Default,
 {
     nodes: HashMap<Id, NodeState<Id, RANK>>,
-    placements: HashMap<Id, Placement<RANK, T>>,
+    placements: HashMap<Id, Placement<T, RANK>>,
     reflow_pending: HashSet<Id>,
 }
 
-impl<Id, const RANK: usize, T> Default for IncrementalLayouter<Id, RANK, T>
+impl<Id, T, const RANK: usize> Default for IncrementalLayouter<Id, T, RANK>
 where
     Id: Eq + Hash + Clone,
     T: Debug + Copy + PartialEq + Default,
@@ -47,7 +55,7 @@ where
     fn parent_of(&self, id: &Id) -> Option<Id>;
 }
 
-pub trait LayoutAlgorithm<Id, const RANK: usize, T>
+pub trait LayoutAlgorithm<Id, T, const RANK: usize>
 where
     Id: Eq + Hash + Clone,
     T: Debug + Copy + PartialEq + Default,
@@ -57,8 +65,8 @@ where
     /// For leaf nodes `child_sizes` is empty.
     fn measure(&self, id: &Id, child_sizes: &[Size<RANK>]) -> Size<RANK>;
 
-    /// Returns one `(absolute_child_offset, transform)` pair per entry in `child_sizes`, in the
-    /// same order. `parent_offset` is the absolute position of `id`.
+    /// Returns one child transform+offset per entry in `child_sizes`, in the same order.
+    /// `parent_offset` is the absolute position of `id`.
     /// Only called for non-leaf nodes (i.e. when the node has children).
     ///
     /// The transform positions each child in world space. For flat 2D layouts, return
@@ -68,10 +76,10 @@ where
         id: &Id,
         parent_offset: Offset<RANK>,
         child_sizes: &[Size<RANK>],
-    ) -> Vec<(Offset<RANK>, T)>;
+    ) -> Vec<TransformOffset<T, RANK>>;
 }
 
-impl<Id, const RANK: usize, T> IncrementalLayouter<Id, RANK, T>
+impl<Id, T, const RANK: usize> IncrementalLayouter<Id, T, RANK>
 where
     Id: Eq + Hash + Clone,
     T: Debug + Copy + PartialEq + Default,
@@ -131,9 +139,9 @@ where
     pub fn recompute(
         &mut self,
         topology: &impl LayoutTopology<Id>,
-        algorithm: &impl LayoutAlgorithm<Id, RANK, T>,
+        algorithm: &impl LayoutAlgorithm<Id, T, RANK>,
         absolute_offset: impl Into<Offset<RANK>>,
-    ) -> RecomputeResult<Id, RANK, T> {
+    ) -> RecomputeResult<Id, T, RANK> {
         let mut changed = Vec::new();
         let offset = absolute_offset.into();
 
@@ -152,8 +160,7 @@ where
                 self.place_subtree_recursive(
                     algorithm,
                     &affected_root,
-                    root_offset,
-                    T::default(),
+                    TransformOffset::new(T::default(), root_offset),
                     &affected,
                     &mut changed,
                 );
@@ -162,7 +169,7 @@ where
         RecomputeResult { changed }
     }
 
-    pub fn placement(&self, id: &Id) -> Option<&Placement<RANK, T>> {
+    pub fn placement(&self, id: &Id) -> Option<&Placement<T, RANK>> {
         self.placements.get(id)
     }
 
@@ -212,7 +219,7 @@ where
     /// Sibling order is not semantically important for current size math (sum/max).
     fn measure_subtree_recursive(
         &mut self,
-        algorithm: &impl LayoutAlgorithm<Id, RANK, T>,
+        algorithm: &impl LayoutAlgorithm<Id, T, RANK>,
         id: &Id,
         affected: &HashSet<Id>,
     ) {
@@ -250,20 +257,18 @@ where
     /// - clean cached children are offset-shifted when needed.
     fn place_subtree_recursive(
         &mut self,
-        algorithm: &impl LayoutAlgorithm<Id, RANK, T>,
+        algorithm: &impl LayoutAlgorithm<Id, T, RANK>,
         id: &Id,
-        absolute_offset: Offset<RANK>,
-        transform: T,
+        transform_offset: TransformOffset<T, RANK>,
         affected: &HashSet<Id>,
-        changed: &mut Vec<(Id, Placement<RANK, T>)>,
+        changed: &mut Vec<(Id, Placement<T, RANK>)>,
     ) {
         let outer_size = self.cached_outer_size(id);
-        self.update_placement(
-            id,
-            Rect::new(absolute_offset, outer_size),
-            transform,
-            changed,
+        let next = Placement::new(
+            transform_offset.transform,
+            Rect::new(transform_offset.offset, outer_size),
         );
+        self.update_placement(id, next, changed);
 
         let cached_children = self
             .nodes
@@ -279,22 +284,22 @@ where
             .iter()
             .map(|child| self.cached_outer_size(child))
             .collect();
-        let child_placements = algorithm.place_children(id, absolute_offset, &child_sizes);
-        if child_placements.len() != cached_children.len() {
+        let child_transform_offsets =
+            algorithm.place_children(id, transform_offset.offset, &child_sizes);
+        if child_transform_offsets.len() != cached_children.len() {
             Self::invariant_violation(
                 "layout algorithm returned a different number of child offsets than children",
             );
         }
 
-        for (child, (child_offset, child_transform)) in
-            cached_children.iter().zip(child_placements.iter())
+        for (child, child_transform_offset) in
+            cached_children.iter().zip(child_transform_offsets.iter())
         {
             if self.should_walk_child(child, affected) {
                 self.place_subtree_recursive(
                     algorithm,
                     child,
-                    *child_offset,
-                    *child_transform,
+                    *child_transform_offset,
                     affected,
                     changed,
                 );
@@ -303,19 +308,17 @@ where
                 let previous = self.placements.get(child).copied().unwrap_or_else(|| {
                     Self::invariant_violation("clean child missing placement during placement")
                 });
-                let offset_changed = previous.rect.offset != *child_offset;
-                let transform_changed = previous.transform != *child_transform;
+                let offset_changed = previous.rect.offset != child_transform_offset.offset;
+                let transform_changed = previous.transform != child_transform_offset.transform;
 
                 if offset_changed {
-                    let offset_delta = Self::offset_delta(*child_offset, previous.rect.offset);
+                    let offset_delta =
+                        Self::offset_delta(child_transform_offset.offset, previous.rect.offset);
                     self.shift_subtree_recursive(child, offset_delta, changed);
                 }
                 if transform_changed {
                     let current_rect = self.placements.get(child).map_or(previous.rect, |p| p.rect);
-                    let next = Placement {
-                        rect: current_rect,
-                        transform: *child_transform,
-                    };
+                    let next = Placement::new(child_transform_offset.transform, current_rect);
                     self.placements.insert(child.clone(), next);
                     changed.push((child.clone(), next));
                 }
@@ -331,7 +334,7 @@ where
         &mut self,
         id: &Id,
         offset_delta: Offset<RANK>,
-        changed: &mut Vec<(Id, Placement<RANK, T>)>,
+        changed: &mut Vec<(Id, Placement<T, RANK>)>,
     ) {
         if offset_delta == Offset::ZERO {
             // Common fast path when parent move does not change this branch position.
@@ -342,8 +345,9 @@ where
             Self::invariant_violation("shift traversal encountered missing placement")
         });
         let shifted = Rect::new(current.rect.offset + offset_delta, current.rect.size);
+        let next = Placement::new(current.transform, shifted);
         // Preserve existing transform; shift only affects 2D rect offset.
-        self.update_placement(id, shifted, current.transform, changed);
+        self.update_placement(id, next, changed);
 
         let cached_children = self
             .nodes
@@ -362,14 +366,9 @@ where
     fn update_placement(
         &mut self,
         id: &Id,
-        next_rect: Rect<RANK>,
-        next_transform: T,
-        changed: &mut Vec<(Id, Placement<RANK, T>)>,
+        next: Placement<T, RANK>,
+        changed: &mut Vec<(Id, Placement<T, RANK>)>,
     ) {
-        let next = Placement {
-            rect: next_rect,
-            transform: next_transform,
-        };
         let is_changed = self
             .placements
             .get(id)
@@ -534,8 +533,8 @@ where
 }
 
 #[derive(Debug)]
-pub struct RecomputeResult<Id: Clone, const RANK: usize, T> {
-    pub changed: Vec<(Id, Placement<RANK, T>)>,
+pub struct RecomputeResult<Id: Clone, T, const RANK: usize> {
+    pub changed: Vec<(Id, Placement<T, RANK>)>,
 }
 
 #[cfg(test)]
@@ -547,7 +546,7 @@ mod tests {
     use std::cmp::max;
     use std::collections::{HashMap, HashSet};
 
-    type TestLayouter = IncrementalLayouter<usize, 2, Transform>;
+    type TestLayouter = IncrementalLayouter<usize, Transform, 2>;
 
     #[derive(Default)]
     struct TestTopology {
@@ -596,7 +595,7 @@ mod tests {
         container_specs: HashMap<usize, ContainerSpec>,
     }
 
-    impl LayoutAlgorithm<usize, 2, Transform> for TestAlgorithm {
+    impl LayoutAlgorithm<usize, Transform, 2> for TestAlgorithm {
         fn measure(&self, id: &usize, child_sizes: &[Size<2>]) -> Size<2> {
             if let Some(&size) = self.leaf_sizes.get(id) {
                 return size;
@@ -629,7 +628,7 @@ mod tests {
             id: &usize,
             parent_offset: Offset<2>,
             child_sizes: &[Size<2>],
-        ) -> Vec<(Offset<2>, Transform)> {
+        ) -> Vec<TransformOffset<Transform, 2>> {
             let spec = self
                 .container_specs
                 .get(id)
@@ -643,7 +642,10 @@ mod tests {
                 if index > 0 {
                     cursor[axis] += spacing as i32;
                 }
-                placements.push((parent_offset + cursor, Transform::IDENTITY));
+                placements.push(TransformOffset::new(
+                    Transform::IDENTITY,
+                    parent_offset + cursor,
+                ));
                 cursor[axis] += child_size[axis] as i32;
             }
             placements
@@ -1174,7 +1176,7 @@ mod tests {
         inner: &'a TestAlgorithm,
     }
 
-    impl LayoutAlgorithm<usize, 2, Transform> for BrokenPlaceChildrenAlgorithm<'_> {
+    impl LayoutAlgorithm<usize, Transform, 2> for BrokenPlaceChildrenAlgorithm<'_> {
         fn measure(&self, id: &usize, child_sizes: &[Size<2>]) -> Size<2> {
             self.inner.measure(id, child_sizes)
         }
@@ -1184,7 +1186,7 @@ mod tests {
             _id: &usize,
             _parent_offset: Offset<2>,
             _child_sizes: &[Size<2>],
-        ) -> Vec<(Offset<2>, Transform)> {
+        ) -> Vec<TransformOffset<Transform, 2>> {
             Vec::new()
         }
     }

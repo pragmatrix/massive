@@ -8,7 +8,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, SizePx, Vector3};
 use massive_input::EventManager;
-use massive_layout::{LayoutAxis, Offset, Size as LayoutSize};
+use massive_layout::{LayoutAxis, Offset, Size as LayoutSize, TransformOffset};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size};
@@ -149,7 +149,7 @@ impl LauncherPresenter {
         parent_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         default_panel_size: SizePx,
-    ) -> Option<Vec<(Offset<2>, Transform)>> {
+    ) -> Option<Vec<TransformOffset<Transform, 2>>> {
         match self.mode {
             LauncherMode::Band => None,
             LauncherMode::Visor => Some(centered_horizontal_offsets(
@@ -343,7 +343,7 @@ fn centered_horizontal_offsets(
     parent_offset: Offset<2>,
     child_sizes: &[LayoutSize<2>],
     panel_width: i32,
-) -> Vec<(Offset<2>, Transform)> {
+) -> Vec<TransformOffset<Transform, 2>> {
     let spacing = 0i32;
     let children_span: i32 = child_sizes.iter().map(|size| size[0] as i32).sum::<i32>()
         + spacing * (child_sizes.len().saturating_sub(1) as i32);
