@@ -205,9 +205,9 @@ pub(crate) fn place_container_children(
         if index > 0 {
             offset[axis_index] += spacing;
         }
-        let center_x = offset[0] as f64 + child_size[0] as f64 / 2.0;
-        let center_y = offset[1] as f64 + child_size[1] as f64 / 2.0;
-        let transform = Transform::from_translation(Vector3::new(center_x, center_y, 0.0));
+        let rect: RectPx = LayoutRect::new(offset, child_size).into();
+        let center = rect.center().to_f64();
+        let transform = Transform::from_translation(Vector3::new(center.x, center.y, 0.0));
         child_placements.push(TransformOffset::new(transform, offset));
         offset[axis_index] += child_size[axis_index] as i32;
     }
