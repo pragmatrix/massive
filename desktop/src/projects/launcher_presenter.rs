@@ -6,16 +6,17 @@ use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
-use massive_geometry::{Color, Quaternion, Rect, RectPx, SizePx, Vector3};
+use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Size as LayoutSize, TransformOffset};
 use massive_renderer::text::FontSystem;
-use massive_scene::{At, Handle, Location, Object, ToLocation, ToTransform, Transform, Visual};
-use massive_shapes::{self as shapes, IntoShape, Shape, Size};
+use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
+use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::visor_layout;
 use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
+use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
 use super::configuration::{LaunchProfile, LauncherMode};
@@ -49,9 +50,10 @@ pub struct LauncherPresenter {
     id: LaunchProfileId,
     profile: LaunchProfile,
     mode: LauncherMode,
-    transform: Handle<Transform>,
+    layout_transform: Transform,
+    scene_transform: Handle<Transform>,
 
-    pub rect: Animated<Rect>,
+    pub size: Animated<Size>,
     background: Handle<Visual>,
     // The text, either centered, or on top of the border.
     name: Handle<Visual>,
@@ -69,15 +71,15 @@ impl LauncherPresenter {
         parent_location: Handle<Location>,
         id: LaunchProfileId,
         profile: LaunchProfile,
-        rect: Rect,
+        size: Size,
         scene: &Scene,
         font_system: &mut FontSystem,
     ) -> Self {
         // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
-        let background_shape = background_shape(rect.size().to_rect(), BACKGROUND_COLOR);
+        let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
         let mode = profile.mode;
 
-        let our_transform = rect.origin().to_transform().enter(scene);
+        let our_transform = Transform::IDENTITY.enter(scene);
 
         let our_location = our_transform
             .to_location()
@@ -108,8 +110,9 @@ impl LauncherPresenter {
             id,
             profile,
             mode,
-            transform: our_transform,
-            rect: scene.animated(rect),
+            layout_transform: Transform::IDENTITY,
+            scene_transform: our_transform,
+            size: scene.animated(size),
             background,
             name,
             fader: scene.animated(1.0),
@@ -281,15 +284,17 @@ impl LauncherPresenter {
         self.fader.final_value() == 0.0
     }
 
-    pub fn set_rect(&mut self, rect: Rect, animate: bool) {
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
+        self.layout_transform = layout_transform;
+        let size = Size::new(size.width as f64, size.height as f64);
         if animate {
-            self.rect.animate_if_changed(
-                rect,
+            self.size.animate_if_changed(
+                size,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {
-            self.rect.set_immediately(rect);
+            self.size.set_immediately(size);
             self.apply_animations();
         }
     }
@@ -305,13 +310,16 @@ impl LauncherPresenter {
     }
 
     pub fn apply_animations(&mut self) {
-        let (origin, size) = self.rect.value().origin_and_size();
+        let size = self.size.value();
+        let local_center = size.to_rect().center();
 
-        self.transform.update_if_changed(origin.with_z(0.0).into());
+        let scene_transform =
+            InstancePresenter::transform_with_layout(self.layout_transform, local_center);
+        self.scene_transform.update_if_changed(scene_transform);
 
         let alpha = self.fader.value();
 
-        // Performance: How can we not call this if self.rect and self.fader are both not animating.
+        // Performance: How can we not call this if self.size and self.fader are both not animating.
         // `is_animating()` is perhaps not reliable.
         self.background.update_with_if_changed(|visual| {
             visual.shapes = [background_shape(

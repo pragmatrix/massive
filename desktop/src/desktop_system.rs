@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use massive_animation::Animated;
 use massive_applications::{InstanceId, ViewId};
-use massive_geometry::{PixelCamera, Rect, RectPx, SizePx};
+use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{IncrementalLayouter, LayoutTopology, Placement};
 use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
@@ -215,13 +215,6 @@ impl DesktopSystem {
         // - parent refresh updates cached children and recomputes sibling placement.
         self.layouter.mark_reflow_pending(parent);
         Ok(())
-    }
-
-    fn rect(&self, target: &DesktopTarget) -> Option<Rect> {
-        self.layouter.rect(target).map(|rect| {
-            let rect_px: RectPx = (*rect).into();
-            rect_px.into()
-        })
     }
 
     fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {

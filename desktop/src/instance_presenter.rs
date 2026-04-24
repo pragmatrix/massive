@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::ViewCreationInfo;
-use massive_geometry::{Color, Point, Rect, RectPx, Transform, Vector3};
+use massive_geometry::{Color, Point, Rect, SizePx, Transform, Vector3};
 use massive_scene::{At, Handle, Location, Object, ToLocation, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
@@ -72,10 +72,9 @@ impl InstancePresenter {
         self.state.view().is_some()
     }
 
-    pub fn set_layout(&mut self, rect: RectPx, layout_transform: Transform, animate: bool) {
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
         if let Some(background) = &mut self.background {
-            let rect: Rect = rect.into();
-            background.local_rect = rect.size().to_rect();
+            background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
             background.visual.update_with_if_changed(|visual| {
                 let local_rect = background.local_rect;
                 visual.shapes = [background_shape(local_rect)].into();

@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use massive_geometry::{PixelCamera, Point, Rect};
+use massive_geometry::{PixelCamera, Point, Size, Vector3};
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget};
@@ -32,19 +32,24 @@ impl Direction {
 impl DesktopSystem {
     pub(super) fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
         match focus {
-            DesktopTarget::Desktop => self
-                .rect(&DesktopTarget::Desktop)
-                .map(|rect| rect.to_camera()),
-            DesktopTarget::Group(group) => {
-                Some(self.aggregates.groups[group].rect.center().to_camera())
+            DesktopTarget::Desktop => {
+                let placement = self.placement(&DesktopTarget::Desktop)?;
+                let size_px = placement.rect.size;
+                let offset = placement.rect.offset;
+                let size = Size::new(size_px[0] as f64, size_px[1] as f64);
+                // The Desktop is the layout root — its transform is T::default() (IDENTITY),
+                // not center-based. Compute the center from the rect.
+                let center_x = offset[0] as f64 + size.width / 2.0;
+                let center_y = offset[1] as f64 + size.height / 2.0;
+                let center: Transform = Vector3::new(center_x, center_y, 0.0).into();
+                Some(center.to_camera().with_size(size))
             }
-            DesktopTarget::Launcher(launcher) => Some(
-                self.aggregates.launchers[launcher]
-                    .rect
-                    .final_value()
-                    .center()
-                    .to_camera(),
-            ),
+            DesktopTarget::Group(_)
+            | DesktopTarget::Launcher(_) => {
+                let transform = self.layouter.transform(focus)?;
+                let camera_transform: Transform = transform.translate.into();
+                Some(camera_transform.to_camera())
+            }
             DesktopTarget::Instance(instance_id) => {
                 let instance = &self.aggregates.instances[instance_id];
                 let transform: Transform = instance
@@ -72,7 +77,8 @@ impl DesktopSystem {
             return None;
         }
 
-        let from_rect = self.rect(from)?;
+        let from_transform = self.layouter.transform(from)?;
+        let from_center = Point::new(from_transform.translate.x, from_transform.translate.y);
         let launcher_targets_without_instances = self
             .aggregates
             .launchers
@@ -88,27 +94,30 @@ impl DesktopSystem {
         });
         let navigation_candidates = launcher_targets_without_instances
             .chain(all_instances_or_views)
-            .filter_map(|target| self.rect(&target).map(|rect| (target, rect)));
+            .filter_map(|target| {
+                let t = self.layouter.transform(&target)?;
+                let center = Point::new(t.translate.x, t.translate.y);
+                Some((target, center))
+            });
 
         let ordered =
-            ordered_rects_in_direction(from_rect.center(), direction, navigation_candidates);
-        if let Some((nearest, _rect)) = ordered.first() {
+            ordered_points_in_direction(from_center, direction, navigation_candidates);
+        if let Some((nearest, _distance)) = ordered.first() {
             return Some(nearest.clone());
         }
         None
     }
 }
 
-pub(super) fn ordered_rects_in_direction<K>(
+pub(super) fn ordered_points_in_direction<K>(
     center: Point,
     direction: Direction,
-    rects: impl Iterator<Item = (K, Rect)>,
+    candidates: impl Iterator<Item = (K, Point)>,
 ) -> Vec<(K, f64)> {
-    let mut results: Vec<(K, f64)> = rects
-        .filter_map(|(key, rect)| {
-            let rect_center = rect.center();
-            direction.is_visible(center, rect_center).then(|| {
-                let distance = (rect_center - center).length();
+    let mut results: Vec<(K, f64)> = candidates
+        .filter_map(|(key, candidate_center)| {
+            direction.is_visible(center, candidate_center).then(|| {
+                let distance = (candidate_center - center).length();
                 (key, distance)
             })
         })

@@ -1,6 +1,7 @@
 use std::cmp::max;
+use std::collections::HashMap;
 
-use massive_geometry::{RectPx, SizePx, Transform};
+use massive_geometry::{RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
     LayoutAlgorithm, LayoutAxis, Offset, Rect as LayoutRect, Size, TransformOffset,
 };
@@ -118,11 +119,10 @@ impl DesktopLayoutAlgorithm<'_> {
         let layout_targets =
             launcher.compute_instance_layout_targets(&instance_inputs, self.focused_instance);
 
-        let mut transform_by_instance: std::collections::HashMap<InstanceId, Transform> =
-            layout_targets
-                .into_iter()
-                .map(|target| (target.instance_id, target.layout_transform))
-                .collect();
+        let mut transform_by_instance: HashMap<InstanceId, Transform> = layout_targets
+            .into_iter()
+            .map(|target| (target.instance_id, target.layout_transform))
+            .collect();
 
         children
             .iter()
@@ -205,7 +205,10 @@ pub(crate) fn place_container_children(
         if index > 0 {
             offset[axis_index] += spacing;
         }
-        child_placements.push(TransformOffset::new(Transform::IDENTITY, offset));
+        let center_x = offset[0] as f64 + child_size[0] as f64 / 2.0;
+        let center_y = offset[1] as f64 + child_size[1] as f64 / 2.0;
+        let transform = Transform::from_translation(Vector3::new(center_x, center_y, 0.0));
+        child_placements.push(TransformOffset::new(transform, offset));
         offset[axis_index] += child_size[axis_index] as i32;
     }
 

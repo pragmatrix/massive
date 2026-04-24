@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Color, Point, Rect, RectPx, Transform, Vector3};
+use massive_geometry::{Color, Point, Rect, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
 use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
 use massive_shapes::{Shape, StrokeRect};
@@ -77,30 +77,14 @@ impl ProjectPresenter {
         let alpha = self.hover_alpha.value();
         let hover_placement = self.hover_placement;
 
-        let rect_px: RectPx = hover_placement.rect.into();
-        let hover_rect: Rect = rect_px.into();
-
-        // Hover shapes are drawn in local coordinates (origin-based rect).
-        let local_rect = hover_rect.size().to_rect();
+        let size = hover_placement.rect.size;
+        let local_rect = Rect::from_size((size[0] as f64, size[1] as f64));
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
 
-        // Position the hover visual in world space. For instances, the layout transform's
-        // translate IS the center position (possibly offset for visor layout). For launchers,
-        // the transform is IDENTITY so we derive position from the rect's center.
+        // Position the hover visual in world space using the placement's center-based transform.
         let local_center = local_rect.center();
-        let has_translate = hover_placement.transform.translate != Vector3::ZERO;
-        let center_transform = if has_translate {
-            hover_placement.transform
-        } else {
-            let center = hover_rect.center();
-            Transform::new(
-                Vector3::new(center.x, center.y, 0.0),
-                hover_placement.transform.rotate,
-                hover_placement.transform.scale,
-            )
-        };
         let scene_transform = InstancePresenter::transform_with_layout(
-            center_transform,
+            hover_placement.transform,
             Point::new(local_center.x, local_center.y),
         );
         self.hover_scene_transform
@@ -135,14 +119,14 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
 #[derive(Debug)]
 pub struct GroupPresenter {
     pub properties: LaunchGroupProperties,
-    pub rect: Rect,
+    pub size: SizePx,
 }
 
 impl GroupPresenter {
     pub fn new(properties: LaunchGroupProperties) -> Self {
         Self {
             properties,
-            rect: Rect::default(),
+            size: SizePx::default(),
         }
     }
 }

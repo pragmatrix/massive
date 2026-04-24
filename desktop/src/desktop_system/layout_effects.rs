@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use massive_animation::Interpolation;
 use massive_applications::InstanceId;
-use massive_geometry::{PointPx, Rect, RectPx, Transform};
+use massive_geometry::{PointPx, SizePx, Transform};
 use massive_layout::Placement;
 
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
@@ -71,8 +71,8 @@ impl DesktopSystem {
         animate: bool,
     ) {
         for (id, placement) in changed {
-            let rect_px: RectPx = placement.rect.into();
-            let rect: Rect = rect_px.into();
+            let layout_size = placement.rect.size;
+            let size_px = SizePx::new(layout_size[0], layout_size[1]);
             let transform = placement.transform;
 
             match id {
@@ -82,21 +82,21 @@ impl DesktopSystem {
                         .instances
                         .get_mut(&instance_id)
                         .expect("Instance missing")
-                        .set_layout(rect_px, transform, animate);
+                        .set_layout(size_px, transform, animate);
                 }
                 DesktopTarget::Group(group_id) => {
                     self.aggregates
                         .groups
                         .get_mut(&group_id)
                         .expect("Missing group")
-                        .rect = rect;
+                        .size = size_px;
                 }
                 DesktopTarget::Launcher(launcher_id) => {
                     self.aggregates
                         .launchers
                         .get_mut(&launcher_id)
                         .expect("Launcher missing")
-                        .set_rect(rect, animate);
+                        .set_layout(size_px, transform, animate);
                 }
                 DesktopTarget::View(..) => {
                     // Robustness: Support resize here?

@@ -30,7 +30,6 @@ impl DesktopSystem {
                 &self.aggregates.hierarchy,
                 &self.layouter,
                 &self.aggregates.launchers,
-                &self.aggregates.instances,
                 render_geometry,
             );
 
@@ -117,7 +116,6 @@ impl DesktopSystem {
                 &self.aggregates.hierarchy,
                 &self.layouter,
                 &self.aggregates.launchers,
-                &self.aggregates.instances,
                 render_geometry,
             ))?;
 
