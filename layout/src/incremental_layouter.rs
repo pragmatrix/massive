@@ -173,14 +173,6 @@ where
         self.placements.get(id)
     }
 
-    pub fn rect(&self, id: &Id) -> Option<&Rect<RANK>> {
-        self.placements.get(id).map(|p| &p.rect)
-    }
-
-    pub fn transform(&self, id: &Id) -> Option<&T> {
-        self.placements.get(id).map(|p| &p.transform)
-    }
-
     /// Decides whether the current generation should traverse into `child`.
     ///
     /// Clean children with valid cached rects are reusable during placement, so traversal is only
@@ -809,11 +801,11 @@ mod tests {
 
         assert_eq!(update.changed.len(), 2);
         assert_eq!(
-            layouter.rect(&0).map(|rect| rect.size),
+            layouter.placement(&0).map(|placement| placement.rect.size),
             Some(Size::from([20, 10]))
         );
         assert_eq!(
-            layouter.rect(&1).map(|rect| rect.size),
+            layouter.placement(&1).map(|placement| placement.rect.size),
             Some(Size::from([20, 10]))
         );
     }
@@ -838,9 +830,9 @@ mod tests {
         set_children(&mut layouter, &mut topology, 0, vec![]);
         let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
 
-        assert!(layouter.rect(&1).is_none());
+        assert!(layouter.placement(&1).is_none());
         assert_eq!(
-            layouter.rect(&0).map(|rect| rect.size),
+            layouter.placement(&0).map(|placement| placement.rect.size),
             Some(Size::from([0, 0]))
         );
     }
@@ -887,8 +879,8 @@ mod tests {
         changed_ids.sort_unstable();
 
         assert_eq!(changed_ids, vec![0, 1, 10]);
-        assert!(layouter.rect(&20).is_some());
-        assert!(layouter.rect(&2).is_some());
+        assert!(layouter.placement(&20).is_some());
+        assert!(layouter.placement(&2).is_some());
     }
 
     #[test]
@@ -927,15 +919,17 @@ mod tests {
         let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
 
         assert_eq!(
-            layouter.rect(&10).map(|rect| rect.size),
+            layouter.placement(&10).map(|placement| placement.rect.size),
             Some(Size::from([0, 0]))
         );
         assert_eq!(
-            layouter.rect(&20).map(|rect| rect.size),
+            layouter.placement(&20).map(|placement| placement.rect.size),
             Some(Size::from([7, 5]))
         );
         assert_eq!(
-            layouter.rect(&1).map(|rect| rect.offset),
+            layouter
+                .placement(&1)
+                .map(|placement| placement.rect.offset),
             Some(Offset::from([0, 0]))
         );
     }
@@ -961,19 +955,23 @@ mod tests {
 
         assert_eq!(moved.changed.len(), 2);
         assert_eq!(
-            layouter.rect(&0).map(|rect| rect.offset),
+            layouter
+                .placement(&0)
+                .map(|placement| placement.rect.offset),
             Some([8, 13].into())
         );
         assert_eq!(
-            layouter.rect(&1).map(|rect| rect.offset),
+            layouter
+                .placement(&1)
+                .map(|placement| placement.rect.offset),
             Some([8, 13].into())
         );
         assert_eq!(
-            layouter.rect(&0).map(|rect| rect.size),
+            layouter.placement(&0).map(|placement| placement.rect.size),
             Some([10, 5].into())
         );
         assert_eq!(
-            layouter.rect(&1).map(|rect| rect.size),
+            layouter.placement(&1).map(|placement| placement.rect.size),
             Some([10, 5].into())
         );
     }
@@ -999,15 +997,19 @@ mod tests {
         let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
 
         assert_eq!(
-            layouter.rect(&1).map(|rect| rect.offset),
+            layouter
+                .placement(&1)
+                .map(|placement| placement.rect.offset),
             Some([3, 2].into())
         );
         assert_eq!(
-            layouter.rect(&2).map(|rect| rect.offset),
+            layouter
+                .placement(&2)
+                .map(|placement| placement.rect.offset),
             Some([19, 2].into())
         );
         assert_eq!(
-            layouter.rect(&0).map(|rect| rect.size),
+            layouter.placement(&0).map(|placement| placement.rect.size),
             Some([30, 8].into())
         );
     }
@@ -1031,7 +1033,7 @@ mod tests {
         remove_node(&mut layouter, &mut topology, &mut algorithm, 0);
         let update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
-        assert!(layouter.rect(&0).is_none());
+        assert!(layouter.placement(&0).is_none());
         assert!(update.changed.is_empty());
     }
 
@@ -1057,7 +1059,7 @@ mod tests {
 
         let update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
-        assert!(layouter.rect(&1).is_none());
+        assert!(layouter.placement(&1).is_none());
         assert!(update.changed.iter().any(|(id, ..)| id == &0));
     }
 
@@ -1084,7 +1086,7 @@ mod tests {
 
         let update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
-        assert!(layouter.rect(&1).is_none());
+        assert!(layouter.placement(&1).is_none());
         assert!(update.changed.iter().any(|(id, ..)| id == &0));
     }
 
@@ -1110,10 +1112,10 @@ mod tests {
         algorithm.remove_node(1);
         let removed_only_update = layouter.recompute(&topology, &algorithm, [0, 0]);
 
-        assert!(layouter.rect(&1).is_none());
+        assert!(layouter.placement(&1).is_none());
         assert!(removed_only_update.changed.is_empty());
         assert_eq!(
-            layouter.rect(&0).map(|rect| rect.size),
+            layouter.placement(&0).map(|placement| placement.rect.size),
             Some([17, 5].into())
         );
 
@@ -1147,9 +1149,14 @@ mod tests {
         changed_ids.sort_unstable();
 
         assert_eq!(changed_ids, vec![0, 2]);
-        assert_eq!(layouter.rect(&0).map(|rect| rect.size), Some([7, 5].into()));
         assert_eq!(
-            layouter.rect(&2).map(|rect| rect.offset),
+            layouter.placement(&0).map(|placement| placement.rect.size),
+            Some([7, 5].into())
+        );
+        assert_eq!(
+            layouter
+                .placement(&2)
+                .map(|placement| placement.rect.offset),
             Some([0, 0].into())
         );
     }

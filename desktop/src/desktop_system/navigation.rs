@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use massive_geometry::{PixelCamera, Point, Size, Vector3};
+use massive_geometry::{PixelCamera, Point, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget};
@@ -34,19 +34,17 @@ impl DesktopSystem {
         match focus {
             DesktopTarget::Desktop => {
                 let placement = self.placement(&DesktopTarget::Desktop)?;
-                let size_px = placement.rect.size;
-                let offset = placement.rect.offset;
-                let size = Size::new(size_px[0] as f64, size_px[1] as f64);
+                let rect: RectPx = placement.rect.into();
+                let rect: Rect = rect.into();
+                let size = rect.size();
                 // The Desktop is the layout root — its transform is T::default() (IDENTITY),
                 // not center-based. Compute the center from the rect.
-                let center_x = offset[0] as f64 + size.width / 2.0;
-                let center_y = offset[1] as f64 + size.height / 2.0;
-                let center: Transform = Vector3::new(center_x, center_y, 0.0).into();
+                let center = rect.center();
+                let center: Transform = (center.x, center.y, 0.0).into();
                 Some(center.to_camera().with_size(size))
             }
-            DesktopTarget::Group(_)
-            | DesktopTarget::Launcher(_) => {
-                let transform = self.layouter.transform(focus)?;
+            DesktopTarget::Group(_) | DesktopTarget::Launcher(_) => {
+                let transform = self.layouter.placement(focus)?.transform;
                 let camera_transform: Transform = transform.translate.into();
                 Some(camera_transform.to_camera())
             }
@@ -77,7 +75,7 @@ impl DesktopSystem {
             return None;
         }
 
-        let from_transform = self.layouter.transform(from)?;
+        let from_transform = self.layouter.placement(from)?.transform;
         let from_center = Point::new(from_transform.translate.x, from_transform.translate.y);
         let launcher_targets_without_instances = self
             .aggregates
@@ -95,13 +93,12 @@ impl DesktopSystem {
         let navigation_candidates = launcher_targets_without_instances
             .chain(all_instances_or_views)
             .filter_map(|target| {
-                let t = self.layouter.transform(&target)?;
+                let t = self.layouter.placement(&target)?.transform;
                 let center = Point::new(t.translate.x, t.translate.y);
                 Some((target, center))
             });
 
-        let ordered =
-            ordered_points_in_direction(from_center, direction, navigation_candidates);
+        let ordered = ordered_points_in_direction(from_center, direction, navigation_candidates);
         if let Some((nearest, _distance)) = ordered.first() {
             return Some(nearest.clone());
         }

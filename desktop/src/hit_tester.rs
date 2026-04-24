@@ -1,7 +1,7 @@
 use massive_geometry::{
     Contains, PerspectiveDivide, Point, Rect, RectPx, Size, Transform, Vector3, Vector4,
 };
-use massive_layout::IncrementalLayouter;
+use massive_layout::{IncrementalLayouter, Rect as LayoutRect};
 use massive_renderer::RenderGeometry;
 
 use crate::projects::{LaunchProfileId, LauncherPresenter};
@@ -69,11 +69,13 @@ impl<'a> AggregateHitTester<'a> {
         let overlay_hit = self.hit_test_overflow_overlays_with_depth(screen_pos);
 
         match (regular_hit, overlay_hit) {
-            (Some(regular), Some(overlay)) => Some(if overlay.surface_depth < regular.surface_depth {
-                overlay
-            } else {
-                regular
-            }),
+            (Some(regular), Some(overlay)) => {
+                Some(if overlay.surface_depth < regular.surface_depth {
+                    overlay
+                } else {
+                    regular
+                })
+            }
             (Some(regular), None) => Some(regular),
             (None, Some(overlay)) => Some(overlay),
             (None, None) => None,
@@ -154,8 +156,8 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
-        let rect = self.layouter.rect(target).map(|rect| {
-            let rect_px: RectPx = (*rect).into();
+        let rect = self.layouter.placement(target).map(|placement| {
+            let rect_px: RectPx = placement.rect.into();
             Rect::from(rect_px)
         })?;
         let size = rect.size();
@@ -179,8 +181,8 @@ impl<'a> AggregateHitTester<'a> {
         if let DesktopTarget::Desktop = target {
             let offset = self
                 .layouter
-                .rect(target)
-                .map(|r| r.offset)
+                .placement(target)
+                .map(|placement| placement.rect.offset)
                 .unwrap_or_default();
             return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
         }
@@ -196,43 +198,34 @@ impl<'a> AggregateHitTester<'a> {
             let instance_target = DesktopTarget::Instance(instance_id);
             let instance_transform = self
                 .layouter
-                .transform(&instance_target)
-                .copied()
+                .placement(&instance_target)
+                .map(|placement| placement.transform)
                 .unwrap_or(Transform::IDENTITY);
 
             let instance_rect = self
                 .layouter
-                .rect(&instance_target)
-                .copied()
+                .placement(&instance_target)
+                .map(|placement| placement.rect)
                 .expect("Internal error: Missing instance rect in hit test");
             let view_rect = self
                 .layouter
-                .rect(target)
-                .copied()
+                .placement(target)
+                .map(|placement| placement.rect)
                 .expect("Internal error: Missing view rect in hit test");
 
-            let instance_center = Vector3::new(
-                instance_rect.offset[0] as f64 + instance_rect.size[0] as f64 / 2.0,
-                instance_rect.offset[1] as f64 + instance_rect.size[1] as f64 / 2.0,
-                0.0,
-            );
-            let view_center = Vector3::new(
-                view_rect.offset[0] as f64 + view_rect.size[0] as f64 / 2.0,
-                view_rect.offset[1] as f64 + view_rect.size[1] as f64 / 2.0,
-                0.0,
-            );
+            let instance_center = Self::layout_rect_center(instance_rect);
+            let view_center = Self::layout_rect_center(view_rect);
             let view_offset = view_center - instance_center;
 
             let mut layout_transform = instance_transform;
-            layout_transform.translate =
-                layout_transform.translate + layout_transform.rotate * view_offset;
+            layout_transform.translate += layout_transform.rotate * view_offset;
             return Self::transform_with_layout(layout_transform, local_center);
         }
 
         let layout_transform = self
             .layouter
-            .transform(target)
-            .copied()
+            .placement(target)
+            .map(|placement| placement.transform)
             .unwrap_or(Transform::IDENTITY);
         Self::transform_with_layout(layout_transform, local_center)
     }
@@ -254,4 +247,10 @@ impl<'a> AggregateHitTester<'a> {
         clip.perspective_divide().map_or(f64::INFINITY, |ndc| ndc.z)
     }
 
+    fn layout_rect_center(rect: LayoutRect<2>) -> Vector3 {
+        let rect_px: RectPx = rect.into();
+        let rect: Rect = rect_px.into();
+        let center = rect.center();
+        Vector3::new(center.x, center.y, 0.0)
+    }
 }
