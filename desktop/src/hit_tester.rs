@@ -1,7 +1,7 @@
 use massive_geometry::{
     Contains, PerspectiveDivide, Point, Rect, RectPx, Size, Transform, Vector3, Vector4,
 };
-use massive_layout::{IncrementalLayouter, Rect as LayoutRect};
+use massive_layout::{IncrementalLayouter, Placement, Rect as LayoutRect};
 use massive_renderer::RenderGeometry;
 
 use crate::projects::{LaunchProfileId, LauncherPresenter};
@@ -156,13 +156,11 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
-        let rect = self.layouter.placement(target).map(|placement| {
-            let rect_px: RectPx = placement.rect.into();
-            Rect::from(rect_px)
-        })?;
-        let size = rect.size();
+        let placement = *self.layouter.placement(target)?;
+        let rect_px: RectPx = placement.rect.into();
+        let size = Rect::from(rect_px).size();
 
-        let transform = self.hit_test_transform(target, size);
+        let transform = self.hit_test_transform(target, placement);
         Some(HitSurface { transform, size })
     }
 
@@ -173,17 +171,18 @@ impl<'a> AggregateHitTester<'a> {
 
     /// Returns a transform whose model space is the target's local coordinate system.
     /// Unprojecting through this transform yields target-local coordinates.
-    fn hit_test_transform(&self, target: &DesktopTarget, size: Size) -> Transform {
-        let local_center = size.to_rect().center();
+    fn hit_test_transform(
+        &self,
+        target: &DesktopTarget,
+        placement: Placement<Transform, 2>,
+    ) -> Transform {
+        let rect_px: RectPx = placement.rect.into();
+        let local_center = Rect::from(rect_px).size().to_rect().center();
 
         // The Desktop is the layout root — its transform is T::default() (IDENTITY), not
         // center-based. Derive its origin from the rect offset directly.
         if let DesktopTarget::Desktop = target {
-            let offset = self
-                .layouter
-                .placement(target)
-                .map(|placement| placement.rect.offset)
-                .unwrap_or_default();
+            let offset = placement.rect.offset;
             return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
         }
 
@@ -196,38 +195,21 @@ impl<'a> AggregateHitTester<'a> {
                 None => panic!("Internal error: View without parent in hit test"),
             };
             let instance_target = DesktopTarget::Instance(instance_id);
-            let instance_transform = self
+            let instance_placement = self
                 .layouter
                 .placement(&instance_target)
-                .map(|placement| placement.transform)
-                .unwrap_or(Transform::IDENTITY);
+                .expect("Internal error: Missing instance placement in hit test");
 
-            let instance_rect = self
-                .layouter
-                .placement(&instance_target)
-                .map(|placement| placement.rect)
-                .expect("Internal error: Missing instance rect in hit test");
-            let view_rect = self
-                .layouter
-                .placement(target)
-                .map(|placement| placement.rect)
-                .expect("Internal error: Missing view rect in hit test");
-
-            let instance_center = Self::layout_rect_center(instance_rect);
-            let view_center = Self::layout_rect_center(view_rect);
+            let instance_center = Self::layout_rect_center(instance_placement.rect);
+            let view_center = Self::layout_rect_center(placement.rect);
             let view_offset = view_center - instance_center;
 
-            let mut layout_transform = instance_transform;
+            let mut layout_transform = instance_placement.transform;
             layout_transform.translate += layout_transform.rotate * view_offset;
             return Self::transform_with_layout(layout_transform, local_center);
         }
 
-        let layout_transform = self
-            .layouter
-            .placement(target)
-            .map(|placement| placement.transform)
-            .unwrap_or(Transform::IDENTITY);
-        Self::transform_with_layout(layout_transform, local_center)
+        Self::transform_with_layout(placement.transform, local_center)
     }
 
     fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
