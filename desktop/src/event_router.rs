@@ -95,6 +95,10 @@ where
         self.device_states.keyboard_modifiers()
     }
 
+    pub fn any_buttons_pressed(&self) -> bool {
+        self.device_states.any_buttons_pressed()
+    }
+
     /// Change focus to the given target.
     pub fn focus<'a>(&mut self, focus: impl Into<Option<&'a T>>) -> EventTransitions<T>
     where

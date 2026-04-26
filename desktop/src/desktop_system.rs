@@ -195,6 +195,10 @@ impl DesktopSystem {
         self.pointer_feedback_enabled
     }
 
+    pub fn any_buttons_pressed(&self) -> bool {
+        self.event_router.any_buttons_pressed()
+    }
+
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
     fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {

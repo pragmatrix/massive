@@ -239,6 +239,12 @@ impl Desktop {
         instance: InstanceId,
         command: InstanceCommand,
     ) -> Result<()> {
+        let effects_mode = if self.system.any_buttons_pressed() {
+            TransactionEffectsMode::CameraLocked.into()
+        } else {
+            None
+        };
+
         match command {
             InstanceCommand::CreateView(info) => {
                 self.instance_manager.add_view(instance, &info);
@@ -246,7 +252,7 @@ impl Desktop {
                     DesktopCommand::PresentView(instance, info),
                     &self.scene,
                     &mut self.instance_manager,
-                    None,
+                    effects_mode,
                 )?;
             }
             InstanceCommand::DestroyView(id, collector) => {
@@ -254,7 +260,7 @@ impl Desktop {
                     DesktopCommand::HideView((instance, id).into()),
                     &self.scene,
                     &mut self.instance_manager,
-                    None,
+                    effects_mode,
                 )?;
                 self.instance_manager.remove_view((instance, id).into());
                 // Feature: Don't push the remaining changes immediately and fade the remaining

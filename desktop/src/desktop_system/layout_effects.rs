@@ -19,6 +19,12 @@ impl DesktopSystem {
             None => (true, true),
         };
 
+        if matches!(mode, Some(TransactionEffectsMode::CameraLocked)) {
+            // Lock camera motion immediately, including already running camera animations.
+            let camera = self.camera.value();
+            self.camera.set_immediately(camera);
+        }
+
         // Layout & apply rects + transforms.
         let focused_instance = self
             .aggregates
