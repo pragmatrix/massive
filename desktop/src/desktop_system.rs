@@ -22,6 +22,7 @@ mod project_commands;
 
 use anyhow::Result;
 use derive_more::{Debug, From};
+use std::collections::HashSet;
 use std::time::Duration;
 
 use massive_animation::Animated;
@@ -78,6 +79,7 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     pointer_feedback_enabled: bool,
+    deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
 
     #[debug(skip)]
     layouter: IncrementalLayouter<DesktopTarget, Transform, 2>,
@@ -143,6 +145,7 @@ impl DesktopSystem {
             event_router,
             camera: scene.animated(PixelCamera::default()),
             pointer_feedback_enabled: true,
+            deferred_focus_layout_launchers: HashSet::new(),
             layouter,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
