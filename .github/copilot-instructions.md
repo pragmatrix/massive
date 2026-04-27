@@ -45,6 +45,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When an operation must not emit follow-up commands, model it as `Result<()>` and enforce the invariant at the forwarding boundary.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
+- When a hierarchy shape guarantees a child target type, convert to the concrete domain ID at the boundary instead of carrying optional child identities through lower-level APIs.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
 - For platform-specific window commands, detect shortcuts where aggregated input state is available and keep the actual window mutation in the shell/window abstraction.
 - When multiple transient affordances represent the same interaction mode, keep them behind one shared state instead of parallel flags.
