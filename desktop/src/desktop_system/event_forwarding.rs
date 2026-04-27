@@ -55,13 +55,7 @@ impl DesktopSystem {
                     return Ok(Cmd::None);
                 };
 
-                // Need to translate the event. The view has its own coordinate system.
-                let event = if let Some(rect) = self.rect(&target) {
-                    event.translate(-rect.origin())
-                } else {
-                    // This happens on startup on PresentView, because the layout isn't there yet.
-                    event
-                };
+                // Hit test already returns view-local coordinates.
 
                 if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
                 {

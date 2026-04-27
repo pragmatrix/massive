@@ -23,12 +23,18 @@ Update it whenever you learn something new about the project's patterns, convent
 - Include complete state in events rather than deltas to provide full context to handlers.
 - Prefer grouping semantically paired values into a single parameter or type when they are always used together.
 - Use cohesive domain types as API boundaries when related values are expected to move together.
+- When a domain struct already models paired values, prefer it over tuple payloads in change streams and method signatures.
+- When a cohesive domain struct is the canonical state, prefer a single accessor returning that struct over parallel field-specific accessors.
+- For layout APIs, prefer named transform+offset structs over tuple returns so ordering and intent stay explicit.
+- For small paired-value structs, prefer constructor derives (for example `derive_more::Constructor`) and use constructors at call sites instead of field-literal repetition.
 - Prefer behavior-named capability methods on presenters/components over exposing raw mode enums to system-level callers.
+- For presenter-owned layout behavior, keep mode-specific offset and transform decisions behind a single presenter capability instead of splitting them across caller-side passes.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
+- For event transition summaries used by side effects, collect all relevant transition payloads rather than stopping at the first match.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
 - For transient UI indicators (hover/focus highlights), derive visibility/target from current resolved state rather than only from enter/exit edge events.
@@ -39,6 +45,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When an operation must not emit follow-up commands, model it as `Result<()>` and enforce the invariant at the forwarding boundary.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
+- When a hierarchy shape guarantees a child target type, convert to the concrete domain ID at the boundary instead of carrying optional child identities through lower-level APIs.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
 - For platform-specific window commands, detect shortcuts where aggregated input state is available and keep the actual window mutation in the shell/window abstraction.
 - When multiple transient affordances represent the same interaction mode, keep them behind one shared state instead of parallel flags.

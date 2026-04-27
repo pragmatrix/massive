@@ -1,18 +1,16 @@
-use massive_applications::InstanceId;
-use massive_geometry::{Contains, Point, Rect, RectPx, Size, Vector3};
-use massive_layout::IncrementalLayouter;
+use massive_geometry::{
+    Contains, PerspectiveDivide, Point, Rect, RectPx, Size, Transform, Vector3, Vector4,
+};
+use massive_layout::{IncrementalLayouter, Placement, Rect as LayoutRect};
 use massive_renderer::RenderGeometry;
-use massive_scene::Transform;
 
-use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-    layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
+    layouter: &'a IncrementalLayouter<DesktopTarget, Transform, 2>,
     launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
-    instances: &'a Map<InstanceId, InstancePresenter>,
     geometry: &'a RenderGeometry,
 }
 
@@ -20,14 +18,13 @@ pub(crate) struct AggregateHitTester<'a> {
 struct HitSurface {
     transform: Transform,
     size: Size,
-    surface_z: f64,
 }
 
 #[derive(Debug)]
 pub struct HitTestResult {
     pub target: DesktopTarget,
     pub local_pos: Vector3,
-    pub surface_z: f64,
+    pub surface_depth: f64,
 }
 
 impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
@@ -50,16 +47,14 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
 impl<'a> AggregateHitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-        layouter: &'a IncrementalLayouter<DesktopTarget, 2>,
+        layouter: &'a IncrementalLayouter<DesktopTarget, Transform, 2>,
         launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
-        instances: &'a Map<InstanceId, InstancePresenter>,
         geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
             hierarchy,
             layouter,
             launchers,
-            instances,
             geometry,
         }
     }
@@ -74,11 +69,13 @@ impl<'a> AggregateHitTester<'a> {
         let overlay_hit = self.hit_test_overflow_overlays_with_depth(screen_pos);
 
         match (regular_hit, overlay_hit) {
-            (Some(regular), Some(overlay)) => Some(if overlay.surface_z > regular.surface_z {
-                overlay
-            } else {
-                regular
-            }),
+            (Some(regular), Some(overlay)) => {
+                Some(if overlay.surface_depth < regular.surface_depth {
+                    overlay
+                } else {
+                    regular
+                })
+            }
             (Some(regular), None) => Some(regular),
             (None, Some(overlay)) => Some(overlay),
             (None, None) => None,
@@ -103,7 +100,7 @@ impl<'a> AggregateHitTester<'a> {
                     self.hit_test_hierarchy_with_depth(screen_pos, nested, true)
                     && topmost_hit
                         .as_ref()
-                        .is_none_or(|topmost| target_hit.surface_z > topmost.surface_z)
+                        .is_none_or(|topmost| target_hit.surface_depth < topmost.surface_depth)
                 {
                     topmost_hit = Some(target_hit);
                 }
@@ -121,6 +118,8 @@ impl<'a> AggregateHitTester<'a> {
     ) -> Option<HitTestResult> {
         let hit_surface = self.resolve_hit_surface(root)?;
         let local_pos = self.hit_test_surface(screen_pos, &hit_surface)?;
+        let hit_world_pos = hit_surface.transform.transform_point(local_pos);
+        let hit_depth = self.hit_depth(hit_world_pos);
         let is_inside_root = hit_surface
             .size
             .to_rect()
@@ -133,7 +132,7 @@ impl<'a> AggregateHitTester<'a> {
                     self.hit_test_hierarchy_with_depth(screen_pos, nested, allow_overflow_children)
                     && nearest_nested_hit
                         .as_ref()
-                        .is_none_or(|nearest| target_hit.surface_z > nearest.surface_z)
+                        .is_none_or(|nearest| target_hit.surface_depth < nearest.surface_depth)
                 {
                     nearest_nested_hit = Some(target_hit);
                 }
@@ -149,7 +148,7 @@ impl<'a> AggregateHitTester<'a> {
             return Some(HitTestResult {
                 target: root.clone(),
                 local_pos,
-                surface_z: hit_surface.surface_z,
+                surface_depth: hit_depth,
             });
         }
 
@@ -157,36 +156,12 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
-        let rect = self.layouter.rect(target).map(|rect| {
-            let rect_px: RectPx = (*rect).into();
-            Rect::from(rect_px)
-        })?;
+        let placement = *self.layouter.placement(target)?;
+        let rect_px: RectPx = placement.rect.into();
+        let size = Rect::from(rect_px).size();
 
-        let model = self.hit_test_transform(target, rect);
-        let surface_z = self.hit_surface_z(target, &model);
-
-        Some(HitSurface {
-            transform: model,
-            size: rect.size(),
-            surface_z,
-        })
-    }
-
-    fn hit_surface_z(&self, target: &DesktopTarget, model: &Transform) -> f64 {
-        if let Some(instance_id) = self.hit_target_instance_id(target) {
-            return self
-                .instances
-                .get(&instance_id)
-                .expect("Internal error: Missing instance presenter for hit test depth")
-                .layout_transform_animation
-                // Keep hit depth stable across short structural animations.
-                // We intentionally pick against the settled layout target for now.
-                .final_value()
-                .translate
-                .z;
-        }
-
-        model.translate.z
+        let transform = self.hit_test_transform(target, placement);
+        Some(HitSurface { transform, size })
     }
 
     fn hit_test_surface(&self, screen_pos: Point, hit_surface: &HitSurface) -> Option<Vector3> {
@@ -194,39 +169,70 @@ impl<'a> AggregateHitTester<'a> {
             .unproject_to_model_z0(screen_pos, &hit_surface.transform.to_matrix4())
     }
 
-    fn hit_test_transform(&self, target: &DesktopTarget, rect: Rect) -> Transform {
-        if let Some(instance_id) = self.hit_target_instance_id(target) {
-            // InstancePresenter::transform expects a local center (panel-local coordinates), not
-            // the global layout center.
-            let local_center = rect.size().to_rect().center();
-            return self
-                .instances
-                .get(&instance_id)
-                .expect("Internal error: Missing instance presenter for hit test")
-                .transform(local_center);
+    /// Returns a transform whose model space is the target's local coordinate system.
+    /// Unprojecting through this transform yields target-local coordinates.
+    fn hit_test_transform(
+        &self,
+        target: &DesktopTarget,
+        placement: Placement<Transform, 2>,
+    ) -> Transform {
+        let rect_px: RectPx = placement.rect.into();
+        let local_center = Rect::from(rect_px).size().to_rect().center();
+
+        // The Desktop is the layout root — its transform is T::default() (IDENTITY), not
+        // center-based. Derive its origin from the rect offset directly.
+        if let DesktopTarget::Desktop = target {
+            let offset = placement.rect.offset;
+            return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
         }
 
-        let origin = rect.origin();
-        Transform::from_translation((origin.x, origin.y, 0.0))
+        // For View targets, resolve through the parent instance and apply the view's offset
+        // within the instance so that unprojection returns view-local coordinates.
+        if let DesktopTarget::View(_) = target {
+            let instance_id = match self.hierarchy.parent(target) {
+                Some(DesktopTarget::Instance(id)) => *id,
+                Some(_) => panic!("Internal error: View parent is not an instance in hit test"),
+                None => panic!("Internal error: View without parent in hit test"),
+            };
+            let instance_target = DesktopTarget::Instance(instance_id);
+            let instance_placement = self
+                .layouter
+                .placement(&instance_target)
+                .expect("Internal error: Missing instance placement in hit test");
+
+            let instance_center = Self::layout_rect_center(instance_placement.rect);
+            let view_center = Self::layout_rect_center(placement.rect);
+            let view_offset = view_center - instance_center;
+
+            let mut layout_transform = instance_placement.transform;
+            layout_transform.translate += layout_transform.rotate * view_offset;
+            return Self::transform_with_layout(layout_transform, local_center);
+        }
+
+        Self::transform_with_layout(placement.transform, local_center)
     }
 
-    fn hit_target_instance_id(&self, target: &DesktopTarget) -> Option<InstanceId> {
-        Some(match target {
-            DesktopTarget::Instance(instance_id) => *instance_id,
-            DesktopTarget::View(_) => {
-                let parent = self
-                    .hierarchy
-                    .parent(target)
-                    .expect("Internal error: View without parent in hit test");
+    fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
+        let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
+        let origin_translation =
+            layout_transform.translate - layout_transform.rotate * local_center;
+        Transform::new(
+            origin_translation,
+            layout_transform.rotate,
+            layout_transform.scale,
+        )
+    }
 
-                match parent {
-                    DesktopTarget::Instance(instance_id) => *instance_id,
-                    _ => panic!("Internal error: View parent is not an instance in hit test"),
-                }
-            }
-            DesktopTarget::Desktop | DesktopTarget::Group(_) | DesktopTarget::Launcher(_) => {
-                return None;
-            }
-        })
+    fn hit_depth(&self, world_pos: Vector3) -> f64 {
+        let vp = self.geometry.view_projection();
+        let clip = vp * Vector4::new(world_pos.x, world_pos.y, world_pos.z, 1.0);
+        clip.perspective_divide().map_or(f64::INFINITY, |ndc| ndc.z)
+    }
+
+    fn layout_rect_center(rect: LayoutRect<2>) -> Vector3 {
+        let rect_px: RectPx = rect.into();
+        let rect: Rect = rect_px.into();
+        let center = rect.center();
+        Vector3::new(center.x, center.y, 0.0)
     }
 }

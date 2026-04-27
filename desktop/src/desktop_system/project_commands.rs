@@ -33,7 +33,7 @@ impl DesktopSystem {
                     self.aggregates.project_presenter.location.clone(),
                     id,
                     profile,
-                    massive_geometry::Rect::default(),
+                    massive_geometry::Size::default(),
                     scene,
                     &mut self.fonts.lock(),
                 );
