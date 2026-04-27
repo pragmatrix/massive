@@ -1,5 +1,4 @@
 use std::cmp::max;
-use std::collections::HashMap;
 
 use massive_geometry::{RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
@@ -10,7 +9,6 @@ use massive_applications::InstanceId;
 
 use super::{Aggregates, DesktopTarget};
 use crate::layout::{LayoutSpec, ToContainer};
-use crate::projects::LauncherInstanceLayoutInput;
 
 const SECTION_SPACING: u32 = 20;
 
@@ -85,58 +83,19 @@ impl DesktopLayoutAlgorithm<'_> {
         };
 
         let launcher = &self.aggregates.launchers[launcher_id];
-
-        // Launchers can provide a custom 2D placement pass. If unavailable,
-        // we reuse the standard container algorithm to keep behavior consistent.
-        let child_placements = if let Some(placements) =
-            launcher.panel_child_offsets(parent_offset, child_sizes, self.default_panel_size)
-        {
-            placements
-        } else {
-            self.place_standard_children(id, parent_offset, child_sizes)
-        };
-
         let children = self.aggregates.hierarchy.get_nested(id);
+        let child_instances = children.iter().map(|target| match target {
+            DesktopTarget::Instance(instance_id) => Some(*instance_id),
+            _ => None,
+        });
 
-        // The launcher then upgrades instance transforms based on panel context
-        // (focus/depth/arrangement), while preserving offsets from the 2D pass.
-        let instance_inputs: Vec<LauncherInstanceLayoutInput> = children
-            .iter()
-            .zip(child_placements.iter().zip(child_sizes.iter()))
-            .filter_map(|(target, (child_transform_offset, size))| match target {
-                DesktopTarget::Instance(instance_id) => {
-                    let rect_px: RectPx =
-                        LayoutRect::new(child_transform_offset.offset, *size).into();
-                    Some(LauncherInstanceLayoutInput {
-                        instance_id: *instance_id,
-                        rect: rect_px,
-                    })
-                }
-                _ => None,
-            })
-            .collect();
-
-        let layout_targets =
-            launcher.compute_instance_layout_targets(&instance_inputs, self.focused_instance);
-
-        let mut transform_by_instance: HashMap<InstanceId, Transform> = layout_targets
-            .into_iter()
-            .map(|target| (target.instance_id, target.layout_transform))
-            .collect();
-
-        children
-            .iter()
-            .zip(child_placements)
-            .map(|(target, child_transform_offset)| {
-                let transform = match target {
-                    DesktopTarget::Instance(instance_id) => transform_by_instance
-                        .remove(instance_id)
-                        .unwrap_or(child_transform_offset.transform),
-                    _ => child_transform_offset.transform,
-                };
-                TransformOffset::new(transform, child_transform_offset.offset)
-            })
-            .collect()
+        launcher.place_panel_children(
+            parent_offset,
+            child_sizes,
+            child_instances,
+            self.default_panel_size,
+            self.focused_instance,
+        )
     }
 
     fn place_standard_children(

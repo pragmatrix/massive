@@ -28,6 +28,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - For layout APIs, prefer named transform+offset structs over tuple returns so ordering and intent stay explicit.
 - For small paired-value structs, prefer constructor derives (for example `derive_more::Constructor`) and use constructors at call sites instead of field-literal repetition.
 - Prefer behavior-named capability methods on presenters/components over exposing raw mode enums to system-level callers.
+- For presenter-owned layout behavior, keep mode-specific offset and transform decisions behind a single presenter capability instead of splitting them across caller-side passes.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.

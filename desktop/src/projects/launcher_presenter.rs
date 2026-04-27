@@ -8,14 +8,14 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
-use massive_layout::{LayoutAxis, Offset, Size as LayoutSize, TransformOffset};
+use massive_layout::{Offset, Rect as LayoutRect, Size as LayoutSize, TransformOffset};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::visor_layout;
-use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
+use crate::desktop_system::{Cmd, DesktopCommand};
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
@@ -31,17 +31,14 @@ const TEXT_COLOR: Color = Color::WHITE;
 const FADING_DURATION: Duration = Duration::from_millis(500);
 
 const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+const CHILD_SPACING: i32 = 0;
 
 #[derive(Debug, Clone, Copy)]
-pub struct LauncherInstanceLayoutInput {
-    pub instance_id: InstanceId,
-    pub rect: RectPx,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub struct LauncherInstanceLayoutTarget {
-    pub instance_id: InstanceId,
-    pub layout_transform: Transform,
+struct VisorLayoutSummary {
+    group_center_x: f64,
+    flat_span: f64,
+    focused_index: Option<usize>,
+    instance_count: usize,
 }
 
 #[derive(Debug)]
@@ -128,16 +125,119 @@ impl LauncherPresenter {
         matches!(self.mode, LauncherMode::Visor)
     }
 
-    pub fn compute_instance_layout_targets(
+    pub fn place_panel_children(
         &self,
-        instances: &[LauncherInstanceLayoutInput],
+        parent_offset: Offset<2>,
+        child_sizes: &[LayoutSize<2>],
+        child_instances: impl IntoIterator<Item = Option<InstanceId>>,
+        default_panel_size: SizePx,
         focused_instance: Option<InstanceId>,
-    ) -> Vec<LauncherInstanceLayoutTarget> {
-        match self.mode {
-            LauncherMode::Band => self.flat_layout_targets(instances),
-            LauncherMode::Visor if instances.len() <= 1 => self.flat_layout_targets(instances),
-            LauncherMode::Visor => self.visor_layout_targets(instances, focused_instance),
+    ) -> Vec<TransformOffset<Transform, 2>> {
+        let child_instances: Vec<_> = child_instances.into_iter().collect();
+        debug_assert_eq!(child_sizes.len(), child_instances.len());
+
+        let children_span = child_sizes.iter().map(|size| size[0] as i32).sum::<i32>()
+            + CHILD_SPACING * child_sizes.len().saturating_sub(1) as i32;
+
+        let mut offset = parent_offset;
+        if matches!(self.mode, LauncherMode::Visor) {
+            offset[0] += (default_panel_size.width as i32 - children_span) / 2;
         }
+
+        let visor_layout_summary = if matches!(self.mode, LauncherMode::Visor) {
+            let mut first_center_x = None;
+            let mut last_center_x = None;
+            let mut focused_index = None;
+            let mut instance_count = 0;
+            let mut child_offset = offset;
+
+            for (index, (&child_size, instance_id)) in
+                child_sizes.iter().zip(&child_instances).enumerate()
+            {
+                if index > 0 {
+                    child_offset[0] += CHILD_SPACING;
+                }
+
+                if let Some(instance_id) = instance_id {
+                    let rect: RectPx = LayoutRect::new(child_offset, child_size).into();
+                    let center_x = rect.center().cast::<f64>().x;
+                    first_center_x.get_or_insert(center_x);
+                    last_center_x = Some(center_x);
+
+                    if Some(*instance_id) == focused_instance {
+                        focused_index = Some(instance_count);
+                    }
+
+                    instance_count += 1;
+                }
+
+                child_offset[0] += child_size[0] as i32;
+            }
+
+            if instance_count > 1 {
+                let first_center_x =
+                    first_center_x.expect("Internal error: Expected at least one instance");
+                let last_center_x =
+                    last_center_x.expect("Internal error: Expected at least one instance");
+
+                Some(VisorLayoutSummary {
+                    group_center_x: (first_center_x + last_center_x) * 0.5,
+                    flat_span: (last_center_x - first_center_x).abs(),
+                    focused_index,
+                    instance_count,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        let mut child_placements = Vec::with_capacity(child_sizes.len());
+        let mut instance_index = 0;
+
+        for (index, (&child_size, instance_id)) in
+            child_sizes.iter().zip(child_instances).enumerate()
+        {
+            if index > 0 {
+                offset[0] += CHILD_SPACING;
+            }
+
+            let rect: RectPx = LayoutRect::new(offset, child_size).into();
+            let center = rect.center().cast::<f64>();
+            let transform = if instance_id.is_some() {
+                if let Some(summary) = visor_layout_summary {
+                    let placement = visor_layout::placement(
+                        instance_index,
+                        summary.instance_count,
+                        summary.flat_span,
+                        summary.focused_index,
+                    )
+                    .expect("Internal error: Visor placement requires at least two instances");
+                    instance_index += 1;
+
+                    Transform::new(
+                        Vector3::new(
+                            summary.group_center_x + placement.center_x_offset,
+                            center.y,
+                            placement.center_z,
+                        ),
+                        Quaternion::from_rotation_y(placement.yaw),
+                        1.0,
+                    )
+                } else {
+                    instance_index += 1;
+                    Transform::from_translation(Vector3::new(center.x, center.y, 0.0))
+                }
+            } else {
+                Transform::from_translation(Vector3::new(center.x, center.y, 0.0))
+            };
+
+            child_placements.push(TransformOffset::new(transform, offset));
+            offset[0] += child_size[0] as i32;
+        }
+
+        child_placements
     }
 
     pub fn panel_measure_size(&self, default_panel_size: SizePx) -> Option<LayoutSize<2>> {
@@ -147,98 +247,8 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn panel_child_offsets(
-        &self,
-        parent_offset: Offset<2>,
-        child_sizes: &[LayoutSize<2>],
-        default_panel_size: SizePx,
-    ) -> Option<Vec<TransformOffset<Transform, 2>>> {
-        match self.mode {
-            LauncherMode::Band => None,
-            LauncherMode::Visor => Some(centered_horizontal_offsets(
-                parent_offset,
-                child_sizes,
-                default_panel_size.width as i32,
-            )),
-        }
-    }
-
     pub fn should_relayout_on_focus_change(&self, instance_count: usize) -> bool {
         matches!(self.mode, LauncherMode::Visor) && instance_count > 1
-    }
-
-    fn visor_layout_targets(
-        &self,
-        instances: &[LauncherInstanceLayoutInput],
-        focused_instance: Option<InstanceId>,
-    ) -> Vec<LauncherInstanceLayoutTarget> {
-        debug_assert!(matches!(self.mode, LauncherMode::Visor));
-
-        let focused_index = focused_instance
-            .and_then(|focused| instances.iter().position(|i| i.instance_id == focused));
-
-        let first_center = instances
-            .first()
-            .expect("Internal error: Expected at least one instance")
-            .rect
-            .center()
-            .cast::<f64>()
-            .x;
-        let last_center = instances
-            .last()
-            .expect("Internal error: Expected at least one instance")
-            .rect
-            .center()
-            .cast::<f64>()
-            .x;
-
-        let group_center_x = (first_center + last_center) * 0.5;
-        let flat_span = (last_center - first_center).abs();
-
-        instances
-            .iter()
-            .enumerate()
-            .map(|(index, input)| {
-                let placement =
-                    visor_layout::placement(index, instances.len(), flat_span, focused_index)
-                        .expect("Internal error: Visor placement requires at least two instances");
-
-                let center = input.rect.center().cast::<f64>();
-                let center_translation = Vector3::new(
-                    group_center_x + placement.center_x_offset,
-                    center.y,
-                    placement.center_z,
-                );
-                let layout_transform = Transform::new(
-                    center_translation,
-                    Quaternion::from_rotation_y(placement.yaw),
-                    1.0,
-                );
-
-                LauncherInstanceLayoutTarget {
-                    instance_id: input.instance_id,
-                    layout_transform,
-                }
-            })
-            .collect()
-    }
-
-    fn flat_layout_targets(
-        &self,
-        instances: &[LauncherInstanceLayoutInput],
-    ) -> Vec<LauncherInstanceLayoutTarget> {
-        instances
-            .iter()
-            .map(|input| {
-                let center = input.rect.center().cast::<f64>();
-                let center_translation = Vector3::new(center.x, center.y, 0.0);
-
-                LauncherInstanceLayoutTarget {
-                    instance_id: input.instance_id,
-                    layout_transform: Transform::from_translation(center_translation),
-                }
-            })
-            .collect()
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be
@@ -345,20 +355,4 @@ impl LauncherPresenter {
 
 fn background_shape(rect: Rect, color: Color) -> Shape {
     shapes::Rect::new(rect, color).into()
-}
-
-fn centered_horizontal_offsets(
-    parent_offset: Offset<2>,
-    child_sizes: &[LayoutSize<2>],
-    panel_width: i32,
-) -> Vec<TransformOffset<Transform, 2>> {
-    let spacing = 0i32;
-    let children_span: i32 = child_sizes.iter().map(|size| size[0] as i32).sum::<i32>()
-        + spacing * (child_sizes.len().saturating_sub(1) as i32);
-    let center_offset = (panel_width - children_span) / 2;
-
-    let mut offset = parent_offset;
-    offset[0] += center_offset;
-
-    place_container_children(LayoutAxis::HORIZONTAL, spacing, offset, child_sizes)
 }
