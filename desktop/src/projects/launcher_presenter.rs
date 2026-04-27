@@ -8,14 +8,14 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
-use massive_layout::{Offset, Rect as LayoutRect, Size as LayoutSize, TransformOffset};
+use massive_layout::{LayoutAxis, Offset, Rect as LayoutRect, Size as LayoutSize, TransformOffset};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::visor_layout;
-use crate::desktop_system::{Cmd, DesktopCommand};
+use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
@@ -134,7 +134,12 @@ impl LauncherPresenter {
         focused_instance: Option<InstanceId>,
     ) -> Vec<TransformOffset<Transform, 2>> {
         match self.mode {
-            LauncherMode::Band => place_flat_horizontal_children(parent_offset, child_sizes),
+            LauncherMode::Band => place_container_children(
+                LayoutAxis::HORIZONTAL,
+                CHILD_SPACING,
+                parent_offset,
+                child_sizes,
+            ),
             LauncherMode::Visor => self.place_visor_panel_children(
                 parent_offset,
                 child_sizes,
@@ -161,7 +166,12 @@ impl LauncherPresenter {
         let Some(summary) =
             visor_layout_summary(offset, child_sizes, child_instances, focused_instance)
         else {
-            return place_flat_horizontal_children(offset, child_sizes);
+            return place_container_children(
+                LayoutAxis::HORIZONTAL,
+                CHILD_SPACING,
+                offset,
+                child_sizes,
+            );
         };
 
         let mut child_placements = Vec::with_capacity(child_sizes.len());
@@ -299,25 +309,6 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
     shapes::Rect::new(rect, color).into()
 }
 
-fn place_flat_horizontal_children(
-    mut offset: Offset<2>,
-    child_sizes: &[LayoutSize<2>],
-) -> Vec<TransformOffset<Transform, 2>> {
-    let mut child_placements = Vec::with_capacity(child_sizes.len());
-
-    for (child_index, &child_size) in child_sizes.iter().enumerate() {
-        if child_index > 0 {
-            offset[0] += CHILD_SPACING;
-        }
-
-        let rect = child_rect(offset, child_size);
-        child_placements.push(TransformOffset::new(flat_child_transform(rect), offset));
-        offset[0] += child_size[0] as i32;
-    }
-
-    child_placements
-}
-
 fn centered_children_offset(
     parent_offset: Offset<2>,
     child_sizes: &[LayoutSize<2>],
@@ -377,11 +368,6 @@ fn visor_layout_summary(
 
 fn child_rect(offset: Offset<2>, child_size: LayoutSize<2>) -> RectPx {
     LayoutRect::new(offset, child_size).into()
-}
-
-fn flat_child_transform(rect: RectPx) -> Transform {
-    let center = rect.center().cast::<f64>();
-    Transform::from_translation(Vector3::new(center.x, center.y, 0.0))
 }
 
 fn child_center_y(offset: Offset<2>, child_size: LayoutSize<2>) -> f64 {

@@ -34,6 +34,7 @@ use massive_shell::{FontManager, Scene};
 
 pub use commands::{DesktopCommand, ProjectCommand};
 use layout_algorithm::DesktopLayoutAlgorithm;
+pub(crate) use layout_algorithm::place_container_children;
 
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::FocusPath;
