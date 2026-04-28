@@ -114,8 +114,9 @@ impl DesktopLayoutAlgorithm<'_> {
                 padding,
                 spacing,
             } => {
-                let offset = parent_offset + Offset::from(padding.leading);
-                place_container_children(axis, spacing as i32, offset, child_sizes)
+                let mut cursor = parent_offset;
+                cursor += Offset::from(padding.leading);
+                place_container_children(axis, spacing as i32, cursor, child_sizes)
             }
         }
     }
@@ -157,7 +158,7 @@ impl DesktopLayoutAlgorithm<'_> {
 pub(crate) fn place_container_children(
     axis: LayoutAxis,
     spacing: i32,
-    mut offset: Offset<2>,
+    mut cursor: Offset<2>,
     child_sizes: &[Size<2>],
 ) -> Vec<TransformOffset<Transform, 2>> {
     let axis_index: usize = axis.into();
@@ -165,13 +166,13 @@ pub(crate) fn place_container_children(
 
     for (index, &child_size) in child_sizes.iter().enumerate() {
         if index > 0 {
-            offset[axis_index] += spacing;
+            cursor[axis_index] += spacing;
         }
-        let rect: RectPx = LayoutRect::new(offset, child_size).into();
+        let rect: RectPx = LayoutRect::new(cursor, child_size).into();
         let center = rect.center().to_f64();
         let transform = Transform::from_translation(Vector3::new(center.x, center.y, 0.0));
-        child_placements.push(TransformOffset::new(transform, offset));
-        offset[axis_index] += child_size[axis_index] as i32;
+        child_placements.push(TransformOffset::new(transform, cursor));
+        cursor[axis_index] += child_size[axis_index] as i32;
     }
 
     child_placements

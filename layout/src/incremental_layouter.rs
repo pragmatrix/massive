@@ -304,15 +304,24 @@ where
                 let transform_changed = previous.transform != child_transform_offset.transform;
 
                 if offset_changed {
-                    let offset_delta =
-                        Self::offset_delta(child_transform_offset.offset, previous.rect.offset);
+                    let offset_delta = child_transform_offset.offset - previous.rect.offset;
                     self.shift_subtree_recursive(child, offset_delta, changed);
                 }
                 if transform_changed {
+                    // Fetch rect after potential shift above so we write one final placement.
                     let current_rect = self.placements.get(child).map_or(previous.rect, |p| p.rect);
                     let next = Placement::new(child_transform_offset.transform, current_rect);
+                    // Overwrite the last changed entry for this child if shift already emitted it,
+                    // otherwise insert a new entry.
+                    if offset_changed
+                        && let Some(last) = changed.last_mut().filter(|(id, _)| id == child)
+                    {
+                        last.1 = next;
+                    }
                     self.placements.insert(child.clone(), next);
-                    changed.push((child.clone(), next));
+                    if !offset_changed {
+                        changed.push((child.clone(), next));
+                    }
                 }
             }
         }
@@ -493,14 +502,6 @@ where
             .cloned()
             .collect()
     }
-
-    fn offset_delta(new_offset: Offset<RANK>, previous_offset: Offset<RANK>) -> Offset<RANK> {
-        let mut delta = Offset::ZERO;
-        for dim in 0..RANK {
-            delta[dim] = new_offset[dim] - previous_offset[dim];
-        }
-        delta
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -628,16 +629,14 @@ mod tests {
             let axis = *spec.layout_axis;
             let padding = spec.padding;
             let spacing = spec.spacing;
-            let mut cursor: Offset<2> = padding.leading.into();
+            let mut cursor = parent_offset;
+            cursor += Offset::from(padding.leading);
             let mut placements = Vec::with_capacity(child_sizes.len());
             for (index, &child_size) in child_sizes.iter().enumerate() {
                 if index > 0 {
                     cursor[axis] += spacing as i32;
                 }
-                placements.push(TransformOffset::new(
-                    Transform::IDENTITY,
-                    parent_offset + cursor,
-                ));
+                placements.push(TransformOffset::new(Transform::IDENTITY, cursor));
                 cursor[axis] += child_size[axis] as i32;
             }
             placements
