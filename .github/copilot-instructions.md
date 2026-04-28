@@ -55,6 +55,7 @@ Update it whenever you learn something new about the project's patterns, convent
 
 ## Testing
 - Don't add tests unless explicitly asked.
+- For behavioral feedback where subtle update-stream/order correctness is at risk, ask for (or add) a failing regression test first before implementation changes.
 - In tests: place test functions before helpers, create concise constructor helpers to reduce verbosity, prefer static data structures, and use helper functions for common value construction patterns.
 - For test assertions, derive `PartialEq` and `Eq` rather than implementing manually; prefer `Debug` over `Display` for output.
 

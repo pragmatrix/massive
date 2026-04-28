@@ -311,17 +311,7 @@ where
                     // Fetch rect after potential shift above so we write one final placement.
                     let current_rect = self.placements.get(child).map_or(previous.rect, |p| p.rect);
                     let next = Placement::new(child_transform_offset.transform, current_rect);
-                    // Overwrite the last changed entry for this child if shift already emitted it,
-                    // otherwise insert a new entry.
-                    if offset_changed
-                        && let Some(last) = changed.last_mut().filter(|(id, _)| id == child)
-                    {
-                        last.1 = next;
-                    }
-                    self.placements.insert(child.clone(), next);
-                    if !offset_changed {
-                        changed.push((child.clone(), next));
-                    }
+                    self.update_placement(child, next, changed);
                 }
             }
         }
@@ -376,8 +366,22 @@ where
             .is_none_or(|current| current != &next);
         if is_changed {
             self.placements.insert(id.clone(), next);
-            changed.push((id.clone(), next));
+            self.upsert_changed(changed, id, next);
         }
+    }
+
+    fn upsert_changed(
+        &self,
+        changed: &mut Vec<(Id, Placement<T, RANK>)>,
+        id: &Id,
+        next: Placement<T, RANK>,
+    ) {
+        if let Some(index) = changed.iter().position(|(changed_id, _)| changed_id == id) {
+            changed[index].1 = next;
+            return;
+        }
+
+        changed.push((id.clone(), next));
     }
 
     /// Step 2: collects nodes that must be recomputed for this generation.
@@ -1176,6 +1180,74 @@ mod tests {
         set_children(&mut layouter, &mut topology, 0, vec![99]);
 
         let _ = layouter.recompute(&topology, &algorithm, [0, 0]);
+    }
+
+    struct ParentOffsetTransformAlgorithm<'a> {
+        inner: &'a TestAlgorithm,
+    }
+
+    impl LayoutAlgorithm<usize, Transform, 2> for ParentOffsetTransformAlgorithm<'_> {
+        fn measure(&self, id: &usize, child_sizes: &[Size<2>]) -> Size<2> {
+            self.inner.measure(id, child_sizes)
+        }
+
+        fn place_children(
+            &self,
+            id: &usize,
+            parent_offset: Offset<2>,
+            child_sizes: &[Size<2>],
+        ) -> Vec<TransformOffset<Transform, 2>> {
+            let mut placements = self.inner.place_children(id, parent_offset, child_sizes);
+            for (index, placement) in placements.iter_mut().enumerate() {
+                placement.transform = Transform::from_translation((
+                    parent_offset[0] as f64,
+                    parent_offset[1] as f64,
+                    index as f64,
+                ));
+            }
+            placements
+        }
+    }
+
+    #[test]
+    fn clean_child_changed_entry_matches_final_placement() {
+        let mut topology = TestTopology::default();
+        let mut algorithm = TestAlgorithm::default();
+        let mut layouter = TestLayouter::new();
+        upsert_container(
+            &mut layouter,
+            &mut topology,
+            &mut algorithm,
+            0,
+            LayoutAxis::HORIZONTAL,
+        );
+        upsert_container(
+            &mut layouter,
+            &mut topology,
+            &mut algorithm,
+            10,
+            LayoutAxis::VERTICAL,
+        );
+        upsert_leaf(&mut layouter, &mut topology, &mut algorithm, 11, [4, 3]);
+        set_children(&mut layouter, &mut topology, 10, vec![11]);
+        set_children(&mut layouter, &mut topology, 0, vec![10]);
+
+        let transform_algorithm = ParentOffsetTransformAlgorithm { inner: &algorithm };
+        let _ = layouter.recompute(&topology, &transform_algorithm, [0, 0]);
+
+        layouter.mark_reflow_pending(0);
+        let moved = layouter.recompute(&topology, &transform_algorithm, [5, 7]);
+
+        let changed_10 = moved
+            .changed
+            .iter()
+            .find_map(|(id, placement)| (*id == 10).then_some(*placement))
+            .expect("expected child 10 in changed entries");
+        let final_10 = *layouter
+            .placement(&10)
+            .expect("expected child 10 placement after recompute");
+
+        assert_eq!(changed_10, final_10);
     }
 
     struct BrokenPlaceChildrenAlgorithm<'a> {
