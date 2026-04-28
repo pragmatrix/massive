@@ -71,6 +71,8 @@ impl ProjectPresenter {
                 );
             }
         }
+        // Placement changes must reach the scene even when the alpha animation is already idle.
+        self.apply_animations();
     }
 
     pub fn apply_animations(&mut self) {

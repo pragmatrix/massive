@@ -175,7 +175,6 @@ impl DesktopSystem {
     }
 
     pub fn apply_animations(&mut self) {
-        self.aggregates.project_presenter.apply_animations();
         self.aggregates
             .launchers
             .values_mut()
@@ -184,6 +183,13 @@ impl DesktopSystem {
             .instances
             .values_mut()
             .for_each(|i| i.apply_animations());
+        let pointer_focus = if self.pointer_feedback_enabled {
+            self.event_router.pointer_focus().cloned()
+        } else {
+            None
+        };
+        // Hover must track animated instance transforms, not just transaction-time layout updates.
+        self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
