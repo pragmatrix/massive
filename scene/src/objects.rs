@@ -103,6 +103,7 @@ impl Object for Visual {
 pub struct Location {
     pub parent: Option<Handle<Location>>,
     pub transform: Handle<Transform>,
+    pub alpha: f32,
 }
 
 impl From<Handle<Transform>> for Location {
@@ -110,6 +111,7 @@ impl From<Handle<Transform>> for Location {
         Self {
             parent: None,
             transform,
+            alpha: 1.0,
         }
     }
 }
@@ -119,11 +121,17 @@ impl Location {
         Self {
             parent,
             transform: transform.into(),
+            alpha: 1.0,
         }
     }
 
     pub fn relative_to(mut self, parent: impl Into<Handle<Location>>) -> Self {
         self.parent = Some(parent.into());
+        self
+    }
+
+    pub fn with_alpha(mut self, alpha: f32) -> Self {
+        self.alpha = normalize_alpha(alpha);
         self
     }
 }
@@ -145,7 +153,11 @@ impl Object for Location {
     fn to_change(&self) -> Self::Change {
         let parent = self.parent.as_ref().map(|p| p.id());
         let transform = self.transform.id();
-        LocationRenderObj { parent, transform }
+        LocationRenderObj {
+            parent,
+            transform,
+            alpha: normalize_alpha(self.alpha),
+        }
     }
 }
 
@@ -153,6 +165,15 @@ impl Object for Location {
 pub struct LocationRenderObj {
     pub parent: Option<Id>,
     pub transform: Id,
+    pub alpha: f32,
+}
+
+fn normalize_alpha(alpha: f32) -> f32 {
+    if alpha.is_finite() {
+        alpha.clamp(0.0, 1.0)
+    } else {
+        1.0
+    }
 }
 
 impl Object for Transform {
@@ -160,5 +181,49 @@ impl Object for Transform {
 
     fn to_change(&self) -> Self::Change {
         *self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Scene;
+
+    #[test]
+    fn location_new_defaults_to_opaque_alpha() {
+        let scene = Scene::new();
+        let transform = Transform::IDENTITY.enter(&scene);
+        let location = Location::new(None, transform);
+
+        assert_eq!(location.alpha, 1.0);
+        assert_eq!(location.to_change().alpha, 1.0);
+    }
+
+    #[test]
+    fn location_alpha_is_normalized_when_set_and_uploaded() {
+        let scene = Scene::new();
+        let transform = Transform::IDENTITY.enter(&scene);
+
+        assert_eq!(
+            Location::new(None, transform.clone())
+                .with_alpha(2.0)
+                .to_change()
+                .alpha,
+            1.0
+        );
+        assert_eq!(
+            Location::new(None, transform.clone())
+                .with_alpha(-1.0)
+                .to_change()
+                .alpha,
+            0.0
+        );
+        assert_eq!(
+            Location::new(None, transform)
+                .with_alpha(f32::NAN)
+                .to_change()
+                .alpha,
+            1.0
+        );
     }
 }
