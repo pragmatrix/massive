@@ -49,6 +49,9 @@ impl LocationTransforms {
         let updated_at =
             resolve::<VisualLocation>(current_version.current_version(), scene, self, location_id);
 
+        // Performance: `updated_at` covers both resolved transform and inherited alpha. An
+        // alpha-only location change can therefore recompute this matrix even though the transform
+        // is unchanged. Split transform/alpha versioning if this shows up in profiles.
         self.location_matrices
             .mut_or_default(location_id)
             .resolve(updated_at, || {
