@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use massive_geometry::{PixelCamera, Point, Rect};
+use massive_geometry::{PixelCamera, Point, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget};
@@ -32,19 +32,22 @@ impl Direction {
 impl DesktopSystem {
     pub(super) fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
         match focus {
-            DesktopTarget::Desktop => self
-                .rect(&DesktopTarget::Desktop)
-                .map(|rect| rect.to_camera()),
-            DesktopTarget::Group(group) => {
-                Some(self.aggregates.groups[group].rect.center().to_camera())
+            DesktopTarget::Desktop => {
+                let placement = self.placement(&DesktopTarget::Desktop)?;
+                let rect: RectPx = placement.rect.into();
+                let rect: Rect = rect.into();
+                let size = rect.size();
+                // The Desktop is the layout root — its transform is T::default() (IDENTITY),
+                // not center-based. Compute the center from the rect.
+                let center = rect.center();
+                let center: Transform = (center.x, center.y, 0.0).into();
+                Some(center.to_camera().with_size(size))
             }
-            DesktopTarget::Launcher(launcher) => Some(
-                self.aggregates.launchers[launcher]
-                    .rect
-                    .final_value()
-                    .center()
-                    .to_camera(),
-            ),
+            DesktopTarget::Group(_) | DesktopTarget::Launcher(_) => {
+                let transform = self.layouter.placement(focus)?.transform;
+                let camera_transform: Transform = transform.translate.into();
+                Some(camera_transform.to_camera())
+            }
             DesktopTarget::Instance(instance_id) => {
                 let instance = &self.aggregates.instances[instance_id];
                 let transform: Transform = instance
@@ -72,7 +75,8 @@ impl DesktopSystem {
             return None;
         }
 
-        let from_rect = self.rect(from)?;
+        let from_transform = self.layouter.placement(from)?.transform;
+        let from_center = Point::new(from_transform.translate.x, from_transform.translate.y);
         let launcher_targets_without_instances = self
             .aggregates
             .launchers
@@ -88,27 +92,29 @@ impl DesktopSystem {
         });
         let navigation_candidates = launcher_targets_without_instances
             .chain(all_instances_or_views)
-            .filter_map(|target| self.rect(&target).map(|rect| (target, rect)));
+            .filter_map(|target| {
+                let t = self.layouter.placement(&target)?.transform;
+                let center = Point::new(t.translate.x, t.translate.y);
+                Some((target, center))
+            });
 
-        let ordered =
-            ordered_rects_in_direction(from_rect.center(), direction, navigation_candidates);
-        if let Some((nearest, _rect)) = ordered.first() {
+        let ordered = ordered_points_in_direction(from_center, direction, navigation_candidates);
+        if let Some((nearest, _distance)) = ordered.first() {
             return Some(nearest.clone());
         }
         None
     }
 }
 
-pub(super) fn ordered_rects_in_direction<K>(
+pub(super) fn ordered_points_in_direction<K>(
     center: Point,
     direction: Direction,
-    rects: impl Iterator<Item = (K, Rect)>,
+    candidates: impl Iterator<Item = (K, Point)>,
 ) -> Vec<(K, f64)> {
-    let mut results: Vec<(K, f64)> = rects
-        .filter_map(|(key, rect)| {
-            let rect_center = rect.center();
-            direction.is_visible(center, rect_center).then(|| {
-                let distance = (rect_center - center).length();
+    let mut results: Vec<(K, f64)> = candidates
+        .filter_map(|(key, candidate_center)| {
+            direction.is_visible(center, candidate_center).then(|| {
+                let distance = (candidate_center - center).length();
                 (key, distance)
             })
         })

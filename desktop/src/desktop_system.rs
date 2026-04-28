@@ -22,12 +22,13 @@ mod project_commands;
 
 use anyhow::Result;
 use derive_more::{Debug, From};
+use std::collections::HashSet;
 use std::time::Duration;
 
 use massive_animation::Animated;
 use massive_applications::{InstanceId, ViewId};
-use massive_geometry::{PixelCamera, Rect, RectPx, SizePx};
-use massive_layout::{IncrementalLayouter, LayoutTopology};
+use massive_geometry::{PixelCamera, SizePx};
+use massive_layout::{IncrementalLayouter, LayoutTopology, Placement};
 use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
 
@@ -78,10 +79,10 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     pointer_feedback_enabled: bool,
-    last_effects_focus: Option<DesktopTarget>,
+    deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
 
     #[debug(skip)]
-    layouter: IncrementalLayouter<DesktopTarget, 2>,
+    layouter: IncrementalLayouter<DesktopTarget, Transform, 2>,
 
     aggregates: Aggregates,
 }
@@ -144,7 +145,7 @@ impl DesktopSystem {
             event_router,
             camera: scene.animated(PixelCamera::default()),
             pointer_feedback_enabled: true,
-            last_effects_focus: None,
+            deferred_focus_layout_launchers: HashSet::new(),
             layouter,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
@@ -197,6 +198,10 @@ impl DesktopSystem {
         self.pointer_feedback_enabled
     }
 
+    pub fn any_buttons_pressed(&self) -> bool {
+        self.event_router.any_buttons_pressed()
+    }
+
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
     fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
@@ -219,11 +224,8 @@ impl DesktopSystem {
         Ok(())
     }
 
-    fn rect(&self, target: &DesktopTarget) -> Option<Rect> {
-        self.layouter.rect(target).map(|rect| {
-            let rect_px: RectPx = (*rect).into();
-            rect_px.into()
-        })
+    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
+        self.layouter.placement(target).copied()
     }
 }
 

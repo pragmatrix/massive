@@ -93,6 +93,23 @@ impl<const RANK: usize> ops::Add for Offset<RANK> {
     }
 }
 
+impl<const RANK: usize> ops::SubAssign for Offset<RANK> {
+    fn sub_assign(&mut self, rhs: Self) {
+        for i in 0..RANK {
+            self[i] -= rhs[i]
+        }
+    }
+}
+
+impl<const RANK: usize> ops::Sub for Offset<RANK> {
+    type Output = Self;
+
+    fn sub(mut self, rhs: Self) -> Self::Output {
+        self -= rhs;
+        self
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Index, IndexMut, From, Into)]
 pub struct Size<const RANK: usize>(pub [u32; RANK]);
 

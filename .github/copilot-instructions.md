@@ -14,21 +14,27 @@ Update it whenever you learn something new about the project's patterns, convent
 - When splitting large modules, extract low-coupling impl blocks first and preserve existing external imports via local re-exports in the parent module.
 
 ## Rust
-- Prefer `derive_more` traits (Debug, Deref) over manual implementations.
+- Prefer deriving traits over manual implementations when equivalent derives are available.
 - Prefer qualified enum variants when it improves clarity over imported discriminants.
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
 - Prefer adding fields to existing structs over creating parallel data structures.
-- Use constructor functions and `derive_more::Deref` for newtype patterns.
-- When implementing newtypes with `derive_more`, include `Copy` and `Clone` derives when the wrapped type supports them.
+- Use constructor functions and derive helpers for newtype patterns.
+- When implementing newtypes, include `Copy` and `Clone` when the wrapped type supports them.
 - Include complete state in events rather than deltas to provide full context to handlers.
 - Prefer grouping semantically paired values into a single parameter or type when they are always used together.
 - Use cohesive domain types as API boundaries when related values are expected to move together.
-- Prefer behavior-named capability methods on presenters/components over exposing raw mode enums to system-level callers.
+- When a domain struct already models paired values, prefer it over tuple payloads in change streams and method signatures.
+- When a cohesive domain struct is the canonical state, prefer a single accessor returning that struct over parallel field-specific accessors.
+- Prefer named structs over tuple returns when ordering or intent may be ambiguous.
+- For small paired-value structs, prefer constructors at call sites over repeated field-literal initialization.
+- Prefer behavior-named capability methods over exposing raw mode enums to higher-level callers.
+- Keep mode-specific decisions behind a single owning abstraction instead of splitting them across multiple caller-side passes.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
+- For event transition summaries used by side effects, collect all relevant transition payloads rather than stopping at the first match.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
 - For transient UI indicators (hover/focus highlights), derive visibility/target from current resolved state rather than only from enter/exit edge events.
@@ -39,15 +45,17 @@ Update it whenever you learn something new about the project's patterns, convent
 - When an operation must not emit follow-up commands, model it as `Result<()>` and enforce the invariant at the forwarding boundary.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
+- When structure guarantees a concrete target type, convert at the boundary instead of carrying optional identities through lower-level APIs.
 - For purely defensive invariant checks on hot paths, prefer debug-only assertions to avoid unnecessary release-build work.
-- For platform-specific window commands, detect shortcuts where aggregated input state is available and keep the actual window mutation in the shell/window abstraction.
+- For platform-specific commands, detect shortcuts where aggregated input state is available and keep mutations in a platform abstraction layer.
 - When multiple transient affordances represent the same interaction mode, keep them behind one shared state instead of parallel flags.
-- Cache repeated window state requests at the caller when the underlying platform mutation may hop to the main thread or otherwise be non-trivial.
-- On macOS, prefer native menu selector wiring for commands that users can remap in App Shortcuts, instead of hardcoded key-chord matching.
+- Cache repeated expensive state requests at the caller when the underlying operation may be non-trivial.
+- Prefer native, user-remappable command routing over hardcoded shortcut matching when platform conventions support remapping.
 - When refactoring eventful flows, extract pure target/decision helpers first and keep side-effect dispatch ordering unchanged until tests lock transition semantics.
 
 ## Testing
 - Don't add tests unless explicitly asked.
+- For behavioral feedback where subtle update-stream/order correctness is at risk, ask for (or add) a failing regression test first before implementation changes.
 - In tests: place test functions before helpers, create concise constructor helpers to reduce verbosity, prefer static data structures, and use helper functions for common value construction patterns.
 - For test assertions, derive `PartialEq` and `Eq` rather than implementing manually; prefer `Debug` over `Display` for output.
 

@@ -6,9 +6,10 @@ use massive_applications::ViewEvent;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
+use super::navigation::Direction;
 use super::{
     Cmd, DesktopCommand, DesktopSystem, DesktopTarget, POINTER_FEEDBACK_REENABLE_MAX_DURATION,
-    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX, navigation::Direction,
+    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
 };
 use crate::focus_path::PathResolver;
 use crate::hit_tester::AggregateHitTester;
@@ -30,15 +31,22 @@ impl DesktopSystem {
                 &self.aggregates.hierarchy,
                 &self.layouter,
                 &self.aggregates.launchers,
-                &self.aggregates.instances,
                 render_geometry,
             );
 
             let transitions = self.event_router.process(event, &hit_tester)?;
+            if event.any_buttons_pressed() {
+                self.defer_layout_for_focus_change(transitions.keyboard_focus_change());
+            } else {
+                self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
+            }
             self.forward_event_transitions(transitions, instance_manager)?
         };
 
         self.update_pointer_feedback(event);
+        if !event.any_buttons_pressed() {
+            self.flush_deferred_focus_layout();
+        }
 
         Ok(cmd)
     }
@@ -74,6 +82,7 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         let transitions = self.event_router.focus(target);
+        self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(
@@ -115,7 +124,6 @@ impl DesktopSystem {
                 &self.aggregates.hierarchy,
                 &self.layouter,
                 &self.aggregates.launchers,
-                &self.aggregates.instances,
                 render_geometry,
             ))?;
 
