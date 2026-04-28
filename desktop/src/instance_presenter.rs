@@ -16,6 +16,7 @@ pub struct InstancePresenter {
     /// The instance layout transform stores the panel center translation and yaw rotation.
     /// Position-only consumers should read `layout_transform_animation.*.translate`.
     pub layout_transform_animation: Animated<Transform>,
+    has_meaningful_previous_position: bool,
     background: Option<InstanceBackground>,
 }
 
@@ -39,11 +40,13 @@ pub enum InstancePresenterState {
 #[derive(Debug)]
 pub struct PrimaryViewPresenter {
     pub creation_info: ViewCreationInfo,
+    pub(crate) alpha: Animated<f32>,
 }
 
 impl InstancePresenter {
     pub fn new(
         initial_center_translation: Vector3,
+        has_meaningful_initial_position: bool,
         show_background: bool,
         location: Handle<Location>,
         scene: &Scene,
@@ -64,6 +67,7 @@ impl InstancePresenter {
             state: InstancePresenterState::WaitingForPrimaryView,
             layout_transform_animation: scene
                 .animated(Transform::from_translation(initial_center_translation)),
+            has_meaningful_previous_position: has_meaningful_initial_position,
             background,
         }
     }
@@ -72,7 +76,26 @@ impl InstancePresenter {
         self.state.view().is_some()
     }
 
+    pub fn has_meaningful_previous_position(&self) -> bool {
+        self.has_meaningful_previous_position
+    }
+
+    pub fn apply_layout_immediately(&mut self, size: SizePx, layout_transform: Transform) {
+        self.apply_layout(size, layout_transform, false);
+        self.has_meaningful_previous_position = true;
+    }
+
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
+        let presents_primary_view = self.presents_primary_view();
+        let snap_layout = !self.has_meaningful_previous_position;
+
+        self.apply_layout(size, layout_transform, animate && !snap_layout);
+        if presents_primary_view {
+            self.has_meaningful_previous_position = true;
+        }
+    }
+
+    fn apply_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
         if let Some(background) = &mut self.background {
             background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
             background.visual.update_with_if_changed(|visual| {
@@ -94,7 +117,7 @@ impl InstancePresenter {
         }
     }
 
-    pub fn apply_animations(&self) {
+    pub fn apply_animations(&mut self) {
         let layout_transform = self.layout_transform_animation.value();
 
         if let Some(background) = &self.background {
@@ -105,13 +128,14 @@ impl InstancePresenter {
         }
 
         // Feature: Hiding animation.
-        let Some(view) = self.state.view() else {
+        let Some(view) = self.state.view_mut() else {
             return;
         };
 
         // Correct the view's position around its local center.
         // Since the centering uses i32, we preserve snapping behavior from the layouter.
-        let center = view.creation_info.extents.center().to_f64();
+        let size = view.creation_info.size();
+        let center = Rect::from_size((size.width as f64, size.height as f64)).center();
         let transform =
             Self::transform_with_layout(layout_transform, Point::new(center.x, center.y));
 
@@ -120,6 +144,13 @@ impl InstancePresenter {
             .value()
             .transform
             .update_if_changed(transform);
+
+        let alpha = view.alpha.value();
+        view.creation_info
+            .location
+            .update_with_if_changed(|location| {
+                location.alpha = alpha;
+            });
     }
 
     pub fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
@@ -136,6 +167,14 @@ impl InstancePresenter {
 
 impl InstancePresenterState {
     pub fn view(&self) -> Option<&PrimaryViewPresenter> {
+        match self {
+            Self::WaitingForPrimaryView => None,
+            Self::Presenting { view } => Some(view),
+            Self::Disappearing => None,
+        }
+    }
+
+    pub fn view_mut(&mut self) -> Option<&mut PrimaryViewPresenter> {
         match self {
             Self::WaitingForPrimaryView => None,
             Self::Presenting { view } => Some(view),
