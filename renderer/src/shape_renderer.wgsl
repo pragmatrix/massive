@@ -5,8 +5,6 @@ struct Immediates {
     clip_rect_x: vec2<f32>, // [min_x, max_x]
     clip_rect_y: vec2<f32>, // [min_y, max_y]
     alpha: f32,
-    // Explicitly mirrors WGSL's implicit trailing struct padding to 16-byte size alignment.
-    _padding: vec3<f32>,
 }
 
 var<immediate> im: Immediates;
