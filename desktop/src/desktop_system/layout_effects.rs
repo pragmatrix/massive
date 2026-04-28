@@ -170,10 +170,13 @@ impl DesktopSystem {
             .map(|_| launcher_id)
     }
 
-    fn sync_hover_rect_to_pointer_path(&mut self, pointer_focus: Option<&DesktopTarget>) {
+    pub(super) fn sync_hover_rect_to_pointer_path(
+        &mut self,
+        pointer_focus: Option<&DesktopTarget>,
+    ) {
         let hover_placement = match pointer_focus {
             Some(DesktopTarget::Instance(instance_id)) => {
-                self.placement(&DesktopTarget::Instance(*instance_id))
+                self.instance_hover_placement(*instance_id)
             }
             Some(DesktopTarget::View(view_id)) => match self
                 .aggregates
@@ -181,7 +184,7 @@ impl DesktopSystem {
                 .parent(&DesktopTarget::View(*view_id))
             {
                 Some(DesktopTarget::Instance(instance_id)) => {
-                    self.placement(&DesktopTarget::Instance(*instance_id))
+                    self.instance_hover_placement(*instance_id)
                 }
                 Some(_) => panic!("Internal error: View parent is not an instance"),
                 None => None,
@@ -195,5 +198,13 @@ impl DesktopSystem {
         self.aggregates
             .project_presenter
             .set_hover_placement(hover_placement);
+    }
+
+    fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {
+        let mut placement = self.placement(&DesktopTarget::Instance(instance_id))?;
+        placement.transform = self.aggregates.instances[&instance_id]
+            .layout_transform_animation
+            .value();
+        Some(placement)
     }
 }
