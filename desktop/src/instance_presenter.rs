@@ -191,9 +191,8 @@ impl InstancePresenter {
         // Correct the view's position around its local center.
         // Since the centering uses i32, we preserve snapping behavior from the layouter.
         let size = view.creation_info.size();
-        let center = Rect::from_size((size.width as f64, size.height as f64)).center();
-        let transform =
-            Self::transform_with_layout(layout_transform, Point::new(center.x, center.y));
+        let center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
+        let transform = Self::transform_with_layout(layout_transform, center);
 
         view.creation_info
             .location
