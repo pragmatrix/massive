@@ -101,7 +101,7 @@ impl DesktopSystem {
             }
 
             DesktopCommand::PresentView(instance, creation_info) => {
-                self.present_view(instance, &creation_info)?;
+                self.present_view(instance, &creation_info, scene)?;
 
                 let focused = self.event_router.focused();
                 // If this instance is currently focused and the new view is primary, make it

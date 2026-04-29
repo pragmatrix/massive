@@ -1,12 +1,12 @@
 use anyhow::{Result, bail};
 use log::warn;
 
-use massive_applications::{InstanceId, ViewCreationInfo, ViewRole};
+use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_shell::Scene;
 
 use super::DesktopTarget;
 use crate::instance_manager::ViewPath;
-use crate::instance_presenter::{InstancePresenter, InstancePresenterState, PrimaryViewPresenter};
+use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
 use super::DesktopSystem;
@@ -29,10 +29,8 @@ impl DesktopSystem {
             .expect("Launcher not found")
             .should_render_instance_background();
 
-        // Correctness: We animate from 0,0 if no originating exist. Need a position here.
-        let initial_center_translation = originating_presenter
-            .map(|op| op.layout_transform_animation.value().translate)
-            .unwrap_or_default();
+        let initial_center_translation =
+            originating_presenter.map(|op| op.layout_transform_animation.value().translate);
 
         let presenter = InstancePresenter::new(
             initial_center_translation,
@@ -94,30 +92,13 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
+        scene: &Scene,
     ) -> Result<()> {
-        if view_creation_info.role != ViewRole::Primary {
-            todo!("Only primary views are supported yet");
-        }
-
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found");
         };
 
-        if !matches!(
-            instance_presenter.state,
-            InstancePresenterState::WaitingForPrimaryView
-        ) {
-            bail!("Primary view is already presenting");
-        }
-
-        // Architecture: Move this transition in the InstancePresenter
-        //
-        // Feature: Add a alpha animation just for the view.
-        instance_presenter.state = InstancePresenterState::Presenting {
-            view: PrimaryViewPresenter {
-                creation_info: view_creation_info.clone(),
-            },
-        };
+        instance_presenter.present_view(view_creation_info, scene)?;
 
         // Add the view to the hierarchy.
         self.aggregates.hierarchy.add(
@@ -137,25 +118,7 @@ impl DesktopSystem {
             return Ok(());
         };
 
-        // Architecture: Move this into the InstancePresenter (don't make state pub).
-        match &instance_presenter.state {
-            InstancePresenterState::WaitingForPrimaryView => {
-                bail!(
-                    "A view needs to be hidden, but instance presenter waits for a view with a primary role."
-                )
-            }
-            InstancePresenterState::Presenting { view } => {
-                if view.creation_info.id == path.view {
-                    // Feature: this should initiate a disappearing animation?
-                    instance_presenter.state = InstancePresenterState::Disappearing;
-                } else {
-                    bail!("Invalid view: It's not related to anything we present");
-                }
-            }
-            InstancePresenterState::Disappearing => {
-                // ignored, we are already disappearing.
-            }
-        }
+        instance_presenter.hide_view(path.view)?;
 
         // Robustness: What about focus?
 

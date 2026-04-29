@@ -4,6 +4,7 @@ struct Immediates {
     view_model: mat4x4<f32>,
     clip_rect_x: vec2<f32>, // [min_x, max_x]
     clip_rect_y: vec2<f32>, // [min_y, max_y]
+    alpha: f32,
 }
 
 var<immediate> im: Immediates;
@@ -110,5 +111,5 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // let val = saturate((distance + afwidth) / (2.0 * afwidth));
     let val = smoothstep(-af_width, af_width, distance);
 
-    return vec4<f32>(in.color.rgb, in.color.a * val);
+    return vec4<f32>(in.color.rgb, in.color.a * val * im.alpha);
 }

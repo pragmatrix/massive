@@ -4,6 +4,7 @@ struct Immediates {
     view_model: mat4x4<f32>,
     clip_rect_x: vec2<f32>, // [min_x, max_x]
     clip_rect_y: vec2<f32>, // [min_y, max_y]
+    alpha: f32,
 }
 
 var<immediate> im: Immediates;
@@ -47,5 +48,6 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     }
     
     let texture_size = vec2<f32>(textureDimensions(t_texture));
-    return textureSample(t_texture, s_sampler, in.tex_coords / texture_size);
+    let color = textureSample(t_texture, s_sampler, in.tex_coords / texture_size);
+    return vec4<f32>(color.rgb, color.a * im.alpha);
 }

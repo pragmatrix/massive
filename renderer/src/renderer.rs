@@ -472,6 +472,8 @@ impl Renderer {
             let push_constants = Immediates {
                 view_model: matrix.to_pod(),
                 clip_rect,
+                alpha: locations.get_alpha(visual.location_id),
+                _padding: [0.0; 3],
             };
             pass.set_immediates(0, push_constants.as_bytes());
             // Performance: This test needs only done once per pipeline.

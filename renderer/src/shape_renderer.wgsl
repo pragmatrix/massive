@@ -4,6 +4,7 @@ struct Immediates {
     view_model: mat4x4<f32>,
     clip_rect_x: vec2<f32>, // [min_x, max_x]
     clip_rect_y: vec2<f32>, // [min_y, max_y]
+    alpha: f32,
 }
 
 var<immediate> im: Immediates;
@@ -68,7 +69,7 @@ fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     // fwidth(x) = abs(dfdx(x)) + abs(dfdy(x)); gives 1.0 on axis-aligned SDF edges, ~1.414 at 45°.
     let afwidth = fwidth(distance) * 0.5;
     let val = smoothstep(-afwidth, afwidth, distance);
-    return vec4(in.color.rgb, in.color.a * val);
+    return vec4(in.color.rgb, in.color.a * val * im.alpha);
 }
 
 // v1

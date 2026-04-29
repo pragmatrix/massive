@@ -1,6 +1,6 @@
 use std::{
     fmt,
-    mem::{self, size_of},
+    mem::{self, offset_of, size_of},
 };
 
 use bytemuck::{Pod, Zeroable};
@@ -58,10 +58,15 @@ impl From<Bounds> for ClipRect {
 pub struct Immediates {
     pub view_model: Matrix4,
     pub clip_rect: ClipRect,
+    pub alpha: f32,
+    // WGSL rounds struct size up to the struct alignment. `view_model` makes this struct
+    // 16-byte aligned, so the scalar tail at byte 80 needs 12 bytes of trailing padding.
+    pub _padding: [f32; 3],
 }
 
 // WebGL uniform requirement
-const_assert_eq!(size_of::<Immediates>() % 16, 0);
+const_assert_eq!(offset_of!(Immediates, alpha), 80);
+const_assert_eq!(size_of::<Immediates>(), 96);
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone, Pod, Zeroable)]
