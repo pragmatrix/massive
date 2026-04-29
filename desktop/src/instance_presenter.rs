@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Result, bail};
 use massive_animation::{Animated, Interpolation};
@@ -17,7 +17,7 @@ pub struct InstancePresenter {
     /// The instance layout transform stores the panel center translation and yaw rotation.
     /// Position-only consumers should read `layout_transform_animation.*.translate`.
     pub layout_transform_animation: Animated<Transform>,
-    has_meaningful_previous_position: bool,
+    has_applied_layout: bool,
     background: Option<InstanceBackground>,
 }
 
@@ -26,6 +26,7 @@ struct InstanceBackground {
     transform: Handle<Transform>,
     visual: Handle<Visual>,
     local_rect: Rect,
+    visible: bool,
 }
 
 #[derive(Debug)]
@@ -54,12 +55,15 @@ impl InstancePresenter {
         let background = show_background.then(|| {
             let transform = Transform::IDENTITY.enter(scene);
             let local_location = transform.to_location().relative_to(location).enter(scene);
-            let visual = background_shape(Rect::ZERO).at(local_location).enter(scene);
+            let visual = background_shapes(false, Rect::ZERO)
+                .at(local_location)
+                .enter(scene);
 
             InstanceBackground {
                 transform,
                 visual,
                 local_rect: Rect::ZERO,
+                visible: false,
             }
         });
 
@@ -68,7 +72,7 @@ impl InstancePresenter {
             layout_transform_animation: scene.animated(Transform::from_translation(
                 initial_center_translation.unwrap_or_default(),
             )),
-            has_meaningful_previous_position: initial_center_translation.is_some(),
+            has_applied_layout: initial_center_translation.is_some(),
             background,
         }
     }
@@ -132,19 +136,16 @@ impl InstancePresenter {
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
-        let snap_layout = !self.has_meaningful_previous_position;
+        let snap_layout = !self.has_applied_layout;
 
         self.apply_layout(size, layout_transform, animate && !snap_layout);
-        self.has_meaningful_previous_position = true;
+        self.has_applied_layout = true;
     }
 
     fn apply_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
         if let Some(background) = &mut self.background {
             background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
-            background.visual.update_with_if_changed(|visual| {
-                let local_rect = background.local_rect;
-                visual.shapes = [background_shape(local_rect)].into();
-            });
+            background.visible = size.width > 0 && size.height > 0;
         }
 
         if animate {
@@ -156,7 +157,14 @@ impl InstancePresenter {
         } else {
             self.layout_transform_animation
                 .set_immediately(layout_transform);
-            self.apply_animations();
+        }
+
+        self.apply_animations();
+
+        if let Some(background) = &mut self.background {
+            background.visual.update_with_if_changed(|visual| {
+                visual.shapes = background_shapes(background.visible, background.local_rect);
+            });
         }
     }
 
@@ -228,4 +236,11 @@ impl InstancePresenterState {
 
 fn background_shape(rect: Rect) -> Shape {
     shapes::Rect::new(rect, INSTANCE_BACKGROUND_COLOR).into()
+}
+
+fn background_shapes(visible: bool, rect: Rect) -> Arc<[Shape]> {
+    visible
+        .then(|| background_shape(rect))
+        .into_iter()
+        .collect()
 }
