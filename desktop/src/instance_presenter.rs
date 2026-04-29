@@ -88,7 +88,7 @@ impl InstancePresenter {
         scene: &Scene,
     ) -> Result<()> {
         if view_creation_info.role != ViewRole::Primary {
-            todo!("Only primary views are supported yet");
+            bail!("Only primary views are supported yet");
         }
 
         if !matches!(self.state, InstancePresenterState::WaitingForPrimaryView) {
