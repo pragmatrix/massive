@@ -10,6 +10,7 @@ use massive_shell::Scene;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
+const INSTANCE_BACKGROUND_LOCAL_Z_OFFSET: f64 = -1.0;
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -175,7 +176,11 @@ impl InstancePresenter {
             let local_center = background.local_rect.center();
             background
                 .transform
-                .update_if_changed(Self::transform_with_layout(layout_transform, local_center));
+                .update_if_changed(Self::transform_with_layout_and_local_z_offset(
+                    layout_transform,
+                    local_center,
+                    INSTANCE_BACKGROUND_LOCAL_Z_OFFSET,
+                ));
         }
 
         // Feature: Hiding animation.
@@ -205,9 +210,18 @@ impl InstancePresenter {
     }
 
     pub fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
+        Self::transform_with_layout_and_local_z_offset(layout_transform, local_center, 0.0)
+    }
+
+    fn transform_with_layout_and_local_z_offset(
+        layout_transform: Transform,
+        local_center: Point,
+        local_z_offset: f64,
+    ) -> Transform {
         let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
+        let local_z_offset = Vector3::new(0.0, 0.0, local_z_offset);
         let origin_translation =
-            layout_transform.translate - layout_transform.rotate * local_center;
+            layout_transform.translate + layout_transform.rotate * (local_z_offset - local_center);
         Transform::new(
             origin_translation,
             layout_transform.rotate,
