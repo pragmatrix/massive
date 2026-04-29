@@ -1,16 +1,12 @@
 use anyhow::{Result, bail};
 use log::warn;
 
-use massive_animation::Interpolation;
-use massive_applications::{InstanceId, ViewCreationInfo, ViewRole};
-use massive_geometry::SizePx;
+use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_shell::Scene;
 
 use super::DesktopTarget;
 use crate::instance_manager::ViewPath;
-use crate::instance_presenter::{
-    InstancePresenter, InstancePresenterState, PrimaryViewPresenter, STRUCTURAL_ANIMATION_DURATION,
-};
+use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
 use super::DesktopSystem;
@@ -33,15 +29,11 @@ impl DesktopSystem {
             .expect("Launcher not found")
             .should_render_instance_background();
 
-        // Correctness: We animate from 0,0 if no originating exist. Need a position here.
-        let initial_center_translation = originating_presenter
-            .map(|op| op.layout_transform_animation.value().translate)
-            .unwrap_or_default();
-        let has_meaningful_initial_position = originating_presenter.is_some();
+        let initial_center_translation =
+            originating_presenter.map(|op| op.layout_transform_animation.value().translate);
 
         let presenter = InstancePresenter::new(
             initial_center_translation,
-            has_meaningful_initial_position,
             background_for_instance,
             self.aggregates.project_presenter.location.clone(),
             scene,
@@ -102,48 +94,11 @@ impl DesktopSystem {
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
     ) -> Result<()> {
-        if view_creation_info.role != ViewRole::Primary {
-            todo!("Only primary views are supported yet");
-        }
-
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found");
         };
 
-        if !matches!(
-            instance_presenter.state,
-            InstancePresenterState::WaitingForPrimaryView
-        ) {
-            bail!("Primary view is already presenting");
-        }
-
-        view_creation_info
-            .location
-            .update_with_if_changed(|location| {
-                location.alpha = 0.0;
-            });
-        let mut alpha = scene.animated(0.0);
-        alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
-
-        // Architecture: Move this transition in the InstancePresenter
-        instance_presenter.state = InstancePresenterState::Presenting {
-            view: PrimaryViewPresenter {
-                creation_info: view_creation_info.clone(),
-                alpha,
-            },
-        };
-
-        let current_placement = self
-            .layouter
-            .placement(&DesktopTarget::Instance(instance))
-            .copied();
-        if let Some(placement) = current_placement
-            && !instance_presenter.has_meaningful_previous_position()
-        {
-            let layout_size = placement.rect.size;
-            let size_px = SizePx::new(layout_size[0], layout_size[1]);
-            instance_presenter.apply_layout_immediately(size_px, placement.transform);
-        }
+        instance_presenter.present_view(view_creation_info, scene)?;
 
         // Add the view to the hierarchy.
         self.aggregates.hierarchy.add(
@@ -163,25 +118,7 @@ impl DesktopSystem {
             return Ok(());
         };
 
-        // Architecture: Move this into the InstancePresenter (don't make state pub).
-        match &instance_presenter.state {
-            InstancePresenterState::WaitingForPrimaryView => {
-                bail!(
-                    "A view needs to be hidden, but instance presenter waits for a view with a primary role."
-                )
-            }
-            InstancePresenterState::Presenting { view } => {
-                if view.creation_info.id == path.view {
-                    // Feature: this should initiate a disappearing animation?
-                    instance_presenter.state = InstancePresenterState::Disappearing;
-                } else {
-                    bail!("Invalid view: It's not related to anything we present");
-                }
-            }
-            InstancePresenterState::Disappearing => {
-                // ignored, we are already disappearing.
-            }
-        }
+        instance_presenter.hide_view(path.view)?;
 
         // Robustness: What about focus?
 

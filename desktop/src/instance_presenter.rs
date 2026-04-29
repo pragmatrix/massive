@@ -1,7 +1,8 @@
 use std::time::Duration;
 
+use anyhow::{Result, bail};
 use massive_animation::{Animated, Interpolation};
-use massive_applications::ViewCreationInfo;
+use massive_applications::{ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Point, Rect, SizePx, Transform, Vector3};
 use massive_scene::{At, Handle, Location, Object, ToLocation, Visual};
 use massive_shapes::{self as shapes, Shape};
@@ -12,7 +13,7 @@ const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
 
 #[derive(Debug)]
 pub struct InstancePresenter {
-    pub state: InstancePresenterState,
+    state: InstancePresenterState,
     /// The instance layout transform stores the panel center translation and yaw rotation.
     /// Position-only consumers should read `layout_transform_animation.*.translate`.
     pub layout_transform_animation: Animated<Transform>,
@@ -28,7 +29,7 @@ struct InstanceBackground {
 }
 
 #[derive(Debug)]
-pub enum InstancePresenterState {
+enum InstancePresenterState {
     /// No view yet, animating in.
     WaitingForPrimaryView,
     Presenting {
@@ -38,15 +39,14 @@ pub enum InstancePresenterState {
 }
 
 #[derive(Debug)]
-pub struct PrimaryViewPresenter {
-    pub creation_info: ViewCreationInfo,
-    pub(crate) alpha: Animated<f32>,
+struct PrimaryViewPresenter {
+    creation_info: ViewCreationInfo,
+    alpha: Animated<f32>,
 }
 
 impl InstancePresenter {
     pub fn new(
-        initial_center_translation: Vector3,
-        has_meaningful_initial_position: bool,
+        initial_center_translation: Option<Vector3>,
         show_background: bool,
         location: Handle<Location>,
         scene: &Scene,
@@ -65,9 +65,10 @@ impl InstancePresenter {
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
-            layout_transform_animation: scene
-                .animated(Transform::from_translation(initial_center_translation)),
-            has_meaningful_previous_position: has_meaningful_initial_position,
+            layout_transform_animation: scene.animated(Transform::from_translation(
+                initial_center_translation.unwrap_or_default(),
+            )),
+            has_meaningful_previous_position: initial_center_translation.is_some(),
             background,
         }
     }
@@ -76,23 +77,65 @@ impl InstancePresenter {
         self.state.view().is_some()
     }
 
-    pub fn has_meaningful_previous_position(&self) -> bool {
-        self.has_meaningful_previous_position
+    pub fn present_view(
+        &mut self,
+        view_creation_info: &ViewCreationInfo,
+        scene: &Scene,
+    ) -> Result<()> {
+        if view_creation_info.role != ViewRole::Primary {
+            todo!("Only primary views are supported yet");
+        }
+
+        if !matches!(self.state, InstancePresenterState::WaitingForPrimaryView) {
+            bail!("Primary view is already presenting");
+        }
+
+        view_creation_info
+            .location
+            .update_with_if_changed(|location| {
+                location.alpha = 0.0;
+            });
+        let mut alpha = scene.animated(0.0);
+        alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
+
+        self.state = InstancePresenterState::Presenting {
+            view: PrimaryViewPresenter {
+                creation_info: view_creation_info.clone(),
+                alpha,
+            },
+        };
+
+        Ok(())
     }
 
-    pub fn apply_layout_immediately(&mut self, size: SizePx, layout_transform: Transform) {
-        self.apply_layout(size, layout_transform, false);
-        self.has_meaningful_previous_position = true;
+    pub fn hide_view(&mut self, view_id: ViewId) -> Result<()> {
+        match &self.state {
+            InstancePresenterState::WaitingForPrimaryView => {
+                bail!(
+                    "A view needs to be hidden, but instance presenter waits for a view with a primary role."
+                )
+            }
+            InstancePresenterState::Presenting { view } => {
+                if view.creation_info.id == view_id {
+                    // Feature: this should initiate a disappearing animation?
+                    self.state = InstancePresenterState::Disappearing;
+                    Ok(())
+                } else {
+                    bail!("Invalid view: It's not related to anything we present");
+                }
+            }
+            InstancePresenterState::Disappearing => {
+                // ignored, we are already disappearing.
+                Ok(())
+            }
+        }
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
-        let presents_primary_view = self.presents_primary_view();
         let snap_layout = !self.has_meaningful_previous_position;
 
         self.apply_layout(size, layout_transform, animate && !snap_layout);
-        if presents_primary_view {
-            self.has_meaningful_previous_position = true;
-        }
+        self.has_meaningful_previous_position = true;
     }
 
     fn apply_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
@@ -166,7 +209,7 @@ impl InstancePresenter {
 }
 
 impl InstancePresenterState {
-    pub fn view(&self) -> Option<&PrimaryViewPresenter> {
+    fn view(&self) -> Option<&PrimaryViewPresenter> {
         match self {
             Self::WaitingForPrimaryView => None,
             Self::Presenting { view } => Some(view),
@@ -174,7 +217,7 @@ impl InstancePresenterState {
         }
     }
 
-    pub fn view_mut(&mut self) -> Option<&mut PrimaryViewPresenter> {
+    fn view_mut(&mut self) -> Option<&mut PrimaryViewPresenter> {
         match self {
             Self::WaitingForPrimaryView => None,
             Self::Presenting { view } => Some(view),
