@@ -16,6 +16,8 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Rust
 - Prefer deriving traits over manual implementations when equivalent derives are available.
 - Prefer qualified enum variants when it improves clarity over imported discriminants.
+- Structure imports with common-root `use` lines (for example `use std::sync::Arc;`) rather than nested hierarchical `use` trees.
+- Keep grouped imports shallow; avoid multi-level brace nesting in `use` statements unless the surrounding file already consistently uses that style.
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
 - Prefer adding fields to existing structs over creating parallel data structures.
 - Use constructor functions and derive helpers for newtype patterns.

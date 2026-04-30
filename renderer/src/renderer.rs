@@ -1,6 +1,7 @@
 use std::{result, time::Instant};
 
 use anyhow::Result;
+use derive_more::Constructor;
 use itertools::Itertools;
 use log::{info, warn};
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
@@ -18,7 +19,13 @@ use crate::{
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
 use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
 
-const DESIRED_MAXIMUM_FRAME_LATENCY: u32 = 1;
+const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Constructor)]
+pub struct PresentationMode {
+    pub present_mode: PresentMode,
+    pub maximum_frame_latency: u32,
+}
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -138,7 +145,7 @@ impl Renderer {
             present_mode: PresentMode::AutoNoVsync,
             alpha_mode: device.alpha_mode,
             view_formats: vec![],
-            desired_maximum_frame_latency: DESIRED_MAXIMUM_FRAME_LATENCY,
+            desired_maximum_frame_latency: DEFAULT_MAXIMUM_FRAME_LATENCY,
         };
 
         surface.configure(&device.device, &surface_config);
@@ -503,18 +510,34 @@ impl Renderer {
         )) * Matrix4::from_translation(Vector3::new(1.0, -1.0, 0.0))
     }
 
-    /// Resizes the surface, if necessary.
-    ///
-    /// Keeps the minimum surface size at at least 1x1.
-    pub fn resize_surface(&mut self, new_size: SizePx) {
+    /// Applies surface size and presentation settings together and reconfigures only once.
+    pub fn apply_surface_configuration(
+        &mut self,
+        new_size: SizePx,
+        presentation_mode: PresentationMode,
+    ) {
         let new_surface_size = new_size.max((1, 1).into());
 
-        if new_surface_size == self.surface_size() {
+        let size_changed = new_surface_size != self.surface_size();
+        let presentation_changed = presentation_mode.present_mode != self.surface_config.present_mode
+            || presentation_mode.maximum_frame_latency
+                != self.surface_config.desired_maximum_frame_latency;
+
+        if !size_changed && !presentation_changed {
             return;
         }
-        let config = &mut self.surface_config;
-        config.width = new_surface_size.width;
-        config.height = new_surface_size.height;
+
+        if size_changed {
+            let config = &mut self.surface_config;
+            config.width = new_surface_size.width;
+            config.height = new_surface_size.height;
+        }
+
+        if presentation_changed {
+            self.surface_config.present_mode = presentation_mode.present_mode;
+            self.surface_config.desired_maximum_frame_latency =
+                presentation_mode.maximum_frame_latency;
+        }
 
         self.reconfigure_surface();
     }
@@ -528,27 +551,41 @@ impl Renderer {
         (config.width, config.height).into()
     }
 
-    pub fn present_mode(&self) -> PresentMode {
-        self.surface_config.present_mode
+    pub fn is_vblank_driven(&self) -> bool {
+        matches!(
+            self.surface_config.present_mode,
+            PresentMode::AutoVsync | PresentMode::Fifo | PresentMode::FifoRelaxed
+        )
     }
 
-    /// Sets the presentation mode and - if changed - reconfigures the surface.
-    pub fn set_present_mode(&mut self, present_mode: PresentMode) {
-        if present_mode == self.surface_config.present_mode {
+    /// Sets presentation settings and - if changed - reconfigures the surface.
+    pub fn set_presentation_mode(&mut self, presentation_mode: PresentationMode) {
+        if presentation_mode.present_mode == self.surface_config.present_mode
+            && presentation_mode.maximum_frame_latency
+                == self.surface_config.desired_maximum_frame_latency
+        {
             return;
         }
-        self.surface_config.present_mode = present_mode;
+        self.surface_config.present_mode = presentation_mode.present_mode;
+        self.surface_config.desired_maximum_frame_latency = presentation_mode.maximum_frame_latency;
         self.reconfigure_surface();
     }
 
     pub fn reconfigure_surface(&mut self) {
-        info!("Reconfiguring surface {:?}", self.surface_config);
+        info!(
+            "Reconfiguring surface: size={:?}, present_mode={:?}, maximum_frame_latency={}",
+            self.surface_size(),
+            self.surface_config.present_mode,
+            self.surface_config.desired_maximum_frame_latency
+        );
         self.surface
             .configure(&self.device.device, &self.surface_config);
-        self.depth_buffer = Self::create_depth_buffer(
-            &self.device.device,
-            (self.surface_config.width, self.surface_config.height),
-        );
+
+        let target_depth_size = (self.surface_config.width, self.surface_config.height);
+        let current_depth_size = self.depth_buffer._texture.size();
+        if (current_depth_size.width, current_depth_size.height) != target_depth_size {
+            self.depth_buffer = Self::create_depth_buffer(&self.device.device, target_depth_size);
+        }
     }
 
     pub fn set_background_color(&mut self, color: Option<Color>) {
@@ -557,8 +594,6 @@ impl Renderer {
 
     fn create_depth_buffer(device: &wgpu::Device, size: (u32, u32)) -> DepthBuffer {
         let (width, height) = size;
-        let width = width.max(1);
-        let height = height.max(1);
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Buffer"),

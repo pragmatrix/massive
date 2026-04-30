@@ -25,7 +25,7 @@ pub use font_manager::*;
 pub use render_device::*;
 pub use render_geometry::RenderGeometry;
 pub use render_submission::*;
-pub use renderer::Renderer;
+pub use renderer::{PresentationMode, Renderer};
 pub use size_buffer::*;
 pub use transactions::*;
 

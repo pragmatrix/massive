@@ -14,12 +14,11 @@ use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
 use massive_geometry::{Color, SizePx};
-use massive_renderer::{RenderGeometry, RenderPacing, RenderSubmission, RenderTarget};
+use massive_renderer::{RenderGeometry, RenderSubmission, RenderTarget};
 
 use crate::{
     ShellEvent,
-    render_thread::{RenderThreadSubmission, RendererMessage, render_thread},
-    window_renderer::WindowRenderer,
+    window_renderer::{RenderThreadSubmission, RendererMessage, WindowRenderer},
 };
 
 #[derive(Debug)]
@@ -36,7 +35,8 @@ pub struct AsyncWindowRenderer {
 }
 
 impl AsyncWindowRenderer {
-    // Architecture: Camera does not feel to belong here. It already moved from the Renderer to here.
+    // Architecture: Camera in `geometry` does not feel to belong here. It already moved from the
+    // Renderer to here.
     pub fn new(
         window_renderer: WindowRenderer,
         geometry: RenderGeometry,
@@ -47,12 +47,14 @@ impl AsyncWindowRenderer {
 
         let (msg_sender, msg_receiver) = mpsc::channel();
 
-        let submission = RenderThreadSubmission::new(view_projection);
-        let submission = Arc::new(Mutex::new(submission));
-        let submission2 = submission.clone();
+        // The RenderThreadSubmission is our connection to the renderer. The render thread empties
+        // the submission as soon as it's rendering a frame. This way we can extend the
+        // submission locally if the renderer is not fast enough to pick them up.
+        let submission = Arc::new(Mutex::new(RenderThreadSubmission::new(view_projection)));
+        let renderer_submission = submission.clone();
 
         let thread_handle = thread::spawn(move || {
-            match render_thread(msg_receiver, window_renderer, submission2, shell_events) {
+            match window_renderer.render_thread(msg_receiver, renderer_submission, shell_events) {
                 Ok(()) => {
                     info!("Render loop ended because the sender disconnected");
                 }
@@ -158,10 +160,7 @@ impl RenderTarget for AsyncWindowRenderer {
 
         let submission = RenderThreadSubmission {
             changes: render_submission.changes,
-            present_mode: match render_submission.pacing {
-                RenderPacing::Fast => wgpu::PresentMode::AutoNoVsync,
-                RenderPacing::Smooth => wgpu::PresentMode::AutoVsync,
-            },
+            pacing: render_submission.pacing,
             view_projection: self.geometry.view_projection(),
         };
 
