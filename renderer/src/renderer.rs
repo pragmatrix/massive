@@ -564,10 +564,12 @@ impl Renderer {
         );
         self.surface
             .configure(&self.device.device, &self.surface_config);
-        self.depth_buffer = Self::create_depth_buffer(
-            &self.device.device,
-            (self.surface_config.width, self.surface_config.height),
-        );
+
+        let target_depth_size = (self.surface_config.width, self.surface_config.height);
+        let current_depth_size = self.depth_buffer._texture.size();
+        if (current_depth_size.width, current_depth_size.height) != target_depth_size {
+            self.depth_buffer = Self::create_depth_buffer(&self.device.device, target_depth_size);
+        }
     }
 
     pub fn set_background_color(&mut self, color: Option<Color>) {
@@ -576,8 +578,6 @@ impl Renderer {
 
     fn create_depth_buffer(device: &wgpu::Device, size: (u32, u32)) -> DepthBuffer {
         let (width, height) = size;
-        let width = width.max(1);
-        let height = height.max(1);
 
         let texture = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Depth Buffer"),
