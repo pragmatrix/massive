@@ -556,7 +556,12 @@ impl Renderer {
     }
 
     pub fn reconfigure_surface(&mut self) {
-        info!("Reconfiguring surface {:?}", self.surface_config);
+        info!(
+            "Reconfiguring surface: size={:?}, present_mode={:?}, maximum_frame_latency={}",
+            self.surface_size(),
+            self.surface_config.present_mode,
+            self.surface_config.desired_maximum_frame_latency
+        );
         self.surface
             .configure(&self.device.device, &self.surface_config);
         self.depth_buffer = Self::create_depth_buffer(
