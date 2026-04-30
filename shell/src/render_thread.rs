@@ -162,7 +162,8 @@ fn render_frame(
 
     // Robustness: Does this wait for the frame to be rendered, or is it lost? If so, should do this
     // before get_next_texture()?
-    renderer.set_present_mode(submission.present_mode);
+    let present_mode = renderer.effective_present_mode(submission.present_mode);
+    renderer.set_present_mode(present_mode);
 
     Ok(())
 }

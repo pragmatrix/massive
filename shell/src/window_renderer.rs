@@ -12,18 +12,24 @@ use massive_scene::SceneChanges;
 
 use crate::shell_window::ShellWindowShared;
 
+const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
+const FULLSCREEN_VSYNC_MAXIMUM_FRAME_LATENCY: u32 = 2;
+
 pub struct WindowRenderer {
     window: Arc<ShellWindowShared>,
     renderer: Renderer,
+    is_fullscreen: bool,
     #[cfg(feature = "metrics")]
     oldest_change: Option<Instant>,
 }
 
 impl WindowRenderer {
     pub fn new(window: Arc<ShellWindowShared>, renderer: Renderer) -> Self {
+        let is_fullscreen = window.is_fullscreen();
         Self {
             window,
             renderer,
+            is_fullscreen,
             #[cfg(feature = "metrics")]
             oldest_change: None,
         }
@@ -53,7 +59,24 @@ impl WindowRenderer {
 
 impl WindowRenderer {
     pub(crate) fn resize(&mut self, new_size: SizePx) {
+        self.refresh_fullscreen_state();
         self.renderer.resize_surface(new_size)
+    }
+
+    fn refresh_fullscreen_state(&mut self) {
+        self.is_fullscreen = self.window.is_fullscreen();
+    }
+
+    pub(crate) fn effective_present_mode(&self, requested: PresentMode) -> PresentMode {
+        effective_present_mode(requested, self.is_fullscreen)
+    }
+
+    pub(crate) fn desired_maximum_frame_latency(&self, present_mode: PresentMode) -> u32 {
+        if self.is_fullscreen && present_mode == PresentMode::AutoVsync {
+            FULLSCREEN_VSYNC_MAXIMUM_FRAME_LATENCY
+        } else {
+            DEFAULT_MAXIMUM_FRAME_LATENCY
+        }
     }
 
     pub(crate) fn present_mode(&self) -> PresentMode {
@@ -61,7 +84,10 @@ impl WindowRenderer {
     }
 
     pub(crate) fn set_present_mode(&mut self, present_mode: PresentMode) {
-        self.renderer.set_present_mode(present_mode);
+        self.renderer.set_presentation(
+            present_mode,
+            self.desired_maximum_frame_latency(present_mode),
+        );
     }
 
     /// Apply all changes to the renderer and prepare the presentation.
@@ -110,5 +136,13 @@ impl WindowRenderer {
             }
             self.oldest_change = None;
         }
+    }
+}
+
+fn effective_present_mode(requested: PresentMode, is_fullscreen: bool) -> PresentMode {
+    if is_fullscreen {
+        PresentMode::AutoVsync
+    } else {
+        requested
     }
 }

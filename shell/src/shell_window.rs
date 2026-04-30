@@ -114,6 +114,10 @@ impl ShellWindowShared {
         (w, h).into()
     }
 
+    pub(crate) fn is_fullscreen(&self) -> bool {
+        self.window().fullscreen().is_some()
+    }
+
     fn window(&self) -> &Window {
         self.window.as_ref().unwrap()
     }
