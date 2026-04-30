@@ -1,6 +1,7 @@
 use std::{result, time::Instant};
 
 use anyhow::Result;
+use derive_more::Constructor;
 use itertools::Itertools;
 use log::{info, warn};
 use wgpu::{PresentMode, StoreOp, SurfaceTexture};
@@ -19,6 +20,12 @@ use massive_geometry::{Color, Matrix4, SizePx, Vector3};
 use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
 
 const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Constructor)]
+pub struct PresentationMode {
+    pub present_mode: PresentMode,
+    pub maximum_frame_latency: u32,
+}
 
 #[derive(Debug)]
 pub struct Renderer {
@@ -528,28 +535,23 @@ impl Renderer {
         (config.width, config.height).into()
     }
 
-    pub fn present_mode(&self) -> PresentMode {
-        self.surface_config.present_mode
-    }
-
-    /// Sets the presentation mode and - if changed - reconfigures the surface.
-    pub fn set_present_mode(&mut self, present_mode: PresentMode) {
-        self.set_presentation(present_mode, DEFAULT_MAXIMUM_FRAME_LATENCY);
+    pub fn is_vblank_driven(&self) -> bool {
+        matches!(
+            self.surface_config.present_mode,
+            PresentMode::AutoVsync | PresentMode::Fifo | PresentMode::FifoRelaxed
+        )
     }
 
     /// Sets presentation settings and - if changed - reconfigures the surface.
-    pub fn set_presentation(
-        &mut self,
-        present_mode: PresentMode,
-        desired_maximum_frame_latency: u32,
-    ) {
-        if present_mode == self.surface_config.present_mode
-            && desired_maximum_frame_latency == self.surface_config.desired_maximum_frame_latency
+    pub fn set_presentation_mode(&mut self, presentation_mode: PresentationMode) {
+        if presentation_mode.present_mode == self.surface_config.present_mode
+            && presentation_mode.maximum_frame_latency
+                == self.surface_config.desired_maximum_frame_latency
         {
             return;
         }
-        self.surface_config.present_mode = present_mode;
-        self.surface_config.desired_maximum_frame_latency = desired_maximum_frame_latency;
+        self.surface_config.present_mode = presentation_mode.present_mode;
+        self.surface_config.desired_maximum_frame_latency = presentation_mode.maximum_frame_latency;
         self.reconfigure_surface();
     }
 

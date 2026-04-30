@@ -14,7 +14,7 @@ use tokio::sync::mpsc::WeakUnboundedSender;
 use winit::{event, window::WindowId};
 
 use massive_geometry::{Color, SizePx};
-use massive_renderer::{RenderGeometry, RenderPacing, RenderSubmission, RenderTarget};
+use massive_renderer::{RenderGeometry, RenderSubmission, RenderTarget};
 
 use crate::{
     ShellEvent,
@@ -161,10 +161,7 @@ impl RenderTarget for AsyncWindowRenderer {
 
         let submission = RenderThreadSubmission {
             changes: render_submission.changes,
-            present_mode: match render_submission.pacing {
-                RenderPacing::Fast => wgpu::PresentMode::AutoNoVsync,
-                RenderPacing::Smooth => wgpu::PresentMode::AutoVsync,
-            },
+            pacing: render_submission.pacing,
             view_projection: self.geometry.view_projection(),
         };
 

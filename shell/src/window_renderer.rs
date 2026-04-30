@@ -7,7 +7,7 @@ use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
 use massive_geometry::{Color, Matrix4, SizePx};
-use massive_renderer::Renderer;
+use massive_renderer::{PresentationMode, RenderPacing, Renderer};
 use massive_scene::SceneChanges;
 
 use crate::shell_window::ShellWindowShared;
@@ -17,8 +17,9 @@ const FULLSCREEN_VSYNC_MAXIMUM_FRAME_LATENCY: u32 = 2;
 
 pub struct WindowRenderer {
     window: Arc<ShellWindowShared>,
-    renderer: Renderer,
+    pub(super) renderer: Renderer,
     is_fullscreen: bool,
+    pub(super) current_pacing: RenderPacing,
     #[cfg(feature = "metrics")]
     oldest_change: Option<Instant>,
 }
@@ -30,6 +31,7 @@ impl WindowRenderer {
             window,
             renderer,
             is_fullscreen,
+            current_pacing: RenderPacing::Fast,
             #[cfg(feature = "metrics")]
             oldest_change: None,
         }
@@ -59,6 +61,8 @@ impl WindowRenderer {
 
 impl WindowRenderer {
     pub(crate) fn resize(&mut self, new_size: SizePx) {
+        // Detail: Resize is not sent while transitioning into fullscreen or out of it, only one
+        // time at the end on macOS.
         self.refresh_fullscreen_state();
         self.renderer.resize_surface(new_size)
     }
@@ -67,22 +71,14 @@ impl WindowRenderer {
         self.is_fullscreen = self.window.is_fullscreen();
     }
 
-    pub(crate) fn present_mode(&self) -> PresentMode {
-        self.renderer.present_mode()
+    pub(crate) fn presentation_mode_for(&self, pacing: RenderPacing) -> PresentationMode {
+        let present_mode = present_mode_for(pacing, self.is_fullscreen);
+        let maximum_frame_latency = self.desired_maximum_frame_latency(present_mode);
+
+        PresentationMode::new(present_mode, maximum_frame_latency)
     }
 
-    pub(crate) fn set_present_mode(&mut self, present_mode: PresentMode) {
-        self.renderer.set_presentation(
-            present_mode,
-            self.desired_maximum_frame_latency(present_mode),
-        );
-    }
-
-    pub(crate) fn effective_present_mode(&self, requested: PresentMode) -> PresentMode {
-        effective_present_mode(requested, self.is_fullscreen)
-    }
-
-    pub(crate) fn desired_maximum_frame_latency(&self, present_mode: PresentMode) -> u32 {
+    fn desired_maximum_frame_latency(&self, present_mode: PresentMode) -> u32 {
         if self.is_fullscreen && present_mode == PresentMode::AutoVsync {
             FULLSCREEN_VSYNC_MAXIMUM_FRAME_LATENCY
         } else {
@@ -139,10 +135,13 @@ impl WindowRenderer {
     }
 }
 
-fn effective_present_mode(requested: PresentMode, is_fullscreen: bool) -> PresentMode {
+fn present_mode_for(pacing: RenderPacing, is_fullscreen: bool) -> PresentMode {
     if is_fullscreen {
         PresentMode::AutoVsync
     } else {
-        requested
+        match pacing {
+            RenderPacing::Fast => PresentMode::AutoNoVsync,
+            RenderPacing::Smooth => PresentMode::AutoVsync,
+        }
     }
 }

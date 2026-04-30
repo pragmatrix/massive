@@ -55,6 +55,7 @@
         "textbox",
         "ulps",
         "unclipped",
+        "vblank",
         "webgl",
         "wght",
         "wgpu",

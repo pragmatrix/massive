@@ -11,6 +11,7 @@ use parking_lot::Mutex;
 use tokio::sync::mpsc::WeakUnboundedSender;
 
 use massive_geometry::{Color, Matrix4, SizePx};
+use massive_renderer::RenderPacing;
 use massive_scene::SceneChanges;
 use massive_util::message_filter;
 
@@ -38,11 +39,11 @@ impl WindowRenderer {
         loop {
             // Detail: Because the previous event may take some time to process, there might be some
             // additional messages pending, but we don't pull them to avoid getting into a situation
-            // in smooth rendering that there is never a rendering.
-            let smooth = self.present_mode() == wgpu::PresentMode::AutoVsync;
+            // in smooth rendering that we are never rendering.
+            let vblank_driven = self.renderer.is_vblank_driven();
             if messages.is_empty() {
                 // blocking path.
-                if smooth {
+                if vblank_driven {
                     // Smooth rendering. This may block.
                     self.render_frame(&shell_events, &submission)?;
                 } else {
@@ -62,7 +63,7 @@ impl WindowRenderer {
             if messages.is_empty() {
                 continue;
             }
-            // Detail: I think there could only be 4 events in there because of keep_last_per_variant?
+            // Detail: There should be at most 4 events in there because of keep_last_per_variant?
             match messages.remove(0) {
                 RendererMessage::Resize(new_size) => {
                     // Optimization: If we resize and change present mode the same time, we would only need to reconfigure
@@ -71,7 +72,7 @@ impl WindowRenderer {
                 }
                 RendererMessage::Redraw => {
                     // In smooth mode, we ignore explicit redraw requests.
-                    if !smooth {
+                    if !vblank_driven {
                         self.render_frame(&shell_events, &submission)?;
                     } else {
                         // Architecture: Well, what to do with all the Redraw requests in smooth
@@ -102,10 +103,13 @@ impl WindowRenderer {
         // This improves time of first change to render time considerably.
         let texture = self.get_next_texture()?;
 
-        // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
-        // This is not anymore true, since fullscreen we to have AutoVSync set there too even if no animations are running.
-        // So we should make this dependent on the previous submission type?
-        if self.present_mode() == wgpu::PresentMode::AutoVsync {
+        // Detail: Presentation timestamps are only sent when the presentation is currently in
+        // animation mode (smooth pacing).
+        //
+        // Note that PresentationMode is _not_ a decider for this. We don't want to send out
+        // ApplyAnimations when we are in full screen and nothing is animating, but we are rendering
+        // in VBlank mode.
+        if self.current_pacing == RenderPacing::Smooth {
             let sender = apply_animations_to
                 .upgrade()
                 .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
@@ -130,10 +134,15 @@ impl WindowRenderer {
 
         // Robustness: Does this wait for the frame to be rendered, or is it lost? If so, should do this
         // before get_next_texture()?
-        let present_mode = self.effective_present_mode(submission.present_mode);
-        self.set_present_mode(present_mode);
+        self.apply_submission_presentation_mode(submission.pacing);
 
         Ok(())
+    }
+
+    fn apply_submission_presentation_mode(&mut self, pacing: RenderPacing) {
+        let effective_presentation = self.presentation_mode_for(pacing);
+        self.renderer.set_presentation_mode(effective_presentation);
+        self.current_pacing = pacing;
     }
 }
 
@@ -183,7 +192,7 @@ enum FlowControl {
 #[derive(Debug)]
 pub struct RenderThreadSubmission {
     pub changes: SceneChanges,
-    pub present_mode: wgpu::PresentMode,
+    pub pacing: RenderPacing,
     pub view_projection: Matrix4,
 }
 
@@ -192,21 +201,21 @@ impl RenderThreadSubmission {
         Self {
             changes: SceneChanges::default(),
             view_projection,
-            present_mode: wgpu::PresentMode::AutoNoVsync,
+            pacing: RenderPacing::Fast,
         }
     }
 
     pub fn take(&mut self) -> Self {
         Self {
             changes: mem::take(&mut self.changes),
-            present_mode: self.present_mode,
+            pacing: self.pacing,
             view_projection: self.view_projection,
         }
     }
 
     pub fn accumulate(&mut self, next_submission: Self) {
         self.changes.accumulate(next_submission.changes);
-        self.present_mode = next_submission.present_mode;
+        self.pacing = next_submission.pacing;
         self.view_projection = next_submission.view_projection;
     }
 }
