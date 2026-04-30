@@ -49,8 +49,8 @@ impl AsyncWindowRenderer {
         let (msg_sender, msg_receiver) = mpsc::channel();
 
         // The RenderThreadSubmission is our connection to the renderer. The render thread empties
-        // the submission as soon its rendering a frame. This way we can extend the submission
-        // locally if the renderer is not fast enough to pick them up.
+        // the submission as soon as it's rendering a frame. This way we can extend the
+        // submission locally if the renderer is not fast enough to pick them up.
         let submission = Arc::new(Mutex::new(RenderThreadSubmission::new(view_projection)));
         let renderer_submission = submission.clone();
 
