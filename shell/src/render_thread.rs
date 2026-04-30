@@ -81,7 +81,7 @@ impl WindowRenderer {
                         // for that, but is this really the right way?
 
                         // Currently, it does feel better to have every Redraw handled, because we don't
-                        // want to end up in rare situation where the last frame of animation isn't
+                        // want to end up in a rare situation where the last frame of animation isn't
                         // rendered.
                     }
                 }
