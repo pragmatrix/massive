@@ -137,6 +137,8 @@ fn render_frame(
     let texture = renderer.get_next_texture()?;
 
     // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
+    // This is not anymore true, since fullscreen we to have AutoVSync set there too even if no animations are running.
+    // So we should make this dependent on the previous submission type?
     if renderer.present_mode() == wgpu::PresentMode::AutoVsync {
         let sender = apply_animations_to
                 .upgrade()
@@ -200,9 +202,9 @@ impl RenderThreadSubmission {
         }
     }
 
-    pub fn accumulate(&mut self, other: Self) {
-        self.changes.accumulate(other.changes);
-        self.present_mode = other.present_mode;
-        self.view_projection = other.view_projection;
+    pub fn accumulate(&mut self, next_submission: Self) {
+        self.changes.accumulate(next_submission.changes);
+        self.present_mode = next_submission.present_mode;
+        self.view_projection = next_submission.view_projection;
     }
 }

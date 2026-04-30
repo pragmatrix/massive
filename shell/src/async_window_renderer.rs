@@ -36,7 +36,8 @@ pub struct AsyncWindowRenderer {
 }
 
 impl AsyncWindowRenderer {
-    // Architecture: Camera does not feel to belong here. It already moved from the Renderer to here.
+    // Architecture: Camera in `geometry` does not feel to belong here. It already moved from the
+    // Renderer to here.
     pub fn new(
         window_renderer: WindowRenderer,
         geometry: RenderGeometry,
@@ -47,12 +48,19 @@ impl AsyncWindowRenderer {
 
         let (msg_sender, msg_receiver) = mpsc::channel();
 
-        let submission = RenderThreadSubmission::new(view_projection);
-        let submission = Arc::new(Mutex::new(submission));
-        let submission2 = submission.clone();
+        // The RenderThreadSubmission is our connection to the renderer. The render thread empties
+        // the submission as soon its rendering a frame. This way we can extend the submission
+        // locally if the renderer is not fast enough to pick them up.
+        let submission = Arc::new(Mutex::new(RenderThreadSubmission::new(view_projection)));
+        let renderer_submission = submission.clone();
 
         let thread_handle = thread::spawn(move || {
-            match render_thread(msg_receiver, window_renderer, submission2, shell_events) {
+            match render_thread(
+                msg_receiver,
+                window_renderer,
+                renderer_submission,
+                shell_events,
+            ) {
                 Ok(()) => {
                     info!("Render loop ended because the sender disconnected");
                 }
