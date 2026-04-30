@@ -18,8 +18,7 @@ use massive_renderer::{RenderGeometry, RenderSubmission, RenderTarget};
 
 use crate::{
     ShellEvent,
-    render_thread::{RenderThreadSubmission, RendererMessage},
-    window_renderer::WindowRenderer,
+    window_renderer::{RenderThreadSubmission, RendererMessage, WindowRenderer},
 };
 
 #[derive(Debug)]

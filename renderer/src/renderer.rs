@@ -510,18 +510,34 @@ impl Renderer {
         )) * Matrix4::from_translation(Vector3::new(1.0, -1.0, 0.0))
     }
 
-    /// Resizes the surface, if necessary.
-    ///
-    /// Keeps the minimum surface size at at least 1x1.
-    pub fn resize_surface(&mut self, new_size: SizePx) {
+    /// Applies surface size and presentation settings together and reconfigures only once.
+    pub fn apply_surface_configuration(
+        &mut self,
+        new_size: SizePx,
+        presentation_mode: PresentationMode,
+    ) {
         let new_surface_size = new_size.max((1, 1).into());
 
-        if new_surface_size == self.surface_size() {
+        let size_changed = new_surface_size != self.surface_size();
+        let presentation_changed = presentation_mode.present_mode != self.surface_config.present_mode
+            || presentation_mode.maximum_frame_latency
+                != self.surface_config.desired_maximum_frame_latency;
+
+        if !size_changed && !presentation_changed {
             return;
         }
-        let config = &mut self.surface_config;
-        config.width = new_surface_size.width;
-        config.height = new_surface_size.height;
+
+        if size_changed {
+            let config = &mut self.surface_config;
+            config.width = new_surface_size.width;
+            config.height = new_surface_size.height;
+        }
+
+        if presentation_changed {
+            self.surface_config.present_mode = presentation_mode.present_mode;
+            self.surface_config.desired_maximum_frame_latency =
+                presentation_mode.maximum_frame_latency;
+        }
 
         self.reconfigure_surface();
     }
