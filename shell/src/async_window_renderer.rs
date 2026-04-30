@@ -18,7 +18,7 @@ use massive_renderer::{RenderGeometry, RenderPacing, RenderSubmission, RenderTar
 
 use crate::{
     ShellEvent,
-    render_thread::{RenderThreadSubmission, RendererMessage, render_thread},
+    render_thread::{RenderThreadSubmission, RendererMessage},
     window_renderer::WindowRenderer,
 };
 
@@ -55,12 +55,7 @@ impl AsyncWindowRenderer {
         let renderer_submission = submission.clone();
 
         let thread_handle = thread::spawn(move || {
-            match render_thread(
-                msg_receiver,
-                window_renderer,
-                renderer_submission,
-                shell_events,
-            ) {
+            match window_renderer.render_thread(msg_receiver, renderer_submission, shell_events) {
                 Ok(()) => {
                     info!("Render loop ended because the sender disconnected");
                 }

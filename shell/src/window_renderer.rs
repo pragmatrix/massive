@@ -67,6 +67,17 @@ impl WindowRenderer {
         self.is_fullscreen = self.window.is_fullscreen();
     }
 
+    pub(crate) fn present_mode(&self) -> PresentMode {
+        self.renderer.present_mode()
+    }
+
+    pub(crate) fn set_present_mode(&mut self, present_mode: PresentMode) {
+        self.renderer.set_presentation(
+            present_mode,
+            self.desired_maximum_frame_latency(present_mode),
+        );
+    }
+
     pub(crate) fn effective_present_mode(&self, requested: PresentMode) -> PresentMode {
         effective_present_mode(requested, self.is_fullscreen)
     }
@@ -77,17 +88,6 @@ impl WindowRenderer {
         } else {
             DEFAULT_MAXIMUM_FRAME_LATENCY
         }
-    }
-
-    pub(crate) fn present_mode(&self) -> PresentMode {
-        self.renderer.present_mode()
-    }
-
-    pub(crate) fn set_present_mode(&mut self, present_mode: PresentMode) {
-        self.renderer.set_presentation(
-            present_mode,
-            self.desired_maximum_frame_latency(present_mode),
-        );
     }
 
     /// Apply all changes to the renderer and prepare the presentation.

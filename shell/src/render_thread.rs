@@ -26,67 +26,114 @@ pub enum RendererMessage {
 
 // Detail: The render loop will only end regularly if the channel that sends renderer messages
 // is closed.
-pub fn render_thread(
-    msg_receiver: mpsc::Receiver<RendererMessage>,
-    mut window_renderer: WindowRenderer,
-    submission: Arc<Mutex<RenderThreadSubmission>>,
-    shell_events: WeakUnboundedSender<ShellEvent>,
-) -> Result<()> {
-    let mut messages = Vec::new();
+impl WindowRenderer {
+    pub(crate) fn render_thread(
+        mut self,
+        msg_receiver: mpsc::Receiver<RendererMessage>,
+        submission: Arc<Mutex<RenderThreadSubmission>>,
+        shell_events: WeakUnboundedSender<ShellEvent>,
+    ) -> Result<()> {
+        let mut messages = Vec::new();
 
-    loop {
-        // Detail: Because the previous event may take some time to process, there might be some
-        // additional messages pending, but we don't pull them to avoid getting into a situation
-        // in smooth rendering that there is never a rendering.
-        let smooth = window_renderer.present_mode() == wgpu::PresentMode::AutoVsync;
-        if messages.is_empty() {
-            // blocking path.
-            if smooth {
-                // Smooth rendering. This may block.
-                render_frame(&mut window_renderer, &shell_events, &submission)?;
-            } else {
-                // Fast mode. Wait until at least one event is there.
-                if wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue {
-                    return Ok(());
-                };
-            }
-        }
-
-        // Pull _all_ events so that we can coalesce them.
-        if retrieve_pending_events(&msg_receiver, &mut messages) != FlowControl::Continue {
-            return Ok(());
-        };
-        messages = message_filter::keep_last_per_variant(messages, |_| true);
-
-        if messages.is_empty() {
-            continue;
-        }
-        // Detail: I think there could only be 4 events in there because of keep_last_per_variant?
-        match messages.remove(0) {
-            RendererMessage::Resize(new_size) => {
-                // Optimization: If we resize and change present mode the same time, we would only need to reconfigure
-                // the surface once. Renderer might even reconfigure lazily.
-                window_renderer.resize(new_size);
-            }
-            RendererMessage::Redraw => {
-                // In smooth mode, we ignore explicit redraw requests.
-                if !smooth {
-                    render_frame(&mut window_renderer, &shell_events, &submission)?;
+        loop {
+            // Detail: Because the previous event may take some time to process, there might be some
+            // additional messages pending, but we don't pull them to avoid getting into a situation
+            // in smooth rendering that there is never a rendering.
+            let smooth = self.present_mode() == wgpu::PresentMode::AutoVsync;
+            if messages.is_empty() {
+                // blocking path.
+                if smooth {
+                    // Smooth rendering. This may block.
+                    self.render_frame(&shell_events, &submission)?;
                 } else {
-                    // Architecture: Well, what to do with all the Redraw requests in smooth
-                    // rendering mode? Currently the problem is that we don't even know when to send
-                    // them from the AsyncWindowRenderer. We could look into RenderThreadSubmission
-                    // for that, but is this really the right way?
-
-                    // Currently, it does feel better to have every Redraw handled, because we don't
-                    // want to end up in rare situation where the last frame of animation isn't
-                    // rendered.
+                    // Fast mode. Wait until at least one event is there.
+                    if wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue {
+                        return Ok(());
+                    };
                 }
             }
-            RendererMessage::SetBackgroundColor(color) => {
-                window_renderer.set_background_color(color);
+
+            // Pull _all_ events so that we can coalesce them.
+            if retrieve_pending_events(&msg_receiver, &mut messages) != FlowControl::Continue {
+                return Ok(());
+            };
+            messages = message_filter::keep_last_per_variant(messages, |_| true);
+
+            if messages.is_empty() {
+                continue;
+            }
+            // Detail: I think there could only be 4 events in there because of keep_last_per_variant?
+            match messages.remove(0) {
+                RendererMessage::Resize(new_size) => {
+                    // Optimization: If we resize and change present mode the same time, we would only need to reconfigure
+                    // the surface once. Renderer might even reconfigure lazily.
+                    self.resize(new_size);
+                }
+                RendererMessage::Redraw => {
+                    // In smooth mode, we ignore explicit redraw requests.
+                    if !smooth {
+                        self.render_frame(&shell_events, &submission)?;
+                    } else {
+                        // Architecture: Well, what to do with all the Redraw requests in smooth
+                        // rendering mode? Currently the problem is that we don't even know when to send
+                        // them from the AsyncWindowRenderer. We could look into RenderThreadSubmission
+                        // for that, but is this really the right way?
+
+                        // Currently, it does feel better to have every Redraw handled, because we don't
+                        // want to end up in rare situation where the last frame of animation isn't
+                        // rendered.
+                    }
+                }
+                RendererMessage::SetBackgroundColor(color) => {
+                    self.set_background_color(color);
+                }
             }
         }
+    }
+
+    // Detail: This always produces a new frame. Even if there are no changes.
+    pub(crate) fn render_frame(
+        &mut self,
+        apply_animations_to: &WeakUnboundedSender<ShellEvent>,
+        submission: &Arc<Mutex<RenderThreadSubmission>>,
+    ) -> Result<()> {
+        // Detail: In VSync presentation mode, this blocks until the next VSync beginning
+        // with the second frame after that. Therefore we apply scene changes afterwards.
+        // This improves time of first change to render time considerably.
+        let texture = self.get_next_texture()?;
+
+        // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
+        // This is not anymore true, since fullscreen we to have AutoVSync set there too even if no animations are running.
+        // So we should make this dependent on the previous submission type?
+        if self.present_mode() == wgpu::PresentMode::AutoVsync {
+            let sender = apply_animations_to
+                .upgrade()
+                .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
+
+            sender.send(ShellEvent::ApplyAnimations(self.window_id()))?;
+        }
+
+        let submission = submission.lock().take();
+
+        // Apply scene changes after we retrieved the texture (because retrieving the texture may
+        // take time, we want to wait until the last moment before pulling changes), even though the
+        // time between retrieving the texture and final rendering takes longer. This reduces lag
+        // noticeably (for example in the logs example while smooth rendering).
+        self.apply_scene_changes(submission.changes)?;
+
+        self.render_and_present(&submission.view_projection, texture);
+
+        // Update pacing now
+
+        // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
+        // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
+
+        // Robustness: Does this wait for the frame to be rendered, or is it lost? If so, should do this
+        // before get_next_texture()?
+        let present_mode = self.effective_present_mode(submission.present_mode);
+        self.set_present_mode(present_mode);
+
+        Ok(())
     }
 }
 
@@ -123,51 +170,6 @@ fn retrieve_pending_events(
             Err(TryRecvError::Empty) => return FlowControl::Continue,
         }
     }
-}
-
-// Detail: This always produces a new frame. Even if there are no changes.
-fn render_frame(
-    renderer: &mut WindowRenderer,
-    apply_animations_to: &WeakUnboundedSender<ShellEvent>,
-    submission: &Arc<Mutex<RenderThreadSubmission>>,
-) -> Result<()> {
-    // Detail: In VSync presentation mode, this blocks until the next VSync beginning
-    // with the second frame after that. Therefore we apply scene changes afterwards.
-    // This improves time of first change to render time considerably.
-    let texture = renderer.get_next_texture()?;
-
-    // Detail: Presentation timestamps are only sent when the presentation waited for a VSync.
-    // This is not anymore true, since fullscreen we to have AutoVSync set there too even if no animations are running.
-    // So we should make this dependent on the previous submission type?
-    if renderer.present_mode() == wgpu::PresentMode::AutoVsync {
-        let sender = apply_animations_to
-                .upgrade()
-                .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
-
-        sender.send(ShellEvent::ApplyAnimations(renderer.window_id()))?;
-    }
-
-    let submission = submission.lock().take();
-
-    // Apply scene changes after we retrieved the texture (because retrieving the texture may
-    // take time, we want to wait until the last moment before pulling changes), even though the
-    // time between retrieving the texture and final rendering takes longer. This reduces lag
-    // noticeably (for example in the logs example while smooth rendering).
-    renderer.apply_scene_changes(submission.changes)?;
-
-    renderer.render_and_present(&submission.view_projection, texture);
-
-    // Update pacing now
-
-    // Detail: Switching from NoVSync to VSync takes ~200 microseconds,
-    // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
-
-    // Robustness: Does this wait for the frame to be rendered, or is it lost? If so, should do this
-    // before get_next_texture()?
-    let present_mode = renderer.effective_present_mode(submission.present_mode);
-    renderer.set_present_mode(present_mode);
-
-    Ok(())
 }
 
 #[must_use]
