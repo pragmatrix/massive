@@ -115,7 +115,7 @@ impl InstancePresenter {
         {
             view_creation_info
                 .location
-                .update_with_if_changed(|location| {
+                .update_with(|location| {
                     location.parent = Some(self.instance_location.clone());
                     location.alpha = 0.0;
                 });
@@ -182,7 +182,7 @@ impl InstancePresenter {
         self.apply_animations();
 
         if let Some(background) = &mut self.background {
-            background.visual.update_with_if_changed(|visual| {
+            background.visual.update_if_changed_with(|visual| {
                 visual.shapes = background_shapes(background.visible, background.local_rect);
             });
         }
@@ -216,7 +216,7 @@ impl InstancePresenter {
         location.value().transform.update_if_changed(transform);
 
         let alpha = view.alpha.value();
-        location.update_with_if_changed(|location| {
+        location.update_if_changed_with(|location| {
             location.alpha = alpha;
         });
     }

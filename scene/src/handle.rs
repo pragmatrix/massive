@@ -94,7 +94,7 @@ where
     }
 
     // Performance: May use replace_with?
-    pub fn update_with_if_changed(&self, f: impl FnOnce(&mut T))
+    pub fn update_if_changed_with(&self, f: impl FnOnce(&mut T))
     where
         T: Clone + PartialEq,
     {
