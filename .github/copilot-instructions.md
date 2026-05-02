@@ -39,6 +39,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - For event transition summaries used by side effects, collect all relevant transition payloads rather than stopping at the first match.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
+- When removing redundant scene graph nodes, preserve visual alignment by moving centering/offset math into local geometry when possible instead of introducing replacement transform handles.
 - For transient UI indicators (hover/focus highlights), derive visibility/target from current resolved state rather than only from enter/exit edge events.
 - For context-specific behavior, prefer targeted follow-up evaluation over broad global rule changes that affect unrelated paths.
 - When a generic pass applies fallback state, recompute context-specific state immediately afterward for impacted entities.

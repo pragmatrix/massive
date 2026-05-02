@@ -10,7 +10,6 @@ use massive_shell::Scene;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
-const INSTANCE_BACKGROUND_LOCAL_Z_OFFSET: f64 = -1.0;
 
 #[derive(Debug)]
 pub struct InstancePresenter {
@@ -28,7 +27,6 @@ pub struct InstancePresenter {
 
 #[derive(Debug)]
 struct InstanceBackground {
-    transform: Handle<Transform>,
     visual: Handle<Visual>,
     local_rect: Rect,
     visible: bool,
@@ -64,17 +62,11 @@ impl InstancePresenter {
             .enter(scene);
 
         let background = show_background.then(|| {
-            let transform = Transform::IDENTITY.enter(scene);
-            let local_location = transform
-                .to_location()
-                .relative_to(&instance_location)
-                .enter(scene);
             let visual = background_shapes(false, Rect::ZERO)
-                .at(local_location)
+                .at(&instance_location)
                 .enter(scene);
 
             InstanceBackground {
-                transform,
                 visual,
                 local_rect: Rect::ZERO,
                 visible: false,
@@ -113,12 +105,10 @@ impl InstancePresenter {
         // Blend in.
         let mut alpha = scene.animated(0.0);
         {
-            view_creation_info
-                .location
-                .update_with(|location| {
-                    location.parent = Some(self.instance_location.clone());
-                    location.alpha = 0.0;
-                });
+            view_creation_info.location.update_with(|location| {
+                location.parent = Some(self.instance_location.clone());
+                location.alpha = 0.0;
+            });
             alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
         }
 
@@ -183,7 +173,8 @@ impl InstancePresenter {
 
         if let Some(background) = &mut self.background {
             background.visual.update_if_changed_with(|visual| {
-                visual.shapes = background_shapes(background.visible, background.local_rect);
+                let centered_rect = background.local_rect - background.local_rect.center();
+                visual.shapes = background_shapes(background.visible, centered_rect);
             });
         }
     }
@@ -191,16 +182,6 @@ impl InstancePresenter {
     pub fn apply_animations(&mut self) {
         let layout_transform = self.layout_transform_animation.value();
         self.instance_transform.update_if_changed(layout_transform);
-
-        if let Some(background) = &self.background {
-            let background_center = background.local_rect.center();
-            background
-                .transform
-                .update_if_changed(Self::child_transform_with_local_z_offset(
-                    background_center,
-                    INSTANCE_BACKGROUND_LOCAL_Z_OFFSET,
-                ));
-        }
 
         // Feature: Hiding animation.
         let Some(view) = self.state.view_mut() else {

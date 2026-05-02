@@ -1,7 +1,8 @@
 const VERTEX_SHADER_ENTRY: &str = "vs_main";
 pub const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 // With LessEqual depth compare, negative constant bias pulls decals toward the camera.
-const DECAL_DEPTH_BIAS_CONSTANT: i32 = -1;
+// -3 flickers in the massive terminal visor rotations.
+const DECAL_DEPTH_BIAS_CONSTANT: i32 = -4;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum PipelineVariant {
