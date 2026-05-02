@@ -119,6 +119,31 @@ impl InstancePresenter {
             },
         };
 
+        if let Some(background) = &mut self.background {
+            background.visual.update_if_changed_with(|visual| {
+                // Keep background in view space to avoid compounded transform error and reduce
+                // the depth bias needed for stable layering.
+                visual.location = view_creation_info.location.clone();
+                // We must switch shape coordinates in the same update; otherwise the first frame
+                // can render with centered-at-origin geometry from the pre-view parent space.
+                visual.shapes = background_shapes(background.visible, background.local_rect);
+            });
+        }
+
+        // Resize is currently unsupported, so centering transform is fixed for this view.
+        let size = view_creation_info.size();
+        let view_center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
+        let transform = Transform::from_translation(Vector3::new(
+            -view_center.x,
+            -view_center.y,
+            0.0,
+        ));
+        view_creation_info
+            .location
+            .value()
+            .transform
+            .update_if_changed(transform);
+
         Ok(())
     }
 
@@ -169,14 +194,22 @@ impl InstancePresenter {
                 .set_immediately(layout_transform);
         }
 
-        self.apply_animations();
-
         if let Some(background) = &mut self.background {
             background.visual.update_if_changed_with(|visual| {
-                let centered_rect = background.local_rect - background.local_rect.center();
-                visual.shapes = background_shapes(background.visible, centered_rect);
+                // Background geometry basis depends on parent space:
+                // - no view yet: centered around instance origin
+                // - view presenting: regular view-local rect (top-left origin)
+                let rect = if self.state.view().is_some() {
+                    background.local_rect
+                } else {
+                    background.local_rect - background.local_rect.center()
+                };
+                visual.shapes = background_shapes(background.visible, rect);
             });
         }
+
+        // Apply transform/alpha animation updates for this frame.
+        self.apply_animations();
     }
 
     pub fn apply_animations(&mut self) {
@@ -187,14 +220,7 @@ impl InstancePresenter {
         let Some(view) = self.state.view_mut() else {
             return;
         };
-
-        // Keep i32 midpoint snapping for view-local center to preserve previous alignment behavior.
-        let size = view.creation_info.size();
-        let view_center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
-        let transform = Self::child_transform_with_local_z_offset(view_center, 0.0);
         let location = &view.creation_info.location;
-
-        location.value().transform.update_if_changed(transform);
 
         let alpha = view.alpha.value();
         location.update_if_changed_with(|location| {
@@ -203,26 +229,9 @@ impl InstancePresenter {
     }
 
     pub fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
-        Self::transform_with_layout_and_local_z_offset(layout_transform, local_center, 0.0)
-    }
-
-    fn child_transform_with_local_z_offset(local_center: Point, local_z_offset: f64) -> Transform {
-        Transform::from_translation(Vector3::new(
-            -local_center.x,
-            -local_center.y,
-            local_z_offset,
-        ))
-    }
-
-    fn transform_with_layout_and_local_z_offset(
-        layout_transform: Transform,
-        local_center: Point,
-        local_z_offset: f64,
-    ) -> Transform {
         let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
-        let local_z_offset = Vector3::new(0.0, 0.0, local_z_offset);
         let origin_translation =
-            layout_transform.translate + layout_transform.rotate * (local_z_offset - local_center);
+            layout_transform.translate + layout_transform.rotate * -local_center;
         Transform::new(
             origin_translation,
             layout_transform.rotate,
