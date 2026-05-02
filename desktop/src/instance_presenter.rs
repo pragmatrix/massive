@@ -18,6 +18,10 @@ pub struct InstancePresenter {
     /// The instance layout transform stores the panel center translation and yaw rotation.
     /// Position-only consumers should read `layout_transform_animation.*.translate`.
     pub layout_transform_animation: Animated<Transform>,
+    /// Shared animated instance node for background and view.
+    /// This avoids per-child world updates that can drift during animation.
+    instance_transform: Handle<Transform>,
+    instance_location: Handle<Location>,
     has_applied_layout: bool,
     background: Option<InstanceBackground>,
 }
@@ -53,9 +57,18 @@ impl InstancePresenter {
         location: Handle<Location>,
         scene: &Scene,
     ) -> Self {
+        let instance_transform = Transform::IDENTITY.enter(scene);
+        let instance_location = instance_transform
+            .to_location()
+            .relative_to(&location)
+            .enter(scene);
+
         let background = show_background.then(|| {
             let transform = Transform::IDENTITY.enter(scene);
-            let local_location = transform.to_location().relative_to(location).enter(scene);
+            let local_location = transform
+                .to_location()
+                .relative_to(&instance_location)
+                .enter(scene);
             let visual = background_shapes(false, Rect::ZERO)
                 .at(local_location)
                 .enter(scene);
@@ -73,6 +86,8 @@ impl InstancePresenter {
             layout_transform_animation: scene.animated(Transform::from_translation(
                 initial_center_translation.unwrap_or_default(),
             )),
+            instance_transform,
+            instance_location,
             has_applied_layout: initial_center_translation.is_some(),
             background,
         }
@@ -95,13 +110,17 @@ impl InstancePresenter {
             bail!("Primary view is already presenting");
         }
 
-        view_creation_info
-            .location
-            .update_with_if_changed(|location| {
-                location.alpha = 0.0;
-            });
+        // Blend in.
         let mut alpha = scene.animated(0.0);
-        alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
+        {
+            view_creation_info
+                .location
+                .update_with_if_changed(|location| {
+                    location.parent = Some(self.instance_location.clone());
+                    location.alpha = 0.0;
+                });
+            alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
+        }
 
         self.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
@@ -171,14 +190,14 @@ impl InstancePresenter {
 
     pub fn apply_animations(&mut self) {
         let layout_transform = self.layout_transform_animation.value();
+        self.instance_transform.update_if_changed(layout_transform);
 
         if let Some(background) = &self.background {
-            let local_center = background.local_rect.center();
+            let background_center = background.local_rect.center();
             background
                 .transform
-                .update_if_changed(Self::transform_with_layout_and_local_z_offset(
-                    layout_transform,
-                    local_center,
+                .update_if_changed(Self::child_transform_with_local_z_offset(
+                    background_center,
                     INSTANCE_BACKGROUND_LOCAL_Z_OFFSET,
                 ));
         }
@@ -188,28 +207,30 @@ impl InstancePresenter {
             return;
         };
 
-        // Correct the view's position around its local center.
-        // Since the centering uses i32, we preserve snapping behavior from the layouter.
+        // Keep i32 midpoint snapping for view-local center to preserve previous alignment behavior.
         let size = view.creation_info.size();
-        let center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
-        let transform = Self::transform_with_layout(layout_transform, center);
+        let view_center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
+        let transform = Self::child_transform_with_local_z_offset(view_center, 0.0);
+        let location = &view.creation_info.location;
 
-        view.creation_info
-            .location
-            .value()
-            .transform
-            .update_if_changed(transform);
+        location.value().transform.update_if_changed(transform);
 
         let alpha = view.alpha.value();
-        view.creation_info
-            .location
-            .update_with_if_changed(|location| {
-                location.alpha = alpha;
-            });
+        location.update_with_if_changed(|location| {
+            location.alpha = alpha;
+        });
     }
 
     pub fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
         Self::transform_with_layout_and_local_z_offset(layout_transform, local_center, 0.0)
+    }
+
+    fn child_transform_with_local_z_offset(local_center: Point, local_z_offset: f64) -> Transform {
+        Transform::from_translation(Vector3::new(
+            -local_center.x,
+            -local_center.y,
+            local_z_offset,
+        ))
     }
 
     fn transform_with_layout_and_local_z_offset(
