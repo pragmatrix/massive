@@ -19,6 +19,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Structure imports with common-root `use` lines (for example `use std::sync::Arc;`) rather than nested hierarchical `use` trees.
 - Keep grouped imports shallow; avoid multi-level brace nesting in `use` statements unless the surrounding file already consistently uses that style.
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
+- When replacing dependency re-exports with direct upstream imports, verify whether wrapper/helper types came from the old dependency; if upstream does not provide them, keep compatibility by defining small local boundary types.
 - Prefer adding fields to existing structs over creating parallel data structures.
 - Use constructor functions and derive helpers for newtype patterns.
 - When implementing newtypes, include `Copy` and `Clone` when the wrapped type supports them.
@@ -31,6 +32,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - For small paired-value structs, prefer constructors at call sites over repeated field-literal initialization.
 - Prefer behavior-named capability methods over exposing raw mode enums to higher-level callers.
 - Keep mode-specific decisions behind a single owning abstraction instead of splitting them across multiple caller-side passes.
+- For graphics crate major upgrades, prefer release-note-driven API migrations first (constructor changes, enum-return replacements, and option-wrapped descriptor fields) before broader refactors.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.
