@@ -84,7 +84,7 @@ impl WindowRendererBuilder {
         let instance_and_surface = self
             .window
             .new_instance_and_surface(
-                wgpu::InstanceDescriptor::default(),
+                wgpu::InstanceDescriptor::new_without_display_handle(),
                 // Use this for testing WebGL:
                 // InstanceDescriptor {
                 //     backends: wgpu::Backends::GL,
@@ -100,7 +100,7 @@ impl WindowRendererBuilder {
             Err(_) => self.new_instance_and_surface(
                 InstanceDescriptor {
                     backends: wgpu::Backends::GL,
-                    ..InstanceDescriptor::default()
+                    ..InstanceDescriptor::new_without_display_handle()
                 },
                 self.window.clone(),
             ),

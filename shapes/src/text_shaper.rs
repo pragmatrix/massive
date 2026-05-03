@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use cosmic_text::{
-    Attrs, AttrsList, BufferLine, Family, FontSystem, LayoutGlyph, LayoutLine, LineEnding, Shaping,
-    Weight, Wrap,
+    Attrs, AttrsList, BufferLine, Ellipsize, Family, FontSystem, Hinting, LayoutGlyph,
+    LayoutLine, LineEnding, Shaping, Weight, Wrap,
 };
 
 use massive_geometry::Color;
@@ -101,7 +101,16 @@ impl<'a> TextShaper<'a> {
         //     .filter(|word| !word.blank)
         //     .flat_map(|word| &word.glyphs);
 
-        let layouted_lines = buffer.layout(font_system, font_size, None, Wrap::None, None, 0);
+        let layouted_lines = buffer.layout(
+            font_system,
+            font_size,
+            None,
+            Wrap::None,
+            Ellipsize::None,
+            None,
+            0,
+            Hinting::Disabled,
+        );
         if layouted_lines.is_empty() {
             return None;
         }

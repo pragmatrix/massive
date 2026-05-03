@@ -31,6 +31,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - For small paired-value structs, prefer constructors at call sites over repeated field-literal initialization.
 - Prefer behavior-named capability methods over exposing raw mode enums to higher-level callers.
 - Keep mode-specific decisions behind a single owning abstraction instead of splitting them across multiple caller-side passes.
+- For graphics crate major upgrades, prefer release-note-driven API migrations first (constructor changes, enum-return replacements, and option-wrapped descriptor fields) before broader refactors.
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required.

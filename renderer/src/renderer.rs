@@ -1,10 +1,10 @@
-use std::{result, time::Instant};
+use std::time::Instant;
 
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use derive_more::Constructor;
 use itertools::Itertools;
 use log::{info, warn};
-use wgpu::{PresentMode, StoreOp, SurfaceTexture};
+use wgpu::{CurrentSurfaceTexture, PresentMode, StoreOp, SurfaceTexture};
 
 use crate::tools::PipelineVariant;
 use crate::{
@@ -321,15 +321,27 @@ impl Renderer {
     ///
     /// This is `&mut self`, because it might call into [`Self::reconfigure_surface`] when the
     /// surface is lost.
-    pub fn get_current_texture(&mut self) -> result::Result<SurfaceTexture, wgpu::SurfaceError> {
+    pub fn get_current_texture(&mut self) -> Result<Option<SurfaceTexture>> {
         match self.surface.get_current_texture() {
-            Ok(texture) => Ok(texture),
-            Err(e) => {
-                // Try to reconfigure and re-acquire once when the surface is lost.
-                warn!("Surface error: {e:?}, retrying...");
+            CurrentSurfaceTexture::Success(texture)
+            | CurrentSurfaceTexture::Suboptimal(texture) => Ok(Some(texture)),
+            // During fullscreen/minimize/visibility transitions, surfaces can temporarily become
+            // occluded or time out. Treat this as "no frame this tick" rather than a fatal error.
+            CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => Ok(None),
+            CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Lost => {
+                // Try to reconfigure and re-acquire once when the surface is outdated or lost.
+                warn!("Surface texture status indicates reconfigure is needed, retrying...");
                 self.reconfigure_surface();
-                self.surface.get_current_texture()
+                match self.surface.get_current_texture() {
+                    CurrentSurfaceTexture::Success(texture)
+                    | CurrentSurfaceTexture::Suboptimal(texture) => Ok(Some(texture)),
+                    CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => Ok(None),
+                    status => Err(anyhow!(
+                        "failed to get current surface texture after reconfigure: {status:?}"
+                    )),
+                }
             }
+            status => Err(anyhow!("failed to get current surface texture: {status:?}")),
         }
     }
 

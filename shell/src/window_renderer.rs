@@ -140,7 +140,13 @@ impl WindowRenderer {
         // Detail: In VSync presentation mode, this blocks until the next VSync beginning
         // with the second frame after that. Therefore we apply scene changes afterwards.
         // This improves time of first change to render time considerably.
-        let texture = self.get_next_texture()?;
+        let Some(texture) = self
+            .renderer
+            .get_current_texture()
+            .context("get_current_texture")?
+        else {
+            return Ok(());
+        };
 
         // Detail: Presentation timestamps are only sent when the presentation is currently in
         // animation mode (smooth pacing).
@@ -172,7 +178,7 @@ impl WindowRenderer {
         // from VSync to NoVSync around ~2.7 milliseconds (measured in the logs example --release).
 
         // Robustness: Does this wait for the frame to be rendered, or is it lost? If so, should do this
-        // before get_next_texture()?
+        // before acquiring the surface texture?
         self.apply_submission_presentation_mode(submission.pacing);
 
         Ok(())
@@ -210,22 +216,6 @@ impl WindowRenderer {
         };
 
         PresentationMode::new(present_mode, maximum_frame_latency)
-    }
-
-    /// Apply all changes to the renderer and prepare the presentation.
-    ///
-    /// This is separate from render_and_present.
-    ///
-    /// Detail: This blocks in VSync modes until the previous frame is presented.
-    fn get_next_texture(&mut self) -> Result<wgpu::SurfaceTexture> {
-        // Robustness: Learn about how to recover from specific `SurfaceError`s errors here
-        // `get_current_texture()` tries once.
-        let texture = self
-            .renderer
-            .get_current_texture()
-            .context("get_current_texture")?;
-
-        Ok(texture)
     }
 
     fn apply_scene_changes(&mut self, changes: SceneChanges) -> Result<()> {

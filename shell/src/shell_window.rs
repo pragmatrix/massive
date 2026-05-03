@@ -130,7 +130,7 @@ impl ShellWindowShared {
         instance_descriptor: wgpu::InstanceDescriptor,
         window: Arc<ShellWindowShared>,
     ) -> Result<(wgpu::Instance, wgpu::Surface<'static>)> {
-        let instance = wgpu::Instance::new(&instance_descriptor);
+        let instance = wgpu::Instance::new(instance_descriptor);
 
         let (on_created, when_created) = oneshot::channel();
 
