@@ -283,7 +283,7 @@ impl LauncherPresenter {
 
         // Performance: How can we not call this if self.size and self.fader are both not animating.
         // `is_animating()` is perhaps not reliable.
-        self.background.update_with_if_changed(|visual| {
+        self.background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
                 size.to_rect(),
                 BACKGROUND_COLOR.with_alpha(alpha),
@@ -292,7 +292,7 @@ impl LauncherPresenter {
         });
 
         // Ergonomics: Isn't there a better way to directly set new shapes?
-        self.name.update_with_if_changed(|visual| {
+        self.name.update_if_changed_with(|visual| {
             visual.shapes = match &*visual.shapes {
                 [Shape::GlyphRun(gr)] => [gr
                     .clone()

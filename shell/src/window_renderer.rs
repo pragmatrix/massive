@@ -194,10 +194,7 @@ impl WindowRenderer {
         self.current_pacing = pacing;
     }
 
-    fn presentation_mode_for(
-        pacing: RenderPacing,
-        is_fullscreen: bool,
-    ) -> PresentationMode {
+    fn presentation_mode_for(pacing: RenderPacing, is_fullscreen: bool) -> PresentationMode {
         let present_mode = if is_fullscreen {
             PresentMode::AutoVsync
         } else {

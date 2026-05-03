@@ -519,7 +519,8 @@ impl Renderer {
         let new_surface_size = new_size.max((1, 1).into());
 
         let size_changed = new_surface_size != self.surface_size();
-        let presentation_changed = presentation_mode.present_mode != self.surface_config.present_mode
+        let presentation_changed = presentation_mode.present_mode
+            != self.surface_config.present_mode
             || presentation_mode.maximum_frame_latency
                 != self.surface_config.desired_maximum_frame_latency;
 

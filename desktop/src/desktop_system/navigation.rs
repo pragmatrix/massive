@@ -50,6 +50,8 @@ impl DesktopSystem {
             }
             DesktopTarget::Instance(instance_id) => {
                 let instance = &self.aggregates.instances[instance_id];
+                // Keep camera focus anchored to the intended layout target so new instances
+                // are centered immediately even while their visuals animate in.
                 let transform: Transform = instance
                     .layout_transform_animation
                     .final_value()
