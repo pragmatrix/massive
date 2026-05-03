@@ -2,10 +2,6 @@
 	path = examples/code/rust-analyzer
 	branch = "2025-06-09"
 	url = https://github.com/rust-lang/rust-analyzer.git
-[submodule "examples/markdown/glyphon"]
-	path = examples/markdown/glyphon
-	url = ../glyphon.git
-	branch = massive-text
 [submodule "examples/markdown/inlyne"]
 	path = examples/markdown/inlyne
 	url = ../inlyne.git

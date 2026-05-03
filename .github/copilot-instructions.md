@@ -19,6 +19,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Structure imports with common-root `use` lines (for example `use std::sync::Arc;`) rather than nested hierarchical `use` trees.
 - Keep grouped imports shallow; avoid multi-level brace nesting in `use` statements unless the surrounding file already consistently uses that style.
 - Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
+- When replacing dependency re-exports with direct upstream imports, verify whether wrapper/helper types came from the old dependency; if upstream does not provide them, keep compatibility by defining small local boundary types.
 - Prefer adding fields to existing structs over creating parallel data structures.
 - Use constructor functions and derive helpers for newtype patterns.
 - When implementing newtypes, include `Copy` and `Clone` when the wrapped type supports them.
