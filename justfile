@@ -36,3 +36,6 @@ wasm-features:
 flame:
 	cat tracing.folded | inferno-flamegraph > /tmp/massive-trace.svg
 	open /tmp/massive-trace.svg
+
+run:
+	cd .. && cargo run 
