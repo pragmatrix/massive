@@ -26,10 +26,13 @@ impl DesktopSystem {
         }
 
         // Layout & apply rects + transforms.
+        let focused_target = self.event_router.focused().cloned();
+        self.update_launcher_visor_expansion(focused_target.as_ref(), animate);
+
         let focused_instance = self
             .aggregates
             .hierarchy
-            .resolve_path(self.event_router.focused())
+            .resolve_path(focused_target.as_ref())
             .instance();
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,
@@ -44,7 +47,7 @@ impl DesktopSystem {
 
         // Camera
 
-        if permit_camera_moves && let Some(focused) = self.event_router.focused() {
+        if permit_camera_moves && let Some(focused) = focused_target.as_ref() {
             let camera = self.camera_for_focus(focused);
             if let Some(camera) = camera {
                 if animate {
@@ -198,6 +201,27 @@ impl DesktopSystem {
         self.aggregates
             .project_presenter
             .set_hover_placement(hover_placement);
+    }
+
+    fn update_launcher_visor_expansion(
+        &mut self,
+        focused_target: Option<&DesktopTarget>,
+        animate: bool,
+    ) {
+        let focused_path = self.aggregates.hierarchy.resolve_path(focused_target);
+        let launcher_ids: Vec<_> = self.aggregates.launchers.keys().copied().collect();
+
+        for launcher_id in launcher_ids {
+            let launcher_target = DesktopTarget::Launcher(launcher_id);
+            let expanded = focused_path.contains(&launcher_target);
+
+            let launcher = self
+                .aggregates
+                .launchers
+                .get_mut(&launcher_id)
+                .expect("Launcher missing");
+            launcher.set_visor_expansion(expanded, animate);
+        }
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {

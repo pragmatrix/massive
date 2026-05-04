@@ -38,6 +38,7 @@ pub(crate) use layout_algorithm::place_container_children;
 
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::FocusPath;
+use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{
@@ -175,14 +176,32 @@ impl DesktopSystem {
     }
 
     pub fn apply_animations(&mut self) {
-        self.aggregates
+        let focused_instance = self
+            .aggregates
+            .hierarchy
+            .resolve_path(self.event_router.focused())
+            .instance();
+
+        let launcher_instance_ids: Vec<_> = self
+            .aggregates
             .launchers
-            .values_mut()
-            .for_each(|l| l.apply_animations());
-        self.aggregates
-            .instances
-            .values_mut()
-            .for_each(|i| i.apply_animations());
+            .keys()
+            .copied()
+            .map(|launcher_id| (launcher_id, self.aggregates.launcher_instance_ids(launcher_id)))
+            .collect();
+
+        for (launcher_id, child_instances) in launcher_instance_ids {
+            self.aggregates
+                .launchers
+                .get_mut(&launcher_id)
+                .expect("Launcher missing")
+                .apply_animations(
+                    &mut self.aggregates.instances,
+                    &child_instances,
+                    focused_instance,
+                );
+        }
+
         let pointer_focus = if self.pointer_feedback_enabled {
             self.event_router.pointer_focus().cloned()
         } else {
@@ -243,6 +262,17 @@ impl Aggregates {
         } else {
             None
         }
+    }
+
+    pub fn launcher_instance_ids(&self, launcher_id: LaunchProfileId) -> Vec<InstanceId> {
+        self.hierarchy
+            .get_nested(&DesktopTarget::Launcher(launcher_id))
+            .iter()
+            .map(|target| match target {
+                DesktopTarget::Instance(instance_id) => *instance_id,
+                _ => panic!("launcher children must be instances"),
+            })
+            .collect()
     }
 }
 
