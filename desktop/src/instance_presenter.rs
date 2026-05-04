@@ -133,11 +133,8 @@ impl InstancePresenter {
         // Resize is currently unsupported, so centering transform is fixed for this view.
         let size = view_creation_info.size();
         let view_center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
-        let transform = Transform::from_translation(Vector3::new(
-            -view_center.x,
-            -view_center.y,
-            0.0,
-        ));
+        let transform =
+            Transform::from_translation(Vector3::new(-view_center.x, -view_center.y, 0.0));
         view_creation_info
             .location
             .value()

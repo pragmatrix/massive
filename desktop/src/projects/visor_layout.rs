@@ -17,19 +17,21 @@ pub fn placement(
     instance_count: usize,
     flat_span: f64,
     focused_index: Option<usize>,
+    expansion_factor: f64,
 ) -> Option<VisorPlacement> {
     if instance_count <= 1 {
         return None;
     }
 
-    let arc = effective_arc(instance_count);
-    let radius = radius_for_center_span(flat_span, arc);
+    let regular_arc = effective_arc(instance_count);
+    let radius = radius_for_center_span(flat_span, regular_arc);
 
     let focused_rotation = focused_index
-        .map(|focused| base_angle(focused, instance_count, arc))
+        .map(|focused| base_angle(focused, instance_count, regular_arc))
         .unwrap_or(0.0);
 
-    let angle = base_angle(index, instance_count, arc) - focused_rotation;
+    let regular_angle = base_angle(index, instance_count, regular_arc) - focused_rotation;
+    let angle = regular_angle * expansion_factor;
 
     Some(VisorPlacement {
         center_x_offset: radius * angle.sin(),

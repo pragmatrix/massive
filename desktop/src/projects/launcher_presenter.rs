@@ -15,6 +15,7 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::visor_layout;
+use crate::Map;
 use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
@@ -31,13 +32,17 @@ const TEXT_COLOR: Color = Color::WHITE;
 const FADING_DURATION: Duration = Duration::from_millis(500);
 
 const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+const VISOR_EXPANSION_ANIMATION_DURATION: Duration = Duration::from_millis(500);
+const COLLAPSED_NON_ANCHOR_Z_OFFSET: f64 = 1.0;
 const CHILD_SPACING: i32 = 0;
 
 #[derive(Debug, Clone, Copy)]
-struct VisorLayoutSummary {
+struct VisorPlacementContext {
     group_center_x: f64,
     flat_span: f64,
     focused_index: Option<usize>,
+    anchor_index: usize,
+    expansion_factor: f64,
     instance_count: usize,
 }
 
@@ -57,6 +62,8 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
+    visor_expansion_animation: Animated<f64>,
+    last_focused_instance: Option<InstanceId>,
 
     events: EventManager<ViewEvent>,
 }
@@ -113,6 +120,8 @@ impl LauncherPresenter {
             background,
             name,
             fader: scene.animated(1.0),
+            visor_expansion_animation: scene.animated(1.0),
+            last_focused_instance: None,
             events: EventManager::default(),
         }
     }
@@ -130,8 +139,8 @@ impl LauncherPresenter {
         parent_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         child_instances: &[InstanceId],
+        focused_index: Option<usize>,
         default_panel_size: SizePx,
-        focused_instance: Option<InstanceId>,
     ) -> Vec<TransformOffset<Transform, 2>> {
         match self.mode {
             LauncherMode::Band => place_container_children(
@@ -140,13 +149,22 @@ impl LauncherPresenter {
                 parent_offset,
                 child_sizes,
             ),
-            LauncherMode::Visor => self.place_visor_panel_children(
-                parent_offset,
-                child_sizes,
-                child_instances,
-                default_panel_size,
-                focused_instance,
-            ),
+            LauncherMode::Visor => {
+                let focused_index = focused_index.or_else(|| {
+                    self.last_focused_instance.and_then(|focused| {
+                        child_instances
+                            .iter()
+                            .position(|&instance| instance == focused)
+                    })
+                });
+
+                self.place_visor_panel_children(
+                    parent_offset,
+                    child_sizes,
+                    focused_index,
+                    default_panel_size,
+                )
+            }
         }
     }
 
@@ -154,17 +172,16 @@ impl LauncherPresenter {
         &self,
         parent_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
-        child_instances: &[InstanceId],
+        focused_index: Option<usize>,
         default_panel_size: SizePx,
-        focused_instance: Option<InstanceId>,
     ) -> Vec<TransformOffset<Transform, 2>> {
-        assert_eq!(child_sizes.len(), child_instances.len());
-
         let offset =
             centered_children_offset(parent_offset, child_sizes, default_panel_size.width as i32);
 
+        let expansion_factor = self.visor_expansion_animation.value();
+
         let Some(summary) =
-            visor_layout_summary(offset, child_sizes, child_instances, focused_instance)
+            visor_layout_summary(offset, child_sizes, focused_index, expansion_factor)
         else {
             return place_container_children(
                 LayoutAxis::HORIZONTAL,
@@ -201,6 +218,26 @@ impl LauncherPresenter {
 
     pub fn should_relayout_on_focus_change(&self, instance_count: usize) -> bool {
         matches!(self.mode, LauncherMode::Visor) && instance_count > 1
+    }
+
+    pub fn set_visor_expansion(&mut self, expanded: bool, animate: bool) {
+        match self.mode {
+            LauncherMode::Visor => {
+                let target = if expanded { 1.0 } else { 0.0 };
+                if animate {
+                    self.visor_expansion_animation.animate_if_changed(
+                        target,
+                        VISOR_EXPANSION_ANIMATION_DURATION,
+                        Interpolation::Linear,
+                    );
+                } else {
+                    self.visor_expansion_animation.set_immediately(target);
+                }
+            }
+            LauncherMode::Band => {
+                self.visor_expansion_animation.set_immediately(1.0);
+            }
+        }
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be
@@ -257,7 +294,7 @@ impl LauncherPresenter {
             );
         } else {
             self.size.set_immediately(size);
-            self.apply_animations();
+            self.apply_presenter_animations();
         }
     }
 
@@ -271,7 +308,23 @@ impl LauncherPresenter {
             .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
     }
 
-    pub fn apply_animations(&mut self) {
+    pub fn apply_animations(
+        &mut self,
+        instances: &mut Map<InstanceId, InstancePresenter>,
+        child_instances: &[InstanceId],
+        focused_instance: Option<InstanceId>,
+    ) {
+        if let Some(focused) = focused_instance
+            && child_instances.contains(&focused)
+        {
+            self.last_focused_instance = Some(focused);
+        }
+
+        self.apply_presenter_animations();
+        self.apply_child_instance_animations(instances, child_instances);
+    }
+
+    fn apply_presenter_animations(&mut self) {
         let size = self.size.value();
         let local_center = size.to_rect().center();
 
@@ -303,6 +356,19 @@ impl LauncherPresenter {
             }
         });
     }
+
+    fn apply_child_instance_animations(
+        &mut self,
+        instances: &mut Map<InstanceId, InstancePresenter>,
+        child_instances: &[InstanceId],
+    ) {
+        for instance_id in child_instances {
+            instances
+                .get_mut(instance_id)
+                .expect("Instance missing")
+                .apply_animations();
+        }
+    }
 }
 
 fn background_shape(rect: Rect, color: Color) -> Shape {
@@ -327,16 +393,11 @@ fn children_span(child_sizes: &[LayoutSize<2>]) -> i32 {
 fn visor_layout_summary(
     mut offset: Offset<2>,
     child_sizes: &[LayoutSize<2>],
-    child_instances: &[InstanceId],
-    focused_instance: Option<InstanceId>,
-) -> Option<VisorLayoutSummary> {
+    focused_index: Option<usize>,
+    expansion_factor: f64,
+) -> Option<VisorPlacementContext> {
     let mut first_center_x = None;
     let mut last_center_x = None;
-    let focused_index = focused_instance.and_then(|focused| {
-        child_instances
-            .iter()
-            .position(|&instance| instance == focused)
-    });
 
     for (child_index, &child_size) in child_sizes.iter().enumerate() {
         if child_index > 0 {
@@ -357,11 +418,14 @@ fn visor_layout_summary(
 
     let first_center_x = first_center_x.expect("Internal error: Expected at least one instance");
     let last_center_x = last_center_x.expect("Internal error: Expected at least one instance");
+    let anchor_index = focused_index.unwrap_or(instance_count / 2);
 
-    Some(VisorLayoutSummary {
+    Some(VisorPlacementContext {
         group_center_x: (first_center_x + last_center_x) * 0.5,
         flat_span: (last_center_x - first_center_x).abs(),
         focused_index,
+        anchor_index,
+        expansion_factor,
         instance_count,
     })
 }
@@ -377,16 +441,20 @@ fn child_center_y(offset: Offset<2>, child_size: LayoutSize<2>) -> f64 {
 fn visor_child_transform(
     instance_index: usize,
     center_y: f64,
-    summary: VisorLayoutSummary,
+    summary: VisorPlacementContext,
 ) -> Transform {
+    let focused_index = summary
+        .focused_index
+        .or((summary.expansion_factor < 1.0).then_some(summary.anchor_index));
     let placement = visor_layout::placement(
         instance_index,
         summary.instance_count,
         summary.flat_span,
-        summary.focused_index,
+        focused_index,
+        summary.expansion_factor,
     )
     .expect("Internal error: Visor placement requires at least two instances");
-    Transform::new(
+    let mut transform = Transform::new(
         Vector3::new(
             summary.group_center_x + placement.center_x_offset,
             center_y,
@@ -394,5 +462,11 @@ fn visor_child_transform(
         ),
         Quaternion::from_rotation_y(placement.yaw),
         1.0,
-    )
+    );
+
+    if instance_index != summary.anchor_index {
+        transform.translate.z += COLLAPSED_NON_ANCHOR_Z_OFFSET * (1.0 - summary.expansion_factor);
+    }
+
+    transform
 }

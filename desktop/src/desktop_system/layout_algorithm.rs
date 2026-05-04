@@ -83,21 +83,20 @@ impl DesktopLayoutAlgorithm<'_> {
         };
 
         let launcher = &self.aggregates.launchers[launcher_id];
-        let children = self.aggregates.hierarchy.get_nested(id);
-        let child_instances: Vec<_> = children
-            .iter()
-            .map(|target| match target {
-                DesktopTarget::Instance(instance_id) => *instance_id,
-                _ => panic!("launcher children must be instances"),
-            })
-            .collect();
+        let child_instances = self.aggregates.launcher_instance_ids(*launcher_id);
+
+        let focused_index = self.focused_instance.and_then(|focused| {
+            child_instances
+                .iter()
+                .position(|&instance| instance == focused)
+        });
 
         launcher.place_panel_children(
             parent_offset,
             child_sizes,
             &child_instances,
+            focused_index,
             self.default_panel_size,
-            self.focused_instance,
         )
     }
 
