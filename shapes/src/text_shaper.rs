@@ -1,8 +1,8 @@
 use std::ops::Range;
 
 use cosmic_text::{
-    Attrs, AttrsList, BufferLine, Ellipsize, Family, FontSystem, Hinting, LayoutGlyph,
-    LayoutLine, LineEnding, Shaping, Weight, Wrap,
+    Attrs, AttrsList, BufferLine, Ellipsize, Family, FontSystem, Hinting, LayoutGlyph, LayoutLine,
+    LineEnding, Shaping, Weight, Wrap,
 };
 
 use massive_geometry::Color;

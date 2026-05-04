@@ -187,7 +187,12 @@ impl DesktopSystem {
             .launchers
             .keys()
             .copied()
-            .map(|launcher_id| (launcher_id, self.aggregates.launcher_instance_ids(launcher_id)))
+            .map(|launcher_id| {
+                (
+                    launcher_id,
+                    self.aggregates.launcher_instance_ids(launcher_id),
+                )
+            })
             .collect();
 
         for (launcher_id, child_instances) in launcher_instance_ids {
