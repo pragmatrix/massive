@@ -1,16 +1,50 @@
 use std::cmp::max;
 
+use derive_more::From;
+
 use massive_geometry::{RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
-    LayoutAlgorithm, LayoutAxis, Offset, Rect as LayoutRect, Size, TransformOffset,
+    LayoutAlgorithm, LayoutAxis, Offset, Rect as LayoutRect, Size, Thickness, TransformOffset,
 };
 
 use massive_applications::InstanceId;
 
 use super::{Aggregates, DesktopTarget};
-use crate::layout::{LayoutSpec, ToContainer};
+use crate::layout::{ContainerBuilder, ToContainer};
 
 const SECTION_SPACING: u32 = 20;
+
+#[derive(Debug, From)]
+enum LayoutSpec {
+    Container {
+        axis: LayoutAxis,
+        padding: Thickness<2>,
+        spacing: u32,
+    },
+    #[from]
+    Leaf(SizePx),
+}
+
+impl From<LayoutAxis> for LayoutSpec {
+    fn from(axis: LayoutAxis) -> Self {
+        Self::Container {
+            axis,
+            padding: Default::default(),
+            spacing: 0,
+        }
+    }
+}
+
+impl From<ContainerBuilder> for LayoutSpec {
+    fn from(value: ContainerBuilder) -> Self {
+        let (axis, padding, spacing) = value.into_parts();
+        LayoutSpec::Container {
+            axis,
+            padding,
+            spacing,
+        }
+    }
+}
 
 pub(super) struct DesktopLayoutAlgorithm<'a> {
     pub(super) aggregates: &'a Aggregates,

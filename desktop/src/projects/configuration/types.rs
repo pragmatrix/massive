@@ -7,7 +7,6 @@ use massive_layout::LayoutAxis;
 #[serde(rename_all = "camelCase")]
 pub struct LaunchGroupSpec {
     pub name: String,
-    #[serde(default)]
     pub layout: LayoutDirection,
     #[serde(default)]
     pub children: Vec<GroupChildSpec>,
@@ -35,7 +34,6 @@ impl LayoutDirection {
 pub enum GroupChildSpec {
     Group {
         name: String,
-        #[serde(default)]
         layout: LayoutDirection,
         #[serde(default)]
         children: Vec<GroupChildSpec>,
