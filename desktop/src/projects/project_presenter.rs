@@ -10,11 +10,13 @@ use massive_shell::Scene;
 use super::LaunchGroupProperties;
 use crate::instance_presenter::InstancePresenter;
 
+/// Presents project-level visuals and scene anchors.
+///
+/// Responsibilities:
+/// - Provides the shared parent location for launcher and instance presenters.
+/// - Presents the project's hover outline visual.
 #[derive(Debug)]
 pub struct ProjectPresenter {
-    /// The project hierarchy is used for layout. It references the presenters through `GroupIds` and
-    /// `LaunchProfileIds`.
-    // project: Project,
     pub location: Handle<Location>,
 
     // groups: HashMap<GroupId, GroupPresenter>,
