@@ -225,6 +225,15 @@ impl InstancePresenter {
         });
     }
 
+    /// Converts a center-based layout transform into a transform for origin-based local geometry.
+    ///
+    /// The layout system expresses `layout_transform.translate` as the world-space position of
+    /// `local_center`. Scene geometry in this presenter is defined around local origin `(0, 0)`.
+    /// This helper computes the equivalent origin translation by subtracting the rotated center
+    /// offset, while preserving rotation and scale.
+    ///
+    /// Note: The center offset currently ignores `layout_transform.scale`. This is exact for unit
+    /// scale and approximate for other scale values.
     pub fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
         let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
         let origin_translation =

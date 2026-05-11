@@ -127,11 +127,17 @@ impl LauncherPresenter {
     }
 
     pub fn should_render_instance_background(&self) -> bool {
-        self.mode == LauncherMode::Visor
+        match self.mode {
+            LauncherMode::Band => false,
+            LauncherMode::Visor => true,
+        }
     }
 
     pub fn includes_overflow_children_in_hit_testing(&self) -> bool {
-        matches!(self.mode, LauncherMode::Visor)
+        match self.mode {
+            LauncherMode::Band => false,
+            LauncherMode::Visor => true,
+        }
     }
 
     pub fn place_panel_children(
