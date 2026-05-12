@@ -22,7 +22,7 @@ impl DesktopSystem {
         let originating_presenter = originating_from
             .and_then(|originating_from| self.aggregates.instances.get(&originating_from));
 
-        let background_for_instance = self
+        let render_instance_background = self
             .aggregates
             .launchers
             .get(&launcher)
@@ -34,7 +34,7 @@ impl DesktopSystem {
 
         let presenter = InstancePresenter::new(
             initial_center_translation,
-            background_for_instance,
+            render_instance_background,
             self.aggregates.project_presenter.location.clone(),
             scene,
         );
