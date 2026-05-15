@@ -58,6 +58,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Cache repeated expensive state requests at the caller when the underlying operation may be non-trivial.
 - Prefer native, user-remappable command routing over hardcoded shortcut matching when platform conventions support remapping.
 - When refactoring eventful flows, extract pure target/decision helpers first and keep side-effect dispatch ordering unchanged until tests lock transition semantics.
+- Keep layout placement writes parent-local and perform absolute/world-space resolution only at read boundaries that explicitly require it.
 
 ## Testing
 - Don't add tests unless explicitly asked.

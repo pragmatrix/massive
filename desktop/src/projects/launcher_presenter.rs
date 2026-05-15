@@ -388,11 +388,11 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
 }
 
 fn centered_children_offset(
-    parent_offset: Offset<2>,
+    local_offset: Offset<2>,
     child_sizes: &[LayoutSize<2>],
     panel_width: i32,
 ) -> Offset<2> {
-    let mut offset = parent_offset;
+    let mut offset = local_offset;
     offset[0] += (panel_width - children_span(child_sizes)) / 2;
     offset
 }
