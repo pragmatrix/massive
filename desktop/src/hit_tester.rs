@@ -1,7 +1,7 @@
 use massive_geometry::{
     Contains, PerspectiveDivide, Point, Rect, RectPx, Size, Transform, Vector3, Vector4,
 };
-use massive_layout::{IncrementalLayouter, Placement, Rect as LayoutRect};
+use massive_layout::{Placement, Rect as LayoutRect};
 use massive_renderer::RenderGeometry;
 
 use crate::projects::{LaunchProfileId, LauncherPresenter};
@@ -9,12 +9,6 @@ use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {
     fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>>;
-}
-
-impl PlacementSource for IncrementalLayouter<DesktopTarget, Transform, 2> {
-    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
-        IncrementalLayouter::placement(self, target).copied()
-    }
 }
 
 pub(crate) struct AggregateHitTester<'a> {
