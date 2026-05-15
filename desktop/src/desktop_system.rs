@@ -17,6 +17,7 @@ mod focus_path_ext;
 mod hierarchy_focus;
 mod layout_algorithm;
 mod layout_effects;
+mod layout_state;
 mod navigation;
 mod presentation;
 mod project_commands;
@@ -29,7 +30,7 @@ use std::time::Duration;
 use massive_animation::Animated;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
-use massive_layout::{IncrementalLayouter, LayoutTopology, Placement};
+use massive_layout::{LayoutTopology, Placement};
 use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
 
@@ -38,6 +39,7 @@ use effects::EffectContext;
 pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub(crate) use layout_algorithm::place_container_children;
+use layout_state::DesktopLayoutState;
 
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::FocusPath;
@@ -86,7 +88,7 @@ pub struct DesktopSystem {
     deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
 
     #[debug(skip)]
-    layouter: IncrementalLayouter<DesktopTarget, Transform, 2>,
+    layout_state: DesktopLayoutState,
 
     aggregates: Aggregates,
 }
@@ -138,7 +140,7 @@ impl DesktopSystem {
 
         let event_router = EventRouter::new();
 
-        let layouter = IncrementalLayouter::with_initial_reflow(DesktopTarget::Desktop);
+        let layout_state = DesktopLayoutState::new();
 
         let system = Self {
             env,
@@ -150,7 +152,7 @@ impl DesktopSystem {
             camera: scene.animated(PixelCamera::default()),
             pointer_feedback_enabled: true,
             deferred_focus_layout_launchers: HashSet::new(),
-            layouter,
+            layout_state,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
         };
@@ -276,7 +278,7 @@ impl DesktopSystem {
     }
 
     fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
-        self.layouter.placement(target).copied()
+        self.layout_state.placement(target)
     }
 }
 

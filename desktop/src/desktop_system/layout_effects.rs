@@ -48,7 +48,7 @@ impl DesktopSystem {
                 Ok(Effects::None)
             }
             DesktopEffect::RecomputeLayout(target) => {
-                self.layouter.mark_reflow_pending(target);
+                self.layout_state.mark_reflow_pending(target);
                 Ok(DesktopEffect::ApplyLayoutChanges.into())
             }
             DesktopEffect::ApplyLayoutChanges => self.apply_layout_effect(context),
@@ -80,10 +80,9 @@ impl DesktopSystem {
             default_panel_size: self.default_panel_size,
             focused_instance,
         };
-        let changed = self
-            .layouter
-            .recompute(&self.aggregates.hierarchy, &algorithm, PointPx::origin())
-            .changed;
+        let changed =
+            self.layout_state
+                .recompute(&self.aggregates.hierarchy, &algorithm, PointPx::origin());
         self.apply_layout_changes(changed, context.animate);
 
         let mut effects = Effects::None;

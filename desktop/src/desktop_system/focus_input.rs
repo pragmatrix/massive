@@ -30,7 +30,7 @@ impl DesktopSystem {
         } else {
             let hit_tester = AggregateHitTester::new(
                 &self.aggregates.hierarchy,
-                &self.layouter,
+                &self.layout_state,
                 &self.aggregates.launchers,
                 render_geometry,
             );
@@ -123,7 +123,7 @@ impl DesktopSystem {
             .event_router
             .reset_pointer_focus(&AggregateHitTester::new(
                 &self.aggregates.hierarchy,
-                &self.layouter,
+                &self.layout_state,
                 &self.aggregates.launchers,
                 render_geometry,
             ))?;

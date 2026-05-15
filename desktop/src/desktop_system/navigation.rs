@@ -44,7 +44,7 @@ impl DesktopSystem {
                 Some(center.to_camera().with_size(size))
             }
             DesktopTarget::Group(_) | DesktopTarget::Launcher(_) => {
-                let transform = self.layouter.placement(focus)?.transform;
+                let transform = self.layout_state.placement(focus)?.transform;
                 let camera_transform: Transform = transform.translate.into();
                 Some(camera_transform.to_camera())
             }
@@ -77,7 +77,7 @@ impl DesktopSystem {
             return None;
         }
 
-        let from_transform = self.layouter.placement(from)?.transform;
+        let from_transform = self.layout_state.placement(from)?.transform;
         let from_center = Point::new(from_transform.translate.x, from_transform.translate.y);
         let launcher_targets_without_instances = self
             .aggregates
@@ -95,7 +95,7 @@ impl DesktopSystem {
         let navigation_candidates = launcher_targets_without_instances
             .chain(all_instances_or_views)
             .filter_map(|target| {
-                let t = self.layouter.placement(&target)?.transform;
+                let t = self.layout_state.placement(&target)?.transform;
                 let center = Point::new(t.translate.x, t.translate.y);
                 Some((target, center))
             });
