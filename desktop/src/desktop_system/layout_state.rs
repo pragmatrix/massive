@@ -34,7 +34,7 @@ impl NativeLayoutBackend {
             })
             .collect();
 
-        let child_transforms = algorithm.place_children(target, Offset::default(), &child_sizes);
+        let child_transforms = algorithm.place_children(target, &child_sizes);
         if child_transforms.len() != children.len() {
             panic!("Internal error: child placement count does not match child count")
         }

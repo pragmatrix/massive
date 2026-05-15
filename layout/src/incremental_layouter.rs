@@ -66,17 +66,12 @@ where
     fn measure(&self, id: &Id, child_sizes: &[Size<RANK>]) -> Size<RANK>;
 
     /// Returns one child transform+offset per entry in `child_sizes`, in the same order.
-    /// `parent_offset` is the absolute position of `id`.
+    /// Offsets are relative to `id`'s local coordinate space.
     /// Only called for non-leaf nodes (i.e. when the node has children).
     ///
-    /// The transform positions each child in world space. For flat 2D layouts, return
+    /// The transform positions each child in parent-local space. For flat 2D layouts, return
     /// `T::default()`.
-    fn place_children(
-        &self,
-        id: &Id,
-        parent_offset: Offset<RANK>,
-        child_sizes: &[Size<RANK>],
-    ) -> Vec<TransformOffset<T, RANK>>;
+    fn place_children(&self, id: &Id, child_sizes: &[Size<RANK>]) -> Vec<TransformOffset<T, RANK>>;
 }
 
 impl<Id, T, const RANK: usize> IncrementalLayouter<Id, T, RANK>
@@ -276,8 +271,7 @@ where
             .iter()
             .map(|child| self.cached_outer_size(child))
             .collect();
-        let child_transform_offsets =
-            algorithm.place_children(id, transform_offset.offset, &child_sizes);
+        let child_transform_offsets = algorithm.place_children(id, &child_sizes);
         if child_transform_offsets.len() != cached_children.len() {
             Self::invariant_violation(
                 "layout algorithm returned a different number of child offsets than children",
@@ -623,7 +617,6 @@ mod tests {
         fn place_children(
             &self,
             id: &usize,
-            parent_offset: Offset<2>,
             child_sizes: &[Size<2>],
         ) -> Vec<TransformOffset<Transform, 2>> {
             let spec = self
@@ -633,8 +626,7 @@ mod tests {
             let axis = *spec.layout_axis;
             let padding = spec.padding;
             let spacing = spec.spacing;
-            let mut cursor = parent_offset;
-            cursor += Offset::from(padding.leading);
+            let mut cursor = Offset::from(padding.leading);
             let mut placements = Vec::with_capacity(child_sizes.len());
             for (index, &child_size) in child_sizes.iter().enumerate() {
                 if index > 0 {
@@ -1194,16 +1186,12 @@ mod tests {
         fn place_children(
             &self,
             id: &usize,
-            parent_offset: Offset<2>,
             child_sizes: &[Size<2>],
         ) -> Vec<TransformOffset<Transform, 2>> {
-            let mut placements = self.inner.place_children(id, parent_offset, child_sizes);
+            let mut placements = self.inner.place_children(id, child_sizes);
             for (index, placement) in placements.iter_mut().enumerate() {
-                placement.transform = Transform::from_translation((
-                    parent_offset[0] as f64,
-                    parent_offset[1] as f64,
-                    index as f64,
-                ));
+                placement.transform =
+                    Transform::from_translation((id.to_owned() as f64, 0.0, index as f64));
             }
             placements
         }
@@ -1262,7 +1250,6 @@ mod tests {
         fn place_children(
             &self,
             _id: &usize,
-            _parent_offset: Offset<2>,
             _child_sizes: &[Size<2>],
         ) -> Vec<TransformOffset<Transform, 2>> {
             Vec::new()

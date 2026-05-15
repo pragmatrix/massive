@@ -144,7 +144,7 @@ impl LauncherPresenter {
 
     pub fn place_panel_children(
         &self,
-        parent_offset: Offset<2>,
+        local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         child_instances: &[InstanceId],
         focused_index: Option<usize>,
@@ -154,7 +154,7 @@ impl LauncherPresenter {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
-                parent_offset,
+                local_offset,
                 child_sizes,
             ),
             LauncherMode::Visor => {
@@ -167,7 +167,7 @@ impl LauncherPresenter {
                 });
 
                 self.place_visor_panel_children(
-                    parent_offset,
+                    local_offset,
                     child_sizes,
                     focused_index,
                     default_panel_size,
@@ -178,13 +178,13 @@ impl LauncherPresenter {
 
     fn place_visor_panel_children(
         &self,
-        parent_offset: Offset<2>,
+        local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         focused_index: Option<usize>,
         default_panel_size: SizePx,
     ) -> Vec<TransformOffset<Transform, 2>> {
         let offset =
-            centered_children_offset(parent_offset, child_sizes, default_panel_size.width as i32);
+            centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
 
         let expansion_factor = self.visor_expansion_animation.value();
 

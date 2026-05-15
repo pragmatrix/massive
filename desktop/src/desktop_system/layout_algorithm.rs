@@ -53,19 +53,14 @@ pub(super) struct DesktopLayoutAlgorithm<'a> {
 }
 
 impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
-    fn place_children(
-        &self,
-        id: &DesktopTarget,
-        parent_offset: Offset<2>,
-        child_sizes: &[Size<2>],
-    ) -> Vec<TransformOffset<Transform, 2>> {
+    fn place_children(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Vec<TransformOffset<Transform, 2>> {
         if let DesktopTarget::Launcher(_) = id {
             // Launcher panels run a dedicated path because transform assignment is
             // a second phase over the regular 2D child placement.
-            return self.place_launcher_children(id, parent_offset, child_sizes);
+            return self.place_launcher_children(id, child_sizes);
         }
 
-        self.place_standard_children(id, parent_offset, child_sizes)
+        self.place_standard_children(id, child_sizes)
     }
 
     fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
@@ -109,7 +104,6 @@ impl DesktopLayoutAlgorithm<'_> {
     fn place_launcher_children(
         &self,
         id: &DesktopTarget,
-        parent_offset: Offset<2>,
         child_sizes: &[Size<2>],
     ) -> Vec<TransformOffset<Transform, 2>> {
         let DesktopTarget::Launcher(launcher_id) = id else {
@@ -126,7 +120,7 @@ impl DesktopLayoutAlgorithm<'_> {
         });
 
         launcher.place_panel_children(
-            parent_offset,
+            Offset::default(),
             child_sizes,
             &child_instances,
             focused_index,
@@ -137,7 +131,6 @@ impl DesktopLayoutAlgorithm<'_> {
     fn place_standard_children(
         &self,
         id: &DesktopTarget,
-        parent_offset: Offset<2>,
         child_sizes: &[Size<2>],
     ) -> Vec<TransformOffset<Transform, 2>> {
         match self.resolve_layout_spec(id) {
@@ -147,8 +140,7 @@ impl DesktopLayoutAlgorithm<'_> {
                 padding,
                 spacing,
             } => {
-                let mut cursor = parent_offset;
-                cursor += Offset::from(padding.leading);
+                let cursor = Offset::from(padding.leading);
                 place_container_children(axis, spacing as i32, cursor, child_sizes)
             }
         }
