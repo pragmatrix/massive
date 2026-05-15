@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 use std::ops::{self};
 use std::vec;
 
-use super::{DesktopTarget, TransactionEffectsMode};
+use super::DesktopTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopEffect {
@@ -63,35 +63,6 @@ impl IntoIterator for Effects {
 
     fn into_iter(self) -> Self::IntoIter {
         self.0.into_iter()
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(super) struct EffectContext {
-    pub(super) animate: bool,
-    pub(super) permit_camera_moves: bool,
-    pub(super) lock_camera: bool,
-}
-
-impl From<Option<TransactionEffectsMode>> for EffectContext {
-    fn from(value: Option<TransactionEffectsMode>) -> Self {
-        match value {
-            Some(TransactionEffectsMode::Setup) => Self {
-                animate: false,
-                permit_camera_moves: true,
-                lock_camera: false,
-            },
-            Some(TransactionEffectsMode::CameraLocked) => Self {
-                animate: true,
-                permit_camera_moves: false,
-                lock_camera: true,
-            },
-            None => Self {
-                animate: true,
-                permit_camera_moves: true,
-                lock_camera: false,
-            },
-        }
     }
 }
 

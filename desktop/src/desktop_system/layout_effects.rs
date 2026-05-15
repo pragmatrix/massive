@@ -5,8 +5,8 @@ use massive_applications::InstanceId;
 use massive_geometry::{SizePx, Transform};
 use massive_layout::Placement;
 
-use super::effects::{DesktopEffect, DesktopEffectQueue, EffectContext, Effects};
-use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget};
+use super::effects::{DesktopEffect, DesktopEffectQueue, Effects};
+use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::projects::LaunchProfileId;
@@ -21,10 +21,10 @@ impl DesktopSystem {
 
     pub(super) fn run_effects_to_completion(
         &mut self,
-        context: EffectContext,
+        effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
     ) -> Result<()> {
-        if context.lock_camera {
+        if !effects_mode.permit_camera_moves() {
             // Lock camera motion immediately, including already running camera animations.
             let camera = self.camera.value();
             self.camera.set_immediately(camera);
@@ -34,24 +34,28 @@ impl DesktopSystem {
         effects.enqueue_all(initial_effects);
 
         while let Some(effect) = effects.pop_front() {
-            let follow_up = self.handle_effect(effect, context)?;
+            let follow_up = self.handle_effect(effect, effects_mode)?;
             effects.enqueue_all(follow_up);
         }
 
         Ok(())
     }
 
-    fn handle_effect(&mut self, effect: DesktopEffect, context: EffectContext) -> Result<Effects> {
+    fn handle_effect(
+        &mut self,
+        effect: DesktopEffect,
+        effects_mode: TransactionEffectsMode,
+    ) -> Result<Effects> {
         match effect {
             DesktopEffect::UpdateLauncherExpansion => {
-                self.update_launcher_expansion_effect(context);
+                self.update_launcher_expansion_effect(effects_mode);
                 Ok(Effects::None)
             }
             DesktopEffect::ReflowLayout(target) => self.handle_reflow_layout_effect(target),
             DesktopEffect::PlaceNode(root) => self.place_layout_effect(root),
-            DesktopEffect::ApplyLayoutChanges => self.apply_layout_effect(context),
+            DesktopEffect::ApplyLayoutChanges => self.apply_layout_effect(effects_mode),
             DesktopEffect::UpdateCamera => {
-                self.update_camera_effect(context);
+                self.update_camera_effect(effects_mode);
                 Ok(Effects::None)
             }
             DesktopEffect::SyncHover => {
@@ -61,9 +65,9 @@ impl DesktopSystem {
         }
     }
 
-    fn update_launcher_expansion_effect(&mut self, context: EffectContext) {
+    fn update_launcher_expansion_effect(&mut self, effects_mode: TransactionEffectsMode) {
         let focused_target = self.event_router.focused().cloned();
-        self.update_launcher_visor_expansion(focused_target.as_ref(), context.animate);
+        self.update_launcher_visor_expansion(focused_target.as_ref(), effects_mode.animate());
     }
 
     fn handle_reflow_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
@@ -124,24 +128,22 @@ impl DesktopSystem {
         Ok(DesktopEffect::ApplyLayoutChanges.into())
     }
 
-    fn apply_layout_effect(&mut self, context: EffectContext) -> Result<Effects> {
+    fn apply_layout_effect(&mut self, effects_mode: TransactionEffectsMode) -> Result<Effects> {
         let changed = self.layout_state.take_staged_changed();
-        self.apply_layout_changes(changed, context.animate);
-
-        let mut effects = Effects::None;
-        if context.permit_camera_moves {
-            effects += DesktopEffect::UpdateCamera;
-        }
-        effects += DesktopEffect::SyncHover;
-        Ok(effects)
+        self.apply_layout_changes(changed, effects_mode.animate());
+        Ok([DesktopEffect::UpdateCamera, DesktopEffect::SyncHover].into())
     }
 
-    fn update_camera_effect(&mut self, context: EffectContext) {
+    fn update_camera_effect(&mut self, effects_mode: TransactionEffectsMode) {
+        if !effects_mode.permit_camera_moves() {
+            return;
+        }
+
         let focused_target = self.event_router.focused().cloned();
         if let Some(focused) = focused_target.as_ref() {
             let camera = self.camera_for_focus(focused);
             if let Some(camera) = camera {
-                if context.animate {
+                if effects_mode.animate() {
                     self.camera.animate_if_changed(
                         camera,
                         STRUCTURAL_ANIMATION_DURATION,

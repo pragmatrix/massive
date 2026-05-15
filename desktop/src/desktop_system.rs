@@ -35,7 +35,6 @@ use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
 
 pub use commands::{DesktopCommand, ProjectCommand};
-use effects::EffectContext;
 pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub(crate) use layout_algorithm::place_container_children;
@@ -69,10 +68,30 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransactionEffectsMode {
+    #[default]
+    Normal,
     Setup,
     CameraLocked,
+}
+
+impl TransactionEffectsMode {
+    pub fn animate(self) -> bool {
+        match self {
+            TransactionEffectsMode::Setup => false,
+            TransactionEffectsMode::CameraLocked => true,
+            TransactionEffectsMode::Normal => true,
+        }
+    }
+
+    pub fn permit_camera_moves(self) -> bool {
+        match self {
+            TransactionEffectsMode::Setup => true,
+            TransactionEffectsMode::CameraLocked => false,
+            TransactionEffectsMode::Normal => true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -169,6 +188,8 @@ impl DesktopSystem {
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
+        let effects_mode = effects_mode.into().unwrap_or_default();
+
         self.transact_with_effects(
             transaction,
             scene,
@@ -183,18 +204,16 @@ impl DesktopSystem {
         transaction: impl Into<Transaction<DesktopCommand>>,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-        effects_mode: impl Into<Option<TransactionEffectsMode>>,
+        effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
     ) -> Result<()> {
-        let effects_mode = effects_mode.into();
-        let context = EffectContext::from(effects_mode);
         let mut command_effects = initial_effects;
 
         for command in transaction.into() {
             command_effects += self.apply_command(command, scene, instance_manager)?;
         }
 
-        self.run_effects_to_completion(context, self.transaction_effects(command_effects))?;
+        self.run_effects_to_completion(effects_mode, self.transaction_effects(command_effects))?;
 
         Ok(())
     }

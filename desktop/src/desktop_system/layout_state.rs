@@ -129,11 +129,10 @@ impl DesktopLayoutState {
         }
 
         let mut placements = Vec::with_capacity(children.len());
-        for (child, child_transform) in children.iter().zip(child_transforms.iter()) {
-            let size = *self
-                .measured_sizes
-                .get(child)
-                .expect("Internal error: missing measured layout size for child");
+        for index in 0..children.len() {
+            let child = &children[index];
+            let size = child_sizes[index];
+            let child_transform = &child_transforms[index];
             placements.push((
                 child.clone(),
                 Placement::new(

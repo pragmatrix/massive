@@ -175,9 +175,9 @@ impl Desktop {
                                         &self.scene,
                                         &mut self.instance_manager,
                                         if input_event.any_buttons_pressed() {
-                                            TransactionEffectsMode::CameraLocked.into()
+                                            TransactionEffectsMode::CameraLocked
                                         } else {
-                                            None
+                                            TransactionEffectsMode::Normal
                                         },
                                         effects,
                                     )?;
@@ -241,9 +241,9 @@ impl Desktop {
         command: InstanceCommand,
     ) -> Result<()> {
         let effects_mode = if self.system.any_buttons_pressed() {
-            TransactionEffectsMode::CameraLocked.into()
+            TransactionEffectsMode::CameraLocked
         } else {
-            None
+            TransactionEffectsMode::Normal
         };
 
         match command {
