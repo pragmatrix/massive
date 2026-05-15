@@ -14,31 +14,6 @@ pub enum DesktopEffect {
     SyncHover,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum DesktopEffectKey {
-    UpdateLauncherExpansion,
-    ReflowLayout(DesktopTarget),
-    PlaceNode(DesktopTarget),
-    ApplyLayoutChanges,
-    UpdateCamera,
-    SyncHover,
-}
-
-impl DesktopEffect {
-    fn coalescing_key(&self) -> DesktopEffectKey {
-        match self {
-            DesktopEffect::UpdateLauncherExpansion => DesktopEffectKey::UpdateLauncherExpansion,
-            DesktopEffect::ReflowLayout(target) => {
-                DesktopEffectKey::ReflowLayout(target.clone())
-            }
-            DesktopEffect::PlaceNode(target) => DesktopEffectKey::PlaceNode(target.clone()),
-            DesktopEffect::ApplyLayoutChanges => DesktopEffectKey::ApplyLayoutChanges,
-            DesktopEffect::UpdateCamera => DesktopEffectKey::UpdateCamera,
-            DesktopEffect::SyncHover => DesktopEffectKey::SyncHover,
-        }
-    }
-}
-
 #[must_use]
 #[derive(Debug, PartialEq)]
 pub struct Effects(Vec<DesktopEffect>);
@@ -137,12 +112,7 @@ impl DesktopEffectQueue {
     }
 
     fn enqueue(&mut self, effect: DesktopEffect) {
-        let key = effect.coalescing_key();
-        if let Some(index) = self
-            .pending
-            .iter()
-            .position(|pending| pending.coalescing_key() == key)
-        {
+        if let Some(index) = self.pending.iter().position(|pending| pending == &effect) {
             self.pending.remove(index);
         }
 

@@ -180,7 +180,7 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     /// Returns a transform whose model space is the target's local coordinate system.
-    /// Unprojecting through this transform yields target-local coordinates.
+    /// Un-projecting through this transform yields target-local coordinates.
     fn hit_test_transform(
         &self,
         target: &DesktopTarget,
