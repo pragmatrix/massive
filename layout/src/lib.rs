@@ -1,11 +1,11 @@
 use derive_more::{Deref, From, Into};
 
 mod dimensional_types;
-mod incremental_layouter;
+mod layout_contracts;
 mod layouter;
 
 pub use dimensional_types::*;
-pub use incremental_layouter::*;
+pub use layout_contracts::*;
 pub use layouter::*;
 
 #[derive(Debug, Copy, Clone, From, Into, Deref, Default)]
