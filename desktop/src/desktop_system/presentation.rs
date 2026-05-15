@@ -29,6 +29,12 @@ impl DesktopSystem {
             .get(&launcher)
             .expect("Launcher not found")
             .should_render_instance_background();
+        let launcher_location = self
+            .aggregates
+            .launchers
+            .get(&launcher)
+            .expect("Launcher not found")
+            .location();
 
         let initial_center_translation =
             originating_presenter.map(|op| op.layout_transform_animation.value().translate);
@@ -36,7 +42,7 @@ impl DesktopSystem {
         let presenter = InstancePresenter::new(
             initial_center_translation,
             render_instance_background,
-            self.aggregates.project_presenter.location.clone(),
+            launcher_location,
             scene,
         );
 

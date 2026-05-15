@@ -278,7 +278,8 @@ impl DesktopSystem {
     }
 
     fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
-        self.layout_state.placement(target)
+        self.layout_state
+            .absolute_placement(target, &self.aggregates.hierarchy)
     }
 }
 

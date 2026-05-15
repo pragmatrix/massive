@@ -113,7 +113,8 @@ impl DesktopSystem {
                 if matches!(focused, Some(DesktopTarget::Instance(i)) if *i == instance)
                     && creation_info.role == ViewRole::Primary
                 {
-                    effects += self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
+                    effects +=
+                        self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
                 }
 
                 Ok(effects)

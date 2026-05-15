@@ -54,6 +54,7 @@ pub struct LauncherPresenter {
     mode: LauncherMode,
     layout_transform: Transform,
     scene_transform: Handle<Transform>,
+    location: Handle<Location>,
 
     pub size: Animated<Size>,
     background: Handle<Visual>,
@@ -106,7 +107,7 @@ impl LauncherPresenter {
             .size(32.0 * 8.0)
             .shape(font_system)
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
-            .at(our_location)
+            .at(&our_location)
             .with_decal_order(0)
             .enter(scene);
 
@@ -116,6 +117,7 @@ impl LauncherPresenter {
             mode,
             layout_transform: Transform::IDENTITY,
             scene_transform: our_transform,
+            location: our_location,
             size: scene.animated(size),
             background,
             name,
@@ -302,6 +304,10 @@ impl LauncherPresenter {
             self.size.set_immediately(size);
             self.apply_presenter_animations();
         }
+    }
+
+    pub fn location(&self) -> Handle<Location> {
+        self.location.clone()
     }
 
     pub fn fade_out(&mut self) {

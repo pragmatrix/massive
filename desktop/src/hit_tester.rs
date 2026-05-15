@@ -1,14 +1,18 @@
 use massive_geometry::{
     Contains, PerspectiveDivide, Point, Rect, RectPx, Size, Transform, Vector3, Vector4,
 };
-use massive_layout::{Placement, Rect as LayoutRect};
+use massive_layout::Placement;
 use massive_renderer::RenderGeometry;
 
 use crate::projects::{LaunchProfileId, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {
-    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>>;
+    fn placement(
+        &self,
+        target: &DesktopTarget,
+        hierarchy: &OrderedHierarchy<DesktopTarget>,
+    ) -> Option<Placement<Transform, 2>>;
 }
 
 pub(crate) struct AggregateHitTester<'a> {
@@ -128,8 +132,10 @@ impl<'a> AggregateHitTester<'a> {
             .size
             .to_rect()
             .contains(Point::new(local_pos.x, local_pos.y));
+        let include_children =
+            is_inside_root || allow_overflow_children || matches!(root, DesktopTarget::Desktop);
 
-        if is_inside_root || allow_overflow_children {
+        if include_children {
             let mut nearest_nested_hit: Option<HitTestResult> = None;
             for nested in self.hierarchy.get_nested(root) {
                 if let Some(target_hit) =
@@ -160,7 +166,7 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
-        let placement = self.placements.placement(target)?;
+        let placement = self.placements.placement(target, self.hierarchy)?;
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
 
@@ -190,29 +196,6 @@ impl<'a> AggregateHitTester<'a> {
             return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
         }
 
-        // For View targets, resolve through the parent instance and apply the view's offset
-        // within the instance so that unprojection returns view-local coordinates.
-        if let DesktopTarget::View(_) = target {
-            let instance_id = match self.hierarchy.parent(target) {
-                Some(DesktopTarget::Instance(id)) => *id,
-                Some(_) => panic!("Internal error: View parent is not an instance in hit test"),
-                None => panic!("Internal error: View without parent in hit test"),
-            };
-            let instance_target = DesktopTarget::Instance(instance_id);
-            let instance_placement = self
-                .placements
-                .placement(&instance_target)
-                .expect("Internal error: Missing instance placement in hit test");
-
-            let instance_center = Self::layout_rect_center(instance_placement.rect);
-            let view_center = Self::layout_rect_center(placement.rect);
-            let view_offset = view_center - instance_center;
-
-            let mut layout_transform = instance_placement.transform;
-            layout_transform.translate += layout_transform.rotate * view_offset;
-            return Self::transform_with_layout(layout_transform, local_center);
-        }
-
         Self::transform_with_layout(placement.transform, local_center)
     }
 
@@ -231,12 +214,5 @@ impl<'a> AggregateHitTester<'a> {
         let vp = self.geometry.view_projection();
         let clip = vp * Vector4::new(world_pos.x, world_pos.y, world_pos.z, 1.0);
         clip.perspective_divide().map_or(f64::INFINITY, |ndc| ndc.z)
-    }
-
-    fn layout_rect_center(rect: LayoutRect<2>) -> Vector3 {
-        let rect_px: RectPx = rect.into();
-        let rect: Rect = rect_px.into();
-        let center = rect.center();
-        Vector3::new(center.x, center.y, 0.0)
     }
 }

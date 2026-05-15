@@ -92,19 +92,15 @@ impl DesktopSystem {
             return Ok(effects);
         }
 
-        let outcome = self
-            .layout_state
-            .measure_node(&target, &self.aggregates.hierarchy, &algorithm);
+        let outcome =
+            self.layout_state
+                .measure_node(&target, &self.aggregates.hierarchy, &algorithm);
 
-        let mut effects = Effects::None;
-        if outcome.size_changed {
-            if let Some(parent) = outcome.parent {
-                effects += DesktopEffect::MeasureNode(parent);
-            } else {
-                effects += DesktopEffect::PlaceNode(target);
-            }
-        } else {
-            effects += DesktopEffect::PlaceNode(target);
+        let mut effects = Effects::from(DesktopEffect::PlaceNode(target));
+        if outcome.size_changed
+            && let Some(parent) = outcome.parent
+        {
+            effects += DesktopEffect::MeasureNode(parent);
         }
 
         Ok(effects)
@@ -124,7 +120,7 @@ impl DesktopSystem {
         };
 
         self.layout_state
-            .place_from_target(&root, &self.aggregates.hierarchy, &algorithm);
+            .place_children_of(&root, &self.aggregates.hierarchy, &algorithm);
 
         Ok(DesktopEffect::ApplyLayoutChanges.into())
     }
@@ -192,7 +188,7 @@ impl DesktopSystem {
                         .groups
                         .get_mut(&group_id)
                         .expect("Missing group")
-                        .size = size_px;
+                        .set_layout(size_px, transform);
                 }
                 DesktopTarget::Launcher(launcher_id) => {
                     self.aggregates
@@ -321,10 +317,8 @@ impl DesktopSystem {
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {
-        let mut placement = self.placement(&DesktopTarget::Instance(instance_id))?;
-        placement.transform = self.aggregates.instances[&instance_id]
-            .layout_transform_animation
-            .value();
-        Some(placement)
+        // Hover overlay is rendered in project/world space, so keep the resolved absolute
+        // placement transform here. Instance animation values are launcher-local.
+        self.placement(&DesktopTarget::Instance(instance_id))
     }
 }

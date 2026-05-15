@@ -18,12 +18,28 @@ impl DesktopSystem {
                 id,
                 properties,
             } => {
-                let parent = parent.map(|p| p.into()).unwrap_or(DesktopTarget::Desktop);
-                self.aggregates.hierarchy.add(parent.clone(), id.into())?;
-                self.aggregates
-                    .groups
-                    .insert(id, GroupPresenter::new(properties))?;
-                DesktopEffect::RecomputeLayout(parent).into()
+                let (parent_target, parent_location) = match parent {
+                    Some(parent_group) => {
+                        let parent_location = self
+                            .aggregates
+                            .groups
+                            .get(&parent_group)
+                            .expect("Parent group missing")
+                            .location();
+                        (DesktopTarget::Group(parent_group), parent_location)
+                    }
+                    None => (
+                        DesktopTarget::Desktop,
+                        self.aggregates.project_presenter.location.clone(),
+                    ),
+                };
+
+                self.aggregates.hierarchy.add(parent_target.clone(), id.into())?;
+                self.aggregates.groups.insert(
+                    id,
+                    GroupPresenter::new(properties, parent_location, scene),
+                )?;
+                DesktopEffect::RecomputeLayout(parent_target).into()
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
                 let effects = self.remove_target(&group.into())?;
@@ -31,8 +47,14 @@ impl DesktopSystem {
                 effects
             }
             ProjectCommand::AddLauncher { group, id, profile } => {
+                let group_location = self
+                    .aggregates
+                    .groups
+                    .get(&group)
+                    .expect("Group missing")
+                    .location();
                 let presenter = LauncherPresenter::new(
-                    self.aggregates.project_presenter.location.clone(),
+                    group_location,
                     id,
                     profile,
                     massive_geometry::Size::default(),

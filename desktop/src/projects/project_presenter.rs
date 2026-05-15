@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, Point, Rect, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
-use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
+use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
@@ -124,13 +124,39 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
 pub struct GroupPresenter {
     pub properties: LaunchGroupProperties,
     pub size: SizePx,
+    scene_transform: Handle<Transform>,
+    location: Handle<Location>,
 }
 
 impl GroupPresenter {
-    pub fn new(properties: LaunchGroupProperties) -> Self {
+    pub fn new(
+        properties: LaunchGroupProperties,
+        parent_location: Handle<Location>,
+        scene: &Scene,
+    ) -> Self {
+        let scene_transform = Transform::IDENTITY.enter(scene);
+        let location = scene_transform
+            .to_location()
+            .relative_to(&parent_location)
+            .enter(scene);
+
         Self {
             properties,
             size: SizePx::default(),
+            scene_transform,
+            location,
         }
+    }
+
+    pub fn location(&self) -> Handle<Location> {
+        self.location.clone()
+    }
+
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
+        self.size = size;
+        let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
+        let scene_transform =
+            InstancePresenter::transform_with_layout(layout_transform, local_center);
+        self.scene_transform.update_if_changed(scene_transform);
     }
 }
