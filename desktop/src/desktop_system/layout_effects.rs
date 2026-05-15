@@ -15,7 +15,7 @@ impl DesktopSystem {
     pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
         let mut effects = Effects::from(DesktopEffect::UpdateLauncherExpansion);
         effects += command_effects;
-        effects += DesktopEffect::ApplyLayoutChanges;
+        effects += DesktopEffect::RecomputeLayout(DesktopTarget::Desktop);
         effects
     }
 
@@ -47,10 +47,9 @@ impl DesktopSystem {
                 self.update_launcher_expansion_effect(context);
                 Ok(Effects::None)
             }
-            DesktopEffect::RecomputeLayout(target) => {
-                self.layout_state.mark_reflow_pending(target);
-                Ok(DesktopEffect::ApplyLayoutChanges.into())
-            }
+            DesktopEffect::RecomputeLayout(target) => Ok(DesktopEffect::MeasureNode(target).into()),
+            DesktopEffect::MeasureNode(target) => self.handle_measure_node_effect(target),
+            DesktopEffect::PlaceNode(root) => self.place_layout_effect(root),
             DesktopEffect::ApplyLayoutChanges => self.apply_layout_effect(context),
             DesktopEffect::UpdateCamera => {
                 self.update_camera_effect(context);
@@ -68,7 +67,7 @@ impl DesktopSystem {
         self.update_launcher_visor_expansion(focused_target.as_ref(), context.animate);
     }
 
-    fn apply_layout_effect(&mut self, context: EffectContext) -> Result<Effects> {
+    fn handle_measure_node_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
         let focused_target = self.event_router.focused().cloned();
         let focused_instance = self
             .aggregates
@@ -80,9 +79,61 @@ impl DesktopSystem {
             default_panel_size: self.default_panel_size,
             focused_instance,
         };
-        let changed =
-            self.layout_state
-                .recompute(&self.aggregates.hierarchy, &algorithm, PointPx::origin());
+
+        let missing_children = self
+            .layout_state
+            .missing_child_measures(&target, &self.aggregates.hierarchy);
+        if !missing_children.is_empty() {
+            let mut effects = Effects::None;
+            for child in missing_children {
+                effects += DesktopEffect::MeasureNode(child);
+            }
+            effects += DesktopEffect::MeasureNode(target);
+            return Ok(effects);
+        }
+
+        let outcome = self
+            .layout_state
+            .measure_node(&target, &self.aggregates.hierarchy, &algorithm);
+
+        let mut effects = Effects::None;
+        if outcome.size_changed {
+            if let Some(parent) = outcome.parent {
+                effects += DesktopEffect::MeasureNode(parent);
+            } else {
+                effects += DesktopEffect::PlaceNode(DesktopTarget::Desktop);
+            }
+        } else {
+            effects += DesktopEffect::PlaceNode(DesktopTarget::Desktop);
+        }
+
+        Ok(effects)
+    }
+
+    fn place_layout_effect(&mut self, _root: DesktopTarget) -> Result<Effects> {
+        let focused_target = self.event_router.focused().cloned();
+        let focused_instance = self
+            .aggregates
+            .hierarchy
+            .resolve_path(focused_target.as_ref())
+            .instance();
+        let algorithm = DesktopLayoutAlgorithm {
+            aggregates: &self.aggregates,
+            default_panel_size: self.default_panel_size,
+            focused_instance,
+        };
+
+        self.layout_state.place_from_root(
+            &self.aggregates.hierarchy,
+            &algorithm,
+            PointPx::origin().into(),
+        );
+
+        Ok(DesktopEffect::ApplyLayoutChanges.into())
+    }
+
+    fn apply_layout_effect(&mut self, context: EffectContext) -> Result<Effects> {
+        let changed = self.layout_state.take_staged_changed();
         self.apply_layout_changes(changed, context.animate);
 
         let mut effects = Effects::None;

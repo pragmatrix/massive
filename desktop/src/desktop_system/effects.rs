@@ -8,6 +8,8 @@ use super::{DesktopTarget, TransactionEffectsMode};
 pub enum DesktopEffect {
     UpdateLauncherExpansion,
     RecomputeLayout(DesktopTarget),
+    MeasureNode(DesktopTarget),
+    PlaceNode(DesktopTarget),
     ApplyLayoutChanges,
     UpdateCamera,
     SyncHover,
@@ -17,6 +19,8 @@ pub enum DesktopEffect {
 enum DesktopEffectKey {
     UpdateLauncherExpansion,
     RecomputeLayout(DesktopTarget),
+    MeasureNode(DesktopTarget),
+    PlaceNode(DesktopTarget),
     ApplyLayoutChanges,
     UpdateCamera,
     SyncHover,
@@ -29,6 +33,8 @@ impl DesktopEffect {
             DesktopEffect::RecomputeLayout(target) => {
                 DesktopEffectKey::RecomputeLayout(target.clone())
             }
+            DesktopEffect::MeasureNode(target) => DesktopEffectKey::MeasureNode(target.clone()),
+            DesktopEffect::PlaceNode(target) => DesktopEffectKey::PlaceNode(target.clone()),
             DesktopEffect::ApplyLayoutChanges => DesktopEffectKey::ApplyLayoutChanges,
             DesktopEffect::UpdateCamera => DesktopEffectKey::UpdateCamera,
             DesktopEffect::SyncHover => DesktopEffectKey::SyncHover,

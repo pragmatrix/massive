@@ -1,54 +1,25 @@
 use std::collections::HashMap;
+use std::mem;
 
 use massive_geometry::Transform;
-use massive_layout::{LayoutAlgorithm, LayoutTopology, Offset, Placement, Rect as LayoutRect};
+use massive_layout::{
+    LayoutAlgorithm, LayoutTopology, Offset, Placement, Rect as LayoutRect, Size as LayoutSize,
+};
 
 use super::DesktopTarget;
 use crate::hit_tester::PlacementSource;
 
-trait LayoutBackend {
-    fn mark_reflow_pending(&mut self, target: DesktopTarget);
-    fn recompute(
-        &mut self,
-        topology: &impl LayoutTopology<DesktopTarget>,
-        algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-        absolute_offset: Offset<2>,
-    ) -> Vec<(DesktopTarget, Placement<Transform, 2>)>;
-}
-
 struct NativeLayoutBackend {
-    dirty: bool,
 }
 
 impl NativeLayoutBackend {
-    fn new() -> Self {
-        Self { dirty: true }
-    }
-
-    fn measure_subtree(
-        target: &DesktopTarget,
-        topology: &impl LayoutTopology<DesktopTarget>,
-        algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-        sizes: &mut HashMap<DesktopTarget, massive_layout::Size<2>>,
-    ) -> massive_layout::Size<2> {
-        let child_sizes: Vec<_> = topology
-            .children_of(target)
-            .iter()
-            .map(|child| Self::measure_subtree(child, topology, algorithm, sizes))
-            .collect();
-
-        let size = algorithm.measure(target, &child_sizes);
-        sizes.insert(target.clone(), size);
-        size
-    }
-
     fn place_subtree(
         target: &DesktopTarget,
         transform: Transform,
         offset: Offset<2>,
         topology: &impl LayoutTopology<DesktopTarget>,
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-        sizes: &HashMap<DesktopTarget, massive_layout::Size<2>>,
+        sizes: &HashMap<DesktopTarget, LayoutSize<2>>,
         placements: &mut Vec<(DesktopTarget, Placement<Transform, 2>)>,
     ) {
         let size = *sizes
@@ -92,92 +63,112 @@ impl NativeLayoutBackend {
     }
 }
 
-impl LayoutBackend for NativeLayoutBackend {
-    fn mark_reflow_pending(&mut self, _target: DesktopTarget) {
-        self.dirty = true;
-    }
-
-    fn recompute(
-        &mut self,
-        topology: &impl LayoutTopology<DesktopTarget>,
-        algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-        absolute_offset: Offset<2>,
-    ) -> Vec<(DesktopTarget, Placement<Transform, 2>)> {
-        if !self.dirty {
-            return Vec::new();
-        }
-
-        self.dirty = false;
-
-        let root = DesktopTarget::Desktop;
-        if !topology.exists(&root) {
-            return Vec::new();
-        }
-
-        let mut sizes = HashMap::new();
-        Self::measure_subtree(&root, topology, algorithm, &mut sizes);
-
-        let mut placements = Vec::new();
-        Self::place_subtree(
-            &root,
-            Transform::default(),
-            absolute_offset,
-            topology,
-            algorithm,
-            &sizes,
-            &mut placements,
-        );
-
-        placements
-    }
+#[derive(Debug, Clone)]
+pub(super) struct MeasureOutcome {
+    pub(super) size_changed: bool,
+    pub(super) parent: Option<DesktopTarget>,
 }
 
 pub(super) struct DesktopLayoutState {
-    backend: NativeLayoutBackend,
+    measured_sizes: HashMap<DesktopTarget, LayoutSize<2>>,
     placements: HashMap<DesktopTarget, Placement<Transform, 2>>,
+    staged_changed: Vec<(DesktopTarget, Placement<Transform, 2>)>,
 }
 
 impl DesktopLayoutState {
     pub(super) fn new() -> Self {
         Self {
-            backend: NativeLayoutBackend::new(),
+            measured_sizes: HashMap::new(),
             placements: HashMap::new(),
+            staged_changed: Vec::new(),
         }
     }
 
-    pub(super) fn mark_reflow_pending(&mut self, target: DesktopTarget) {
-        self.backend.mark_reflow_pending(target);
+    pub(super) fn missing_child_measures(
+        &self,
+        target: &DesktopTarget,
+        topology: &impl LayoutTopology<DesktopTarget>,
+    ) -> Vec<DesktopTarget> {
+        topology
+            .children_of(target)
+            .iter()
+            .filter(|child| !self.measured_sizes.contains_key(*child))
+            .cloned()
+            .collect()
     }
 
-    pub(super) fn recompute(
+    pub(super) fn measure_node(
+        &mut self,
+        target: &DesktopTarget,
+        topology: &impl LayoutTopology<DesktopTarget>,
+        algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
+    ) -> MeasureOutcome {
+        let child_sizes: Vec<_> = topology
+            .children_of(target)
+            .iter()
+            .map(|child| {
+                *self.measured_sizes.get(child).unwrap_or_else(|| {
+                    panic!("Internal error: child should be measured before parent")
+                })
+            })
+            .collect();
+
+        let measured = algorithm.measure(target, &child_sizes);
+        let size_changed = self
+            .measured_sizes
+            .get(target)
+            .is_none_or(|current| current != &measured);
+        self.measured_sizes.insert(target.clone(), measured);
+
+        MeasureOutcome {
+            size_changed,
+            parent: topology.parent_of(target),
+        }
+    }
+
+    pub(super) fn place_from_root(
         &mut self,
         topology: &impl LayoutTopology<DesktopTarget>,
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-        absolute_offset: impl Into<Offset<2>>,
-    ) -> Vec<(DesktopTarget, Placement<Transform, 2>)> {
-        let recomputed = self
-            .backend
-            .recompute(topology, algorithm, absolute_offset.into());
+        absolute_offset: Offset<2>,
+    ) {
+        let root = DesktopTarget::Desktop;
+        if !topology.exists(&root) {
+            self.staged_changed.clear();
+            self.placements.clear();
+            return;
+        }
 
-        let mut changed = Vec::new();
+        let mut recomputed = Vec::new();
+        NativeLayoutBackend::place_subtree(
+            &root,
+            Transform::default(),
+            absolute_offset,
+            topology,
+            algorithm,
+            &self.measured_sizes,
+            &mut recomputed,
+        );
 
+        self.staged_changed.clear();
         for (target, placement) in recomputed {
             let is_changed = self
                 .placements
                 .get(&target)
                 .is_none_or(|current| current != &placement);
-
             self.placements.insert(target.clone(), placement);
             if is_changed {
-                changed.push((target, placement));
+                self.staged_changed.push((target, placement));
             }
         }
 
-        // Desktop-owned placement cache is the read source for hit testing and navigation.
-        // Remove stale placements for nodes that no longer exist in the current topology.
         self.placements.retain(|target, _| topology.exists(target));
+    }
 
-        changed
+    pub(super) fn take_staged_changed(
+        &mut self,
+    ) -> Vec<(DesktopTarget, Placement<Transform, 2>)> {
+        mem::take(&mut self.staged_changed)
     }
 
     pub(super) fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
