@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::mem;
 
 use massive_geometry::{Point, Transform, Vector3};
 use massive_layout::{
@@ -19,7 +18,6 @@ pub(super) struct MeasureOutcome {
 pub(super) struct DesktopLayoutState {
     measured_sizes: HashMap<DesktopTarget, LayoutSize<2>>,
     local_placements: HashMap<DesktopTarget, Placement<Transform, 2>>,
-    staged_changed: Vec<(DesktopTarget, Placement<Transform, 2>)>,
 }
 
 impl DesktopLayoutState {
@@ -27,7 +25,6 @@ impl DesktopLayoutState {
         Self {
             measured_sizes: HashMap::new(),
             local_placements: HashMap::new(),
-            staged_changed: Vec::new(),
         }
     }
 
@@ -78,13 +75,14 @@ impl DesktopLayoutState {
         target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-    ) {
+    ) -> Vec<DesktopTarget> {
         if !topology.exists(target) {
-            return;
+            return Vec::new();
         }
 
         self.update_root_placement(target);
 
+        let mut changed_targets = Vec::new();
         for (target, placement) in self.place_children(target, topology, algorithm) {
             let is_changed = self
                 .local_placements
@@ -92,7 +90,7 @@ impl DesktopLayoutState {
                 .is_none_or(|current| current != &placement);
             self.local_placements.insert(target.clone(), placement);
             if is_changed {
-                self.stage_changed(target, placement);
+                changed_targets.push(target);
             }
         }
 
@@ -100,6 +98,8 @@ impl DesktopLayoutState {
             .retain(|target, _| topology.exists(target));
         self.measured_sizes
             .retain(|target, _| topology.exists(target));
+
+        changed_targets
     }
 
     fn place_children(
@@ -145,14 +145,11 @@ impl DesktopLayoutState {
         placements
     }
 
-    pub(super) fn take_staged_changed(&mut self) -> Vec<(DesktopTarget, Placement<Transform, 2>)> {
-        mem::take(&mut self.staged_changed)
-    }
-
-    fn stage_changed(&mut self, target: DesktopTarget, placement: Placement<Transform, 2>) {
-        self.staged_changed
-            .retain(|(staged_target, _)| staged_target != &target);
-        self.staged_changed.push((target, placement));
+    pub(super) fn local_placement(
+        &self,
+        target: &DesktopTarget,
+    ) -> Option<Placement<Transform, 2>> {
+        self.local_placements.get(target).copied()
     }
 
     pub(super) fn absolute_placement(
@@ -369,7 +366,7 @@ mod tests {
     }
 
     #[test]
-    fn staged_changed_entry_matches_latest_placement() {
+    fn changed_targets_returned_from_placement_update() {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
@@ -390,18 +387,15 @@ mod tests {
             child_offset: [7, 3].into(),
             mismatch_child_count: false,
         };
-        state.place_children_of(&DesktopTarget::Desktop, &topology, &updated_algorithm);
+        let changed =
+            state.place_children_of(&DesktopTarget::Desktop, &topology, &updated_algorithm);
 
-        let changed = state.take_staged_changed();
-        let changed_group = changed
-            .iter()
-            .find_map(|(id, placement)| (id == &group).then_some(*placement))
-            .expect("expected changed placement for group");
+        assert_eq!(changed, vec![group.clone()]);
 
         let final_group = state
-            .absolute_placement(&group, &topology)
+            .local_placement(&group)
             .expect("expected final group placement");
 
-        assert_eq!(changed_group, final_group);
+        assert_eq!(final_group.rect.offset, [7, 3].into());
     }
 }

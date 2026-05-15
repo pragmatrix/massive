@@ -9,7 +9,7 @@ pub enum DesktopEffect {
     UpdateLauncherExpansion,
     ReflowLayout(DesktopTarget),
     PlaceNode(DesktopTarget),
-    ApplyLayoutChanges,
+    ApplyLayout(DesktopTarget),
     UpdateCamera,
     SyncHover,
 }

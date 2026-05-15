@@ -39,7 +39,8 @@ impl DesktopSystem {
             if event.any_buttons_pressed() {
                 self.defer_layout_for_focus_change(transitions.keyboard_focus_change());
             } else {
-                effects += self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
+                effects +=
+                    self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
             }
             self.forward_event_transitions(transitions, instance_manager)?
         };

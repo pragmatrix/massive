@@ -4,8 +4,8 @@ use log::warn;
 use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_shell::Scene;
 
-use super::effects::{DesktopEffect, Effects};
 use super::DesktopTarget;
+use super::effects::{DesktopEffect, Effects};
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;

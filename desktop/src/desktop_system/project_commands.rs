@@ -34,11 +34,12 @@ impl DesktopSystem {
                     ),
                 };
 
-                self.aggregates.hierarchy.add(parent_target.clone(), id.into())?;
-                self.aggregates.groups.insert(
-                    id,
-                    GroupPresenter::new(properties, parent_location, scene),
-                )?;
+                self.aggregates
+                    .hierarchy
+                    .add(parent_target.clone(), id.into())?;
+                self.aggregates
+                    .groups
+                    .insert(id, GroupPresenter::new(properties, parent_location, scene))?;
                 DesktopEffect::ReflowLayout(parent_target).into()
             }
             ProjectCommand::RemoveLaunchGroup(group) => {

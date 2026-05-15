@@ -53,7 +53,11 @@ pub(super) struct DesktopLayoutAlgorithm<'a> {
 }
 
 impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
-    fn place_children(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Vec<TransformOffset<Transform, 2>> {
+    fn place_children(
+        &self,
+        id: &DesktopTarget,
+        child_sizes: &[Size<2>],
+    ) -> Vec<TransformOffset<Transform, 2>> {
         if let DesktopTarget::Launcher(_) = id {
             // Launcher panels run a dedicated path because transform assignment is
             // a second phase over the regular 2D child placement.

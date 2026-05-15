@@ -53,7 +53,7 @@ impl DesktopSystem {
             }
             DesktopEffect::ReflowLayout(target) => self.handle_reflow_layout_effect(target),
             DesktopEffect::PlaceNode(root) => self.place_layout_effect(root),
-            DesktopEffect::ApplyLayoutChanges => self.apply_layout_effect(effects_mode),
+            DesktopEffect::ApplyLayout(target) => self.apply_layout_effect(target, effects_mode),
             DesktopEffect::UpdateCamera => {
                 self.update_camera_effect(effects_mode);
                 Ok(Effects::None)
@@ -122,16 +122,32 @@ impl DesktopSystem {
             focused_instance,
         };
 
-        self.layout_state
-            .place_children_of(&root, &self.aggregates.hierarchy, &algorithm);
+        let changed_targets =
+            self.layout_state
+                .place_children_of(&root, &self.aggregates.hierarchy, &algorithm);
 
-        Ok(DesktopEffect::ApplyLayoutChanges.into())
+        let mut effects = Effects::None;
+        for target in changed_targets {
+            effects += DesktopEffect::ApplyLayout(target);
+        }
+        effects += DesktopEffect::UpdateCamera;
+        effects += DesktopEffect::SyncHover;
+
+        Ok(effects)
     }
 
-    fn apply_layout_effect(&mut self, effects_mode: TransactionEffectsMode) -> Result<Effects> {
-        let changed = self.layout_state.take_staged_changed();
-        self.apply_layout_changes(changed, effects_mode.animate());
-        Ok([DesktopEffect::UpdateCamera, DesktopEffect::SyncHover].into())
+    fn apply_layout_effect(
+        &mut self,
+        target: DesktopTarget,
+        effects_mode: TransactionEffectsMode,
+    ) -> Result<Effects> {
+        if let Some(placement) = self.layout_state.local_placement(&target) {
+            let layout_size = placement.rect.size;
+            let size_px = SizePx::new(layout_size[0], layout_size[1]);
+            self.apply_layout(target, size_px, placement.transform, effects_mode.animate());
+        }
+
+        Ok(Effects::None)
     }
 
     fn update_camera_effect(&mut self, effects_mode: TransactionEffectsMode) {
@@ -165,42 +181,38 @@ impl DesktopSystem {
         self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
     }
 
-    fn apply_layout_changes(
+    fn apply_layout(
         &mut self,
-        changed: Vec<(DesktopTarget, Placement<Transform, 2>)>,
+        target: DesktopTarget,
+        size_px: SizePx,
+        transform: Transform,
         animate: bool,
     ) {
-        for (id, placement) in changed {
-            let layout_size = placement.rect.size;
-            let size_px = SizePx::new(layout_size[0], layout_size[1]);
-            let transform = placement.transform;
-
-            match id {
-                DesktopTarget::Desktop => {}
-                DesktopTarget::Instance(instance_id) => {
-                    self.aggregates
-                        .instances
-                        .get_mut(&instance_id)
-                        .expect("Instance missing")
-                        .set_layout(size_px, transform, animate);
-                }
-                DesktopTarget::Group(group_id) => {
-                    self.aggregates
-                        .groups
-                        .get_mut(&group_id)
-                        .expect("Missing group")
-                        .set_layout(size_px, transform);
-                }
-                DesktopTarget::Launcher(launcher_id) => {
-                    self.aggregates
-                        .launchers
-                        .get_mut(&launcher_id)
-                        .expect("Launcher missing")
-                        .set_layout(size_px, transform, animate);
-                }
-                DesktopTarget::View(..) => {
-                    // Robustness: Support resize here?
-                }
+        match target {
+            DesktopTarget::Desktop => {}
+            DesktopTarget::Instance(instance_id) => {
+                self.aggregates
+                    .instances
+                    .get_mut(&instance_id)
+                    .expect("Instance missing")
+                    .set_layout(size_px, transform, animate);
+            }
+            DesktopTarget::Group(group_id) => {
+                self.aggregates
+                    .groups
+                    .get_mut(&group_id)
+                    .expect("Missing group")
+                    .set_layout(size_px, transform);
+            }
+            DesktopTarget::Launcher(launcher_id) => {
+                self.aggregates
+                    .launchers
+                    .get_mut(&launcher_id)
+                    .expect("Launcher missing")
+                    .set_layout(size_px, transform, animate);
+            }
+            DesktopTarget::View(..) => {
+                // Robustness: Support resize here?
             }
         }
     }
