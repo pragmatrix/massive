@@ -2,7 +2,7 @@ use anyhow::Result;
 
 use massive_animation::Interpolation;
 use massive_applications::InstanceId;
-use massive_geometry::{PointPx, SizePx, Transform};
+use massive_geometry::{SizePx, Transform};
 use massive_layout::Placement;
 
 use super::effects::{DesktopEffect, DesktopEffectQueue, EffectContext, Effects};
@@ -101,16 +101,16 @@ impl DesktopSystem {
             if let Some(parent) = outcome.parent {
                 effects += DesktopEffect::MeasureNode(parent);
             } else {
-                effects += DesktopEffect::PlaceNode(DesktopTarget::Desktop);
+                effects += DesktopEffect::PlaceNode(target);
             }
         } else {
-            effects += DesktopEffect::PlaceNode(DesktopTarget::Desktop);
+            effects += DesktopEffect::PlaceNode(target);
         }
 
         Ok(effects)
     }
 
-    fn place_layout_effect(&mut self, _root: DesktopTarget) -> Result<Effects> {
+    fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
         let focused_target = self.event_router.focused().cloned();
         let focused_instance = self
             .aggregates
@@ -123,11 +123,8 @@ impl DesktopSystem {
             focused_instance,
         };
 
-        self.layout_state.place_from_root(
-            &self.aggregates.hierarchy,
-            &algorithm,
-            PointPx::origin().into(),
-        );
+        self.layout_state
+            .place_from_target(&root, &self.aggregates.hierarchy, &algorithm);
 
         Ok(DesktopEffect::ApplyLayoutChanges.into())
     }

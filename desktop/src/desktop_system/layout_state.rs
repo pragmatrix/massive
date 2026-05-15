@@ -126,24 +126,36 @@ impl DesktopLayoutState {
         }
     }
 
-    pub(super) fn place_from_root(
+    pub(super) fn place_from_target(
         &mut self,
+        target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-        absolute_offset: Offset<2>,
     ) {
-        let root = DesktopTarget::Desktop;
-        if !topology.exists(&root) {
+        if !topology.exists(target) {
             self.staged_changed.clear();
-            self.placements.clear();
             return;
         }
 
+        let (root_transform, root_offset) = if *target == DesktopTarget::Desktop {
+            (Transform::default(), Offset::default())
+        } else {
+            let placement = self
+                .placements
+                .get(target)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "Internal error: targeted subtree placement requires existing absolute placement"
+                    )
+                });
+            (placement.transform, placement.rect.offset)
+        };
+
         let mut recomputed = Vec::new();
         NativeLayoutBackend::place_subtree(
-            &root,
-            Transform::default(),
-            absolute_offset,
+            target,
+            root_transform,
+            root_offset,
             topology,
             algorithm,
             &self.measured_sizes,
