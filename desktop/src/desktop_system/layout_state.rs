@@ -253,7 +253,9 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     use massive_geometry::Transform;
-    use massive_layout::{LayoutAlgorithm, LayoutTopology, Offset, Size as LayoutSize, TransformOffset};
+    use massive_layout::{
+        LayoutAlgorithm, LayoutTopology, Offset, Size as LayoutSize, TransformOffset,
+    };
 
     use super::DesktopLayoutState;
     use crate::desktop_system::DesktopTarget;
@@ -347,6 +349,24 @@ mod tests {
         state.measure_node(&DesktopTarget::Desktop, &topology, &algorithm);
 
         state.place_children_of(&DesktopTarget::Desktop, &topology, &algorithm);
+    }
+
+    #[test]
+    #[should_panic(expected = "Internal error: child should be measured before parent")]
+    fn measure_parent_without_child_measure_panics() {
+        let mut state = DesktopLayoutState::new();
+        let mut topology = TestTopology::default();
+
+        let group = DesktopTarget::Group(GroupId::new());
+        topology.insert_node(DesktopTarget::Desktop);
+        topology.set_children(DesktopTarget::Desktop, vec![group]);
+
+        let algorithm = TestAlgorithm {
+            child_offset: Offset::default(),
+            mismatch_child_count: false,
+        };
+
+        state.measure_node(&DesktopTarget::Desktop, &topology, &algorithm);
     }
 
     #[test]

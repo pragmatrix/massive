@@ -95,7 +95,7 @@ impl DesktopSystem {
                     insertion_index,
                     instance_target.clone(),
                 )?;
-                let mut effects = Effects::from(DesktopEffect::RecomputeLayout(
+                let mut effects = Effects::from(DesktopEffect::ReflowLayout(
                     DesktopTarget::Launcher(launcher),
                 ));
 

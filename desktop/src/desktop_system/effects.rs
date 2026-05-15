@@ -7,8 +7,7 @@ use super::{DesktopTarget, TransactionEffectsMode};
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopEffect {
     UpdateLauncherExpansion,
-    RecomputeLayout(DesktopTarget),
-    MeasureNode(DesktopTarget),
+    ReflowLayout(DesktopTarget),
     PlaceNode(DesktopTarget),
     ApplyLayoutChanges,
     UpdateCamera,
@@ -18,8 +17,7 @@ pub enum DesktopEffect {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 enum DesktopEffectKey {
     UpdateLauncherExpansion,
-    RecomputeLayout(DesktopTarget),
-    MeasureNode(DesktopTarget),
+    ReflowLayout(DesktopTarget),
     PlaceNode(DesktopTarget),
     ApplyLayoutChanges,
     UpdateCamera,
@@ -30,10 +28,9 @@ impl DesktopEffect {
     fn coalescing_key(&self) -> DesktopEffectKey {
         match self {
             DesktopEffect::UpdateLauncherExpansion => DesktopEffectKey::UpdateLauncherExpansion,
-            DesktopEffect::RecomputeLayout(target) => {
-                DesktopEffectKey::RecomputeLayout(target.clone())
+            DesktopEffect::ReflowLayout(target) => {
+                DesktopEffectKey::ReflowLayout(target.clone())
             }
-            DesktopEffect::MeasureNode(target) => DesktopEffectKey::MeasureNode(target.clone()),
             DesktopEffect::PlaceNode(target) => DesktopEffectKey::PlaceNode(target.clone()),
             DesktopEffect::ApplyLayoutChanges => DesktopEffectKey::ApplyLayoutChanges,
             DesktopEffect::UpdateCamera => DesktopEffectKey::UpdateCamera,

@@ -15,7 +15,7 @@ impl DesktopSystem {
     pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
         let mut effects = Effects::from(DesktopEffect::UpdateLauncherExpansion);
         effects += command_effects;
-        effects += DesktopEffect::RecomputeLayout(DesktopTarget::Desktop);
+        effects += DesktopEffect::ReflowLayout(DesktopTarget::Desktop);
         effects
     }
 
@@ -47,8 +47,7 @@ impl DesktopSystem {
                 self.update_launcher_expansion_effect(context);
                 Ok(Effects::None)
             }
-            DesktopEffect::RecomputeLayout(target) => Ok(DesktopEffect::MeasureNode(target).into()),
-            DesktopEffect::MeasureNode(target) => self.handle_measure_node_effect(target),
+            DesktopEffect::ReflowLayout(target) => self.handle_reflow_layout_effect(target),
             DesktopEffect::PlaceNode(root) => self.place_layout_effect(root),
             DesktopEffect::ApplyLayoutChanges => self.apply_layout_effect(context),
             DesktopEffect::UpdateCamera => {
@@ -67,7 +66,7 @@ impl DesktopSystem {
         self.update_launcher_visor_expansion(focused_target.as_ref(), context.animate);
     }
 
-    fn handle_measure_node_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
+    fn handle_reflow_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
         let focused_target = self.event_router.focused().cloned();
         let focused_instance = self
             .aggregates
@@ -86,9 +85,9 @@ impl DesktopSystem {
         if !missing_children.is_empty() {
             let mut effects = Effects::None;
             for child in missing_children {
-                effects += DesktopEffect::MeasureNode(child);
+                effects += DesktopEffect::ReflowLayout(child);
             }
-            effects += DesktopEffect::MeasureNode(target);
+            effects += DesktopEffect::ReflowLayout(target);
             return Ok(effects);
         }
 
@@ -100,7 +99,7 @@ impl DesktopSystem {
         if outcome.size_changed
             && let Some(parent) = outcome.parent
         {
-            effects += DesktopEffect::MeasureNode(parent);
+            effects += DesktopEffect::ReflowLayout(parent);
         }
 
         Ok(effects)
@@ -220,7 +219,7 @@ impl DesktopSystem {
         let mut effects = Effects::None;
         for target in targets {
             if let Some(launcher_id) = self.focus_target_launcher_for_layout(target) {
-                effects += DesktopEffect::RecomputeLayout(DesktopTarget::Launcher(launcher_id));
+                effects += DesktopEffect::ReflowLayout(DesktopTarget::Launcher(launcher_id));
             }
         }
         effects
@@ -241,7 +240,7 @@ impl DesktopSystem {
     pub(super) fn flush_deferred_focus_layout(&mut self) -> Effects {
         let mut effects = Effects::None;
         for launcher_id in self.deferred_focus_layout_launchers.drain() {
-            effects += DesktopEffect::RecomputeLayout(DesktopTarget::Launcher(launcher_id));
+            effects += DesktopEffect::ReflowLayout(DesktopTarget::Launcher(launcher_id));
         }
         effects
     }
