@@ -91,6 +91,9 @@ impl DesktopSystem {
             for child in missing_children {
                 effects += DesktopEffect::ReflowLayout(child);
             }
+            // Redundant by current semantics: each first child measure reports size_changed and
+            // re-enqueues its parent. Keep this explicit parent reflow to preserve behavior if
+            // measure_node/size_changed rules change.
             effects += DesktopEffect::ReflowLayout(target);
             return Ok(effects);
         }

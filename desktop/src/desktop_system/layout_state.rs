@@ -94,12 +94,20 @@ impl DesktopLayoutState {
             }
         }
 
-        self.local_placements
-            .retain(|target, _| topology.exists(target));
-        self.measured_sizes
-            .retain(|target, _| topology.exists(target));
-
         changed_targets
+    }
+
+    pub(super) fn remove_subtree(
+        &mut self,
+        target: &DesktopTarget,
+        topology: &impl LayoutTopology<DesktopTarget>,
+    ) {
+        let mut stack = vec![target.clone()];
+        while let Some(current) = stack.pop() {
+            stack.extend(topology.children_of(&current).iter().cloned());
+            self.local_placements.remove(&current);
+            self.measured_sizes.remove(&current);
+        }
     }
 
     fn place_children(

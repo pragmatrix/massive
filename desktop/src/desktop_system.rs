@@ -288,6 +288,10 @@ impl DesktopSystem {
             .cloned()
             .expect("Internal error: remove_target called for root target");
 
+        // Explicitly invalidate layout cache for the removed subtree.
+        self.layout_state
+            .remove_subtree(target, &self.aggregates.hierarchy);
+
         // Finally remove them.
         self.aggregates.hierarchy.remove(target)?;
         // Mark the surviving parent, not the removed node:
