@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use massive_geometry::Transform;
 use massive_layout::{IncrementalLayouter, LayoutAlgorithm, LayoutTopology, Offset, Placement};
 
@@ -12,7 +14,6 @@ trait LayoutBackend {
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
         absolute_offset: Offset<2>,
     ) -> Vec<(DesktopTarget, Placement<Transform, 2>)>;
-    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>>;
 }
 
 struct IncrementalLayoutBackend {
@@ -43,19 +44,18 @@ impl LayoutBackend for IncrementalLayoutBackend {
             .changed
     }
 
-    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
-        self.layouter.placement(target).copied()
-    }
 }
 
 pub(super) struct DesktopLayoutState {
     backend: IncrementalLayoutBackend,
+    placements: HashMap<DesktopTarget, Placement<Transform, 2>>,
 }
 
 impl DesktopLayoutState {
     pub(super) fn new() -> Self {
         Self {
             backend: IncrementalLayoutBackend::new(),
+            placements: HashMap::new(),
         }
     }
 
@@ -69,12 +69,24 @@ impl DesktopLayoutState {
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
         absolute_offset: impl Into<Offset<2>>,
     ) -> Vec<(DesktopTarget, Placement<Transform, 2>)> {
-        self.backend
+        let changed = self
+            .backend
             .recompute(topology, algorithm, absolute_offset.into())
+            ;
+
+        // Desktop-owned placement cache is the read source for hit testing and navigation.
+        for (target, placement) in &changed {
+            self.placements.insert(target.clone(), *placement);
+        }
+
+        // Remove stale placements for nodes that no longer exist in the current topology.
+        self.placements.retain(|target, _| topology.exists(target));
+
+        changed
     }
 
     pub(super) fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
-        self.backend.placement(target)
+        self.placements.get(target).copied()
     }
 }
 
