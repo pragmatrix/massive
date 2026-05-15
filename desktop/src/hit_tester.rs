@@ -7,9 +7,19 @@ use massive_renderer::RenderGeometry;
 use crate::projects::{LaunchProfileId, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
+pub(crate) trait PlacementSource {
+    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>>;
+}
+
+impl PlacementSource for IncrementalLayouter<DesktopTarget, Transform, 2> {
+    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
+        IncrementalLayouter::placement(self, target).copied()
+    }
+}
+
 pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-    layouter: &'a IncrementalLayouter<DesktopTarget, Transform, 2>,
+    placements: &'a dyn PlacementSource,
     launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
     geometry: &'a RenderGeometry,
 }
@@ -47,13 +57,13 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
 impl<'a> AggregateHitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
-        layouter: &'a IncrementalLayouter<DesktopTarget, Transform, 2>,
+        placements: &'a dyn PlacementSource,
         launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
         geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
             hierarchy,
-            layouter,
+            placements,
             launchers,
             geometry,
         }
@@ -156,7 +166,7 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
-        let placement = *self.layouter.placement(target)?;
+        let placement = self.placements.placement(target)?;
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
 
@@ -196,7 +206,7 @@ impl<'a> AggregateHitTester<'a> {
             };
             let instance_target = DesktopTarget::Instance(instance_id);
             let instance_placement = self
-                .layouter
+                .placements
                 .placement(&instance_target)
                 .expect("Internal error: Missing instance placement in hit test");
 
