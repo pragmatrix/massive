@@ -8,8 +8,8 @@ use massive_renderer::RenderGeometry;
 
 use super::navigation::Direction;
 use super::{
-    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, POINTER_FEEDBACK_REENABLE_MAX_DURATION,
-    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
+    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, Effects,
+    POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
 };
 use crate::focus_path::PathResolver;
 use crate::hit_tester::AggregateHitTester;
@@ -21,8 +21,9 @@ impl DesktopSystem {
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<Cmd> {
+    ) -> Result<(Cmd, Effects)> {
         let keyboard_cmd = self.preprocess_keyboard_input(event)?;
+        let mut effects = Effects::None;
 
         let cmd = if !keyboard_cmd.is_none() {
             keyboard_cmd
@@ -38,17 +39,17 @@ impl DesktopSystem {
             if event.any_buttons_pressed() {
                 self.defer_layout_for_focus_change(transitions.keyboard_focus_change());
             } else {
-                self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
+                effects += self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
             }
             self.forward_event_transitions(transitions, instance_manager)?
         };
 
         self.update_pointer_feedback(event);
         if !event.any_buttons_pressed() {
-            self.flush_deferred_focus_layout();
+            effects += self.flush_deferred_focus_layout();
         }
 
-        Ok(cmd)
+        Ok((cmd, effects))
     }
 
     fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
@@ -80,9 +81,9 @@ impl DesktopSystem {
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
-    ) -> Result<()> {
+    ) -> Result<Effects> {
         let transitions = self.event_router.focus(target);
-        self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
+        let effects = self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change());
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(
@@ -90,14 +91,14 @@ impl DesktopSystem {
                 .is_none()
         );
 
-        Ok(())
+        Ok(effects)
     }
 
     pub(super) fn unfocus_pointer_if_path_contains(
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
-    ) -> Result<()> {
+    ) -> Result<Effects> {
         if self
             .aggregates
             .hierarchy
@@ -109,7 +110,7 @@ impl DesktopSystem {
                     .is_none()
             );
         }
-        Ok(())
+        Ok(Effects::None)
     }
 
     #[allow(unused)]

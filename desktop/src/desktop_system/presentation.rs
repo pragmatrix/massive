@@ -4,6 +4,7 @@ use log::warn;
 use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_shell::Scene;
 
+use super::effects::{DesktopEffect, Effects};
 use super::DesktopTarget;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
@@ -62,14 +63,14 @@ impl DesktopSystem {
         Ok(insertion_pos)
     }
 
-    pub(super) fn hide_instance(&mut self, instance: InstanceId) -> Result<()> {
+    pub(super) fn hide_instance(&mut self, instance: InstanceId) -> Result<Effects> {
         let Some(DesktopTarget::Launcher(launcher)) =
             self.aggregates.hierarchy.parent(&instance.into()).cloned()
         else {
             bail!("Internal error: Launcher not found");
         };
 
-        self.remove_target(&DesktopTarget::Instance(instance))?;
+        let effects = self.remove_target(&DesktopTarget::Instance(instance))?;
         self.aggregates.instances.remove(&instance)?;
 
         if !self
@@ -85,7 +86,7 @@ impl DesktopSystem {
                 .fade_in();
         }
 
-        Ok(())
+        Ok(effects)
     }
 
     pub(super) fn present_view(
@@ -93,7 +94,7 @@ impl DesktopSystem {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
-    ) -> Result<()> {
+    ) -> Result<Effects> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found");
         };
@@ -105,17 +106,15 @@ impl DesktopSystem {
             DesktopTarget::Instance(instance),
             DesktopTarget::View(view_creation_info.id),
         )?;
-        self.layouter
-            .mark_reflow_pending(DesktopTarget::Instance(instance));
 
-        Ok(())
+        Ok(DesktopEffect::RecomputeLayout(DesktopTarget::Instance(instance)).into())
     }
 
-    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<()> {
+    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<Effects> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&path.instance) else {
             warn!("Can't hide view: Instance for view not found");
             // Robustness: Decide if this should return an error.
-            return Ok(());
+            return Ok(Effects::None);
         };
 
         instance_presenter.hide_view(path.view)?;
@@ -123,8 +122,6 @@ impl DesktopSystem {
         // Robustness: What about focus?
 
         // And remove the view.
-        self.remove_target(&DesktopTarget::View(path.view))?;
-
-        Ok(())
+        self.remove_target(&DesktopTarget::View(path.view))
     }
 }

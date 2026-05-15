@@ -5,30 +5,71 @@ use massive_applications::InstanceId;
 use massive_geometry::{PointPx, SizePx, Transform};
 use massive_layout::Placement;
 
-use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
+use super::effects::{DesktopEffect, DesktopEffectQueue, EffectContext, Effects};
+use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget};
 use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::projects::LaunchProfileId;
 
 impl DesktopSystem {
-    /// Update layout changes and the camera position.
-    pub fn update_effects(&mut self, mode: Option<TransactionEffectsMode>) -> Result<()> {
-        let (animate, permit_camera_moves) = match mode {
-            Some(TransactionEffectsMode::Setup) => (false, true),
-            Some(TransactionEffectsMode::CameraLocked) => (true, false),
-            None => (true, true),
-        };
+    pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
+        let mut effects = Effects::from(DesktopEffect::UpdateLauncherExpansion);
+        effects += command_effects;
+        effects += DesktopEffect::ApplyLayoutChanges;
+        effects
+    }
 
-        if matches!(mode, Some(TransactionEffectsMode::CameraLocked)) {
+    pub(super) fn run_effects_to_completion(
+        &mut self,
+        context: EffectContext,
+        initial_effects: Effects,
+    ) -> Result<()> {
+        if context.lock_camera {
             // Lock camera motion immediately, including already running camera animations.
             let camera = self.camera.value();
             self.camera.set_immediately(camera);
         }
 
-        // Layout & apply rects + transforms.
-        let focused_target = self.event_router.focused().cloned();
-        self.update_launcher_visor_expansion(focused_target.as_ref(), animate);
+        let mut effects = DesktopEffectQueue::default();
+        effects.enqueue_all(initial_effects);
 
+        while let Some(effect) = effects.pop_front() {
+            let follow_up = self.handle_effect(effect, context)?;
+            effects.enqueue_all(follow_up);
+        }
+
+        Ok(())
+    }
+
+    fn handle_effect(&mut self, effect: DesktopEffect, context: EffectContext) -> Result<Effects> {
+        match effect {
+            DesktopEffect::UpdateLauncherExpansion => {
+                self.update_launcher_expansion_effect(context);
+                Ok(Effects::None)
+            }
+            DesktopEffect::RecomputeLayout(target) => {
+                self.layouter.mark_reflow_pending(target);
+                Ok(DesktopEffect::ApplyLayoutChanges.into())
+            }
+            DesktopEffect::ApplyLayoutChanges => self.apply_layout_effect(context),
+            DesktopEffect::UpdateCamera => {
+                self.update_camera_effect(context);
+                Ok(Effects::None)
+            }
+            DesktopEffect::SyncHover => {
+                self.sync_hover_effect();
+                Ok(Effects::None)
+            }
+        }
+    }
+
+    fn update_launcher_expansion_effect(&mut self, context: EffectContext) {
+        let focused_target = self.event_router.focused().cloned();
+        self.update_launcher_visor_expansion(focused_target.as_ref(), context.animate);
+    }
+
+    fn apply_layout_effect(&mut self, context: EffectContext) -> Result<Effects> {
+        let focused_target = self.event_router.focused().cloned();
         let focused_instance = self
             .aggregates
             .hierarchy
@@ -43,14 +84,22 @@ impl DesktopSystem {
             .layouter
             .recompute(&self.aggregates.hierarchy, &algorithm, PointPx::origin())
             .changed;
-        self.apply_layout_changes(changed, animate);
+        self.apply_layout_changes(changed, context.animate);
 
-        // Camera
+        let mut effects = Effects::None;
+        if context.permit_camera_moves {
+            effects += DesktopEffect::UpdateCamera;
+        }
+        effects += DesktopEffect::SyncHover;
+        Ok(effects)
+    }
 
-        if permit_camera_moves && let Some(focused) = focused_target.as_ref() {
+    fn update_camera_effect(&mut self, context: EffectContext) {
+        let focused_target = self.event_router.focused().cloned();
+        if let Some(focused) = focused_target.as_ref() {
             let camera = self.camera_for_focus(focused);
             if let Some(camera) = camera {
-                if animate {
+                if context.animate {
                     self.camera.animate_if_changed(
                         camera,
                         STRUCTURAL_ANIMATION_DURATION,
@@ -61,17 +110,15 @@ impl DesktopSystem {
                 }
             }
         }
+    }
 
-        // Hover
-
+    fn sync_hover_effect(&mut self) {
         let pointer_focus = if self.pointer_feedback_enabled {
             self.event_router.pointer_focus().cloned()
         } else {
             None
         };
         self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
-
-        Ok(())
     }
 
     fn apply_layout_changes(
@@ -126,13 +173,14 @@ impl DesktopSystem {
     pub(super) fn invalidate_layout_for_focus_change<'a>(
         &mut self,
         targets: impl IntoIterator<Item = &'a DesktopTarget>,
-    ) {
+    ) -> Effects {
+        let mut effects = Effects::None;
         for target in targets {
             if let Some(launcher_id) = self.focus_target_launcher_for_layout(target) {
-                self.layouter
-                    .mark_reflow_pending(DesktopTarget::Launcher(launcher_id));
+                effects += DesktopEffect::RecomputeLayout(DesktopTarget::Launcher(launcher_id));
             }
         }
+        effects
     }
 
     pub(super) fn defer_layout_for_focus_change<'a>(
@@ -147,11 +195,12 @@ impl DesktopSystem {
         self.deferred_focus_layout_launchers.extend(launcher_ids);
     }
 
-    pub(super) fn flush_deferred_focus_layout(&mut self) {
+    pub(super) fn flush_deferred_focus_layout(&mut self) -> Effects {
+        let mut effects = Effects::None;
         for launcher_id in self.deferred_focus_layout_launchers.drain() {
-            self.layouter
-                .mark_reflow_pending(DesktopTarget::Launcher(launcher_id));
+            effects += DesktopEffect::RecomputeLayout(DesktopTarget::Launcher(launcher_id));
         }
+        effects
     }
 
     /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or

@@ -4,6 +4,7 @@ use log::warn;
 use massive_applications::{CreationMode, ViewRole};
 use massive_shell::Scene;
 
+use super::effects::{DesktopEffect, Effects};
 use super::{DesktopCommand, DesktopSystem, DesktopTarget};
 use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
@@ -15,7 +16,7 @@ impl DesktopSystem {
         command: DesktopCommand,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-    ) -> Result<()> {
+    ) -> Result<Effects> {
         match command {
             DesktopCommand::StartInstance {
                 launcher,
@@ -55,11 +56,13 @@ impl DesktopSystem {
                         instance,
                     );
 
+                let mut effects = Effects::None;
+
                 if let Some(replacement_focus) = replacement_focus {
-                    self.focus(&replacement_focus, instance_manager)?;
+                    effects += self.focus(&replacement_focus, instance_manager)?;
                 }
 
-                self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
+                effects += self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
 
                 // This might fail if StopInstance gets triggered with an instance that ended in
                 // itself (shouldn't the instance_manager keep it until we finally free it).
@@ -69,9 +72,9 @@ impl DesktopSystem {
 
                 // We hide the instance as soon we request a shutdown so that they can't be in the
                 // navigation tree anymore.
-                self.hide_instance(instance)?;
+                effects += self.hide_instance(instance)?;
 
-                Ok(())
+                Ok(effects)
             }
 
             DesktopCommand::PresentInstance { launcher, instance } => {
@@ -92,16 +95,17 @@ impl DesktopSystem {
                     insertion_index,
                     instance_target.clone(),
                 )?;
-                self.layouter
-                    .mark_reflow_pending(DesktopTarget::Launcher(launcher));
+                let mut effects = Effects::from(DesktopEffect::RecomputeLayout(
+                    DesktopTarget::Launcher(launcher),
+                ));
 
                 // Focus it.
-                self.focus(&instance_target, instance_manager)?;
-                Ok(())
+                effects += self.focus(&instance_target, instance_manager)?;
+                Ok(effects)
             }
 
             DesktopCommand::PresentView(instance, creation_info) => {
-                self.present_view(instance, &creation_info, scene)?;
+                let mut effects = self.present_view(instance, &creation_info, scene)?;
 
                 let focused = self.event_router.focused();
                 // If this instance is currently focused and the new view is primary, make it
@@ -109,10 +113,10 @@ impl DesktopSystem {
                 if matches!(focused, Some(DesktopTarget::Instance(i)) if *i == instance)
                     && creation_info.role == ViewRole::Primary
                 {
-                    self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
+                    effects += self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
                 }
 
-                Ok(())
+                Ok(effects)
             }
             DesktopCommand::HideView(view_path) => self.hide_view(view_path),
 
@@ -124,17 +128,17 @@ impl DesktopSystem {
                 if let Some(focused) = self.event_router.focused()
                     && let Some(parent) = self.aggregates.hierarchy.parent(focused)
                 {
-                    self.focus(&parent.clone(), instance_manager)?;
+                    return self.focus(&parent.clone(), instance_manager);
                 }
-                Ok(())
+                Ok(Effects::None)
             }
             DesktopCommand::Navigate(direction) => {
                 if let Some(focused) = self.event_router.focused()
                     && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
                 {
-                    self.focus(&candidate, instance_manager)?;
+                    return self.focus(&candidate, instance_manager);
                 }
-                Ok(())
+                Ok(Effects::None)
             }
         }
     }

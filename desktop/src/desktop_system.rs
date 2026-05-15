@@ -10,6 +10,7 @@
 
 mod command_dispatch;
 mod commands;
+mod effects;
 mod event_forwarding;
 mod focus_input;
 mod focus_path_ext;
@@ -33,6 +34,8 @@ use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
 
 pub use commands::{DesktopCommand, ProjectCommand};
+use effects::EffectContext;
+pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub(crate) use layout_algorithm::place_container_children;
 
@@ -164,13 +167,32 @@ impl DesktopSystem {
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
+        self.transact_with_effects(
+            transaction,
+            scene,
+            instance_manager,
+            effects_mode,
+            Effects::None,
+        )
+    }
+
+    pub fn transact_with_effects(
+        &mut self,
+        transaction: impl Into<Transaction<DesktopCommand>>,
+        scene: &Scene,
+        instance_manager: &mut InstanceManager,
+        effects_mode: impl Into<Option<TransactionEffectsMode>>,
+        initial_effects: Effects,
+    ) -> Result<()> {
         let effects_mode = effects_mode.into();
+        let context = EffectContext::from(effects_mode);
+        let mut command_effects = initial_effects;
 
         for command in transaction.into() {
-            self.apply_command(command, scene, instance_manager)?;
+            command_effects += self.apply_command(command, scene, instance_manager)?;
         }
 
-        self.update_effects(effects_mode)?;
+        self.run_effects_to_completion(context, self.transaction_effects(command_effects))?;
 
         Ok(())
     }
@@ -234,7 +256,7 @@ impl DesktopSystem {
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<Effects> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
@@ -250,8 +272,7 @@ impl DesktopSystem {
         // Mark the surviving parent, not the removed node:
         // - removed nodes are ignored by incremental recompute root collection,
         // - parent refresh updates cached children and recomputes sibling placement.
-        self.layouter.mark_reflow_pending(parent);
-        Ok(())
+        Ok(effects::DesktopEffect::RecomputeLayout(parent).into())
     }
 
     fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
