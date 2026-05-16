@@ -297,7 +297,7 @@ impl DesktopSystem {
         // Mark the surviving parent, not the removed node:
         // - removed nodes are ignored by incremental recompute root collection,
         // - parent refresh updates cached children and recomputes sibling placement.
-        Ok(effects::DesktopEffect::ReflowLayout(parent).into())
+        Ok(effects::DesktopEffect::Measure(parent).into())
     }
 
     fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {

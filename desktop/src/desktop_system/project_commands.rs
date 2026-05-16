@@ -40,7 +40,7 @@ impl DesktopSystem {
                 self.aggregates
                     .groups
                     .insert(id, GroupPresenter::new(properties, parent_location, scene))?;
-                DesktopEffect::ReflowLayout(parent_target).into()
+                DesktopEffect::Measure(parent_target).into()
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
                 let effects = self.remove_target(&group.into())?;
@@ -65,7 +65,7 @@ impl DesktopSystem {
                 self.aggregates.launchers.insert(id, presenter)?;
 
                 self.aggregates.hierarchy.add(group.into(), id.into())?;
-                DesktopEffect::ReflowLayout(DesktopTarget::Group(group)).into()
+                DesktopEffect::Measure(DesktopTarget::Group(group)).into()
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);

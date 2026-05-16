@@ -95,9 +95,8 @@ impl DesktopSystem {
                     insertion_index,
                     instance_target.clone(),
                 )?;
-                let mut effects = Effects::from(DesktopEffect::ReflowLayout(
-                    DesktopTarget::Launcher(launcher),
-                ));
+                let mut effects =
+                    Effects::from(DesktopEffect::Measure(DesktopTarget::Launcher(launcher)));
 
                 // Focus it.
                 effects += self.focus(&instance_target, instance_manager)?;

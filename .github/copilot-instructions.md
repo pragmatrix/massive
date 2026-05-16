@@ -29,6 +29,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Avoid unsafe or experimental APIs unless required.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
+- Avoid redundant work; only perform writes, recomputations, or updates when they are necessary for correctness.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state, and prefer deriving computed values at read boundaries over maintaining mirrored caches.
 - Keep invariant checks and mode gating at one layer where practical.

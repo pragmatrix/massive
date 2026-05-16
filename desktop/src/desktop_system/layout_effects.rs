@@ -15,7 +15,7 @@ impl DesktopSystem {
     pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
         let mut effects = Effects::from(DesktopEffect::UpdateLauncherExpansion);
         effects += command_effects;
-        effects += DesktopEffect::ReflowLayout(DesktopTarget::Desktop);
+        effects += DesktopEffect::Measure(DesktopTarget::Desktop);
         effects
     }
 
@@ -51,8 +51,8 @@ impl DesktopSystem {
                 self.update_launcher_expansion_effect(effects_mode);
                 Ok(Effects::None)
             }
-            DesktopEffect::ReflowLayout(target) => self.handle_reflow_layout_effect(target),
-            DesktopEffect::PlaceNode(root) => self.place_layout_effect(root),
+            DesktopEffect::Measure(target) => self.measure_layout_effect(target),
+            DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::ApplyLayout(target) => self.apply_layout_effect(target, effects_mode),
             DesktopEffect::UpdateCamera => {
                 self.update_camera_effect(effects_mode);
@@ -70,7 +70,14 @@ impl DesktopSystem {
         self.update_launcher_visor_expansion(focused_target.as_ref(), effects_mode.animate());
     }
 
-    fn handle_reflow_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
+    /// Measures one layout target in a bottom-up pass and schedules follow-up work.
+    ///
+    /// If any direct child is still unmeasured, this does not measure the target yet.
+    /// Instead it enqueues `Measure` for each missing child and returns immediately.
+    ///
+    /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
+    /// and re-enqueues `Measure(parent)` only when the measured size changed.
+    fn measure_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
         let focused_target = self.event_router.focused().cloned();
         let focused_instance = self
             .aggregates
@@ -89,12 +96,12 @@ impl DesktopSystem {
         if !missing_children.is_empty() {
             let mut effects = Effects::None;
             for child in missing_children {
-                effects += DesktopEffect::ReflowLayout(child);
+                effects += DesktopEffect::Measure(child);
             }
-            // Redundant by current semantics: each first child measure reports size_changed and
-            // re-enqueues its parent. Keep this explicit parent reflow to preserve behavior if
-            // measure_node/size_changed rules change.
-            effects += DesktopEffect::ReflowLayout(target);
+            // Each child measure reports size_changed and re-enqueues its parent, so we don't need
+            // to do this here explicitly.
+            //
+            // effects += DesktopEffect::ReflowLayout(target);
             return Ok(effects);
         }
 
@@ -102,16 +109,21 @@ impl DesktopSystem {
             self.layout_state
                 .measure_node(&target, &self.aggregates.hierarchy, &algorithm);
 
-        let mut effects = Effects::from(DesktopEffect::PlaceNode(target));
+        let mut effects = Effects::from(DesktopEffect::Place(target));
         if outcome.size_changed
             && let Some(parent) = outcome.parent
         {
-            effects += DesktopEffect::ReflowLayout(parent);
+            effects += DesktopEffect::Measure(parent);
         }
 
         Ok(effects)
     }
 
+    /// Places direct children under `root` and schedules render-facing updates.
+    ///
+    /// This consumes measured child sizes from layout state, computes child placements, and
+    /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
+    /// placement changed, then always schedules camera and hover synchronization.
     fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
         let focused_target = self.event_router.focused().cloned();
         let focused_instance = self
@@ -236,7 +248,7 @@ impl DesktopSystem {
         let mut effects = Effects::None;
         for target in targets {
             if let Some(launcher_id) = self.focus_target_launcher_for_layout(target) {
-                effects += DesktopEffect::ReflowLayout(DesktopTarget::Launcher(launcher_id));
+                effects += DesktopEffect::Measure(DesktopTarget::Launcher(launcher_id));
             }
         }
         effects
@@ -257,7 +269,7 @@ impl DesktopSystem {
     pub(super) fn flush_deferred_focus_layout(&mut self) -> Effects {
         let mut effects = Effects::None;
         for launcher_id in self.deferred_focus_layout_launchers.drain() {
-            effects += DesktopEffect::ReflowLayout(DesktopTarget::Launcher(launcher_id));
+            effects += DesktopEffect::Measure(DesktopTarget::Launcher(launcher_id));
         }
         effects
     }

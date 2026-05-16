@@ -48,19 +48,6 @@ impl DesktopLayoutState {
         }
     }
 
-    pub(super) fn missing_child_measures(
-        &self,
-        target: &DesktopTarget,
-        topology: &impl LayoutTopology<DesktopTarget>,
-    ) -> Vec<DesktopTarget> {
-        topology
-            .children_of(target)
-            .iter()
-            .filter(|child| !self.entries.contains_key(*child))
-            .cloned()
-            .collect()
-    }
-
     pub(super) fn measure_node(
         &mut self,
         target: &DesktopTarget,
@@ -97,6 +84,19 @@ impl DesktopLayoutState {
         }
     }
 
+    pub(super) fn missing_child_measures(
+        &self,
+        target: &DesktopTarget,
+        topology: &impl LayoutTopology<DesktopTarget>,
+    ) -> Vec<DesktopTarget> {
+        topology
+            .children_of(target)
+            .iter()
+            .filter(|child| !self.entries.contains_key(*child))
+            .cloned()
+            .collect()
+    }
+
     pub(super) fn place_children_of(
         &mut self,
         target: &DesktopTarget,
@@ -114,11 +114,12 @@ impl DesktopLayoutState {
             let is_changed = self
                 .entries
                 .get(&target)
-                .and_then(|current| current.placement())
+                .copied()
+                .and_then(LayoutEntry::placement)
                 .is_none_or(|current| current != placement);
-            self.entries
-                .insert(target.clone(), LayoutEntry::Placed { placement });
             if is_changed {
+                self.entries
+                    .insert(target.clone(), LayoutEntry::Placed { placement });
                 changed_targets.push(target);
             }
         }

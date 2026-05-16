@@ -113,7 +113,7 @@ impl DesktopSystem {
             DesktopTarget::View(view_creation_info.id),
         )?;
 
-        Ok(DesktopEffect::ReflowLayout(DesktopTarget::Instance(instance)).into())
+        Ok(DesktopEffect::Measure(DesktopTarget::Instance(instance)).into())
     }
 
     pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<Effects> {

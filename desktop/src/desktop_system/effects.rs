@@ -7,8 +7,8 @@ use super::DesktopTarget;
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopEffect {
     UpdateLauncherExpansion,
-    ReflowLayout(DesktopTarget),
-    PlaceNode(DesktopTarget),
+    Measure(DesktopTarget),
+    Place(DesktopTarget),
     ApplyLayout(DesktopTarget),
     UpdateCamera,
     SyncHover,
