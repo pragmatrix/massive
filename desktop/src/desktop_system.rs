@@ -46,8 +46,7 @@ use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{
-    DesktopPresenter, LaunchProfileId, LauncherPresenter, MatrixPlacement, ProjectId,
-    ProjectPresenter,
+    DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
@@ -150,7 +149,6 @@ struct Aggregates {
     desktop_presenter: DesktopPresenter,
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: Map<LaunchProfileId, LauncherPresenter>,
-    launcher_placements: Map<LaunchProfileId, MatrixPlacement>,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
@@ -166,7 +164,6 @@ impl Aggregates {
 
             desktop_presenter,
             launchers: Map::default(),
-            launcher_placements: Map::default(),
             instances: Map::default(),
         }
     }

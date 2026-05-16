@@ -61,13 +61,13 @@ impl DesktopSystem {
                 let presenter = LauncherPresenter::new(
                     matrix_location,
                     id,
+                    placement,
                     profile,
                     massive_geometry::Size::default(),
                     scene,
                     &mut self.fonts.lock(),
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
-                self.aggregates.launcher_placements.insert(id, placement)?;
 
                 self.aggregates
                     .hierarchy
@@ -79,7 +79,6 @@ impl DesktopSystem {
                 let effects = self.remove_target(&target)?;
 
                 self.aggregates.launchers.remove(&id)?;
-                self.aggregates.launcher_placements.remove(&id)?;
                 effects
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {

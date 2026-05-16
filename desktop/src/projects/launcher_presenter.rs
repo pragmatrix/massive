@@ -18,7 +18,7 @@ use super::visor_layout;
 use crate::Map;
 use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::LaunchProfileId;
+use crate::projects::{LaunchProfileId, MatrixPlacement};
 
 use super::configuration::{LaunchProfile, LauncherMode};
 
@@ -51,6 +51,7 @@ pub struct LauncherPresenter {
     #[allow(unused)]
     id: LaunchProfileId,
     profile: LaunchProfile,
+    pub placement: MatrixPlacement,
     mode: LauncherMode,
     layout_transform: Transform,
     scene_transform: Handle<Transform>,
@@ -75,6 +76,7 @@ impl LauncherPresenter {
     pub fn new(
         parent_location: Handle<Location>,
         id: LaunchProfileId,
+        placement: MatrixPlacement,
         profile: LaunchProfile,
         size: Size,
         scene: &Scene,
@@ -114,6 +116,7 @@ impl LauncherPresenter {
         Self {
             id,
             profile,
+            placement,
             mode,
             layout_transform: Transform::IDENTITY,
             scene_transform: our_transform,

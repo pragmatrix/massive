@@ -146,7 +146,7 @@ impl DesktopLayoutAlgorithm<'_> {
             let DesktopTarget::Launcher(launcher_id) = child else {
                 panic!("Project matrix children must be launchers")
             };
-            let placement = self.aggregates.launcher_placements[launcher_id];
+            let placement = self.aggregates.launchers[launcher_id].placement;
             let offset = Offset::from([
                 track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
                 track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
@@ -176,7 +176,7 @@ impl DesktopLayoutAlgorithm<'_> {
             let DesktopTarget::Launcher(launcher_id) = child else {
                 panic!("Project matrix children must be launchers")
             };
-            let placement = self.aggregates.launcher_placements[launcher_id];
+            let placement = self.aggregates.launchers[launcher_id].placement;
             let column = placement.column as usize;
             let row = placement.row as usize;
 
