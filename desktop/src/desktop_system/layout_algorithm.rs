@@ -195,7 +195,7 @@ impl DesktopLayoutAlgorithm<'_> {
     }
 
     fn project_header_size(&self, project_id: ProjectId) -> MeasuredLayout<2> {
-        let measured = self.aggregates.project_headers[&project_id].measured_size();
+        let measured = self.aggregates.projects[&project_id].header.measured_size();
         let size: Size<2> = SizePx::new(
             measured.width,
             max(measured.height, PROJECT_HEADER_MIN_HEIGHT),

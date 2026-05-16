@@ -232,16 +232,18 @@ impl DesktopSystem {
             }
             DesktopTarget::ProjectHeader(project_id) => {
                 self.aggregates
-                    .project_headers
+                    .projects
                     .get_mut(&project_id)
-                    .expect("Missing project header")
+                    .expect("Missing project")
+                    .header
                     .set_layout(size_px, transform);
             }
             DesktopTarget::ProjectMatrix(project_id) => {
                 self.aggregates
-                    .project_matrices
+                    .projects
                     .get_mut(&project_id)
-                    .expect("Missing project matrix")
+                    .expect("Missing project")
+                    .matrix
                     .set_layout(size_px, transform);
             }
             DesktopTarget::Launcher(launcher_id) => {
