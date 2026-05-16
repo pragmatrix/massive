@@ -44,19 +44,15 @@ impl DesktopSystem {
                 Some(center.to_camera().with_size(size))
             }
             DesktopTarget::Group(_) | DesktopTarget::Launcher(_) => {
-                let transform = self.layouter.placement(focus)?.transform;
+                let transform = self.placement(focus)?.transform;
                 let camera_transform: Transform = transform.translate.into();
                 Some(camera_transform.to_camera())
             }
             DesktopTarget::Instance(instance_id) => {
-                let instance = &self.aggregates.instances[instance_id];
-                // Keep camera focus anchored to the intended layout target so new instances
-                // are centered immediately even while their visuals animate in.
-                let transform: Transform = instance
-                    .layout_transform_animation
-                    .final_value()
-                    .translate
-                    .into();
+                let transform = self
+                    .placement(&DesktopTarget::Instance(*instance_id))?
+                    .transform;
+                let transform: Transform = transform.translate.into();
                 Some(transform.to_camera())
             }
             DesktopTarget::View(_) => {
@@ -77,7 +73,7 @@ impl DesktopSystem {
             return None;
         }
 
-        let from_transform = self.layouter.placement(from)?.transform;
+        let from_transform = self.placement(from)?.transform;
         let from_center = Point::new(from_transform.translate.x, from_transform.translate.y);
         let launcher_targets_without_instances = self
             .aggregates
@@ -95,7 +91,7 @@ impl DesktopSystem {
         let navigation_candidates = launcher_targets_without_instances
             .chain(all_instances_or_views)
             .filter_map(|target| {
-                let t = self.layouter.placement(&target)?.transform;
+                let t = self.placement(&target)?.transform;
                 let center = Point::new(t.translate.x, t.translate.y);
                 Some((target, center))
             });

@@ -1,6 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{Result, bail};
+
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Point, Rect, SizePx, Transform, Vector3};
@@ -223,17 +224,6 @@ impl InstancePresenter {
         location.update_if_changed_with(|location| {
             location.alpha = alpha;
         });
-    }
-
-    pub fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
-        let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
-        let origin_translation =
-            layout_transform.translate + layout_transform.rotate * -local_center;
-        Transform::new(
-            origin_translation,
-            layout_transform.rotate,
-            layout_transform.scale,
-        )
     }
 }
 

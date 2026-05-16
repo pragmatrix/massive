@@ -2,6 +2,7 @@ use anyhow::Result;
 
 use massive_shell::Scene;
 
+use super::effects::{DesktopEffect, Effects};
 use super::{DesktopSystem, DesktopTarget, ProjectCommand};
 use crate::projects::{GroupPresenter, LauncherPresenter};
 
@@ -10,27 +11,51 @@ impl DesktopSystem {
         &mut self,
         command: ProjectCommand,
         scene: &Scene,
-    ) -> Result<()> {
-        match command {
+    ) -> Result<Effects> {
+        let effects = match command {
             ProjectCommand::AddLaunchGroup {
                 parent,
                 id,
                 properties,
             } => {
-                let parent = parent.map(|p| p.into()).unwrap_or(DesktopTarget::Desktop);
-                self.aggregates.hierarchy.add(parent.clone(), id.into())?;
+                let (parent_target, parent_location) = match parent {
+                    Some(parent_group) => {
+                        let parent_location = self
+                            .aggregates
+                            .groups
+                            .get(&parent_group)
+                            .expect("Parent group missing")
+                            .location();
+                        (DesktopTarget::Group(parent_group), parent_location)
+                    }
+                    None => (
+                        DesktopTarget::Desktop,
+                        self.aggregates.project_presenter.location.clone(),
+                    ),
+                };
+
+                self.aggregates
+                    .hierarchy
+                    .add(parent_target.clone(), id.into())?;
                 self.aggregates
                     .groups
-                    .insert(id, GroupPresenter::new(properties))?;
-                self.layouter.mark_reflow_pending(parent);
+                    .insert(id, GroupPresenter::new(properties, parent_location, scene))?;
+                DesktopEffect::Measure(parent_target).into()
             }
             ProjectCommand::RemoveLaunchGroup(group) => {
-                self.remove_target(&group.into())?;
+                let effects = self.remove_target(&group.into())?;
                 self.aggregates.groups.remove(&group)?;
+                effects
             }
             ProjectCommand::AddLauncher { group, id, profile } => {
+                let group_location = self
+                    .aggregates
+                    .groups
+                    .get(&group)
+                    .expect("Group missing")
+                    .location();
                 let presenter = LauncherPresenter::new(
-                    self.aggregates.project_presenter.location.clone(),
+                    group_location,
                     id,
                     profile,
                     massive_geometry::Size::default(),
@@ -40,20 +65,21 @@ impl DesktopSystem {
                 self.aggregates.launchers.insert(id, presenter)?;
 
                 self.aggregates.hierarchy.add(group.into(), id.into())?;
-                self.layouter
-                    .mark_reflow_pending(DesktopTarget::Group(group));
+                DesktopEffect::Measure(DesktopTarget::Group(group)).into()
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);
-                self.remove_target(&target)?;
+                let effects = self.remove_target(&target)?;
 
                 self.aggregates.launchers.remove(&id)?;
+                effects
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
-                self.aggregates.startup_profile = launch_profile_id
+                self.aggregates.startup_profile = launch_profile_id;
+                Effects::None
             }
-        }
+        };
 
-        Ok(())
+        Ok(effects)
     }
 }

@@ -1,16 +1,50 @@
 use std::cmp::max;
 
+use derive_more::From;
+
 use massive_geometry::{RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
-    LayoutAlgorithm, LayoutAxis, Offset, Rect as LayoutRect, Size, TransformOffset,
+    LayoutAlgorithm, LayoutAxis, Offset, Rect as LayoutRect, Size, Thickness, TransformOffset,
 };
 
 use massive_applications::InstanceId;
 
 use super::{Aggregates, DesktopTarget};
-use crate::layout::{LayoutSpec, ToContainer};
+use crate::layout::{ContainerBuilder, ToContainer};
 
 const SECTION_SPACING: u32 = 20;
+
+#[derive(Debug, From)]
+enum LayoutSpec {
+    Container {
+        axis: LayoutAxis,
+        padding: Thickness<2>,
+        spacing: u32,
+    },
+    #[from]
+    Leaf(SizePx),
+}
+
+impl From<LayoutAxis> for LayoutSpec {
+    fn from(axis: LayoutAxis) -> Self {
+        Self::Container {
+            axis,
+            padding: Default::default(),
+            spacing: 0,
+        }
+    }
+}
+
+impl From<ContainerBuilder> for LayoutSpec {
+    fn from(value: ContainerBuilder) -> Self {
+        let (axis, padding, spacing) = value.into_parts();
+        LayoutSpec::Container {
+            axis,
+            padding,
+            spacing,
+        }
+    }
+}
 
 pub(super) struct DesktopLayoutAlgorithm<'a> {
     pub(super) aggregates: &'a Aggregates,
@@ -22,16 +56,15 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
     fn place_children(
         &self,
         id: &DesktopTarget,
-        parent_offset: Offset<2>,
         child_sizes: &[Size<2>],
     ) -> Vec<TransformOffset<Transform, 2>> {
         if let DesktopTarget::Launcher(_) = id {
             // Launcher panels run a dedicated path because transform assignment is
             // a second phase over the regular 2D child placement.
-            return self.place_launcher_children(id, parent_offset, child_sizes);
+            return self.place_launcher_children(id, child_sizes);
         }
 
-        self.place_standard_children(id, parent_offset, child_sizes)
+        self.place_standard_children(id, child_sizes)
     }
 
     fn measure(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
@@ -75,7 +108,6 @@ impl DesktopLayoutAlgorithm<'_> {
     fn place_launcher_children(
         &self,
         id: &DesktopTarget,
-        parent_offset: Offset<2>,
         child_sizes: &[Size<2>],
     ) -> Vec<TransformOffset<Transform, 2>> {
         let DesktopTarget::Launcher(launcher_id) = id else {
@@ -92,7 +124,7 @@ impl DesktopLayoutAlgorithm<'_> {
         });
 
         launcher.place_panel_children(
-            parent_offset,
+            Offset::default(),
             child_sizes,
             &child_instances,
             focused_index,
@@ -103,7 +135,6 @@ impl DesktopLayoutAlgorithm<'_> {
     fn place_standard_children(
         &self,
         id: &DesktopTarget,
-        parent_offset: Offset<2>,
         child_sizes: &[Size<2>],
     ) -> Vec<TransformOffset<Transform, 2>> {
         match self.resolve_layout_spec(id) {
@@ -113,8 +144,7 @@ impl DesktopLayoutAlgorithm<'_> {
                 padding,
                 spacing,
             } => {
-                let mut cursor = parent_offset;
-                cursor += Offset::from(padding.leading);
+                let cursor = Offset::from(padding.leading);
                 place_container_children(axis, spacing as i32, cursor, child_sizes)
             }
         }

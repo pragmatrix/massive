@@ -3,18 +3,19 @@ use std::{sync::Arc, time::Duration};
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, Point, Rect, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
-use massive_scene::{Handle, IntoVisual, Location, Object, Visual};
+use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, Visual};
 use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
 use super::LaunchGroupProperties;
-use crate::instance_presenter::InstancePresenter;
 
+/// Presents project-level visuals and scene anchors.
+///
+/// Responsibilities:
+/// - Provides the shared parent location for launcher and instance presenters.
+/// - Presents the project's hover outline visual.
 #[derive(Debug)]
 pub struct ProjectPresenter {
-    /// The project hierarchy is used for layout. It references the presenters through `GroupIds` and
-    /// `LaunchProfileIds`.
-    // project: Project,
     pub location: Handle<Location>,
 
     // groups: HashMap<GroupId, GroupPresenter>,
@@ -85,10 +86,9 @@ impl ProjectPresenter {
 
         // Position the hover visual in world space using the placement's center-based transform.
         let local_center = local_rect.center();
-        let scene_transform = InstancePresenter::transform_with_layout(
-            hover_placement.transform,
-            Point::new(local_center.x, local_center.y),
-        );
+        let scene_transform = hover_placement
+            .transform
+            .to_origin_space(Point::new(local_center.x, local_center.y));
         self.hover_scene_transform
             .update_if_changed(scene_transform);
 
@@ -122,13 +122,38 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
 pub struct GroupPresenter {
     pub properties: LaunchGroupProperties,
     pub size: SizePx,
+    scene_transform: Handle<Transform>,
+    location: Handle<Location>,
 }
 
 impl GroupPresenter {
-    pub fn new(properties: LaunchGroupProperties) -> Self {
+    pub fn new(
+        properties: LaunchGroupProperties,
+        parent_location: Handle<Location>,
+        scene: &Scene,
+    ) -> Self {
+        let scene_transform = Transform::IDENTITY.enter(scene);
+        let location = scene_transform
+            .to_location()
+            .relative_to(&parent_location)
+            .enter(scene);
+
         Self {
             properties,
             size: SizePx::default(),
+            scene_transform,
+            location,
         }
+    }
+
+    pub fn location(&self) -> Handle<Location> {
+        self.location.clone()
+    }
+
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
+        self.size = size;
+        let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
+        let scene_transform = layout_transform.to_origin_space(local_center);
+        self.scene_transform.update_if_changed(scene_transform);
     }
 }

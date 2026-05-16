@@ -117,6 +117,7 @@ where
         self.inner.value.lock()
     }
 
+    // Internal access.
     fn value_mut(&self) -> MutexGuard<'_, T> {
         self.inner.value.lock()
     }

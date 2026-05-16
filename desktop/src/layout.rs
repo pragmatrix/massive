@@ -1,38 +1,4 @@
-use derive_more::From;
-
-use massive_geometry::SizePx;
 use massive_layout::{LayoutAxis, Thickness};
-
-#[derive(Debug, From)]
-pub enum LayoutSpec {
-    Container {
-        axis: LayoutAxis,
-        padding: Thickness<2>,
-        spacing: u32,
-    },
-    #[from]
-    Leaf(SizePx),
-}
-
-impl From<LayoutAxis> for LayoutSpec {
-    fn from(axis: LayoutAxis) -> Self {
-        Self::Container {
-            axis,
-            padding: Default::default(),
-            spacing: 0,
-        }
-    }
-}
-
-impl From<ContainerBuilder> for LayoutSpec {
-    fn from(value: ContainerBuilder) -> Self {
-        LayoutSpec::Container {
-            axis: value.axis,
-            padding: value.padding,
-            spacing: value.spacing,
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct ContainerBuilder {
@@ -58,6 +24,10 @@ impl ContainerBuilder {
     pub fn spacing(mut self, spacing: u32) -> Self {
         self.spacing = spacing;
         self
+    }
+
+    pub(crate) fn into_parts(self) -> (LayoutAxis, Thickness<2>, u32) {
+        (self.axis, self.padding, self.spacing)
     }
 }
 

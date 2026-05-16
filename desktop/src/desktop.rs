@@ -159,7 +159,7 @@ impl Desktop {
                                 && let Some(input_event) =
                                     self.event_manager.add_event(view_event, Instant::now())
                             {
-                                let cmd = self.system.process_input_event(
+                                let (cmd, effects) = self.system.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
                                     self.renderer.geometry(),
@@ -170,15 +170,16 @@ impl Desktop {
                                     self.cursor_visible = cursor_visible;
                                 }
                                 self.system
-                                    .transact(
+                                    .transact_with_effects(
                                         cmd,
                                         &self.scene,
                                         &mut self.instance_manager,
                                         if input_event.any_buttons_pressed() {
-                                            TransactionEffectsMode::CameraLocked.into()
+                                            TransactionEffectsMode::CameraLocked
                                         } else {
-                                            None
+                                            TransactionEffectsMode::Normal
                                         },
+                                        effects,
                                     )?;
                             }
 
@@ -240,9 +241,9 @@ impl Desktop {
         command: InstanceCommand,
     ) -> Result<()> {
         let effects_mode = if self.system.any_buttons_pressed() {
-            TransactionEffectsMode::CameraLocked.into()
+            TransactionEffectsMode::CameraLocked
         } else {
-            None
+            TransactionEffectsMode::Normal
         };
 
         match command {

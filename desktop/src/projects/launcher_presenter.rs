@@ -54,6 +54,7 @@ pub struct LauncherPresenter {
     mode: LauncherMode,
     layout_transform: Transform,
     scene_transform: Handle<Transform>,
+    location: Handle<Location>,
 
     pub size: Animated<Size>,
     background: Handle<Visual>,
@@ -106,7 +107,7 @@ impl LauncherPresenter {
             .size(32.0 * 8.0)
             .shape(font_system)
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
-            .at(our_location)
+            .at(&our_location)
             .with_decal_order(0)
             .enter(scene);
 
@@ -116,6 +117,7 @@ impl LauncherPresenter {
             mode,
             layout_transform: Transform::IDENTITY,
             scene_transform: our_transform,
+            location: our_location,
             size: scene.animated(size),
             background,
             name,
@@ -127,16 +129,22 @@ impl LauncherPresenter {
     }
 
     pub fn should_render_instance_background(&self) -> bool {
-        self.mode == LauncherMode::Visor
+        match self.mode {
+            LauncherMode::Band => false,
+            LauncherMode::Visor => true,
+        }
     }
 
     pub fn includes_overflow_children_in_hit_testing(&self) -> bool {
-        matches!(self.mode, LauncherMode::Visor)
+        match self.mode {
+            LauncherMode::Band => false,
+            LauncherMode::Visor => true,
+        }
     }
 
     pub fn place_panel_children(
         &self,
-        parent_offset: Offset<2>,
+        local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         child_instances: &[InstanceId],
         focused_index: Option<usize>,
@@ -146,7 +154,7 @@ impl LauncherPresenter {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
-                parent_offset,
+                local_offset,
                 child_sizes,
             ),
             LauncherMode::Visor => {
@@ -159,7 +167,7 @@ impl LauncherPresenter {
                 });
 
                 self.place_visor_panel_children(
-                    parent_offset,
+                    local_offset,
                     child_sizes,
                     focused_index,
                     default_panel_size,
@@ -170,13 +178,13 @@ impl LauncherPresenter {
 
     fn place_visor_panel_children(
         &self,
-        parent_offset: Offset<2>,
+        local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         focused_index: Option<usize>,
         default_panel_size: SizePx,
     ) -> Vec<TransformOffset<Transform, 2>> {
         let offset =
-            centered_children_offset(parent_offset, child_sizes, default_panel_size.width as i32);
+            centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
 
         let expansion_factor = self.visor_expansion_animation.value();
 
@@ -298,6 +306,10 @@ impl LauncherPresenter {
         }
     }
 
+    pub fn location(&self) -> Handle<Location> {
+        self.location.clone()
+    }
+
     pub fn fade_out(&mut self) {
         self.fader
             .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
@@ -328,8 +340,7 @@ impl LauncherPresenter {
         let size = self.size.value();
         let local_center = size.to_rect().center();
 
-        let scene_transform =
-            InstancePresenter::transform_with_layout(self.layout_transform, local_center);
+        let scene_transform = self.layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
 
         let alpha = self.fader.value();
@@ -376,11 +387,11 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
 }
 
 fn centered_children_offset(
-    parent_offset: Offset<2>,
+    local_offset: Offset<2>,
     child_sizes: &[LayoutSize<2>],
     panel_width: i32,
 ) -> Offset<2> {
-    let mut offset = parent_offset;
+    let mut offset = local_offset;
     offset[0] += (panel_width - children_span(child_sizes)) / 2;
     offset
 }

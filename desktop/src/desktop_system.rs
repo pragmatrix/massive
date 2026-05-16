@@ -10,12 +10,14 @@
 
 mod command_dispatch;
 mod commands;
+mod effects;
 mod event_forwarding;
 mod focus_input;
 mod focus_path_ext;
 mod hierarchy_focus;
 mod layout_algorithm;
 mod layout_effects;
+mod layout_state;
 mod navigation;
 mod presentation;
 mod project_commands;
@@ -28,13 +30,15 @@ use std::time::Duration;
 use massive_animation::Animated;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
-use massive_layout::{IncrementalLayouter, LayoutTopology, Placement};
+use massive_layout::{LayoutTopology, Placement};
 use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene};
 
 pub use commands::{DesktopCommand, ProjectCommand};
+pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub(crate) use layout_algorithm::place_container_children;
+use layout_state::DesktopLayoutState;
 
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::FocusPath;
@@ -64,10 +68,30 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransactionEffectsMode {
+    #[default]
+    Normal,
     Setup,
     CameraLocked,
+}
+
+impl TransactionEffectsMode {
+    pub fn animate(self) -> bool {
+        match self {
+            TransactionEffectsMode::Setup => false,
+            TransactionEffectsMode::CameraLocked => true,
+            TransactionEffectsMode::Normal => true,
+        }
+    }
+
+    pub fn permit_camera_moves(self) -> bool {
+        match self {
+            TransactionEffectsMode::Setup => true,
+            TransactionEffectsMode::CameraLocked => false,
+            TransactionEffectsMode::Normal => true,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -83,7 +107,7 @@ pub struct DesktopSystem {
     deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
 
     #[debug(skip)]
-    layouter: IncrementalLayouter<DesktopTarget, Transform, 2>,
+    layout_state: DesktopLayoutState,
 
     aggregates: Aggregates,
 }
@@ -135,7 +159,7 @@ impl DesktopSystem {
 
         let event_router = EventRouter::new();
 
-        let layouter = IncrementalLayouter::with_initial_reflow(DesktopTarget::Desktop);
+        let layout_state = DesktopLayoutState::new();
 
         let system = Self {
             env,
@@ -147,7 +171,7 @@ impl DesktopSystem {
             camera: scene.animated(PixelCamera::default()),
             pointer_feedback_enabled: true,
             deferred_focus_layout_launchers: HashSet::new(),
-            layouter,
+            layout_state,
 
             aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
         };
@@ -164,13 +188,32 @@ impl DesktopSystem {
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
-        let effects_mode = effects_mode.into();
+        let effects_mode = effects_mode.into().unwrap_or_default();
+
+        self.transact_with_effects(
+            transaction,
+            scene,
+            instance_manager,
+            effects_mode,
+            Effects::None,
+        )
+    }
+
+    pub fn transact_with_effects(
+        &mut self,
+        transaction: impl Into<Transaction<DesktopCommand>>,
+        scene: &Scene,
+        instance_manager: &mut InstanceManager,
+        effects_mode: TransactionEffectsMode,
+        initial_effects: Effects,
+    ) -> Result<()> {
+        let mut command_effects = initial_effects;
 
         for command in transaction.into() {
-            self.apply_command(command, scene, instance_manager)?;
+            command_effects += self.apply_command(command, scene, instance_manager)?;
         }
 
-        self.update_effects(effects_mode)?;
+        self.run_effects_to_completion(effects_mode, self.transaction_effects(command_effects))?;
 
         Ok(())
     }
@@ -234,7 +277,7 @@ impl DesktopSystem {
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    fn remove_target(&mut self, target: &DesktopTarget) -> Result<()> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<Effects> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
@@ -245,17 +288,21 @@ impl DesktopSystem {
             .cloned()
             .expect("Internal error: remove_target called for root target");
 
+        // Explicitly invalidate layout cache for the removed subtree.
+        self.layout_state
+            .remove_subtree(target, &self.aggregates.hierarchy);
+
         // Finally remove them.
         self.aggregates.hierarchy.remove(target)?;
         // Mark the surviving parent, not the removed node:
         // - removed nodes are ignored by incremental recompute root collection,
         // - parent refresh updates cached children and recomputes sibling placement.
-        self.layouter.mark_reflow_pending(parent);
-        Ok(())
+        Ok(effects::DesktopEffect::Measure(parent).into())
     }
 
     fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
-        self.layouter.placement(target).copied()
+        self.layout_state
+            .absolute_placement(target, &self.aggregates.hierarchy)
     }
 }
 
