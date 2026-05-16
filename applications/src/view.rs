@@ -76,6 +76,23 @@ impl View {
             .relative_to(&desktop_location)
             .enter(&scene);
 
+        // Bug:
+        // Architecture: `CreateView` can immediately trigger desktop-side visuals that
+        // use `desktop_location`. If renderer ingestion of the create changes lags behind this
+        // command stream, the reference becomes visible before its definition.
+        //
+        // Failure mode details:
+        // - this method creates `desktop_location` and `local_transform` handles in the view scene
+        // - `CreateView` exposes `desktop_location` to desktop presentation immediately
+        // - view scene create changes are only uploaded when a later `Render` submission is sent
+        // - if desktop emits visuals that reference this location before renderer has ingested
+        //   those creates, renderer-side location resolution can index a missing id and panic
+        //
+        // Architecture issue: metadata/identity and scene-graph definitions cross subsystem
+        // boundaries in separate asynchronous messages without an atomic activation step.
+        //
+        // Likely long-term fixes:
+        // - bundle required initial scene creates with `CreateView`
         command_sender.send((
             instance,
             InstanceCommand::CreateView(ViewCreationInfo {
