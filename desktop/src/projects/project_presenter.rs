@@ -3,11 +3,14 @@ use std::{sync::Arc, time::Duration};
 use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, Point, Rect, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
-use massive_scene::{Handle, IntoVisual, Location, Object, ToLocation, Visual};
-use massive_shapes::{Shape, StrokeRect};
+use massive_renderer::text::FontSystem;
+use massive_scene::{At, Handle, IntoVisual, Location, Object, ToLocation, Visual};
+use massive_shapes::{IntoShape, Shape, Size as SizeExt, StrokeRect};
 use massive_shell::Scene;
 
-use super::LaunchGroupProperties;
+use super::ProjectProperties;
+
+const PROJECT_HEADER_TEXT_COLOR: Color = Color::WHITE;
 
 /// Presents project-level visuals and scene anchors.
 ///
@@ -15,11 +18,8 @@ use super::LaunchGroupProperties;
 /// - Provides the shared parent location for launcher and instance presenters.
 /// - Presents the project's hover outline visual.
 #[derive(Debug)]
-pub struct ProjectPresenter {
+pub struct DesktopPresenter {
     pub location: Handle<Location>,
-
-    // groups: HashMap<GroupId, GroupPresenter>,
-    // launchers: HashMap<LaunchProfileId, LauncherPresenter>,
 
     // Idea: Use a type that combines Alpha with another Interpolatable type.
     // Robustness: Alpha should be a type.
@@ -32,7 +32,7 @@ pub struct ProjectPresenter {
     hover_visual: Handle<Visual>,
 }
 
-impl ProjectPresenter {
+impl DesktopPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
 
     pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
@@ -106,7 +106,7 @@ impl ProjectPresenter {
 fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
     rect_alpha
         .map(|(r, a)| {
-            let stroke = ProjectPresenter::HOVER_STROKE;
+            let stroke = DesktopPresenter::HOVER_STROKE;
             StrokeRect {
                 rect: r.with_outset(stroke),
                 stroke: stroke.into(),
@@ -119,18 +119,19 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
 }
 
 #[derive(Debug)]
-pub struct GroupPresenter {
-    pub properties: LaunchGroupProperties,
+pub struct ProjectPresenter {
     pub size: SizePx,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
+    name: Handle<Visual>,
 }
 
-impl GroupPresenter {
+impl ProjectPresenter {
     pub fn new(
-        properties: LaunchGroupProperties,
+        properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
+        font_system: &mut FontSystem,
     ) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
@@ -138,11 +139,20 @@ impl GroupPresenter {
             .relative_to(&parent_location)
             .enter(scene);
 
+        let name = properties
+            .name
+            .size(32.0 * 8.0)
+            .shape(font_system)
+            .map(|text| text.with_color(PROJECT_HEADER_TEXT_COLOR).into_shape())
+            .at(&location)
+            .with_decal_order(0)
+            .enter(scene);
+
         Self {
-            properties,
             size: SizePx::default(),
             scene_transform,
             location,
+            name,
         }
     }
 
@@ -155,5 +165,15 @@ impl GroupPresenter {
         let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
         let scene_transform = layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
+        self.name.update_if_changed_with(|visual| {
+            visual.shapes = match &*visual.shapes {
+                [Shape::GlyphRun(gr)] => [gr
+                    .clone()
+                    .with_color(PROJECT_HEADER_TEXT_COLOR)
+                    .into_shape()]
+                .into(),
+                rest => rest.into(),
+            }
+        });
     }
 }

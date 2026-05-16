@@ -13,6 +13,11 @@ use super::{Aggregates, DesktopTarget};
 use crate::layout::{ContainerBuilder, ToContainer};
 
 const SECTION_SPACING: u32 = 20;
+const PROJECT_PADDING: u32 = 10;
+const PROJECT_HEADER_HEIGHT: u32 = 48;
+const PROJECT_HEADER_SPACING: u32 = 10;
+const MATRIX_COLUMN_SPACING: u32 = 10;
+const MATRIX_ROW_SPACING: u32 = 10;
 
 #[derive(Debug, From)]
 enum LayoutSpec {
@@ -64,6 +69,10 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             return self.place_launcher_children(id, child_sizes);
         }
 
+        if let DesktopTarget::Project(_) = id {
+            return self.place_project_children(id, child_sizes);
+        }
+
         self.place_standard_children(id, child_sizes)
     }
 
@@ -73,6 +82,10 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
                 self.aggregates.launchers[launcher_id].panel_measure_size(self.default_panel_size)
         {
             return size;
+        }
+
+        if let DesktopTarget::Project(_) = id {
+            return self.measure_project(id, child_sizes);
         }
 
         match self.resolve_layout_spec(id) {
@@ -105,6 +118,77 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
 }
 
 impl DesktopLayoutAlgorithm<'_> {
+    fn measure_project(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
+        let (columns, rows) = self.project_matrix_tracks(id, child_sizes);
+        let matrix_width = tracks_span(&columns, MATRIX_COLUMN_SPACING);
+        let matrix_height = tracks_span(&rows, MATRIX_ROW_SPACING);
+        let width = PROJECT_PADDING * 2 + matrix_width;
+        let height =
+            PROJECT_PADDING * 2 + PROJECT_HEADER_HEIGHT + PROJECT_HEADER_SPACING + matrix_height;
+
+        [width, height].into()
+    }
+
+    fn place_project_children(
+        &self,
+        id: &DesktopTarget,
+        child_sizes: &[Size<2>],
+    ) -> Vec<TransformOffset<Transform, 2>> {
+        let children = self.aggregates.hierarchy.get_nested(id);
+        let (columns, rows) = self.project_matrix_tracks(id, child_sizes);
+        let mut placements = Vec::with_capacity(child_sizes.len());
+
+        for (child, child_size) in children.iter().zip(child_sizes.iter().copied()) {
+            let DesktopTarget::Launcher(launcher_id) = child else {
+                panic!("Project children must be launchers")
+            };
+            let placement = self.aggregates.launcher_placements[launcher_id];
+            let offset = Offset::from([
+                PROJECT_PADDING as i32
+                    + track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
+                (PROJECT_PADDING + PROJECT_HEADER_HEIGHT + PROJECT_HEADER_SPACING) as i32
+                    + track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
+            ]);
+            let rect: RectPx = LayoutRect::new(offset, child_size).into();
+            let center = rect.center().to_f64();
+            let transform = Transform::from_translation(Vector3::new(center.x, center.y, 0.0));
+            placements.push(TransformOffset::new(transform, offset));
+        }
+
+        placements
+    }
+
+    fn project_matrix_tracks(
+        &self,
+        id: &DesktopTarget,
+        child_sizes: &[Size<2>],
+    ) -> (Vec<u32>, Vec<u32>) {
+        let children = self.aggregates.hierarchy.get_nested(id);
+        let mut columns = Vec::new();
+        let mut rows = Vec::new();
+
+        for (child, child_size) in children.iter().zip(child_sizes.iter().copied()) {
+            let DesktopTarget::Launcher(launcher_id) = child else {
+                panic!("Project children must be launchers")
+            };
+            let placement = self.aggregates.launcher_placements[launcher_id];
+            let column = placement.column as usize;
+            let row = placement.row as usize;
+
+            if columns.len() <= column {
+                columns.resize(column + 1, 0);
+            }
+            if rows.len() <= row {
+                rows.resize(row + 1, 0);
+            }
+
+            columns[column] = max(columns[column], child_size[0]);
+            rows[row] = max(rows[row], child_size[1]);
+        }
+
+        (columns, rows)
+    }
+
     fn place_launcher_children(
         &self,
         id: &DesktopTarget,
@@ -155,15 +239,9 @@ impl DesktopLayoutAlgorithm<'_> {
             DesktopTarget::Desktop => LayoutAxis::VERTICAL
                 .to_container()
                 .spacing(SECTION_SPACING)
+                .padding((0, 0))
                 .into(),
-            DesktopTarget::Group(group_id) => self.aggregates.groups[group_id]
-                .properties
-                .layout
-                .axis()
-                .to_container()
-                .spacing(10)
-                .padding((10, 10))
-                .into(),
+            DesktopTarget::Project(_) => panic!("Project layout is handled by matrix layout"),
             DesktopTarget::Launcher(_) => {
                 if self.aggregates.hierarchy.get_nested(target).is_empty() {
                     self.default_panel_size.into()
@@ -182,6 +260,18 @@ impl DesktopLayoutAlgorithm<'_> {
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }
     }
+}
+
+fn tracks_span(tracks: &[u32], spacing: u32) -> u32 {
+    tracks.iter().sum::<u32>() + spacing * tracks.len().saturating_sub(1) as u32
+}
+
+fn track_offset(tracks: &[u32], index: usize, spacing: u32) -> i32 {
+    tracks
+        .iter()
+        .take(index)
+        .map(|track| *track as i32 + spacing as i32)
+        .sum()
 }
 
 pub(crate) fn place_container_children(

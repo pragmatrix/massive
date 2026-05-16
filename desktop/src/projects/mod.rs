@@ -12,7 +12,7 @@ mod visor_layout;
 pub use self::configuration::*;
 pub use self::launcher_presenter::LauncherPresenter;
 pub use self::project::*;
-pub use self::project_presenter::*;
+pub use self::project_presenter::{DesktopPresenter, ProjectPresenter};
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,
@@ -47,16 +47,19 @@ impl Default for ProjectConfiguration {
 
         ProjectConfiguration {
             startup: Some(DEFAULT_PROFILE.into()),
-            root: configuration::LaunchGroupSpec {
-                name: "/".into(),
-                layout: LayoutDirection::Horizontal,
-                children: [GroupChildSpec::Launcher {
+            projects: [configuration::ProjectSpec {
+                name: "default".into(),
+                launchers: [configuration::LauncherSpec {
                     name: DEFAULT_PROFILE.into(),
+                    column: 0,
+                    row: 0,
                     mode: LauncherMode::Visor,
+                    tags: Vec::new(),
                     params: Default::default(),
                 }]
                 .into(),
-            },
+            }]
+            .into(),
         }
     }
 }

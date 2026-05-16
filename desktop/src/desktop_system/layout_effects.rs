@@ -212,11 +212,11 @@ impl DesktopSystem {
                     .expect("Instance missing")
                     .set_layout(size_px, transform, animate);
             }
-            DesktopTarget::Group(group_id) => {
+            DesktopTarget::Project(project_id) => {
                 self.aggregates
-                    .groups
-                    .get_mut(&group_id)
-                    .expect("Missing group")
+                    .projects
+                    .get_mut(&project_id)
+                    .expect("Missing project")
                     .set_layout(size_px, transform);
             }
             DesktopTarget::Launcher(launcher_id) => {
@@ -319,7 +319,7 @@ impl DesktopSystem {
         };
 
         self.aggregates
-            .project_presenter
+            .desktop_presenter
             .set_hover_placement(hover_placement);
     }
 

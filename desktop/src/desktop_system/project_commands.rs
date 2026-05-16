@@ -4,7 +4,7 @@ use massive_shell::Scene;
 
 use super::effects::{DesktopEffect, Effects};
 use super::{DesktopSystem, DesktopTarget, ProjectCommand};
-use crate::projects::{GroupPresenter, LauncherPresenter};
+use crate::projects::{LauncherPresenter, ProjectPresenter};
 
 impl DesktopSystem {
     pub(super) fn apply_project_command(
@@ -13,49 +13,43 @@ impl DesktopSystem {
         scene: &Scene,
     ) -> Result<Effects> {
         let effects = match command {
-            ProjectCommand::AddLaunchGroup {
-                parent,
-                id,
-                properties,
-            } => {
-                let (parent_target, parent_location) = match parent {
-                    Some(parent_group) => {
-                        let parent_location = self
-                            .aggregates
-                            .groups
-                            .get(&parent_group)
-                            .expect("Parent group missing")
-                            .location();
-                        (DesktopTarget::Group(parent_group), parent_location)
-                    }
-                    None => (
-                        DesktopTarget::Desktop,
-                        self.aggregates.project_presenter.location.clone(),
-                    ),
-                };
+            ProjectCommand::AddProject { id, properties } => {
+                let parent_target = DesktopTarget::Desktop;
+                let parent_location = self.aggregates.desktop_presenter.location.clone();
 
                 self.aggregates
                     .hierarchy
-                    .add(parent_target.clone(), id.into())?;
-                self.aggregates
-                    .groups
-                    .insert(id, GroupPresenter::new(properties, parent_location, scene))?;
+                    .add(parent_target.clone(), DesktopTarget::Project(id))?;
+                self.aggregates.projects.insert(
+                    id,
+                    ProjectPresenter::new(
+                        properties,
+                        parent_location,
+                        scene,
+                        &mut self.fonts.lock(),
+                    ),
+                )?;
                 DesktopEffect::Measure(parent_target).into()
             }
-            ProjectCommand::RemoveLaunchGroup(group) => {
-                let effects = self.remove_target(&group.into())?;
-                self.aggregates.groups.remove(&group)?;
+            ProjectCommand::RemoveProject(project) => {
+                let effects = self.remove_target(&DesktopTarget::Project(project))?;
+                self.aggregates.projects.remove(&project)?;
                 effects
             }
-            ProjectCommand::AddLauncher { group, id, profile } => {
-                let group_location = self
+            ProjectCommand::AddLauncher {
+                project,
+                id,
+                profile,
+                placement,
+            } => {
+                let project_location = self
                     .aggregates
-                    .groups
-                    .get(&group)
-                    .expect("Group missing")
+                    .projects
+                    .get(&project)
+                    .expect("Project missing")
                     .location();
                 let presenter = LauncherPresenter::new(
-                    group_location,
+                    project_location,
                     id,
                     profile,
                     massive_geometry::Size::default(),
@@ -63,15 +57,19 @@ impl DesktopSystem {
                     &mut self.fonts.lock(),
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
+                self.aggregates.launcher_placements.insert(id, placement)?;
 
-                self.aggregates.hierarchy.add(group.into(), id.into())?;
-                DesktopEffect::Measure(DesktopTarget::Group(group)).into()
+                self.aggregates
+                    .hierarchy
+                    .add(DesktopTarget::Project(project), id.into())?;
+                DesktopEffect::Measure(DesktopTarget::Project(project)).into()
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);
                 let effects = self.remove_target(&target)?;
 
                 self.aggregates.launchers.remove(&id)?;
+                self.aggregates.launcher_placements.remove(&id)?;
                 effects
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {

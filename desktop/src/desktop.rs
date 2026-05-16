@@ -21,8 +21,8 @@ use crate::desktop_system::{
 use crate::event_sourcing::Transaction;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::projects::{
-    GroupId, LaunchGroup, LaunchGroupChild, LaunchGroupProperties, LaunchProfile, LaunchProfileId,
-    Launcher, LauncherMode, LayoutDirection, Project, ProjectConfiguration,
+    LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project,
+    ProjectConfiguration, ProjectId, ProjectProperties, ProjectSet,
 };
 
 #[derive(Debug)]
@@ -46,7 +46,7 @@ impl Desktop {
 
         let projects_dir = env.projects_dir();
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
-        let project = Project::from_configuration(project_configuration)?;
+        let project_set = ProjectSet::from_configuration(project_configuration)?;
 
         // Create the font manager - shared between desktop and instances
         let fonts = FontManager::system();
@@ -101,22 +101,21 @@ impl Desktop {
 
         // Initial setup
 
-        let desktop_groups = desktop_groups();
+        let primary_project = primary_project();
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
         let mut system = DesktopSystem::new(env, fonts.clone(), default_size, &scene)?;
 
-        let desktop_groups_transaction = desktop_groups.transaction.map(DesktopCommand::Project);
+        let primary_project_transaction = primary_project.transaction.map(DesktopCommand::Project);
 
-        // Add the project under the desktop group.
         let project_setup_transaction =
-            project_to_transaction(None, &project).map(DesktopCommand::Project);
+            project_set_to_transaction(&project_set).map(DesktopCommand::Project);
 
         let primary_view_transaction: Transaction<_> = [
             // Present the primary instance / view
             DesktopCommand::PresentInstance {
-                launcher: desktop_groups.primary_launcher,
+                launcher: primary_project.primary_launcher,
                 instance: primary_instance,
             },
             DesktopCommand::PresentView(primary_instance, creation_info),
@@ -124,7 +123,7 @@ impl Desktop {
         .into();
 
         system.transact(
-            desktop_groups_transaction + project_setup_transaction + primary_view_transaction,
+            primary_project_transaction + project_setup_transaction + primary_view_transaction,
             &scene,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
@@ -313,79 +312,69 @@ impl Desktop {
 }
 
 #[derive(Debug)]
-struct DesktopGroups {
+struct PrimaryProject {
     primary_launcher: LaunchProfileId,
     transaction: Transaction<ProjectCommand>,
 }
 
-fn desktop_groups() -> DesktopGroups {
+fn primary_project() -> PrimaryProject {
     let mut cmds = Vec::new();
 
-    let primary_group = GroupId::new();
+    let primary_project = ProjectId::new();
     let primary_launcher = LaunchProfileId::new();
 
-    cmds.push(ProjectCommand::AddLaunchGroup {
-        parent: None,
-        id: primary_group,
-        properties: LaunchGroupProperties {
-            name: "TopBand".into(),
-            layout: LayoutDirection::Horizontal,
+    cmds.push(ProjectCommand::AddProject {
+        id: primary_project,
+        properties: ProjectProperties {
+            name: "Primary / Local".into(),
         },
     });
     cmds.push(ProjectCommand::AddLauncher {
-        group: primary_group,
+        project: primary_project,
         id: primary_launcher,
         profile: LaunchProfile {
             name: "Primary / Local".into(),
             mode: LauncherMode::Band,
+            tags: Vec::new(),
             params: Default::default(),
         },
+        placement: MatrixPlacement { column: 0, row: 0 },
     });
 
-    DesktopGroups {
+    PrimaryProject {
         primary_launcher,
         transaction: cmds.into(),
     }
 }
 
-fn project_to_transaction(
-    parent: Option<GroupId>,
-    project: &Project,
-) -> Transaction<ProjectCommand> {
+fn project_set_to_transaction(project_set: &ProjectSet) -> Transaction<ProjectCommand> {
     let mut commands = Vec::new();
 
-    commands.push(ProjectCommand::SetStartupProfile(project.start));
+    commands.push(ProjectCommand::SetStartupProfile(project_set.start));
 
-    launch_group_commands(parent, &project.root, &mut commands);
+    for project in &project_set.projects {
+        project_commands(project, &mut commands);
+    }
 
     commands.into()
 }
 
-fn launch_group_commands(
-    parent: Option<GroupId>,
-    group: &LaunchGroup,
-    commands: &mut Vec<ProjectCommand>,
-) {
-    commands.push(ProjectCommand::AddLaunchGroup {
-        parent,
-        id: group.id,
-        properties: group.properties.clone(),
+fn project_commands(project: &Project, commands: &mut Vec<ProjectCommand>) {
+    commands.push(ProjectCommand::AddProject {
+        id: project.id,
+        properties: project.properties.clone(),
     });
 
-    for child in &group.children {
-        match child {
-            LaunchGroupChild::Group(launch_group) => {
-                launch_group_commands(Some(group.id), launch_group, commands);
-            }
-            LaunchGroupChild::Launcher(launcher) => launcher_commands(group.id, launcher, commands),
-        }
+    for launcher in &project.launchers {
+        launcher_commands(project.id, launcher, commands);
     }
 }
 
-fn launcher_commands(group: GroupId, launcher: &Launcher, commands: &mut Vec<ProjectCommand>) {
+fn launcher_commands(project: ProjectId, launcher: &Launcher, commands: &mut Vec<ProjectCommand>) {
     commands.push(ProjectCommand::AddLauncher {
-        group,
+        project,
         id: launcher.id,
         profile: launcher.profile.clone(),
+        placement: launcher.placement,
     })
 }

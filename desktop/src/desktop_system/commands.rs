@@ -4,7 +4,9 @@ use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 
 use super::navigation::Direction;
 use crate::instance_manager::ViewPath;
-use crate::projects::{LaunchGroupProperties, LaunchProfile, LaunchProfileId};
+use crate::projects::{
+    LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
+};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -27,18 +29,17 @@ pub enum DesktopCommand {
 
 #[derive(Debug)]
 pub enum ProjectCommand {
-    // Project Configuration
-    AddLaunchGroup {
-        parent: Option<crate::projects::GroupId>,
-        id: crate::projects::GroupId,
-        properties: LaunchGroupProperties,
+    AddProject {
+        id: ProjectId,
+        properties: ProjectProperties,
     },
     #[allow(unused)]
-    RemoveLaunchGroup(crate::projects::GroupId),
+    RemoveProject(ProjectId),
     AddLauncher {
-        group: crate::projects::GroupId,
+        project: ProjectId,
         id: LaunchProfileId,
         profile: LaunchProfile,
+        placement: MatrixPlacement,
     },
     #[allow(unused)]
     RemoveLauncher(LaunchProfileId),

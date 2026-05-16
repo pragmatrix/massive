@@ -1,5 +1,4 @@
-//! A project configuration represents a plane in space that has a specific layout of tiles and
-//! groups and acts as a launching space for new applications.
+//! A project configuration represents ordered project sections with matrix-positioned launchers.
 
 pub mod json_reader;
 mod types;
@@ -13,21 +12,19 @@ use json_reader::ConfigFile;
 pub struct ProjectConfiguration {
     /// The startup profile.
     pub startup: Option<String>,
-    pub root: LaunchGroupSpec,
+    pub projects: Vec<ProjectSpec>,
 }
 
 impl ProjectConfiguration {
-    /// Load a configuration file from JSON. `name` denotes the name of the root group of this
-    /// configuration.
-    pub fn from_json(json: &str, root_group_name: &str) -> Result<Self> {
+    /// Load a configuration file from JSON.
+    pub fn from_json(json: &str, name: &str) -> Result<Self> {
         let config: ConfigFile = serde_json::from_str(json)
-            .with_context(|| format!("Failed to parse JSON configuration {root_group_name}"))?;
+            .with_context(|| format!("Failed to parse JSON configuration {name}"))?;
 
         let startup = config.startup.clone();
-        let group = config.into_launch_group(root_group_name.into());
         Ok(ProjectConfiguration {
             startup,
-            root: group,
+            projects: config.projects,
         })
     }
 }

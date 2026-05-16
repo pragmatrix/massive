@@ -46,7 +46,8 @@ use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{
-    GroupId, GroupPresenter, LaunchProfileId, LauncherPresenter, ProjectPresenter,
+    DesktopPresenter, LaunchProfileId, LauncherPresenter, MatrixPlacement, ProjectId,
+    ProjectPresenter,
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
@@ -57,7 +58,7 @@ const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(2
 pub enum DesktopTarget {
     Desktop,
 
-    Group(GroupId),
+    Project(ProjectId),
     Launcher(LaunchProfileId),
 
     Instance(InstanceId),
@@ -120,24 +121,26 @@ struct Aggregates {
     startup_profile: Option<LaunchProfileId>,
 
     // presenters
-    project_presenter: ProjectPresenter,
-    groups: Map<GroupId, GroupPresenter>,
+    desktop_presenter: DesktopPresenter,
+    projects: Map<ProjectId, ProjectPresenter>,
     launchers: Map<LaunchProfileId, LauncherPresenter>,
+    launcher_placements: Map<LaunchProfileId, MatrixPlacement>,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
 impl Aggregates {
     pub fn new(
         hierarchy: OrderedHierarchy<DesktopTarget>,
-        project_presenter: ProjectPresenter,
+        desktop_presenter: DesktopPresenter,
     ) -> Self {
         Self {
             hierarchy,
             startup_profile: None,
-            groups: Map::default(),
+            projects: Map::default(),
 
-            project_presenter,
+            desktop_presenter,
             launchers: Map::default(),
+            launcher_placements: Map::default(),
             instances: Map::default(),
         }
     }
@@ -155,7 +158,7 @@ impl DesktopSystem {
         let identity_matrix = Transform::IDENTITY.enter(scene);
         let location = Location::new(None, identity_matrix).enter(scene);
 
-        let project_presenter = ProjectPresenter::new(location, scene);
+        let desktop_presenter = DesktopPresenter::new(location, scene);
 
         let event_router = EventRouter::new();
 
@@ -173,7 +176,7 @@ impl DesktopSystem {
             deferred_focus_layout_launchers: HashSet::new(),
             layout_state,
 
-            aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
+            aggregates: Aggregates::new(OrderedHierarchy::default(), desktop_presenter),
         };
 
         Ok(system)

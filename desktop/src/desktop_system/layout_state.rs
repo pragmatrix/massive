@@ -274,7 +274,7 @@ mod tests {
 
     use super::DesktopLayoutState;
     use crate::desktop_system::DesktopTarget;
-    use crate::projects::GroupId;
+    use crate::projects::ProjectId;
 
     #[derive(Default)]
     struct TestTopology {
@@ -351,16 +351,16 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let group = DesktopTarget::Group(GroupId::new());
+        let project = DesktopTarget::Project(ProjectId::new());
         topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![group.clone()]);
+        topology.set_children(DesktopTarget::Desktop, vec![project.clone()]);
 
         let algorithm = TestAlgorithm {
             child_offset: Offset::default(),
             mismatch_child_count: true,
         };
 
-        state.measure_node(&group, &topology, &algorithm);
+        state.measure_node(&project, &topology, &algorithm);
         state.measure_node(&DesktopTarget::Desktop, &topology, &algorithm);
 
         state.place_children_of(&DesktopTarget::Desktop, &topology, &algorithm);
@@ -372,9 +372,9 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let group = DesktopTarget::Group(GroupId::new());
+        let project = DesktopTarget::Project(ProjectId::new());
         topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![group]);
+        topology.set_children(DesktopTarget::Desktop, vec![project]);
 
         let algorithm = TestAlgorithm {
             child_offset: Offset::default(),
@@ -389,16 +389,16 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let group = DesktopTarget::Group(GroupId::new());
+        let project = DesktopTarget::Project(ProjectId::new());
         topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![group.clone()]);
+        topology.set_children(DesktopTarget::Desktop, vec![project.clone()]);
 
         let initial_algorithm = TestAlgorithm {
             child_offset: [0, 0].into(),
             mismatch_child_count: false,
         };
 
-        state.measure_node(&group, &topology, &initial_algorithm);
+        state.measure_node(&project, &topology, &initial_algorithm);
         state.measure_node(&DesktopTarget::Desktop, &topology, &initial_algorithm);
         state.place_children_of(&DesktopTarget::Desktop, &topology, &initial_algorithm);
 
@@ -409,12 +409,12 @@ mod tests {
         let changed =
             state.place_children_of(&DesktopTarget::Desktop, &topology, &updated_algorithm);
 
-        assert_eq!(changed, vec![group.clone()]);
+        assert_eq!(changed, vec![project.clone()]);
 
-        let final_group = state
-            .local_placement(&group)
-            .expect("expected final group placement");
+        let final_project = state
+            .local_placement(&project)
+            .expect("expected final project placement");
 
-        assert_eq!(final_group.rect.offset, [7, 3].into());
+        assert_eq!(final_project.rect.offset, [7, 3].into());
     }
 }

@@ -41,6 +41,7 @@ impl DesktopSystem {
         // Route to the appropriate handler based on the last target in the path
         match target {
             DesktopTarget::Desktop => {}
+            DesktopTarget::Project(..) => {}
             DesktopTarget::Instance(..) => {}
             DesktopTarget::View(view_id) => {
                 let path = self
@@ -64,7 +65,6 @@ impl DesktopSystem {
                     warn!("Sending view event {event:?} failed with {e}");
                 }
             }
-            DesktopTarget::Group(..) => {}
             DesktopTarget::Launcher(launcher_id) => {
                 let launcher = self
                     .aggregates
