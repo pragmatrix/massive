@@ -107,7 +107,22 @@ impl DesktopLayoutState {
             return Vec::new();
         }
 
-        self.update_root_placement(target);
+        if *target == DesktopTarget::Desktop {
+            let size = self
+                .entries
+                .get(target)
+                .expect("Internal error: missing measured layout size for desktop root")
+                .size();
+            self.entries.insert(
+                target.clone(),
+                LayoutEntry::Placed {
+                    placement: Placement::new(
+                        Transform::default(),
+                        LayoutRect::new(Offset::default(), size),
+                    ),
+                },
+            );
+        }
 
         let mut changed_targets = Vec::new();
         for (target, placement) in self.place_children(target, topology, algorithm) {
@@ -235,27 +250,6 @@ impl DesktopLayoutState {
 
     fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
-    }
-
-    fn update_root_placement(&mut self, target: &DesktopTarget) {
-        if *target != DesktopTarget::Desktop {
-            return;
-        }
-
-        let size = self
-            .entries
-            .get(target)
-            .expect("Internal error: missing measured layout size for desktop root")
-            .size();
-        self.entries.insert(
-            target.clone(),
-            LayoutEntry::Placed {
-                placement: Placement::new(
-                    Transform::default(),
-                    LayoutRect::new(Offset::default(), size),
-                ),
-            },
-        );
     }
 }
 
