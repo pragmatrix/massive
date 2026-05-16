@@ -366,6 +366,7 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
         OrderedHierarchy::exists(self, id)
     }
 
+    /// Returns the direct children of `id`, or `[]` when the target is not present.
     fn children_of(&self, id: &DesktopTarget) -> &[DesktopTarget] {
         self.get_nested(id)
     }

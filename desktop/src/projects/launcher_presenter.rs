@@ -8,7 +8,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
-use massive_layout::{LayoutAxis, Offset, Rect as LayoutRect, Size as LayoutSize, TransformOffset};
+use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
@@ -149,7 +149,7 @@ impl LauncherPresenter {
         child_instances: &[InstanceId],
         focused_index: Option<usize>,
         default_panel_size: SizePx,
-    ) -> Vec<TransformOffset<Transform, 2>> {
+    ) -> Vec<Placement<Transform, 2>> {
         match self.mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
@@ -182,7 +182,7 @@ impl LauncherPresenter {
         child_sizes: &[LayoutSize<2>],
         focused_index: Option<usize>,
         default_panel_size: SizePx,
-    ) -> Vec<TransformOffset<Transform, 2>> {
+    ) -> Vec<Placement<Transform, 2>> {
         let offset =
             centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
 
@@ -210,7 +210,10 @@ impl LauncherPresenter {
             let center_y = child_center_y(offset, child_size);
             let transform = visor_child_transform(child_index, center_y, summary);
 
-            child_placements.push(TransformOffset::new(transform, offset));
+            child_placements.push(Placement::new(
+                transform,
+                LayoutRect::new(offset, child_size),
+            ));
             offset[0] += child_size[0] as i32;
         }
 

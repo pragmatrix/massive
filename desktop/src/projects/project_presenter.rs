@@ -5,12 +5,16 @@ use massive_geometry::{Color, Point, Rect, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, IntoVisual, Location, Object, ToLocation, Visual};
-use massive_shapes::{IntoShape, Shape, Size as SizeExt, StrokeRect};
+use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt, StrokeRect};
 use massive_shell::Scene;
 
 use super::ProjectProperties;
 
+const PROJECT_HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
+const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
+const PROJECT_HEADER_BACKGROUND_ALPHA: f32 = 0.65;
 const PROJECT_HEADER_TEXT_COLOR: Color = Color::WHITE;
+const PROJECT_HEADER_TEXT_DECAL_ORDER: usize = 0;
 
 /// Presents project-level visuals and scene anchors.
 ///
@@ -157,6 +161,7 @@ pub struct ProjectHeaderPresenter {
     pub size: SizePx,
     measured_size: SizePx,
     scene_transform: Handle<Transform>,
+    background: Handle<Visual>,
     name: Handle<Visual>,
 }
 
@@ -175,22 +180,27 @@ impl ProjectHeaderPresenter {
 
         let header_run = properties
             .name
-            .size(32.0 * 8.0)
+            .size(PROJECT_HEADER_FONT_SIZE)
             .shape(font_system)
             .expect("Project header shaping produced no glyph run");
         let measured_size = header_run.metrics.size();
+
+        let background = background_shape(Rect::default(), PROJECT_HEADER_BACKGROUND_COLOR)
+            .at(&location)
+            .enter(scene);
 
         let name = header_run
             .with_color(PROJECT_HEADER_TEXT_COLOR)
             .into_shape()
             .at(&location)
-            .with_decal_order(0)
+            .with_decal_order(PROJECT_HEADER_TEXT_DECAL_ORDER)
             .enter(scene);
 
         Self {
             size: SizePx::default(),
             measured_size,
             scene_transform,
+            background,
             name,
         }
     }
@@ -204,6 +214,13 @@ impl ProjectHeaderPresenter {
         let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
         let scene_transform = layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
+        self.background.update_if_changed_with(|visual| {
+            visual.shapes = [background_shape(
+                Rect::from_size((size.width as f64, size.height as f64)),
+                PROJECT_HEADER_BACKGROUND_COLOR.with_alpha(PROJECT_HEADER_BACKGROUND_ALPHA),
+            )]
+            .into()
+        });
         self.name.update_if_changed_with(|visual| {
             visual.shapes = match &*visual.shapes {
                 [Shape::GlyphRun(gr)] => [gr
@@ -215,6 +232,10 @@ impl ProjectHeaderPresenter {
             }
         });
     }
+}
+
+fn background_shape(rect: Rect, color: Color) -> Shape {
+    shapes::Rect::new(rect, color).into()
 }
 
 #[derive(Debug)]
