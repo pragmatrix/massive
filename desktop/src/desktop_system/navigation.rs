@@ -43,7 +43,10 @@ impl DesktopSystem {
                 let center: Transform = (center.x, center.y, 0.0).into();
                 Some(center.to_camera().with_size(size))
             }
-            DesktopTarget::Project(_) | DesktopTarget::Launcher(_) => {
+            DesktopTarget::Project(_)
+            | DesktopTarget::ProjectHeader(_)
+            | DesktopTarget::ProjectMatrix(_)
+            | DesktopTarget::Launcher(_) => {
                 let transform = self.placement(focus)?.transform;
                 let camera_transform: Transform = transform.translate.into();
                 Some(camera_transform.to_camera())

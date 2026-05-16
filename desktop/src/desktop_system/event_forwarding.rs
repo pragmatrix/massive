@@ -42,6 +42,8 @@ impl DesktopSystem {
         match target {
             DesktopTarget::Desktop => {}
             DesktopTarget::Project(..) => {}
+            DesktopTarget::ProjectHeader(..) => {}
+            DesktopTarget::ProjectMatrix(..) => {}
             DesktopTarget::Instance(..) => {}
             DesktopTarget::View(view_id) => {
                 let path = self

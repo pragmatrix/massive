@@ -123,10 +123,44 @@ pub struct ProjectPresenter {
     pub size: SizePx,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
-    name: Handle<Visual>,
 }
 
 impl ProjectPresenter {
+    pub fn new(parent_location: Handle<Location>, scene: &Scene) -> Self {
+        let scene_transform = Transform::IDENTITY.enter(scene);
+        let location = scene_transform
+            .to_location()
+            .relative_to(&parent_location)
+            .enter(scene);
+
+        Self {
+            size: SizePx::default(),
+            scene_transform,
+            location,
+        }
+    }
+
+    pub fn location(&self) -> Handle<Location> {
+        self.location.clone()
+    }
+
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
+        self.size = size;
+        let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
+        let scene_transform = layout_transform.to_origin_space(local_center);
+        self.scene_transform.update_if_changed(scene_transform);
+    }
+}
+
+#[derive(Debug)]
+pub struct ProjectHeaderPresenter {
+    pub size: SizePx,
+    measured_size: SizePx,
+    scene_transform: Handle<Transform>,
+    name: Handle<Visual>,
+}
+
+impl ProjectHeaderPresenter {
     pub fn new(
         properties: ProjectProperties,
         parent_location: Handle<Location>,
@@ -139,25 +173,30 @@ impl ProjectPresenter {
             .relative_to(&parent_location)
             .enter(scene);
 
-        let name = properties
+        let header_run = properties
             .name
             .size(32.0 * 8.0)
             .shape(font_system)
-            .map(|text| text.with_color(PROJECT_HEADER_TEXT_COLOR).into_shape())
+            .expect("Project header shaping produced no glyph run");
+        let measured_size = header_run.metrics.size();
+
+        let name = header_run
+            .with_color(PROJECT_HEADER_TEXT_COLOR)
+            .into_shape()
             .at(&location)
             .with_decal_order(0)
             .enter(scene);
 
         Self {
             size: SizePx::default(),
+            measured_size,
             scene_transform,
-            location,
             name,
         }
     }
 
-    pub fn location(&self) -> Handle<Location> {
-        self.location.clone()
+    pub fn measured_size(&self) -> SizePx {
+        self.measured_size
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
@@ -175,5 +214,39 @@ impl ProjectPresenter {
                 rest => rest.into(),
             }
         });
+    }
+}
+
+#[derive(Debug)]
+pub struct ProjectMatrixPresenter {
+    pub size: SizePx,
+    scene_transform: Handle<Transform>,
+    location: Handle<Location>,
+}
+
+impl ProjectMatrixPresenter {
+    pub fn new(parent_location: Handle<Location>, scene: &Scene) -> Self {
+        let scene_transform = Transform::IDENTITY.enter(scene);
+        let location = scene_transform
+            .to_location()
+            .relative_to(&parent_location)
+            .enter(scene);
+
+        Self {
+            size: SizePx::default(),
+            scene_transform,
+            location,
+        }
+    }
+
+    pub fn location(&self) -> Handle<Location> {
+        self.location.clone()
+    }
+
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
+        self.size = size;
+        let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
+        let scene_transform = layout_transform.to_origin_space(local_center);
+        self.scene_transform.update_if_changed(scene_transform);
     }
 }

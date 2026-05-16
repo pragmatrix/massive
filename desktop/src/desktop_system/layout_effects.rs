@@ -219,6 +219,20 @@ impl DesktopSystem {
                     .expect("Missing project")
                     .set_layout(size_px, transform);
             }
+            DesktopTarget::ProjectHeader(project_id) => {
+                self.aggregates
+                    .project_headers
+                    .get_mut(&project_id)
+                    .expect("Missing project header")
+                    .set_layout(size_px, transform);
+            }
+            DesktopTarget::ProjectMatrix(project_id) => {
+                self.aggregates
+                    .project_matrices
+                    .get_mut(&project_id)
+                    .expect("Missing project matrix")
+                    .set_layout(size_px, transform);
+            }
             DesktopTarget::Launcher(launcher_id) => {
                 self.aggregates
                     .launchers

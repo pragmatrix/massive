@@ -11,10 +11,11 @@ use massive_applications::InstanceId;
 
 use super::{Aggregates, DesktopTarget};
 use crate::layout::{ContainerBuilder, ToContainer};
+use crate::projects::ProjectId;
 
 const SECTION_SPACING: u32 = 20;
 const PROJECT_PADDING: u32 = 10;
-const PROJECT_HEADER_HEIGHT: u32 = 48;
+const PROJECT_HEADER_MIN_HEIGHT: u32 = 48;
 const PROJECT_HEADER_SPACING: u32 = 10;
 const MATRIX_COLUMN_SPACING: u32 = 10;
 const MATRIX_ROW_SPACING: u32 = 10;
@@ -69,8 +70,8 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             return self.place_launcher_children(id, child_sizes);
         }
 
-        if let DesktopTarget::Project(_) = id {
-            return self.place_project_children(id, child_sizes);
+        if let DesktopTarget::ProjectMatrix(_) = id {
+            return self.place_project_matrix_children(id, child_sizes);
         }
 
         self.place_standard_children(id, child_sizes)
@@ -84,8 +85,12 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             return size;
         }
 
-        if let DesktopTarget::Project(_) = id {
-            return self.measure_project(id, child_sizes);
+        if let DesktopTarget::ProjectHeader(project_id) = id {
+            return self.project_header_size(*project_id).into();
+        }
+
+        if let DesktopTarget::ProjectMatrix(_) = id {
+            return self.measure_project_matrix(id, child_sizes);
         }
 
         match self.resolve_layout_spec(id) {
@@ -118,18 +123,14 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
 }
 
 impl DesktopLayoutAlgorithm<'_> {
-    fn measure_project(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
+    fn measure_project_matrix(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
         let (columns, rows) = self.project_matrix_tracks(id, child_sizes);
         let matrix_width = tracks_span(&columns, MATRIX_COLUMN_SPACING);
         let matrix_height = tracks_span(&rows, MATRIX_ROW_SPACING);
-        let width = PROJECT_PADDING * 2 + matrix_width;
-        let height =
-            PROJECT_PADDING * 2 + PROJECT_HEADER_HEIGHT + PROJECT_HEADER_SPACING + matrix_height;
-
-        [width, height].into()
+        [matrix_width, matrix_height].into()
     }
 
-    fn place_project_children(
+    fn place_project_matrix_children(
         &self,
         id: &DesktopTarget,
         child_sizes: &[Size<2>],
@@ -140,14 +141,12 @@ impl DesktopLayoutAlgorithm<'_> {
 
         for (child, child_size) in children.iter().zip(child_sizes.iter().copied()) {
             let DesktopTarget::Launcher(launcher_id) = child else {
-                panic!("Project children must be launchers")
+                panic!("Project matrix children must be launchers")
             };
             let placement = self.aggregates.launcher_placements[launcher_id];
             let offset = Offset::from([
-                PROJECT_PADDING as i32
-                    + track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
-                (PROJECT_PADDING + PROJECT_HEADER_HEIGHT + PROJECT_HEADER_SPACING) as i32
-                    + track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
+                track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
+                track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
             ]);
             let rect: RectPx = LayoutRect::new(offset, child_size).into();
             let center = rect.center().to_f64();
@@ -169,7 +168,7 @@ impl DesktopLayoutAlgorithm<'_> {
 
         for (child, child_size) in children.iter().zip(child_sizes.iter().copied()) {
             let DesktopTarget::Launcher(launcher_id) = child else {
-                panic!("Project children must be launchers")
+                panic!("Project matrix children must be launchers")
             };
             let placement = self.aggregates.launcher_placements[launcher_id];
             let column = placement.column as usize;
@@ -187,6 +186,14 @@ impl DesktopLayoutAlgorithm<'_> {
         }
 
         (columns, rows)
+    }
+
+    fn project_header_size(&self, project_id: ProjectId) -> SizePx {
+        let measured = self.aggregates.project_headers[&project_id].measured_size();
+        SizePx::new(
+            measured.width,
+            max(measured.height, PROJECT_HEADER_MIN_HEIGHT),
+        )
     }
 
     fn place_launcher_children(
@@ -241,7 +248,17 @@ impl DesktopLayoutAlgorithm<'_> {
                 .spacing(SECTION_SPACING)
                 .padding((0, 0))
                 .into(),
-            DesktopTarget::Project(_) => panic!("Project layout is handled by matrix layout"),
+            DesktopTarget::Project(_) => LayoutAxis::VERTICAL
+                .to_container()
+                .spacing(PROJECT_HEADER_SPACING)
+                .padding((PROJECT_PADDING, PROJECT_PADDING))
+                .into(),
+            DesktopTarget::ProjectHeader(_) => {
+                panic!("ProjectHeader is measured directly from header presenter")
+            }
+            DesktopTarget::ProjectMatrix(_) => {
+                panic!("ProjectMatrix layout is handled by matrix placement")
+            }
             DesktopTarget::Launcher(_) => {
                 if self.aggregates.hierarchy.get_nested(target).is_empty() {
                     self.default_panel_size.into()

@@ -4,7 +4,9 @@ use massive_shell::Scene;
 
 use super::effects::{DesktopEffect, Effects};
 use super::{DesktopSystem, DesktopTarget, ProjectCommand};
-use crate::projects::{LauncherPresenter, ProjectPresenter};
+use crate::projects::{
+    LauncherPresenter, ProjectHeaderPresenter, ProjectMatrixPresenter, ProjectPresenter,
+};
 
 impl DesktopSystem {
     pub(super) fn apply_project_command(
@@ -20,20 +22,42 @@ impl DesktopSystem {
                 self.aggregates
                     .hierarchy
                     .add(parent_target.clone(), DesktopTarget::Project(id))?;
-                self.aggregates.projects.insert(
+                self.aggregates
+                    .hierarchy
+                    .add(DesktopTarget::Project(id), DesktopTarget::ProjectHeader(id))?;
+                self.aggregates
+                    .hierarchy
+                    .add(DesktopTarget::Project(id), DesktopTarget::ProjectMatrix(id))?;
+
+                self.aggregates
+                    .projects
+                    .insert(id, ProjectPresenter::new(parent_location, scene))?;
+                let project_location = self
+                    .aggregates
+                    .projects
+                    .get(&id)
+                    .expect("Project missing")
+                    .location();
+
+                self.aggregates.project_headers.insert(
                     id,
-                    ProjectPresenter::new(
+                    ProjectHeaderPresenter::new(
                         properties,
-                        parent_location,
+                        project_location.clone(),
                         scene,
                         &mut self.fonts.lock(),
                     ),
                 )?;
+                self.aggregates
+                    .project_matrices
+                    .insert(id, ProjectMatrixPresenter::new(project_location, scene))?;
                 DesktopEffect::Measure(parent_target).into()
             }
             ProjectCommand::RemoveProject(project) => {
                 let effects = self.remove_target(&DesktopTarget::Project(project))?;
                 self.aggregates.projects.remove(&project)?;
+                self.aggregates.project_headers.remove(&project)?;
+                self.aggregates.project_matrices.remove(&project)?;
                 effects
             }
             ProjectCommand::AddLauncher {
@@ -42,14 +66,14 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
-                let project_location = self
+                let matrix_location = self
                     .aggregates
-                    .projects
+                    .project_matrices
                     .get(&project)
                     .expect("Project missing")
                     .location();
                 let presenter = LauncherPresenter::new(
-                    project_location,
+                    matrix_location,
                     id,
                     profile,
                     massive_geometry::Size::default(),
@@ -61,8 +85,8 @@ impl DesktopSystem {
 
                 self.aggregates
                     .hierarchy
-                    .add(DesktopTarget::Project(project), id.into())?;
-                DesktopEffect::Measure(DesktopTarget::Project(project)).into()
+                    .add(DesktopTarget::ProjectMatrix(project), id.into())?;
+                DesktopEffect::Measure(DesktopTarget::ProjectMatrix(project)).into()
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);

@@ -23,7 +23,7 @@ mod presentation;
 mod project_commands;
 
 use anyhow::Result;
-use derive_more::{Debug, From};
+use derive_more::Debug;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -46,23 +46,49 @@ use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{
-    DesktopPresenter, LaunchProfileId, LauncherPresenter, MatrixPlacement, ProjectId,
-    ProjectPresenter,
+    DesktopPresenter, LaunchProfileId, LauncherPresenter, MatrixPlacement, ProjectHeaderPresenter,
+    ProjectId, ProjectMatrixPresenter, ProjectPresenter,
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
 const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 /// This enum specifies a unique target inside the navigation and layout history.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopTarget {
     Desktop,
 
     Project(ProjectId),
+    ProjectHeader(ProjectId),
+    ProjectMatrix(ProjectId),
     Launcher(LaunchProfileId),
 
     Instance(InstanceId),
     View(ViewId),
+}
+
+impl From<ProjectId> for DesktopTarget {
+    fn from(value: ProjectId) -> Self {
+        Self::Project(value)
+    }
+}
+
+impl From<LaunchProfileId> for DesktopTarget {
+    fn from(value: LaunchProfileId) -> Self {
+        Self::Launcher(value)
+    }
+}
+
+impl From<InstanceId> for DesktopTarget {
+    fn from(value: InstanceId) -> Self {
+        Self::Instance(value)
+    }
+}
+
+impl From<ViewId> for DesktopTarget {
+    fn from(value: ViewId) -> Self {
+        Self::View(value)
+    }
 }
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
@@ -123,6 +149,8 @@ struct Aggregates {
     // presenters
     desktop_presenter: DesktopPresenter,
     projects: Map<ProjectId, ProjectPresenter>,
+    project_headers: Map<ProjectId, ProjectHeaderPresenter>,
+    project_matrices: Map<ProjectId, ProjectMatrixPresenter>,
     launchers: Map<LaunchProfileId, LauncherPresenter>,
     launcher_placements: Map<LaunchProfileId, MatrixPlacement>,
     instances: Map<InstanceId, InstancePresenter>,
@@ -137,6 +165,8 @@ impl Aggregates {
             hierarchy,
             startup_profile: None,
             projects: Map::default(),
+            project_headers: Map::default(),
+            project_matrices: Map::default(),
 
             desktop_presenter,
             launchers: Map::default(),
