@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use massive_animation::{Animated, Interpolation};
-use massive_geometry::{Color, Point, Rect, SizePx, Transform};
+use massive_geometry::{Color, Point, Rect, Size, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, IntoVisual, Location, Object, ToLocation, Visual};
@@ -15,6 +15,7 @@ const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
 const PROJECT_HEADER_BACKGROUND_ALPHA: f32 = 0.65;
 const PROJECT_HEADER_TEXT_COLOR: Color = Color::WHITE;
 const PROJECT_HEADER_TEXT_DECAL_ORDER: usize = 0;
+const PROJECT_HEADER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
 /// Presents project-level visuals and scene anchors.
 ///
@@ -159,11 +160,17 @@ impl ProjectPresenter {
         let scene_transform = layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
     }
+
+    pub fn apply_animations(&mut self) {
+        self.header.apply_animations();
+    }
 }
 
 #[derive(Debug)]
 pub struct ProjectHeaderPresenter {
     pub size: SizePx,
+    layout_transform: Transform,
+    animated_size: Animated<Size>,
     measured_size: SizePx,
     scene_transform: Handle<Transform>,
     background: Handle<Visual>,
@@ -201,6 +208,8 @@ impl ProjectHeaderPresenter {
 
         Self {
             size: SizePx::default(),
+            layout_transform: Transform::IDENTITY,
+            animated_size: scene.animated(Size::default()),
             measured_size,
             scene_transform,
             background,
@@ -212,14 +221,31 @@ impl ProjectHeaderPresenter {
         self.measured_size
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
         self.size = size;
-        let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
-        let scene_transform = layout_transform.to_origin_space(local_center);
+        self.layout_transform = layout_transform;
+        let size = Size::new(size.width as f64, size.height as f64);
+
+        if animate {
+            self.animated_size.animate_if_changed(
+                size,
+                PROJECT_HEADER_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
+        } else {
+            self.animated_size.set_immediately(size);
+            self.apply_animations();
+        }
+    }
+
+    pub fn apply_animations(&mut self) {
+        let size = self.animated_size.value();
+        let local_center = size.to_rect().center();
+        let scene_transform = self.layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
         self.background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
-                Rect::from_size((size.width as f64, size.height as f64)),
+                size.to_rect(),
                 PROJECT_HEADER_BACKGROUND_COLOR.with_alpha(PROJECT_HEADER_BACKGROUND_ALPHA),
             )]
             .into()

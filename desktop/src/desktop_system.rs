@@ -276,6 +276,10 @@ impl DesktopSystem {
                 );
         }
 
+        for project in self.aggregates.projects.values_mut() {
+            project.apply_animations();
+        }
+
         let pointer_focus = if self.pointer_feedback_enabled {
             self.event_router.pointer_focus().cloned()
         } else {

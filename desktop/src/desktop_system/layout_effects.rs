@@ -236,7 +236,7 @@ impl DesktopSystem {
                     .get_mut(&project_id)
                     .expect("Missing project")
                     .header
-                    .set_layout(size_px, transform);
+                    .set_layout(size_px, transform, animate);
             }
             DesktopTarget::ProjectMatrix(project_id) => {
                 self.aggregates
