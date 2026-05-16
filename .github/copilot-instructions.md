@@ -66,6 +66,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - After completing meaningful work, update this file with high-level, reusable guidance learned from the task.
 - Keep additions general (patterns, principles, decision heuristics), not task- or file-specific details.
 - Do not add project-specific implementation facts (feature behavior, constants, file-local decisions); keep guidance broadly reusable.
+- Do not add one-off, narrowly scoped rules that only apply to a single recent change.
 - Prefer small, incremental updates and avoid duplicating or restating existing guidance.
 
 ## Documentation
