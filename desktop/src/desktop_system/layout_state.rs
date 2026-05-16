@@ -176,19 +176,14 @@ impl DesktopLayoutState {
             })
             .collect();
 
-        let parent_size = self
+        let parent_entry = self
             .entries
             .get(target)
-            .expect("Internal error: missing layout size for parent")
+            .expect("Internal error: missing layout entry for parent");
+        let parent_size = parent_entry
             .placement
             .map(|placement| placement.rect.size)
-            .unwrap_or_else(|| {
-                self.entries
-                    .get(target)
-                    .expect("Internal error: missing measured layout size for parent")
-                    .measured
-                    .size
-            });
+            .unwrap_or(parent_entry.measured.size);
         let child_placements = algorithm.place_children(target, parent_size, &child_measurements);
         if child_placements.len() != children.len() {
             panic!("Internal error: child placement count does not match child count")
