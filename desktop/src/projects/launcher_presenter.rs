@@ -340,8 +340,7 @@ impl LauncherPresenter {
         let size = self.size.value();
         let local_center = size.to_rect().center();
 
-        let scene_transform =
-            InstancePresenter::transform_with_layout(self.layout_transform, local_center);
+        let scene_transform = self.layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
 
         let alpha = self.fader.value();

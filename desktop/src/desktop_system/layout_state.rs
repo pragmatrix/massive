@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use massive_geometry::{Point, Transform, Vector3};
+use massive_geometry::{Point, Transform};
 use massive_layout::{
     LayoutAlgorithm, LayoutTopology, Offset, Placement, Rect as LayoutRect, Size as LayoutSize,
 };
@@ -184,7 +184,7 @@ impl DesktopLayoutState {
                 placement.transform
             } else {
                 let local_center = Self::layout_local_center(placement.rect.size);
-                Self::transform_with_layout(placement.transform, local_center)
+                placement.transform.to_origin_space(local_center)
             };
             origin_transform *= local_origin_transform;
             offset += placement.rect.offset;
@@ -192,15 +192,7 @@ impl DesktopLayoutState {
 
         let local = self.local_placements.get(target)?;
         let local_center = Self::layout_local_center(local.rect.size);
-        let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
-        let center_translation = origin_transform.translate
-            + origin_transform.rotate * (local_center * origin_transform.scale);
-
-        let transform = Transform::new(
-            center_translation,
-            origin_transform.rotate,
-            origin_transform.scale,
-        );
+        let transform = origin_transform.to_anchor_space(local_center);
 
         Some(Placement::new(
             transform,
@@ -210,17 +202,6 @@ impl DesktopLayoutState {
 
     fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
-    }
-
-    fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
-        let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
-        let origin_translation =
-            layout_transform.translate + layout_transform.rotate * -local_center;
-        Transform::new(
-            origin_translation,
-            layout_transform.rotate,
-            layout_transform.scale,
-        )
     }
 
     fn update_root_placement(&mut self, target: &DesktopTarget) {

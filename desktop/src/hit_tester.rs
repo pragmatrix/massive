@@ -196,18 +196,7 @@ impl<'a> AggregateHitTester<'a> {
             return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
         }
 
-        Self::transform_with_layout(placement.transform, local_center)
-    }
-
-    fn transform_with_layout(layout_transform: Transform, local_center: Point) -> Transform {
-        let local_center = Vector3::new(local_center.x, local_center.y, 0.0);
-        let origin_translation =
-            layout_transform.translate - layout_transform.rotate * local_center;
-        Transform::new(
-            origin_translation,
-            layout_transform.rotate,
-            layout_transform.scale,
-        )
+        placement.transform.to_origin_space(local_center)
     }
 
     fn hit_depth(&self, world_pos: Vector3) -> f64 {

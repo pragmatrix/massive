@@ -8,7 +8,6 @@ use massive_shapes::{Shape, StrokeRect};
 use massive_shell::Scene;
 
 use super::LaunchGroupProperties;
-use crate::instance_presenter::InstancePresenter;
 
 /// Presents project-level visuals and scene anchors.
 ///
@@ -87,10 +86,9 @@ impl ProjectPresenter {
 
         // Position the hover visual in world space using the placement's center-based transform.
         let local_center = local_rect.center();
-        let scene_transform = InstancePresenter::transform_with_layout(
-            hover_placement.transform,
-            Point::new(local_center.x, local_center.y),
-        );
+        let scene_transform = hover_placement
+            .transform
+            .to_origin_space(Point::new(local_center.x, local_center.y));
         self.hover_scene_transform
             .update_if_changed(scene_transform);
 
@@ -155,8 +153,7 @@ impl GroupPresenter {
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
         self.size = size;
         let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
-        let scene_transform =
-            InstancePresenter::transform_with_layout(layout_transform, local_center);
+        let scene_transform = layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
     }
 }

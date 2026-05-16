@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use massive_animation::Interpolation;
 use massive_applications::InstanceId;
-use massive_geometry::{SizePx, Transform};
-use massive_layout::Placement;
+use massive_geometry::{Point, SizePx, Transform};
+use massive_layout::{Placement, Size as LayoutSize};
 
 use super::effects::{DesktopEffect, DesktopEffectQueue, Effects};
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
@@ -333,8 +333,33 @@ impl DesktopSystem {
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {
-        // Hover overlay is rendered in project/world space, so keep the resolved absolute
-        // placement transform here. Instance animation values are launcher-local.
-        self.placement(&DesktopTarget::Instance(instance_id))
+        let mut placement = self.placement(&DesktopTarget::Instance(instance_id))?;
+
+        // Keep hover aligned with animated instance motion by composing the current instance-local
+        // animated transform with the launcher's world transform.
+        let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
+            return Some(placement);
+        };
+        let Some(launcher_id) = self.instance_launcher(instance_id) else {
+            return Some(placement);
+        };
+        let Some(launcher_placement) = self.placement(&DesktopTarget::Launcher(launcher_id)) else {
+            return Some(placement);
+        };
+
+        let launcher_anchor = Self::layout_center(launcher_placement.rect.size);
+        let instance_anchor = Self::layout_center(placement.rect.size);
+        placement.transform = Transform::compose_with_anchor(
+            launcher_placement.transform,
+            launcher_anchor,
+            instance_presenter.layout_transform_animation.value(),
+            instance_anchor,
+        );
+
+        Some(placement)
+    }
+
+    fn layout_center(size: LayoutSize<2>) -> Point {
+        Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
     }
 }
