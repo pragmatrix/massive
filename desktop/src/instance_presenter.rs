@@ -225,7 +225,6 @@ impl InstancePresenter {
             location.alpha = alpha;
         });
     }
-
 }
 
 impl InstancePresenterState {

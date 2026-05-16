@@ -15,16 +15,36 @@ pub(super) struct MeasureOutcome {
     pub(super) parent: Option<DesktopTarget>,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum LayoutEntry {
+    Measured { size: LayoutSize<2> },
+    Placed { placement: Placement<Transform, 2> },
+}
+
+impl LayoutEntry {
+    fn size(self) -> LayoutSize<2> {
+        match self {
+            Self::Measured { size } => size,
+            Self::Placed { placement } => placement.rect.size,
+        }
+    }
+
+    fn placement(self) -> Option<Placement<Transform, 2>> {
+        match self {
+            Self::Measured { .. } => None,
+            Self::Placed { placement } => Some(placement),
+        }
+    }
+}
+
 pub(super) struct DesktopLayoutState {
-    measured_sizes: HashMap<DesktopTarget, LayoutSize<2>>,
-    local_placements: HashMap<DesktopTarget, Placement<Transform, 2>>,
+    entries: HashMap<DesktopTarget, LayoutEntry>,
 }
 
 impl DesktopLayoutState {
     pub(super) fn new() -> Self {
         Self {
-            measured_sizes: HashMap::new(),
-            local_placements: HashMap::new(),
+            entries: HashMap::new(),
         }
     }
 
@@ -36,7 +56,7 @@ impl DesktopLayoutState {
         topology
             .children_of(target)
             .iter()
-            .filter(|child| !self.measured_sizes.contains_key(*child))
+            .filter(|child| !self.entries.contains_key(*child))
             .cloned()
             .collect()
     }
@@ -51,18 +71,25 @@ impl DesktopLayoutState {
             .children_of(target)
             .iter()
             .map(|child| {
-                *self.measured_sizes.get(child).unwrap_or_else(|| {
-                    panic!("Internal error: child should be measured before parent")
-                })
+                self.entries
+                    .get(child)
+                    .copied()
+                    .unwrap_or_else(|| {
+                        panic!("Internal error: child should be measured before parent")
+                    })
+                    .size()
             })
             .collect();
 
         let measured = algorithm.measure(target, &child_sizes);
         let size_changed = self
-            .measured_sizes
+            .entries
             .get(target)
-            .is_none_or(|current| current != &measured);
-        self.measured_sizes.insert(target.clone(), measured);
+            .is_none_or(|current| current.size() != measured);
+        if size_changed {
+            self.entries
+                .insert(target.clone(), LayoutEntry::Measured { size: measured });
+        }
 
         MeasureOutcome {
             size_changed,
@@ -85,10 +112,12 @@ impl DesktopLayoutState {
         let mut changed_targets = Vec::new();
         for (target, placement) in self.place_children(target, topology, algorithm) {
             let is_changed = self
-                .local_placements
+                .entries
                 .get(&target)
-                .is_none_or(|current| current != &placement);
-            self.local_placements.insert(target.clone(), placement);
+                .and_then(|current| current.placement())
+                .is_none_or(|current| current != placement);
+            self.entries
+                .insert(target.clone(), LayoutEntry::Placed { placement });
             if is_changed {
                 changed_targets.push(target);
             }
@@ -105,8 +134,7 @@ impl DesktopLayoutState {
         let mut stack = vec![target.clone()];
         while let Some(current) = stack.pop() {
             stack.extend(topology.children_of(&current).iter().cloned());
-            self.local_placements.remove(&current);
-            self.measured_sizes.remove(&current);
+            self.entries.remove(&current);
         }
     }
 
@@ -124,10 +152,11 @@ impl DesktopLayoutState {
         let child_sizes: Vec<_> = children
             .iter()
             .map(|child| {
-                *self
-                    .measured_sizes
+                self.entries
                     .get(child)
+                    .copied()
                     .expect("Internal error: missing measured layout size for child")
+                    .size()
             })
             .collect();
 
@@ -157,7 +186,10 @@ impl DesktopLayoutState {
         &self,
         target: &DesktopTarget,
     ) -> Option<Placement<Transform, 2>> {
-        self.local_placements.get(target).copied()
+        self.entries
+            .get(target)
+            .copied()
+            .and_then(LayoutEntry::placement)
     }
 
     pub(super) fn absolute_placement(
@@ -178,7 +210,7 @@ impl DesktopLayoutState {
         let mut origin_transform = Transform::default();
         let mut offset = Offset::default();
         for path_target in path.iter().rev() {
-            let placement = self.local_placements.get(path_target)?;
+            let placement = self.local_placement(path_target)?;
             let local_origin_transform = if *path_target == DesktopTarget::Desktop {
                 // Desktop transform is already origin-based (IDENTITY in the common case).
                 placement.transform
@@ -190,7 +222,7 @@ impl DesktopLayoutState {
             offset += placement.rect.offset;
         }
 
-        let local = self.local_placements.get(target)?;
+        let local = self.local_placement(target)?;
         let local_center = Self::layout_local_center(local.rect.size);
         let transform = origin_transform.to_anchor_space(local_center);
 
@@ -209,16 +241,19 @@ impl DesktopLayoutState {
             return;
         }
 
-        let size = *self
-            .measured_sizes
+        let size = self
+            .entries
             .get(target)
-            .expect("Internal error: missing measured layout size for desktop root");
-        self.local_placements.insert(
+            .expect("Internal error: missing measured layout size for desktop root")
+            .size();
+        self.entries.insert(
             target.clone(),
-            Placement::new(
-                Transform::default(),
-                LayoutRect::new(Offset::default(), size),
-            ),
+            LayoutEntry::Placed {
+                placement: Placement::new(
+                    Transform::default(),
+                    LayoutRect::new(Offset::default(), size),
+                ),
+            },
         );
     }
 }
