@@ -183,20 +183,18 @@ impl ProjectHeaderPresenter {
             .relative_to(&parent_location)
             .enter(scene);
 
-        let header_run = properties
-            .name
-            .size(PROJECT_HEADER_FONT_SIZE)
-            .shape(font_system)
-            .expect("Project header shaping produced no glyph run");
-        let measured_size = header_run.metrics.size();
+        // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
+        let header_run = properties.name.size(PROJECT_HEADER_FONT_SIZE).shape(font_system);
+        let measured_size = header_run
+            .as_ref()
+            .map_or(SizePx::default(), |run| run.metrics.size());
 
         let background = background_shape(Rect::default(), PROJECT_HEADER_BACKGROUND_COLOR)
             .at(&location)
             .enter(scene);
 
         let name = header_run
-            .with_color(PROJECT_HEADER_TEXT_COLOR)
-            .into_shape()
+            .map(|run| run.with_color(PROJECT_HEADER_TEXT_COLOR).into_shape())
             .at(&location)
             .with_decal_order(PROJECT_HEADER_TEXT_DECAL_ORDER)
             .enter(scene);
