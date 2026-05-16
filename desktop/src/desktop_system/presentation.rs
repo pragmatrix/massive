@@ -23,18 +23,17 @@ impl DesktopSystem {
         let originating_presenter = originating_from
             .and_then(|originating_from| self.aggregates.instances.get(&originating_from));
 
-        let render_instance_background = self
-            .aggregates
-            .launchers
-            .get(&launcher)
-            .expect("Launcher not found")
-            .should_render_instance_background();
-        let launcher_location = self
-            .aggregates
-            .launchers
-            .get(&launcher)
-            .expect("Launcher not found")
-            .location();
+        let (render_instance_background, launcher_location) = {
+            let launcher = self
+                .aggregates
+                .launchers
+                .get(&launcher)
+                .expect("Launcher not found");
+            (
+                launcher.should_render_instance_background(),
+                launcher.location(),
+            )
+        };
 
         let initial_center_translation =
             originating_presenter.map(|op| op.layout_transform_animation.value().translate);

@@ -18,7 +18,9 @@ impl DesktopFocusPath {
             .rev()
             .find_map(|(i, t)| match t {
                 DesktopTarget::Desktop => None,
-                DesktopTarget::Group(..) => None,
+                DesktopTarget::Project(..) => None,
+                DesktopTarget::ProjectHeader(..) => None,
+                DesktopTarget::ProjectMatrix(..) => None,
                 DesktopTarget::Launcher(..) => Some(i + 1),
                 DesktopTarget::Instance(..) => Some(i),
                 DesktopTarget::View(..) => {

@@ -23,7 +23,7 @@ mod presentation;
 mod project_commands;
 
 use anyhow::Result;
-use derive_more::{Debug, From};
+use derive_more::Debug;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -46,22 +46,48 @@ use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{
-    GroupId, GroupPresenter, LaunchProfileId, LauncherPresenter, ProjectPresenter,
+    DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
 const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 /// This enum specifies a unique target inside the navigation and layout history.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, From)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopTarget {
     Desktop,
 
-    Group(GroupId),
+    Project(ProjectId),
+    ProjectHeader(ProjectId),
+    ProjectMatrix(ProjectId),
     Launcher(LaunchProfileId),
 
     Instance(InstanceId),
     View(ViewId),
+}
+
+impl From<ProjectId> for DesktopTarget {
+    fn from(value: ProjectId) -> Self {
+        Self::Project(value)
+    }
+}
+
+impl From<LaunchProfileId> for DesktopTarget {
+    fn from(value: LaunchProfileId) -> Self {
+        Self::Launcher(value)
+    }
+}
+
+impl From<InstanceId> for DesktopTarget {
+    fn from(value: InstanceId) -> Self {
+        Self::Instance(value)
+    }
+}
+
+impl From<ViewId> for DesktopTarget {
+    fn from(value: ViewId) -> Self {
+        Self::View(value)
+    }
 }
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
@@ -120,8 +146,8 @@ struct Aggregates {
     startup_profile: Option<LaunchProfileId>,
 
     // presenters
-    project_presenter: ProjectPresenter,
-    groups: Map<GroupId, GroupPresenter>,
+    desktop_presenter: DesktopPresenter,
+    projects: Map<ProjectId, ProjectPresenter>,
     launchers: Map<LaunchProfileId, LauncherPresenter>,
     instances: Map<InstanceId, InstancePresenter>,
 }
@@ -129,14 +155,14 @@ struct Aggregates {
 impl Aggregates {
     pub fn new(
         hierarchy: OrderedHierarchy<DesktopTarget>,
-        project_presenter: ProjectPresenter,
+        desktop_presenter: DesktopPresenter,
     ) -> Self {
         Self {
             hierarchy,
             startup_profile: None,
-            groups: Map::default(),
+            projects: Map::default(),
 
-            project_presenter,
+            desktop_presenter,
             launchers: Map::default(),
             instances: Map::default(),
         }
@@ -155,7 +181,7 @@ impl DesktopSystem {
         let identity_matrix = Transform::IDENTITY.enter(scene);
         let location = Location::new(None, identity_matrix).enter(scene);
 
-        let project_presenter = ProjectPresenter::new(location, scene);
+        let desktop_presenter = DesktopPresenter::new(location, scene);
 
         let event_router = EventRouter::new();
 
@@ -173,7 +199,7 @@ impl DesktopSystem {
             deferred_focus_layout_launchers: HashSet::new(),
             layout_state,
 
-            aggregates: Aggregates::new(OrderedHierarchy::default(), project_presenter),
+            aggregates: Aggregates::new(OrderedHierarchy::default(), desktop_presenter),
         };
 
         Ok(system)
@@ -248,6 +274,10 @@ impl DesktopSystem {
                     &child_instances,
                     focused_instance,
                 );
+        }
+
+        for project in self.aggregates.projects.values_mut() {
+            project.apply_animations();
         }
 
         let pointer_focus = if self.pointer_feedback_enabled {
@@ -333,6 +363,7 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
         OrderedHierarchy::exists(self, id)
     }
 
+    /// Returns the direct children of `id`, or `[]` when the target is not present.
     fn children_of(&self, id: &DesktopTarget) -> &[DesktopTarget] {
         self.get_nested(id)
     }

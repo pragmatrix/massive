@@ -8,7 +8,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{InstanceId, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
-use massive_layout::{LayoutAxis, Offset, Rect as LayoutRect, Size as LayoutSize, TransformOffset};
+use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
@@ -18,7 +18,7 @@ use super::visor_layout;
 use crate::Map;
 use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::LaunchProfileId;
+use crate::projects::{LaunchProfileId, MatrixPlacement};
 
 use super::configuration::{LaunchProfile, LauncherMode};
 
@@ -51,6 +51,7 @@ pub struct LauncherPresenter {
     #[allow(unused)]
     id: LaunchProfileId,
     profile: LaunchProfile,
+    pub placement: MatrixPlacement,
     mode: LauncherMode,
     layout_transform: Transform,
     scene_transform: Handle<Transform>,
@@ -75,6 +76,7 @@ impl LauncherPresenter {
     pub fn new(
         parent_location: Handle<Location>,
         id: LaunchProfileId,
+        placement: MatrixPlacement,
         profile: LaunchProfile,
         size: Size,
         scene: &Scene,
@@ -114,6 +116,7 @@ impl LauncherPresenter {
         Self {
             id,
             profile,
+            placement,
             mode,
             layout_transform: Transform::IDENTITY,
             scene_transform: our_transform,
@@ -149,7 +152,7 @@ impl LauncherPresenter {
         child_instances: &[InstanceId],
         focused_index: Option<usize>,
         default_panel_size: SizePx,
-    ) -> Vec<TransformOffset<Transform, 2>> {
+    ) -> Vec<Placement<Transform, 2>> {
         match self.mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
@@ -182,7 +185,7 @@ impl LauncherPresenter {
         child_sizes: &[LayoutSize<2>],
         focused_index: Option<usize>,
         default_panel_size: SizePx,
-    ) -> Vec<TransformOffset<Transform, 2>> {
+    ) -> Vec<Placement<Transform, 2>> {
         let offset =
             centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
 
@@ -210,7 +213,10 @@ impl LauncherPresenter {
             let center_y = child_center_y(offset, child_size);
             let transform = visor_child_transform(child_index, center_y, summary);
 
-            child_placements.push(TransformOffset::new(transform, offset));
+            child_placements.push(Placement::new(
+                transform,
+                LayoutRect::new(offset, child_size),
+            ));
             offset[0] += child_size[0] as i32;
         }
 

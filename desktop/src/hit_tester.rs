@@ -132,8 +132,14 @@ impl<'a> AggregateHitTester<'a> {
             .size
             .to_rect()
             .contains(Point::new(local_pos.x, local_pos.y));
-        let include_children =
-            is_inside_root || allow_overflow_children || matches!(root, DesktopTarget::Desktop);
+        let include_children = is_inside_root
+            || allow_overflow_children
+            || matches!(
+                root,
+                DesktopTarget::Desktop
+                    | DesktopTarget::Project(..)
+                    | DesktopTarget::ProjectMatrix(..)
+            );
 
         if include_children {
             let mut nearest_nested_hit: Option<HitTestResult> = None;
@@ -189,9 +195,9 @@ impl<'a> AggregateHitTester<'a> {
         let rect_px: RectPx = placement.rect.into();
         let local_center = Rect::from(rect_px).size().to_rect().center();
 
-        // The Desktop is the layout root — its transform is T::default() (IDENTITY), not
-        // center-based. Derive its origin from the rect offset directly.
-        if let DesktopTarget::Desktop = target {
+        // Desktop is the layout root and uses an origin-based transform (IDENTITY in the common
+        // case). Derive its origin from the rect offset directly.
+        if matches!(target, DesktopTarget::Desktop) {
             let offset = placement.rect.offset;
             return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
         }

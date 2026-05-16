@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use massive_geometry::{Point, Transform};
 use massive_layout::{
-    LayoutAlgorithm, LayoutTopology, Offset, Placement, Rect as LayoutRect, Size as LayoutSize,
+    LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
+    Size as LayoutSize,
 };
 
 use super::DesktopTarget;
@@ -10,51 +11,42 @@ use crate::OrderedHierarchy;
 use crate::hit_tester::PlacementSource;
 
 #[derive(Debug, Clone)]
-pub(super) struct MeasureOutcome {
-    pub(super) size_changed: bool,
-    pub(super) parent: Option<DesktopTarget>,
+pub struct MeasureOutcome {
+    pub size_changed: bool,
+    pub parent: Option<DesktopTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PlacementUpdate {
+    Unchanged,
+    ChangedSizeUnchanged,
+    ChangedSizeChanged,
 }
 
 #[derive(Debug, Clone, Copy)]
-enum LayoutEntry {
-    Measured { size: LayoutSize<2> },
-    Placed { placement: Placement<Transform, 2> },
+struct LayoutEntry {
+    measured: MeasuredLayout<2>,
+    placement: Option<Placement<Transform, 2>>,
 }
 
-impl LayoutEntry {
-    fn size(self) -> LayoutSize<2> {
-        match self {
-            Self::Measured { size } => size,
-            Self::Placed { placement } => placement.rect.size,
-        }
-    }
-
-    fn placement(self) -> Option<Placement<Transform, 2>> {
-        match self {
-            Self::Measured { .. } => None,
-            Self::Placed { placement } => Some(placement),
-        }
-    }
-}
-
-pub(super) struct DesktopLayoutState {
+pub struct DesktopLayoutState {
     entries: HashMap<DesktopTarget, LayoutEntry>,
 }
 
 impl DesktopLayoutState {
-    pub(super) fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             entries: HashMap::new(),
         }
     }
 
-    pub(super) fn measure_node(
+    pub fn measure_node(
         &mut self,
         target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
     ) -> MeasureOutcome {
-        let child_sizes: Vec<_> = topology
+        let child_measurements: Vec<_> = topology
             .children_of(target)
             .iter()
             .map(|child| {
@@ -64,18 +56,21 @@ impl DesktopLayoutState {
                     .unwrap_or_else(|| {
                         panic!("Internal error: child should be measured before parent")
                     })
-                    .size()
+                    .measured
             })
             .collect();
 
-        let measured = algorithm.measure(target, &child_sizes);
-        let size_changed = self
-            .entries
-            .get(target)
-            .is_none_or(|current| current.size() != measured);
+        let measured = algorithm.measure(target, &child_measurements);
+        let current_entry = self.entries.get(target).copied();
+        let size_changed = current_entry.is_none_or(|current| current.measured != measured);
         if size_changed {
-            self.entries
-                .insert(target.clone(), LayoutEntry::Measured { size: measured });
+            self.entries.insert(
+                target.clone(),
+                LayoutEntry {
+                    measured,
+                    placement: current_entry.and_then(|entry| entry.placement),
+                },
+            );
         }
 
         MeasureOutcome {
@@ -84,7 +79,7 @@ impl DesktopLayoutState {
         }
     }
 
-    pub(super) fn missing_child_measures(
+    pub fn missing_child_measures(
         &self,
         target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
@@ -97,52 +92,62 @@ impl DesktopLayoutState {
             .collect()
     }
 
-    pub(super) fn place_children_of(
+    pub fn place_children_of(
         &mut self,
         target: &DesktopTarget,
-        topology: &impl LayoutTopology<DesktopTarget>,
+        children: &[DesktopTarget],
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-    ) -> Vec<DesktopTarget> {
-        if !topology.exists(target) {
-            return Vec::new();
-        }
-
+    ) -> Vec<PlacementUpdate> {
         if *target == DesktopTarget::Desktop {
             let size = self
                 .entries
                 .get(target)
                 .expect("Internal error: missing measured layout size for desktop root")
-                .size();
+                .measured
+                .size;
+            let placement = Placement::new(
+                Transform::default(),
+                LayoutRect::new(Offset::default(), size),
+            );
             self.entries.insert(
                 target.clone(),
-                LayoutEntry::Placed {
-                    placement: Placement::new(
-                        Transform::default(),
-                        LayoutRect::new(Offset::default(), size),
-                    ),
+                LayoutEntry {
+                    measured: size.into(),
+                    placement: Some(placement),
                 },
             );
         }
 
-        let mut changed_targets = Vec::new();
-        for (target, placement) in self.place_children(target, topology, algorithm) {
-            let is_changed = self
-                .entries
-                .get(&target)
-                .copied()
-                .and_then(LayoutEntry::placement)
-                .is_none_or(|current| current != placement);
+        if children.is_empty() {
+            return Vec::new();
+        }
+
+        let child_placements = self.place_children(target, children, algorithm);
+
+        let mut updates = Vec::with_capacity(children.len());
+        for (child, placement) in children.iter().zip(child_placements) {
+            let Some(entry) = self.entries.get_mut(child) else {
+                panic!("Internal error: missing measured layout entry for child")
+            };
+            let current_placement = entry.placement;
+            let is_changed = current_placement.is_none_or(|current| current != placement);
             if is_changed {
-                self.entries
-                    .insert(target.clone(), LayoutEntry::Placed { placement });
-                changed_targets.push(target);
+                let size_changed = current_placement
+                    .is_none_or(|current| current.rect.size != placement.rect.size);
+                entry.placement = Some(placement);
+                updates.push(match size_changed {
+                    true => PlacementUpdate::ChangedSizeChanged,
+                    false => PlacementUpdate::ChangedSizeUnchanged,
+                });
+            } else {
+                updates.push(PlacementUpdate::Unchanged);
             }
         }
 
-        changed_targets
+        updates
     }
 
-    pub(super) fn remove_subtree(
+    pub fn remove_subtree(
         &mut self,
         target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
@@ -157,58 +162,44 @@ impl DesktopLayoutState {
     fn place_children(
         &self,
         target: &DesktopTarget,
-        topology: &impl LayoutTopology<DesktopTarget>,
+        children: &[DesktopTarget],
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
-    ) -> Vec<(DesktopTarget, Placement<Transform, 2>)> {
-        let children = topology.children_of(target);
-        if children.is_empty() {
-            return Vec::new();
-        }
-
-        let child_sizes: Vec<_> = children
+    ) -> Vec<Placement<Transform, 2>> {
+        let child_measurements: Vec<_> = children
             .iter()
             .map(|child| {
                 self.entries
                     .get(child)
                     .copied()
                     .expect("Internal error: missing measured layout size for child")
-                    .size()
+                    .measured
             })
             .collect();
 
-        let child_transforms = algorithm.place_children(target, &child_sizes);
-        if child_transforms.len() != children.len() {
+        let parent_entry = self
+            .entries
+            .get(target)
+            .expect("Internal error: missing layout entry for parent");
+        let parent_size = parent_entry
+            .placement
+            .map(|placement| placement.rect.size)
+            .unwrap_or(parent_entry.measured.size);
+        let child_placements = algorithm.place_children(target, parent_size, &child_measurements);
+        if child_placements.len() != children.len() {
             panic!("Internal error: child placement count does not match child count")
         }
 
-        let mut placements = Vec::with_capacity(children.len());
-        for index in 0..children.len() {
-            let child = &children[index];
-            let size = child_sizes[index];
-            let child_transform = &child_transforms[index];
-            placements.push((
-                child.clone(),
-                Placement::new(
-                    child_transform.transform,
-                    LayoutRect::new(child_transform.offset, size),
-                ),
-            ));
-        }
-
-        placements
+        child_placements
     }
 
-    pub(super) fn local_placement(
-        &self,
-        target: &DesktopTarget,
-    ) -> Option<Placement<Transform, 2>> {
+    pub fn local_placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
         self.entries
             .get(target)
             .copied()
-            .and_then(LayoutEntry::placement)
+            .and_then(|entry| entry.placement)
     }
 
-    pub(super) fn absolute_placement(
+    pub fn absolute_placement(
         &self,
         target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
@@ -269,12 +260,13 @@ mod tests {
 
     use massive_geometry::Transform;
     use massive_layout::{
-        LayoutAlgorithm, LayoutTopology, Offset, Size as LayoutSize, TransformOffset,
+        LayoutAlgorithm, LayoutTopology, MeasuredLayout, Offset, Placement, Rect as LayoutRect,
+        Size as LayoutSize,
     };
 
-    use super::DesktopLayoutState;
+    use super::{DesktopLayoutState, PlacementUpdate};
     use crate::desktop_system::DesktopTarget;
-    use crate::projects::GroupId;
+    use crate::projects::ProjectId;
 
     #[derive(Default)]
     struct TestTopology {
@@ -318,29 +310,47 @@ mod tests {
     }
 
     impl LayoutAlgorithm<DesktopTarget, Transform, 2> for TestAlgorithm {
-        fn measure(&self, id: &DesktopTarget, child_sizes: &[LayoutSize<2>]) -> LayoutSize<2> {
-            match id {
+        fn measure(
+            &self,
+            id: &DesktopTarget,
+            child_measurements: &[MeasuredLayout<2>],
+        ) -> MeasuredLayout<2> {
+            let size: LayoutSize<2> = match id {
                 DesktopTarget::Desktop => {
-                    let width = child_sizes.iter().map(|size| size[0]).sum::<u32>();
-                    let height = child_sizes.iter().map(|size| size[1]).max().unwrap_or(0);
+                    let width = child_measurements
+                        .iter()
+                        .map(|child| child.size[0])
+                        .sum::<u32>();
+                    let height = child_measurements
+                        .iter()
+                        .map(|child| child.size[1])
+                        .max()
+                        .unwrap_or(0);
                     [width, height].into()
                 }
                 _ => [10, 5].into(),
-            }
+            };
+            size.into()
         }
 
         fn place_children(
             &self,
             _id: &DesktopTarget,
-            child_sizes: &[LayoutSize<2>],
-        ) -> Vec<TransformOffset<Transform, 2>> {
+            _parent_size: LayoutSize<2>,
+            child_measurements: &[MeasuredLayout<2>],
+        ) -> Vec<Placement<Transform, 2>> {
             if self.mismatch_child_count {
                 return Vec::new();
             }
 
-            child_sizes
+            child_measurements
                 .iter()
-                .map(|_| TransformOffset::new(Transform::default(), self.child_offset))
+                .map(|child| {
+                    Placement::new(
+                        Transform::default(),
+                        LayoutRect::new(self.child_offset, child.size),
+                    )
+                })
                 .collect()
         }
     }
@@ -351,19 +361,23 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let group = DesktopTarget::Group(GroupId::new());
+        let project = DesktopTarget::Project(ProjectId::new());
         topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![group.clone()]);
+        topology.set_children(DesktopTarget::Desktop, vec![project.clone()]);
 
         let algorithm = TestAlgorithm {
             child_offset: Offset::default(),
             mismatch_child_count: true,
         };
 
-        state.measure_node(&group, &topology, &algorithm);
+        state.measure_node(&project, &topology, &algorithm);
         state.measure_node(&DesktopTarget::Desktop, &topology, &algorithm);
 
-        state.place_children_of(&DesktopTarget::Desktop, &topology, &algorithm);
+        state.place_children_of(
+            &DesktopTarget::Desktop,
+            topology.children_of(&DesktopTarget::Desktop),
+            &algorithm,
+        );
     }
 
     #[test]
@@ -372,9 +386,9 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let group = DesktopTarget::Group(GroupId::new());
+        let project = DesktopTarget::Project(ProjectId::new());
         topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![group]);
+        topology.set_children(DesktopTarget::Desktop, vec![project]);
 
         let algorithm = TestAlgorithm {
             child_offset: Offset::default(),
@@ -385,36 +399,43 @@ mod tests {
     }
 
     #[test]
-    fn changed_targets_returned_from_placement_update() {
+    fn changed_children_returned_from_placement_update() {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
-        let group = DesktopTarget::Group(GroupId::new());
+        let project = DesktopTarget::Project(ProjectId::new());
         topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![group.clone()]);
+        topology.set_children(DesktopTarget::Desktop, vec![project.clone()]);
 
         let initial_algorithm = TestAlgorithm {
             child_offset: [0, 0].into(),
             mismatch_child_count: false,
         };
 
-        state.measure_node(&group, &topology, &initial_algorithm);
+        state.measure_node(&project, &topology, &initial_algorithm);
         state.measure_node(&DesktopTarget::Desktop, &topology, &initial_algorithm);
-        state.place_children_of(&DesktopTarget::Desktop, &topology, &initial_algorithm);
+        state.place_children_of(
+            &DesktopTarget::Desktop,
+            topology.children_of(&DesktopTarget::Desktop),
+            &initial_algorithm,
+        );
 
         let updated_algorithm = TestAlgorithm {
             child_offset: [7, 3].into(),
             mismatch_child_count: false,
         };
-        let changed =
-            state.place_children_of(&DesktopTarget::Desktop, &topology, &updated_algorithm);
+        let changed = state.place_children_of(
+            &DesktopTarget::Desktop,
+            topology.children_of(&DesktopTarget::Desktop),
+            &updated_algorithm,
+        );
 
-        assert_eq!(changed, vec![group.clone()]);
+        assert_eq!(changed, vec![PlacementUpdate::ChangedSizeUnchanged]);
 
-        let final_group = state
-            .local_placement(&group)
-            .expect("expected final group placement");
+        let final_project = state
+            .local_placement(&project)
+            .expect("expected final project placement");
 
-        assert_eq!(final_group.rect.offset, [7, 3].into());
+        assert_eq!(final_project.rect.offset, [7, 3].into());
     }
 }

@@ -3,9 +3,10 @@ use anyhow::Result;
 use massive_animation::Interpolation;
 use massive_applications::InstanceId;
 use massive_geometry::{Point, SizePx, Transform};
-use massive_layout::{Placement, Size as LayoutSize};
+use massive_layout::{LayoutTopology, Placement, Size as LayoutSize};
 
 use super::effects::{DesktopEffect, DesktopEffectQueue, Effects};
+use super::layout_state::PlacementUpdate;
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
@@ -137,13 +138,23 @@ impl DesktopSystem {
             focused_instance,
         };
 
-        let changed_targets =
-            self.layout_state
-                .place_children_of(&root, &self.aggregates.hierarchy, &algorithm);
+        let children = self.aggregates.hierarchy.children_of(&root);
+        let placement_outcomes = self
+            .layout_state
+            .place_children_of(&root, children, &algorithm);
 
         let mut effects = Effects::None;
-        for target in changed_targets {
-            effects += DesktopEffect::ApplyLayout(target);
+        for (target, outcome) in children.iter().zip(placement_outcomes) {
+            match outcome {
+                PlacementUpdate::Unchanged => {}
+                PlacementUpdate::ChangedSizeUnchanged => {
+                    effects += DesktopEffect::ApplyLayout(target.clone());
+                }
+                PlacementUpdate::ChangedSizeChanged => {
+                    effects += DesktopEffect::Place(target.clone());
+                    effects += DesktopEffect::ApplyLayout(target.clone());
+                }
+            }
         }
         effects += DesktopEffect::UpdateCamera;
         effects += DesktopEffect::SyncHover;
@@ -212,11 +223,27 @@ impl DesktopSystem {
                     .expect("Instance missing")
                     .set_layout(size_px, transform, animate);
             }
-            DesktopTarget::Group(group_id) => {
+            DesktopTarget::Project(project_id) => {
                 self.aggregates
-                    .groups
-                    .get_mut(&group_id)
-                    .expect("Missing group")
+                    .projects
+                    .get_mut(&project_id)
+                    .expect("Missing project")
+                    .set_layout(size_px, transform);
+            }
+            DesktopTarget::ProjectHeader(project_id) => {
+                self.aggregates
+                    .projects
+                    .get_mut(&project_id)
+                    .expect("Missing project")
+                    .header
+                    .set_layout(size_px, transform, animate);
+            }
+            DesktopTarget::ProjectMatrix(project_id) => {
+                self.aggregates
+                    .projects
+                    .get_mut(&project_id)
+                    .expect("Missing project")
+                    .matrix
                     .set_layout(size_px, transform);
             }
             DesktopTarget::Launcher(launcher_id) => {
@@ -319,7 +346,7 @@ impl DesktopSystem {
         };
 
         self.aggregates
-            .project_presenter
+            .desktop_presenter
             .set_hover_placement(hover_placement);
     }
 

@@ -50,6 +50,11 @@ impl Visual {
         }
     }
 
+    /// Marks this visual as a decal and assigns its decal layer order.
+    ///
+    /// Calling this opts the visual into decal rendering (including the decal pipeline depth
+    /// bias). The numeric value only controls ordering among decal visuals where `0` is the first
+    /// decal layer rendered after non-decal visuals; it does not change the bias magnitude.
     pub fn with_decal_order(self, decal_order: usize) -> Self {
         Self {
             decal_order: Some(decal_order),
