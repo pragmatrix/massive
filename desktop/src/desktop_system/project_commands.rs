@@ -18,16 +18,17 @@ impl DesktopSystem {
             ProjectCommand::AddProject { id, properties } => {
                 let parent_target = DesktopTarget::Desktop;
                 let parent_location = self.aggregates.desktop_presenter.location.clone();
+                let project_target = DesktopTarget::Project(id);
 
                 self.aggregates
                     .hierarchy
-                    .add(parent_target.clone(), DesktopTarget::Project(id))?;
+                    .add(parent_target.clone(), project_target.clone())?;
                 self.aggregates
                     .hierarchy
-                    .add(DesktopTarget::Project(id), DesktopTarget::ProjectHeader(id))?;
-                self.aggregates
-                    .hierarchy
-                    .add(DesktopTarget::Project(id), DesktopTarget::ProjectMatrix(id))?;
+                    .add_nested(
+                        project_target,
+                        [DesktopTarget::ProjectHeader(id), DesktopTarget::ProjectMatrix(id)],
+                    )?;
 
                 self.aggregates
                     .projects
