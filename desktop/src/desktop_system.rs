@@ -135,6 +135,7 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
+    desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
 }
 
@@ -146,23 +147,18 @@ struct Aggregates {
     startup_profile: Option<LaunchProfileId>,
 
     // presenters
-    desktop_presenter: DesktopPresenter,
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: Map<LaunchProfileId, LauncherPresenter>,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
 impl Aggregates {
-    pub fn new(
-        hierarchy: OrderedHierarchy<DesktopTarget>,
-        desktop_presenter: DesktopPresenter,
-    ) -> Self {
+    pub fn new(hierarchy: OrderedHierarchy<DesktopTarget>) -> Self {
         Self {
             hierarchy,
             startup_profile: None,
             projects: Map::default(),
 
-            desktop_presenter,
             launchers: Map::default(),
             instances: Map::default(),
         }
@@ -199,7 +195,8 @@ impl DesktopSystem {
             deferred_focus_layout_launchers: HashSet::new(),
             layout_state,
 
-            aggregates: Aggregates::new(OrderedHierarchy::default(), desktop_presenter),
+            desktop_presenter,
+            aggregates: Aggregates::new(OrderedHierarchy::default()),
         };
 
         Ok(system)

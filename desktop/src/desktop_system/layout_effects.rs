@@ -345,9 +345,7 @@ impl DesktopSystem {
             _ => None,
         };
 
-        self.aggregates
-            .desktop_presenter
-            .set_hover_placement(hover_placement);
+        self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
     fn update_launcher_visor_expansion(

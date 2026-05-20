@@ -26,7 +26,7 @@ const PROJECT_HEADER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 pub struct DesktopPresenter {
     pub location: Handle<Location>,
 
-    // Idea: Use a type that combines Alpha with another Interpolatable type.
+    // Idea: Use a type that combines Alpha with another `Interpolatable` type.
     // Robustness: Alpha should be a type.
     hover_alpha: Animated<f32>,
     hover_placement: Placement<Transform, 2>,
@@ -97,7 +97,7 @@ impl DesktopPresenter {
         self.hover_scene_transform
             .update_if_changed(scene_transform);
 
-        // Ergonomics: What something like apply_to_if_changed(&mut self.hover_visual) or so?
+        // Ergonomics: What something like `apply_to_if_changed(&mut self.hover_visual)` or so?
         //
         // Performance: Can't be update just the shapes here with apply...
         let visual = create_hover_shapes(rect_alpha)
@@ -125,7 +125,6 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
-    pub size: SizePx,
     scene_transform: Handle<Transform>,
     pub header: ProjectHeaderPresenter,
     pub matrix: ProjectMatrixPresenter,
@@ -147,7 +146,6 @@ impl ProjectPresenter {
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
 
         Self {
-            size: SizePx::default(),
             scene_transform,
             header,
             matrix,
@@ -155,7 +153,6 @@ impl ProjectPresenter {
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
-        self.size = size;
         let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
         let scene_transform = layout_transform.to_origin_space(local_center);
         self.scene_transform.update_if_changed(scene_transform);
@@ -191,7 +188,10 @@ impl ProjectHeaderPresenter {
             .enter(scene);
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
-        let header_run = properties.name.size(PROJECT_HEADER_FONT_SIZE).shape(font_system);
+        let header_run = properties
+            .name
+            .size(PROJECT_HEADER_FONT_SIZE)
+            .shape(font_system);
         let measured_size = header_run
             .as_ref()
             .map_or(SizePx::default(), |run| run.metrics.size());

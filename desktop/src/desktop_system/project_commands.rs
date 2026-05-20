@@ -15,7 +15,7 @@ impl DesktopSystem {
         let effects = match command {
             ProjectCommand::AddProject { id, properties } => {
                 let parent_target = DesktopTarget::Desktop;
-                let parent_location = self.aggregates.desktop_presenter.location.clone();
+                let parent_location = self.desktop_presenter.location.clone();
                 let project_target = DesktopTarget::Project(id);
 
                 self.aggregates
