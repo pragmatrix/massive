@@ -35,7 +35,7 @@ impl Scene {
 
     /// Push external changes into this scene.
     pub fn push_changes(&self, changes: SceneChanges) {
-        self.change_collector.push_many(changes);
+        self.change_collector.collect_many(changes);
     }
 
     // Take the changes that need to be sent to the renderer.

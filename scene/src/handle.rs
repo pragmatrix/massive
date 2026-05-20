@@ -53,14 +53,14 @@ impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    pub(crate) fn new(id: Id, value: T, change_tracker: Arc<ChangeCollector>) -> Self {
+    pub(crate) fn new(id: Id, value: T, change_collector: Arc<ChangeCollector>) -> Self {
         let uploaded = T::to_change(&value);
-        change_tracker.push(Change::Create(id, uploaded));
+        change_collector.collect(Change::Create(id, uploaded));
 
         Self {
             inner: InnerHandle {
                 id,
-                change_tracker,
+                change_tracker: change_collector,
                 value: value.into(),
             }
             .into(),
@@ -132,7 +132,8 @@ where
     id: Id,
     /// This is effectively the connection to the scene it was staged in.
     change_tracker: Arc<ChangeCollector>,
-    // OO: Some values might be too large to be duplicated between the application and the renderer.
+    // Optimization: Some values might be too large to be duplicated between the application and the
+    // renderer.
     value: Mutex<T>,
 }
 
@@ -142,14 +143,14 @@ where
 {
     pub fn update(&self, value: T) {
         let change = T::to_change(&value);
-        self.change_tracker.push(Change::Update(self.id, change));
+        self.change_tracker.collect(Change::Update(self.id, change));
 
         *self.value.lock() = value;
     }
 
     pub fn updated(&self) {
         let change = T::to_change(&*self.value.lock());
-        self.change_tracker.push(Change::Update(self.id, change));
+        self.change_tracker.collect(Change::Update(self.id, change));
     }
 }
 
@@ -158,7 +159,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     fn drop(&mut self) {
-        self.change_tracker.push(Change::Delete(self.id));
+        self.change_tracker.collect(Change::Delete(self.id));
     }
 }
 

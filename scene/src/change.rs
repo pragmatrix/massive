@@ -18,7 +18,7 @@ impl SceneChange {
             SceneChange::Transform(Change::Delete(id)) => Some((TypeId::of::<Transform>(), *id)),
             SceneChange::Visual(Change::Delete(id)) => Some((TypeId::of::<Visual>(), *id)),
             SceneChange::Location(Change::Delete(id)) => Some((TypeId::of::<Location>(), *id)),
-            // .. match exhaustive.
+            // ... match exhaustive.
             SceneChange::Transform(_) | SceneChange::Location(_) | SceneChange::Visual(_) => None,
         }
     }
@@ -34,9 +34,7 @@ pub enum Change<T> {
 impl<T> Change<T> {
     pub fn id(&self) -> Id {
         match *self {
-            Change::Create(id, _) => id,
-            Change::Update(id, _) => id,
-            Change::Delete(id) => id,
+            Change::Create(id, _) | Change::Update(id, _) | Change::Delete(id) => id,
         }
     }
 }

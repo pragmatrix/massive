@@ -1,9 +1,11 @@
-use std::{mem, time::Instant};
+use std::mem;
+use std::time::Instant;
 
 use derive_more::Deref;
 use parking_lot::Mutex;
 
-use crate::{SceneChange, id_generator};
+use crate::SceneChange;
+use crate::id_generator;
 
 #[derive(Debug, Default)]
 pub struct ChangeCollector {
@@ -11,22 +13,18 @@ pub struct ChangeCollector {
 }
 
 impl ChangeCollector {
-    pub fn push(&self, change: impl Into<SceneChange>) {
+    pub fn collect(&self, change: impl Into<SceneChange>) {
         let change = change.into();
         self.changes.lock().push(change);
     }
 
-    pub fn push_many(&self, changes: impl Into<SceneChanges>) {
+    pub fn collect_many(&self, changes: impl Into<SceneChanges>) {
         self.changes.lock().accumulate(changes.into());
     }
 
     pub fn take_all(&self) -> SceneChanges {
         // Performance: Preserve capacity here?
         mem::take(&mut self.changes.lock())
-    }
-
-    pub fn any_changes(&self) -> bool {
-        !self.changes.lock().is_empty()
     }
 }
 
