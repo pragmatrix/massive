@@ -43,7 +43,7 @@ pub mod id_generator {
         &ID_GEN
     }
 
-    /// Garbage collect the ids that can be re-used after the changes are applied.
+    /// Garbage collect the ids that can be reused after the changes are applied.
     pub fn gc(changes: &[SceneChange]) {
         // Performance: May not lock the id generator if there are no destructive changes.
         let mut id_gen = global_id_generator().lock();
@@ -52,7 +52,7 @@ pub mod id_generator {
         // renderer, for example to keep ids alive until animations are finished or cached resources
         // are cleaned up)
         for (type_id, id) in changes.iter().flat_map(|sc| sc.destructive_change()) {
-            // Performance: Order by TypeId first to prevent expensive HashMap lookups?
+            // Performance: Order by TypeId first to prevent expensive hashmap lookups?
             id_gen.release(type_id, id);
         }
     }

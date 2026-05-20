@@ -65,7 +65,7 @@ impl SceneChanges {
         }
     }
 
-    /// This converts SceneChanges into their vec representation and frees all ids that are not used
+    /// This converts SceneChanges into their Vec representation and frees all ids that are not used
     /// anymore.
     pub fn release(mut self) -> Option<(Instant, Vec<SceneChange>)> {
         self.time_of_oldest_change.map(|time| {
