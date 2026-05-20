@@ -62,7 +62,7 @@ impl Desktop {
         );
 
         let mut instance_manager = InstanceManager::new(environment);
-        // We need to use ViewEvent early on, because the EventRouter isn't able to convert events.
+        // We need to use ViewEvent early on, because the `EventRouter` isn't able to convert events.
         let event_manager = EventManager::<ViewEvent>::default();
 
         // Start one instance of the first registered application

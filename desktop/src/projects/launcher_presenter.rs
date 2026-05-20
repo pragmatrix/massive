@@ -23,6 +23,7 @@ use crate::projects::{LaunchProfileId, MatrixPlacement};
 use super::configuration::{LaunchProfile, LauncherMode};
 
 // TODO: Need proper color palettes for UI elements.
+// spellcheck: ignore
 // const ALICE_BLUE: Color = Color::rgb_u32(0xf0f8ff);
 // const POWDER_BLUE: Color = Color::rgb_u32(0xb0e0e6);
 const MIDNIGHT_BLUE: Color = Color::rgb_u32(0x191970);
@@ -82,7 +83,7 @@ impl LauncherPresenter {
         scene: &Scene,
         font_system: &mut FontSystem,
     ) -> Self {
-        // Ergonomics: I want this to look like rect.as_shape().with_color(Color::WHITE);
+        // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
         let mode = profile.mode;
 
@@ -259,8 +260,8 @@ impl LauncherPresenter {
     pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
         let presents_instance = self.presents_instance();
 
-        // Architecture: This looks horrible, what about just hiding ExternalEvent and passing each
-        // member (also make the scope type optional, generic over the EventManager?).
+        // Architecture: This looks horrible, what about just hiding `ExternalEvent` and passing
+        // each member (also make the scope type optional, generic over the `EventManager`?).
         let Some(input_event) = self.events.add_event(view_event, Instant::now()) else {
             return Ok(Cmd::None);
         };
@@ -272,7 +273,7 @@ impl LauncherPresenter {
         // Can't go on focus here, we might focus launchers by other means (for example cursor
         // navigation).
         if input_event.detect_click(MouseButton::Left).is_some() {
-            // Usability: Should pass this rect?
+            // Usability: Should pass this rectangle?
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
                 parameters: self.profile.params.clone(),
@@ -351,8 +352,8 @@ impl LauncherPresenter {
 
         let alpha = self.fader.value();
 
-        // Performance: How can we not call this if self.size and self.fader are both not animating.
-        // `is_animating()` is perhaps not reliable.
+        // Performance: How can we not call this if `self.size` and `self.fader` are both not
+        // animating. `is_animating()` is perhaps not reliable.
         self.background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
                 size.to_rect(),
