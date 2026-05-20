@@ -13,7 +13,7 @@ pub struct Animated<T: Send> {
     coordinator: AnimationCoordinator,
     /// The current value and the current state of the animation.
     ///
-    /// Mutex, because we want to access it through `&self` but modify it through the animator.
+    /// A mutex, because we want to access it through `&self` but modify it through the animator.
     inner: Mutex<AnimatedInner<T>>,
 }
 
@@ -94,15 +94,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// If an animation is active, this computes the current value from the animation.
     pub fn value(&self) -> T {
-        let mut inner = self.inner.lock();
-        if inner.animation.is_active() {
-            let instant = self.coordinator.current_cycle_time();
-            if let Some(new_value) = inner.animation.proceed(instant) {
-                inner.value = new_value;
-            }
-        }
-
-        inner.value.clone()
+        self.inner.lock().value(&self.coordinator)
     }
 
     /// The final value of this animated value after all current animations ran through or the
@@ -114,8 +106,8 @@ impl<T: Interpolatable + Send> Animated<T> {
     /// `true` if this is currently animating.
     ///
     /// Detail: Even if this is returning `false`, the client needing the value in response to
-    /// ApplyAnimations may not have seen the final value yet. For example, this happens when the
-    /// current value is retrieved while not in response to an ApplyAnimations event.
+    /// `ApplyAnimations` may not have seen the final value yet. For example, this happens when the
+    /// current value is retrieved while not in response to an `ApplyAnimations` event.
     ///
     /// So if this returns `false`, the value should be used to apply to the animated values that
     /// need updates.
@@ -142,8 +134,18 @@ where
     animation: BlendedAnimation<T>,
 }
 
-impl<T: Send> AnimatedInner<T> {
+impl<T: Send + Interpolatable> AnimatedInner<T> {
     pub fn final_value(&self) -> &T {
         self.animation.final_value().unwrap_or(&self.value)
+    }
+
+    pub fn value(&mut self, coordinator: &AnimationCoordinator) -> T {
+        if self.animation.is_active() {
+            let instant = coordinator.current_cycle_time();
+            if let Some(new_value) = self.animation.proceed(instant) {
+                self.value = new_value;
+            }
+        }
+        self.value.clone()
     }
 }

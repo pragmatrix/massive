@@ -28,7 +28,7 @@ impl Scene {
         self.animation_coordinator.animated(value)
     }
 
-    /// Create a animated value that is animating from a starting value to a target value.
+    /// Create an animated value that is animating from a starting value to a target value.
     pub fn animation<T: Interpolatable + 'static + Send>(
         &self,
         value: T,
@@ -41,14 +41,14 @@ impl Scene {
         animated
     }
 
-    /// Creates a animated value that can be used to animate other values.
+    /// Creates an animated value that can be used to animate other values.
     ///
     /// This tracks durations from one update cycle to the next and provides a way to animate other
     /// values indirectly so that - even when update cycles are not called in regular intervals -
     /// animations are as smooth as possible.
     ///
-    /// As long as a TimeScale is asked to scale values, the system stays in "animation mode"
-    /// (attempts to re-render every frame) and sends regular  [`ShellEvent::ApplyAnimations`]s.
+    /// As long as a `TimeScale` is asked to scale values, the system stays in "animation mode"
+    /// (attempts to re-render every frame) and sends regular [`ShellEvent::ApplyAnimations`].
     pub fn time_scale(&self) -> TimeScale {
         self.animation_coordinator.time_scale()
     }

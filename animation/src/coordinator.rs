@@ -25,16 +25,14 @@
 //!     deciding based on polling the value() about the render pacing felt too brittle. We don't
 //!     want to a client to constrain when it is recommended to update derived values from animated
 //!     values. This should be possible on every time and there should be no decision if that
-//!     happens at all. Clients may just skip frames for updates, etc, which now won't cause to flip
-//!     render pacing. This also has the drawback that even if animated values are active, but not
-//!     actually used, the fast render pacing will stay until the animation actually end. But this
-//!     is tolerable and probably won't happen in practice and should be simple to debug.
+//!     happens at all. Clients may just skip frames for updates, etc., which now won't cause to
+//!     flip render pacing. This also has the drawback that even if animated values are active, but
+//!     not actually used, the fast render pacing will stay until the animation actually end. But
+//!     this is tolerable and probably won't happen in practice and should be simple to debug.
 
-use std::{
-    cmp::max,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::cmp::max;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
@@ -74,18 +72,20 @@ impl AnimationCoordinator {
     /// Upgrade the current cycle to an apply animations cycle.
     ///
     /// If the cycle has not been started yet, it's started now.
+    ///
+    /// Only in an `ApplyAnimations` triggered cycle can we stop animations. This is so that at
+    /// least one `ApplyAnimations` is running at a time > the ending time of all animations to
+    /// guarantee that all the computed values represent their final values.
     pub fn upgrade_to_apply_animations_cycle(&self) {
-        let mut inner = self.inner.lock();
         // Be sure there is a current cycle.
-        let cycle = inner.current_cycle();
-        cycle.mode = CycleMode::ApplyAnimations;
+        self.inner.lock().current_cycle().mode = CycleMode::ApplyAnimations;
     }
 
     /// Ends an update cycle. Returns true if animations are active. This resets the current time.
     pub fn end_cycle(&self) -> bool {
         let mut inner = self.inner.lock();
         if let Some(cycle) = inner.cycle.take() {
-            if cycle.mode == CycleMode::ApplyAnimations && cycle.time >= inner.ending_time {
+            if cycle.mode == CycleMode::ApplyAnimations && cycle.start_time >= inner.ending_time {
                 inner.animating = false;
             }
         }
@@ -93,17 +93,19 @@ impl AnimationCoordinator {
         inner.animating
     }
 
-    /// Returns the current cycle time that should be used for animated values.
+    /// Returns the current cycle starting time that should be used for animated values.
     ///
-    /// If not set, the now is set and the cycle mode is set to implicit.
+    /// If not set, the now is set and the cycle mode is set to "implicit".
     pub(crate) fn current_cycle_time(&self) -> Instant {
-        self.inner.lock().current_cycle().time
+        self.inner.lock().current_cycle().start_time
     }
 
     /// Allocate an animation range for the given duration and return it's starting time.
+    ///
+    /// If not in a cycle, this starts a cycle at the current time and sets `animating` to `true`.
     pub(crate) fn allocate_animation_time(&self, duration: Duration) -> Instant {
         let mut inner = self.inner.lock();
-        let current = inner.current_cycle().time;
+        let current = inner.current_cycle().start_time;
         let end = current + duration;
         inner.notify_ending_time(end);
         current
@@ -118,14 +120,14 @@ struct Inner {
     /// The current event processing cycle we are in.
     cycle: Option<AnimationCycle>,
 
-    /// The time when all animations end.
+    /// The time when all animations ended or will end.
     ending_time: Instant,
 }
 
 impl Inner {
     fn current_cycle(&mut self) -> &mut AnimationCycle {
         self.cycle
-            .get_or_insert_with(|| AnimationCycle::new(Instant::now()))
+            .get_or_insert_with(|| AnimationCycle::implicit(Instant::now()))
     }
 
     fn notify_ending_time(&mut self, ending_time: Instant) {
@@ -136,14 +138,14 @@ impl Inner {
 
 #[derive(Debug, Copy, Clone)]
 struct AnimationCycle {
-    time: Instant,
+    start_time: Instant,
     mode: CycleMode,
 }
 
 impl AnimationCycle {
-    fn new(time: Instant) -> Self {
+    fn implicit(start_time: Instant) -> Self {
         Self {
-            time,
+            start_time,
             mode: CycleMode::Implicit,
         }
     }

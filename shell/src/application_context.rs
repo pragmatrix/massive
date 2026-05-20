@@ -1,12 +1,13 @@
 use anyhow::{Result, anyhow};
 use massive_geometry::SizePx;
-use tokio::sync::{
-    mpsc::{UnboundedReceiver, WeakUnboundedSender},
-    oneshot,
-};
-use winit::{dpi::PhysicalSize, event_loop::EventLoopProxy, window::WindowAttributes};
+use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
+use tokio::sync::oneshot;
+use winit::dpi::PhysicalSize;
+use winit::event_loop::EventLoopProxy;
+use winit::window::WindowAttributes;
 
-use crate::{Scene, ShellEvent, ShellWindow, shell::ShellCommand};
+use crate::shell::ShellCommand;
+use crate::{Scene, ShellEvent, ShellWindow};
 
 use massive_animation::AnimationCoordinator;
 use massive_util::CoalescingReceiver;
@@ -18,7 +19,7 @@ use massive_util::CoalescingReceiver;
 /// shell.
 #[derive(Debug)]
 pub struct ApplicationContext {
-    // We use this to send ApplyAnimations from the renderers.
+    // We use this to send `ApplyAnimations` from the renderers.
     event_sender: WeakUnboundedSender<ShellEvent>,
     event_receiver: CoalescingReceiver<ShellEvent>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
@@ -86,8 +87,8 @@ impl ApplicationContext {
 
     /// Wait for the next shell event.
     ///
-    /// This function is cancel safe _and_ must be used in a atomic fashion (i.e. not preserved in a
-    /// select! loop with &mut reference to the returning future).
+    /// This function is cancel safe _and_ must be used in an atomic fashion (i.e. not preserved in a
+    /// `select!` loop with `&mut` reference to the returning future).
     ///
     /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
     /// [`ShellEvent::ApplyAnimations`] can be produced.

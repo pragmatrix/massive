@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::AnimationCoordinator;
 
-/// TimeScale computes durations from one update cycle to the next.
+/// `TimeScale` computes durations from one update cycle to the next.
 ///
 /// Architecture: Shouldn't this be the underlying mechanism for [`Animated`], a more fundamental
 /// one?
