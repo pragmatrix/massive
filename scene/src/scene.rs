@@ -12,7 +12,7 @@ use crate::{
 /// objects onto it.
 #[derive(Debug, Default)]
 pub struct Scene {
-    // This tracks all changes from staging, changing the the values in the handles, and dropping
+    // This tracks all changes from staging, changing the values in the handles, and dropping
     // them.
     //
     // Shared because handles need to push changes when dropped.

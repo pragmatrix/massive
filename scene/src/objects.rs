@@ -8,7 +8,7 @@ use crate::{Change, Handle, Id, Object, SceneChange};
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
 /// Architecture: This has now the same size as [`VisualRenderObj`]. Why not just clone this one for
-/// the renderer then .. or even just the [`Handle<Visual>`]?
+/// the renderer then, or even just the [`Handle<Visual>`]?
 ///
 /// Detail: `Clone` was added for `Handle::update_with_if_changed()`.
 #[derive(Debug, Clone, PartialEq)]
@@ -28,12 +28,12 @@ pub struct Visual {
     /// An optional clip bounds in model space 2D only.
     pub clip_bounds: Option<Bounds>,
 
-    /// DR: Clients should be able to use [`Visual`] directly as a an abstract thing. Like for
-    /// example a line which contains multiple Shapes (runs, quads, etc.). Therefore `Vec<Shape>`
+    /// DR: Clients should be able to use [`Visual`] directly as an abstract thing. Like for
+    /// example a line which contains multiple Shapes (runs, quads, etc.). Therefore, `Vec<Shape>`
     /// and not just `Shape`.
     ///
     /// DI: Another idea is to add `Shape::Combined(Vec<Shape>)`, but this makes extraction per
-    /// renderer a bit more complex. This would also point to sharing Shapes as handles ... which
+    /// renderer a bit more complex. This would also point to sharing Shapes as handles, which
     /// could go in direction of layout?
     ///
     /// Arc is used here to make sharing shapes with the renderer really cheap.

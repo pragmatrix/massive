@@ -28,7 +28,7 @@ where
 
 // PartialEq implements reference equality based on the Id.
 //
-// Robustness: Should probably be based on the Arc ptr.
+// Robustness: Should probably be based on the Arc pointer.
 impl<T: Object> PartialEq for Handle<T>
 where
     SceneChange: From<Change<T::Change>>,

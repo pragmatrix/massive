@@ -74,7 +74,7 @@ impl DesktopSystem {
     /// Measures one layout target in a bottom-up pass and schedules follow-up work.
     ///
     /// If any direct child is still unmeasured, this does not measure the target yet.
-    /// Instead it enqueues `Measure` for each missing child and returns immediately.
+    /// Instead, it enqueues `Measure` for each missing child and returns immediately.
     ///
     /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
     /// and re-enqueues `Measure(parent)` only when the measured size changed.
