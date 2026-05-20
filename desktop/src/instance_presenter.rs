@@ -162,7 +162,7 @@ impl InstancePresenter {
                 }
             }
             InstancePresenterState::Disappearing => {
-                // ignored, we are already disappearing.
+                // Ignored, we are already disappearing.
                 Ok(())
             }
         }
@@ -196,7 +196,7 @@ impl InstancePresenter {
             background.visual.update_if_changed_with(|visual| {
                 // Background geometry basis depends on parent space:
                 // - no view yet: centered around instance origin
-                // - view presenting: regular view-local rect (top-left origin)
+                // - view presenting: regular view-local rectangle (top-left origin)
                 let rect = if self.state.view().is_some() {
                     background.local_rect
                 } else {

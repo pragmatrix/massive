@@ -165,7 +165,6 @@ impl ProjectPresenter {
 
 #[derive(Debug)]
 pub struct ProjectHeaderPresenter {
-    pub size: SizePx,
     layout_transform: Transform,
     animated_size: Animated<Size>,
     measured_size: SizePx,
@@ -207,7 +206,6 @@ impl ProjectHeaderPresenter {
             .enter(scene);
 
         Self {
-            size: SizePx::default(),
             layout_transform: Transform::IDENTITY,
             animated_size: scene.animated(Size::default()),
             measured_size,
@@ -222,7 +220,6 @@ impl ProjectHeaderPresenter {
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
-        self.size = size;
         self.layout_transform = layout_transform;
         let size = Size::new(size.width as f64, size.height as f64);
 
