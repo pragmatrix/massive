@@ -40,15 +40,12 @@ impl<T: Interpolatable + Send> Animated<T> {
     ) where
         T: 'static + PartialEq,
     {
-        let mut inner = self.inner.lock();
-        if *inner.final_value() == target_value {
-            return;
-        }
-        let instant = self.coordinator.allocate_animation_time(duration);
-        let value = inner.value.clone();
-        inner
-            .animation
-            .animate_to(value, instant, target_value, duration, interpolation);
+        self.inner.lock().animate_if_changed(
+            &self.coordinator,
+            target_value,
+            duration,
+            interpolation,
+        );
     }
 
     /// Animate to a target value in the given duration.
@@ -61,20 +58,14 @@ impl<T: Interpolatable + Send> Animated<T> {
     where
         T: 'static,
     {
-        let instant = self.coordinator.allocate_animation_time(duration);
-
-        let mut inner = self.inner.lock();
-        let value = inner.value.clone();
-        inner
-            .animation
-            .animate_to(value, instant, target_value, duration, interpolation);
+        self.inner
+            .lock()
+            .animate(&self.coordinator, target_value, duration, interpolation);
     }
 
     /// Stop all animations, and set the current value.
     pub fn set_immediately(&mut self, value: T) {
-        let mut inner = self.inner.lock();
-        inner.animation.end();
-        inner.value = value;
+        self.inner.lock().set_immediately(value);
     }
 
     /// Finish all animations.
@@ -84,10 +75,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Does nothing when no animation is active.
     pub fn finish(&mut self) {
-        let mut inner = self.inner.lock();
-        if let Some(final_value) = inner.animation.end() {
-            inner.value = final_value
-        }
+        self.inner.lock().finish();
     }
 
     /// The current value of this animated value.
@@ -114,12 +102,12 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Ergonomics: Foolproof!
     pub fn is_animating(&self) -> bool {
-        self.inner.lock().animation.is_active()
+        self.inner.lock().is_animating()
     }
 
     /// Returns the number of active animation blendings.
     pub fn animation_count(&self) -> usize {
-        self.inner.lock().animation.count()
+        self.inner.lock().animation_count()
     }
 }
 
@@ -135,6 +123,48 @@ where
 }
 
 impl<T: Send + Interpolatable> AnimatedInner<T> {
+    pub fn animate_if_changed(
+        &mut self,
+        coordinator: &AnimationCoordinator,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) where
+        T: 'static + PartialEq,
+    {
+        if *self.final_value() == target_value {
+            return;
+        }
+
+        self.animate(coordinator, target_value, duration, interpolation);
+    }
+
+    pub fn animate(
+        &mut self,
+        coordinator: &AnimationCoordinator,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) where
+        T: 'static,
+    {
+        let instant = coordinator.allocate_animation_time(duration);
+        let value = self.value.clone();
+        self.animation
+            .animate_to(value, instant, target_value, duration, interpolation);
+    }
+
+    pub fn set_immediately(&mut self, value: T) {
+        self.animation.end();
+        self.value = value;
+    }
+
+    pub fn finish(&mut self) {
+        if let Some(final_value) = self.animation.end() {
+            self.value = final_value;
+        }
+    }
+
     pub fn final_value(&self) -> &T {
         self.animation.final_value().unwrap_or(&self.value)
     }
@@ -147,5 +177,13 @@ impl<T: Send + Interpolatable> AnimatedInner<T> {
             }
         }
         self.value.clone()
+    }
+
+    pub fn is_animating(&self) -> bool {
+        self.animation.is_active()
+    }
+
+    pub fn animation_count(&self) -> usize {
+        self.animation.count()
     }
 }

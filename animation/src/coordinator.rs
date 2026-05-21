@@ -106,8 +106,7 @@ impl AnimationCoordinator {
     pub(crate) fn allocate_animation_time(&self, duration: Duration) -> Instant {
         let mut inner = self.inner.lock();
         let current = inner.current_cycle().start_time;
-        let end = current + duration;
-        inner.notify_ending_time(end);
+        inner.notify_ending_time(current + duration);
         current
     }
 }
