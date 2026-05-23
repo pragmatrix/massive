@@ -62,7 +62,9 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
-    last_focused_instance: Option<InstanceId>,
+    /// The most recent focused instance in this launcher, used as visor anchor when nothing in
+    /// this launcher is currently focused.
+    focus_anchor_instance: Option<InstanceId>,
 
     events: EventManager<ViewEvent>,
 }
@@ -122,7 +124,7 @@ impl LauncherPresenter {
             background,
             name,
             fader: scene.animated(1.0),
-            last_focused_instance: None,
+            focus_anchor_instance: None,
             events: EventManager::default(),
         }
     }
@@ -158,7 +160,7 @@ impl LauncherPresenter {
             ),
             LauncherMode::Visor => {
                 let anchor_index = focused_index.or_else(|| {
-                    self.last_focused_instance.and_then(|focused| {
+                    self.focus_anchor_instance.and_then(|focused| {
                         child_instances
                             .iter()
                             .position(|&instance| instance == focused)
@@ -206,13 +208,8 @@ impl LauncherPresenter {
             }
 
             let center_y = child_center_y(offset, child_size);
-            let transform = visor_child_transform(
-                child_index,
-                center_y,
-                summary,
-                anchor_index,
-                expanded,
-            );
+            let transform =
+                visor_child_transform(child_index, center_y, summary, anchor_index, expanded);
 
             child_placements.push(Placement::new(
                 transform,
@@ -233,6 +230,12 @@ impl LauncherPresenter {
 
     pub fn should_relayout_on_focus_change(&self, instance_count: usize) -> bool {
         matches!(self.mode, LauncherMode::Visor) && instance_count > 1
+    }
+
+    pub fn set_focus_anchor_instance(&mut self, instance: Option<InstanceId>) {
+        if instance.is_some() {
+            self.focus_anchor_instance = instance;
+        }
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be
@@ -311,14 +314,7 @@ impl LauncherPresenter {
         &mut self,
         instances: &mut Map<InstanceId, InstancePresenter>,
         child_instances: &[InstanceId],
-        focused_instance: Option<InstanceId>,
     ) {
-        if let Some(focused) = focused_instance
-            && child_instances.contains(&focused)
-        {
-            self.last_focused_instance = Some(focused);
-        }
-
         self.apply_presenter_animations();
         self.apply_child_instance_animations(instances, child_instances);
     }

@@ -251,7 +251,7 @@ impl DesktopSystem {
         }
     }
 
-    fn instance_launcher(&self, instance_id: InstanceId) -> Option<LaunchProfileId> {
+    pub(super) fn instance_launcher(&self, instance_id: InstanceId) -> Option<LaunchProfileId> {
         let instance_target = DesktopTarget::Instance(instance_id);
         match self.aggregates.hierarchy.parent(&instance_target) {
             Some(DesktopTarget::Launcher(id)) => Some(*id),
