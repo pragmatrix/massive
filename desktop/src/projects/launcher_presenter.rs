@@ -44,12 +44,6 @@ struct VisorLayoutSummary {
     instance_count: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct VisorExpansionState {
-    focused_index: Option<usize>,
-    expanded: bool,
-}
-
 #[derive(Debug)]
 pub struct LauncherPresenter {
     #[allow(unused)]
@@ -68,7 +62,6 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
-    visor_expanded: bool,
     last_focused_instance: Option<InstanceId>,
 
     events: EventManager<ViewEvent>,
@@ -129,7 +122,6 @@ impl LauncherPresenter {
             background,
             name,
             fader: scene.animated(1.0),
-            visor_expanded: true,
             last_focused_instance: None,
             events: EventManager::default(),
         }
@@ -165,7 +157,7 @@ impl LauncherPresenter {
                 child_sizes,
             ),
             LauncherMode::Visor => {
-                let focused_index = focused_index.or_else(|| {
+                let anchor_index = focused_index.or_else(|| {
                     self.last_focused_instance.and_then(|focused| {
                         child_instances
                             .iter()
@@ -177,6 +169,7 @@ impl LauncherPresenter {
                     local_offset,
                     child_sizes,
                     focused_index,
+                    anchor_index,
                     default_panel_size,
                 )
             }
@@ -188,17 +181,14 @@ impl LauncherPresenter {
         local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         focused_index: Option<usize>,
+        anchor_index: Option<usize>,
         default_panel_size: SizePx,
     ) -> Vec<Placement<Transform, 2>> {
         let offset =
             centered_children_offset(local_offset, child_sizes, default_panel_size.width as i32);
+        let expanded = focused_index.is_some();
 
-        let expansion_state = VisorExpansionState {
-            focused_index,
-            expanded: self.visor_expanded,
-        };
-
-        let Some(summary) = visor_layout_summary(offset, child_sizes, focused_index) else {
+        let Some(summary) = visor_layout_summary(offset, child_sizes, anchor_index) else {
             return place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,
@@ -216,7 +206,13 @@ impl LauncherPresenter {
             }
 
             let center_y = child_center_y(offset, child_size);
-            let transform = visor_child_transform(child_index, center_y, summary, expansion_state);
+            let transform = visor_child_transform(
+                child_index,
+                center_y,
+                summary,
+                anchor_index,
+                expanded,
+            );
 
             child_placements.push(Placement::new(
                 transform,
@@ -237,17 +233,6 @@ impl LauncherPresenter {
 
     pub fn should_relayout_on_focus_change(&self, instance_count: usize) -> bool {
         matches!(self.mode, LauncherMode::Visor) && instance_count > 1
-    }
-
-    pub fn set_visor_expansion(&mut self, expanded: bool, _animate: bool) {
-        match self.mode {
-            LauncherMode::Visor => {
-                self.visor_expanded = expanded;
-            }
-            LauncherMode::Band => {
-                self.visor_expanded = true;
-            }
-        }
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be
@@ -452,12 +437,10 @@ fn visor_child_transform(
     instance_index: usize,
     center_y: f64,
     summary: VisorLayoutSummary,
-    expansion_state: VisorExpansionState,
+    focused_index: Option<usize>,
+    expanded: bool,
 ) -> Transform {
-    let expanded = expansion_state.expanded && expansion_state.focused_index.is_some();
-    let focused_index = expansion_state
-        .focused_index
-        .or((!expanded).then_some(summary.anchor_index));
+    let focused_index = focused_index.or((!expanded).then_some(summary.anchor_index));
     let expansion_factor = if expanded { 1.0 } else { 0.0 };
     let placement = visor_layout::placement(
         instance_index,

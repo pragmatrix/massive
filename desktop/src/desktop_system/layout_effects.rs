@@ -14,7 +14,7 @@ use crate::projects::LaunchProfileId;
 
 impl DesktopSystem {
     pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
-        let mut effects = Effects::from(DesktopEffect::UpdateLauncherExpansion);
+        let mut effects = Effects::None;
         effects += command_effects;
         effects += DesktopEffect::Measure(DesktopTarget::Desktop);
         effects
@@ -48,10 +48,6 @@ impl DesktopSystem {
         effects_mode: TransactionEffectsMode,
     ) -> Result<Effects> {
         match effect {
-            DesktopEffect::UpdateLauncherExpansion => {
-                self.update_launcher_expansion_effect(effects_mode);
-                Ok(Effects::None)
-            }
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::ApplyLayout(target) => self.apply_layout_effect(target, effects_mode),
@@ -64,11 +60,6 @@ impl DesktopSystem {
                 Ok(Effects::None)
             }
         }
-    }
-
-    fn update_launcher_expansion_effect(&mut self, effects_mode: TransactionEffectsMode) {
-        let focused_target = self.event_router.focused().cloned();
-        self.update_launcher_visor_expansion(focused_target.as_ref(), effects_mode.animate());
     }
 
     /// Measures one layout target in a bottom-up pass and schedules follow-up work.
@@ -347,27 +338,6 @@ impl DesktopSystem {
         };
 
         self.desktop_presenter.set_hover_placement(hover_placement);
-    }
-
-    fn update_launcher_visor_expansion(
-        &mut self,
-        focused_target: Option<&DesktopTarget>,
-        animate: bool,
-    ) {
-        let focused_path = self.aggregates.hierarchy.resolve_path(focused_target);
-        let launcher_ids: Vec<_> = self.aggregates.launchers.keys().copied().collect();
-
-        for launcher_id in launcher_ids {
-            let launcher_target = DesktopTarget::Launcher(launcher_id);
-            let expanded = focused_path.contains(&launcher_target);
-
-            let launcher = self
-                .aggregates
-                .launchers
-                .get_mut(&launcher_id)
-                .expect("Launcher missing");
-            launcher.set_visor_expansion(expanded, animate);
-        }
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {

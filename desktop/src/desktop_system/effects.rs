@@ -6,7 +6,6 @@ use super::DesktopTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopEffect {
-    UpdateLauncherExpansion,
     Measure(DesktopTarget),
     Place(DesktopTarget),
     ApplyLayout(DesktopTarget),
