@@ -92,6 +92,8 @@ impl DesktopLayoutState {
             .collect()
     }
 
+    // Place the children of a given target, and return a list of size changes if there are any. For
+    // example, for children that expand to fill their parent.
     pub fn place_children_of(
         &mut self,
         target: &DesktopTarget,
@@ -124,6 +126,7 @@ impl DesktopLayoutState {
 
         let child_placements = self.place_children(target, children, algorithm);
 
+        // Update the placements, and see if there are size changes.
         let mut updates = Vec::with_capacity(children.len());
         for (child, placement) in children.iter().zip(child_placements) {
             let Some(entry) = self.entries.get_mut(child) else {

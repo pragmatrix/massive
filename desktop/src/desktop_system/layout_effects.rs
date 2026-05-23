@@ -91,6 +91,7 @@ impl DesktopSystem {
             focused_instance,
         };
 
+        // If measurements of children are not available, push them as effects and return early.
         let missing_children = self
             .layout_state
             .missing_child_measures(&target, &self.aggregates.hierarchy);
