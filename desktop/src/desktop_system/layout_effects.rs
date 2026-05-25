@@ -360,7 +360,7 @@ impl DesktopSystem {
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             launcher_anchor,
-            instance_presenter.layout_transform_animation.value(),
+            instance_presenter.layout_transform_animation.latest_value(),
             instance_anchor,
         );
 

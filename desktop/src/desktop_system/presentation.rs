@@ -36,7 +36,7 @@ impl DesktopSystem {
         };
 
         let initial_center_translation =
-            originating_presenter.map(|op| op.layout_transform_animation.value().translate);
+            originating_presenter.map(|op| op.layout_transform_animation.latest_value().translate);
 
         let presenter = InstancePresenter::new(
             initial_center_translation,

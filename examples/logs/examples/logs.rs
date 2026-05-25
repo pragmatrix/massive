@@ -270,7 +270,7 @@ impl Logs {
 
         while let Some(line) = self.lines.front() {
             if line.fading_out && !line.fader.is_animating() {
-                debug!("faded out at: {}", line.fader.value());
+                debug!("faded out at: {}", line.fader.latest_value());
                 self.lines.pop_front();
                 update_v_alignment = true;
             } else {

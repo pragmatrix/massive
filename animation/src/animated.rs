@@ -1,7 +1,5 @@
 use std::time::Duration;
 
-use parking_lot::Mutex;
-
 use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolation};
 
 /// `Animated` represents an animated value over time.
@@ -12,20 +10,14 @@ use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolatio
 pub struct Animated<T: Send> {
     coordinator: AnimationCoordinator,
     /// The current value and the current state of the animation.
-    ///
-    /// A mutex, because we want to access it through `&self` but modify it through the animator.
-    inner: Mutex<AnimatedInner<T>>,
+    inner: AnimatedInner<T>,
 }
 
 impl<T: Interpolatable + Send> Animated<T> {
     pub(crate) fn new(coordinator: AnimationCoordinator, value: T) -> Self {
         Self {
             coordinator,
-            inner: AnimatedInner {
-                value,
-                animation: Default::default(),
-            }
-            .into(),
+            inner: AnimatedInner::new(value),
         }
     }
 
@@ -40,7 +32,7 @@ impl<T: Interpolatable + Send> Animated<T> {
     ) where
         T: 'static + PartialEq,
     {
-        self.inner.lock().animate_if_changed(
+        self.inner.animate_if_changed(
             &self.coordinator,
             target_value,
             duration,
@@ -59,13 +51,12 @@ impl<T: Interpolatable + Send> Animated<T> {
         T: 'static,
     {
         self.inner
-            .lock()
             .animate(&self.coordinator, target_value, duration, interpolation);
     }
 
     /// Stop all animations, and set the current value.
     pub fn set_immediately(&mut self, value: T) {
-        self.inner.lock().set_immediately(value);
+        self.inner.set_immediately(value);
     }
 
     /// Finish all animations.
@@ -75,20 +66,23 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Does nothing when no animation is active.
     pub fn finish(&mut self) {
-        self.inner.lock().finish();
+        self.inner.finish();
     }
 
-    /// The current value of this animated value.
-    ///
-    /// If an animation is active, this computes the current value from the animation.
-    pub fn value(&self) -> T {
-        self.inner.lock().value(&self.coordinator)
+    /// The current value of this animated value, progressing active animations first.
+    pub fn value(&mut self) -> T {
+        self.inner.progressed_value(&self.coordinator)
+    }
+
+    /// The latest stored value of this animated value without progressing active animations.
+    pub fn latest_value(&self) -> T {
+        self.inner.value()
     }
 
     /// The final value of this animated value after all current animations ran through or the
     /// current value one if no animations are active.
     pub fn final_value(&self) -> T {
-        self.inner.lock().final_value().clone()
+        self.inner.final_value().clone()
     }
 
     /// `true` if this is currently animating.
@@ -102,12 +96,12 @@ impl<T: Interpolatable + Send> Animated<T> {
     ///
     /// Ergonomics: Foolproof!
     pub fn is_animating(&self) -> bool {
-        self.inner.lock().is_animating()
+        self.inner.is_animating()
     }
 
     /// Returns the number of active animation blendings.
     pub fn animation_count(&self) -> usize {
-        self.inner.lock().animation_count()
+        self.inner.animation_count()
     }
 }
 
@@ -123,6 +117,13 @@ where
 }
 
 impl<T: Send + Interpolatable> AnimatedInner<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value,
+            animation: Default::default(),
+        }
+    }
+
     pub fn animate_if_changed(
         &mut self,
         coordinator: &AnimationCoordinator,
@@ -169,7 +170,11 @@ impl<T: Send + Interpolatable> AnimatedInner<T> {
         self.animation.final_value().unwrap_or(&self.value)
     }
 
-    pub fn value(&mut self, coordinator: &AnimationCoordinator) -> T {
+    pub fn value(&self) -> T {
+        self.value.clone()
+    }
+
+    pub fn progressed_value(&mut self, coordinator: &AnimationCoordinator) -> T {
         if self.animation.is_active() {
             let instant = coordinator.current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {
