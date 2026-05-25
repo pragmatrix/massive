@@ -147,7 +147,7 @@ impl DesktopSystem {
             .launchers
             .get_mut(&launcher_id)
             .expect("Launcher missing");
-        launcher.set_focus_anchor_instance(Some(instance_id));
+        launcher.set_focus_anchor_instance(instance_id);
     }
 
     pub(super) fn unfocus_pointer_if_path_contains(
