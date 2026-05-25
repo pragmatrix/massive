@@ -32,12 +32,8 @@ impl<T: Interpolatable + Send> Animated<T> {
     ) where
         T: 'static + PartialEq,
     {
-        self.inner.animate_if_changed(
-            &self.coordinator,
-            target_value,
-            duration,
-            interpolation,
-        );
+        self.inner
+            .animate_if_changed(&self.coordinator, target_value, duration, interpolation);
     }
 
     /// Animate to a target value in the given duration.
@@ -70,19 +66,20 @@ impl<T: Interpolatable + Send> Animated<T> {
     }
 
     /// The current value of this animated value, progressing active animations first.
-    pub fn value(&mut self) -> T {
-        self.inner.progressed_value(&self.coordinator)
+    pub fn value(&mut self) -> &T {
+        self.inner.progress(&self.coordinator);
+        self.latest_value()
     }
 
     /// The latest stored value of this animated value without progressing active animations.
-    pub fn latest_value(&self) -> T {
+    pub fn latest_value(&self) -> &T {
         self.inner.value()
     }
 
     /// The final value of this animated value after all current animations ran through or the
     /// current value one if no animations are active.
-    pub fn final_value(&self) -> T {
-        self.inner.final_value().clone()
+    pub fn final_value(&self) -> &T {
+        self.inner.final_value()
     }
 
     /// `true` if this is currently animating.
@@ -170,18 +167,17 @@ impl<T: Send + Interpolatable> AnimatedInner<T> {
         self.animation.final_value().unwrap_or(&self.value)
     }
 
-    pub fn value(&self) -> T {
-        self.value.clone()
+    pub fn value(&self) -> &T {
+        &self.value
     }
 
-    pub fn progressed_value(&mut self, coordinator: &AnimationCoordinator) -> T {
+    pub fn progress(&mut self, coordinator: &AnimationCoordinator) {
         if self.animation.is_active() {
             let instant = coordinator.current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {
                 self.value = new_value;
             }
         }
-        self.value.clone()
     }
 
     pub fn is_animating(&self) -> bool {
