@@ -16,7 +16,7 @@ pub fn placement(
     index: usize,
     instance_count: usize,
     flat_span: f64,
-    focused_index: Option<usize>,
+    center_index: usize,
     expansion_factor: f64,
 ) -> Option<VisorPlacement> {
     if instance_count <= 1 {
@@ -26,9 +26,7 @@ pub fn placement(
     let regular_arc = effective_arc(instance_count);
     let radius = radius_for_center_span(flat_span, regular_arc);
 
-    let focused_rotation = focused_index
-        .map(|focused| base_angle(focused, instance_count, regular_arc))
-        .unwrap_or(0.0);
+    let focused_rotation = base_angle(center_index, instance_count, regular_arc);
 
     let regular_angle = base_angle(index, instance_count, regular_arc) - focused_rotation;
     let angle = regular_angle * expansion_factor;

@@ -42,7 +42,6 @@ use layout_state::DesktopLayoutState;
 
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::FocusPath;
-use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{
@@ -130,6 +129,7 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     pointer_feedback_enabled: bool,
+    /// Launchers queued for focus-driven relayout once pointer buttons are released.
     deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
 
     #[debug(skip)]
@@ -242,12 +242,6 @@ impl DesktopSystem {
     }
 
     pub fn apply_animations(&mut self) {
-        let focused_instance = self
-            .aggregates
-            .hierarchy
-            .resolve_path(self.event_router.focused())
-            .instance();
-
         let launcher_instance_ids: Vec<_> = self
             .aggregates
             .launchers
@@ -266,11 +260,7 @@ impl DesktopSystem {
                 .launchers
                 .get_mut(&launcher_id)
                 .expect("Launcher missing")
-                .apply_animations(
-                    &mut self.aggregates.instances,
-                    &child_instances,
-                    focused_instance,
-                );
+                .apply_animations(&mut self.aggregates.instances, &child_instances);
         }
 
         for project in self.aggregates.projects.values_mut() {

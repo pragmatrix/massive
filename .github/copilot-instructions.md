@@ -9,6 +9,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Keep functions small, clear, and deterministic.
 - Avoid multiple exit points that return the same result; consolidate them when it improves readability.
 - Comment only to explain non-obvious reasoning or intent.
+- Prefer concise, ideally one-line comments for conceptual or semantic blocks inside functions.
 - Order functions high-level first, utilities last; order types by importance (public API first, private helpers last).
 - When splitting large modules, extract low-coupling impl blocks first and preserve existing external imports via local re-exports in the parent module.
 
