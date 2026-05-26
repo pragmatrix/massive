@@ -280,7 +280,7 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&self) -> PixelCamera {
+    pub fn camera(&mut self) -> &PixelCamera {
         self.camera.value()
     }
 

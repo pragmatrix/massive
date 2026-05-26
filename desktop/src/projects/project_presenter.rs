@@ -87,7 +87,7 @@ impl DesktopPresenter {
 
         let size = hover_placement.rect.size;
         let local_rect = Rect::from_size((size[0] as f64, size[1] as f64));
-        let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
+        let rect_alpha = (*alpha != 0.0).then_some((local_rect, *alpha));
 
         // Position the hover visual in world space using the placement's center-based transform.
         let local_center = local_rect.center();

@@ -260,7 +260,7 @@ impl Logs {
     }
 
     fn apply_animations(&mut self) {
-        let v_center = self.vertical_center.value();
+        let v_center = *self.vertical_center.value();
         self.vertical_center_transform
             .update((0., v_center, 0.).into());
 
@@ -270,7 +270,7 @@ impl Logs {
 
         while let Some(line) = self.lines.front() {
             if line.fading_out && !line.fader.is_animating() {
-                debug!("faded out at: {}", line.fader.value());
+                debug!("faded out at: {}", line.fader.latest_value());
                 self.lines.pop_front();
                 update_v_alignment = true;
             } else {
@@ -290,9 +290,10 @@ impl Logs {
     }
 
     fn update_content_transform(&mut self) {
+        let content_height = *self.content_height.value();
         let new_transform = self
             .application
-            .get_transform((self.content_width, self.content_height.value() as u32));
+            .get_transform((self.content_width, content_height as u32));
         self.content_transform.update_if_changed(new_transform);
     }
 }
@@ -348,7 +349,7 @@ impl LogLine {
             return;
         }
 
-        let fading = self.fader.value();
+        let fading = *self.fader.value();
 
         self.visual.update_with(|v| {
             v.shapes = v

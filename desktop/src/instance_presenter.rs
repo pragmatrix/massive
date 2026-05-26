@@ -212,7 +212,7 @@ impl InstancePresenter {
 
     pub fn apply_animations(&mut self) {
         let layout_transform = self.layout_transform_animation.value();
-        self.instance_transform.update_if_changed(layout_transform);
+        self.instance_transform.update_if_changed(*layout_transform);
 
         // Feature: Hiding animation.
         let Some(view) = self.state.view_mut() else {
@@ -222,7 +222,7 @@ impl InstancePresenter {
 
         let alpha = view.alpha.value();
         location.update_if_changed_with(|location| {
-            location.alpha = alpha;
+            location.alpha = *alpha;
         });
     }
 }

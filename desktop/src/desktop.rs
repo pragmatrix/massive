@@ -224,7 +224,7 @@ impl Desktop {
 
             // Get the camera, build the frame, and submit it to the renderer.
             {
-                let camera = self.system.camera();
+                let camera = *self.system.camera();
                 let mut frame = self.scene.begin_frame().with_camera(camera);
                 if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
                     frame = frame.with_pacing(RenderPacing::Smooth);

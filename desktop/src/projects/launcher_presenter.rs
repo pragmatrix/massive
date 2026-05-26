@@ -277,7 +277,7 @@ impl LauncherPresenter {
     }
 
     fn presents_instance(&self) -> bool {
-        self.fader.final_value() == 0.0
+        *self.fader.final_value() == 0.0
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
@@ -332,7 +332,7 @@ impl LauncherPresenter {
         self.background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
                 size.to_rect(),
-                BACKGROUND_COLOR.with_alpha(alpha),
+                BACKGROUND_COLOR.with_alpha(*alpha),
             )]
             .into()
         });
@@ -342,7 +342,7 @@ impl LauncherPresenter {
             visual.shapes = match &*visual.shapes {
                 [Shape::GlyphRun(gr)] => [gr
                     .clone()
-                    .with_color(TEXT_COLOR.with_alpha(alpha))
+                    .with_color(TEXT_COLOR.with_alpha(*alpha))
                     .into_shape()]
                 .into(),
                 rest => rest.into(),
