@@ -85,7 +85,7 @@ impl<T> BlendedAnimation<T> {
             blended = Interpolatable::interpolate(&blended, &value, blend_weight);
 
             // The previous animations can be removed if the weight of the current animation is >=
-            // 1.. They don't contribute to the final value anymore.
+            // 1. They don't contribute to the final value anymore.
             if blend_weight >= 1. {
                 first_contributing_animation_index = index;
             }
@@ -174,7 +174,7 @@ impl<T> Animation<T> {
             return self.to.clone();
         }
 
-        // Apply the easing function to t.
+        // Apply the easing function to `t`.
         let t = Ease::interpolate(t, self.interpolation);
 
         Interpolatable::interpolate(&self.from, &self.to, t)
