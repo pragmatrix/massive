@@ -28,7 +28,7 @@ impl DesktopSystem {
         if !effects_mode.permit_camera_moves() {
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in Animated.
-            let camera = self.camera.value().clone();
+            let camera = *self.camera.value();
             self.camera.set_immediately(camera);
         }
 
@@ -361,10 +361,7 @@ impl DesktopSystem {
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             launcher_anchor,
-            instance_presenter
-                .layout_transform_animation
-                .latest_value()
-                .clone(),
+            *instance_presenter.layout_transform_animation.latest_value(),
             instance_anchor,
         );
 
