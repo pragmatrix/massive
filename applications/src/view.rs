@@ -4,8 +4,8 @@ use anyhow::{Context, Result};
 use derive_more::{From, Into};
 use log::debug;
 use massive_animation::AnimationCoordinator;
-use tokio::sync::mpsc::{UnboundedSender, error::SendError};
-
+use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::error::SendError;
 use uuid::Uuid;
 use winit::window::CursorIcon;
 
@@ -13,7 +13,8 @@ use massive_geometry::{BoxPx, SizePx};
 use massive_renderer::{RenderSubmission, RenderTarget};
 use massive_scene::{Handle, Location, Object, ToLocation, Transform};
 
-use crate::{InstanceId, Scene, ViewId, instance_context::InstanceCommand};
+use crate::instance_context::InstanceCommand;
+use crate::{InstanceId, Scene, ViewId};
 
 /// ADR: Decided to let the View own the Scene, so that we do have a lifetime restriction on the
 /// Scene and can properly clean up and detect dangling handles in this scene in the Desktop.

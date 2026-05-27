@@ -1,21 +1,5 @@
 use derive_more::{Deref, Display, From, Into};
 
-#[derive(Debug)]
-pub enum ProjectCommand {
-    AddLauncher {
-        name: LauncherName,
-        group: Option<LaunchGroupName>,
-    },
-    RemoveLauncher(LauncherName),
-    AddToGroup {
-        parent: Option<LaunchGroupName>,
-        group: LaunchGroupName,
-        properties: LaunchGroupProperties,
-    },
-    RemoveFromGroup(Option<LaunchGroupName>),
-    SetStartupProfile(Option<LauncherName>),
-}
-
 #[derive(Debug, Clone)]
 pub struct LaunchGroupProperties {
     pub layout: LayoutDirection,

@@ -11,8 +11,7 @@ use massive_renderer::FontManager;
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::{
-    InstanceEnvironment, InstanceId, InstanceParameters, ProjectCommand, Scene, ViewEvent,
-    ViewExtent, ViewId,
+    InstanceEnvironment, InstanceId, InstanceParameters, Scene, ViewEvent, ViewExtent, ViewId,
     view::{ViewCommand, ViewCreationInfo},
     view_builder::ViewBuilder,
 };
@@ -29,7 +28,7 @@ pub struct InstanceContext {
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
 
-    /// The AnimationCoordinator is here to create new scenes. There is one per instance for now.
+    /// The `AnimationCoordinator` is here to create new scenes. There is one per instance for now.
     animation_coordinator: AnimationCoordinator,
     events: CoalescingReceiver<InstanceEvent>,
 }
@@ -100,13 +99,6 @@ impl InstanceContext {
             self.new_scene(),
         )
     }
-
-    pub fn project(&self, command: ProjectCommand) -> Result<()> {
-        self.environment
-            .command_sender
-            .send((self.id, InstanceCommand::Project(command)))?;
-        Ok(())
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -125,7 +117,6 @@ pub enum InstanceCommand {
     // pending changes are sent to the renderer.
     DestroyView(ViewId, Arc<ChangeCollector>),
     View(ViewId, ViewCommand),
-    Project(ProjectCommand),
 }
 
 impl CoalescingKey for InstanceEvent {

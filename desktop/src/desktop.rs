@@ -279,12 +279,6 @@ impl Desktop {
             InstanceCommand::View(view_id, command) => {
                 self.handle_view_command((instance, view_id).into(), command)?;
             }
-            InstanceCommand::Project(_command) => {
-                bail!(
-                    "Project requests are not handled directly by desktop: instance={:?}",
-                    instance
-                );
-            }
         }
         Ok(())
     }
