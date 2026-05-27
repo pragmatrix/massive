@@ -92,11 +92,12 @@ impl<C> Changes<C> {
         }
     }
 
-    pub fn release(mut self) -> Option<Vec<C>> {
-        if self.is_empty() {
-            None
-        } else {
-            Some(mem::take(&mut self.changes))
-        }
+    pub fn release(mut self) -> Vec<C> {
+        mem::take(&mut self.changes)
+    }
+
+    #[cfg(feature = "metrics")]
+    pub fn time_of_oldest_change(&self) -> Option<Instant> {
+        self.time_of_oldest_change
     }
 }
