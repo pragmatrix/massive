@@ -19,12 +19,14 @@ impl<C> Default for ChangeCollector<C> {
 }
 
 impl<C> ChangeCollector<C> {
-    pub fn collect(&self, change: C) {
+    pub fn collect(&self, change: impl Into<C>) {
+        let change = change.into();
         self.changes.lock().push(change);
     }
 
     pub fn collect_many(&self, changes: impl Into<Changes<C>>) {
-        self.changes.lock().accumulate(changes.into());
+        let changes = changes.into();
+        self.changes.lock().accumulate(changes);
     }
 
     pub fn take_all(&self) -> Changes<C> {
