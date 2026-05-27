@@ -12,7 +12,7 @@ use winit::window::WindowId;
 
 use massive_geometry::{Color, Matrix4, SizePx};
 use massive_renderer::{PresentationMode, RenderPacing, Renderer};
-use massive_scene::SceneChanges;
+use massive_scene::{SceneChanges, id_generator};
 use massive_util::message_filter;
 
 use crate::{ShellEvent, shell_window::ShellWindowShared};
@@ -219,12 +219,17 @@ impl WindowRenderer {
     }
 
     fn apply_scene_changes(&mut self, changes: SceneChanges) -> Result<()> {
-        if let Some((_time, changes)) = changes.release() {
+        #[cfg(feature = "metrics")]
+        let time_of_oldest_change = changes.time_of_oldest_change();
+
+        if !changes.is_empty() {
+            let changes = changes.release();
+            id_generator::gc(&changes);
             self.renderer.apply_changes(changes)?;
             self.renderer.prepare()?;
             #[cfg(feature = "metrics")]
             {
-                self.oldest_change = Some(_time);
+                self.oldest_change = time_of_oldest_change;
             }
         }
         Ok(())

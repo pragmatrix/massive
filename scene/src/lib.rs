@@ -25,7 +25,6 @@
 //!   footprint and allocations.
 
 mod change;
-mod change_collector;
 mod change_surface;
 mod ergonomics;
 mod handle;
@@ -36,7 +35,6 @@ mod transform_resolver;
 mod type_id_generator;
 
 pub use change::*;
-pub use change_collector::*;
 pub use change_surface::*;
 pub use ergonomics::*;
 pub use handle::*;
@@ -45,6 +43,11 @@ pub use objects::*;
 pub use scene::Scene;
 pub use transform_resolver::*;
 pub use type_id_generator::id_generator;
+
+use massive_util as util;
+
+pub type ChangeCollector = util::ChangeCollector<SceneChange>;
+pub type SceneChanges = util::Changes<SceneChange>;
 
 // Re-exports
 
