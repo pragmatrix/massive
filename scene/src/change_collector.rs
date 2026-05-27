@@ -30,9 +30,9 @@ impl ChangeCollector {
 
 #[derive(Debug, Default, Deref)]
 pub struct SceneChanges {
-    pub time_of_oldest_change: Option<Instant>,
     #[deref]
     pub changes: Vec<SceneChange>,
+    pub time_of_oldest_change: Option<Instant>,
 }
 
 impl Drop for SceneChanges {
