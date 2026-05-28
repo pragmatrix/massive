@@ -1,9 +1,7 @@
 use std::sync::Arc;
 
-use crate::{
-    Change, ChangeCollector, Handle, Object, SceneChange, SceneChanges,
-    id_generator::{self},
-};
+use crate::id_generator;
+use crate::{Change, ChangeCollector, Handle, Object, SceneChange, SceneChanges};
 
 /// A scene is the only direct connection of actual contents to the renderer. It tracks all the
 /// changes to scene graph and uploads it when an update cycle ends.
