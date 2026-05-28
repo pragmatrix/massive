@@ -4,11 +4,10 @@ use winit::dpi::LogicalSize;
 
 use massive_geometry::SizePx;
 use massive_scene::{At, Object, ToLocation};
-use massive_shell::{ApplicationContext, FontManager, shell};
-use shared::{
-    application::{Application, UpdateResponse},
-    attributed_text::{self, AttributedText},
-};
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager};
+use shared::application::{Application, UpdateResponse};
+use shared::attributed_text::{self, AttributedText};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -16,6 +15,7 @@ async fn main() -> Result<()> {
 }
 
 async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
+    // spellcheck: ignore
     // let env_filter = EnvFilter::from_default_env();
     // let console_formatter = tracing_subscriber::fmt::Layer::default();
     // // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
@@ -41,6 +41,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     // Load code.
 
+    // spellcheck: ignore
     // let code: AttributedCode =
     //     serde_json::from_str(&fs::read_to_string("/tmp/code.json").unwrap()).unwrap();
     let code: AttributedText = postcard::from_bytes(include_bytes!("code.postcard")).unwrap();
@@ -70,6 +71,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     // Using inner size screws up the renderer initialization, because the window has no size yet.
     // So we compute the proper physical for now.
+    // spellcheck: ignore
     // let physical_size = initial_size.to_physical(window.scale_factor());
     let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
