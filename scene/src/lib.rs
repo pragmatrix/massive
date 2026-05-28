@@ -17,7 +17,7 @@
 //!   renderer, this way excessive cloning can be avoided.
 //! - All changes are pooled and transferred manually at once, so that intermediate states are not
 //!   visible to renderer.
-//! - Because lifetime is defined here, id generation is done inside the clients, too. Ids _are_
+//! - Because lifetime is defined here, id generation is done inside the clients, too. `Ids` _are_
 //!   opaque and are optimized for the renderer. The renderer prefers contiguous ids, so that it can
 //!   use simple arrays to store data (imagine database tables). This has also the advantage that
 //!   the renderer minimizes allocations and can trivially associate arbitrary additional data like
