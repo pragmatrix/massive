@@ -26,10 +26,10 @@ pub struct View {
 
 impl Drop for View {
     fn drop(&mut self) {
-        if let Err(SendError { .. }) = self.command_sender.send((
-            self.instance,
-            InstanceCommand::DestroyView(self.id),
-        )) {
+        if let Err(SendError { .. }) = self
+            .command_sender
+            .send((self.instance, InstanceCommand::DestroyView(self.id)))
+        {
             debug!("Ignored DestroyView command because the command receiver is gone")
         }
     }
@@ -49,12 +49,8 @@ impl View {
         let size: SizePx = extents.size().cast();
         let center_x = (size.width / 2) as f64;
         let center_y = (size.height / 2) as f64;
-        let local_transform = Transform::from_translation(Vector3::new(
-            -center_x,
-            -center_y,
-            0.0,
-        ))
-        .enter(&scene);
+        let local_transform =
+            Transform::from_translation(Vector3::new(-center_x, -center_y, 0.0)).enter(&scene);
         let location = local_transform
             .to_location()
             .relative_to(parent)
@@ -62,11 +58,7 @@ impl View {
 
         command_sender.send((
             instance,
-            InstanceCommand::CreateView(ViewCreationInfo {
-                id,
-                role,
-                extents,
-            }),
+            InstanceCommand::CreateView(ViewCreationInfo { id, role, extents }),
         ))?;
 
         Ok(Self {

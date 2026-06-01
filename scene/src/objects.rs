@@ -122,10 +122,7 @@ impl From<Handle<Transform>> for Location {
 }
 
 impl Location {
-    pub fn new(
-        parent: Option<Ref<Location>>,
-        transform: impl Into<Ref<Transform>>,
-    ) -> Self {
+    pub fn new(parent: Option<Ref<Location>>, transform: impl Into<Ref<Transform>>) -> Self {
         Self {
             parent,
             transform: transform.into(),
