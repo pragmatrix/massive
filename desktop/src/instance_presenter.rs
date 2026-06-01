@@ -107,7 +107,7 @@ impl InstancePresenter {
         let mut alpha = scene.animated(0.0);
         {
             view_creation_info.location.update_with(|location| {
-                location.parent = Some(self.instance_location.clone());
+                location.parent = Some(self.instance_location.read());
                 location.alpha = 0.0;
             });
             alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
@@ -124,7 +124,7 @@ impl InstancePresenter {
             background.visual.update_if_changed_with(|visual| {
                 // Keep background in view space to avoid compounded transform error and reduce
                 // the depth bias needed for stable layering.
-                visual.location = view_creation_info.location.clone();
+                visual.location = view_creation_info.location.read();
                 // We must switch shape coordinates in the same update; otherwise the first frame
                 // can render with centered-at-origin geometry from the pre-view parent space.
                 visual.shapes = background_shapes(background.visible, background.local_rect);
@@ -136,11 +136,7 @@ impl InstancePresenter {
         let view_center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
         let transform =
             Transform::from_translation(Vector3::new(-view_center.x, -view_center.y, 0.0));
-        view_creation_info
-            .location
-            .value()
-            .transform
-            .update_if_changed(transform);
+        view_creation_info.transform.update_if_changed(transform);
 
         Ok(())
     }

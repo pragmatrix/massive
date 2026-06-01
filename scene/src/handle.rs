@@ -1,4 +1,4 @@
-use std::{fmt, hash, sync::Arc};
+use std::{fmt, hash, ops::Deref, sync::Arc};
 
 use parking_lot::{Mutex, MutexGuard};
 
@@ -13,6 +13,34 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     inner: Arc<InnerHandle<T>>,
+}
+
+/// A read-only handle to an object staged on a scene.
+#[derive(Debug)]
+pub struct ReadHandle<T: Object>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    inner: Arc<InnerHandle<T>>,
+}
+
+#[derive(Debug)]
+pub struct HandleValue<'a, T: Object>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    value: MutexGuard<'a, T>,
+}
+
+impl<T: Object> Deref for HandleValue<'_, T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
+    }
 }
 
 impl<T: Object> Clone for Handle<T>
@@ -49,6 +77,64 @@ where
     }
 }
 
+impl<T: Object> Clone for ReadHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl<T: Object> PartialEq for ReadHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.inner.id.eq(&other.inner.id)
+    }
+}
+
+impl<T: Object> Eq for ReadHandle<T> where SceneChange: From<Change<T::Change>> {}
+
+impl<T: Object> hash::Hash for ReadHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn hash<H: hash::Hasher>(&self, state: &mut H) {
+        self.inner.id.hash(state);
+    }
+}
+
+impl<T: Object> From<Handle<T>> for ReadHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn from(value: Handle<T>) -> Self {
+        value.read()
+    }
+}
+
+impl<T: Object> From<&Handle<T>> for ReadHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn from(value: &Handle<T>) -> Self {
+        value.read()
+    }
+}
+
+impl<T: Object> From<&ReadHandle<T>> for ReadHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    fn from(value: &ReadHandle<T>) -> Self {
+        value.clone()
+    }
+}
+
 impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
@@ -69,6 +155,12 @@ where
 
     pub fn id(&self) -> Id {
         self.inner.id
+    }
+
+    pub fn read(&self) -> ReadHandle<T> {
+        ReadHandle {
+            inner: self.inner.clone(),
+        }
     }
 
     pub fn update_if_changed(&self, update: T)
@@ -113,13 +205,30 @@ where
         }
     }
 
-    pub fn value(&self) -> MutexGuard<'_, T> {
-        self.inner.value.lock()
+    pub fn value(&self) -> HandleValue<'_, T> {
+        HandleValue {
+            value: self.inner.value.lock(),
+        }
     }
 
     // Internal access.
     fn value_mut(&self) -> MutexGuard<'_, T> {
         self.inner.value.lock()
+    }
+}
+
+impl<T: Object> ReadHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    pub fn id(&self) -> Id {
+        self.inner.id
+    }
+
+    pub fn value(&self) -> HandleValue<'_, T> {
+        HandleValue {
+            value: self.inner.value.lock(),
+        }
     }
 }
 
