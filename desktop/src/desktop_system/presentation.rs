@@ -6,7 +6,7 @@ use massive_shell::Scene;
 
 use super::DesktopTarget;
 use super::effects::{DesktopEffect, Effects};
-use crate::instance_manager::ViewPath;
+use crate::instance_manager::{InstanceRoot, ViewPath};
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
@@ -18,6 +18,7 @@ impl DesktopSystem {
         launcher: LaunchProfileId,
         originating_from: Option<InstanceId>,
         instance: InstanceId,
+        root: InstanceRoot,
         scene: &Scene,
     ) -> Result<usize> {
         let originating_presenter = originating_from
@@ -41,6 +42,7 @@ impl DesktopSystem {
         let presenter = InstancePresenter::new(
             initial_center_translation,
             render_instance_background,
+            root,
             launcher_location,
             scene,
         );

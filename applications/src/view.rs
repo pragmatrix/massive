@@ -1,15 +1,12 @@
-use std::mem;
-
 use anyhow::{Context, Result};
 use derive_more::{From, Into};
 use log::debug;
-use massive_animation::AnimationCoordinator;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::error::SendError;
 use uuid::Uuid;
 use winit::window::CursorIcon;
 
-use massive_geometry::{BoxPx, SizePx};
+use massive_geometry::{BoxPx, SizePx, Vector3};
 use massive_renderer::{RenderSubmission, RenderTarget};
 use massive_scene::{Handle, Location, Object, Ref, ToLocation, Transform};
 
@@ -29,15 +26,9 @@ pub struct View {
 
 impl Drop for View {
     fn drop(&mut self) {
-        // Detail: Quite an expensive hack, but we need to take out the scene and send it up to the
-        // desktop.
-        //
-        // Architecture: This also means that users can create default scenes.
-        let scene = mem::replace(&mut self.scene, Scene::new(AnimationCoordinator::new()));
-
         if let Err(SendError { .. }) = self.command_sender.send((
             self.instance,
-            InstanceCommand::DestroyView(self.id, scene.into_collector()),
+            InstanceCommand::DestroyView(self.id),
         )) {
             debug!("Ignored DestroyView command because the command receiver is gone")
         }
@@ -48,58 +39,31 @@ impl View {
     pub(crate) fn new(
         command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
         instance: InstanceId,
+        parent: Ref<Location>,
         extents: BoxPx,
         scene: Scene,
         role: ViewRole,
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
-        // The parent transform and location to send to the desktop so that it can freely position
-        // this view.
-        //
-        // This is to separate the positioning between this view and the desktop.
-        //
-        // Detail: This could be done also in the desktop, but for now we want to keep the local
-        // location here, so that the desktop can't modify it.
-        //
-        // Detail: The identity transform here is incorrect but will be adjusted by the desktop
-        // based on extents.
-        let desktop_transform = Transform::IDENTITY.enter(&scene);
-        let desktop_location = desktop_transform.to_location().enter(&scene);
-
-        // The local transform is the basic center transform.
-        //
-        // Architecture: Do we need a local location anymore, if it does not make sense for the view
-        // to modify it now that a full extents can be provided?
-        let local_transform = Transform::IDENTITY.enter(&scene);
+        let size: SizePx = extents.size().cast();
+        let center_x = (size.width / 2) as f64;
+        let center_y = (size.height / 2) as f64;
+        let local_transform = Transform::from_translation(Vector3::new(
+            -center_x,
+            -center_y,
+            0.0,
+        ))
+        .enter(&scene);
         let location = local_transform
             .to_location()
-            .relative_to(&desktop_location)
+            .relative_to(parent)
             .enter(&scene);
 
-        // Bug:
-        // Architecture: `CreateView` can immediately trigger desktop-side visuals that
-        // use `desktop_location`. If renderer ingestion of the create changes lags behind this
-        // command stream, the reference becomes visible before its definition.
-        //
-        // Failure mode details:
-        // - this method creates `desktop_location` and `local_transform` handles in the view scene
-        // - `CreateView` exposes `desktop_location` to desktop presentation immediately
-        // - view scene create changes are only uploaded when a later `Render` submission is sent
-        // - if desktop emits visuals that reference this location before renderer has ingested
-        //   those creates, renderer-side location resolution can index a missing id and panic
-        //
-        // Architecture issue: metadata/identity and scene-graph definitions cross subsystem
-        // boundaries in separate asynchronous messages without an atomic activation step.
-        //
-        // Likely long-term fixes:
-        // - bundle required initial scene creates with `CreateView`
         command_sender.send((
             instance,
             InstanceCommand::CreateView(ViewCreationInfo {
                 id,
-                location: desktop_location.clone(),
-                transform: desktop_transform.clone(),
                 role,
                 extents,
             }),
@@ -186,8 +150,6 @@ pub enum ViewRole {
 #[derive(Debug, Clone)]
 pub struct ViewCreationInfo {
     pub id: ViewId,
-    pub location: Handle<Location>,
-    pub transform: Handle<Transform>,
     pub role: ViewRole,
     pub extents: BoxPx,
 }

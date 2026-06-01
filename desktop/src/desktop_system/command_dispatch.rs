@@ -7,7 +7,7 @@ use massive_shell::Scene;
 use super::effects::{DesktopEffect, Effects};
 use super::{DesktopCommand, DesktopSystem, DesktopTarget};
 use crate::focus_path::PathResolver;
-use crate::instance_manager::InstanceManager;
+use crate::instance_manager::{InstanceManager, InstanceRoot};
 
 impl DesktopSystem {
     // Architecture: The current focus is part of the system, so DesktopInteraction should probably be embedded here.
@@ -29,8 +29,11 @@ impl DesktopSystem {
                     .get_named(&self.env.primary_application)
                     .ok_or(anyhow!("Internal error, application not registered"))?;
 
-                let instance =
-                    instance_manager.spawn(application, CreationMode::New(parameters))?;
+                let instance = instance_manager.spawn(
+                    application,
+                    CreationMode::New(parameters),
+                    InstanceRoot::new(scene),
+                )?;
 
                 // Robustness: Should this be a real, logged event?
                 // Architecture: Better to start up the primary directly, so that we can remove the PresentInstance command?
@@ -84,8 +87,13 @@ impl DesktopSystem {
                     .resolve_path(self.event_router.focused())
                     .instance();
 
-                let insertion_index =
-                    self.present_instance(launcher, originating_from, instance, scene)?;
+                let insertion_index = self.present_instance(
+                    launcher,
+                    originating_from,
+                    instance,
+                    instance_manager.instance_root(instance)?,
+                    scene,
+                )?;
 
                 let instance_target = DesktopTarget::Instance(instance);
 

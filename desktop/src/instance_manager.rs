@@ -13,7 +13,8 @@ use massive_applications::{
     ViewCreationInfo, ViewEvent, ViewId,
 };
 use massive_renderer::RenderPacing;
-use massive_shell::Result;
+use massive_scene::{Handle, Location, Object, ToLocation, Transform};
+use massive_shell::{Result, Scene};
 
 use crate::application_registry::Application;
 
@@ -25,11 +26,34 @@ pub struct InstanceManager {
     join_set: JoinSet<(InstanceId, Result<()>)>,
 }
 
+#[derive(Debug, Clone)]
+pub struct InstanceRoot {
+    transform: Handle<Transform>,
+    location: Handle<Location>,
+}
+
+impl InstanceRoot {
+    pub fn new(scene: &Scene) -> Self {
+        let transform = Transform::IDENTITY.enter(scene);
+        let location = transform.to_location().enter(scene);
+
+        Self {
+            transform,
+            location,
+        }
+    }
+
+    pub fn into_parts(self) -> (Handle<Transform>, Handle<Location>) {
+        (self.transform, self.location)
+    }
+}
+
 #[derive(Debug)]
 struct RunningInstance {
     #[allow(unused)]
     application_name: String,
     events_tx: UnboundedSender<InstanceEvent>,
+    root: InstanceRoot,
     views: HashMap<ViewId, ViewInfo>,
 }
 
@@ -60,6 +84,7 @@ impl InstanceManager {
         &mut self,
         application: &Application,
         creation_mode: CreationMode,
+        root: InstanceRoot,
     ) -> Result<InstanceId> {
         let instance_id = InstanceId::from(Uuid::new_v4());
         let (events_tx, events_rx) = unbounded_channel();
@@ -68,6 +93,7 @@ impl InstanceManager {
             instance_id,
             creation_mode,
             self.environment.clone(),
+            root.location.to_ref(),
             events_rx,
         );
 
@@ -86,6 +112,7 @@ impl InstanceManager {
             RunningInstance {
                 application_name: application.name.clone(),
                 events_tx,
+                root,
                 views: HashMap::new(),
             },
         );
@@ -201,6 +228,10 @@ impl InstanceManager {
     pub fn get_application_name(&self, instance: InstanceId) -> Result<&str> {
         self.get_instance(instance)
             .map(|ri| ri.application_name.as_str())
+    }
+
+    pub fn instance_root(&self, instance: InstanceId) -> Result<InstanceRoot> {
+        self.get_instance(instance).map(|ri| ri.root.clone())
     }
 
     fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {

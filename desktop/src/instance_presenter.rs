@@ -4,10 +4,12 @@ use anyhow::{Result, bail};
 
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Color, Point, Rect, SizePx, Transform, Vector3};
-use massive_scene::{At, Handle, Location, Object, ToLocation, Visual};
+use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
+use massive_scene::{At, Handle, Location, Object, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
+
+use crate::instance_manager::InstanceRoot;
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
@@ -53,14 +55,14 @@ impl InstancePresenter {
     pub fn new(
         initial_center_translation: Option<Vector3>,
         show_background: bool,
-        location: Handle<Location>,
+        root: InstanceRoot,
+        parent: Handle<Location>,
         scene: &Scene,
     ) -> Self {
-        let instance_transform = Transform::IDENTITY.enter(scene);
-        let instance_location = instance_transform
-            .to_location()
-            .relative_to(&location)
-            .enter(scene);
+        let (instance_transform, instance_location) = root.into_parts();
+        instance_location.update_if_changed_with(|location| {
+            location.parent = Some(parent.to_ref());
+        });
 
         let background = show_background.then(|| {
             let visual = background_shapes(false, Rect::ZERO)
@@ -99,15 +101,17 @@ impl InstancePresenter {
             bail!("Only primary views are supported yet");
         }
 
-        if !matches!(self.state, InstancePresenterState::WaitingForPrimaryView) {
-            bail!("Primary view is already presenting");
+        match self.state {
+            InstancePresenterState::WaitingForPrimaryView => {}
+            InstancePresenterState::Presenting { .. } | InstancePresenterState::Disappearing => {
+                bail!("Primary view is already presenting");
+            }
         }
 
         // Blend in.
         let mut alpha = scene.animated(0.0);
         {
-            view_creation_info.location.update_with(|location| {
-                location.parent = Some(self.instance_location.to_ref());
+            self.instance_location.update_with(|location| {
                 location.alpha = 0.0;
             });
             alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
@@ -122,21 +126,10 @@ impl InstancePresenter {
 
         if let Some(background) = &mut self.background {
             background.visual.update_if_changed_with(|visual| {
-                // Keep background in view space to avoid compounded transform error and reduce
-                // the depth bias needed for stable layering.
-                visual.location = view_creation_info.location.to_ref();
-                // We must switch shape coordinates in the same update; otherwise the first frame
-                // can render with centered-at-origin geometry from the pre-view parent space.
-                visual.shapes = background_shapes(background.visible, background.local_rect);
+                visual.location = self.instance_location.to_ref();
+                visual.shapes = background_shapes(background.visible, background.centered_rect());
             });
         }
-
-        // Resize is currently unsupported, so centering transform is fixed for this view.
-        let size = view_creation_info.size();
-        let view_center = Point::new((size.width / 2) as f64, (size.height / 2) as f64);
-        let transform =
-            Transform::from_translation(Vector3::new(-view_center.x, -view_center.y, 0.0));
-        view_creation_info.transform.update_if_changed(transform);
 
         Ok(())
     }
@@ -190,15 +183,8 @@ impl InstancePresenter {
 
         if let Some(background) = &mut self.background {
             background.visual.update_if_changed_with(|visual| {
-                // Background geometry basis depends on parent space:
-                // - no view yet: centered around instance origin
-                // - view presenting: regular view-local rectangle (top-left origin)
-                let rect = if self.state.view().is_some() {
-                    background.local_rect
-                } else {
-                    background.local_rect - background.local_rect.center()
-                };
-                visual.shapes = background_shapes(background.visible, rect);
+                // Background geometry stays in instance space; views apply their own local offset.
+                visual.shapes = background_shapes(background.visible, background.centered_rect());
             });
         }
 
@@ -214,12 +200,17 @@ impl InstancePresenter {
         let Some(view) = self.state.view_mut() else {
             return;
         };
-        let location = &view.creation_info.location;
 
         let alpha = view.alpha.value();
-        location.update_if_changed_with(|location| {
+        self.instance_location.update_if_changed_with(|location| {
             location.alpha = *alpha;
         });
+    }
+}
+
+impl InstanceBackground {
+    fn centered_rect(&self) -> Rect {
+        self.local_rect - self.local_rect.center()
     }
 }
 

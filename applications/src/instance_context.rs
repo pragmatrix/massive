@@ -1,9 +1,9 @@
 //! The context for an instance.
 
-use std::{mem, sync::Arc};
+use std::mem;
 
 use anyhow::Result;
-use massive_scene::ChangeCollector;
+use massive_scene::{Location, Ref};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_animation::AnimationCoordinator;
@@ -27,6 +27,7 @@ pub struct InstanceContext {
     id: InstanceId,
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
+    view_parent: Ref<Location>,
 
     /// The `AnimationCoordinator` is here to create new scenes. There is one per instance for now.
     animation_coordinator: AnimationCoordinator,
@@ -38,6 +39,7 @@ impl InstanceContext {
         id: InstanceId,
         creation_mode: CreationMode,
         environment: InstanceEnvironment,
+        view_parent: Ref<Location>,
         events: UnboundedReceiver<InstanceEvent>,
     ) -> Self {
         // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
@@ -48,6 +50,7 @@ impl InstanceContext {
             id,
             creation_mode,
             environment,
+            view_parent,
             animation_coordinator: AnimationCoordinator::new(),
             events: events.into(),
         }
@@ -95,6 +98,7 @@ impl InstanceContext {
         ViewBuilder::new(
             self.environment.command_sender.clone(),
             self.id,
+            self.view_parent.clone(),
             extent.into().into(),
             self.new_scene(),
         )
@@ -113,9 +117,7 @@ pub enum InstanceEvent {
 #[derive(Debug)]
 pub enum InstanceCommand {
     CreateView(ViewCreationInfo),
-    // Detail: We pass the change collector up to the desktop, so it can make all Handles are destroyed and
-    // pending changes are sent to the renderer.
-    DestroyView(ViewId, Arc<ChangeCollector>),
+    DestroyView(ViewId),
     View(ViewId, ViewCommand),
 }
 
