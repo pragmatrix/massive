@@ -3,6 +3,31 @@
 This file serves as the evolving knowledge base for working with this codebase.
 Update it whenever you learn something new about the project's patterns, conventions, or receive feedback that should guide future behavior.
 
+## Project Orientation
+- This workspace is a Cargo workspace rooted at [Cargo.toml](../Cargo.toml) with core crates under top-level folders like [scene](../scene), [renderer](../renderer), [desktop](../desktop), and [shell](../shell).
+- The source-of-truth architecture overview for scene/object lifetime is in [scene/src/lib.rs](../scene/src/lib.rs). Read this before changing scene handle or change-propagation behavior.
+- Use [README.md](../README.md) for example entry points and expected demo behavior instead of inferring from code paths.
+
+## Workspace Boundaries
+- Treat [examples/code/rust-analyzer](../examples/code/rust-analyzer) and [examples/markdown/inlyne](../examples/markdown/inlyne) as imported upstream projects; do not modify them unless explicitly asked.
+- Prefer changes in first-party crates listed in [Cargo.toml](../Cargo.toml) workspace members.
+- Keep changes scoped to the relevant crate. Avoid cross-crate refactors unless the task explicitly requires them.
+
+## Build, Run, and Validation
+- Prefer `cargo build` for broad compile validation.
+- Demo runs from [README.md](../README.md):
+	- `cargo run --release --example code`
+	- `cargo run --release --example markdown`
+- WASM example workflows live in [justfile](../justfile), including `trunk serve --example markdown --port 8888 --open` and release build targets.
+- If a task is scoped to one crate, prefer crate-targeted validation before workspace-wide commands.
+
+## Architecture Anchors
+- Scene graph and handle model: [scene/src/lib.rs](../scene/src/lib.rs), [scene/src/handle.rs](../scene/src/handle.rs), [scene/src/change.rs](../scene/src/change.rs)
+- Fluent scene ergonomics: [scene/src/ergonomics.rs](../scene/src/ergonomics.rs)
+- Desktop orchestration and event routing: [desktop/src/lib.rs](../desktop/src/lib.rs)
+- Platform split (native vs wasm): [shell/Cargo.toml](../shell/Cargo.toml), [animation/src/lib.rs](../animation/src/lib.rs)
+- Prefer linking to these files in explanations instead of duplicating architectural prose.
+
 ## Code Style
 - Prefer small, self-contained changes unless explicitly asked for broader refactors.
 - Match the surrounding code style.
