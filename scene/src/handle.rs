@@ -15,34 +15,6 @@ where
     inner: Arc<InnerHandle<T>>,
 }
 
-/// A read-only handle to an object staged on a scene.
-#[derive(Debug)]
-pub struct ReadHandle<T: Object>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    inner: Arc<InnerHandle<T>>,
-}
-
-#[derive(Debug)]
-pub struct HandleValue<'a, T: Object>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    value: MutexGuard<'a, T>,
-}
-
-impl<T: Object> Deref for HandleValue<'_, T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.value
-    }
-}
-
 impl<T: Object> Clone for Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
@@ -75,6 +47,73 @@ where
     fn hash<H: hash::Hasher>(&self, state: &mut H) {
         self.inner.id.hash(state);
     }
+}
+
+impl<T: Object> Handle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    pub(crate) fn new(id: Id, value: T, change_collector: Arc<ChangeCollector>) -> Self {
+        let uploaded = T::to_change(&value);
+        change_collector.collect(Change::Create(id, uploaded));
+
+        Self {
+            inner: InnerHandle {
+                id,
+                change_tracker: change_collector,
+                value: value.into(),
+            }
+            .into(),
+        }
+    }
+
+    pub fn id(&self) -> Id {
+        self.inner.id
+    }
+
+    pub fn read(&self) -> ReadHandle<T> {
+        ReadHandle {
+            inner: self.inner.clone(),
+        }
+    }
+
+    pub fn update_if_changed(&self, update: T)
+    where
+        T: PartialEq,
+    {
+        self.inner.update_if_changed(update)
+    }
+
+    /// Update the value of the handle.
+    pub fn update(&self, update: T) {
+        self.inner.update(update)
+    }
+
+    pub fn update_with(&self, f: impl FnOnce(&mut T)) {
+        self.inner.update_with(f);
+    }
+
+    pub fn update_if_changed_with(&self, f: impl FnOnce(&mut T))
+    where
+        T: Clone + PartialEq,
+    {
+        self.inner.update_if_changed_with(f);
+    }
+
+    pub fn value(&self) -> HandleValue<'_, T> {
+        HandleValue {
+            value: self.inner.value.lock(),
+        }
+    }
+}
+
+/// A read-only handle to an object staged on a scene.
+#[derive(Debug)]
+pub struct ReadHandle<T: Object>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    inner: Arc<InnerHandle<T>>,
 }
 
 impl<T: Object> Clone for ReadHandle<T>
@@ -135,88 +174,6 @@ where
     }
 }
 
-impl<T: Object> Handle<T>
-where
-    SceneChange: From<Change<T::Change>>,
-{
-    pub(crate) fn new(id: Id, value: T, change_collector: Arc<ChangeCollector>) -> Self {
-        let uploaded = T::to_change(&value);
-        change_collector.collect(Change::Create(id, uploaded));
-
-        Self {
-            inner: InnerHandle {
-                id,
-                change_tracker: change_collector,
-                value: value.into(),
-            }
-            .into(),
-        }
-    }
-
-    pub fn id(&self) -> Id {
-        self.inner.id
-    }
-
-    pub fn read(&self) -> ReadHandle<T> {
-        ReadHandle {
-            inner: self.inner.clone(),
-        }
-    }
-
-    pub fn update_if_changed(&self, update: T)
-    where
-        T: PartialEq,
-    {
-        // Robustness: This locks twice.
-        if update != *self.value() {
-            self.update(update)
-        }
-    }
-
-    /// Update the value of the handle.
-    pub fn update(&self, update: T) {
-        self.inner.update(update)
-    }
-
-    // Performance: May use replace_with?
-    pub fn update_with(&self, f: impl FnOnce(&mut T)) {
-        // Performance: This locks twice.
-        f(&mut *self.value_mut());
-        self.inner.updated();
-    }
-
-    // Performance: May use replace_with?
-    pub fn update_if_changed_with(&self, f: impl FnOnce(&mut T))
-    where
-        T: Clone + PartialEq,
-    {
-        // Robustness: This locks twice if changed.
-        //
-        // Detail: Need to separate the lock range here clearly, otherwise the mutex stays locked
-        // until self.inner.updated()
-        let changed = {
-            let mut v = self.value_mut();
-            let before = v.clone();
-            f(&mut *v);
-            *v != before
-        };
-        if changed {
-            self.inner.updated();
-        }
-    }
-
-    pub fn value(&self) -> HandleValue<'_, T> {
-        HandleValue {
-            value: self.inner.value.lock(),
-        }
-    }
-
-    // Internal access.
-    fn value_mut(&self) -> MutexGuard<'_, T> {
-        self.inner.value.lock()
-    }
-}
-
 impl<T: Object> ReadHandle<T>
 where
     SceneChange: From<Change<T::Change>>,
@@ -229,6 +186,25 @@ where
         HandleValue {
             value: self.inner.value.lock(),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct HandleValue<'a, T: Object>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    value: MutexGuard<'a, T>,
+}
+
+impl<T: Object> Deref for HandleValue<'_, T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.value
     }
 }
 
@@ -250,15 +226,54 @@ impl<T: Object> InnerHandle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
+    // Invariant: mutate the value and enqueue its update while holding the same lock so change
+    // ordering matches committed state under concurrent writers.
     pub fn update(&self, value: T) {
-        let change = T::to_change(&value);
-        self.change_tracker.collect(Change::Update(self.id, change));
-
-        *self.value.lock() = value;
+        self.update_locked(|current| {
+            *current = value;
+            true
+        });
     }
 
-    pub fn updated(&self) {
-        let change = T::to_change(&*self.value.lock());
+    pub fn update_if_changed(&self, value: T)
+    where
+        T: PartialEq,
+    {
+        self.update_locked(|current| {
+            if *current == value {
+                return false;
+            }
+
+            *current = value;
+            true
+        });
+    }
+
+    pub fn update_with(&self, f: impl FnOnce(&mut T)) {
+        self.update_locked(|current| {
+            f(current);
+            true
+        });
+    }
+
+    pub fn update_if_changed_with(&self, f: impl FnOnce(&mut T))
+    where
+        T: Clone + PartialEq,
+    {
+        self.update_locked(|current| {
+            let before = current.clone();
+            f(current);
+            *current != before
+        });
+    }
+
+    fn update_locked(&self, mutate: impl FnOnce(&mut T) -> bool) {
+        let mut current = self.value.lock();
+        if !mutate(&mut *current) {
+            return;
+        }
+
+        let change = T::to_change(&*current);
         self.change_tracker.collect(Change::Update(self.id, change));
     }
 }
