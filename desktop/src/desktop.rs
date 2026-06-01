@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -255,7 +254,7 @@ impl Desktop {
                     effects_mode,
                 )?;
             }
-            InstanceCommand::DestroyView(id, collector) => {
+            InstanceCommand::DestroyView(id) => {
                 self.system.transact(
                     DesktopCommand::HideView((instance, id).into()),
                     &self.scene,
@@ -266,15 +265,20 @@ impl Desktop {
                 // Feature: Don't push the remaining changes immediately and fade the remaining
                 // visuals out. (We do have the root location and should be able to do at least
                 // alpha blending over that in the future).
-                self.scene.accumulate_changes(collector.take_all());
+
+                // spellcheck: ignore
+                // self.scene.accumulate_changes(collector.take_all());
+
                 // Now the collector should not have any references.
-                let refs = Arc::strong_count(&collector);
-                if refs > 1 {
-                    log::error!(
-                        "Destroyed view's change collector contains {} unexpected references. Are there pending Visuals / Handles?",
-                        refs - 1
-                    );
-                };
+
+                // spellcheck: ignore
+                // let refs = Arc::strong_count(&collector);
+                // if refs > 1 {
+                //     log::error!(
+                //         "Destroyed view's change collector contains {} unexpected references. Are there pending Visuals / Handles?",
+                //         refs - 1
+                //     );
+                // };
             }
             InstanceCommand::View(view_id, command) => {
                 self.handle_view_command((instance, view_id).into(), command)?;

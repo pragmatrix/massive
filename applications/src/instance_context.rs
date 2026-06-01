@@ -1,14 +1,15 @@
 //! The context for an instance.
 
-use std::{mem, sync::Arc};
+use std::mem;
+use std::sync::Arc;
 
 use anyhow::Result;
-use massive_scene::ChangeCollector;
+use massive_scene::SceneChange;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_animation::AnimationCoordinator;
 use massive_renderer::FontManager;
-use massive_util::{CoalescingKey, CoalescingReceiver};
+use massive_util::{ChangeCollector, CoalescingKey, CoalescingReceiver};
 
 use crate::{
     InstanceEnvironment, InstanceId, InstanceParameters, Scene, ViewEvent, ViewExtent, ViewId,
@@ -30,6 +31,9 @@ pub struct InstanceContext {
 
     /// The `AnimationCoordinator` is here to create new scenes. There is one per instance for now.
     animation_coordinator: AnimationCoordinator,
+    /// A global connector for creating / destroying views and submitting scene changes.
+    collector: Arc<ChangeCollector<InstanceCommand>>,
+
     events: CoalescingReceiver<InstanceEvent>,
 }
 
@@ -112,10 +116,11 @@ pub enum InstanceEvent {
 /// Commands emitted by an instance and handled by the desktop layer.
 #[derive(Debug)]
 pub enum InstanceCommand {
+    SceneChange(SceneChange),
     CreateView(ViewCreationInfo),
     // Detail: We pass the change collector up to the desktop, so it can make all Handles are destroyed and
     // pending changes are sent to the renderer.
-    DestroyView(ViewId, Arc<ChangeCollector>),
+    DestroyView(ViewId),
     View(ViewId, ViewCommand),
 }
 

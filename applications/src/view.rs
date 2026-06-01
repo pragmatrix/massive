@@ -1,9 +1,6 @@
-use std::mem;
-
 use anyhow::{Context, Result};
 use derive_more::{From, Into};
 use log::debug;
-use massive_animation::AnimationCoordinator;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::mpsc::error::SendError;
 use uuid::Uuid;
@@ -33,12 +30,13 @@ impl Drop for View {
         // desktop.
         //
         // Architecture: This also means that users can create default scenes.
-        let scene = mem::replace(&mut self.scene, Scene::new(AnimationCoordinator::new()));
+        // spellcheck: ignore
+        // let scene = mem::replace(&mut self.scene, Scene::new(AnimationCoordinator::new()));
 
-        if let Err(SendError { .. }) = self.command_sender.send((
-            self.instance,
-            InstanceCommand::DestroyView(self.id, scene.into_collector()),
-        )) {
+        if let Err(SendError { .. }) = self
+            .command_sender
+            .send((self.instance, InstanceCommand::DestroyView(self.id)))
+        {
             debug!("Ignored DestroyView command because the command receiver is gone")
         }
     }
@@ -72,7 +70,7 @@ impl View {
         // Architecture: Do we need a local location anymore, if it does not make sense for the view
         // to modify it now that a full extents can be provided?
         let local_transform = Transform::IDENTITY.enter(&scene);
-        let location = local_transform
+        let local_location = local_transform
             .to_location()
             .relative_to(&desktop_location)
             .enter(&scene);
@@ -109,7 +107,7 @@ impl View {
             instance,
             scene,
             id,
-            location,
+            location: local_location,
         })
     }
 
@@ -198,8 +196,6 @@ impl ViewCreationInfo {
 
 #[derive(Debug)]
 pub enum ViewCommand {
-    /// Detail: Empty changes are possible because animations active might change.
-    Render { submission: RenderSubmission },
     /// Feature: This should probably specify a depth too.
     Resize(BoxPx),
     /// Set the title of the view. The desktop decides how to display it.
