@@ -3,7 +3,7 @@ use std::sync::Arc;
 use massive_geometry::{Bounds, Transform};
 use massive_shapes::{GlyphRun, Shape};
 
-use crate::{Change, Handle, Id, Object, ReadHandle, SceneChange};
+use crate::{Change, Handle, Id, Object, Ref, SceneChange};
 
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
@@ -13,7 +13,7 @@ use crate::{Change, Handle, Id, Object, ReadHandle, SceneChange};
 /// Detail: `Clone` was added for `Handle::update_with_if_changed()`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Visual {
-    pub location: ReadHandle<Location>,
+    pub location: Ref<Location>,
     /// Optional decal ordering value for this visual.
     ///
     /// If set, the renderer treats this visual as a decal and renders it in decal order using the
@@ -41,7 +41,7 @@ pub struct Visual {
 }
 
 impl Visual {
-    pub fn new(location: impl Into<ReadHandle<Location>>, shapes: impl Into<Arc<[Shape]>>) -> Self {
+    pub fn new(location: impl Into<Ref<Location>>, shapes: impl Into<Arc<[Shape]>>) -> Self {
         Self {
             location: location.into(),
             decal_order: None,
@@ -106,8 +106,8 @@ impl Object for Visual {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Location {
-    pub parent: Option<ReadHandle<Location>>,
-    pub transform: ReadHandle<Transform>,
+    pub parent: Option<Ref<Location>>,
+    pub transform: Ref<Transform>,
     pub alpha: f32,
 }
 
@@ -123,8 +123,8 @@ impl From<Handle<Transform>> for Location {
 
 impl Location {
     pub fn new(
-        parent: Option<ReadHandle<Location>>,
-        transform: impl Into<ReadHandle<Transform>>,
+        parent: Option<Ref<Location>>,
+        transform: impl Into<Ref<Transform>>,
     ) -> Self {
         Self {
             parent,
@@ -133,7 +133,7 @@ impl Location {
         }
     }
 
-    pub fn relative_to(mut self, parent: impl Into<ReadHandle<Location>>) -> Self {
+    pub fn relative_to(mut self, parent: impl Into<Ref<Location>>) -> Self {
         self.parent = Some(parent.into());
         self
     }

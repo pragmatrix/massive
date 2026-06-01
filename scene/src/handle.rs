@@ -71,8 +71,8 @@ where
         self.inner.id
     }
 
-    pub fn read(&self) -> ReadHandle<T> {
-        ReadHandle {
+    pub fn to_ref(&self) -> Ref<T> {
+        Ref {
             inner: self.inner.clone(),
         }
     }
@@ -109,14 +109,14 @@ where
 
 /// A read-only handle to an object staged on a scene.
 #[derive(Debug)]
-pub struct ReadHandle<T: Object>
+pub struct Ref<T: Object>
 where
     SceneChange: From<Change<T::Change>>,
 {
     inner: Arc<InnerHandle<T>>,
 }
 
-impl<T: Object> Clone for ReadHandle<T>
+impl<T: Object> Clone for Ref<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
@@ -127,7 +127,7 @@ where
     }
 }
 
-impl<T: Object> PartialEq for ReadHandle<T>
+impl<T: Object> PartialEq for Ref<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
@@ -136,9 +136,9 @@ where
     }
 }
 
-impl<T: Object> Eq for ReadHandle<T> where SceneChange: From<Change<T::Change>> {}
+impl<T: Object> Eq for Ref<T> where SceneChange: From<Change<T::Change>> {}
 
-impl<T: Object> hash::Hash for ReadHandle<T>
+impl<T: Object> hash::Hash for Ref<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
@@ -147,34 +147,34 @@ where
     }
 }
 
-impl<T: Object> From<Handle<T>> for ReadHandle<T>
+impl<T: Object> From<Handle<T>> for Ref<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
     fn from(value: Handle<T>) -> Self {
-        value.read()
+        value.to_ref()
     }
 }
 
-impl<T: Object> From<&Handle<T>> for ReadHandle<T>
+impl<T: Object> From<&Handle<T>> for Ref<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
     fn from(value: &Handle<T>) -> Self {
-        value.read()
+        value.to_ref()
     }
 }
 
-impl<T: Object> From<&ReadHandle<T>> for ReadHandle<T>
+impl<T: Object> From<&Ref<T>> for Ref<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    fn from(value: &ReadHandle<T>) -> Self {
+    fn from(value: &Ref<T>) -> Self {
         value.clone()
     }
 }
 
-impl<T: Object> ReadHandle<T>
+impl<T: Object> Ref<T>
 where
     SceneChange: From<Change<T::Change>>,
 {

@@ -11,7 +11,7 @@ use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, SizePx};
 use massive_renderer::{RenderSubmission, RenderTarget};
-use massive_scene::{Handle, Location, Object, ReadHandle, ToLocation, Transform};
+use massive_scene::{Handle, Location, Object, Ref, ToLocation, Transform};
 
 use crate::instance_context::InstanceCommand;
 use crate::{InstanceId, Scene, ViewId};
@@ -122,7 +122,7 @@ impl View {
     ///
     /// This should not be modified
     // Architecture: Introduce a kind of Immutable handle or read only Handle.
-    pub fn transform(&self) -> ReadHandle<Transform> {
+    pub fn transform(&self) -> Ref<Transform> {
         self.location().value().transform.clone()
     }
 

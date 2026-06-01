@@ -2,16 +2,16 @@ use std::collections::HashMap;
 
 use massive_geometry::Transform;
 
-use crate::{Location, ReadHandle};
+use crate::{Location, Ref};
 
 /// Resolve final transforms from a set of locations.
 #[derive(Debug, Default)]
 pub struct TransformResolver {
-    map: HashMap<ReadHandle<Location>, Transform>,
+    map: HashMap<Ref<Location>, Transform>,
 }
 
 impl TransformResolver {
-    pub fn resolve(&mut self, location: &ReadHandle<Location>) -> Transform {
+    pub fn resolve(&mut self, location: &Ref<Location>) -> Transform {
         if let Some(&transform) = self.map.get(location) {
             return transform;
         }

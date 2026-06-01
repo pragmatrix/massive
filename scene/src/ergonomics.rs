@@ -8,7 +8,7 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Rect, Transform};
 use massive_shapes::Shape;
 
-use crate::{Handle, Location, ReadHandle, Visual};
+use crate::{Handle, Location, Ref, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -100,21 +100,21 @@ impl VisualWithoutLocation {
         }
     }
 
-    pub fn at(self, location: impl Into<ReadHandle<Location>>) -> Visual {
+    pub fn at(self, location: impl Into<Ref<Location>>) -> Visual {
         Visual::new(location.into(), self.shapes)
     }
 }
 
 // Everything that can is positioned can be converted to a visual.
 pub trait At {
-    fn at(self, location: impl Into<ReadHandle<Location>>) -> Visual;
+    fn at(self, location: impl Into<Ref<Location>>) -> Visual;
 }
 
 impl<T> At for T
 where
     T: IntoVisual,
 {
-    fn at(self, location: impl Into<ReadHandle<Location>>) -> Visual {
+    fn at(self, location: impl Into<Ref<Location>>) -> Visual {
         self.into_visual().at(location)
     }
 }
