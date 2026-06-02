@@ -17,7 +17,7 @@
 //!   renderer, this way excessive cloning can be avoided.
 //! - All changes are pooled and transferred manually at once, so that intermediate states are not
 //!   visible to renderer.
-//! - Because lifetime is defined here, id generation is done inside the clients, too. Ids _are_
+//! - Because lifetime is defined here, id generation is done inside the clients, too. `Ids` _are_
 //!   opaque and are optimized for the renderer. The renderer prefers contiguous ids, so that it can
 //!   use simple arrays to store data (imagine database tables). This has also the advantage that
 //!   the renderer minimizes allocations and can trivially associate arbitrary additional data like
@@ -25,7 +25,6 @@
 //!   footprint and allocations.
 
 mod change;
-mod change_collector;
 mod change_surface;
 mod ergonomics;
 mod handle;
@@ -36,7 +35,6 @@ mod transform_resolver;
 mod type_id_generator;
 
 pub use change::*;
-pub use change_collector::*;
 pub use change_surface::*;
 pub use ergonomics::*;
 pub use handle::*;
@@ -45,6 +43,11 @@ pub use objects::*;
 pub use scene::Scene;
 pub use transform_resolver::*;
 pub use type_id_generator::id_generator;
+
+use massive_util as util;
+
+pub type ChangeCollector = util::ChangeCollector<SceneChange>;
+pub type SceneChanges = util::Changes<SceneChange>;
 
 // Re-exports
 

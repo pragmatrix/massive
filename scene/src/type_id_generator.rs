@@ -26,11 +26,13 @@ impl TypeIdGenerator {
 /// ADR: Decided to use a global id generator, so that we can support multiple scenes per renderer
 /// all sharing the same id space.
 pub mod id_generator {
-    use std::{any::TypeId, sync::LazyLock};
+    use std::any::TypeId;
+    use std::sync::LazyLock;
 
     use parking_lot::Mutex;
 
-    use crate::{Id, SceneChange, type_id_generator::TypeIdGenerator};
+    use crate::type_id_generator::TypeIdGenerator;
+    use crate::{Id, SceneChange};
 
     pub fn acquire<T: 'static>() -> Id {
         global_id_generator().lock().acquire(TypeId::of::<T>())
@@ -52,7 +54,7 @@ pub mod id_generator {
         // renderer, for example to keep ids alive until animations are finished or cached resources
         // are cleaned up)
         for (type_id, id) in changes.iter().flat_map(|sc| sc.destructive_change()) {
-            // Performance: Order by TypeId first to prevent expensive hashmap lookups?
+            // Performance: Order by `TypeId` first to prevent expensive hashmap lookups?
             id_gen.release(type_id, id);
         }
     }

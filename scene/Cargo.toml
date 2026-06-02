@@ -3,9 +3,13 @@ name = "massive-scene"
 version = "0.1.0"
 edition.workspace = true
 
+[features]
+metrics = ["massive-util/metrics"]
+
 [dependencies]
 massive-shapes = { workspace = true }
 massive-geometry = { workspace = true }
+massive-util = { workspace = true }
 
 anyhow = { workspace = true }
 derive_more = { workspace = true }
