@@ -192,11 +192,12 @@ impl Object for Transform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Scene;
+    use crate::{ChangeCollector, Scene};
 
     #[test]
     fn location_new_defaults_to_opaque_alpha() {
-        let scene = Scene::new();
+        let receiver = Arc::new(ChangeCollector::default());
+        let scene = Scene::new(receiver);
         let transform = Transform::IDENTITY.enter(&scene);
         let location = Location::new(None, transform);
 
@@ -206,7 +207,8 @@ mod tests {
 
     #[test]
     fn location_alpha_is_normalized_when_set_and_uploaded() {
-        let scene = Scene::new();
+        let receiver = Arc::new(ChangeCollector::default());
+        let scene = Scene::new(receiver);
         let transform = Transform::IDENTITY.enter(&scene);
 
         assert_eq!(

@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId,
-    ViewCreationInfo, ViewEvent, ViewId,
+    ViewCreationInfo, ViewEvent, ViewId, ViewRole,
 };
 use massive_renderer::RenderPacing;
 use massive_scene::{Handle, Location, Object, ToLocation, Transform};
@@ -196,14 +196,24 @@ impl InstanceManager {
         }
     }
 
-    pub fn update_view_pacing(&mut self, path: ViewPath, pacing: RenderPacing) -> Result<()> {
-        let instance = self.mut_instance(path.instance)?;
-        let view = instance
-            .views
-            .get_mut(&path.view)
-            .ok_or_else(|| anyhow!("View {:?} not found", path.view))?;
-        view.pacing = pacing;
+    pub fn update_instance_pacing(
+        &mut self,
+        instance_id: InstanceId,
+        pacing: RenderPacing,
+    ) -> Result<()> {
+        let instance = self.mut_instance(instance_id)?;
+        for view in instance.views.values_mut() {
+            view.pacing = pacing;
+        }
         Ok(())
+    }
+
+    pub fn primary_view(&self, instance_id: InstanceId) -> Result<&ViewInfo> {
+        self.views()
+            .filter(|(path, _)| path.instance == instance_id)
+            .map(|(_, view)| view)
+            .find(|view| view.role == ViewRole::Primary)
+            .ok_or_else(|| anyhow!("Instance {:?} has no primary view", instance_id))
     }
 
     #[allow(unused)]

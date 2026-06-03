@@ -17,8 +17,30 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(animation_coordinator: AnimationCoordinator) -> Self {
+        Self::new_with_change_collector(
+            animation_coordinator,
+            Arc::new(ChangeCollector::default()),
+        )
+    }
+
+    pub fn new_with_change_collector(
+        animation_coordinator: AnimationCoordinator,
+        collector: Arc<ChangeCollector>,
+    ) -> Self {
+        // Robustness: We shouldn't allow arbitrary free generation of scenes anymore.
+        let scene = massive_scene::Scene::new(collector);
         Self {
-            inner: Default::default(),
+            inner: scene,
+            animation_coordinator,
+        }
+    }
+
+    pub(crate) fn from_parts(
+        scene: massive_scene::Scene,
+        animation_coordinator: AnimationCoordinator,
+    ) -> Self {
+        Self {
+            inner: scene,
             animation_coordinator,
         }
     }
@@ -53,10 +75,10 @@ impl Scene {
         self.animation_coordinator.time_scale()
     }
 
-    /// Accumulate external changes into this scene.
-    pub fn accumulate_changes(&self, changes: massive_scene::SceneChanges) {
-        self.inner.push_changes(changes);
-    }
+    // Accumulate external changes into this scene.
+    // pub fn accumulate_changes(&self, changes: massive_scene::SceneChangeSet) {
+    //     self.inner.push_changes(changes);
+    // }
 
     // Render all the current scene changes.
     //
@@ -79,7 +101,7 @@ impl Scene {
         RenderSubmission::new(self.take_changes(), pacing)
     }
 
-    pub fn into_collector(self) -> Arc<ChangeCollector> {
-        self.inner.into_collector()
-    }
+    // pub fn into_collector(self) -> Arc<ChangeCollector> {
+    //     self.inner.into_collector()
+    // }
 }

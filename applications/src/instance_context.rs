@@ -1,25 +1,37 @@
 //! The context for an instance.
 
 use std::mem;
+use std::sync::Arc;
 
 use anyhow::Result;
-use massive_scene::{Location, Ref};
+use derive_more::Deref;
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_animation::AnimationCoordinator;
-use massive_renderer::FontManager;
+use massive_renderer::{FontManager, RenderPacing};
+use massive_scene::{HandleChangeReceiver, Location, Ref, SceneChange};
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
+use crate::view_builder::ViewBuilder;
 use crate::{
-    InstanceEnvironment, InstanceId, InstanceParameters, Scene, ViewEvent, ViewExtent, ViewId,
-    view::{ViewCommand, ViewCreationInfo},
-    view_builder::ViewBuilder,
+    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene,
+    ViewEvent, ViewExtent, ViewId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreationMode {
     New(InstanceParameters),
     Restore,
+}
+
+// Need a newtype here for the orphan rule.
+#[derive(Debug, Default, Deref)]
+pub struct InstanceChangeCollector(massive_util::ChangeCollector<InstanceChange>);
+
+impl HandleChangeReceiver for InstanceChangeCollector {
+    fn send(&self, change: SceneChange) {
+        self.0.collect(InstanceChange::Scene(change))
+    }
 }
 
 #[derive(Debug)]
@@ -29,8 +41,14 @@ pub struct InstanceContext {
     environment: InstanceEnvironment,
     view_parent: Ref<Location>,
 
-    /// The `AnimationCoordinator` is here to create new scenes. There is one per instance for now.
+    /// We currently use one Scene per Context, so that everything is ordered properly. This also
+    /// contains the AnimationCoordinator, which we need one only per instance anyway.
     animation_coordinator: AnimationCoordinator,
+
+    /// The current changes of this instance. This includes all Scene changes interleaved with the
+    /// instance changes (in order).
+    changes: Arc<InstanceChangeCollector>,
+
     events: CoalescingReceiver<InstanceEvent>,
 }
 
@@ -46,12 +64,21 @@ impl InstanceContext {
         // the scene is rendered. This way, consistence can be preserved when animations are applied
         // in several instances in parallel. Otherwise, timestamps from one instance could affect the
         // other.
+        let animation_coordinator = AnimationCoordinator::new();
+
+        // ADR: Every instance gets its own change collector, because of ordering constraints
+        // between the commands sent to the desktop and the scene updates (they must be processed in
+        // order by the desktop, otherwise it could happen that Visual refer to Locations /
+        // Transforms that are not available anymore).
+        let changes = InstanceChangeCollector::default();
+
         Self {
             id,
             creation_mode,
             environment,
             view_parent,
-            animation_coordinator: AnimationCoordinator::new(),
+            animation_coordinator,
+            changes: changes.into(),
             events: events.into(),
         }
     }
@@ -79,8 +106,12 @@ impl InstanceContext {
         &self.environment.font_manager
     }
 
+    /// ADR: We share _one_ single scene in all views now, so that we can keep the updates that we
+    /// send to desktop coordinated. Also, changes can't be submitted independently, all updates
+    /// from all views need to be submitted at once.
     pub fn new_scene(&self) -> Scene {
-        Scene::new(self.animation_coordinator.clone())
+        let scene = massive_scene::Scene::new(self.changes.clone());
+        Scene::from_parts(scene, self.animation_coordinator.clone())
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {
@@ -96,12 +127,34 @@ impl InstanceContext {
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
         ViewBuilder::new(
-            self.environment.command_sender.clone(),
-            self.id,
+            self.changes.clone(),
             self.view_parent.clone(),
             extent.into().into(),
             self.new_scene(),
         )
+    }
+
+    pub fn submit(&mut self) -> Result<()> {
+        // Robustness: To be really thread safe, we would need to collect the changes and end the
+        // cycle in one go.
+        let animations_active = self.animation_coordinator.end_cycle();
+
+        // Empty changes need to end in a submission (we might have done some before, without ending
+        // the animation cycle)
+
+        let pacing = if animations_active {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        };
+
+        let changes = self.changes.take_all();
+
+        let submission = InstanceSubmission::new(changes, pacing);
+        Ok(self
+            .environment
+            .submission_sender
+            .send((self.id, submission))?)
     }
 }
 
@@ -111,14 +164,6 @@ pub enum InstanceEvent {
     /// Destroy the whole instance.
     Shutdown,
     ApplyAnimations,
-}
-
-/// Commands emitted by an instance and handled by the desktop layer.
-#[derive(Debug)]
-pub enum InstanceCommand {
-    CreateView(ViewCreationInfo),
-    DestroyView(ViewId),
-    View(ViewId, ViewCommand),
 }
 
 impl CoalescingKey for InstanceEvent {

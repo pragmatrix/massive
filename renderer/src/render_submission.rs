@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use massive_geometry::PixelCamera;
-use massive_scene::SceneChanges;
+use massive_scene::SceneChangeSet;
 
 use crate::{RenderPacing, RenderTarget};
 
@@ -13,13 +13,13 @@ use crate::{RenderPacing, RenderTarget};
 #[must_use]
 #[derive(Debug, Default)]
 pub struct RenderSubmission {
-    pub changes: SceneChanges,
+    pub changes: SceneChangeSet,
     pub pacing: RenderPacing,
     pub camera_update: Option<PixelCamera>,
 }
 
 impl RenderSubmission {
-    pub fn new(changes: SceneChanges, pacing: RenderPacing) -> Self {
+    pub fn new(changes: SceneChangeSet, pacing: RenderPacing) -> Self {
         Self {
             changes,
             pacing,

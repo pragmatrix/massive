@@ -1,19 +1,19 @@
+use std::sync::Arc;
+
 use anyhow::Result;
-use tokio::sync::mpsc::UnboundedSender;
 
 use massive_geometry::{BoxPx, Color};
 use massive_scene::{Location, Ref};
 
 use crate::{
-    InstanceId, Scene,
-    instance_context::InstanceCommand,
+    InstanceChangeCollector, Scene,
     view::{View, ViewRole},
 };
 
 #[derive(Debug)]
 pub struct ViewBuilder {
-    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
-    instance: InstanceId,
+    /// The connection to the instance context for submitting changes.
+    change_collector: Arc<InstanceChangeCollector>,
     parent: Ref<Location>,
     extent: BoxPx,
     scene: Scene,
@@ -25,15 +25,13 @@ pub struct ViewBuilder {
 
 impl ViewBuilder {
     pub(crate) fn new(
-        requests: UnboundedSender<(InstanceId, InstanceCommand)>,
-        instance: InstanceId,
+        change_collector: Arc<InstanceChangeCollector>,
         parent: Ref<Location>,
         extent: BoxPx,
         scene: Scene,
     ) -> Self {
         Self {
-            command_sender: requests,
-            instance,
+            change_collector,
             parent,
             extent,
             scene,
@@ -54,12 +52,11 @@ impl ViewBuilder {
 
     pub fn build(self) -> Result<View> {
         View::new(
-            self.command_sender,
-            self.instance,
             self.parent,
             self.extent,
             self.scene,
             self.role,
+            self.change_collector,
         )
     }
 }

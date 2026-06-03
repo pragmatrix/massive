@@ -2,7 +2,7 @@ use std::{fmt, hash, ops::Deref, sync::Arc};
 
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::{Change, ChangeCollector, Id, Scene, SceneChange};
+use crate::{Change, HandleChangeReceiver, Id, Scene, SceneChange};
 
 /// A handle is a mutable representation of an object staged on a scene.
 ///
@@ -53,14 +53,14 @@ impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    pub(crate) fn new(id: Id, value: T, change_collector: Arc<ChangeCollector>) -> Self {
+    pub(crate) fn new(id: Id, value: T, change_collector: Arc<dyn HandleChangeReceiver>) -> Self {
         let uploaded = T::to_change(&value);
-        change_collector.collect(Change::Create(id, uploaded));
+        change_collector.send(Change::Create(id, uploaded).into());
 
         Self {
             inner: InnerHandle {
                 id,
-                change_tracker: change_collector,
+                change_collector,
                 value: value.into(),
             }
             .into(),
@@ -216,7 +216,7 @@ where
 {
     id: Id,
     /// This is effectively the connection to the scene it was staged in.
-    change_tracker: Arc<ChangeCollector>,
+    change_collector: Arc<dyn HandleChangeReceiver>,
     // Optimization: Some values might be too large to be duplicated between the application and the
     // renderer.
     value: Mutex<T>,
@@ -274,7 +274,8 @@ where
         }
 
         let change = T::to_change(&*current);
-        self.change_tracker.collect(Change::Update(self.id, change));
+        self.change_collector
+            .send(Change::Update(self.id, change).into());
     }
 }
 
@@ -283,7 +284,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     fn drop(&mut self) {
-        self.change_tracker.collect(Change::Delete(self.id));
+        self.change_collector.send(Change::Delete(self.id).into());
     }
 }
 

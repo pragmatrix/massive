@@ -1,48 +1,39 @@
-use anyhow::{Context, Result};
+use std::sync::Arc;
+
+use anyhow::Result;
 use derive_more::{From, Into};
-use log::debug;
-use tokio::sync::mpsc::UnboundedSender;
-use tokio::sync::mpsc::error::SendError;
 use uuid::Uuid;
 use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, SizePx, Vector3};
-use massive_renderer::{RenderSubmission, RenderTarget};
 use massive_scene::{Handle, Location, Object, Ref, ToLocation, Transform};
 
-use crate::instance_context::InstanceCommand;
-use crate::{InstanceId, Scene, ViewId};
+use crate::{InstanceChange, InstanceChangeCollector, Scene, ViewId};
 
 /// ADR: Decided to let the View own the Scene, so that we do have a lifetime restriction on the
 /// Scene and can properly clean up and detect dangling handles in this scene in the Desktop.
 #[derive(Debug)]
 pub struct View {
-    command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
-    instance: InstanceId,
     scene: Scene,
     id: ViewId,
     location: Handle<Location>,
+    change_collector: Arc<InstanceChangeCollector>,
 }
 
 impl Drop for View {
     fn drop(&mut self) {
-        if let Err(SendError { .. }) = self
-            .command_sender
-            .send((self.instance, InstanceCommand::DestroyView(self.id)))
-        {
-            debug!("Ignored DestroyView command because the command receiver is gone")
-        }
+        self.change_collector
+            .collect(InstanceChange::DestroyView(self.id));
     }
 }
 
 impl View {
     pub(crate) fn new(
-        command_sender: UnboundedSender<(InstanceId, InstanceCommand)>,
-        instance: InstanceId,
         parent: Ref<Location>,
         extents: BoxPx,
         scene: Scene,
         role: ViewRole,
+        change_collector: Arc<InstanceChangeCollector>,
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
@@ -56,17 +47,17 @@ impl View {
             .relative_to(parent)
             .enter(&scene);
 
-        command_sender.send((
-            instance,
-            InstanceCommand::CreateView(ViewCreationInfo { id, role, extents }),
-        ))?;
+        change_collector.collect(InstanceChange::CreateView(ViewCreationInfo {
+            id,
+            role,
+            extents,
+        }));
 
         Ok(Self {
-            command_sender,
-            instance,
             scene,
             id,
             location,
+            change_collector,
         })
     }
 
@@ -90,42 +81,34 @@ impl View {
     }
 
     #[allow(unused)]
-    fn resize(&mut self, new_extents: impl Into<ViewExtent>) -> Result<()> {
-        self.command_sender
-            .send((
-                self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Resize(new_extents.into().into())),
-            ))
-            .context("Failed to send a resize request")
+    fn resize(&mut self, new_extents: impl Into<ViewExtent>) {
+        self.change_collector.collect(InstanceChange::View(
+            self.id,
+            ViewChange::Resize(new_extents.into().into()),
+        ))
     }
 
-    pub fn set_title(&self, title: impl Into<String>) -> Result<()> {
-        self.command_sender
-            .send((
-                self.instance,
-                InstanceCommand::View(self.id, ViewCommand::SetTitle(title.into())),
-            ))
-            .context("Failed to send a set title request")
+    pub fn set_title(&self, title: impl Into<String>) {
+        self.change_collector.collect(InstanceChange::View(
+            self.id,
+            ViewChange::SetTitle(title.into()),
+        ))
     }
 
-    pub fn set_cursor(&self, icon: CursorIcon) -> Result<()> {
-        self.command_sender
-            .send((
-                self.instance,
-                InstanceCommand::View(self.id, ViewCommand::SetCursor(icon)),
-            ))
-            .context("Failed to send a set cursor request")
+    pub fn set_cursor(&self, icon: CursorIcon) {
+        self.change_collector
+            .collect(InstanceChange::View(self.id, ViewChange::SetCursor(icon)))
     }
 
-    pub fn render(&self) -> Result<()> {
-        let submission = self.scene.begin_frame();
-        self.command_sender
-            .send((
-                self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Render { submission }),
-            ))
-            .context("Failed to send a render request")
-    }
+    // pub fn render(&self) -> Result<()> {
+    //     let submission = self.scene.begin_frame();
+    //     self.command_sender
+    //         .send((
+    //             self.instance,
+    //             InstanceCommand::View(self.id, ViewCommand::Render { submission }),
+    //         ))
+    //         .context("Failed to send a render request")
+    // }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -153,9 +136,7 @@ impl ViewCreationInfo {
 }
 
 #[derive(Debug)]
-pub enum ViewCommand {
-    /// Detail: Empty changes are possible because animations active might change.
-    Render { submission: RenderSubmission },
+pub enum ViewChange {
     /// Feature: This should probably specify a depth too.
     Resize(BoxPx),
     /// Set the title of the view. The desktop decides how to display it.
@@ -164,16 +145,16 @@ pub enum ViewCommand {
     SetCursor(CursorIcon),
 }
 
-impl RenderTarget for View {
-    fn render(&mut self, submission: RenderSubmission) -> Result<()> {
-        self.command_sender
-            .send((
-                self.instance,
-                InstanceCommand::View(self.id, ViewCommand::Render { submission }),
-            ))
-            .context("Failed to send a render request")
-    }
-}
+// impl RenderTarget for View {
+//     fn render(&mut self, submission: RenderSubmission) -> Result<()> {
+//         self.command_sender
+//             .send((
+//                 self.instance,
+//                 InstanceCommand::View(self.id, ViewCommand::Render { submission }),
+//             ))
+//             .context("Failed to send a render request")
+//     }
+// }
 
 #[derive(Debug, From, Into)]
 pub struct ViewExtent(BoxPx);

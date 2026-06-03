@@ -12,7 +12,7 @@ use winit::window::WindowId;
 
 use massive_geometry::{Color, Matrix4, SizePx};
 use massive_renderer::{PresentationMode, RenderPacing, Renderer};
-use massive_scene::{SceneChanges, id_generator};
+use massive_scene::{SceneChangeSet, id_generator};
 use massive_util::message_filter;
 
 use crate::{ShellEvent, shell_window::ShellWindowShared};
@@ -218,7 +218,7 @@ impl WindowRenderer {
         PresentationMode::new(present_mode, maximum_frame_latency)
     }
 
-    fn apply_scene_changes(&mut self, changes: SceneChanges) -> Result<()> {
+    fn apply_scene_changes(&mut self, changes: SceneChangeSet) -> Result<()> {
         #[cfg(feature = "metrics")]
         let time_of_oldest_change = changes.time_of_oldest_change();
 
@@ -302,7 +302,7 @@ pub enum RendererMessage {
 /// An extended accumulable submission structure that contains everything the renderer needs to know.
 #[derive(Debug)]
 pub struct RenderThreadSubmission {
-    pub changes: SceneChanges,
+    pub changes: SceneChangeSet,
     pub pacing: RenderPacing,
     pub view_projection: Matrix4,
 }
@@ -310,7 +310,7 @@ pub struct RenderThreadSubmission {
 impl RenderThreadSubmission {
     pub fn new(view_projection: Matrix4) -> Self {
         Self {
-            changes: SceneChanges::default(),
+            changes: SceneChangeSet::default(),
             view_projection,
             pacing: RenderPacing::Fast,
         }

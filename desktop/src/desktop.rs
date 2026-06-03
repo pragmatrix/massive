@@ -1,15 +1,16 @@
-use std::time::Instant;
+use std::{sync::Arc, time::Instant};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Result, bail};
 use log::info;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
-    CreationMode, InstanceCommand, InstanceEnvironment, InstanceEvent, InstanceId,
-    InstanceParameters, ViewCommand, ViewEvent,
+    CreationMode, InstanceChange, InstanceEnvironment, InstanceEvent, InstanceId,
+    InstanceParameters, InstanceSubmission, ViewChange, ViewEvent,
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
+use massive_scene::ChangeCollector;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::{AsyncWindowRenderer, ShellWindow};
 
@@ -35,7 +36,9 @@ pub struct Desktop {
     event_manager: EventManager<ViewEvent>,
 
     instance_manager: InstanceManager,
-    instance_commands: UnboundedReceiver<(InstanceId, InstanceCommand)>,
+    // May need to move this into the ApplicationContext.
+    scene_changes: Arc<ChangeCollector>,
+    instance_submissions: UnboundedReceiver<(InstanceId, InstanceSubmission)>,
     context: ApplicationContext,
 }
 
@@ -51,11 +54,12 @@ impl Desktop {
         let fonts = FontManager::system();
 
         // Create scene early for presenter initialization
-        let scene = context.new_scene();
+        let scene_changes = Arc::new(ChangeCollector::default());
+        let scene = context.new_scene_with_change_collector(scene_changes.clone());
 
-        let (requests_tx, mut requests_rx) = unbounded_channel::<(InstanceId, InstanceCommand)>();
+        let (submissions_tx, mut submissions_rx) = unbounded_channel();
         let environment = InstanceEnvironment::new(
-            requests_tx,
+            submissions_tx,
             context.primary_monitor_scale_factor(),
             fonts.clone(),
         );
@@ -76,15 +80,24 @@ impl Desktop {
             InstanceRoot::new(&scene),
         )?;
 
-        // First wait for the initial view that's being created.
-
-        let Some((primary_instance, InstanceCommand::CreateView(creation_info))) =
-            requests_rx.recv().await
-        else {
-            bail!("Did not or received an unexpected request from the application");
+        // First wait for and interpret the initial submission.
+        let Some((initial_instance, initial_submission)) = submissions_rx.recv().await else {
+            bail!("Did not receive the initial submission from the application");
         };
 
-        instance_manager.add_view(primary_instance, &creation_info);
+        let initial_interpretation = {
+            let mut context = SubmissionProcessingContext {
+                instance_manager: &mut instance_manager,
+                scene_changes: &scene_changes,
+                window: None,
+            };
+            Self::interpret_instance_submission(initial_instance, initial_submission, &mut context)?
+        };
+        instance_manager.update_instance_pacing(initial_instance, initial_interpretation.pacing)?;
+
+        let primary_instance = initial_instance;
+        let primary_view = instance_manager.primary_view(primary_instance)?;
+        let creation_info = primary_view.creation_info.clone();
 
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.
@@ -112,18 +125,20 @@ impl Desktop {
         let project_setup_transaction =
             project_set_to_transaction(&project_set).map(DesktopCommand::Project);
 
-        let primary_view_transaction: Transaction<_> = [
-            // Present the primary instance / view
-            DesktopCommand::PresentInstance {
-                launcher: primary_project.primary_launcher,
-                instance: primary_instance,
-            },
-            DesktopCommand::PresentView(primary_instance, creation_info),
-        ]
+        let primary_instance_transaction: Transaction<_> = [DesktopCommand::PresentInstance {
+            launcher: primary_project.primary_launcher,
+            instance: primary_instance,
+        }]
         .into();
 
+        let initial_submission_transaction: Transaction<_> =
+            initial_interpretation.pending_commands.into();
+
         system.transact(
-            primary_project_transaction + project_setup_transaction + primary_view_transaction,
+            primary_project_transaction
+                + project_setup_transaction
+                + primary_instance_transaction
+                + initial_submission_transaction,
             &scene,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
@@ -137,7 +152,8 @@ impl Desktop {
             system,
             event_manager,
             instance_manager,
-            instance_commands: requests_rx,
+            scene_changes,
+            instance_submissions: submissions_rx,
             context,
         })
     }
@@ -145,8 +161,8 @@ impl Desktop {
     pub async fn run(mut self) -> Result<()> {
         loop {
             tokio::select! {
-                Some((instance_id, request)) = self.instance_commands.recv() => {
-                    self.process_instance_command(instance_id, request)?;
+                Some((instance_id, submission)) = self.instance_submissions.recv() => {
+                    self.integrate_instance_submission(instance_id, submission)?;
                 }
 
                 shell_event = self.context.wait_for_shell_event() => {
@@ -234,63 +250,125 @@ impl Desktop {
         }
     }
 
-    fn process_instance_command(
+    fn integrate_instance_submission(
         &mut self,
         instance: InstanceId,
-        command: InstanceCommand,
+        submission: InstanceSubmission,
     ) -> Result<()> {
-        let effects_mode = if self.system.any_buttons_pressed() {
-            TransactionEffectsMode::CameraLocked
-        } else {
-            TransactionEffectsMode::Normal
+        let interpretation = {
+            let mut context = SubmissionProcessingContext {
+                instance_manager: &mut self.instance_manager,
+                scene_changes: &self.scene_changes,
+                // Architecture: We need an indirection here anyway so window updates can target per-view windows.
+                window: Some(&mut self.window),
+            };
+
+            Self::interpret_instance_submission(instance, submission, &mut context)?
         };
 
-        match command {
-            InstanceCommand::CreateView(info) => {
-                self.instance_manager.add_view(instance, &info);
-                self.system.transact(
-                    DesktopCommand::PresentView(instance, info),
-                    &self.scene,
-                    &mut self.instance_manager,
-                    effects_mode,
-                )?;
+        if !interpretation.pending_commands.is_empty() {
+            let effects_mode = if self.system.any_buttons_pressed() {
+                TransactionEffectsMode::CameraLocked
+            } else {
+                TransactionEffectsMode::Normal
+            };
+
+            self.system.transact(
+                interpretation.pending_commands,
+                &self.scene,
+                &mut self.instance_manager,
+                effects_mode,
+            )?;
+        }
+
+        self.instance_manager
+            .update_instance_pacing(instance, interpretation.pacing)?;
+        Ok(())
+    }
+
+    fn interpret_instance_submission(
+        instance: InstanceId,
+        submission: InstanceSubmission,
+        context: &mut SubmissionProcessingContext,
+    ) -> Result<SubmissionInterpretation> {
+        let (changes, pacing) = submission.into_parts();
+        let mut interpretation = SubmissionInterpretation {
+            pacing,
+            pending_commands: Vec::new(),
+        };
+
+        for change in changes.release() {
+            Self::process_instance_change(
+                instance,
+                change,
+                context,
+                &mut interpretation.pending_commands,
+            )?;
+        }
+        Ok(interpretation)
+    }
+
+    fn process_instance_change(
+        instance: InstanceId,
+        change: InstanceChange,
+        context: &mut SubmissionProcessingContext,
+        pending_commands: &mut Vec<DesktopCommand>,
+    ) -> Result<()> {
+
+        match change {
+            InstanceChange::Scene(change) => {
+                context.scene_changes.collect(change);
             }
-            InstanceCommand::DestroyView(id) => {
-                self.system.transact(
-                    DesktopCommand::HideView((instance, id).into()),
-                    &self.scene,
-                    &mut self.instance_manager,
-                    effects_mode,
-                )?;
-                self.instance_manager.remove_view((instance, id).into());
+            InstanceChange::CreateView(info) => {
+                context.instance_manager.add_view(instance, &info);
+                pending_commands.push(DesktopCommand::PresentView(instance, info));
             }
-            InstanceCommand::View(view_id, command) => {
-                self.handle_view_command((instance, view_id).into(), command)?;
+            InstanceChange::DestroyView(id) => {
+                let view_path: ViewPath = (instance, id).into();
+                pending_commands.push(DesktopCommand::HideView(view_path));
+                context.instance_manager.remove_view(view_path);
+            }
+            InstanceChange::View(view_id, command) => {
+                let window = context.window.as_deref_mut().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "View command requires a window; initial submission must not contain view commands"
+                    )
+                })?;
+                Self::handle_view_command((instance, view_id).into(), command, window)?;
             }
         }
         Ok(())
     }
 
-    fn handle_view_command(&mut self, view: ViewPath, command: ViewCommand) -> Result<()> {
+    fn handle_view_command(
+        _view: ViewPath,
+        command: ViewChange,
+        window: &mut ShellWindow,
+    ) -> Result<()> {
         match command {
-            ViewCommand::Render { submission } => {
-                self.instance_manager
-                    .update_view_pacing(view, submission.pacing)
-                    .context("render / update_view_pacing")?;
-                self.scene.accumulate_changes(submission.changes);
-            }
-            ViewCommand::Resize(_) => {
+            ViewChange::Resize(_) => {
                 todo!("Resize is unsupported");
             }
-            ViewCommand::SetTitle(title) => {
-                self.window.set_title(&title);
+            ViewChange::SetTitle(title) => {
+                window.set_title(&title);
             }
-            ViewCommand::SetCursor(icon) => {
-                self.window.set_cursor(icon);
+            ViewChange::SetCursor(icon) => {
+                window.set_cursor(icon);
             }
         }
         Ok(())
     }
+}
+
+struct SubmissionProcessingContext<'a> {
+    instance_manager: &'a mut InstanceManager,
+    scene_changes: &'a ChangeCollector,
+    window: Option<&'a mut ShellWindow>,
+}
+
+struct SubmissionInterpretation {
+    pacing: RenderPacing,
+    pending_commands: Vec<DesktopCommand>,
 }
 
 #[derive(Debug)]
