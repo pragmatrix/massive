@@ -22,7 +22,7 @@ mod navigation;
 mod presentation;
 mod project_commands;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use derive_more::Debug;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -32,7 +32,7 @@ use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_scene::{Location, Object, Transform};
-use massive_shell::{FontManager, Scene};
+use massive_shell::{FontManager, Scene, ShellWindow};
 
 pub use commands::{DesktopCommand, ProjectCommand};
 pub use effects::Effects;
@@ -41,9 +41,9 @@ pub(crate) use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 
 use crate::event_sourcing::{self, Transaction};
-use crate::focus_path::FocusPath;
+use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::InstancePresenter;
+use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{
     DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
@@ -123,6 +123,7 @@ impl TransactionEffectsMode {
 pub struct DesktopSystem {
     env: DesktopEnvironment,
     fonts: FontManager,
+    window: ShellWindow,
 
     default_panel_size: SizePx,
 
@@ -169,6 +170,7 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         fonts: FontManager,
+        window: ShellWindow,
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<Self> {
@@ -186,6 +188,7 @@ impl DesktopSystem {
         let system = Self {
             env,
             fonts,
+            window,
 
             default_panel_size,
 
@@ -290,6 +293,29 @@ impl DesktopSystem {
 
     pub fn any_buttons_pressed(&self) -> bool {
         self.event_router.any_buttons_pressed()
+    }
+
+    pub fn focused_view_window_state(&self) -> Result<Option<ViewWindowState>> {
+        let Some(focused) = self.event_router.focused() else {
+            return Ok(None);
+        };
+
+        let focused_path = self.aggregates.hierarchy.resolve_path(Some(focused));
+        let Some(instance) = focused_path.instance() else {
+            return Ok(None);
+        };
+        let Some(instance_presenter) = self.aggregates.instances.get(&instance) else {
+            bail!("Focused instance has no presenter");
+        };
+
+        let Some(view) = self.aggregates.view_of_instance(instance) else {
+            return Ok(None);
+        };
+
+        instance_presenter
+            .view_window_state(view)
+            .cloned()
+            .map(Some)
     }
 
     /// Remove the target from the hierarchy. Specific target aggregates are left

@@ -8,6 +8,7 @@ use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_scene::{At, Handle, Location, Object, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
+use winit::window::CursorIcon;
 
 use crate::instance_manager::InstanceRoot;
 
@@ -48,7 +49,14 @@ enum InstancePresenterState {
 #[derive(Debug)]
 struct PrimaryViewPresenter {
     creation_info: ViewCreationInfo,
+    window_state: ViewWindowState,
     alpha: Animated<f32>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ViewWindowState {
+    pub title: String,
+    pub cursor: CursorIcon,
 }
 
 impl InstancePresenter {
@@ -120,6 +128,7 @@ impl InstancePresenter {
         self.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
                 creation_info: view_creation_info.clone(),
+                window_state: ViewWindowState::default(),
                 alpha,
             },
         };
@@ -155,6 +164,22 @@ impl InstancePresenter {
                 Ok(())
             }
         }
+    }
+
+    pub fn set_view_title(&mut self, view_id: ViewId, title: String) -> Result<()> {
+        let view = self.presented_view_mut(view_id)?;
+        view.window_state.title = title;
+        Ok(())
+    }
+
+    pub fn set_view_cursor(&mut self, view_id: ViewId, cursor: CursorIcon) -> Result<()> {
+        let view = self.presented_view_mut(view_id)?;
+        view.window_state.cursor = cursor;
+        Ok(())
+    }
+
+    pub fn view_window_state(&self, view_id: ViewId) -> Result<&ViewWindowState> {
+        self.presented_view(view_id).map(|view| &view.window_state)
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
@@ -205,6 +230,30 @@ impl InstancePresenter {
         self.instance_location.update_if_changed_with(|location| {
             location.alpha = *alpha;
         });
+    }
+
+    fn presented_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
+        let Some(view) = self.state.view() else {
+            bail!("A view needs to be updated, but instance presenter is not presenting a view.")
+        };
+
+        if view.creation_info.id != view_id {
+            bail!("Invalid view: It's not related to anything we present");
+        }
+
+        Ok(view)
+    }
+
+    fn presented_view_mut(&mut self, view_id: ViewId) -> Result<&mut PrimaryViewPresenter> {
+        let Some(view) = self.state.view_mut() else {
+            bail!("A view needs to be updated, but instance presenter is not presenting a view.")
+        };
+
+        if view.creation_info.id != view_id {
+            bail!("Invalid view: It's not related to anything we present");
+        }
+
+        Ok(view)
     }
 }
 

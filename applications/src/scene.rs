@@ -17,10 +17,7 @@ pub struct Scene {
 
 impl Scene {
     pub fn new(animation_coordinator: AnimationCoordinator) -> Self {
-        Self::new_with_change_collector(
-            animation_coordinator,
-            Arc::new(ChangeCollector::default()),
-        )
+        Self::new_with_change_collector(animation_coordinator, Arc::new(ChangeCollector::default()))
     }
 
     pub fn new_with_change_collector(

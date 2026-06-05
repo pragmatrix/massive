@@ -6,7 +6,7 @@ use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
     CreationMode, InstanceChange, InstanceEnvironment, InstanceEvent, InstanceId,
-    InstanceParameters, InstanceSubmission, ViewChange, ViewEvent,
+    InstanceParameters, InstanceSubmission, ViewEvent,
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
@@ -89,7 +89,6 @@ impl Desktop {
             let mut context = SubmissionProcessingContext {
                 instance_manager: &mut instance_manager,
                 scene_changes: &scene_changes,
-                window: None,
             };
             Self::interpret_instance_submission(initial_instance, initial_submission, &mut context)?
         };
@@ -118,7 +117,8 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(env, fonts.clone(), default_size, &scene)?;
+        let mut system =
+            DesktopSystem::new(env, fonts.clone(), window.clone(), default_size, &scene)?;
 
         let primary_project_transaction = primary_project.transaction.map(DesktopCommand::Project);
 
@@ -144,7 +144,7 @@ impl Desktop {
             TransactionEffectsMode::Setup,
         )?;
 
-        Ok(Self {
+        let desktop = Self {
             scene,
             renderer,
             window,
@@ -155,7 +155,8 @@ impl Desktop {
             scene_changes,
             instance_submissions: submissions_rx,
             context,
-        })
+        };
+        Ok(desktop)
     }
 
     pub async fn run(mut self) -> Result<()> {
@@ -184,18 +185,17 @@ impl Desktop {
                                     self.window.set_cursor_visible(cursor_visible);
                                     self.cursor_visible = cursor_visible;
                                 }
-                                self.system
-                                    .transact_with_effects(
-                                        cmd,
-                                        &self.scene,
-                                        &mut self.instance_manager,
-                                        if input_event.any_buttons_pressed() {
-                                            TransactionEffectsMode::CameraLocked
-                                        } else {
-                                            TransactionEffectsMode::Normal
-                                        },
-                                        effects,
-                                    )?;
+                                self.system.transact_with_effects(
+                                    cmd,
+                                    &self.scene,
+                                    &mut self.instance_manager,
+                                    if input_event.any_buttons_pressed() {
+                                        TransactionEffectsMode::CameraLocked
+                                    } else {
+                                        TransactionEffectsMode::Normal
+                                    },
+                                    effects,
+                                )?;
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -259,8 +259,6 @@ impl Desktop {
             let mut context = SubmissionProcessingContext {
                 instance_manager: &mut self.instance_manager,
                 scene_changes: &self.scene_changes,
-                // Architecture: We need an indirection here anyway so window updates can target per-view windows.
-                window: Some(&mut self.window),
             };
 
             Self::interpret_instance_submission(instance, submission, &mut context)?
@@ -314,7 +312,6 @@ impl Desktop {
         context: &mut SubmissionProcessingContext,
         pending_commands: &mut Vec<DesktopCommand>,
     ) -> Result<()> {
-
         match change {
             InstanceChange::Scene(change) => {
                 context.scene_changes.collect(change);
@@ -329,31 +326,8 @@ impl Desktop {
                 context.instance_manager.remove_view(view_path);
             }
             InstanceChange::View(view_id, command) => {
-                let window = context.window.as_deref_mut().ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "View command requires a window; initial submission must not contain view commands"
-                    )
-                })?;
-                Self::handle_view_command((instance, view_id).into(), command, window)?;
-            }
-        }
-        Ok(())
-    }
-
-    fn handle_view_command(
-        _view: ViewPath,
-        command: ViewChange,
-        window: &mut ShellWindow,
-    ) -> Result<()> {
-        match command {
-            ViewChange::Resize(_) => {
-                todo!("Resize is unsupported");
-            }
-            ViewChange::SetTitle(title) => {
-                window.set_title(&title);
-            }
-            ViewChange::SetCursor(icon) => {
-                window.set_cursor(icon);
+                let view_path: ViewPath = (instance, view_id).into();
+                pending_commands.push(DesktopCommand::ApplyViewChange(view_path, command));
             }
         }
         Ok(())
@@ -363,7 +337,6 @@ impl Desktop {
 struct SubmissionProcessingContext<'a> {
     instance_manager: &'a mut InstanceManager,
     scene_changes: &'a ChangeCollector,
-    window: Option<&'a mut ShellWindow>,
 }
 
 struct SubmissionInterpretation {

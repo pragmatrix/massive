@@ -1,7 +1,7 @@
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result};
 use log::warn;
 
-use massive_applications::{CreationMode, ViewRole};
+use massive_applications::{CreationMode, ViewChange, ViewRole};
 use massive_shell::Scene;
 
 use super::effects::{DesktopEffect, Effects};
@@ -27,7 +27,7 @@ impl DesktopSystem {
                     .env
                     .applications
                     .get_named(&self.env.primary_application)
-                    .ok_or(anyhow!("Internal error, application not registered"))?;
+                    .context("Internal error, application not registered")?;
 
                 let instance = instance_manager.spawn(
                     application,
@@ -127,6 +127,26 @@ impl DesktopSystem {
                 Ok(effects)
             }
             DesktopCommand::HideView(view_path) => self.hide_view(view_path),
+            DesktopCommand::ApplyViewChange(view_path, change) => {
+                let instance = self
+                    .aggregates
+                    .instances
+                    .get_mut(&view_path.instance)
+                    .context("Instance not found")?;
+                match change {
+                    ViewChange::Resize(_extends) => {
+                        // resize isn't supported yet..
+                        warn!("View Resizes aren't supported yet");
+                    }
+                    ViewChange::SetTitle(title) => {
+                        instance.set_view_title(view_path.view, title)?;
+                    }
+                    ViewChange::SetCursor(cursor) => {
+                        instance.set_view_cursor(view_path.view, cursor)?;
+                    }
+                }
+                Ok(Effects::None)
+            }
 
             DesktopCommand::Project(project_command) => {
                 self.apply_project_command(project_command, scene)

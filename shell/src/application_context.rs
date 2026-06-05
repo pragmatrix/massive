@@ -63,7 +63,10 @@ impl ApplicationContext {
     }
 
     /// Creates a new scene with a caller-provided change collector.
-    pub fn new_scene_with_change_collector(&self, collector: std::sync::Arc<ChangeCollector>) -> Scene {
+    pub fn new_scene_with_change_collector(
+        &self,
+        collector: std::sync::Arc<ChangeCollector>,
+    ) -> Scene {
         Scene::new_with_change_collector(self.animation_coordinator.clone(), collector)
     }
 

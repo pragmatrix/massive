@@ -1,6 +1,6 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
+use massive_applications::{InstanceId, InstanceParameters, ViewChange, ViewCreationInfo};
 
 use super::navigation::Direction;
 use crate::instance_manager::ViewPath;
@@ -23,6 +23,7 @@ pub enum DesktopCommand {
     },
     PresentView(InstanceId, ViewCreationInfo),
     HideView(ViewPath),
+    ApplyViewChange(ViewPath, ViewChange),
     ZoomOut,
     Navigate(Direction),
 }

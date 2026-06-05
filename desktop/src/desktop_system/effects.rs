@@ -11,6 +11,7 @@ pub enum DesktopEffect {
     ApplyLayout(DesktopTarget),
     UpdateCamera,
     SyncHover,
+    SyncFocusedViewWindowState,
 }
 
 #[must_use]
