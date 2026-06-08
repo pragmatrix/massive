@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{debug, info, trace, warn};
+use log::{info, warn};
 
 use massive_applications::{CreationMode, ViewChange, ViewRole};
 use massive_shell::Scene;

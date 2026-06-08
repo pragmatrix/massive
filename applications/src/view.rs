@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use derive_more::{From, Into};
-use log::warn;
 use uuid::Uuid;
 use winit::window::CursorIcon;
 
@@ -19,6 +18,8 @@ pub struct View {
     id: ViewId,
     location: Handle<Location>,
     change_collector: Arc<InstanceChangeCollector>,
+    title: String,
+    cursor: CursorIcon,
 }
 
 impl Drop for View {
@@ -59,6 +60,8 @@ impl View {
             id,
             location,
             change_collector,
+            title: String::new(),
+            cursor: CursorIcon::default(),
         })
     }
 
@@ -89,27 +92,26 @@ impl View {
         ))
     }
 
-    pub fn set_title(&self, title: impl Into<String>) {
-        self.change_collector.collect(InstanceChange::View(
-            self.id,
-            ViewChange::SetTitle(title.into()),
-        ))
-    }
+    pub fn set_title(&mut self, title: impl Into<String>) {
+        let title = title.into();
+        if self.title == title {
+            return;
+        }
 
-    pub fn set_cursor(&self, icon: CursorIcon) {
+        self.title = title.clone();
         self.change_collector
-            .collect(InstanceChange::View(self.id, ViewChange::SetCursor(icon)))
+            .collect(InstanceChange::View(self.id, ViewChange::SetTitle(title)))
     }
 
-    // pub fn render(&self) -> Result<()> {
-    //     let submission = self.scene.begin_frame();
-    //     self.command_sender
-    //         .send((
-    //             self.instance,
-    //             InstanceCommand::View(self.id, ViewCommand::Render { submission }),
-    //         ))
-    //         .context("Failed to send a render request")
-    // }
+    pub fn set_cursor(&mut self, cursor: CursorIcon) {
+        if self.cursor == cursor {
+            return;
+        }
+
+        self.cursor = cursor;
+        self.change_collector
+            .collect(InstanceChange::View(self.id, ViewChange::SetCursor(cursor)))
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
@@ -145,17 +147,6 @@ pub enum ViewChange {
     /// Set the cursor icon for the view.
     SetCursor(CursorIcon),
 }
-
-// impl RenderTarget for View {
-//     fn render(&mut self, submission: RenderSubmission) -> Result<()> {
-//         self.command_sender
-//             .send((
-//                 self.instance,
-//                 InstanceCommand::View(self.id, ViewCommand::Render { submission }),
-//             ))
-//             .context("Failed to send a render request")
-//     }
-// }
 
 #[derive(Debug, From, Into)]
 pub struct ViewExtent(BoxPx);
