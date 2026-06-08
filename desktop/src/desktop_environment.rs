@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use log::error;
 use massive_shell::{ApplicationContext, Result};
 
 use crate::{Application, application_registry::ApplicationRegistry, desktop::Desktop};
@@ -46,7 +47,12 @@ impl DesktopEnvironment {
     }
 
     pub async fn run_desktop(self, context: ApplicationContext) -> Result<()> {
-        let state = Desktop::new(self, context).await?;
-        state.run().await
+        let mut desktop = Desktop::new(self, context).await?;
+        let r = desktop.run().await;
+        // We log the error here, so that when we crash in Desktop drop, the original error does not get lost.
+        if let Err(e) = &r {
+            error!("Desktop crashed: {e:?}");
+        }
+        r
     }
 }

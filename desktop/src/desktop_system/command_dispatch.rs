@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::warn;
+use log::{debug, trace, warn};
 
 use massive_applications::{CreationMode, ViewChange, ViewRole};
 use massive_shell::Scene;
@@ -48,7 +48,7 @@ impl DesktopSystem {
                 // Remove the instance from the focus first.
                 //
                 // Detail: This causes an unfocus event sent to the instance's view which may
-                // unexpected while teardown.
+                // unexpected while tear down.
 
                 let target = DesktopTarget::Instance(instance);
                 let replacement_focus = self
@@ -132,11 +132,11 @@ impl DesktopSystem {
                     .aggregates
                     .instances
                     .get_mut(&view_path.instance)
-                    .context("Instance not found")?;
+                    .context("Instance not found (apply_view_change)")?;
                 match change {
                     ViewChange::Resize(_extends) => {
-                        // resize isn't supported yet..
-                        warn!("View Resizes aren't supported yet");
+                        // Resize isn't supported yet.
+                        todo!("View Resizes aren't supported yet");
                     }
                     ViewChange::SetTitle(title) => {
                         instance.set_view_title(view_path.view, title)?;

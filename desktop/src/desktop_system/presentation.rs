@@ -103,7 +103,7 @@ impl DesktopSystem {
         scene: &Scene,
     ) -> Result<Effects> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
-            bail!("Instance not found");
+            bail!("Instance not found (present_view)");
         };
 
         instance_presenter.present_view(view_creation_info, scene)?;

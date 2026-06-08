@@ -3,8 +3,9 @@
 use std::mem;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Result, bail};
 use derive_more::Deref;
+use log::{error, trace, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_animation::AnimationCoordinator;
@@ -50,6 +51,16 @@ pub struct InstanceContext {
     changes: Arc<InstanceChangeCollector>,
 
     events: CoalescingReceiver<InstanceEvent>,
+}
+
+impl Drop for InstanceContext {
+    fn drop(&mut self) {
+        warn!("Submitting final instance changes: instance={:?}", self.id);
+        // If the instance ends, we _must_ submit all pending changes.
+        if let Err(e) = self.submit() {
+            error!("Final instance submit error for {:?}: {e:?}", self.id);
+        }
+    }
 }
 
 impl InstanceContext {
@@ -149,12 +160,31 @@ impl InstanceContext {
         };
 
         let changes = self.changes.take_all();
+        let change_count = changes.len();
+        trace!(
+            "Submitting instance changes: instance={:?}, changes={change_count}, pacing={pacing:?}",
+            self.id
+        );
 
         let submission = InstanceSubmission::new(changes, pacing);
-        Ok(self
+        if let Err(e) = self
             .environment
             .submission_sender
-            .send((self.id, submission))?)
+            .send((self.id, submission))
+        {
+            let (instance, submission) = e.0;
+            let (changes, pacing) = submission.into_parts();
+            let change_count = changes.len();
+            let _ = changes.release();
+            error!(
+                "Failed to submit instance changes because the desktop submission receiver is closed: instance={instance:?}, changes={change_count}, pacing={pacing:?}"
+            );
+            bail!(
+                "failed to submit {change_count} instance changes for {instance:?}: desktop submission receiver is closed"
+            );
+        }
+
+        Ok(())
     }
 }
 

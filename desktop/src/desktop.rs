@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Instant};
 
 use anyhow::{Result, bail};
-use log::info;
+use log::{error, info};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
@@ -159,7 +159,7 @@ impl Desktop {
         Ok(desktop)
     }
 
-    pub async fn run(mut self) -> Result<()> {
+    pub async fn run(&mut self) -> Result<()> {
         loop {
             tokio::select! {
                 Some((instance_id, submission)) = self.instance_submissions.recv() => {
@@ -209,7 +209,8 @@ impl Desktop {
                 }
 
                 Ok((instance_id, instance_result)) = self.instance_manager.join_next() => {
-                    info!("Instance ended: {instance_id:?}");
+                    info!("Instance ended (submissions pending: {}): {instance_id:?}", self.instance_submissions.len());
+
                     if self.system.is_present(&instance_id) {
                         // Did it end on its own? -> Act as the user ended it.
                         // Robustness: This should probably handled differently.
@@ -229,6 +230,12 @@ impl Desktop {
 
                     // If all instances have finished, exit
                     if self.instance_manager.is_empty() {
+                        let queued_submissions = self.instance_submissions.len();
+                        if queued_submissions > 0 {
+                            error!(
+                                "Desktop exiting with queued instance submissions after all instances finished: queued_submissions={queued_submissions}"
+                            );
+                        }
                         return Ok(());
                     }
                 }
