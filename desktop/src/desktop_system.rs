@@ -24,6 +24,7 @@ mod project_commands;
 
 use anyhow::{Result, bail};
 use derive_more::Debug;
+use log::warn;
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -31,6 +32,7 @@ use massive_animation::Animated;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
+use massive_renderer::RenderPacing;
 use massive_scene::{Location, Object, Transform};
 use massive_shell::{FontManager, Scene, ShellWindow};
 
@@ -293,6 +295,27 @@ impl DesktopSystem {
 
     pub fn any_buttons_pressed(&self) -> bool {
         self.event_router.any_buttons_pressed()
+    }
+
+    pub fn set_instance_pacing(&mut self, instance: InstanceId, pacing: RenderPacing) {
+        if let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) {
+            instance_presenter.pacing = pacing;
+        } else {
+            warn!("Setting pacing on an unknown instance");
+        }
+    }
+
+    pub fn effective_pacing(&self) -> RenderPacing {
+        if self
+            .aggregates
+            .instances
+            .values()
+            .any(|instance| instance.pacing == RenderPacing::Smooth)
+        {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        }
     }
 
     pub fn focused_view_window_state(&self) -> Result<Option<ViewWindowState>> {

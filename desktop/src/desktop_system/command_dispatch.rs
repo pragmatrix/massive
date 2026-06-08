@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{debug, trace, warn};
+use log::{debug, info, trace, warn};
 
 use massive_applications::{CreationMode, ViewChange, ViewRole};
 use massive_shell::Scene;
@@ -129,21 +129,21 @@ impl DesktopSystem {
             }
             DesktopCommand::HideView(view_path) => self.hide_view(view_path),
             DesktopCommand::ApplyViewChange(view_path, change) => {
-                let instance = self
-                    .aggregates
-                    .instances
-                    .get_mut(&view_path.instance)
-                    .context("Instance not found (apply_view_change)")?;
-                match change {
-                    ViewChange::Resize(_extends) => {
-                        // Resize isn't supported yet.
-                        todo!("View Resizes aren't supported yet");
-                    }
-                    ViewChange::SetTitle(title) => {
-                        instance.set_view_title(view_path.view, title)?;
-                    }
-                    ViewChange::SetCursor(cursor) => {
-                        instance.set_view_cursor(view_path.view, cursor)?;
+                // We can never be sure if the instance does exist here.
+                if let Some(instance) = self.aggregates.instances.get_mut(&view_path.instance) {
+                    match change {
+                        ViewChange::Resize(_extends) => {
+                            // Resize isn't supported yet.
+                            todo!("View Resizes aren't supported yet");
+                        }
+                        ViewChange::SetTitle(title) => {
+                            info!("Setting title: {title}");
+                            instance.set_view_title(view_path.view, title)?;
+                        }
+                        ViewChange::SetCursor(cursor) => {
+                            info!("Setting cursor: {cursor}");
+                            instance.set_view_cursor(view_path.view, cursor)?;
+                        }
                     }
                 }
                 Ok(Effects::None)

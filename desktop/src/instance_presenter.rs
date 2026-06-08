@@ -5,6 +5,7 @@ use anyhow::{Result, bail};
 use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
+use massive_renderer::RenderPacing;
 use massive_scene::{At, Handle, Location, Object, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
@@ -26,6 +27,7 @@ pub struct InstancePresenter {
     instance_transform: Handle<Transform>,
     instance_location: Handle<Location>,
     has_applied_layout: bool,
+    pub pacing: RenderPacing,
     background: Option<InstanceBackground>,
 }
 
@@ -92,6 +94,7 @@ impl InstancePresenter {
             instance_transform,
             instance_location,
             has_applied_layout: initial_center_translation.is_some(),
+            pacing: RenderPacing::default(),
             background,
         }
     }

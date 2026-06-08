@@ -1,12 +1,12 @@
 use std::{sync::Arc, time::Instant};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use log::{error, info};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
     CreationMode, InstanceChange, InstanceEnvironment, InstanceEvent, InstanceId,
-    InstanceParameters, InstanceSubmission, ViewEvent,
+    InstanceParameters, InstanceSubmission, ViewCreationInfo, ViewEvent, ViewRole,
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
@@ -85,18 +85,17 @@ impl Desktop {
             bail!("Did not receive the initial submission from the application");
         };
 
-        let initial_interpretation = {
-            let mut context = SubmissionProcessingContext {
-                instance_manager: &mut instance_manager,
-                scene_changes: &scene_changes,
-            };
-            Self::interpret_instance_submission(initial_instance, initial_submission, &mut context)?
-        };
-        instance_manager.update_instance_pacing(initial_instance, initial_interpretation.pacing)?;
+        let initial_interpretation = Self::interpret_instance_submission(
+            initial_instance,
+            initial_submission,
+            &scene_changes,
+        )?;
 
         let primary_instance = initial_instance;
-        let primary_view = instance_manager.primary_view(primary_instance)?;
-        let creation_info = primary_view.creation_info.clone();
+        let creation_info = initial_interpretation
+            .primary_view_creation_info
+            .clone()
+            .context("Initial submission did not create a primary view")?;
 
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.
@@ -143,6 +142,8 @@ impl Desktop {
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;
+
+        system.set_instance_pacing(primary_instance, initial_interpretation.pacing);
 
         let desktop = Self {
             scene,
@@ -249,7 +250,7 @@ impl Desktop {
             {
                 let camera = *self.system.camera();
                 let mut frame = self.scene.begin_frame().with_camera(camera);
-                if self.instance_manager.effective_pacing() == RenderPacing::Smooth {
+                if self.system.effective_pacing() == RenderPacing::Smooth {
                     frame = frame.with_pacing(RenderPacing::Smooth);
                 }
                 frame.submit_to(&mut self.renderer)?;
@@ -262,14 +263,8 @@ impl Desktop {
         instance: InstanceId,
         submission: InstanceSubmission,
     ) -> Result<()> {
-        let interpretation = {
-            let mut context = SubmissionProcessingContext {
-                instance_manager: &mut self.instance_manager,
-                scene_changes: &self.scene_changes,
-            };
-
-            Self::interpret_instance_submission(instance, submission, &mut context)?
-        };
+        let interpretation =
+            Self::interpret_instance_submission(instance, submission, &self.scene_changes)?;
 
         if !interpretation.pending_commands.is_empty() {
             let effects_mode = if self.system.any_buttons_pressed() {
@@ -286,29 +281,25 @@ impl Desktop {
             )?;
         }
 
-        self.instance_manager
-            .update_instance_pacing(instance, interpretation.pacing)?;
+        self.system
+            .set_instance_pacing(instance, interpretation.pacing);
         Ok(())
     }
 
     fn interpret_instance_submission(
         instance: InstanceId,
         submission: InstanceSubmission,
-        context: &mut SubmissionProcessingContext,
+        scene_changes: &ChangeCollector,
     ) -> Result<SubmissionInterpretation> {
         let (changes, pacing) = submission.into_parts();
         let mut interpretation = SubmissionInterpretation {
             pacing,
             pending_commands: Vec::new(),
+            primary_view_creation_info: None,
         };
 
         for change in changes.release() {
-            Self::process_instance_change(
-                instance,
-                change,
-                context,
-                &mut interpretation.pending_commands,
-            )?;
+            Self::process_instance_change(instance, change, scene_changes, &mut interpretation)?;
         }
         Ok(interpretation)
     }
@@ -316,39 +307,52 @@ impl Desktop {
     fn process_instance_change(
         instance: InstanceId,
         change: InstanceChange,
-        context: &mut SubmissionProcessingContext,
-        pending_commands: &mut Vec<DesktopCommand>,
+        scene_changes: &ChangeCollector,
+        interpretation: &mut SubmissionInterpretation,
     ) -> Result<()> {
         match change {
             InstanceChange::Scene(change) => {
-                context.scene_changes.collect(change);
+                scene_changes.collect(change);
             }
             InstanceChange::CreateView(info) => {
-                context.instance_manager.add_view(instance, &info);
-                pending_commands.push(DesktopCommand::PresentView(instance, info));
+                match info.role {
+                    ViewRole::Primary => {
+                        if interpretation
+                            .primary_view_creation_info
+                            .replace(info.clone())
+                            .is_some()
+                        {
+                            bail!("Submission created multiple primary views");
+                        }
+                    }
+                    ViewRole::Assistant | ViewRole::Notification { .. } => {}
+                }
+
+                interpretation
+                    .pending_commands
+                    .push(DesktopCommand::PresentView(instance, info));
             }
             InstanceChange::DestroyView(id) => {
                 let view_path: ViewPath = (instance, id).into();
-                pending_commands.push(DesktopCommand::HideView(view_path));
-                context.instance_manager.remove_view(view_path);
+                interpretation
+                    .pending_commands
+                    .push(DesktopCommand::HideView(view_path));
             }
             InstanceChange::View(view_id, command) => {
                 let view_path: ViewPath = (instance, view_id).into();
-                pending_commands.push(DesktopCommand::ApplyViewChange(view_path, command));
+                interpretation
+                    .pending_commands
+                    .push(DesktopCommand::ApplyViewChange(view_path, command));
             }
         }
         Ok(())
     }
 }
 
-struct SubmissionProcessingContext<'a> {
-    instance_manager: &'a mut InstanceManager,
-    scene_changes: &'a ChangeCollector,
-}
-
 struct SubmissionInterpretation {
     pacing: RenderPacing,
     pending_commands: Vec<DesktopCommand>,
+    primary_view_creation_info: Option<ViewCreationInfo>,
 }
 
 #[derive(Debug)]
