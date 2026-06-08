@@ -144,7 +144,7 @@ impl InstanceManager {
     /// Wait for the next instance to complete and handle cleanup.
     ///
     /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
-    /// cancelled or the JoinSet is empty.
+    /// canceled or the JoinSet is empty.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result

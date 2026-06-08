@@ -17,6 +17,7 @@ impl DesktopSystem {
         scene: &Scene,
         instance_manager: &mut InstanceManager,
     ) -> Result<Effects> {
+        // warn!("Apply command: {command:?}");
         match command {
             DesktopCommand::StartInstance {
                 launcher,
