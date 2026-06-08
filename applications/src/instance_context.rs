@@ -57,6 +57,8 @@ impl Drop for InstanceContext {
     fn drop(&mut self) {
         warn!("Submitting final instance changes: instance={:?}", self.id);
         // If the instance ends, we _must_ submit all pending changes.
+        self.changes
+            .collect(InstanceChange::End(self.view_parent.clone()));
         if let Err(e) = self.submit() {
             error!("Final instance submit error for {:?}: {e:?}", self.id);
         }

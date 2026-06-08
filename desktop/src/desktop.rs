@@ -213,7 +213,7 @@ impl Desktop {
                     info!("Instance ended (submissions pending: {}): {instance_id:?}", self.instance_submissions.len());
 
                     if self.system.is_present(&instance_id) {
-                        // Did it end on its own? -> Act as the user ended it.
+                        // Did it end on its own? -> Act as such that the user ended it.
                         // Robustness: This should probably handled differently.
                         self.system.transact(
                             DesktopCommand::StopInstance(instance_id),
@@ -344,6 +344,9 @@ impl Desktop {
                     .pending_commands
                     .push(DesktopCommand::ApplyViewChange(view_path, command));
             }
+            // This makes sure that all pending Scene Changes from the Instance have been collected
+            // before we drop the last ref the instance has to its parent location.
+            InstanceChange::End(_) => {}
         }
         Ok(())
     }

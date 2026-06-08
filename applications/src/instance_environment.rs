@@ -3,7 +3,7 @@ use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
 use massive_renderer::{FontManager, RenderPacing};
-use massive_scene::SceneChange;
+use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
 
 use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId};
@@ -57,4 +57,8 @@ pub enum InstanceChange {
     CreateView(ViewCreationInfo),
     View(ViewId, ViewChange),
     DestroyView(ViewId),
+    /// The instance ended. The `Ref<Location>` can just be dropped now as soon this event got
+    /// received (and so may enqueue its deletion into the `ChangeCollector` after all other events
+    /// have been received).
+    End(Ref<Location>),
 }
