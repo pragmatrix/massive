@@ -40,10 +40,11 @@ impl View {
         let id = ViewId(Uuid::new_v4());
 
         let size: SizePx = extents.size().cast();
-        let center_x = (size.width / 2) as f64;
-        let center_y = (size.height / 2) as f64;
+        let center_x = size.width / 2;
+        let center_y = size.height / 2;
         let local_transform =
-            Transform::from_translation(Vector3::new(-center_x, -center_y, 0.0)).enter(&scene);
+            Transform::from_translation(Vector3::new(-(center_x as f64), -(center_y as f64), 0.0))
+                .enter(&scene);
         let location = local_transform
             .to_location()
             .relative_to(parent)
@@ -70,18 +71,13 @@ impl View {
     }
 
     /// The location's transform.
-    ///
-    /// This should not be modified
-    // Architecture: Introduce a kind of Immutable handle or read only Handle.
     pub fn transform(&self) -> Ref<Transform> {
         self.location().value().transform.clone()
     }
 
     /// A reference to the location that is used to position the view in the parent desktop space.
-    ///
-    /// This should not be modified.
-    pub fn location(&self) -> &Handle<Location> {
-        &self.location
+    pub fn location(&self) -> Ref<Location> {
+        self.location.to_ref()
     }
 
     #[allow(unused)]

@@ -72,11 +72,6 @@ impl Scene {
         self.animation_coordinator.time_scale()
     }
 
-    // Accumulate external changes into this scene.
-    // pub fn accumulate_changes(&self, changes: massive_scene::SceneChangeSet) {
-    //     self.inner.push_changes(changes);
-    // }
-
     // Render all the current scene changes.
     //
     // Pass in the current shell event if you need to handle redraw requests without scene changes
@@ -97,8 +92,4 @@ impl Scene {
 
         RenderSubmission::new(self.take_changes(), pacing)
     }
-
-    // pub fn into_collector(self) -> Arc<ChangeCollector> {
-    //     self.inner.into_collector()
-    // }
 }
