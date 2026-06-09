@@ -101,13 +101,8 @@ impl DesktopSystem {
                     .resolve_path(self.event_router.focused())
                     .instance();
 
-                let insertion_index = self.present_instance(
-                    launcher,
-                    originating_from,
-                    instance,
-                    root,
-                    scene,
-                )?;
+                let insertion_index =
+                    self.present_instance(launcher, originating_from, instance, root, scene)?;
 
                 let instance_target = DesktopTarget::Instance(instance);
 
