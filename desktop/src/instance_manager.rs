@@ -12,8 +12,8 @@ use massive_applications::{
     CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId, ViewEvent,
     ViewId,
 };
-use massive_scene::{Handle, Location, Object, ToLocation, Transform};
-use massive_shell::{Result, Scene};
+use massive_scene::{Location, Ref};
+use massive_shell::Result;
 
 use crate::application_registry::Application;
 
@@ -25,34 +25,11 @@ pub struct InstanceManager {
     join_set: JoinSet<(InstanceId, Result<()>)>,
 }
 
-#[derive(Debug, Clone)]
-pub struct InstanceRoot {
-    transform: Handle<Transform>,
-    location: Handle<Location>,
-}
-
-impl InstanceRoot {
-    pub fn new(scene: &Scene) -> Self {
-        let transform = Transform::IDENTITY.enter(scene);
-        let location = transform.to_location().enter(scene);
-
-        Self {
-            transform,
-            location,
-        }
-    }
-
-    pub fn into_parts(self) -> (Handle<Transform>, Handle<Location>) {
-        (self.transform, self.location)
-    }
-}
-
 #[derive(Debug)]
 struct RunningInstance {
     #[allow(unused)]
     application_name: String,
     events_tx: UnboundedSender<InstanceEvent>,
-    root: InstanceRoot,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into)]
@@ -75,7 +52,7 @@ impl InstanceManager {
         &mut self,
         application: &Application,
         creation_mode: CreationMode,
-        root: InstanceRoot,
+        root: Ref<Location>,
     ) -> Result<InstanceId> {
         let instance_id = InstanceId::from(Uuid::new_v4());
         let (events_tx, events_rx) = unbounded_channel();
@@ -84,7 +61,7 @@ impl InstanceManager {
             instance_id,
             creation_mode,
             self.environment.clone(),
-            root.location.to_ref(),
+            root,
             events_rx,
         );
 
@@ -103,7 +80,6 @@ impl InstanceManager {
             RunningInstance {
                 application_name: application.name.clone(),
                 events_tx,
-                root,
             },
         );
 
@@ -133,12 +109,8 @@ impl InstanceManager {
 
     /// Wait for the next instance to complete and handle cleanup.
     ///
-    /// Returns `Ok((instance_id, root, result))` when an instance completes, `Err` if the task was
+    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
     /// canceled or the JoinSet is empty.
-    ///
-    /// The root must kept in memory as long as all the final submissions from the instance are
-    /// processed and queued to the renderer. Otherwise, updates may refer to the already destroyed
-    /// roots.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result
@@ -170,10 +142,6 @@ impl InstanceManager {
         for instance in self.instances.values() {
             let _ = instance.events_tx.send(event.clone());
         }
-    }
-
-    pub fn instance_root(&self, instance: InstanceId) -> Result<InstanceRoot> {
-        self.get_instance(instance).map(|ri| ri.root.clone())
     }
 
     fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {

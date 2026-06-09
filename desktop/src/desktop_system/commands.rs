@@ -3,6 +3,7 @@ use derive_more::Debug;
 use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 
 use super::navigation::Direction;
+use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
 };
@@ -19,6 +20,7 @@ pub enum DesktopCommand {
     PresentInstance {
         launcher: LaunchProfileId,
         instance: InstanceId,
+        root: InstanceRoot,
     },
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
     ZoomOut,

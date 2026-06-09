@@ -6,12 +6,32 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_renderer::RenderPacing;
-use massive_scene::{At, Handle, Location, Object, Visual};
+use massive_scene::{At, Handle, Location, Object, Ref, ToLocation, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 use winit::window::CursorIcon;
 
-use crate::instance_manager::InstanceRoot;
+#[derive(Debug, Clone)]
+pub struct InstanceRoot {
+    transform: Handle<Transform>,
+    location: Handle<Location>,
+}
+
+impl InstanceRoot {
+    pub fn new(scene: &Scene) -> Self {
+        let transform = Transform::IDENTITY.enter(scene);
+        let location = transform.to_location().enter(scene);
+
+        Self {
+            transform,
+            location,
+        }
+    }
+
+    pub fn location(&self) -> Ref<Location> {
+        self.location.to_ref()
+    }
+}
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
@@ -24,8 +44,7 @@ pub struct InstancePresenter {
     pub layout_transform_animation: Animated<Transform>,
     /// Shared animated instance node for background and view.
     /// This avoids per-child world updates that can drift during animation.
-    instance_transform: Handle<Transform>,
-    instance_location: Handle<Location>,
+    root: InstanceRoot,
     has_applied_layout: bool,
     pub pacing: RenderPacing,
     background: Option<InstanceBackground>,
@@ -69,14 +88,13 @@ impl InstancePresenter {
         parent: Handle<Location>,
         scene: &Scene,
     ) -> Self {
-        let (instance_transform, instance_location) = root.into_parts();
-        instance_location.update_if_changed_with(|location| {
+        root.location.update_if_changed_with(|location| {
             location.parent = Some(parent.to_ref());
         });
 
         let background = show_background.then(|| {
             let visual = background_shapes(false, Rect::ZERO)
-                .at(&instance_location)
+                .at(&root.location)
                 .enter(scene);
 
             InstanceBackground {
@@ -91,8 +109,7 @@ impl InstancePresenter {
             layout_transform_animation: scene.animated(Transform::from_translation(
                 initial_center_translation.unwrap_or_default(),
             )),
-            instance_transform,
-            instance_location,
+            root,
             has_applied_layout: initial_center_translation.is_some(),
             pacing: RenderPacing::default(),
             background,
@@ -122,7 +139,7 @@ impl InstancePresenter {
         // Blend in.
         let mut alpha = scene.animated(0.0);
         {
-            self.instance_location.update_with(|location| {
+            self.root.location.update_with(|location| {
                 location.alpha = 0.0;
             });
             alpha.animate(1.0, STRUCTURAL_ANIMATION_DURATION, Interpolation::CubicOut);
@@ -138,7 +155,7 @@ impl InstancePresenter {
 
         if let Some(background) = &mut self.background {
             background.visual.update_if_changed_with(|visual| {
-                visual.location = self.instance_location.to_ref();
+                visual.location = self.root.location.to_ref();
                 visual.shapes = background_shapes(background.visible, background.centered_rect());
             });
         }
@@ -222,7 +239,7 @@ impl InstancePresenter {
 
     pub fn apply_animations(&mut self) {
         let layout_transform = self.layout_transform_animation.value();
-        self.instance_transform.update_if_changed(*layout_transform);
+        self.root.transform.update_if_changed(*layout_transform);
 
         // Feature: Hiding animation.
         let Some(view) = self.state.view_mut() else {
@@ -230,7 +247,7 @@ impl InstancePresenter {
         };
 
         let alpha = view.alpha.value();
-        self.instance_location.update_if_changed_with(|location| {
+        self.root.location.update_if_changed_with(|location| {
             location.alpha = *alpha;
         });
     }

@@ -19,7 +19,8 @@ use crate::desktop_system::{
     DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
 };
 use crate::event_sourcing::Transaction;
-use crate::instance_manager::{InstanceManager, InstanceRoot};
+use crate::instance_manager::InstanceManager;
+use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project,
     ProjectConfiguration, ProjectId, ProjectProperties, ProjectSet,
@@ -72,10 +73,11 @@ impl Desktop {
             .get_named(&env.primary_application)
             .expect("No primary application");
 
+        let primary_root = InstanceRoot::new(&scene);
         instance_manager.spawn(
             primary_application,
             CreationMode::New(InstanceParameters::new()),
-            InstanceRoot::new(&scene),
+            primary_root.location(),
         )?;
 
         // First wait for the initial submission so the window can match the primary view.
@@ -118,6 +120,7 @@ impl Desktop {
         let primary_instance_transaction: Transaction<_> = [DesktopCommand::PresentInstance {
             launcher: primary_project.primary_launcher,
             instance: primary_instance,
+            root: primary_root,
         }]
         .into();
 

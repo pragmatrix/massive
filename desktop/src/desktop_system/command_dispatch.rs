@@ -10,7 +10,8 @@ use super::effects::DesktopEffect;
 use super::effects::Effects;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget};
 use crate::focus_path::PathResolver;
-use crate::instance_manager::{InstanceManager, InstanceRoot, ViewPath};
+use crate::instance_manager::{InstanceManager, ViewPath};
+use crate::instance_presenter::InstanceRoot;
 
 impl DesktopSystem {
     // Architecture: The current focus is part of the system, so DesktopInteraction should probably be embedded here.
@@ -33,16 +34,21 @@ impl DesktopSystem {
                     .get_named(&self.env.primary_application)
                     .context("Internal error, application not registered")?;
 
+                let root = InstanceRoot::new(scene);
                 let instance = instance_manager.spawn(
                     application,
                     CreationMode::New(parameters),
-                    InstanceRoot::new(scene),
+                    root.location(),
                 )?;
 
                 // Robustness: Should this be a real, logged event?
                 // Architecture: Better to start up the primary directly, so that we can remove the PresentInstance command?
                 self.apply_command(
-                    DesktopCommand::PresentInstance { launcher, instance },
+                    DesktopCommand::PresentInstance {
+                        launcher,
+                        instance,
+                        root,
+                    },
                     scene,
                     instance_manager,
                 )
@@ -84,7 +90,11 @@ impl DesktopSystem {
                 Ok(effects)
             }
 
-            DesktopCommand::PresentInstance { launcher, instance } => {
+            DesktopCommand::PresentInstance {
+                launcher,
+                instance,
+                root,
+            } => {
                 let originating_from = self
                     .aggregates
                     .hierarchy
@@ -95,7 +105,7 @@ impl DesktopSystem {
                     launcher,
                     originating_from,
                     instance,
-                    instance_manager.instance_root(instance)?,
+                    root,
                     scene,
                 )?;
 

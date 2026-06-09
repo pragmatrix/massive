@@ -6,8 +6,8 @@ use massive_shell::Scene;
 
 use super::DesktopTarget;
 use super::effects::{DesktopEffect, Effects};
-use crate::instance_manager::{InstanceRoot, ViewPath};
-use crate::instance_presenter::InstancePresenter;
+use crate::instance_manager::ViewPath;
+use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;
 
 use super::DesktopSystem;
