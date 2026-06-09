@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::id_generator;
 use crate::{Change, Handle, HandleChangeReceiver, Object, SceneChange, SceneChangeSet};
 
-/// A scene is an indepent collector and instantiator of changes that are meant to send to the
+/// A scene is an independent collector and instantiator of changes that are meant to send to the
 /// renderer in a later submission.
 ///
 /// It is used primarily for instantiating new `Handle<T>` objects.
@@ -30,14 +30,12 @@ impl Scene {
         Handle::new(id, value, self.change_receiver.clone())
     }
 
-    // Push external changes into this scene.
-    //
-    // This can be useful for combining changes from lower layers.
-    //
-    // Safety: The changes need to occupy the same identity space (i.e. use the same id generator).
-    // pub fn push_changes(&self, changes: SceneChangeSet) {
-    //     self.change_receiver.collect_many(changes);
-    // }
+    /// Push an external change into this scene.
+    ///
+    /// The change must occupy the same identity space as this scene.
+    pub fn push_change(&self, change: SceneChange) {
+        self.change_receiver.send(change);
+    }
 
     // Take all the changes.
     pub fn take_changes(&self) -> SceneChangeSet {

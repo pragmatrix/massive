@@ -1,9 +1,8 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, ViewChange, ViewCreationInfo};
+use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 
 use super::navigation::Direction;
-use crate::instance_manager::ViewPath;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
 };
@@ -21,9 +20,7 @@ pub enum DesktopCommand {
         launcher: LaunchProfileId,
         instance: InstanceId,
     },
-    PresentView(InstanceId, ViewCreationInfo),
-    HideView(ViewPath),
-    ApplyViewChange(ViewPath, ViewChange),
+    IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
     ZoomOut,
     Navigate(Direction),
 }

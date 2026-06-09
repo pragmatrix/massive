@@ -1,3 +1,4 @@
+use anyhow::{Result, bail};
 use derive_more::Constructor;
 use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
@@ -6,7 +7,7 @@ use massive_renderer::{FontManager, RenderPacing};
 use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
 
-use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId};
+use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId, ViewRole};
 
 #[derive(Debug, Clone)]
 pub struct InstanceEnvironment {
@@ -46,6 +47,26 @@ pub struct InstanceSubmission {
 }
 
 impl InstanceSubmission {
+    pub fn primary_view_creation_info(&self) -> Result<Option<ViewCreationInfo>> {
+        let mut primary_view_creation_info = None;
+
+        for change in self.changes.iter() {
+            let InstanceChange::CreateView(info) = change else {
+                continue;
+            };
+
+            if info.role != ViewRole::Primary {
+                continue;
+            }
+
+            if primary_view_creation_info.replace(info.clone()).is_some() {
+                bail!("Submission created multiple primary views");
+            }
+        }
+
+        Ok(primary_view_creation_info)
+    }
+
     pub fn into_parts(self) -> (ChangeSet<InstanceChange>, RenderPacing) {
         (self.changes, self.pacing)
     }

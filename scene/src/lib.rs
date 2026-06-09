@@ -75,19 +75,3 @@ impl HandleChangeReceiver for ChangeCollector {
         self.take_all()
     }
 }
-
-// A receiver for all changes in a scene.
-// pub trait SceneChangeReceiver: HandleChangeReceiver {
-//     fn collect_many(&self, changes: ChangeSet<SceneChange>);
-//     fn take_all(&self) -> SceneChangeSet;
-// }
-
-// impl SceneChangeReceiver for ChangeCollector {
-//     fn collect_many(&self, changes: ChangeSet<SceneChange>) {
-//         self.collect_many(changes);
-//     }
-
-//     fn take_all(&self) -> SceneChangeSet {
-//         self.take_all()
-//     }
-// }
