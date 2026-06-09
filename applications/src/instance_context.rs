@@ -174,15 +174,9 @@ impl InstanceContext {
             .submission_sender
             .send((self.id, submission))
         {
-            let (instance, submission) = e.0;
-            let (changes, pacing) = submission.into_parts();
-            let change_count = changes.len();
-            let _ = changes.release();
-            error!(
-                "Failed to submit instance changes because the desktop submission receiver is closed: instance={instance:?}, changes={change_count}, pacing={pacing:?}"
-            );
             bail!(
-                "failed to submit {change_count} instance changes for {instance:?}: desktop submission receiver is closed"
+                "Failed to submit instance changes because the desktop submission receiver is closed: instance={:?}, changes={change_count}, err: {e:?}",
+                self.id
             );
         }
 
