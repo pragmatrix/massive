@@ -133,8 +133,12 @@ impl InstanceManager {
 
     /// Wait for the next instance to complete and handle cleanup.
     ///
-    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
+    /// Returns `Ok((instance_id, root, result))` when an instance completes, `Err` if the task was
     /// canceled or the JoinSet is empty.
+    ///
+    /// The root must kept in memory as long as all the final submissions from the instance are
+    /// processed and queued to the renderer. Otherwise, updates may refer to the already destroyed
+    /// roots.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result

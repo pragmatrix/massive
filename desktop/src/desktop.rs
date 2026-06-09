@@ -345,7 +345,8 @@ impl Desktop {
                     .push(DesktopCommand::ApplyViewChange(view_path, command));
             }
             // This makes sure that all pending Scene Changes from the Instance have been collected
-            // before we drop the last ref the instance has to its parent location.
+            // before we drop the last ref the instance has to its parent location (which in turn
+            // may push other deletes to the ChangeCollector).
             InstanceChange::End(_) => {}
         }
         Ok(())
