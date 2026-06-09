@@ -17,6 +17,7 @@ impl DesktopSystem {
         let mut effects = Effects::None;
         effects += command_effects;
         effects += DesktopEffect::Measure(DesktopTarget::Desktop);
+        effects += DesktopEffect::SyncFocusedViewWindowState;
         effects
     }
 
@@ -60,7 +61,18 @@ impl DesktopSystem {
                 self.sync_hover_effect();
                 Ok(Effects::None)
             }
+            DesktopEffect::SyncFocusedViewWindowState => {
+                self.apply_focused_view_window_state_effect()?;
+                Ok(Effects::None)
+            }
         }
+    }
+
+    fn apply_focused_view_window_state_effect(&self) -> Result<()> {
+        let state = self.focused_view_window_state()?.unwrap_or_default();
+        self.window.set_title(&state.title);
+        self.window.set_cursor(state.cursor);
+        Ok(())
     }
 
     /// Measures one layout target in a bottom-up pass and schedules follow-up work.

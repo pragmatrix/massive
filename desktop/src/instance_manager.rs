@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
 
 use anyhow::{Context, anyhow};
-use derive_more::{Debug, Deref, From, Into};
+use derive_more::{Debug, From, Into};
 use futures::FutureExt;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
 use massive_applications::{
-    CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId,
-    ViewCreationInfo, ViewEvent, ViewId,
+    CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId, ViewEvent,
+    ViewId,
 };
-use massive_renderer::RenderPacing;
+use massive_scene::{Location, Ref};
 use massive_shell::Result;
 
 use crate::application_registry::Application;
@@ -30,20 +30,12 @@ struct RunningInstance {
     #[allow(unused)]
     application_name: String,
     events_tx: UnboundedSender<InstanceEvent>,
-    views: HashMap<ViewId, ViewInfo>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into)]
 pub struct ViewPath {
     pub instance: InstanceId,
     pub view: ViewId,
-}
-
-#[derive(Debug, Deref)]
-pub struct ViewInfo {
-    #[deref]
-    pub creation_info: ViewCreationInfo,
-    pub pacing: RenderPacing,
 }
 
 impl InstanceManager {
@@ -60,6 +52,7 @@ impl InstanceManager {
         &mut self,
         application: &Application,
         creation_mode: CreationMode,
+        root: Ref<Location>,
     ) -> Result<InstanceId> {
         let instance_id = InstanceId::from(Uuid::new_v4());
         let (events_tx, events_rx) = unbounded_channel();
@@ -68,6 +61,7 @@ impl InstanceManager {
             instance_id,
             creation_mode,
             self.environment.clone(),
+            root,
             events_rx,
         );
 
@@ -86,7 +80,6 @@ impl InstanceManager {
             RunningInstance {
                 application_name: application.name.clone(),
                 events_tx,
-                views: HashMap::new(),
             },
         );
 
@@ -117,7 +110,7 @@ impl InstanceManager {
     /// Wait for the next instance to complete and handle cleanup.
     ///
     /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
-    /// cancelled or the JoinSet is empty.
+    /// canceled or the JoinSet is empty.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result
@@ -151,83 +144,9 @@ impl InstanceManager {
         }
     }
 
-    pub fn add_view(&mut self, instance_id: InstanceId, creation_info: &ViewCreationInfo) {
-        if let Some(instance) = self.instances.get_mut(&instance_id) {
-            let id = creation_info.id;
-            let info = ViewInfo {
-                creation_info: creation_info.clone(),
-                pacing: RenderPacing::default(),
-            };
-            instance.views.insert(id, info);
-        }
-    }
-
-    pub fn remove_view(&mut self, path: ViewPath) {
-        let (instance_id, id) = path.into();
-        if let Some(instance) = self.instances.get_mut(&instance_id) {
-            instance.views.remove(&id);
-        }
-    }
-
-    pub fn update_view_pacing(&mut self, path: ViewPath, pacing: RenderPacing) -> Result<()> {
-        let instance = self.mut_instance(path.instance)?;
-        let view = instance
-            .views
-            .get_mut(&path.view)
-            .ok_or_else(|| anyhow!("View {:?} not found", path.view))?;
-        view.pacing = pacing;
-        Ok(())
-    }
-
-    #[allow(unused)]
-    pub fn views(&self) -> impl Iterator<Item = (ViewPath, &ViewInfo)> {
-        self.instances.iter().flat_map(|(instance_id, instance)| {
-            instance
-                .views
-                .iter()
-                .map(|(view_id, info)| ((*instance_id, *view_id).into(), info))
-        })
-    }
-
-    #[allow(unused)]
-    pub fn instance_of_view(&self, id: ViewId) -> Option<InstanceId> {
-        self.instances
-            .iter()
-            .find(|(_, instance)| instance.views.contains_key(&id))
-            .map(|(iid, _)| *iid)
-    }
-
-    #[allow(unused)]
-    pub fn get_application_name(&self, instance: InstanceId) -> Result<&str> {
-        self.get_instance(instance)
-            .map(|ri| ri.application_name.as_str())
-    }
-
     fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {
         self.instances
             .get(&instance)
             .ok_or_else(|| anyhow!("Instance {:?} does not exist", instance))
-    }
-
-    fn mut_instance(&mut self, instance: InstanceId) -> Result<&mut RunningInstance> {
-        self.instances
-            .get_mut(&instance)
-            .ok_or_else(|| anyhow!("Instance {:?} does not exist", instance))
-    }
-
-    /// Returns the effective pacing across all views.
-    ///
-    /// If at least one view has Smooth pacing, returns Smooth; otherwise returns Fast.
-    pub fn effective_pacing(&self) -> RenderPacing {
-        if self
-            .instances
-            .values()
-            .flat_map(|i| i.views.values())
-            .any(|info| info.pacing == RenderPacing::Smooth)
-        {
-            RenderPacing::Smooth
-        } else {
-            RenderPacing::Fast
-        }
     }
 }

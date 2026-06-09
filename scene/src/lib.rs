@@ -23,6 +23,7 @@
 //!   the renderer minimizes allocations and can trivially associate arbitrary additional data like
 //!   buffers or caches that are needed to render the objects fast and with a low memory
 //!   footprint and allocations.
+use std::fmt;
 
 mod change;
 mod change_surface;
@@ -44,11 +45,33 @@ pub use scene::Scene;
 pub use transform_resolver::*;
 pub use type_id_generator::id_generator;
 
-use massive_util as util;
-
-pub type ChangeCollector = util::ChangeCollector<SceneChange>;
-pub type SceneChanges = util::Changes<SceneChange>;
+use massive_util::{self as util};
 
 // Re-exports
-
 pub use massive_geometry::Transform;
+
+pub type ChangeCollector = util::ChangeCollector<SceneChange>;
+pub type SceneChangeSet = util::ChangeSet<SceneChange>;
+
+/// This receiver trait acts as the receiver the `Handle<T>` type needs to propagate its changes and
+/// drops.
+///
+/// The trait indirection is here so that other layers can interleave scene changes into their
+/// specific collector.
+pub trait HandleChangeReceiver: fmt::Debug + Send + Sync {
+    fn send(&self, change: SceneChange);
+
+    fn take_changes(&self) -> SceneChangeSet {
+        panic!("HandleChangeReceiver::take_changes is not supported by this receiver");
+    }
+}
+
+impl HandleChangeReceiver for ChangeCollector {
+    fn send(&self, change: SceneChange) {
+        self.collect(change);
+    }
+
+    fn take_changes(&self) -> SceneChangeSet {
+        self.take_all()
+    }
+}

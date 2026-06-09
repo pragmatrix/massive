@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow};
 use massive_geometry::SizePx;
+use massive_scene::ChangeCollector;
 use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
 use tokio::sync::oneshot;
 use winit::dpi::PhysicalSize;
@@ -59,6 +60,14 @@ impl ApplicationContext {
     /// Creates a new scene with the shared animation coordinator.
     pub fn new_scene(&self) -> Scene {
         Scene::new(self.animation_coordinator.clone())
+    }
+
+    /// Creates a new scene with a caller-provided change collector.
+    pub fn new_scene_with_change_collector(
+        &self,
+        collector: std::sync::Arc<ChangeCollector>,
+    ) -> Scene {
+        Scene::new_with_change_collector(self.animation_coordinator.clone(), collector)
     }
 
     /// Creates a new window.

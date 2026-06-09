@@ -1,25 +1,24 @@
 use std::sync::Arc;
 
 use crate::id_generator;
-use crate::{Change, ChangeCollector, Handle, Object, SceneChange, SceneChanges};
+use crate::{Change, Handle, HandleChangeReceiver, Object, SceneChange, SceneChangeSet};
 
-/// A scene is the only direct connection of actual contents to the renderer. It tracks all the
-/// changes to scene graph and uploads it when an update cycle ends.
+/// A scene is an independent collector and instantiator of changes that are meant to send to the
+/// renderer in a later submission.
 ///
-/// A scene does not have direct observable changes, so it can always be shared and used for staging
-/// objects onto it.
-#[derive(Debug, Default)]
+/// It is used primarily for instantiating new `Handle<T>` objects.
+#[derive(Debug)]
 pub struct Scene {
     // This tracks all changes from staging, changing the values in the handles, and dropping
     // them.
     //
     // Shared because handles need to push changes when dropped.
-    change_collector: Arc<ChangeCollector>,
+    change_receiver: Arc<dyn HandleChangeReceiver>,
 }
 
 impl Scene {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(change_receiver: Arc<dyn HandleChangeReceiver>) -> Self {
+        Self { change_receiver }
     }
 
     /// Put an object on the stage.
@@ -28,20 +27,18 @@ impl Scene {
         SceneChange: From<Change<T::Change>>,
     {
         let id = id_generator::acquire::<T>();
-        Handle::new(id, value, self.change_collector.clone())
+        Handle::new(id, value, self.change_receiver.clone())
     }
 
-    /// Push external changes into this scene.
-    pub fn push_changes(&self, changes: SceneChanges) {
-        self.change_collector.collect_many(changes);
+    /// Push an external change into this scene.
+    ///
+    /// The change must occupy the same identity space as this scene.
+    pub fn push_change(&self, change: SceneChange) {
+        self.change_receiver.send(change);
     }
 
-    // Take the changes that need to be sent to the renderer.
-    pub fn take_changes(&self) -> SceneChanges {
-        self.change_collector.take_all()
-    }
-
-    pub fn into_collector(self) -> Arc<ChangeCollector> {
-        self.change_collector
+    // Take all the changes.
+    pub fn take_changes(&self) -> SceneChangeSet {
+        self.change_receiver.take_changes()
     }
 }

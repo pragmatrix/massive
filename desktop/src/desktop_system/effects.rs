@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::ops::{self};
+use std::ops;
 use std::vec;
 
 use super::DesktopTarget;
@@ -11,6 +11,7 @@ pub enum DesktopEffect {
     ApplyLayout(DesktopTarget),
     UpdateCamera,
     SyncHover,
+    SyncFocusedViewWindowState,
 }
 
 #[must_use]
