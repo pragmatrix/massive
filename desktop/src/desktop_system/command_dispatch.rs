@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{info, warn};
+use log::{debug, warn};
 
 use massive_applications::{
     CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange, ViewRole,
@@ -218,11 +218,11 @@ impl DesktopSystem {
                     todo!("View Resizes aren't supported yet");
                 }
                 ViewChange::SetTitle(title) => {
-                    info!("Setting title: {title}");
+                    debug!("Setting title: {title}");
                     instance.set_view_title(view_path.view, title)?;
                 }
                 ViewChange::SetCursor(cursor) => {
-                    info!("Setting cursor: {cursor}");
+                    debug!("Setting cursor: {cursor}");
                     instance.set_view_cursor(view_path.view, cursor)?;
                 }
             }
