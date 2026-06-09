@@ -208,7 +208,7 @@ impl Desktop {
                     info!("Instance ended (submissions pending: {}): {instance_id:?}", self.instance_submissions.len());
 
                     if self.system.is_present(&instance_id) {
-                        // Did it end on its own? -> Act as such that the user ended it.
+                        // Did it end on its own? -> Act as as if the user ended it.
                         // Robustness: This should probably handled differently.
                         self.system.transact(
                             DesktopCommand::StopInstance(instance_id),
