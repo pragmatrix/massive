@@ -42,6 +42,7 @@ impl DesktopSystem {
                 transitions,
                 instance_manager,
                 any_buttons_pressed,
+                true,
             )?;
             effects += transition_effects;
             cmd
@@ -85,9 +86,30 @@ impl DesktopSystem {
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
     ) -> Result<Effects> {
+        self.focus_with_navigation_reset(target, instance_manager, true)
+    }
+
+    pub(super) fn focus_from_navigation(
+        &mut self,
+        target: &DesktopTarget,
+        instance_manager: &InstanceManager,
+    ) -> Result<Effects> {
+        self.focus_with_navigation_reset(target, instance_manager, false)
+    }
+
+    fn focus_with_navigation_reset(
+        &mut self,
+        target: &DesktopTarget,
+        instance_manager: &InstanceManager,
+        reset_navigation_affinity: bool,
+    ) -> Result<Effects> {
         let transitions = self.event_router.focus(target);
-        let (cmd, effects) =
-            self.apply_and_forward_focus_transitions(transitions, instance_manager, false)?;
+        let (cmd, effects) = self.apply_and_forward_focus_transitions(
+            transitions,
+            instance_manager,
+            false,
+            reset_navigation_affinity,
+        )?;
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(cmd.is_none());
@@ -100,7 +122,12 @@ impl DesktopSystem {
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
         defer_layout: bool,
+        reset_navigation_affinity: bool,
     ) -> Result<(Cmd, Effects)> {
+        if reset_navigation_affinity && !transitions.keyboard_focus_change().is_empty() {
+            self.navigation_control.reset_all();
+        }
+
         let effects = self.apply_keyboard_focus_change_effects(&transitions, defer_layout);
         let cmd = self.forward_event_transitions(transitions, instance_manager)?;
 

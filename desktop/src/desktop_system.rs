@@ -41,6 +41,7 @@ pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub(crate) use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
+use navigation::NavigationControl;
 
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::{FocusPath, PathResolver};
@@ -132,6 +133,7 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     pointer_feedback_enabled: bool,
+    navigation_control: NavigationControl,
     /// Launchers queued for focus-driven relayout once pointer buttons are released.
     deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
 
@@ -197,6 +199,7 @@ impl DesktopSystem {
             event_router,
             camera: scene.animated(PixelCamera::default()),
             pointer_feedback_enabled: true,
+            navigation_control: NavigationControl::default(),
             deferred_focus_layout_launchers: HashSet::new(),
             layout_state,
 

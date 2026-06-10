@@ -42,6 +42,35 @@ impl Direction {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct NavigationControl {
+    column_affinity: Option<u32>,
+}
+
+impl NavigationControl {
+    pub(super) fn reset_all(&mut self) {
+        self.column_affinity = None;
+    }
+
+    fn begin_navigation(
+        &mut self,
+        direction: Direction,
+        origin: Option<MatrixPlacement>,
+    ) -> Option<u32> {
+        if direction.horizontal().is_some() {
+            self.column_affinity = None;
+        }
+
+        if direction.vertical().is_some() && self.column_affinity.is_none()
+            && let Some(origin) = origin
+        {
+            self.column_affinity = Some(origin.column);
+        }
+
+        self.column_affinity
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct MatrixEntry<K> {
     key: K,
@@ -93,13 +122,27 @@ impl DesktopSystem {
     }
 
     pub(super) fn locate_navigation_candidate(
-        &self,
+        &mut self,
         from: &DesktopTarget,
         direction: Direction,
     ) -> Option<DesktopTarget> {
         let origin = self.resolve_navigation_origin(from)?;
-        let target = self.navigate_from_origin(origin, direction)?;
+        let origin_placement = self.navigation_origin_placement(origin);
+        let preferred_column = self
+            .navigation_control
+            .begin_navigation(direction, origin_placement);
+        let target = self.navigate_from_origin(origin, direction, preferred_column)?;
         Some(self.normalize_navigation_target(target, direction))
+    }
+
+    fn navigation_origin_placement(&self, origin: NavigationOrigin) -> Option<MatrixPlacement> {
+        match origin {
+            NavigationOrigin::Launcher(launcher_id)
+            | NavigationOrigin::Child {
+                launcher: launcher_id,
+                ..
+            } => self.aggregates.launchers.get(&launcher_id).map(|launcher| launcher.placement),
+        }
     }
 
     fn resolve_navigation_origin(&self, from: &DesktopTarget) -> Option<NavigationOrigin> {
@@ -139,13 +182,14 @@ impl DesktopSystem {
         &self,
         origin: NavigationOrigin,
         direction: Direction,
+        preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
         match origin {
             NavigationOrigin::Launcher(launcher) => {
-                self.navigate_from_launcher(launcher, direction)
+                self.navigate_from_launcher(launcher, direction, preferred_column)
             }
             NavigationOrigin::Child { launcher, index } => {
-                self.navigate_from_child(launcher, index, direction)
+                self.navigate_from_child(launcher, index, direction, preferred_column)
             }
         }
     }
@@ -155,6 +199,7 @@ impl DesktopSystem {
         launcher_id: LaunchProfileId,
         index: usize,
         direction: Direction,
+        preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
         let _ = self.aggregates.launchers.get(&launcher_id)?;
         let instances = self.aggregates.launcher_instance_ids(launcher_id);
@@ -162,10 +207,12 @@ impl DesktopSystem {
             return self
                 .horizontal_child_neighbor(&instances, index, horizontal)
                 .map(DesktopTarget::Instance)
-                .or_else(|| self.navigate_from_launcher(launcher_id, direction));
+                .or_else(|| {
+                    self.navigate_from_launcher(launcher_id, direction, preferred_column)
+                });
         }
 
-        self.navigate_from_launcher(launcher_id, direction)
+        self.navigate_from_launcher(launcher_id, direction, preferred_column)
     }
 
     fn horizontal_child_neighbor(
@@ -240,15 +287,16 @@ impl DesktopSystem {
         &self,
         launcher_id: LaunchProfileId,
         direction: Direction,
+        preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
         let (project_id, origin_placement) = self.launcher_matrix_position(launcher_id)?;
         let entries = self.create_project_matrix_entries(project_id);
-        let target =
-            select_matrix_neighbor(&entries, origin_placement, direction).or_else(|| {
+        let target = select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
+            .or_else(|| {
                 direction.vertical().and_then(|vertical| {
                     self.cross_project_vertical_neighbor(
                         project_id,
-                        origin_placement.column,
+                        preferred_column.unwrap_or(origin_placement.column),
                         vertical,
                     )
                 })
@@ -338,13 +386,19 @@ fn select_matrix_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin: MatrixPlacement,
     direction: Direction,
+    preferred_column: Option<u32>,
 ) -> Option<K> {
     if let Some(horizontal) = direction.horizontal() {
         return select_row_neighbor(entries, origin, horizontal);
     }
 
     if let Some(vertical) = direction.vertical() {
-        return select_column_neighbor(entries, origin, vertical);
+        return select_column_neighbor(
+            entries,
+            origin.row,
+            preferred_column.unwrap_or(origin.column),
+            vertical,
+        );
     }
 
     None
@@ -396,25 +450,31 @@ fn select_concrete_instance_index(
 
 fn select_column_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
-    origin: MatrixPlacement,
+    origin_row: u32,
+    column: u32,
     direction: VerticalDirection,
 ) -> Option<K> {
-    match direction {
+    let target_row = match direction {
         VerticalDirection::Up => entries
             .iter()
-            .filter(|entry| {
-                entry.placement.column == origin.column && entry.placement.row < origin.row
-            })
-            .max_by_key(|entry| entry.placement.row)
-            .map(|entry| entry.key),
+            .filter(|entry| entry.placement.row < origin_row)
+            .map(|entry| entry.placement.row)
+            .max()?,
         VerticalDirection::Down => entries
             .iter()
-            .filter(|entry| {
-                entry.placement.column == origin.column && entry.placement.row > origin.row
-            })
-            .min_by_key(|entry| entry.placement.row)
-            .map(|entry| entry.key),
-    }
+            .filter(|entry| entry.placement.row > origin_row)
+            .map(|entry| entry.placement.row)
+            .min()?,
+    };
+
+    entries
+        .iter()
+        .filter(|entry| entry.placement.row == target_row)
+        .min_by_key(|entry| {
+            let distance = u32::abs_diff(entry.placement.column, column);
+            (distance, entry.placement.column)
+        })
+        .map(|entry| entry.key)
 }
 
 fn select_cross_project_vertical_entry<K: Copy>(
@@ -505,8 +565,8 @@ mod tests {
     fn matrix_horizontal_navigation_skips_empty_cells() {
         let entries = sample_entries();
 
-        let left = select_matrix_neighbor(&entries, (2, 0).into(), Direction::Left);
-        let right = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Right);
+        let left = select_matrix_neighbor(&entries, (2, 0).into(), Direction::Left, None);
+        let right = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Right, None);
 
         assert_eq!(left, Some(1));
         assert_eq!(right, Some(2));
@@ -516,8 +576,8 @@ mod tests {
     fn matrix_vertical_navigation_skips_empty_cells() {
         let entries = sample_entries();
 
-        let down = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Down);
-        let up = select_matrix_neighbor(&entries, (0, 2).into(), Direction::Up);
+        let down = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Down, None);
+        let up = select_matrix_neighbor(&entries, (0, 2).into(), Direction::Up, None);
 
         assert_eq!(down, Some(3));
         assert_eq!(up, Some(1));
@@ -646,5 +706,77 @@ mod tests {
 
         assert_eq!(down, Some(20));
         assert_eq!(up, Some(40));
+    }
+
+    #[test]
+    fn matrix_vertical_navigation_uses_preferred_column_when_provided() {
+        let entries = vec![
+            MatrixEntry {
+                key: 1,
+                placement: (0, 0).into(),
+            },
+            MatrixEntry {
+                key: 2,
+                placement: (2, 0).into(),
+            },
+            MatrixEntry {
+                key: 3,
+                placement: (0, 2).into(),
+            },
+            MatrixEntry {
+                key: 4,
+                placement: (2, 2).into(),
+            },
+        ];
+
+        let up = select_matrix_neighbor(&entries, (0, 2).into(), Direction::Up, Some(2));
+
+        assert_eq!(up, Some(2));
+    }
+
+    #[test]
+    fn matrix_vertical_navigation_uses_next_non_empty_row_and_nearest_column() {
+        let entries = vec![
+            MatrixEntry {
+                key: 1,
+                placement: (0, 0).into(),
+            },
+            MatrixEntry {
+                key: 2,
+                placement: (3, 1).into(),
+            },
+            MatrixEntry {
+                key: 3,
+                placement: (1, 2).into(),
+            },
+        ];
+
+        let down = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Down, None);
+
+        assert_eq!(down, Some(2));
+    }
+
+    #[test]
+    fn navigation_control_clears_column_affinity_on_horizontal_navigation() {
+        let mut control = NavigationControl::default();
+
+        let vertical = control.begin_navigation(Direction::Down, Some((3, 0).into()));
+        let horizontal = control.begin_navigation(Direction::Right, Some((3, 1).into()));
+        let next_vertical = control.begin_navigation(Direction::Up, Some((1, 1).into()));
+
+        assert_eq!(vertical, Some(3));
+        assert_eq!(horizontal, None);
+        assert_eq!(next_vertical, Some(1));
+    }
+
+    #[test]
+    fn navigation_control_reset_all_clears_affinity() {
+        let mut control = NavigationControl::default();
+
+        let _ = control.begin_navigation(Direction::Down, Some((4, 0).into()));
+        control.reset_all();
+        let vertical = control.begin_navigation(Direction::Down, Some((2, 1).into()));
+
+        assert_eq!(vertical, Some(2));
     }
 }

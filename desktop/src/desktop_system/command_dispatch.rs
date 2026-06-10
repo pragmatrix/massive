@@ -137,10 +137,11 @@ impl DesktopSystem {
                 Ok(Effects::None)
             }
             DesktopCommand::Navigate(direction) => {
-                if let Some(focused) = self.event_router.focused()
+                let focused = self.event_router.focused().cloned();
+                if let Some(focused) = focused.as_ref()
                     && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
                 {
-                    return self.focus(&candidate, instance_manager);
+                    return self.focus_from_navigation(&candidate, instance_manager);
                 }
                 Ok(Effects::None)
             }
