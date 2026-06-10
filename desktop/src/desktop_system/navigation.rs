@@ -2,7 +2,7 @@ use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget};
-use crate::projects::{LaunchProfileId, LauncherMode, ProjectId};
+use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -12,11 +12,40 @@ pub enum Direction {
     Down,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HorizontalDirection {
+    Left,
+    Right,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VerticalDirection {
+    Up,
+    Down,
+}
+
+impl Direction {
+    fn horizontal(self) -> Option<HorizontalDirection> {
+        match self {
+            Direction::Left => Some(HorizontalDirection::Left),
+            Direction::Right => Some(HorizontalDirection::Right),
+            Direction::Up | Direction::Down => None,
+        }
+    }
+
+    fn vertical(self) -> Option<VerticalDirection> {
+        match self {
+            Direction::Up => Some(VerticalDirection::Up),
+            Direction::Down => Some(VerticalDirection::Down),
+            Direction::Left | Direction::Right => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 struct MatrixEntry<K> {
     key: K,
-    column: u32,
-    row: u32,
+    placement: MatrixPlacement,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -37,7 +66,7 @@ impl DesktopSystem {
                 let rect: Rect = rect.into();
                 let size = rect.size();
                 // The Desktop is the layout root — its transform is T::default() (IDENTITY),
-                // not center-based. Compute the center from the rect.
+                // not center-based. Compute the center from the rectangle.
                 let center = rect.center();
                 let center: Transform = (center.x, center.y, 0.0).into();
                 Some(center.to_camera().with_size(size))
@@ -113,42 +142,10 @@ impl DesktopSystem {
     ) -> Option<DesktopTarget> {
         match origin {
             NavigationOrigin::Launcher(launcher) => {
-                self.navigate_from_launcher(launcher, None, direction)
+                self.navigate_from_launcher(launcher, direction)
             }
             NavigationOrigin::Child { launcher, index } => {
-                self.navigate_from_launcher(launcher, Some(index), direction)
-            }
-        }
-    }
-
-    fn navigate_from_launcher(
-        &self,
-        launcher_id: LaunchProfileId,
-        child_index: Option<usize>,
-        direction: Direction,
-    ) -> Option<DesktopTarget> {
-        let _ = self.aggregates.launchers.get(&launcher_id)?;
-        let instances = self.aggregates.launcher_instance_ids(launcher_id);
-
-        if let Some(index) = child_index {
-            return self.navigate_from_child(launcher_id, &instances, index, direction);
-        }
-
-        match direction {
-            Direction::Left => {
-                if let Some(last) = instances.last() {
-                    return Some(DesktopTarget::Instance(*last));
-                }
-                self.matrix_navigation_from_launcher(launcher_id, direction)
-            }
-            Direction::Right => {
-                if let Some(first) = instances.first() {
-                    return Some(DesktopTarget::Instance(*first));
-                }
-                self.matrix_navigation_from_launcher(launcher_id, direction)
-            }
-            Direction::Up | Direction::Down => {
-                self.matrix_navigation_from_launcher(launcher_id, direction)
+                self.navigate_from_child(launcher, index, direction)
             }
         }
     }
@@ -156,34 +153,40 @@ impl DesktopSystem {
     fn navigate_from_child(
         &self,
         launcher_id: LaunchProfileId,
-        instances: &[massive_applications::InstanceId],
         index: usize,
         direction: Direction,
     ) -> Option<DesktopTarget> {
-        match direction {
-            Direction::Left | Direction::Right => self
-                .horizontal_child_neighbor(instances, index, direction)
+        let _ = self.aggregates.launchers.get(&launcher_id)?;
+        let instances = self.aggregates.launcher_instance_ids(launcher_id);
+        if let Some(horizontal) = direction.horizontal() {
+            return self
+                .horizontal_child_neighbor(&instances, index, horizontal)
                 .map(DesktopTarget::Instance)
-                .or_else(|| self.matrix_navigation_from_launcher(launcher_id, direction)),
-            Direction::Up | Direction::Down => {
-                self.matrix_navigation_from_launcher(launcher_id, direction)
-            }
+                .or_else(|| self.navigate_from_launcher(launcher_id, direction));
         }
+
+        self.navigate_from_launcher(launcher_id, direction)
     }
 
     fn horizontal_child_neighbor(
         &self,
         instances: &[massive_applications::InstanceId],
         index: usize,
-        direction: Direction,
+        direction: HorizontalDirection,
     ) -> Option<massive_applications::InstanceId> {
         match direction {
-            Direction::Left => (index > 0).then(|| instances[index - 1]),
-            Direction::Right => (index + 1 < instances.len()).then(|| instances[index + 1]),
-            Direction::Up | Direction::Down => None,
+            HorizontalDirection::Left => (index > 0).then(|| instances[index - 1]),
+            HorizontalDirection::Right => {
+                (index + 1 < instances.len()).then(|| instances[index + 1])
+            }
         }
     }
 
+    /// Normalizes a raw navigation result into a concrete, focusable target.
+    ///
+    /// Matrix navigation may return a `Launcher` shell. This step converts launcher
+    /// targets into concrete child instances when appropriate, then delegates to the
+    /// hierarchy to resolve the final focus target (for example, a nested view).
     fn normalize_navigation_target(
         &self,
         target: DesktopTarget,
@@ -201,6 +204,11 @@ impl DesktopSystem {
             .resolve_neighbor_focus_target(&target)
     }
 
+    /// Chooses a concrete focus target for a launcher.
+    ///
+    /// If the launcher has instances, returns the preferred instance for the current
+    /// mode and direction (for example, the visor focus anchor when available).
+    /// Otherwise, it falls back to the launcher itself.
     fn concrete_navigation_target(
         &self,
         launcher_id: LaunchProfileId,
@@ -228,20 +236,22 @@ impl DesktopSystem {
         DesktopTarget::Instance(instances[target_index])
     }
 
-    fn matrix_navigation_from_launcher(
+    fn navigate_from_launcher(
         &self,
         launcher_id: LaunchProfileId,
         direction: Direction,
     ) -> Option<DesktopTarget> {
-        let (project_id, origin_column, origin_row) = self.launcher_matrix_position(launcher_id)?;
-        let entries = self.project_matrix_entries(project_id);
-        let target = select_matrix_neighbor(&entries, origin_column, origin_row, direction)
-            .or_else(|| {
-                if matches!(direction, Direction::Up | Direction::Down) {
-                    self.cross_project_vertical_neighbor(project_id, origin_column, direction)
-                } else {
-                    None
-                }
+        let (project_id, origin_placement) = self.launcher_matrix_position(launcher_id)?;
+        let entries = self.create_project_matrix_entries(project_id);
+        let target =
+            select_matrix_neighbor(&entries, origin_placement, direction).or_else(|| {
+                direction.vertical().and_then(|vertical| {
+                    self.cross_project_vertical_neighbor(
+                        project_id,
+                        origin_placement.column,
+                        vertical,
+                    )
+                })
             })?;
         Some(DesktopTarget::Launcher(target))
     }
@@ -249,7 +259,7 @@ impl DesktopSystem {
     fn launcher_matrix_position(
         &self,
         launcher_id: LaunchProfileId,
-    ) -> Option<(ProjectId, u32, u32)> {
+    ) -> Option<(ProjectId, MatrixPlacement)> {
         let project_id = match self
             .aggregates
             .hierarchy
@@ -260,10 +270,13 @@ impl DesktopSystem {
         };
 
         let placement = self.aggregates.launchers.get(&launcher_id)?.placement;
-        Some((project_id, placement.column, placement.row))
+        Some((project_id, placement))
     }
 
-    fn project_matrix_entries(&self, project_id: ProjectId) -> Vec<MatrixEntry<LaunchProfileId>> {
+    fn create_project_matrix_entries(
+        &self,
+        project_id: ProjectId,
+    ) -> Vec<MatrixEntry<LaunchProfileId>> {
         self.aggregates
             .hierarchy
             .get_nested(&DesktopTarget::ProjectMatrix(project_id))
@@ -275,8 +288,7 @@ impl DesktopSystem {
                 let placement = self.aggregates.launchers.get(launcher_id)?.placement;
                 Some(MatrixEntry {
                     key: *launcher_id,
-                    column: placement.column,
-                    row: placement.row,
+                    placement,
                 })
             })
             .collect()
@@ -286,7 +298,7 @@ impl DesktopSystem {
         &self,
         project_id: ProjectId,
         origin_column: u32,
-        direction: Direction,
+        direction: VerticalDirection,
     ) -> Option<LaunchProfileId> {
         let project_targets = self
             .aggregates
@@ -305,13 +317,12 @@ impl DesktopSystem {
         let project_index = project_ids.iter().position(|id| *id == project_id)?;
 
         let candidate_projects: Box<dyn Iterator<Item = &ProjectId>> = match direction {
-            Direction::Up => Box::new(project_ids[..project_index].iter().rev()),
-            Direction::Down => Box::new(project_ids[project_index + 1..].iter()),
-            Direction::Left | Direction::Right => return None,
+            VerticalDirection::Up => Box::new(project_ids[..project_index].iter().rev()),
+            VerticalDirection::Down => Box::new(project_ids[project_index + 1..].iter()),
         };
 
         for candidate_project in candidate_projects {
-            let entries = self.project_matrix_entries(*candidate_project);
+            let entries = self.create_project_matrix_entries(*candidate_project);
             if let Some(target) =
                 select_cross_project_vertical_entry(&entries, origin_column, direction)
             {
@@ -325,38 +336,40 @@ impl DesktopSystem {
 
 fn select_matrix_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
-    origin_column: u32,
-    origin_row: u32,
+    origin: MatrixPlacement,
     direction: Direction,
 ) -> Option<K> {
-    match direction {
-        Direction::Left | Direction::Right => {
-            select_row_neighbor(entries, origin_row, origin_column, direction)
-        }
-        Direction::Up | Direction::Down => {
-            select_column_neighbor(entries, origin_column, origin_row, direction)
-        }
+    if let Some(horizontal) = direction.horizontal() {
+        return select_row_neighbor(entries, origin, horizontal);
     }
+
+    if let Some(vertical) = direction.vertical() {
+        return select_column_neighbor(entries, origin, vertical);
+    }
+
+    None
 }
 
 fn select_row_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
-    row: u32,
-    origin_column: u32,
-    direction: Direction,
+    origin: MatrixPlacement,
+    direction: HorizontalDirection,
 ) -> Option<K> {
     match direction {
-        Direction::Left => entries
+        HorizontalDirection::Left => entries
             .iter()
-            .filter(|entry| entry.row == row && entry.column < origin_column)
-            .max_by_key(|entry| entry.column)
+            .filter(|entry| {
+                entry.placement.row == origin.row && entry.placement.column < origin.column
+            })
+            .max_by_key(|entry| entry.placement.column)
             .map(|entry| entry.key),
-        Direction::Right => entries
+        HorizontalDirection::Right => entries
             .iter()
-            .filter(|entry| entry.row == row && entry.column > origin_column)
-            .min_by_key(|entry| entry.column)
+            .filter(|entry| {
+                entry.placement.row == origin.row && entry.placement.column > origin.column
+            })
+            .min_by_key(|entry| entry.placement.column)
             .map(|entry| entry.key),
-        Direction::Up | Direction::Down => None,
     }
 }
 
@@ -383,82 +396,78 @@ fn select_concrete_instance_index(
 
 fn select_column_neighbor<K: Copy>(
     entries: &[MatrixEntry<K>],
-    column: u32,
-    origin_row: u32,
-    direction: Direction,
+    origin: MatrixPlacement,
+    direction: VerticalDirection,
 ) -> Option<K> {
     match direction {
-        Direction::Up => entries
+        VerticalDirection::Up => entries
             .iter()
-            .filter(|entry| entry.column == column && entry.row < origin_row)
-            .max_by_key(|entry| entry.row)
+            .filter(|entry| {
+                entry.placement.column == origin.column && entry.placement.row < origin.row
+            })
+            .max_by_key(|entry| entry.placement.row)
             .map(|entry| entry.key),
-        Direction::Down => entries
+        VerticalDirection::Down => entries
             .iter()
-            .filter(|entry| entry.column == column && entry.row > origin_row)
-            .min_by_key(|entry| entry.row)
+            .filter(|entry| {
+                entry.placement.column == origin.column && entry.placement.row > origin.row
+            })
+            .min_by_key(|entry| entry.placement.row)
             .map(|entry| entry.key),
-        Direction::Left | Direction::Right => None,
     }
 }
 
 fn select_cross_project_vertical_entry<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin_column: u32,
-    direction: Direction,
+    direction: VerticalDirection,
 ) -> Option<K> {
     if entries.is_empty() {
         return None;
     }
 
-    match direction {
-        Direction::Up | Direction::Down => {
-            if let Some(exact_column) = select_column_boundary(entries, origin_column, direction) {
-                return Some(exact_column);
-            }
-            select_row_boundary_nearest_column(entries, origin_column, direction)
-        }
-        Direction::Left | Direction::Right => None,
+    if let Some(exact_column) = select_column_boundary(entries, origin_column, direction) {
+        return Some(exact_column);
     }
+
+    select_row_boundary_nearest_column(entries, origin_column, direction)
 }
 
 fn select_column_boundary<K: Copy>(
     entries: &[MatrixEntry<K>],
     column: u32,
-    direction: Direction,
+    direction: VerticalDirection,
 ) -> Option<K> {
     match direction {
-        Direction::Up => entries
+        VerticalDirection::Up => entries
             .iter()
-            .filter(|entry| entry.column == column)
-            .max_by_key(|entry| entry.row)
+            .filter(|entry| entry.placement.column == column)
+            .max_by_key(|entry| entry.placement.row)
             .map(|entry| entry.key),
-        Direction::Down => entries
+        VerticalDirection::Down => entries
             .iter()
-            .filter(|entry| entry.column == column)
-            .min_by_key(|entry| entry.row)
+            .filter(|entry| entry.placement.column == column)
+            .min_by_key(|entry| entry.placement.row)
             .map(|entry| entry.key),
-        Direction::Left | Direction::Right => None,
     }
 }
 
 fn select_row_boundary_nearest_column<K: Copy>(
     entries: &[MatrixEntry<K>],
     origin_column: u32,
-    direction: Direction,
+    direction: VerticalDirection,
 ) -> Option<K> {
     let boundary_row = match direction {
-        Direction::Up => entries.iter().map(|entry| entry.row).max()?,
-        Direction::Down => entries.iter().map(|entry| entry.row).min()?,
-        Direction::Left | Direction::Right => return None,
+        VerticalDirection::Up => entries.iter().map(|entry| entry.placement.row).max()?,
+        VerticalDirection::Down => entries.iter().map(|entry| entry.placement.row).min()?,
     };
 
     entries
         .iter()
-        .filter(|entry| entry.row == boundary_row)
+        .filter(|entry| entry.placement.row == boundary_row)
         .min_by_key(|entry| {
-            let distance = u32::abs_diff(entry.column, origin_column);
-            (distance, entry.column)
+            let distance = u32::abs_diff(entry.placement.column, origin_column);
+            (distance, entry.placement.column)
         })
         .map(|entry| entry.key)
 }
@@ -471,28 +480,23 @@ mod tests {
         vec![
             MatrixEntry {
                 key: 1,
-                column: 0,
-                row: 0,
+                placement: (0, 0).into(),
             },
             MatrixEntry {
                 key: 2,
-                column: 2,
-                row: 0,
+                placement: (2, 0).into(),
             },
             MatrixEntry {
                 key: 3,
-                column: 0,
-                row: 2,
+                placement: (0, 2).into(),
             },
             MatrixEntry {
                 key: 4,
-                column: 2,
-                row: 2,
+                placement: (2, 2).into(),
             },
             MatrixEntry {
                 key: 5,
-                column: 1,
-                row: 3,
+                placement: (1, 3).into(),
             },
         ]
     }
@@ -501,8 +505,8 @@ mod tests {
     fn matrix_horizontal_navigation_skips_empty_cells() {
         let entries = sample_entries();
 
-        let left = select_matrix_neighbor(&entries, 2, 0, Direction::Left);
-        let right = select_matrix_neighbor(&entries, 0, 0, Direction::Right);
+        let left = select_matrix_neighbor(&entries, (2, 0).into(), Direction::Left);
+        let right = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Right);
 
         assert_eq!(left, Some(1));
         assert_eq!(right, Some(2));
@@ -512,8 +516,8 @@ mod tests {
     fn matrix_vertical_navigation_skips_empty_cells() {
         let entries = sample_entries();
 
-        let down = select_matrix_neighbor(&entries, 0, 0, Direction::Down);
-        let up = select_matrix_neighbor(&entries, 0, 2, Direction::Up);
+        let down = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Down);
+        let up = select_matrix_neighbor(&entries, (0, 2).into(), Direction::Up);
 
         assert_eq!(down, Some(3));
         assert_eq!(up, Some(1));
@@ -523,8 +527,8 @@ mod tests {
     fn row_neighbor_returns_none_when_no_candidate_exists() {
         let entries = sample_entries();
 
-        let left = select_row_neighbor(&entries, 0, 0, Direction::Left);
-        let right = select_row_neighbor(&entries, 2, 2, Direction::Right);
+        let left = select_row_neighbor(&entries, (0, 0).into(), HorizontalDirection::Left);
+        let right = select_row_neighbor(&entries, (2, 2).into(), HorizontalDirection::Right);
 
         assert_eq!(left, None);
         assert_eq!(right, None);
@@ -579,17 +583,15 @@ mod tests {
         let entries = vec![
             MatrixEntry {
                 key: 1,
-                column: 2,
-                row: 1,
+                placement: (2, 1).into(),
             },
             MatrixEntry {
                 key: 2,
-                column: 4,
-                row: 1,
+                placement: (4, 1).into(),
             },
         ];
 
-        let side = select_row_neighbor(&entries, 1, 2, Direction::Right);
+        let side = select_row_neighbor(&entries, (2, 1).into(), HorizontalDirection::Right);
 
         assert_eq!(side, Some(2));
     }
@@ -599,23 +601,20 @@ mod tests {
         let entries = vec![
             MatrixEntry {
                 key: 10,
-                column: 1,
-                row: 0,
+                placement: (1, 0).into(),
             },
             MatrixEntry {
                 key: 20,
-                column: 3,
-                row: 2,
+                placement: (3, 2).into(),
             },
             MatrixEntry {
                 key: 30,
-                column: 1,
-                row: 4,
+                placement: (1, 4).into(),
             },
         ];
 
-        let up = select_cross_project_vertical_entry(&entries, 1, Direction::Up);
-        let down = select_cross_project_vertical_entry(&entries, 1, Direction::Down);
+        let up = select_cross_project_vertical_entry(&entries, 1, VerticalDirection::Up);
+        let down = select_cross_project_vertical_entry(&entries, 1, VerticalDirection::Down);
 
         assert_eq!(up, Some(30));
         assert_eq!(down, Some(10));
@@ -626,28 +625,24 @@ mod tests {
         let entries = vec![
             MatrixEntry {
                 key: 10,
-                column: 0,
-                row: 1,
+                placement: (0, 1).into(),
             },
             MatrixEntry {
                 key: 20,
-                column: 4,
-                row: 1,
+                placement: (4, 1).into(),
             },
             MatrixEntry {
                 key: 30,
-                column: 2,
-                row: 3,
+                placement: (2, 3).into(),
             },
             MatrixEntry {
                 key: 40,
-                column: 6,
-                row: 3,
+                placement: (6, 3).into(),
             },
         ];
 
-        let down = select_cross_project_vertical_entry(&entries, 3, Direction::Down);
-        let up = select_cross_project_vertical_entry(&entries, 5, Direction::Up);
+        let down = select_cross_project_vertical_entry(&entries, 3, VerticalDirection::Down);
+        let up = select_cross_project_vertical_entry(&entries, 5, VerticalDirection::Up);
 
         assert_eq!(down, Some(20));
         assert_eq!(up, Some(40));
