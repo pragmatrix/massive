@@ -96,6 +96,29 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FocusReason {
+    InputTransition,
+    StopInstanceReplacement,
+    PresentInstance,
+    ZoomOut,
+    Navigate,
+    PromotePrimaryView,
+}
+
+impl FocusReason {
+    fn resets_navigation_affinity(self) -> bool {
+        match self {
+            FocusReason::Navigate => false,
+            FocusReason::InputTransition
+            | FocusReason::StopInstanceReplacement
+            | FocusReason::PresentInstance
+            | FocusReason::ZoomOut
+            | FocusReason::PromotePrimaryView => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransactionEffectsMode {
     #[default]
