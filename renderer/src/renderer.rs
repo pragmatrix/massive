@@ -475,6 +475,11 @@ impl Renderer {
                 continue;
             };
 
+            let alpha = locations.get_alpha(visual.location_id);
+            if alpha == 0.0 {
+                continue;
+            }
+
             if !pipeline_set {
                 context.pass.set_pipeline(pipeline);
                 pipeline_set = true;
@@ -491,7 +496,7 @@ impl Renderer {
             let push_constants = Immediates {
                 view_model: matrix.to_pod(),
                 clip_rect,
-                alpha: locations.get_alpha(visual.location_id),
+                alpha,
                 _padding: [0.0; 3],
             };
             pass.set_immediates(0, push_constants.as_bytes());
