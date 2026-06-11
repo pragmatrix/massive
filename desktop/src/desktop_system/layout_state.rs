@@ -238,9 +238,10 @@ impl DesktopLayoutState {
         let local_center = Self::layout_local_center(local.rect.size);
         let transform = origin_transform.to_anchor_space(local_center);
 
-        Some(Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(
-            visible,
-        ))
+        Some(
+            Placement::new(transform, LayoutRect::new(offset, local.rect.size))
+                .with_visibility(visible),
+        )
     }
 
     fn layout_local_center(size: LayoutSize<2>) -> Point {
