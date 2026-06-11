@@ -175,7 +175,13 @@ impl DesktopSystem {
         if let Some(placement) = self.layout_state.local_placement(&target) {
             let layout_size = placement.rect.size;
             let size_px = SizePx::new(layout_size[0], layout_size[1]);
-            self.apply_layout(target, size_px, placement.transform, effects_mode.animate());
+            self.apply_layout(
+                target,
+                size_px,
+                placement.transform,
+                placement.visible,
+                effects_mode.animate(),
+            );
         }
 
         Ok(Effects::None)
@@ -217,6 +223,7 @@ impl DesktopSystem {
         target: DesktopTarget,
         size_px: SizePx,
         transform: Transform,
+        visible: bool,
         animate: bool,
     ) {
         match target {
@@ -226,7 +233,7 @@ impl DesktopSystem {
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
-                    .set_layout(size_px, transform, animate);
+                    .set_layout(size_px, transform, visible, animate);
             }
             DesktopTarget::Project(project_id) => {
                 self.aggregates

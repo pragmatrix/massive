@@ -42,6 +42,7 @@ pub struct InstancePresenter {
     /// The instance layout transform stores the panel center translation and yaw rotation.
     /// Position-only consumers should read `layout_transform_animation.*.translate`.
     pub layout_transform_animation: Animated<Transform>,
+    visibility_alpha: Animated<f32>,
     /// Shared animated instance node for background and view.
     /// This avoids per-child world updates that can drift during animation.
     root: InstanceRoot,
@@ -109,6 +110,7 @@ impl InstancePresenter {
             layout_transform_animation: scene.animated(Transform::from_translation(
                 initial_center_translation.unwrap_or_default(),
             )),
+            visibility_alpha: scene.animated(1.0),
             root,
             has_applied_layout: initial_center_translation.is_some(),
             pacing: RenderPacing::default(),
@@ -202,18 +204,57 @@ impl InstancePresenter {
         self.presented_view(view_id).map(|view| &view.window_state)
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
+    pub fn set_layout(
+        &mut self,
+        size: SizePx,
+        layout_transform: Transform,
+        visible: bool,
+        animate: bool,
+    ) {
         let snap_layout = !self.has_applied_layout;
 
-        self.apply_layout(size, layout_transform, animate && !snap_layout);
+        self.apply_layout(size, layout_transform, visible, animate && !snap_layout);
         self.has_applied_layout = true;
     }
 
-    fn apply_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
+    fn apply_layout(
+        &mut self,
+        size: SizePx,
+        layout_transform: Transform,
+        visible: bool,
+        animate: bool,
+    ) {
         if let Some(background) = &mut self.background {
             background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
             background.visible = size.width > 0 && size.height > 0;
         }
+
+        let target_visibility_alpha = if visible { 1.0 } else { 0.0 };
+        if animate {
+            self.visibility_alpha.animate_if_changed(
+                target_visibility_alpha,
+                STRUCTURAL_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
+        } else {
+            self.visibility_alpha
+                .set_immediately(target_visibility_alpha);
+        }
+
+        let layout_transform = if visible {
+            layout_transform
+        } else {
+            // Keep panel x/y pose but pull hidden instances back to baseline depth.
+            Transform::new(
+                Vector3::new(
+                    layout_transform.translate.x,
+                    layout_transform.translate.y,
+                    0.0,
+                ),
+                layout_transform.rotate,
+                layout_transform.scale,
+            )
+        };
 
         if animate {
             self.layout_transform_animation.animate_if_changed(
@@ -241,14 +282,14 @@ impl InstancePresenter {
         let layout_transform = self.layout_transform_animation.value();
         self.root.transform.update_if_changed(*layout_transform);
 
-        // Feature: Hiding animation.
-        let Some(view) = self.state.view_mut() else {
-            return;
+        let view_alpha = match &mut self.state {
+            InstancePresenterState::WaitingForPrimaryView => 1.0,
+            InstancePresenterState::Presenting { view } => *view.alpha.value(),
+            InstancePresenterState::Disappearing => 0.0,
         };
-
-        let alpha = view.alpha.value();
+        let alpha = view_alpha * *self.visibility_alpha.value();
         self.root.location.update_if_changed_with(|location| {
-            location.alpha = *alpha;
+            location.alpha = alpha;
         });
     }
 
