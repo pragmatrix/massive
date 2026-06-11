@@ -282,9 +282,10 @@ impl InstancePresenter {
         let layout_transform = self.layout_transform_animation.value();
         self.root.transform.update_if_changed(*layout_transform);
 
-        let view_alpha = match self.state.view_mut() {
-            Some(view) => *view.alpha.value(),
-            None => 1.0,
+        let view_alpha = match &mut self.state {
+            InstancePresenterState::WaitingForPrimaryView => 1.0,
+            InstancePresenterState::Presenting { view } => *view.alpha.value(),
+            InstancePresenterState::Disappearing => 0.0,
         };
         let alpha = view_alpha * *self.visibility_alpha.value();
         self.root.location.update_if_changed_with(|location| {
