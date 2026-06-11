@@ -219,8 +219,10 @@ impl DesktopLayoutState {
 
         let mut origin_transform = Transform::default();
         let mut offset = Offset::default();
+        let mut visible = true;
         for path_target in path.iter().rev() {
             let placement = self.local_placement(path_target)?;
+            visible = visible && placement.visible;
             let local_origin_transform = if *path_target == DesktopTarget::Desktop {
                 // Desktop transform is already origin-based (IDENTITY in the common case).
                 placement.transform
@@ -236,9 +238,8 @@ impl DesktopLayoutState {
         let local_center = Self::layout_local_center(local.rect.size);
         let transform = origin_transform.to_anchor_space(local_center);
 
-        Some(Placement::new(
-            transform,
-            LayoutRect::new(offset, local.rect.size),
+        Some(Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(
+            visible,
         ))
     }
 

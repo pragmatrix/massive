@@ -211,11 +211,12 @@ impl LauncherPresenter {
             let center_y = child_center_y(offset, child_size);
             let transform =
                 visor_child_transform(child_index, center_y, summary, center_index, expanded);
+            let visible = visor_child_visibility(child_index, center_index, expanded);
 
-            child_placements.push(Placement::new(
-                transform,
-                LayoutRect::new(offset, child_size),
-            ));
+            child_placements.push(
+                Placement::new(transform, LayoutRect::new(offset, child_size))
+                    .with_visibility(visible),
+            );
             offset[0] += child_size[0] as i32;
         }
 
@@ -464,4 +465,8 @@ fn visor_child_transform(
     }
 
     transform
+}
+
+fn visor_child_visibility(instance_index: usize, center_index: usize, expanded: bool) -> bool {
+    expanded || instance_index == center_index
 }

@@ -5,10 +5,26 @@ use derive_more::Constructor;
 
 use crate::dimensional_types::{Offset, Rect, Size};
 
-#[derive(Constructor, Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement<T, const RANK: usize> {
     pub transform: T,
     pub rect: Rect<RANK>,
+    pub visible: bool,
+}
+
+impl<T, const RANK: usize> Placement<T, RANK> {
+    pub fn new(transform: T, rect: Rect<RANK>) -> Self {
+        Self {
+            transform,
+            rect,
+            visible: true,
+        }
+    }
+
+    pub fn with_visibility(mut self, visible: bool) -> Self {
+        self.visible = visible;
+        self
+    }
 }
 
 #[derive(Constructor, Debug, Clone, Copy, PartialEq)]

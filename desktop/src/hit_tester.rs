@@ -173,6 +173,9 @@ impl<'a> AggregateHitTester<'a> {
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
         let placement = self.placements.placement(target, self.hierarchy)?;
+        if !placement.visible {
+            return None;
+        }
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
 
@@ -196,7 +199,7 @@ impl<'a> AggregateHitTester<'a> {
         let local_center = Rect::from(rect_px).size().to_rect().center();
 
         // Desktop is the layout root and uses an origin-based transform (IDENTITY in the common
-        // case). Derive its origin from the rect offset directly.
+        // case). Derive its origin from the rectangle offset directly.
         if matches!(target, DesktopTarget::Desktop) {
             let offset = placement.rect.offset;
             return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
