@@ -6,7 +6,7 @@ use massive_animation::{Animated, Interpolation};
 use massive_applications::{ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_renderer::RenderPacing;
-use massive_scene::{At, Handle, Location, Object, Ref, ToLocation, Visual};
+use massive_scene::{At, Handle, Location, Object, Ref, StageIdentityLocation, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 use winit::window::CursorIcon;
@@ -19,8 +19,7 @@ pub struct InstanceRoot {
 
 impl InstanceRoot {
     pub fn new(scene: &Scene) -> Self {
-        let transform = Transform::IDENTITY.enter(scene);
-        let location = transform.to_location().enter(scene);
+        let (transform, location) = scene.stage_identity_location();
 
         Self {
             transform,
@@ -245,15 +244,7 @@ impl InstancePresenter {
             layout_transform
         } else {
             // Keep panel x/y pose but pull hidden instances back to baseline depth.
-            Transform::new(
-                Vector3::new(
-                    layout_transform.translate.x,
-                    layout_transform.translate.y,
-                    0.0,
-                ),
-                layout_transform.rotate,
-                layout_transform.scale,
-            )
+            layout_transform.with_z(0.0)
         };
 
         if animate {

@@ -33,7 +33,7 @@ use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
-use massive_scene::{Location, Object, Transform};
+use massive_scene::{StageIdentityLocation, Transform};
 use massive_shell::{FontManager, Scene, ShellWindow};
 
 pub use commands::{DesktopCommand, ProjectCommand};
@@ -203,8 +203,7 @@ impl DesktopSystem {
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
-        let identity_matrix = Transform::IDENTITY.enter(scene);
-        let location = Location::new(None, identity_matrix).enter(scene);
+        let (_, location) = scene.stage_identity_location();
 
         let desktop_presenter = DesktopPresenter::new(location, scene);
 

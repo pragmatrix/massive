@@ -153,7 +153,7 @@ impl DesktopLayoutAlgorithm<'_> {
             ]);
             let rect: RectPx = LayoutRect::new(offset, child_size).into();
             let center = rect.center().to_f64();
-            let transform = Transform::from_translation(Vector3::new(center.x, center.y, 0.0));
+            let transform = Transform::from_xy(center.x, center.y);
             placements.push(Placement::new(
                 transform,
                 LayoutRect::new(offset, child_size),

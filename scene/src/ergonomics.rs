@@ -8,7 +8,7 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Rect, Transform};
 use massive_shapes::Shape;
 
-use crate::{Handle, Location, Ref, Visual};
+use crate::{Handle, Location, Object, Ref, Scene, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -48,6 +48,28 @@ pub trait ToLocation {
 impl ToLocation for Handle<Transform> {
     fn to_location(&self) -> Location {
         Location::new(None, self.clone())
+    }
+}
+
+pub trait ToLocationRelative {
+    fn to_location_relative(&self, parent: impl Into<Ref<Location>>) -> Location;
+}
+
+impl ToLocationRelative for Handle<Transform> {
+    fn to_location_relative(&self, parent: impl Into<Ref<Location>>) -> Location {
+        self.to_location().relative_to(parent)
+    }
+}
+
+pub trait StageIdentityLocation {
+    fn stage_identity_location(&self) -> (Handle<Transform>, Handle<Location>);
+}
+
+impl StageIdentityLocation for Scene {
+    fn stage_identity_location(&self) -> (Handle<Transform>, Handle<Location>) {
+        let transform = Transform::IDENTITY.enter(self);
+        let location = transform.to_location().enter(self);
+        (transform, location)
     }
 }
 
