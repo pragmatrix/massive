@@ -99,4 +99,4 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Documentation
 - Don't add documentation with examples unless explicitly asked.
 - Markdown documentation updates to existing files are fine.
-- Ask before creating new Markdown documentation files.
+- Ask before creating new Markdown documentation files, except for CONTEXT.md and docs/adr/* when domain terms or architectural trade-offs are resolved.

@@ -1,0 +1,3 @@
+# Placement visibility drives interaction and fade behavior
+
+We represent instance visibility as placement semantics, not as a renderer-only opacity effect. Invisible placements are removed from hit testing immediately and animate out using structural animation (including visibility alpha and hidden-depth transition to z=0), which keeps interaction, layout intent, and visual transitions consistent.
