@@ -61,7 +61,8 @@ impl NavigationControl {
             self.column_affinity = None;
         }
 
-        if direction.vertical().is_some() && self.column_affinity.is_none()
+        if direction.vertical().is_some()
+            && self.column_affinity.is_none()
             && let Some(origin) = origin
         {
             self.column_affinity = Some(origin.column);
@@ -141,7 +142,11 @@ impl DesktopSystem {
             | NavigationOrigin::Child {
                 launcher: launcher_id,
                 ..
-            } => self.aggregates.launchers.get(&launcher_id).map(|launcher| launcher.placement),
+            } => self
+                .aggregates
+                .launchers
+                .get(&launcher_id)
+                .map(|launcher| launcher.placement),
         }
     }
 
@@ -207,9 +212,7 @@ impl DesktopSystem {
             return self
                 .horizontal_child_neighbor(&instances, index, horizontal)
                 .map(DesktopTarget::Instance)
-                .or_else(|| {
-                    self.navigate_from_launcher(launcher_id, direction, preferred_column)
-                });
+                .or_else(|| self.navigate_from_launcher(launcher_id, direction, preferred_column));
         }
 
         self.navigate_from_launcher(launcher_id, direction, preferred_column)
@@ -291,16 +294,17 @@ impl DesktopSystem {
     ) -> Option<DesktopTarget> {
         let (project_id, origin_placement) = self.launcher_matrix_position(launcher_id)?;
         let entries = self.create_project_matrix_entries(project_id);
-        let target = select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
-            .or_else(|| {
-                direction.vertical().and_then(|vertical| {
-                    self.cross_project_vertical_neighbor(
-                        project_id,
-                        preferred_column.unwrap_or(origin_placement.column),
-                        vertical,
-                    )
-                })
-            })?;
+        let target =
+            select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
+                .or_else(|| {
+                    direction.vertical().and_then(|vertical| {
+                        self.cross_project_vertical_neighbor(
+                            project_id,
+                            preferred_column.unwrap_or(origin_placement.column),
+                            vertical,
+                        )
+                    })
+                })?;
         Some(DesktopTarget::Launcher(target))
     }
 
