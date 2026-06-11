@@ -43,12 +43,12 @@ impl Direction {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
-pub(super) struct NavigationControl {
+pub struct NavigationControl {
     column_affinity: Option<u32>,
 }
 
 impl NavigationControl {
-    pub(super) fn reset_all(&mut self) {
+    pub fn reset_all(&mut self) {
         self.column_affinity = None;
     }
 
