@@ -10,7 +10,7 @@ use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
-use massive_scene::{At, Handle, Location, Object, StageIdentityLocation, Transform, Visual};
+use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
@@ -84,10 +84,10 @@ impl LauncherPresenter {
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
         let mode = profile.mode;
 
-        let (our_transform, our_location) = scene.stage_identity_location();
-        our_location.update_if_changed_with(|location| {
-            location.parent = Some(parent_location.to_ref());
-        });
+        let our_transform = Transform::IDENTITY.enter(scene);
+        let our_location = our_transform
+            .to_location_relative(&parent_location)
+            .enter(scene);
 
         let background = background_shape.at(&our_location).enter(scene);
 
