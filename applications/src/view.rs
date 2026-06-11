@@ -5,8 +5,8 @@ use derive_more::{From, Into};
 use uuid::Uuid;
 use winit::window::CursorIcon;
 
-use massive_geometry::{BoxPx, SizePx, Vector3};
-use massive_scene::{Handle, Location, Object, Ref, ToLocation, Transform};
+use massive_geometry::{BoxPx, SizePx};
+use massive_scene::{Handle, Location, Object, Ref, ToLocationRelative, Transform};
 
 use crate::{InstanceChange, InstanceChangeCollector, Scene, ViewId};
 
@@ -42,13 +42,8 @@ impl View {
         let size: SizePx = extents.size().cast();
         let center_x = size.width / 2;
         let center_y = size.height / 2;
-        let local_transform =
-            Transform::from_translation(Vector3::new(-(center_x as f64), -(center_y as f64), 0.0))
-                .enter(&scene);
-        let location = local_transform
-            .to_location()
-            .relative_to(parent)
-            .enter(&scene);
+        let local_transform = Transform::from_xy(-(center_x as f64), -(center_y as f64)).enter(&scene);
+        let location = local_transform.to_location_relative(parent).enter(&scene);
 
         change_collector.collect(InstanceChange::CreateView(ViewCreationInfo {
             id,

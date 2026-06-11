@@ -10,7 +10,9 @@ use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
-use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
+use massive_scene::{
+    At, Handle, Location, Object, StageIdentityLocation, Transform, Visual,
+};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
@@ -84,12 +86,10 @@ impl LauncherPresenter {
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
         let mode = profile.mode;
 
-        let our_transform = Transform::IDENTITY.enter(scene);
-
-        let our_location = our_transform
-            .to_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+        let (our_transform, our_location) = scene.stage_identity_location();
+        our_location.update_if_changed_with(|location| {
+            location.parent = Some(parent_location.to_ref());
+        });
 
         let background = background_shape.at(&our_location).enter(scene);
 
@@ -329,9 +329,10 @@ impl LauncherPresenter {
 
     fn apply_presenter_animations(&mut self) {
         let size = self.size.value();
-        let local_center = size.to_rect().center();
 
-        let scene_transform = self.layout_transform.to_origin_space(local_center);
+        let scene_transform = self
+            .layout_transform
+            .to_origin_space_from_size(size.width, size.height);
         self.scene_transform.update_if_changed(scene_transform);
 
         let alpha = self.fader.value();

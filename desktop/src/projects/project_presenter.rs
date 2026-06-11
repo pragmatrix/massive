@@ -4,7 +4,9 @@ use massive_animation::{Animated, Interpolation};
 use massive_geometry::{Color, Point, Rect, Size, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
 use massive_renderer::text::FontSystem;
-use massive_scene::{At, Handle, IntoVisual, Location, Object, ToLocation, Visual};
+use massive_scene::{
+    At, Handle, IntoVisual, Location, Object, StageIdentityLocation, ToLocationRelative, Visual,
+};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt, StrokeRect};
 use massive_shell::Scene;
 
@@ -41,8 +43,7 @@ impl DesktopPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
 
     pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
-        let hover_scene_transform = Transform::IDENTITY.enter(scene);
-        let hover_location = Location::new(None, hover_scene_transform.clone()).enter(scene);
+        let (hover_scene_transform, hover_location) = scene.stage_identity_location();
 
         Self {
             location: location.clone(),
@@ -139,8 +140,7 @@ impl ProjectPresenter {
     ) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
-            .to_location()
-            .relative_to(&parent_location)
+            .to_location_relative(&parent_location)
             .enter(scene);
         let header = ProjectHeaderPresenter::new(properties, location.clone(), scene, font_system);
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
@@ -153,8 +153,8 @@ impl ProjectPresenter {
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
-        let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
-        let scene_transform = layout_transform.to_origin_space(local_center);
+        let scene_transform =
+            layout_transform.to_origin_space_from_size(size.width as f64, size.height as f64);
         self.scene_transform.update_if_changed(scene_transform);
     }
 
@@ -182,8 +182,7 @@ impl ProjectHeaderPresenter {
     ) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
-            .to_location()
-            .relative_to(&parent_location)
+            .to_location_relative(&parent_location)
             .enter(scene);
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
@@ -237,8 +236,9 @@ impl ProjectHeaderPresenter {
 
     pub fn apply_animations(&mut self) {
         let size = self.animated_size.value();
-        let local_center = size.to_rect().center();
-        let scene_transform = self.layout_transform.to_origin_space(local_center);
+        let scene_transform = self
+            .layout_transform
+            .to_origin_space_from_size(size.width, size.height);
         self.scene_transform.update_if_changed(scene_transform);
         self.background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
@@ -275,8 +275,7 @@ impl ProjectMatrixPresenter {
     pub fn new(parent_location: Handle<Location>, scene: &Scene) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
-            .to_location()
-            .relative_to(&parent_location)
+            .to_location_relative(&parent_location)
             .enter(scene);
 
         Self {
@@ -292,8 +291,8 @@ impl ProjectMatrixPresenter {
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
         self.size = size;
-        let local_center = Point::new(size.width as f64 / 2.0, size.height as f64 / 2.0);
-        let scene_transform = layout_transform.to_origin_space(local_center);
+        let scene_transform =
+            layout_transform.to_origin_space_from_size(size.width as f64, size.height as f64);
         self.scene_transform.update_if_changed(scene_transform);
     }
 }

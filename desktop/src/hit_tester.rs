@@ -202,7 +202,7 @@ impl<'a> AggregateHitTester<'a> {
         // case). Derive its origin from the rectangle offset directly.
         if matches!(target, DesktopTarget::Desktop) {
             let offset = placement.rect.offset;
-            return Transform::from_translation((offset[0] as f64, offset[1] as f64, 0.0));
+            return Transform::from_xy(offset[0] as f64, offset[1] as f64);
         }
 
         placement.transform.to_origin_space(local_center)
