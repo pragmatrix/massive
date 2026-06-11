@@ -6,8 +6,7 @@ use massive_applications::{
 };
 use massive_shell::Scene;
 
-use super::effects::DesktopEffect;
-use super::effects::Effects;
+use super::effects::{DesktopEffect, Effects};
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use crate::focus_path::PathResolver;
 use crate::instance_manager::{InstanceManager, ViewPath};
