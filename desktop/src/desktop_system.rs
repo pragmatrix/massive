@@ -41,6 +41,7 @@ pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub(crate) use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
+use navigation::NavigationControl;
 
 use crate::event_sourcing::{self, Transaction};
 use crate::focus_path::{FocusPath, PathResolver};
@@ -95,6 +96,29 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum FocusReason {
+    InputTransition,
+    StopInstanceReplacement,
+    PresentInstance,
+    ZoomOut,
+    Navigate,
+    PromotePrimaryView,
+}
+
+impl FocusReason {
+    fn resets_navigation_affinity(self) -> bool {
+        match self {
+            FocusReason::Navigate => false,
+            FocusReason::InputTransition
+            | FocusReason::StopInstanceReplacement
+            | FocusReason::PresentInstance
+            | FocusReason::ZoomOut
+            | FocusReason::PromotePrimaryView => true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransactionEffectsMode {
     #[default]
@@ -132,6 +156,7 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     pointer_feedback_enabled: bool,
+    navigation_control: NavigationControl,
     /// Launchers queued for focus-driven relayout once pointer buttons are released.
     deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
 
@@ -197,6 +222,7 @@ impl DesktopSystem {
             event_router,
             camera: scene.animated(PixelCamera::default()),
             pointer_feedback_enabled: true,
+            navigation_control: NavigationControl::default(),
             deferred_focus_layout_launchers: HashSet::new(),
             layout_state,
 

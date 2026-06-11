@@ -233,6 +233,14 @@ impl LauncherPresenter {
         matches!(self.mode, LauncherMode::Visor) && instance_count > 1
     }
 
+    pub fn mode(&self) -> LauncherMode {
+        self.mode
+    }
+
+    pub fn focus_anchor_instance(&self) -> Option<InstanceId> {
+        self.most_recent_focused_instance
+    }
+
     pub fn set_focus_anchor_instance(&mut self, instance: InstanceId) {
         self.most_recent_focused_instance = Some(instance);
     }

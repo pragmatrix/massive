@@ -8,7 +8,7 @@ use massive_shell::Scene;
 
 use super::effects::DesktopEffect;
 use super::effects::Effects;
-use super::{DesktopCommand, DesktopSystem, DesktopTarget};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use crate::focus_path::PathResolver;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
@@ -72,7 +72,11 @@ impl DesktopSystem {
                 let mut effects = Effects::None;
 
                 if let Some(replacement_focus) = replacement_focus {
-                    effects += self.focus(&replacement_focus, instance_manager)?;
+                    effects += self.focus(
+                        &replacement_focus,
+                        instance_manager,
+                        FocusReason::StopInstanceReplacement,
+                    )?;
                 }
 
                 effects += self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
@@ -116,7 +120,11 @@ impl DesktopSystem {
                     Effects::from(DesktopEffect::Measure(DesktopTarget::Launcher(launcher)));
 
                 // Focus it.
-                effects += self.focus(&instance_target, instance_manager)?;
+                effects += self.focus(
+                    &instance_target,
+                    instance_manager,
+                    FocusReason::PresentInstance,
+                )?;
                 Ok(effects)
             }
 
@@ -132,15 +140,16 @@ impl DesktopSystem {
                 if let Some(focused) = self.event_router.focused()
                     && let Some(parent) = self.aggregates.hierarchy.parent(focused)
                 {
-                    return self.focus(&parent.clone(), instance_manager);
+                    return self.focus(&parent.clone(), instance_manager, FocusReason::ZoomOut);
                 }
                 Ok(Effects::None)
             }
             DesktopCommand::Navigate(direction) => {
-                if let Some(focused) = self.event_router.focused()
+                let focused = self.event_router.focused().cloned();
+                if let Some(focused) = focused.as_ref()
                     && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
                 {
-                    return self.focus(&candidate, instance_manager);
+                    return self.focus(&candidate, instance_manager, FocusReason::Navigate);
                 }
                 Ok(Effects::None)
             }
@@ -186,8 +195,11 @@ impl DesktopSystem {
                     (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary)
                         if *focused_instance == instance =>
                     {
-                        effects +=
-                            self.focus(&DesktopTarget::View(creation_info.id), instance_manager)?;
+                        effects += self.focus(
+                            &DesktopTarget::View(creation_info.id),
+                            instance_manager,
+                            FocusReason::PromotePrimaryView,
+                        )?;
                     }
                     _ => {}
                 }

@@ -8,7 +8,7 @@ use massive_renderer::RenderGeometry;
 
 use super::navigation::Direction;
 use super::{
-    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, Effects,
+    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, Effects, FocusReason,
     POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
 };
 use crate::event_router::EventTransitions;
@@ -42,6 +42,7 @@ impl DesktopSystem {
                 transitions,
                 instance_manager,
                 any_buttons_pressed,
+                FocusReason::InputTransition,
             )?;
             effects += transition_effects;
             cmd
@@ -84,10 +85,11 @@ impl DesktopSystem {
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
+        reason: FocusReason,
     ) -> Result<Effects> {
         let transitions = self.event_router.focus(target);
         let (cmd, effects) =
-            self.apply_and_forward_focus_transitions(transitions, instance_manager, false)?;
+            self.apply_and_forward_focus_transitions(transitions, instance_manager, false, reason)?;
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(cmd.is_none());
@@ -100,7 +102,12 @@ impl DesktopSystem {
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
         defer_layout: bool,
+        reason: FocusReason,
     ) -> Result<(Cmd, Effects)> {
+        if reason.resets_navigation_affinity() && !transitions.keyboard_focus_change().is_empty() {
+            self.navigation_control.reset_all();
+        }
+
         let effects = self.apply_keyboard_focus_change_effects(&transitions, defer_layout);
         let cmd = self.forward_event_transitions(transitions, instance_manager)?;
 

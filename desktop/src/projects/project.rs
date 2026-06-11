@@ -30,6 +30,12 @@ pub struct MatrixPlacement {
     pub row: u32,
 }
 
+impl From<(u32, u32)> for MatrixPlacement {
+    fn from((column, row): (u32, u32)) -> Self {
+        Self { column, row }
+    }
+}
+
 #[derive(Debug)]
 pub struct Launcher {
     pub id: LaunchProfileId,
