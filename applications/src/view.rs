@@ -42,7 +42,8 @@ impl View {
         let size: SizePx = extents.size().cast();
         let center_x = size.width / 2;
         let center_y = size.height / 2;
-        let local_transform = Transform::from_xy(-(center_x as f64), -(center_y as f64)).enter(&scene);
+        let local_transform =
+            Transform::from_xy(-(center_x as f64), -(center_y as f64)).enter(&scene);
         let location = local_transform.to_location_relative(parent).enter(&scene);
 
         change_collector.collect(InstanceChange::CreateView(ViewCreationInfo {

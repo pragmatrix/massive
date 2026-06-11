@@ -10,9 +10,7 @@ use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
-use massive_scene::{
-    At, Handle, Location, Object, StageIdentityLocation, Transform, Visual,
-};
+use massive_scene::{At, Handle, Location, Object, StageIdentityLocation, Transform, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
