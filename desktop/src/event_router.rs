@@ -24,8 +24,7 @@ pub struct EventRouter<T> {
     /// If _any_ button is pressed while moving the cursor, its focus stays on the previous target.
     pointer_focus: Option<T>,
 
-    /// This decides to which view and instance the keyboard events are delivered. Basically the
-    /// keyboard focus.
+    /// The keyboard focus decides to which view and instance the keyboard events are delivered.
     keyboard_focus: Option<T>,
 
     /// The current state of the outer focus state (perhaps the Window).
@@ -204,9 +203,8 @@ where
 
             // Forward to the current cursor focus.
             //
-            // Robustness: We might need to update the cursor
-            // focus here again with the current screen pos. The scene might have changed in the
-            // meantime.
+            // Robustness: We might need to update the cursor focus here again with the current
+            // screen position. The scene might have changed in the meantime.
             ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. } => {
                 if let Some(pointer_focus) = &self.pointer_focus {
                     event_transitions.send(pointer_focus, view_event.clone());
@@ -250,14 +248,14 @@ where
 
     /// The pointer focus should be tested again with hit-testing against all targets.
     ///
-    /// Robustness: There is perhaps a need to send a CursorMove event to the newly hit target,
+    /// Robustness: There is perhaps a need to send a `CursorMove` event to the newly hit target,
     /// otherwise the current position may be off?
     pub fn reset_pointer_focus(
         &mut self,
         hit_tester: &dyn HitTester<T>,
     ) -> Result<EventTransitions<T>> {
         let target = {
-            // This is somehow a shortcut, we just check for the latest Device's pos change.
+            // This is somehow a shortcut. We just check for the latest Device's position change.
             // Robustness: Support multiple pointers.
             if let Some(pos) = self.device_states.pos(DeviceId::dummy()) {
                 if let Some((target, _hit)) = hit_tester.hit_test(pos, None) {
