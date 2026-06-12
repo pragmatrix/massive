@@ -2,7 +2,7 @@ use std::time::{Duration, Instant};
 
 use crate::{AggregationReport, Event, EventAggregator, InputEvent, event_history::EventHistory};
 
-// Naming: GestureDetector?
+// Naming: `GestureDetector`?
 #[derive(Debug)]
 pub struct EventManager<E: InputEvent> {
     aggregator: EventAggregator,
@@ -29,7 +29,7 @@ impl<E: InputEvent> EventManager<E> {
 
     /// Add a new event at the current time.
     ///
-    /// `None`: The event is redundant in terms of the state update. Like a CursorMoved event that
+    /// `None`: The event is redundant in terms of the state update. Like a `CursorMoved` event that
     /// moves the same device to the same point as before. This happens on winit when a mouse state
     /// is changed, for example.
     ///
