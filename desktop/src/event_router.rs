@@ -1,7 +1,7 @@
 //! Decides which elements receive which events in which order, so that their view of the input
 //! state stays consistent.
 //!
-//! This type is generic over T, which is the element's type. An target is a reference to a concrete
+//! This type is generic over `T`, which is the element's type. A target is a reference to a concrete
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
 use std::fmt;
@@ -40,7 +40,7 @@ pub struct EventRouter<T> {
     /// focus tree here and just manage the focus of the immediate descendants.
     outer_focus: OuterFocusState<T>,
 
-    /// Most recent [`DeviceStates`], so that we can re-hit the pointer anytime.
+    /// Most recent [`DeviceStates`]. This way we can re-hit the pointer anytime.
     device_states: DeviceStates,
 }
 
