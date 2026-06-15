@@ -4,6 +4,22 @@ This context defines the interaction and presentation language for desktop insta
 
 ## Language
 
+**User state**:
+The system-level interaction mode that decides what the camera follows. Either `Focused` or `Overview`.
+_Avoid_: view mode, camera mode flag
+
+**Focused**:
+The default user state where the camera follows the keyboard-focused target.
+_Avoid_: normal mode, zoomed-in
+
+**Overview**:
+A user state where the camera detaches from focus and follows a separate overview target while keyboard focus stays put. `Ctrl+Cmd+Down` enters or climbs it one hierarchy level per press; any non-navigation command returns to `Focused`.
+_Avoid_: zoomed out (the `ZoomOut` command name is retained, but the state is "overview"), bird's-eye
+
+**Overview target**:
+The hierarchy target the camera follows while in `Overview`. Climbs toward the root on each `ZoomOut` and pans among same-level siblings on `Navigate`.
+_Avoid_: camera anchor, zoom target
+
 **Placement visibility**:
 A semantic flag on placement that states whether an instance should be interactable and visually present in the current layout state.
 _Avoid_: hidden by alpha, render-only visibility

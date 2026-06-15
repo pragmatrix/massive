@@ -7,7 +7,9 @@ use massive_layout::{LayoutTopology, Placement, Size as LayoutSize};
 
 use super::effects::{DesktopEffect, DesktopEffectQueue, Effects};
 use super::layout_state::PlacementUpdate;
-use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
+use super::{
+    DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
+};
 use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::projects::LaunchProfileId;
@@ -192,19 +194,23 @@ impl DesktopSystem {
             return;
         }
 
-        let focused_target = self.event_router.focused().cloned();
-        if let Some(focused) = focused_target.as_ref() {
-            let camera = self.camera_for_focus(focused);
-            if let Some(camera) = camera {
-                if effects_mode.animate() {
-                    self.camera.animate_if_changed(
-                        camera,
-                        STRUCTURAL_ANIMATION_DURATION,
-                        Interpolation::CubicOut,
-                    );
-                } else {
-                    self.camera.set_immediately(camera);
-                }
+        let camera_target = match &self.user_state {
+            UserState::Focused => self
+                .event_router
+                .focused()
+                .and_then(|target| self.camera_for_focus(target)),
+            UserState::Overview(target) => self.camera_for_overview_target(target),
+        };
+
+        if let Some(camera) = camera_target {
+            if effects_mode.animate() {
+                self.camera.animate_if_changed(
+                    camera,
+                    STRUCTURAL_ANIMATION_DURATION,
+                    Interpolation::CubicOut,
+                );
+            } else {
+                self.camera.set_immediately(camera);
             }
         }
     }

@@ -1,7 +1,11 @@
+use anyhow::Result;
+
 use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
-use super::{DesktopSystem, DesktopTarget};
+use super::effects::DesktopEffect;
+use super::{DesktopSystem, DesktopTarget, Effects, FocusReason, UserState};
+use crate::instance_manager::InstanceManager;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +92,39 @@ enum NavigationOrigin {
 }
 
 impl DesktopSystem {
+    pub(super) fn apply_navigate_command(
+        &mut self,
+        direction: Direction,
+        instance_manager: &InstanceManager,
+    ) -> Result<Effects> {
+        match self.user_state.clone() {
+            UserState::Focused => {
+                let focused = self.event_router.focused().cloned();
+                if let Some(focused) = focused.as_ref()
+                    && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
+                {
+                    return self.focus(&candidate, instance_manager, FocusReason::Navigate);
+                }
+            }
+            UserState::Overview(target) => {
+                let Some(anchor) = self.overview_navigation_anchor(&target) else {
+                    return Ok(Effects::None);
+                };
+
+                if let Some(candidate) =
+                    self.locate_navigation_candidate_same_level(&anchor, direction)
+                    && let Some(next_target) =
+                        self.overview_target_for_navigation_candidate(&target, &candidate)
+                {
+                    self.user_state = UserState::Overview(next_target);
+                    return Ok(DesktopEffect::UpdateCamera.into());
+                }
+            }
+        }
+
+        Ok(Effects::None)
+    }
+
     pub(super) fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
         match focus {
             DesktopTarget::Desktop => {
@@ -134,6 +171,23 @@ impl DesktopSystem {
             .begin_navigation(direction, origin_placement);
         let target = self.navigate_from_origin(origin, direction, preferred_column)?;
         Some(self.normalize_navigation_target(target, direction))
+    }
+
+    pub(super) fn locate_navigation_candidate_same_level(
+        &mut self,
+        from: &DesktopTarget,
+        direction: Direction,
+    ) -> Option<DesktopTarget> {
+        if matches!(from, DesktopTarget::Instance(_)) && direction.vertical().is_some() {
+            return None;
+        }
+
+        let origin = self.resolve_navigation_origin(from)?;
+        let origin_placement = self.navigation_origin_placement(origin);
+        let preferred_column = self
+            .navigation_control
+            .begin_navigation(direction, origin_placement);
+        self.navigate_from_origin(origin, direction, preferred_column)
     }
 
     fn navigation_origin_placement(&self, origin: NavigationOrigin) -> Option<MatrixPlacement> {

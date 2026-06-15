@@ -302,7 +302,7 @@ fn track_offset(tracks: &[u32], index: usize, spacing: u32) -> i32 {
         .sum()
 }
 
-pub(crate) fn place_container_children(
+pub fn place_container_children(
     axis: LayoutAxis,
     spacing: i32,
     mut cursor: Offset<2>,

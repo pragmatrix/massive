@@ -6,7 +6,7 @@ pub enum CameraMode {
     /// 1:1 pixel mapping (pixel-perfect).
     PixelPerfect,
     /// Fit target size within surface, with optional blend factor.
-    /// blend: 0.0 = pixel-perfect, 1.0 = fully fitted to target_size
+    /// `blend: 0.0` = pixel-perfect, `1.0` = fully fitted to target_size
     Sized { target_size: Size, blend: f64 },
 }
 
@@ -69,16 +69,17 @@ impl PixelCamera {
         self.target_scale_matrix(surface_size) * self.look_at.inverse().to_matrix4()
     }
 
-    /// Move the model further back in NDC coordinate space, so that its pointed-to position is visible.
+    /// Move the model further back in NDC coordinate space, so that it's pointed-to position is
+    /// visible.
     pub fn ndc_camera_move(&self) -> Matrix4 {
         let camera_distance = 1.0 / (self.fovy / 2.0).to_radians().tan();
         Matrix4::from_translation(-Vector3::new(0.0, 0.0, camera_distance))
     }
 
-    /// The matrix that projects NDC 3D coordinates to the final surface coordinates 2D.
+    /// The matrix that projects NDC 3D coordinates to the final surface coordinates "2D".
     ///
     /// Architecture: If we internally use pixel coordinates, then go through NDC and here back in
-    /// 2D. Is there a more direct way?
+    /// "2D". Is there a more direct way?
     pub fn perspective_matrix(
         &self,
         z_range: (f64, f64),

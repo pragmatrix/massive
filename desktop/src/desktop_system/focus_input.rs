@@ -236,11 +236,16 @@ impl DesktopSystem {
                 Key::Named(NamedKey::ArrowDown) => Some(Direction::Down),
                 _ => None,
             } {
-                return Ok(DesktopCommand::Navigate(direction).into());
-            }
+                if event.device_states().is_ctrl() {
+                    if direction == Direction::Up {
+                        return Ok(DesktopCommand::ZoomIn.into());
+                    }
 
-            if let Key::Named(NamedKey::Escape) = &key_event.logical_key {
-                return Ok(DesktopCommand::ZoomOut.into());
+                    if direction == Direction::Down {
+                        return Ok(DesktopCommand::ZoomOut.into());
+                    }
+                }
+                return Ok(DesktopCommand::Navigate(direction).into());
             }
         }
 

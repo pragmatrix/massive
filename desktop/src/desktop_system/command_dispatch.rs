@@ -7,7 +7,7 @@ use massive_applications::{
 use massive_shell::Scene;
 
 use super::effects::{DesktopEffect, Effects};
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason, UserState};
 use crate::focus_path::PathResolver;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
@@ -21,7 +21,16 @@ impl DesktopSystem {
         instance_manager: &mut InstanceManager,
     ) -> Result<Effects> {
         // warn!("Apply command: {command:?}");
-        match command {
+        let mut command_effects = Effects::None;
+        if command.is_keyboard_command()
+            && !command.is_navigation()
+            && !matches!(self.user_state, UserState::Focused)
+        {
+            self.user_state = UserState::Focused;
+            command_effects += DesktopEffect::UpdateCamera;
+        }
+
+        let effects = match command {
             DesktopCommand::StartInstance {
                 launcher,
                 parameters,
@@ -135,24 +144,15 @@ impl DesktopSystem {
                 self.apply_project_command(project_command, scene)
             }
 
-            DesktopCommand::ZoomOut => {
-                if let Some(focused) = self.event_router.focused()
-                    && let Some(parent) = self.aggregates.hierarchy.parent(focused)
-                {
-                    return self.focus(&parent.clone(), instance_manager, FocusReason::ZoomOut);
-                }
-                Ok(Effects::None)
-            }
+            DesktopCommand::ZoomIn => Ok(self.apply_zoom_in_command()),
+            DesktopCommand::ZoomOut => Ok(self.apply_zoom_out_command()),
             DesktopCommand::Navigate(direction) => {
-                let focused = self.event_router.focused().cloned();
-                if let Some(focused) = focused.as_ref()
-                    && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
-                {
-                    return self.focus(&candidate, instance_manager, FocusReason::Navigate);
-                }
-                Ok(Effects::None)
+                self.apply_navigate_command(direction, instance_manager)
             }
-        }
+        }?;
+
+        command_effects += effects;
+        Ok(command_effects)
     }
 
     fn apply_instance_submission(
