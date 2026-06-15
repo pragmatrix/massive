@@ -116,10 +116,10 @@ impl DesktopSystem {
                 self.camera_for_bounds(self.visor_bounds(*launcher_id)?)
             }
             OverviewTarget::Band(launcher_id) => {
-                self.camera_for_bounds(self.band_bounds(*launcher_id)?)
+                self.camera_for_rect(self.band_rect(*launcher_id)?)
             }
             OverviewTarget::Project(project_id) => {
-                self.camera_for_bounds(self.project_bounds(*project_id)?)
+                self.camera_for_rect(self.project_rect(*project_id)?)
             }
             OverviewTarget::Desktop => self.camera_for_focus(&DesktopTarget::Desktop),
         }
@@ -352,10 +352,10 @@ impl DesktopSystem {
         bounds
     }
 
-    fn band_bounds(&self, launcher_id: crate::projects::LaunchProfileId) -> Option<OverviewBounds> {
+    fn band_rect(&self, launcher_id: crate::projects::LaunchProfileId) -> Option<Rect> {
         let project_id = self.launcher_project(launcher_id)?;
         let row = self.aggregates.launchers.get(&launcher_id)?.placement.row;
-        let mut bounds: Option<OverviewBounds> = None;
+        let mut rect: Option<Rect> = None;
 
         for target in self
             .aggregates
@@ -374,26 +374,39 @@ impl DesktopSystem {
                 continue;
             }
 
-            let Some(launcher_bounds) =
-                self.target_bounds(&DesktopTarget::Launcher(*candidate_launcher))
+            let Some(launcher_rect) =
+                self.target_rect(&DesktopTarget::Launcher(*candidate_launcher))
             else {
                 continue;
             };
 
-            bounds = Some(match bounds {
-                Some(existing) => existing.joined(launcher_bounds),
-                None => launcher_bounds,
+            rect = Some(match rect {
+                Some(existing) => existing.joined(launcher_rect),
+                None => launcher_rect,
             });
         }
 
-        bounds
+        rect
     }
 
-    fn project_bounds(&self, project_id: crate::projects::ProjectId) -> Option<OverviewBounds> {
+    fn project_rect(&self, project_id: crate::projects::ProjectId) -> Option<Rect> {
         let root = DesktopTarget::Project(project_id);
-        let mut bounds = self.target_bounds(&root);
-        self.extend_bounds_with_subtree(&root, &mut bounds);
-        bounds
+        let mut rect = self.target_rect(&root);
+        self.extend_rect_with_subtree(&root, &mut rect);
+        rect
+    }
+
+    fn extend_rect_with_subtree(&self, root: &DesktopTarget, rect: &mut Option<Rect>) {
+        for child in self.aggregates.hierarchy.get_nested(root) {
+            if let Some(child_rect) = self.target_rect(child) {
+                *rect = Some(match *rect {
+                    Some(existing) => existing.joined(child_rect),
+                    None => child_rect,
+                });
+            }
+
+            self.extend_rect_with_subtree(child, rect);
+        }
     }
 
     fn extend_bounds_with_subtree(
@@ -425,6 +438,17 @@ impl DesktopSystem {
         Some(Self::transform_rect(local_rect, origin_transform))
     }
 
+    fn target_rect(&self, target: &DesktopTarget) -> Option<Rect> {
+        let placement = self.placement(target)?;
+        let rect_px: RectPx = placement.rect.into();
+        let size = Rect::from(rect_px).size();
+        let local_rect = size.to_rect();
+        let local_center = local_rect.center();
+        let origin_transform = placement.transform.to_origin_space(local_center);
+        let bounds = Self::transform_rect(local_rect, origin_transform);
+        Some(bounds.rect)
+    }
+
     fn camera_for_bounds(&self, bounds: OverviewBounds) -> Option<PixelCamera> {
         if bounds.rect.is_empty() {
             return None;
@@ -442,6 +466,16 @@ impl DesktopSystem {
             surface_size,
         );
         Some(camera.with_size(target_size))
+    }
+
+    fn camera_for_rect(&self, rect: Rect) -> Option<PixelCamera> {
+        if rect.is_empty() {
+            return None;
+        }
+
+        let center = rect.center();
+        let center: Transform = (center.x, center.y, 0.0).into();
+        Some(center.to_camera().with_size(rect.size()))
     }
 
     fn fit_size_for_points(
