@@ -5,7 +5,7 @@ use massive_applications::InstanceId;
 use massive_geometry::{Point, SizePx, Transform};
 use massive_layout::{LayoutTopology, Placement, Size as LayoutSize};
 
-use super::effects::{DesktopEffect, DesktopEffectQueue, Effects};
+use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
 use super::{
     DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
@@ -35,10 +35,9 @@ impl DesktopSystem {
             self.camera.set_immediately(camera);
         }
 
-        let mut effects = DesktopEffectQueue::default();
-        effects.enqueue_all(initial_effects);
+        let mut effects = DesktopEffectScheduler::new(initial_effects);
 
-        while let Some(effect) = effects.pop_front() {
+        while let Some(effect) = effects.pop_next() {
             let follow_up = self.handle_effect(effect, effects_mode)?;
             effects.enqueue_all(follow_up);
         }
