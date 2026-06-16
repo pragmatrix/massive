@@ -252,7 +252,25 @@ impl DesktopSystem {
             return false;
         };
 
-        self.project_row_count(project_id) > 1
+        let Some(row) = self.aggregates.launchers.get(&launcher_id).map(|l| l.placement.row) else {
+            return false;
+        };
+
+        let launcher_count = self
+            .aggregates
+            .hierarchy
+            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
+            .iter()
+            .filter_map(|target| match target {
+                DesktopTarget::Launcher(candidate_launcher) => {
+                    self.aggregates.launchers.get(candidate_launcher)
+                }
+                _ => None,
+            })
+            .filter(|launcher| launcher.placement.row == row)
+            .count();
+
+        launcher_count > 1
     }
 
     fn launcher_project(
@@ -332,28 +350,6 @@ impl DesktopSystem {
                 DesktopTarget::Launcher(launcher_id) => Some(*launcher_id),
                 _ => None,
             })
-    }
-
-    fn project_row_count(&self, project_id: crate::projects::ProjectId) -> usize {
-        let mut rows = std::collections::HashSet::new();
-
-        for target in self
-            .aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
-        {
-            let DesktopTarget::Launcher(launcher_id) = target else {
-                continue;
-            };
-
-            let Some(launcher) = self.aggregates.launchers.get(launcher_id) else {
-                continue;
-            };
-
-            rows.insert(launcher.placement.row);
-        }
-
-        rows.len()
     }
 
     fn visor_bounds(
