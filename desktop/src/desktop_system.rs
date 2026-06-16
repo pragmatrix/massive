@@ -407,7 +407,7 @@ impl DesktopSystem {
         Ok(effects::DesktopEffect::Measure(parent).into())
     }
 
-    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
+    fn placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
         self.layout_state
             .absolute_placement(target, &self.aggregates.hierarchy)
     }

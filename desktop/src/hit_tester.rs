@@ -12,7 +12,7 @@ pub(crate) trait PlacementSource {
         &self,
         target: &DesktopTarget,
         hierarchy: &OrderedHierarchy<DesktopTarget>,
-    ) -> Option<Placement<Transform, 2>>;
+    ) -> Placement<Transform, 2>;
 }
 
 pub(crate) struct AggregateHitTester<'a> {
@@ -172,7 +172,7 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
-        let placement = self.placements.placement(target, self.hierarchy)?;
+        let placement = self.placements.placement(target, self.hierarchy);
         if !placement.visible {
             return None;
         }

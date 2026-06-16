@@ -174,17 +174,16 @@ impl DesktopSystem {
         target: DesktopTarget,
         effects_mode: TransactionEffectsMode,
     ) -> Result<Effects> {
-        if let Some(placement) = self.layout_state.local_placement(&target) {
-            let layout_size = placement.rect.size;
-            let size_px = SizePx::new(layout_size[0], layout_size[1]);
-            self.apply_layout(
-                target,
-                size_px,
-                placement.transform,
-                placement.visible,
-                effects_mode.animate(),
-            );
-        }
+        let placement = self.layout_state.local_placement(&target);
+        let layout_size = placement.rect.size;
+        let size_px = SizePx::new(layout_size[0], layout_size[1]);
+        self.apply_layout(
+            target,
+            size_px,
+            placement.transform,
+            placement.visible,
+            effects_mode.animate(),
+        );
 
         Ok(Effects::None)
     }
@@ -358,7 +357,7 @@ impl DesktopSystem {
                 None => None,
             },
             Some(DesktopTarget::Launcher(launcher_id)) => {
-                self.placement(&DesktopTarget::Launcher(*launcher_id))
+                Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
             }
             _ => None,
         };
@@ -367,7 +366,7 @@ impl DesktopSystem {
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {
-        let mut placement = self.placement(&DesktopTarget::Instance(instance_id))?;
+        let mut placement = self.placement(&DesktopTarget::Instance(instance_id));
 
         // Keep hover aligned with animated instance motion by composing the current instance-local
         // animated transform with the launcher's world transform.
@@ -377,9 +376,7 @@ impl DesktopSystem {
         let Some(launcher_id) = self.instance_launcher(instance_id) else {
             return Some(placement);
         };
-        let Some(launcher_placement) = self.placement(&DesktopTarget::Launcher(launcher_id)) else {
-            return Some(placement);
-        };
+        let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
         let launcher_anchor = Self::layout_center(launcher_placement.rect.size);
         let instance_anchor = Self::layout_center(placement.rect.size);

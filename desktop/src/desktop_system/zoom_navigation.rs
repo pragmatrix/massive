@@ -252,7 +252,12 @@ impl DesktopSystem {
             return false;
         };
 
-        let Some(row) = self.aggregates.launchers.get(&launcher_id).map(|l| l.placement.row) else {
+        let Some(row) = self
+            .aggregates
+            .launchers
+            .get(&launcher_id)
+            .map(|l| l.placement.row)
+        else {
             return false;
         };
 
@@ -396,7 +401,24 @@ impl DesktopSystem {
             });
         }
 
-        rect
+        // Be sure the full width of the project is covered.
+        rect.map(|band_rect| {
+            if let Some(project_matrix_rect) = self.project_matrix_rect(project_id) {
+                (
+                    project_matrix_rect.left,
+                    band_rect.top,
+                    project_matrix_rect.right,
+                    band_rect.bottom,
+                )
+                    .into()
+            } else {
+                band_rect
+            }
+        })
+    }
+
+    fn project_matrix_rect(&self, project_id: crate::projects::ProjectId) -> Option<Rect> {
+        self.target_rect(&DesktopTarget::ProjectMatrix(project_id))
     }
 
     fn project_rect(&self, project_id: crate::projects::ProjectId) -> Option<Rect> {
@@ -437,7 +459,7 @@ impl DesktopSystem {
     }
 
     fn target_bounds(&self, target: &DesktopTarget) -> Option<OverviewBounds> {
-        let placement = self.placement(target)?;
+        let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
         // `placement.transform` is anchor-space for this target. Convert to origin-space
@@ -449,7 +471,7 @@ impl DesktopSystem {
     }
 
     fn target_rect(&self, target: &DesktopTarget) -> Option<Rect> {
-        let placement = self.placement(target)?;
+        let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
         let local_rect = size.to_rect();
