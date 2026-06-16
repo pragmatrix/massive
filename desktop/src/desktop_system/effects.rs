@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::ops;
 use std::vec;
+use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 use super::DesktopTarget;
 
@@ -12,6 +13,24 @@ pub enum DesktopEffect {
     UpdateCamera,
     SyncHover,
     SyncFocusedViewWindowState,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, EnumCount, EnumIter)]
+#[repr(usize)]
+pub enum DesktopEffectPhase {
+    Layout,
+    PostLayout,
+    Finalize,
+}
+
+impl DesktopEffect {
+    pub const fn phase(&self) -> DesktopEffectPhase {
+        match self {
+            Self::Measure(_) | Self::Place(_) | Self::ApplyLayout(_) => DesktopEffectPhase::Layout,
+            Self::UpdateCamera | Self::SyncHover => DesktopEffectPhase::PostLayout,
+            Self::SyncFocusedViewWindowState => DesktopEffectPhase::Finalize,
+        }
+    }
 }
 
 #[must_use]
@@ -68,7 +87,7 @@ impl IntoIterator for Effects {
 
 #[derive(Debug, Default)]
 pub(super) struct DesktopEffectQueue {
-    pending: VecDeque<DesktopEffect>,
+    pending_by_phase: [VecDeque<DesktopEffect>; DesktopEffectPhase::COUNT],
 }
 
 impl DesktopEffectQueue {
@@ -79,14 +98,24 @@ impl DesktopEffectQueue {
     }
 
     pub(super) fn pop_front(&mut self) -> Option<DesktopEffect> {
-        self.pending.pop_front()
+        for phase in DesktopEffectPhase::iter() {
+            let queue = &mut self.pending_by_phase[phase as usize];
+            if let Some(effect) = queue.pop_front() {
+                return Some(effect);
+            }
+        }
+
+        None
     }
 
     fn enqueue(&mut self, effect: DesktopEffect) {
-        if let Some(index) = self.pending.iter().position(|pending| pending == &effect) {
-            self.pending.remove(index);
+        let phase = effect.phase();
+        let queue = &mut self.pending_by_phase[phase as usize];
+
+        if let Some(index) = queue.iter().position(|pending| pending == &effect) {
+            queue.remove(index);
         }
 
-        self.pending.push_back(effect);
+        queue.push_back(effect);
     }
 }
