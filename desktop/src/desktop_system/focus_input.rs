@@ -212,10 +212,11 @@ impl DesktopSystem {
                 && let Some(DesktopTarget::Launcher(launcher)) =
                     self.aggregates.hierarchy.parent(&instance.into())
             {
+                let launcher_id = *launcher;
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
                         return Ok(DesktopCommand::StartInstance {
-                            launcher: *launcher,
+                            launcher: launcher_id,
                             parameters: Default::default(),
                         }
                         .into());

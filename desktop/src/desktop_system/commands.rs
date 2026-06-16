@@ -29,28 +29,8 @@ pub enum DesktopCommand {
 }
 
 impl DesktopCommand {
-    pub fn is_navigation(&self) -> bool {
-        match self {
-            Self::ZoomIn | Self::ZoomOut | Self::Navigate(_) => true,
-            Self::Project(_)
-            | Self::StartInstance { .. }
-            | Self::StopInstance(_)
-            | Self::PresentInstance { .. }
-            | Self::IntegrateInstanceSubmission(_, _) => false,
-        }
-    }
-
-    pub fn is_keyboard_command(&self) -> bool {
-        match self {
-            Self::StartInstance { .. }
-            | Self::StopInstance(_)
-            | Self::ZoomIn
-            | Self::ZoomOut
-            | Self::Navigate(_) => true,
-            Self::Project(_)
-            | Self::PresentInstance { .. }
-            | Self::IntegrateInstanceSubmission(_, _) => false,
-        }
+    pub fn resets_zoom(&self) -> bool {
+        matches!(self, Self::StartInstance { .. } | Self::StopInstance(_))
     }
 }
 

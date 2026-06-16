@@ -7,7 +7,7 @@ use massive_applications::{
 use massive_shell::Scene;
 
 use super::effects::{DesktopEffect, Effects};
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason, UserState};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use crate::focus_path::PathResolver;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
@@ -21,16 +21,12 @@ impl DesktopSystem {
         instance_manager: &mut InstanceManager,
     ) -> Result<Effects> {
         // warn!("Apply command: {command:?}");
-        let mut command_effects = Effects::None;
-        if command.is_keyboard_command()
-            && !command.is_navigation()
-            && !matches!(self.user_state, UserState::Focused)
-        {
-            self.user_state = UserState::Focused;
-            command_effects += DesktopEffect::UpdateCamera;
+        let mut effects = Effects::None;
+        if command.resets_zoom() {
+            effects += self.apply_zoom_reset_command();
         }
 
-        let effects = match command {
+        effects += match command {
             DesktopCommand::StartInstance {
                 launcher,
                 parameters,
@@ -151,8 +147,7 @@ impl DesktopSystem {
             }
         }?;
 
-        command_effects += effects;
-        Ok(command_effects)
+        Ok(effects)
     }
 
     fn apply_instance_submission(

@@ -1,7 +1,8 @@
-use super::effects::DesktopEffect;
-use super::{DesktopSystem, DesktopTarget, Effects, OverviewTarget, UserState};
 use massive_geometry::{PixelCamera, Rect, RectPx, SizePx};
 use massive_scene::{ToCamera, Transform};
+
+use super::effects::DesktopEffect;
+use super::{DesktopSystem, DesktopTarget, Effects, OverviewTarget, UserState};
 
 #[derive(Debug, Clone)]
 struct OverviewBounds {
@@ -18,6 +19,17 @@ impl OverviewBounds {
 }
 
 impl DesktopSystem {
+    pub(super) fn apply_zoom_reset_command(&mut self) -> Effects {
+        let changed = !matches!(self.user_state, UserState::Focused);
+        self.user_state = UserState::Focused;
+
+        if changed {
+            DesktopEffect::UpdateCamera.into()
+        } else {
+            Effects::None
+        }
+    }
+
     pub(super) fn apply_zoom_in_command(&mut self) -> Effects {
         let Some(next_state) = self.next_zoom_in_state() else {
             return Effects::None;
