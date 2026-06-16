@@ -125,13 +125,13 @@ impl DesktopSystem {
     ) -> Option<PixelCamera> {
         match target {
             OverviewTarget::Visor(launcher_id) => {
-                self.camera_for_bounds(self.visor_bounds(*launcher_id)?)
+                self.camera_for_bounds(self.visor_bounds(*launcher_id))
             }
             OverviewTarget::Band(launcher_id) => {
                 self.camera_for_rect(self.band_rect(*launcher_id)?)
             }
             OverviewTarget::Project(project_id) => {
-                self.camera_for_rect(self.project_rect(*project_id)?)
+                self.camera_for_rect(self.project_rect(*project_id))
             }
             OverviewTarget::Desktop => self.camera_for_focus(&DesktopTarget::Desktop),
         }
@@ -360,11 +360,11 @@ impl DesktopSystem {
     fn visor_bounds(
         &self,
         launcher_id: crate::projects::LaunchProfileId,
-    ) -> Option<OverviewBounds> {
+    ) -> OverviewBounds {
         let root = DesktopTarget::Launcher(launcher_id);
-        let mut bounds = self.target_bounds(&root);
+        let mut bounds = Some(self.target_bounds(&root));
         self.extend_bounds_with_subtree(&root, &mut bounds);
-        bounds
+        bounds.expect("Internal error: launcher bounds should always exist")
     }
 
     fn band_rect(&self, launcher_id: crate::projects::LaunchProfileId) -> Option<Rect> {
@@ -389,11 +389,7 @@ impl DesktopSystem {
                 continue;
             }
 
-            let Some(launcher_rect) =
-                self.target_rect(&DesktopTarget::Launcher(*candidate_launcher))
-            else {
-                continue;
-            };
+            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(*candidate_launcher));
 
             rect = Some(match rect {
                 Some(existing) => existing.joined(launcher_rect),
@@ -403,39 +399,35 @@ impl DesktopSystem {
 
         // Be sure the full width of the project is covered.
         rect.map(|band_rect| {
-            if let Some(project_matrix_rect) = self.project_matrix_rect(project_id) {
-                (
-                    project_matrix_rect.left,
-                    band_rect.top,
-                    project_matrix_rect.right,
-                    band_rect.bottom,
-                )
-                    .into()
-            } else {
-                band_rect
-            }
+            let project_matrix_rect = self.project_matrix_rect(project_id);
+            (
+                project_matrix_rect.left,
+                band_rect.top,
+                project_matrix_rect.right,
+                band_rect.bottom,
+            )
+                .into()
         })
     }
 
-    fn project_matrix_rect(&self, project_id: crate::projects::ProjectId) -> Option<Rect> {
+    fn project_matrix_rect(&self, project_id: crate::projects::ProjectId) -> Rect {
         self.target_rect(&DesktopTarget::ProjectMatrix(project_id))
     }
 
-    fn project_rect(&self, project_id: crate::projects::ProjectId) -> Option<Rect> {
+    fn project_rect(&self, project_id: crate::projects::ProjectId) -> Rect {
         let root = DesktopTarget::Project(project_id);
-        let mut rect = self.target_rect(&root);
+        let mut rect = Some(self.target_rect(&root));
         self.extend_rect_with_subtree(&root, &mut rect);
-        rect
+        rect.expect("Internal error: project bounds should always exist")
     }
 
     fn extend_rect_with_subtree(&self, root: &DesktopTarget, rect: &mut Option<Rect>) {
         for child in self.aggregates.hierarchy.get_nested(root) {
-            if let Some(child_rect) = self.target_rect(child) {
-                *rect = Some(match *rect {
-                    Some(existing) => existing.joined(child_rect),
-                    None => child_rect,
-                });
-            }
+            let child_rect = self.target_rect(child);
+            *rect = Some(match *rect {
+                Some(existing) => existing.joined(child_rect),
+                None => child_rect,
+            });
 
             self.extend_rect_with_subtree(child, rect);
         }
@@ -447,18 +439,17 @@ impl DesktopSystem {
         bounds: &mut Option<OverviewBounds>,
     ) {
         for child in self.aggregates.hierarchy.get_nested(root) {
-            if let Some(child_bounds) = self.target_bounds(child) {
-                *bounds = Some(match bounds.take() {
-                    Some(existing) => existing.joined(child_bounds),
-                    None => child_bounds,
-                });
-            }
+            let child_bounds = self.target_bounds(child);
+            *bounds = Some(match bounds.take() {
+                Some(existing) => existing.joined(child_bounds),
+                None => child_bounds,
+            });
 
             self.extend_bounds_with_subtree(child, bounds);
         }
     }
 
-    fn target_bounds(&self, target: &DesktopTarget) -> Option<OverviewBounds> {
+    fn target_bounds(&self, target: &DesktopTarget) -> OverviewBounds {
         let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
@@ -467,10 +458,10 @@ impl DesktopSystem {
         let local_rect = size.to_rect();
         let local_center = local_rect.center();
         let origin_transform = placement.transform.to_origin_space(local_center);
-        Some(Self::transform_rect(local_rect, origin_transform))
+        Self::transform_rect(local_rect, origin_transform)
     }
 
-    fn target_rect(&self, target: &DesktopTarget) -> Option<Rect> {
+    fn target_rect(&self, target: &DesktopTarget) -> Rect {
         let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
@@ -478,7 +469,7 @@ impl DesktopSystem {
         let local_center = local_rect.center();
         let origin_transform = placement.transform.to_origin_space(local_center);
         let bounds = Self::transform_rect(local_rect, origin_transform);
-        Some(bounds.rect)
+        bounds.rect
     }
 
     fn camera_for_bounds(&self, bounds: OverviewBounds) -> Option<PixelCamera> {

@@ -342,7 +342,7 @@ impl DesktopSystem {
     ) {
         let hover_placement = match pointer_focus {
             Some(DesktopTarget::Instance(instance_id)) => {
-                self.instance_hover_placement(*instance_id)
+                Some(self.instance_hover_placement(*instance_id))
             }
             Some(DesktopTarget::View(view_id)) => match self
                 .aggregates
@@ -350,7 +350,7 @@ impl DesktopSystem {
                 .parent(&DesktopTarget::View(*view_id))
             {
                 Some(DesktopTarget::Instance(instance_id)) => {
-                    self.instance_hover_placement(*instance_id)
+                    Some(self.instance_hover_placement(*instance_id))
                 }
                 Some(_) => panic!("Internal error: View parent is not an instance"),
                 None => None,
@@ -364,16 +364,16 @@ impl DesktopSystem {
         self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
-    fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {
+    fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
         let mut placement = self.placement(&DesktopTarget::Instance(instance_id));
 
         // Keep hover aligned with animated instance motion by composing the current instance-local
         // animated transform with the launcher's world transform.
         let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
-            return Some(placement);
+            return placement;
         };
         let Some(launcher_id) = self.instance_launcher(instance_id) else {
-            return Some(placement);
+            return placement;
         };
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
@@ -386,7 +386,7 @@ impl DesktopSystem {
             instance_anchor,
         );
 
-        Some(placement)
+        placement
     }
 
     fn layout_center(size: LayoutSize<2>) -> Point {
