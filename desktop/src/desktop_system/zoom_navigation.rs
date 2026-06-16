@@ -241,7 +241,9 @@ impl DesktopSystem {
         self.aggregates
             .hierarchy
             .get_nested(&DesktopTarget::Launcher(launcher_id))
-            .len()
+            .iter()
+            .filter(|target| matches!(target, DesktopTarget::Instance(_)))
+            .count()
             > 1
     }
 
