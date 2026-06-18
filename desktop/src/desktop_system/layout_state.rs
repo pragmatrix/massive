@@ -242,9 +242,9 @@ impl DesktopLayoutState {
         self.entries
             .get(target)
             .copied()
-            .unwrap_or_else(|| panic!("Internal error: missing layout entry for target"))
+            .unwrap_or_else(|| panic!("Internal error: missing layout entry for target {target:?}"))
             .placement
-            .unwrap_or_else(|| panic!("Internal error: missing local placement for target"))
+            .unwrap_or_else(|| panic!("Internal error: missing local placement for target {target:?}"))
     }
 }
 
