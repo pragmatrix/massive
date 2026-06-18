@@ -13,7 +13,7 @@ The default user state where the camera follows the keyboard-focused target.
 _Avoid_: normal mode, zoomed-in
 
 **Overview**:
-A user state where the camera detaches from focus and follows a separate overview target while keyboard focus stays put. `Ctrl+Cmd+Down` enters or climbs it one hierarchy level per press; any non-navigation command returns to `Focused`.
+A user state where the camera detaches from focus and follows a separate overview target while keyboard focus stays put. `Ctrl+Down` enters or climbs it one hierarchy level per press; `Ctrl+Up` zooms back in one level; any non-navigation command returns to `Focused`.
 _Avoid_: zoomed out (the `ZoomOut` command name is retained, but the state is "overview"), bird's-eye
 
 **Overview target**:
