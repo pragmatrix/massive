@@ -15,7 +15,9 @@ pub enum DesktopEffect {
     SyncFocusedViewWindowState,
 }
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, EnumCount, EnumIter)]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, EnumCount, EnumIter,
+)]
 #[repr(usize)]
 enum DesktopEffectPhase {
     #[default]

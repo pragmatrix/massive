@@ -147,7 +147,9 @@ impl DesktopSystem {
                 Some(camera_transform.to_camera())
             }
             DesktopTarget::Instance(instance_id) => {
-                let transform = self.placement(&DesktopTarget::Instance(*instance_id)).transform;
+                let transform = self
+                    .placement(&DesktopTarget::Instance(*instance_id))
+                    .transform;
                 let transform: Transform = transform.translate.into();
                 Some(transform.to_camera())
             }
