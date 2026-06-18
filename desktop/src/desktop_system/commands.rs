@@ -23,8 +23,15 @@ pub enum DesktopCommand {
         root: InstanceRoot,
     },
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+    ZoomIn,
     ZoomOut,
     Navigate(Direction),
+}
+
+impl DesktopCommand {
+    pub fn resets_zoom(&self) -> bool {
+        matches!(self, Self::StartInstance { .. } | Self::StopInstance(_))
+    }
 }
 
 #[derive(Debug)]

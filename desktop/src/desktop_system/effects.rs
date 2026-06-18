@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::ops;
 use std::vec;
+use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 use super::DesktopTarget;
 
@@ -12,6 +13,27 @@ pub enum DesktopEffect {
     UpdateCamera,
     SyncHover,
     SyncFocusedViewWindowState,
+}
+
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, EnumCount, EnumIter,
+)]
+#[repr(usize)]
+enum DesktopEffectPhase {
+    #[default]
+    Layout,
+    PostLayout,
+    Finalize,
+}
+
+impl DesktopEffect {
+    const fn phase(&self) -> DesktopEffectPhase {
+        match self {
+            Self::Measure(_) | Self::Place(_) | Self::ApplyLayout(_) => DesktopEffectPhase::Layout,
+            Self::UpdateCamera | Self::SyncHover => DesktopEffectPhase::PostLayout,
+            Self::SyncFocusedViewWindowState => DesktopEffectPhase::Finalize,
+        }
+    }
 }
 
 #[must_use]
@@ -66,27 +88,55 @@ impl IntoIterator for Effects {
     }
 }
 
-#[derive(Debug, Default)]
-pub(super) struct DesktopEffectQueue {
-    pending: VecDeque<DesktopEffect>,
+#[derive(Debug)]
+pub struct DesktopEffectScheduler {
+    pending_by_phase: [VecDeque<DesktopEffect>; DesktopEffectPhase::COUNT],
+    current_phase: DesktopEffectPhase,
 }
 
-impl DesktopEffectQueue {
-    pub(super) fn enqueue_all(&mut self, effects: Effects) {
+impl DesktopEffectScheduler {
+    pub fn new(initial_effects: Effects) -> Self {
+        let mut scheduler = Self {
+            pending_by_phase: Default::default(),
+            current_phase: DesktopEffectPhase::default(),
+        };
+        scheduler.enqueue_all(initial_effects);
+        scheduler
+    }
+
+    pub fn enqueue_all(&mut self, effects: Effects) {
         for effect in effects {
             self.enqueue(effect);
         }
     }
 
-    pub(super) fn pop_front(&mut self) -> Option<DesktopEffect> {
-        self.pending.pop_front()
+    pub fn pop_next(&mut self) -> Option<DesktopEffect> {
+        for phase in DesktopEffectPhase::iter().filter(|phase| *phase >= self.current_phase) {
+            let queue = &mut self.pending_by_phase[phase as usize];
+            if let Some(effect) = queue.pop_front() {
+                self.current_phase = phase;
+                return Some(effect);
+            }
+        }
+
+        None
     }
 
     fn enqueue(&mut self, effect: DesktopEffect) {
-        if let Some(index) = self.pending.iter().position(|pending| pending == &effect) {
-            self.pending.remove(index);
+        let phase = effect.phase();
+        if phase < self.current_phase {
+            panic!(
+                "Internal error: effect {effect:?} enqueued for completed phase {phase:?} while running {:?}",
+                self.current_phase
+            );
         }
 
-        self.pending.push_back(effect);
+        let queue = &mut self.pending_by_phase[phase as usize];
+
+        if let Some(index) = queue.iter().position(|pending| pending == &effect) {
+            queue.remove(index);
+        }
+
+        queue.push_back(effect);
     }
 }

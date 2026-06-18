@@ -21,7 +21,12 @@ impl DesktopSystem {
         instance_manager: &mut InstanceManager,
     ) -> Result<Effects> {
         // warn!("Apply command: {command:?}");
-        match command {
+        let mut effects = Effects::None;
+        if command.resets_zoom() {
+            effects += self.apply_zoom_reset_command();
+        }
+
+        effects += match command {
             DesktopCommand::StartInstance {
                 launcher,
                 parameters,
@@ -135,24 +140,14 @@ impl DesktopSystem {
                 self.apply_project_command(project_command, scene)
             }
 
-            DesktopCommand::ZoomOut => {
-                if let Some(focused) = self.event_router.focused()
-                    && let Some(parent) = self.aggregates.hierarchy.parent(focused)
-                {
-                    return self.focus(&parent.clone(), instance_manager, FocusReason::ZoomOut);
-                }
-                Ok(Effects::None)
-            }
+            DesktopCommand::ZoomIn => Ok(self.apply_zoom_in_command()),
+            DesktopCommand::ZoomOut => Ok(self.apply_zoom_out_command()),
             DesktopCommand::Navigate(direction) => {
-                let focused = self.event_router.focused().cloned();
-                if let Some(focused) = focused.as_ref()
-                    && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
-                {
-                    return self.focus(&candidate, instance_manager, FocusReason::Navigate);
-                }
-                Ok(Effects::None)
+                self.apply_navigate_command(direction, instance_manager)
             }
-        }
+        }?;
+
+        Ok(effects)
     }
 
     fn apply_instance_submission(

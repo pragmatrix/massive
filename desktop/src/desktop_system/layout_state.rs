@@ -195,18 +195,11 @@ impl DesktopLayoutState {
         child_placements
     }
 
-    pub fn local_placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
-        self.entries
-            .get(target)
-            .copied()
-            .and_then(|entry| entry.placement)
-    }
-
     pub fn absolute_placement(
         &self,
         target: &DesktopTarget,
         topology: &impl LayoutTopology<DesktopTarget>,
-    ) -> Option<Placement<Transform, 2>> {
+    ) -> Placement<Transform, 2> {
         let mut path = Vec::new();
         let mut current = target.clone();
         loop {
@@ -221,7 +214,7 @@ impl DesktopLayoutState {
         let mut offset = Offset::default();
         let mut visible = true;
         for path_target in path.iter().rev() {
-            let placement = self.local_placement(path_target)?;
+            let placement = self.local_placement(path_target);
             visible = visible && placement.visible;
             let local_origin_transform = if *path_target == DesktopTarget::Desktop {
                 // Desktop transform is already origin-based (IDENTITY in the common case).
@@ -234,18 +227,26 @@ impl DesktopLayoutState {
             offset += placement.rect.offset;
         }
 
-        let local = self.local_placement(target)?;
+        let local = self.local_placement(target);
         let local_center = Self::layout_local_center(local.rect.size);
         let transform = origin_transform.to_anchor_space(local_center);
 
-        Some(
-            Placement::new(transform, LayoutRect::new(offset, local.rect.size))
-                .with_visibility(visible),
-        )
+        Placement::new(transform, LayoutRect::new(offset, local.rect.size)).with_visibility(visible)
     }
 
     fn layout_local_center(size: LayoutSize<2>) -> Point {
         Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
+    }
+
+    pub fn local_placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
+        self.entries
+            .get(target)
+            .copied()
+            .unwrap_or_else(|| panic!("Internal error: missing layout entry for target {target:?}"))
+            .placement
+            .unwrap_or_else(|| {
+                panic!("Internal error: missing local placement for target {target:?}")
+            })
     }
 }
 
@@ -254,7 +255,7 @@ impl PlacementSource for DesktopLayoutState {
         &self,
         target: &DesktopTarget,
         hierarchy: &OrderedHierarchy<DesktopTarget>,
-    ) -> Option<Placement<Transform, 2>> {
+    ) -> Placement<Transform, 2> {
         self.absolute_placement(target, hierarchy)
     }
 }
@@ -437,9 +438,7 @@ mod tests {
 
         assert_eq!(changed, vec![PlacementUpdate::ChangedSizeUnchanged]);
 
-        let final_project = state
-            .local_placement(&project)
-            .expect("expected final project placement");
+        let final_project = state.local_placement(&project);
 
         assert_eq!(final_project.rect.offset, [7, 3].into());
     }

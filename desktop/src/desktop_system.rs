@@ -21,6 +21,7 @@ mod layout_state;
 mod navigation;
 mod presentation;
 mod project_commands;
+mod zoom_navigation;
 
 use anyhow::{Result, bail};
 use derive_more::Debug;
@@ -39,7 +40,7 @@ use massive_shell::{FontManager, Scene, ShellWindow};
 pub use commands::{DesktopCommand, ProjectCommand};
 pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
-pub(crate) use layout_algorithm::place_container_children;
+pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 
@@ -96,12 +97,26 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum UserState {
+    #[default]
+    Focused,
+    Overview(OverviewTarget),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum OverviewTarget {
+    Visor(LaunchProfileId),
+    Band(LaunchProfileId),
+    Project(ProjectId),
+    Desktop,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum FocusReason {
     InputTransition,
     StopInstanceReplacement,
     PresentInstance,
-    ZoomOut,
     Navigate,
     PromotePrimaryView,
 }
@@ -113,7 +128,6 @@ impl FocusReason {
             FocusReason::InputTransition
             | FocusReason::StopInstanceReplacement
             | FocusReason::PresentInstance
-            | FocusReason::ZoomOut
             | FocusReason::PromotePrimaryView => true,
         }
     }
@@ -155,6 +169,7 @@ pub struct DesktopSystem {
 
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
+    user_state: UserState,
     pointer_feedback_enabled: bool,
     navigation_control: NavigationControl,
     /// Launchers queued for focus-driven relayout once pointer buttons are released.
@@ -220,6 +235,7 @@ impl DesktopSystem {
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
+            user_state: UserState::Focused,
             pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
             deferred_focus_layout_launchers: HashSet::new(),
@@ -391,7 +407,7 @@ impl DesktopSystem {
         Ok(effects::DesktopEffect::Measure(parent).into())
     }
 
-    fn placement(&self, target: &DesktopTarget) -> Option<Placement<Transform, 2>> {
+    fn placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
         self.layout_state
             .absolute_placement(target, &self.aggregates.hierarchy)
     }

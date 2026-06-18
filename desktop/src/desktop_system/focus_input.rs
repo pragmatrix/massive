@@ -212,10 +212,11 @@ impl DesktopSystem {
                 && let Some(DesktopTarget::Launcher(launcher)) =
                     self.aggregates.hierarchy.parent(&instance.into())
             {
+                let launcher_id = *launcher;
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
                         return Ok(DesktopCommand::StartInstance {
-                            launcher: *launcher,
+                            launcher: launcher_id,
                             parameters: Default::default(),
                         }
                         .into());
@@ -236,11 +237,16 @@ impl DesktopSystem {
                 Key::Named(NamedKey::ArrowDown) => Some(Direction::Down),
                 _ => None,
             } {
-                return Ok(DesktopCommand::Navigate(direction).into());
-            }
+                if event.device_states().is_ctrl() {
+                    if direction == Direction::Up {
+                        return Ok(DesktopCommand::ZoomIn.into());
+                    }
 
-            if let Key::Named(NamedKey::Escape) = &key_event.logical_key {
-                return Ok(DesktopCommand::ZoomOut.into());
+                    if direction == Direction::Down {
+                        return Ok(DesktopCommand::ZoomOut.into());
+                    }
+                }
+                return Ok(DesktopCommand::Navigate(direction).into());
             }
         }
 

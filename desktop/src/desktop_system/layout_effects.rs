@@ -5,9 +5,11 @@ use massive_applications::InstanceId;
 use massive_geometry::{Point, SizePx, Transform};
 use massive_layout::{LayoutTopology, Placement, Size as LayoutSize};
 
-use super::effects::{DesktopEffect, DesktopEffectQueue, Effects};
+use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
-use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
+use super::{
+    DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
+};
 use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::projects::LaunchProfileId;
@@ -33,10 +35,9 @@ impl DesktopSystem {
             self.camera.set_immediately(camera);
         }
 
-        let mut effects = DesktopEffectQueue::default();
-        effects.enqueue_all(initial_effects);
+        let mut effects = DesktopEffectScheduler::new(initial_effects);
 
-        while let Some(effect) = effects.pop_front() {
+        while let Some(effect) = effects.pop_next() {
             let follow_up = self.handle_effect(effect, effects_mode)?;
             effects.enqueue_all(follow_up);
         }
@@ -172,17 +173,16 @@ impl DesktopSystem {
         target: DesktopTarget,
         effects_mode: TransactionEffectsMode,
     ) -> Result<Effects> {
-        if let Some(placement) = self.layout_state.local_placement(&target) {
-            let layout_size = placement.rect.size;
-            let size_px = SizePx::new(layout_size[0], layout_size[1]);
-            self.apply_layout(
-                target,
-                size_px,
-                placement.transform,
-                placement.visible,
-                effects_mode.animate(),
-            );
-        }
+        let placement = self.layout_state.local_placement(&target);
+        let layout_size = placement.rect.size;
+        let size_px = SizePx::new(layout_size[0], layout_size[1]);
+        self.apply_layout(
+            target,
+            size_px,
+            placement.transform,
+            placement.visible,
+            effects_mode.animate(),
+        );
 
         Ok(Effects::None)
     }
@@ -192,19 +192,23 @@ impl DesktopSystem {
             return;
         }
 
-        let focused_target = self.event_router.focused().cloned();
-        if let Some(focused) = focused_target.as_ref() {
-            let camera = self.camera_for_focus(focused);
-            if let Some(camera) = camera {
-                if effects_mode.animate() {
-                    self.camera.animate_if_changed(
-                        camera,
-                        STRUCTURAL_ANIMATION_DURATION,
-                        Interpolation::CubicOut,
-                    );
-                } else {
-                    self.camera.set_immediately(camera);
-                }
+        let camera_target = match &self.user_state {
+            UserState::Focused => self
+                .event_router
+                .focused()
+                .and_then(|target| self.camera_for_focus(target)),
+            UserState::Overview(target) => self.camera_for_overview_target(target),
+        };
+
+        if let Some(camera) = camera_target {
+            if effects_mode.animate() {
+                self.camera.animate_if_changed(
+                    camera,
+                    STRUCTURAL_ANIMATION_DURATION,
+                    Interpolation::CubicOut,
+                );
+            } else {
+                self.camera.set_immediately(camera);
             }
         }
     }
@@ -338,7 +342,7 @@ impl DesktopSystem {
     ) {
         let hover_placement = match pointer_focus {
             Some(DesktopTarget::Instance(instance_id)) => {
-                self.instance_hover_placement(*instance_id)
+                Some(self.instance_hover_placement(*instance_id))
             }
             Some(DesktopTarget::View(view_id)) => match self
                 .aggregates
@@ -346,13 +350,13 @@ impl DesktopSystem {
                 .parent(&DesktopTarget::View(*view_id))
             {
                 Some(DesktopTarget::Instance(instance_id)) => {
-                    self.instance_hover_placement(*instance_id)
+                    Some(self.instance_hover_placement(*instance_id))
                 }
                 Some(_) => panic!("Internal error: View parent is not an instance"),
                 None => None,
             },
             Some(DesktopTarget::Launcher(launcher_id)) => {
-                self.placement(&DesktopTarget::Launcher(*launcher_id))
+                Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
             }
             _ => None,
         };
@@ -360,20 +364,18 @@ impl DesktopSystem {
         self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
-    fn instance_hover_placement(&self, instance_id: InstanceId) -> Option<Placement<Transform, 2>> {
-        let mut placement = self.placement(&DesktopTarget::Instance(instance_id))?;
+    fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
+        let mut placement = self.placement(&DesktopTarget::Instance(instance_id));
 
         // Keep hover aligned with animated instance motion by composing the current instance-local
         // animated transform with the launcher's world transform.
         let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
-            return Some(placement);
+            return placement;
         };
         let Some(launcher_id) = self.instance_launcher(instance_id) else {
-            return Some(placement);
+            return placement;
         };
-        let Some(launcher_placement) = self.placement(&DesktopTarget::Launcher(launcher_id)) else {
-            return Some(placement);
-        };
+        let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
         let launcher_anchor = Self::layout_center(launcher_placement.rect.size);
         let instance_anchor = Self::layout_center(placement.rect.size);
@@ -384,7 +386,7 @@ impl DesktopSystem {
             instance_anchor,
         );
 
-        Some(placement)
+        placement
     }
 
     fn layout_center(size: LayoutSize<2>) -> Point {

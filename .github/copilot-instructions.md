@@ -43,7 +43,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Prefer qualified enum variants when it improves clarity over imported discriminants.
 - Structure imports with common-root `use` lines (for example `use std::sync::Arc;`) rather than nested hierarchical `use` trees.
 - Keep grouped imports shallow; avoid multi-level brace nesting in `use` statements unless the surrounding file already consistently uses that style.
-- Use `pub` visibility by default. Only use `pub(crate)` when the containing module is already crate-public.
+- Use `pub` visibility by default. Control visibility at module boundaries whenever possible; avoid `pub(crate)` and `pub(super)` unless module boundaries cannot express the intended access.
 - Prefer adding fields to existing structs over creating parallel data structures.
 - Use constructor functions and derive helpers for newtype patterns.
 - When implementing newtypes, include `Copy` and `Clone` when the wrapped type supports them.
@@ -55,10 +55,12 @@ Update it whenever you learn something new about the project's patterns, convent
 - Avoid unsafe or experimental APIs unless required.
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
+- When internal APIs become infallible, propagate that contract through helper methods and traits, and remove Option-based branching unless absence is still a real domain state.
 - Avoid redundant work; only perform writes, recomputations, or updates when they are necessary for correctness.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state, and prefer deriving computed values at read boundaries over maintaining mirrored caches.
 - Keep invariant checks and mode gating at one layer where practical.
+- Treat unnecessary `Option` state as defensive programming; prefer concrete state when initialization and invariants guarantee a value.
 - For internal invariant violations, prefer explicit panics over silent fallback/continue paths.
 - When code guarantees an invariant, avoid defensive fallback branches for that path; keep the direct path and fail explicitly if the invariant is violated.
 - When structure guarantees a concrete target type, convert at the boundary instead of carrying optional identities through lower-level APIs.
