@@ -1,4 +1,4 @@
-use massive_geometry::{PixelCamera, Rect, RectPx, SizePx};
+use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
 use massive_scene::{ToCamera, Transform};
 
 use super::effects::DesktopEffect;
@@ -7,7 +7,7 @@ use super::{DesktopSystem, DesktopTarget, Effects, OverviewTarget, UserState};
 #[derive(Debug, Clone)]
 struct OverviewBounds {
     rect: Rect,
-    points: Vec<massive_geometry::Vector3>,
+    points: Vec<Vector3>,
 }
 
 impl OverviewBounds {
@@ -20,7 +20,10 @@ impl OverviewBounds {
 
 impl DesktopSystem {
     pub(super) fn apply_zoom_reset_command(&mut self) -> Effects {
-        let changed = !matches!(self.user_state, UserState::Focused);
+        let changed = match self.user_state {
+            UserState::Focused => false,
+            UserState::Overview(_) => true,
+        };
         self.user_state = UserState::Focused;
 
         if changed {
@@ -50,10 +53,10 @@ impl DesktopSystem {
             return Effects::None;
         };
 
-        let changed = !matches!(
-            self.user_state,
-            UserState::Overview(ref current) if *current == zoom_target
-        );
+        let changed = match &self.user_state {
+            UserState::Overview(current) => current != &zoom_target,
+            UserState::Focused => true,
+        };
 
         self.user_state = UserState::Overview(zoom_target);
 
@@ -357,10 +360,7 @@ impl DesktopSystem {
             })
     }
 
-    fn visor_bounds(
-        &self,
-        launcher_id: crate::projects::LaunchProfileId,
-    ) -> OverviewBounds {
+    fn visor_bounds(&self, launcher_id: crate::projects::LaunchProfileId) -> OverviewBounds {
         let root = DesktopTarget::Launcher(launcher_id);
         let mut bounds = Some(self.target_bounds(&root));
         self.extend_bounds_with_subtree(&root, &mut bounds);
@@ -503,11 +503,11 @@ impl DesktopSystem {
 
     fn fit_size_for_points(
         rect: Rect,
-        center: massive_geometry::Vector3,
-        points: &[massive_geometry::Vector3],
+        center: Vector3,
+        points: &[Vector3],
         fovy: f64,
         surface_size: SizePx,
-    ) -> massive_geometry::Size {
+    ) -> Size {
         if points.is_empty() {
             return rect.size();
         }
@@ -536,9 +536,9 @@ impl DesktopSystem {
     }
 
     fn points_fit_in_surface(
-        target_size: massive_geometry::Size,
-        center: massive_geometry::Vector3,
-        points: &[massive_geometry::Vector3],
+        target_size: Size,
+        center: Vector3,
+        points: &[Vector3],
         fovy: f64,
         surface_size: SizePx,
     ) -> bool {
