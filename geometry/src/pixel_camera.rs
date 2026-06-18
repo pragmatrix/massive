@@ -69,7 +69,7 @@ impl PixelCamera {
         self.target_scale_matrix(surface_size) * self.look_at.inverse().to_matrix4()
     }
 
-    /// Move the model further back in NDC coordinate space, so that it's pointed-to position is
+    /// Move the model further back in NDC coordinate space, so that its pointed-to position is
     /// visible.
     pub fn ndc_camera_move(&self) -> Matrix4 {
         let camera_distance = 1.0 / (self.fovy / 2.0).to_radians().tan();
