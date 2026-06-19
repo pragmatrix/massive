@@ -12,7 +12,6 @@ use super::{
     POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
 };
 use crate::event_router::EventTransitions;
-use crate::focus_path::PathResolver;
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
 
@@ -133,13 +132,9 @@ impl DesktopSystem {
         }
     }
 
-    // Inform the launchers that are affected by the focus change.
+    // Inform launchers that are affected by the focus change.
     fn update_launcher_focus_anchor_on_keyboard_focus_change(&mut self) {
-        let focused_instance = self
-            .aggregates
-            .hierarchy
-            .resolve_path(self.event_router.focused())
-            .instance();
+        let focused_instance = self.focused_path().instance();
 
         let Some(instance_id) = focused_instance else {
             return;
@@ -204,8 +199,7 @@ impl DesktopSystem {
             && !key_event.repeat
             && event.device_states().is_command()
         {
-            let focused = self.event_router.focused();
-            let focused = self.aggregates.hierarchy.resolve_path(focused);
+            let focused = self.focused_path();
 
             // Simplify: Instance should probably return the launcher, too now.
             if let Some(instance) = focused.instance()

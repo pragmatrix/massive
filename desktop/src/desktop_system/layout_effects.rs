@@ -10,7 +10,6 @@ use super::layout_state::PlacementUpdate;
 use super::{
     DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
 };
-use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::projects::LaunchProfileId;
 
@@ -84,12 +83,7 @@ impl DesktopSystem {
     /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
     /// and re-enqueues `Measure(parent)` only when the measured size changed.
     fn measure_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
-        let focused_target = self.event_router.focused().cloned();
-        let focused_instance = self
-            .aggregates
-            .hierarchy
-            .resolve_path(focused_target.as_ref())
-            .instance();
+        let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
@@ -132,12 +126,7 @@ impl DesktopSystem {
     /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
     /// placement changed, then always schedules camera and hover synchronization.
     fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
-        let focused_target = self.event_router.focused().cloned();
-        let focused_instance = self
-            .aggregates
-            .hierarchy
-            .resolve_path(focused_target.as_ref())
-            .instance();
+        let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
@@ -320,7 +309,7 @@ impl DesktopSystem {
     /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or
     /// `None` if the target's launcher does not require focus-driven relayout.
     fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
-        let focused_path = self.aggregates.hierarchy.resolve_path(Some(target));
+        let focused_path = self.path_of(target);
         let focused_instance = focused_path.instance()?;
         let launcher_id = self.instance_launcher(focused_instance)?;
         let instance_count = self

@@ -8,7 +8,6 @@ use massive_shell::Scene;
 
 use super::effects::{DesktopEffect, Effects};
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
-use crate::focus_path::PathResolver;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 
@@ -103,11 +102,7 @@ impl DesktopSystem {
                 instance,
                 root,
             } => {
-                let originating_from = self
-                    .aggregates
-                    .hierarchy
-                    .resolve_path(self.event_router.focused())
-                    .instance();
+                let originating_from = self.focused_path().instance();
 
                 let insertion_index =
                     self.present_instance(launcher, originating_from, instance, root, scene)?;

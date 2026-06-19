@@ -18,19 +18,19 @@ impl DesktopSystem {
 
         let keyboard_modifiers = self.event_router.keyboard_modifiers();
 
-        let send_transitions =
+        let targeted_events =
             convert_to_targeted_events(transitions, keyboard_modifiers, &self.aggregates.hierarchy);
 
         // Robustness: While we need to forward all transitions we currently process only one intent.
-        for transition in send_transitions {
-            cmd += self.forward_event_transition(transition, instance_manager)?;
+        for event in targeted_events {
+            cmd += self.forward_event(event, instance_manager)?;
         }
 
         Ok(cmd)
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
-    fn forward_event_transition(
+    fn forward_event(
         &mut self,
         TargetedEvent(target, event): TargetedEvent<DesktopTarget>,
         instance_manager: &InstanceManager,

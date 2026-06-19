@@ -364,7 +364,7 @@ impl DesktopSystem {
             return Ok(None);
         };
 
-        let focused_path = self.aggregates.hierarchy.resolve_path(Some(focused));
+        let focused_path = self.path_of(Some(focused));
         let Some(instance) = focused_path.instance() else {
             return Ok(None);
         };
@@ -410,6 +410,17 @@ impl DesktopSystem {
     fn placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
         self.layout_state
             .absolute_placement(target, &self.aggregates.hierarchy)
+    }
+
+    pub(super) fn focused_path(&self) -> DesktopFocusPath {
+        self.path_of(self.event_router.focused())
+    }
+
+    pub(super) fn path_of<'a>(
+        &'a self,
+        target: impl Into<Option<&'a DesktopTarget>>,
+    ) -> DesktopFocusPath {
+        self.aggregates.hierarchy.resolve_path(target)
     }
 }
 
