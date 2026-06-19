@@ -4,14 +4,18 @@ use winit::event::Modifiers;
 use crate::EventTransition;
 use crate::focus_path::{FocusTransition, PathResolver};
 
+/// A `TargetedEvent` contains a final target and an event that the target needs to receive.
+///
+/// It got introduced so that `EventTransition`s (that contain keyboard and focus changes) can be
+/// lowered to a list of events that are targeted.
 #[derive(Debug)]
-pub struct SendTransition<T>(pub T, pub ViewEvent);
+pub struct TargetedEvent<T>(pub T, pub ViewEvent);
 
-pub fn convert_to_send_transitions<T>(
+pub fn convert_to_targeted_events<T>(
     transitions: impl IntoIterator<Item = EventTransition<T>>,
     keyboard_modifiers: Modifiers,
     path_resolver: &impl PathResolver<T>,
-) -> Vec<SendTransition<T>>
+) -> Vec<TargetedEvent<T>>
 where
     T: Clone + PartialEq,
 {
@@ -20,10 +24,10 @@ where
     for transition in transitions {
         match transition {
             EventTransition::Send(target, event) => {
-                send_transitions.push(SendTransition(target, event));
+                send_transitions.push(TargetedEvent(target, event));
             }
             EventTransition::ChangeKeyboardFocus { from, to } => {
-                send_transitions.extend(focus_change_to_send_transitions(
+                send_transitions.extend(focus_change_to_targeted_events(
                     from.as_ref(),
                     to.as_ref(),
                     keyboard_modifiers,
@@ -33,7 +37,7 @@ where
                 ));
             }
             EventTransition::ChangePointerFocus { from, to } => {
-                send_transitions.extend(focus_change_to_send_transitions(
+                send_transitions.extend(focus_change_to_targeted_events(
                     from.as_ref(),
                     to.as_ref(),
                     keyboard_modifiers,
@@ -48,14 +52,14 @@ where
     send_transitions
 }
 
-fn focus_change_to_send_transitions<T>(
+fn focus_change_to_targeted_events<T>(
     from: Option<&T>,
     to: Option<&T>,
     modifiers: Modifiers,
     on_exit: impl Fn() -> ViewEvent,
     on_enter: impl Fn() -> ViewEvent,
     path_resolver: &impl PathResolver<T>,
-) -> Vec<SendTransition<T>>
+) -> Vec<TargetedEvent<T>>
 where
     T: Clone + PartialEq,
 {
@@ -67,17 +71,17 @@ where
         match transition {
             FocusTransition::Exit(target) => {
                 let event = on_exit();
-                send_transitions.push(SendTransition(target, event));
+                send_transitions.push(TargetedEvent(target, event));
             }
             FocusTransition::Enter(target) => {
                 let event = on_enter();
-                send_transitions.push(SendTransition(target, event));
+                send_transitions.push(TargetedEvent(target, event));
             }
         }
     }
 
     if let Some(to) = to {
-        send_transitions.push(SendTransition(
+        send_transitions.push(TargetedEvent(
             to.clone(),
             ViewEvent::ModifiersChanged(modifiers),
         ));
@@ -91,10 +95,10 @@ mod tests {
     use super::*;
     use crate::OrderedHierarchy;
 
-    fn transition_signature(transitions: Vec<SendTransition<i32>>) -> Vec<(i32, &'static str)> {
+    fn transition_signature(transitions: Vec<TargetedEvent<i32>>) -> Vec<(i32, &'static str)> {
         transitions
             .into_iter()
-            .map(|SendTransition(target, event)| {
+            .map(|TargetedEvent(target, event)| {
                 let kind = match event {
                     ViewEvent::Focused(true) => "FocusIn",
                     ViewEvent::Focused(false) => "FocusOut",
@@ -120,7 +124,7 @@ mod tests {
     #[test]
     fn keyboard_focus_change_adds_enter_exit_and_modifiers_tail() {
         let hierarchy = tree_with_shared_root();
-        let transitions = convert_to_send_transitions(
+        let transitions = convert_to_targeted_events(
             [EventTransition::ChangeKeyboardFocus {
                 from: Some(3),
                 to: Some(5),
@@ -144,7 +148,7 @@ mod tests {
     #[test]
     fn pointer_focus_change_also_includes_modifiers_tail() {
         let hierarchy = tree_with_shared_root();
-        let transitions = convert_to_send_transitions(
+        let transitions = convert_to_targeted_events(
             [EventTransition::ChangePointerFocus {
                 from: Some(3),
                 to: Some(5),
@@ -168,7 +172,7 @@ mod tests {
     #[test]
     fn none_to_none_focus_change_produces_no_transitions() {
         let hierarchy = tree_with_shared_root();
-        let transitions = convert_to_send_transitions(
+        let transitions = convert_to_targeted_events(
             [EventTransition::ChangeKeyboardFocus {
                 from: None,
                 to: None,

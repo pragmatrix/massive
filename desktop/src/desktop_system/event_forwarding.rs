@@ -4,7 +4,7 @@ use log::warn;
 use crate::event_router::EventTransitions;
 use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
-use crate::send_transition::{SendTransition, convert_to_send_transitions};
+use crate::targeted_event::{TargetedEvent, convert_to_targeted_events};
 
 use super::{Cmd, DesktopSystem, DesktopTarget};
 
@@ -18,11 +18,8 @@ impl DesktopSystem {
 
         let keyboard_modifiers = self.event_router.keyboard_modifiers();
 
-        let send_transitions = convert_to_send_transitions(
-            transitions,
-            keyboard_modifiers,
-            &self.aggregates.hierarchy,
-        );
+        let send_transitions =
+            convert_to_targeted_events(transitions, keyboard_modifiers, &self.aggregates.hierarchy);
 
         // Robustness: While we need to forward all transitions we currently process only one intent.
         for transition in send_transitions {
@@ -35,7 +32,7 @@ impl DesktopSystem {
     /// Forward event transitions to the appropriate handler based on the target type.
     fn forward_event_transition(
         &mut self,
-        SendTransition(target, event): SendTransition<DesktopTarget>,
+        TargetedEvent(target, event): TargetedEvent<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Cmd> {
         // Route to the appropriate handler based on the last target in the path
