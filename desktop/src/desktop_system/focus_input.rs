@@ -134,22 +134,15 @@ impl DesktopSystem {
 
     // Inform launchers that are affected by the focus change.
     fn update_launcher_focus_anchor_on_keyboard_focus_change(&mut self) {
-        let focused_instance = self.focused_path().instance();
-
-        let Some(instance_id) = focused_instance else {
-            return;
-        };
-
-        let Some(launcher_id) = self.instance_launcher(instance_id) else {
-            return;
-        };
-
-        let launcher = self
-            .aggregates
-            .launchers
-            .get_mut(&launcher_id)
-            .expect("Launcher missing");
-        launcher.set_focus_anchor_instance(instance_id);
+        if let Some(instance_id) = self.focused_path().instance()
+            && let Some(launcher_id) = self.instance_launcher(instance_id)
+        {
+            self.aggregates
+                .launchers
+                .get_mut(&launcher_id)
+                .expect("Launcher missing")
+                .set_focus_anchor_instance(instance_id);
+        }
     }
 
     pub(super) fn unfocus_pointer_if_path_contains(
