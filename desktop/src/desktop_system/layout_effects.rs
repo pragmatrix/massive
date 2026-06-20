@@ -286,26 +286,6 @@ impl DesktopSystem {
         effects
     }
 
-    pub(super) fn defer_layout_for_focus_change<'a>(
-        &mut self,
-        targets: impl IntoIterator<Item = &'a DesktopTarget>,
-    ) {
-        let launcher_ids: Vec<_> = targets
-            .into_iter()
-            .filter_map(|target| self.focus_target_launcher_for_layout(target))
-            .collect();
-
-        self.deferred_focus_layout_launchers.extend(launcher_ids);
-    }
-
-    pub(super) fn flush_deferred_focus_layout(&mut self) -> Effects {
-        let mut effects = Effects::None;
-        for launcher_id in self.deferred_focus_layout_launchers.drain() {
-            effects += DesktopEffect::Measure(DesktopTarget::Launcher(launcher_id));
-        }
-        effects
-    }
-
     /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or
     /// `None` if the target's launcher does not require focus-driven relayout.
     fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {

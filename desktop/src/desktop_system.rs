@@ -26,7 +26,6 @@ mod zoom_navigation;
 use anyhow::{Result, bail};
 use derive_more::Debug;
 use log::warn;
-use std::collections::HashSet;
 use std::time::Duration;
 
 use massive_animation::Animated;
@@ -53,6 +52,7 @@ use crate::projects::{
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
+// Require intentional mouse movement before returning pointer-first feedback after keyboard use.
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
 const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 /// This enum specifies a unique target inside the navigation and layout history.
@@ -170,10 +170,14 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     user_state: UserState,
+    /// Enables pointer-driven feedback (hover focus and cursor visibility).
+    ///
+    /// This is turned off when the user starts keyboard navigation so the pointer does not
+    /// immediately steal attention, and turned back on when explicit pointer activity resumes.
     pointer_feedback_enabled: bool,
     navigation_control: NavigationControl,
-    /// Launchers queued for focus-driven relayout once pointer buttons are released.
-    deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
+    /// Effects queued for focus-driven relayout once pointer buttons are released.
+    deferred_focus_layout_effects: Effects,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -238,7 +242,7 @@ impl DesktopSystem {
             user_state: UserState::Focused,
             pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
-            deferred_focus_layout_launchers: HashSet::new(),
+            deferred_focus_layout_effects: Effects::None,
             layout_state,
 
             desktop_presenter,

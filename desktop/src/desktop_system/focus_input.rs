@@ -37,25 +37,34 @@ impl DesktopSystem {
             );
 
             let transitions = self.event_router.process(event, &hit_tester)?;
-            let (cmd, transition_effects) = self.apply_and_forward_focus_transitions(
+            let transition_effects = self.apply_keyboard_focus_change_effects(&transitions);
+
+            if any_buttons_pressed {
+                self.deferred_focus_layout_effects += transition_effects;
+            } else {
+                effects += transition_effects;
+            }
+
+            self.apply_and_forward_focus_transitions(
                 transitions,
                 instance_manager,
-                any_buttons_pressed,
                 FocusReason::InputTransition,
-            )?;
-            effects += transition_effects;
-            cmd
+            )?
         };
 
         self.update_pointer_feedback(event);
         if !any_buttons_pressed {
-            effects += self.flush_deferred_focus_layout();
+            effects += self.deferred_focus_layout_effects.take();
         }
 
         Ok((cmd, effects))
     }
 
     fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
+        // Mode switch:
+        // - keyboard press disables pointer-driven feedback
+        // - mouse button/wheel re-enables immediately
+        // - cursor movement re-enables only when movement is deliberate (distance + time gate)
         match (self.pointer_feedback_enabled, event.event()) {
             (
                 true,
@@ -87,8 +96,9 @@ impl DesktopSystem {
         reason: FocusReason,
     ) -> Result<Effects> {
         let transitions = self.event_router.focus(target);
-        let (cmd, effects) =
-            self.apply_and_forward_focus_transitions(transitions, instance_manager, false, reason)?;
+        let effects = self.apply_keyboard_focus_change_effects(&transitions);
+        let cmd =
+            self.apply_and_forward_focus_transitions(transitions, instance_manager, reason)?;
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(cmd.is_none());
@@ -100,23 +110,20 @@ impl DesktopSystem {
         &mut self,
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
-        defer_layout: bool,
         reason: FocusReason,
-    ) -> Result<(Cmd, Effects)> {
+    ) -> Result<Cmd> {
         if reason.resets_navigation_affinity() && !transitions.keyboard_focus_change().is_empty() {
             self.navigation_control.reset_all();
         }
 
-        let effects = self.apply_keyboard_focus_change_effects(&transitions, defer_layout);
         let cmd = self.forward_event_transitions(transitions, instance_manager)?;
 
-        Ok((cmd, effects))
+        Ok(cmd)
     }
 
     fn apply_keyboard_focus_change_effects(
         &mut self,
         transitions: &EventTransitions<DesktopTarget>,
-        defer_layout: bool,
     ) -> Effects {
         let keyboard_focus_change = transitions.keyboard_focus_change();
 
@@ -124,12 +131,7 @@ impl DesktopSystem {
             self.update_launcher_focus_anchor_on_keyboard_focus_change();
         }
 
-        if defer_layout {
-            self.defer_layout_for_focus_change(keyboard_focus_change);
-            Effects::None
-        } else {
-            self.invalidate_layout_for_focus_change(keyboard_focus_change)
-        }
+        self.invalidate_layout_for_focus_change(keyboard_focus_change)
     }
 
     // Inform launchers that are affected by the focus change.

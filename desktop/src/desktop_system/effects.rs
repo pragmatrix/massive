@@ -43,6 +43,10 @@ pub struct Effects(Vec<DesktopEffect>);
 impl Effects {
     #[allow(non_upper_case_globals)]
     pub const None: Self = Self(Vec::new());
+
+    pub fn take(&mut self) -> Self {
+        Self(std::mem::take(&mut self.0))
+    }
 }
 
 impl From<DesktopEffect> for Effects {
