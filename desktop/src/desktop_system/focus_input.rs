@@ -54,6 +54,9 @@ impl DesktopSystem {
 
         self.update_pointer_feedback(event);
         if !any_buttons_pressed {
+            // Camera is unlocked: catch the visor focus anchor up to the live focus, then apply
+            // any focus-driven layout effects that were deferred while a button was held.
+            self.sync_focused_launcher_anchor();
             effects += self.deferred_focus_layout_effects.take();
         }
 
@@ -103,6 +106,10 @@ impl DesktopSystem {
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(cmd.is_none());
 
+        // Programmatic focus is a deliberate intent, never a camera gesture, so sync the anchor
+        // immediately.
+        self.sync_focused_launcher_anchor();
+
         Ok(effects)
     }
 
@@ -125,25 +132,25 @@ impl DesktopSystem {
         &mut self,
         transitions: &EventTransitions<DesktopTarget>,
     ) -> Effects {
-        let keyboard_focus_change = transitions.keyboard_focus_change();
-
-        if !keyboard_focus_change.is_empty() {
-            self.update_launcher_focus_anchor_on_keyboard_focus_change();
-        }
-
-        self.invalidate_layout_for_focus_change(keyboard_focus_change)
+        self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change())
     }
 
-    // Inform launchers that are affected by the focus change.
-    fn update_launcher_focus_anchor_on_keyboard_focus_change(&mut self) {
-        if let Some(instance_id) = self.focused_path().instance()
-            && let Some(launcher_id) = self.instance_launcher(instance_id)
-        {
-            self.aggregates
-                .launchers
-                .get_mut(&launcher_id)
-                .expect("Launcher missing")
-                .set_focus_anchor_instance(instance_id);
+    // Sync the focused instance's launcher visor anchor to the live focus. Idempotent and skipped
+    // while the camera is locked; callers defer it until the camera unlocks.
+    fn sync_focused_launcher_anchor(&mut self) {
+        let Some(instance_id) = self.focused_path().instance() else {
+            return;
+        };
+        let Some(launcher_id) = self.instance_launcher(instance_id) else {
+            return;
+        };
+        let launcher = self
+            .aggregates
+            .launchers
+            .get_mut(&launcher_id)
+            .expect("Launcher missing");
+        if launcher.focus_anchor_instance != Some(instance_id) {
+            launcher.focus_anchor_instance = Some(instance_id);
         }
     }
 

@@ -319,7 +319,7 @@ impl DesktopSystem {
         direction: Direction,
     ) -> DesktopTarget {
         let (mode, focus_anchor_instance) = match self.aggregates.launchers.get(&launcher_id) {
-            Some(launcher) => (launcher.mode(), launcher.focus_anchor_instance()),
+            Some(launcher) => (launcher.mode(), launcher.focus_anchor_instance),
             None => return DesktopTarget::Launcher(launcher_id),
         };
 

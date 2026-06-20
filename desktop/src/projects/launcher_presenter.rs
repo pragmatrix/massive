@@ -61,9 +61,10 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
-    /// The most recent focused instance in this launcher, used as visor anchor when nothing in
-    /// this launcher is currently focused.
-    most_recent_focused_instance: Option<InstanceId>,
+    /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
+    /// most recently focused instance while no mouse button was pressed. The visor centers on this
+    /// anchor independent of the live keyboard focus.
+    pub focus_anchor_instance: Option<InstanceId>,
 
     events: EventManager<ViewEvent>,
 }
@@ -121,7 +122,7 @@ impl LauncherPresenter {
             background,
             name,
             fader: scene.animated(1.0),
-            most_recent_focused_instance: None,
+            focus_anchor_instance: None,
             events: EventManager::default(),
         }
     }
@@ -157,13 +158,12 @@ impl LauncherPresenter {
             ),
             LauncherMode::Visor => {
                 let expanded = focused_index.is_some();
-                let center_index = focused_index
-                    .or_else(|| {
-                        self.most_recent_focused_instance.and_then(|focused| {
-                            child_instances
-                                .iter()
-                                .position(|&instance| instance == focused)
-                        })
+                let center_index = self
+                    .focus_anchor_instance
+                    .and_then(|anchor| {
+                        child_instances
+                            .iter()
+                            .position(|&instance| instance == anchor)
                     })
                     .unwrap_or_default();
 
@@ -234,14 +234,6 @@ impl LauncherPresenter {
 
     pub fn mode(&self) -> LauncherMode {
         self.mode
-    }
-
-    pub fn focus_anchor_instance(&self) -> Option<InstanceId> {
-        self.most_recent_focused_instance
-    }
-
-    pub fn set_focus_anchor_instance(&mut self, instance: InstanceId) {
-        self.most_recent_focused_instance = Some(instance);
     }
 
     // Architecture: I don't want the launcher here to directly generate commands. may be

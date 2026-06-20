@@ -29,8 +29,8 @@ A launcher state where only the center visor instance remains visible while non-
 _Avoid_: minimized stack, folded carousel
 
 **Center visor instance**:
-The focused visor instance that remains visible during collapse and is the primary interaction target.
-_Avoid_: active card, selected panel
+The visor focus anchor the visor centers on and that stays visible during collapse: the most recently focused instance while no mouse button was pressed. The visor centers on this anchor independent of the live keyboard focus.
+_Avoid_: active card, selected panel, currently focused instance
 
 **Non-center visor instance**:
 Any visor instance that is not the center instance and is transitioned to invisible in collapsed state.
