@@ -119,7 +119,7 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
         reason: FocusReason,
     ) -> Result<Cmd> {
-        if reason.resets_navigation_affinity() && !transitions.keyboard_focus_change().is_empty() {
+        if !transitions.keyboard_focus_change().is_empty() && reason.resets_navigation_affinity() {
             self.navigation_control.reset_all();
         }
 
