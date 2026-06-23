@@ -1,4 +1,5 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use log::{error, info};
@@ -176,11 +177,7 @@ impl Desktop {
                                     &self.instance_manager,
                                     self.renderer.geometry(),
                                 )?;
-                                let cursor_visible = self.system.is_cursor_visible();
-                                if self.cursor_visible != cursor_visible {
-                                    self.window.set_cursor_visible(cursor_visible);
-                                    self.cursor_visible = cursor_visible;
-                                }
+
                                 self.system.transact_with_effects(
                                     cmd,
                                     &self.scene,
@@ -192,6 +189,13 @@ impl Desktop {
                                     },
                                     effects,
                                 )?;
+
+                                // That should probably be an effect.
+                                let cursor_visible = self.system.is_cursor_visible();
+                                if self.cursor_visible != cursor_visible {
+                                    self.window.set_cursor_visible(cursor_visible);
+                                    self.cursor_visible = cursor_visible;
+                                }
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -208,7 +212,7 @@ impl Desktop {
                     info!("Instance ended (submissions pending: {}): {instance_id:?}", self.instance_submissions.len());
 
                     if self.system.is_present(&instance_id) {
-                        // Did it end on its own? -> Act as as if the user ended it.
+                        // Did it end on its own? -> Act as if the user ended it.
                         // Robustness: This should probably handled differently.
                         self.system.transact(
                             DesktopCommand::StopInstance(instance_id),
