@@ -15,6 +15,12 @@ use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::{DeviceStates, Event};
 
+#[derive(Debug)]
+pub struct NavigationTarget<T> {
+    pub target: T,
+    pub event: Option<ViewEvent>,
+}
+
 // Detail: The EventRouter works without any knowledge about the relationships between the targets
 // (e.g. their hierarchical structure).
 #[derive(Debug)]
@@ -112,14 +118,22 @@ where
         &mut self,
         input_event: &Event<ViewEvent>,
         hit_tester: &impl HitTester<T>,
-    ) -> Result<EventTransitions<T>> {
+    ) -> Result<ProcessOutcome<T>> {
         let view_event = input_event.event();
 
         let mut event_transitions = EventTransitions::default();
+        let mut focus_outcome = None;
 
         match view_event {
             ViewEvent::Focused(focused) => {
-                self.set_outer_focus(*focused, &mut event_transitions);
+                if let Some(target) = self.set_outer_focus(*focused) {
+                    focus_outcome = Some(ProcessOutcome::Focus(target.map(|target| {
+                        NavigationTarget {
+                            target,
+                            event: None,
+                        }
+                    })));
+                }
             }
 
             ViewEvent::CursorMoved { .. } => {
@@ -175,9 +189,6 @@ where
                 state: ElementState::Pressed,
                 ..
             } => {
-                if self.keyboard_focus != self.pointer_focus {
-                    self.set_keyboard_focus(self.pointer_focus.clone(), &mut event_transitions);
-                }
                 // Detail: We do forward the event if the focused changed in response to it, even
                 // though is might cause an accidental selection if the camera moves in response to
                 // a click.
@@ -185,7 +196,12 @@ where
                 // To get around this, the system must make sure that the camera does not move while
                 // a button is pressed.
                 if let Some(pointer_focus) = &self.pointer_focus {
-                    event_transitions.send(pointer_focus, view_event.clone());
+                    focus_outcome = Some(ProcessOutcome::Focus(Some(NavigationTarget {
+                        target: pointer_focus.clone(),
+                        event: Some(view_event.clone()),
+                    })));
+                } else if self.keyboard_focus.is_some() {
+                    focus_outcome = Some(ProcessOutcome::Focus(None));
                 }
             }
 
@@ -231,7 +247,11 @@ where
         // Commit device states.
         self.device_states = input_event.device_states().clone();
 
-        Ok(event_transitions)
+        if let Some(outcome) = focus_outcome {
+            return Ok(outcome);
+        }
+
+        Ok(ProcessOutcome::Transitions(event_transitions))
     }
 
     /// The pointer focus should be tested again with hit-testing against all targets.
@@ -275,29 +295,41 @@ where
         Ok(transitions)
     }
 
-    fn set_outer_focus(&mut self, focused: bool, transitions: &mut EventTransitions<T>) {
+    /// Updates outer (window-level) focus state and returns an optional keyboard-focus suggestion.
+    ///
+    /// Return value meaning:
+    /// - `None`: no keyboard-focus change is suggested (redundant outer-focus event).
+    /// - `Some(None)`: clear keyboard focus.
+    /// - `Some(Some(target))`: focus the given target.
+    fn set_outer_focus(&mut self, focused: bool) -> Option<Option<T>> {
         match (&self.outer_focus, focused) {
             (OuterFocusState::Unfocused { focused_previously }, true) => {
                 // Restore focus if nothing is focused.
                 //
                 // Detail: Focus does not change while the Window is unfocused, see set_foreground.
-                if self.keyboard_focus.is_none() {
-                    // Robustness: We may need to check if instances / views are valid here at
-                    // the latest, or event better while the Unfocused state is active.
-                    self.set_keyboard_focus(focused_previously.clone(), transitions);
-                }
-                self.outer_focus = OuterFocusState::Focused
+                let focus_target = if self.keyboard_focus.is_none() {
+                    focused_previously.clone()
+                } else {
+                    None
+                };
+
+                // Robustness: We may need to check if instances / views are valid here at
+                // the latest, or event better while the Unfocused state is active.
+
+                self.outer_focus = OuterFocusState::Focused;
+                Some(focus_target)
             }
             (OuterFocusState::Focused, false) => {
                 // Save and unfocus.
                 self.outer_focus = OuterFocusState::Unfocused {
                     focused_previously: self.keyboard_focus.clone(),
                 };
-                self.set_keyboard_focus(None, transitions);
                 // Robustness: What about pointer focus?
+                Some(None)
             }
             _ => {
-                warn!("Redundant Window focus change")
+                warn!("Redundant Window focus change");
+                None
             }
         }
     }
@@ -331,6 +363,12 @@ where
         // Commit
         self.pointer_focus = new;
     }
+}
+
+#[derive(Debug)]
+pub enum ProcessOutcome<T> {
+    Transitions(EventTransitions<T>),
+    Focus(Option<NavigationTarget<T>>),
 }
 
 #[must_use]

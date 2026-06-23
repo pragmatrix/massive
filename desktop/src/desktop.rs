@@ -172,22 +172,21 @@ impl Desktop {
                                 && let Some(input_event) =
                                     self.event_manager.add_event(view_event, Instant::now())
                             {
-                                let (cmd, effects) = self.system.process_input_event(
+                                let cmd = self.system.process_input_event(
                                     &input_event,
                                     &self.instance_manager,
                                     self.renderer.geometry(),
                                 )?;
 
-                                self.system.transact_with_effects(
+                                self.system.transact(
                                     cmd,
                                     &self.scene,
                                     &mut self.instance_manager,
-                                    if input_event.any_buttons_pressed() {
+                                    Some(if input_event.any_buttons_pressed() {
                                         TransactionEffectsMode::CameraLocked
                                     } else {
                                         TransactionEffectsMode::Normal
-                                    },
-                                    effects,
+                                    }),
                                 )?;
 
                                 // That should probably be an effect.

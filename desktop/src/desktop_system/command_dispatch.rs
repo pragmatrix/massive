@@ -137,6 +137,15 @@ impl DesktopSystem {
 
             DesktopCommand::ZoomIn => Ok(self.apply_zoom_in_command()),
             DesktopCommand::ZoomOut => Ok(self.apply_zoom_out_command()),
+            DesktopCommand::NavigateTo(target) => {
+                let follow_up =
+                    self.navigate_to(target, instance_manager, FocusReason::InputTransition)?;
+                let mut effects = Effects::None;
+                for command in follow_up {
+                    effects += self.apply_command(command, scene, instance_manager)?;
+                }
+                Ok(effects)
+            }
             DesktopCommand::Navigate(direction) => {
                 self.apply_navigate_command(direction, instance_manager)
             }

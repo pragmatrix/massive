@@ -262,28 +262,15 @@ impl DesktopSystem {
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
         let effects_mode = effects_mode.into().unwrap_or_default();
-
-        self.transact_with_effects(
-            transaction,
-            scene,
-            instance_manager,
-            effects_mode,
-            Effects::None,
-        )
-    }
-
-    pub fn transact_with_effects(
-        &mut self,
-        transaction: impl Into<Transaction<DesktopCommand>>,
-        scene: &Scene,
-        instance_manager: &mut InstanceManager,
-        effects_mode: TransactionEffectsMode,
-        initial_effects: Effects,
-    ) -> Result<()> {
-        let mut command_effects = initial_effects;
+        let mut command_effects = Effects::None;
 
         for command in transaction.into() {
             command_effects += self.apply_command(command, scene, instance_manager)?;
+        }
+
+        if !self.any_buttons_pressed() {
+            self.sync_focused_launcher_anchor();
+            command_effects += self.deferred_focus_layout_effects.take();
         }
 
         self.run_effects_to_completion(effects_mode, self.transaction_effects(command_effects))?;

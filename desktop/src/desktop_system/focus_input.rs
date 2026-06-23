@@ -11,9 +11,10 @@ use super::{
     Cmd, DesktopCommand, DesktopSystem, DesktopTarget, Effects, FocusReason,
     POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
 };
-use crate::event_router::EventTransitions;
+use crate::event_router::{EventTransitions, NavigationTarget, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
+use crate::targeted_event::TargetedEvent;
 
 impl DesktopSystem {
     pub fn process_input_event(
@@ -21,10 +22,8 @@ impl DesktopSystem {
         event: &Event<ViewEvent>,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<(Cmd, Effects)> {
+    ) -> Result<Cmd> {
         let keyboard_cmd = self.preprocess_keyboard_input(event)?;
-        let mut effects = Effects::None;
-        let any_buttons_pressed = event.any_buttons_pressed();
 
         let cmd = if !keyboard_cmd.is_none() {
             keyboard_cmd
@@ -36,31 +35,20 @@ impl DesktopSystem {
                 render_geometry,
             );
 
-            let transitions = self.event_router.process(event, &hit_tester)?;
-            let transition_effects = self.apply_keyboard_focus_change_effects(&transitions);
-
-            if any_buttons_pressed {
-                self.deferred_focus_layout_effects += transition_effects;
-            } else {
-                effects += transition_effects;
+            match self.event_router.process(event, &hit_tester)? {
+                ProcessOutcome::Transitions(transitions) => self
+                    .apply_and_forward_focus_transitions(
+                        transitions,
+                        instance_manager,
+                        FocusReason::InputTransition,
+                    )?,
+                ProcessOutcome::Focus(target) => DesktopCommand::NavigateTo(target).into(),
             }
-
-            self.apply_and_forward_focus_transitions(
-                transitions,
-                instance_manager,
-                FocusReason::InputTransition,
-            )?
         };
 
         self.update_pointer_feedback(event);
-        if !any_buttons_pressed {
-            // Camera is unlocked: catch the visor focus anchor up to the live focus, then apply
-            // any focus-driven layout effects that were deferred while a button was held.
-            self.sync_focused_launcher_anchor();
-            effects += self.deferred_focus_layout_effects.take();
-        }
 
-        Ok((cmd, effects))
+        Ok(cmd)
     }
 
     fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
@@ -98,19 +86,42 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
         reason: FocusReason,
     ) -> Result<Effects> {
-        let transitions = self.event_router.focus(target);
-        let effects = self.apply_keyboard_focus_change_effects(&transitions);
-        let cmd =
-            self.apply_and_forward_focus_transitions(transitions, instance_manager, reason)?;
+        let cmd = self.navigate_to(
+            Some(NavigationTarget {
+                target: target.clone(),
+                event: None,
+            }),
+            instance_manager,
+            reason,
+        )?;
 
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(cmd.is_none());
 
-        // Programmatic focus is a deliberate intent, never a camera gesture, so sync the anchor
-        // immediately.
-        self.sync_focused_launcher_anchor();
+        Ok(Effects::None)
+    }
 
-        Ok(effects)
+    pub(super) fn navigate_to(
+        &mut self,
+        target: Option<NavigationTarget<DesktopTarget>>,
+        instance_manager: &InstanceManager,
+        reason: FocusReason,
+    ) -> Result<Cmd> {
+        let transitions = self
+            .event_router
+            .focus(target.as_ref().map(|target| &target.target));
+        let mut cmd =
+            self.apply_and_forward_focus_transitions(transitions, instance_manager, reason)?;
+
+        if let Some(NavigationTarget {
+            target,
+            event: Some(event),
+        }) = target
+        {
+            cmd += self.forward_event(TargetedEvent(target, event), instance_manager)?;
+        }
+
+        Ok(cmd)
     }
 
     fn apply_and_forward_focus_transitions(
@@ -122,6 +133,9 @@ impl DesktopSystem {
         if !transitions.keyboard_focus_change().is_empty() && reason.resets_navigation_affinity() {
             self.navigation_control.reset_all();
         }
+
+        let transition_effects = self.apply_keyboard_focus_change_effects(&transitions);
+        self.deferred_focus_layout_effects += transition_effects;
 
         let cmd = self.forward_event_transitions(transitions, instance_manager)?;
 
@@ -137,7 +151,7 @@ impl DesktopSystem {
 
     // Sync the focused instance's launcher visor anchor to the live focus. Idempotent and skipped
     // while the camera is locked; callers defer it until the camera unlocks.
-    fn sync_focused_launcher_anchor(&mut self) {
+    pub(super) fn sync_focused_launcher_anchor(&mut self) {
         let Some(instance_id) = self.focused_path().instance() else {
             return;
         };

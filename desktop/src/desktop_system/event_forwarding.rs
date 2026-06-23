@@ -30,7 +30,7 @@ impl DesktopSystem {
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
-    fn forward_event(
+    pub(super) fn forward_event(
         &mut self,
         TargetedEvent(target, event): TargetedEvent<DesktopTarget>,
         instance_manager: &InstanceManager,
