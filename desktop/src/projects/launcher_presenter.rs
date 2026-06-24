@@ -146,7 +146,7 @@ impl LauncherPresenter {
         local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         child_instances: &[InstanceId],
-        focused_index: Option<usize>,
+        expanded: bool,
         default_panel_size: SizePx,
     ) -> Vec<Placement<Transform, 2>> {
         match self.mode {
@@ -157,7 +157,6 @@ impl LauncherPresenter {
                 child_sizes,
             ),
             LauncherMode::Visor => {
-                let expanded = focused_index.is_some();
                 let center_index = self
                     .focus_anchor_instance
                     .and_then(|anchor| {

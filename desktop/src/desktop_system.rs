@@ -138,23 +138,27 @@ pub enum TransactionEffectsMode {
     #[default]
     Normal,
     Setup,
-    CameraLocked,
+    /// Currently, this is set when mouse buttons are pressed. I.e. the user is focusing on
+    /// something specific, selecting something, etc.
+    ///
+    /// In this mode, the camera is prevented from moving and the launchers won't expand / collapse.
+    UserGestureActive,
 }
 
 impl TransactionEffectsMode {
     pub fn animate(self) -> bool {
         match self {
-            TransactionEffectsMode::Setup => false,
-            TransactionEffectsMode::CameraLocked => true,
             TransactionEffectsMode::Normal => true,
+            TransactionEffectsMode::Setup => false,
+            TransactionEffectsMode::UserGestureActive => true,
         }
     }
 
     pub fn permit_camera_moves(self) -> bool {
         match self {
-            TransactionEffectsMode::Setup => true,
-            TransactionEffectsMode::CameraLocked => false,
             TransactionEffectsMode::Normal => true,
+            TransactionEffectsMode::Setup => true,
+            TransactionEffectsMode::UserGestureActive => false,
         }
     }
 }
@@ -177,7 +181,7 @@ pub struct DesktopSystem {
     pointer_feedback_enabled: bool,
     navigation_control: NavigationControl,
     /// Effects queued for focus-driven relayout once pointer buttons are released.
-    deferred_focus_layout_effects: Effects,
+    deferred_launcher_layout_effects: Effects,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -242,7 +246,7 @@ impl DesktopSystem {
             user_state: UserState::Focused,
             pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
-            deferred_focus_layout_effects: Effects::None,
+            deferred_launcher_layout_effects: Effects::None,
             layout_state,
 
             desktop_presenter,
@@ -268,9 +272,11 @@ impl DesktopSystem {
             command_effects += self.apply_command(command, scene, instance_manager)?;
         }
 
-        if !self.any_buttons_pressed() {
+        // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
+        // For example focus layout effects.
+        if effects_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
-            command_effects += self.deferred_focus_layout_effects.take();
+            command_effects += self.deferred_launcher_layout_effects.take();
         }
 
         self.run_effects_to_completion(effects_mode, self.transaction_effects(command_effects))?;

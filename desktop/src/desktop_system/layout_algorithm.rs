@@ -216,17 +216,22 @@ impl DesktopLayoutAlgorithm<'_> {
         let launcher = &self.aggregates.launchers[launcher_id];
         let child_instances = self.aggregates.launcher_instance_ids(*launcher_id);
 
-        let focused_index = self.focused_instance.and_then(|focused| {
-            child_instances
-                .iter()
-                .position(|&instance| instance == focused)
-        });
+        // Performance: This don't need to be computed on non-visor launchers (but we might remove
+        // bands anyway)
+        let expanded = self
+            .focused_instance
+            .and_then(|focused| {
+                child_instances
+                    .iter()
+                    .position(|&instance| instance == focused)
+            })
+            .is_some();
 
         launcher.place_panel_children(
             Offset::default(),
             child_sizes,
             &child_instances,
-            focused_index,
+            expanded,
             self.default_panel_size,
         )
     }

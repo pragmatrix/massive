@@ -83,13 +83,6 @@ impl DesktopSystem {
     /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
     /// and re-enqueues `Measure(parent)` only when the measured size changed.
     fn measure_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
-        let focused_instance = self.focused_path().instance();
-        let algorithm = DesktopLayoutAlgorithm {
-            aggregates: &self.aggregates,
-            default_panel_size: self.default_panel_size,
-            focused_instance,
-        };
-
         // If measurements of children are not available, push them as effects and return early.
         let missing_children = self
             .layout_state
@@ -105,6 +98,13 @@ impl DesktopSystem {
             // effects += DesktopEffect::ReflowLayout(target);
             return Ok(effects);
         }
+
+        let focused_instance = self.focused_path().instance();
+        let algorithm = DesktopLayoutAlgorithm {
+            aggregates: &self.aggregates,
+            default_panel_size: self.default_panel_size,
+            focused_instance,
+        };
 
         let outcome =
             self.layout_state

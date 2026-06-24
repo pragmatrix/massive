@@ -135,11 +135,9 @@ impl DesktopSystem {
         }
 
         let transition_effects = self.apply_keyboard_focus_change_effects(&transitions);
-        self.deferred_focus_layout_effects += transition_effects;
+        self.deferred_launcher_layout_effects += transition_effects;
 
-        let cmd = self.forward_event_transitions(transitions, instance_manager)?;
-
-        Ok(cmd)
+        self.forward_event_transitions(transitions, instance_manager)
     }
 
     fn apply_keyboard_focus_change_effects(

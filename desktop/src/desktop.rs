@@ -183,7 +183,7 @@ impl Desktop {
                                     &self.scene,
                                     &mut self.instance_manager,
                                     Some(if input_event.any_buttons_pressed() {
-                                        TransactionEffectsMode::CameraLocked
+                                        TransactionEffectsMode::UserGestureActive
                                     } else {
                                         TransactionEffectsMode::Normal
                                     }),
@@ -262,7 +262,7 @@ impl Desktop {
         submission: InstanceSubmission,
     ) -> Result<()> {
         let effects_mode = if self.system.any_buttons_pressed() {
-            TransactionEffectsMode::CameraLocked
+            TransactionEffectsMode::UserGestureActive
         } else {
             TransactionEffectsMode::Normal
         };
