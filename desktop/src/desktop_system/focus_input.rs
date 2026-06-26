@@ -23,7 +23,7 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
     ) -> Result<Cmd> {
-        let keyboard_cmd = self.preprocess_keyboard_input(event)?;
+        let keyboard_cmd = self.process_keyboard_shortcuts(event)?;
 
         let cmd = if !keyboard_cmd.is_none() {
             keyboard_cmd
@@ -144,6 +144,11 @@ impl DesktopSystem {
         &mut self,
         transitions: &EventTransitions<DesktopTarget>,
     ) -> Effects {
+        // Architecture: A keyboard focus change should emit `UpdateCamera` directly here so
+        // the camera recomputes from the new focus without depending on a layout `Place` pass
+        // running. Today the camera only moves because `transaction_effects` unconditionally
+        // measures the root, which drives a `Place` that emits `UpdateCamera`. Emitting it
+        // here would let that root measure be removed. See `transaction_effects`.
         self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change())
     }
 
@@ -203,7 +208,7 @@ impl DesktopSystem {
         self.forward_event_transitions(transitions, instance_manager)
     }
 
-    fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
+    fn process_keyboard_shortcuts(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
         // Catch `CMD+t` and `CMD+w` if an instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {

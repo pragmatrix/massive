@@ -14,6 +14,19 @@ use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::projects::LaunchProfileId;
 
 impl DesktopSystem {
+    /// Collects the effects to run after a transaction's commands have been applied.
+    ///
+    /// The unconditional `Measure(Desktop)` serves two purposes: it re-triggers a layout pass
+    /// from the root (redundant with the targeted `Measure` effects commands emit, since size
+    /// changes bubble back up to the root on their own), and — more importantly — it guarantees
+    /// a `Place` runs, which is the only path that emits `UpdateCamera`. Focus/navigation
+    /// commands return `Effects::None` and emit no `UpdateCamera` themselves, so without this
+    /// root measure the camera would not recompute after a focus change between launchers.
+    ///
+    /// Architecture: The cleaner fix is to emit `UpdateCamera` directly when focus changes
+    /// (for example in `apply_keyboard_focus_change_effects`), decoupling camera sync from the
+    /// layout pass. With that in place, this root measure becomes truly redundant and can be
+    /// removed in favor of the targeted measures commands already emit.
     pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
         let mut effects = Effects::None;
         effects += command_effects;
@@ -52,7 +65,10 @@ impl DesktopSystem {
         match effect {
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
-            DesktopEffect::ApplyLayout(target) => self.apply_layout_effect(target, effects_mode),
+            DesktopEffect::ApplyLayout(target) => {
+                self.apply_layout_effect(target, effects_mode);
+                Ok(Effects::None)
+            }
             DesktopEffect::UpdateCamera => {
                 self.update_camera_effect(effects_mode);
                 Ok(Effects::None)
@@ -151,17 +167,18 @@ impl DesktopSystem {
                 }
             }
         }
+        // `UpdateCamera` is emitted here unconditionally so the camera recomputes from the
+        // current focus after any placement pass. This is the only path that schedules
+        // `UpdateCamera` during a transaction; focus/navigation commands rely on a `Place`
+        // running (currently driven by the root measure in `transaction_effects`) to move
+        // the camera. See `transaction_effects` for the planned decoupling.
         effects += DesktopEffect::UpdateCamera;
         effects += DesktopEffect::SyncHover;
 
         Ok(effects)
     }
 
-    fn apply_layout_effect(
-        &mut self,
-        target: DesktopTarget,
-        effects_mode: TransactionEffectsMode,
-    ) -> Result<Effects> {
+    fn apply_layout_effect(&mut self, target: DesktopTarget, effects_mode: TransactionEffectsMode) {
         let placement = self.layout_state.local_placement(&target);
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
@@ -172,8 +189,6 @@ impl DesktopSystem {
             placement.visible,
             effects_mode.animate(),
         );
-
-        Ok(Effects::None)
     }
 
     fn update_camera_effect(&mut self, effects_mode: TransactionEffectsMode) {

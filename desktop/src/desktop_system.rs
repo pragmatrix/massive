@@ -273,7 +273,7 @@ impl DesktopSystem {
         }
 
         // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
-        // For example focus layout effects.
+        // For example, focus layout effects.
         if effects_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
             command_effects += self.deferred_launcher_layout_effects.take();

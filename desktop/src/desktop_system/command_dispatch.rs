@@ -115,8 +115,7 @@ impl DesktopSystem {
                     insertion_index,
                     instance_target.clone(),
                 )?;
-                let mut effects =
-                    Effects::from(DesktopEffect::Measure(DesktopTarget::Launcher(launcher)));
+                let mut effects = DesktopEffect::Measure(launcher.into()).into();
 
                 // Focus it.
                 effects += self.focus(

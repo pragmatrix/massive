@@ -18,10 +18,10 @@ pub enum DesktopEffect {
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, EnumCount, EnumIter,
 )]
-#[repr(usize)]
 enum DesktopEffectPhase {
     #[default]
     Layout,
+    PropagatePlacements,
     PostLayout,
     Finalize,
 }
@@ -29,7 +29,8 @@ enum DesktopEffectPhase {
 impl DesktopEffect {
     const fn phase(&self) -> DesktopEffectPhase {
         match self {
-            Self::Measure(_) | Self::Place(_) | Self::ApplyLayout(_) => DesktopEffectPhase::Layout,
+            Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
+            Self::ApplyLayout(_) => DesktopEffectPhase::PropagatePlacements,
             Self::UpdateCamera | Self::SyncHover => DesktopEffectPhase::PostLayout,
             Self::SyncFocusedViewWindowState => DesktopEffectPhase::Finalize,
         }
