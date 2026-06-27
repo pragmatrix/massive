@@ -84,10 +84,6 @@ impl DesktopSystem {
             for child in missing_children {
                 effects += DesktopEffect::Measure(child);
             }
-            // Each child measure reports size_changed and re-enqueues its parent, so we don't need
-            // to do this here explicitly.
-            //
-            // effects += DesktopEffect::ReflowLayout(target);
             return Ok(effects);
         }
 
