@@ -382,7 +382,7 @@ impl<T> Default for EventTransitions<T> {
 }
 
 impl<T> EventTransitions<T> {
-    pub fn keyboard_focus_change(&self) -> Vec<&T> {
+    pub fn targets_affected_by_keyboard_focus_change(&self) -> Vec<&T> {
         let mut touched = Vec::new();
 
         for transition in &self.0 {

@@ -284,7 +284,12 @@ impl DesktopSystem {
             command_effects += self.deferred_focus_effects.take();
         }
 
-        self.run_effects_to_completion(effects_mode, self.transaction_effects(command_effects))?;
+        // Commands emit their own targeted `Measure` effects for the subtrees they change, and
+        // focus changes emit `UpdateCamera` directly (see `apply_keyboard_focus_change_effects`),
+        // so no root measure is needed here.
+        self.run_effects_to_completion(effects_mode, command_effects)?;
+        // Sync the window state (title, cursor) from the focused view after all effects settle.
+        self.apply_focused_view_window_state()?;
 
         Ok(())
     }

@@ -15,6 +15,7 @@ use super::{
 use crate::event_router::{EventTransitions, NavigationTarget, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
+use crate::projects::LaunchProfileId;
 use crate::targeted_event::TargetedEvent;
 
 impl DesktopSystem {
@@ -135,7 +136,11 @@ impl DesktopSystem {
         transitions: &EventTransitions<DesktopTarget>,
         reason: FocusReason,
     ) {
-        if !transitions.keyboard_focus_change().is_empty() && reason.resets_navigation_affinity() {
+        if !transitions
+            .targets_affected_by_keyboard_focus_change()
+            .is_empty()
+            && reason.resets_navigation_affinity()
+        {
             self.navigation_control.reset_all();
         }
 
@@ -147,16 +152,43 @@ impl DesktopSystem {
         &mut self,
         transitions: &EventTransitions<DesktopTarget>,
     ) -> Effects {
-        let focus_change = transitions.keyboard_focus_change();
-        if focus_change.is_empty() {
+        let targets_affected_by_focus_change =
+            transitions.targets_affected_by_keyboard_focus_change();
+        if targets_affected_by_focus_change.is_empty() {
             return Effects::None;
         }
 
+        let focus_targets = targets_affected_by_focus_change
+            .iter()
+            .filter_map(|target| self.focus_target_launcher_for_layout(target));
+
         // A keyboard focus change recomputes the camera from the new focus directly, independent
         // of whether a layout `Place` pass runs.
-        let mut effects = Effects::from(DesktopEffect::UpdateCamera);
-        effects += self.invalidate_layout_for_focus_change(focus_change);
-        effects
+        let effects: Effects = focus_targets
+            .map(|focus_target| DesktopEffect::Measure(focus_target.into()))
+            .collect();
+
+        effects + DesktopEffect::UpdateCamera.into()
+    }
+
+    /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or
+    /// `None` if the target's launcher does not require focus-driven relayout.
+    fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
+        let focused_path = self.path_of(target);
+        let focused_instance = focused_path.instance()?;
+        let launcher_id = self.instance_launcher(focused_instance)?;
+        let instance_count = self
+            .aggregates
+            .hierarchy
+            .get_nested(&DesktopTarget::Launcher(launcher_id))
+            .len();
+
+        // Architecture: Passing instance_count here is weird.
+        self.aggregates
+            .launchers
+            .get(&launcher_id)
+            .filter(|launcher| launcher.should_relayout_on_keyboard_focus_change(instance_count))
+            .map(|_| launcher_id)
     }
 
     // Sync the focused instance's launcher visor anchor to the live focus. Idempotent and skipped

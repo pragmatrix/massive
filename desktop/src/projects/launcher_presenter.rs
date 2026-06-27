@@ -227,7 +227,7 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn should_relayout_on_focus_change(&self, instance_count: usize) -> bool {
+    pub fn should_relayout_on_keyboard_focus_change(&self, instance_count: usize) -> bool {
         matches!(self.mode, LauncherMode::Visor) && instance_count > 1
     }
 
