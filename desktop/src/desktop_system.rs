@@ -43,7 +43,7 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 
-use crate::event_sourcing::{self, Transaction};
+use crate::event_sourcing::Transaction;
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
@@ -95,7 +95,7 @@ impl From<ViewId> for DesktopTarget {
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
-pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
+pub type Cmd = Transaction<DesktopCommand>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum UserState {
@@ -180,8 +180,9 @@ pub struct DesktopSystem {
     /// immediately steal attention, and turned back on when explicit pointer activity resumes.
     pointer_feedback_enabled: bool,
     navigation_control: NavigationControl,
-    /// Effects queued for focus-driven relayout once pointer buttons are released.
-    deferred_launcher_layout_effects: Effects,
+    /// Focus-change effects (launcher relayout and camera) deferred until pointer buttons are
+    /// released and the camera unlocks.
+    deferred_focus_effects: Effects,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -246,7 +247,7 @@ impl DesktopSystem {
             user_state: UserState::Focused,
             pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
-            deferred_launcher_layout_effects: Effects::None,
+            deferred_focus_effects: Effects::None,
             layout_state,
 
             desktop_presenter,
@@ -265,7 +266,11 @@ impl DesktopSystem {
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
-        let effects_mode = effects_mode.into().unwrap_or_default();
+        // For live transactions the gesture mode is derived from the current pointer-button state;
+        // callers only pass an explicit mode for setup.
+        let effects_mode = effects_mode
+            .into()
+            .unwrap_or_else(|| self.live_effects_mode());
         let mut command_effects = Effects::None;
 
         for command in transaction.into() {
@@ -276,7 +281,7 @@ impl DesktopSystem {
         // For example, focus layout effects.
         if effects_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
-            command_effects += self.deferred_launcher_layout_effects.take();
+            command_effects += self.deferred_focus_effects.take();
         }
 
         self.run_effects_to_completion(effects_mode, self.transaction_effects(command_effects))?;
@@ -333,6 +338,15 @@ impl DesktopSystem {
 
     pub fn any_buttons_pressed(&self) -> bool {
         self.event_router.any_buttons_pressed()
+    }
+
+    /// The effects mode for a live (non-setup) transaction, derived from pointer-button state.
+    fn live_effects_mode(&self) -> TransactionEffectsMode {
+        if self.any_buttons_pressed() {
+            TransactionEffectsMode::UserGestureActive
+        } else {
+            TransactionEffectsMode::Normal
+        }
     }
 
     pub fn set_instance_pacing(&mut self, instance: InstanceId, pacing: RenderPacing) {

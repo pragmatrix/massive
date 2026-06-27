@@ -16,21 +16,12 @@ use crate::projects::LaunchProfileId;
 impl DesktopSystem {
     /// Collects the effects to run after a transaction's commands have been applied.
     ///
-    /// The unconditional `Measure(Desktop)` serves two purposes: it re-triggers a layout pass
-    /// from the root (redundant with the targeted `Measure` effects commands emit, since size
-    /// changes bubble back up to the root on their own), and — more importantly — it guarantees
-    /// a `Place` runs, which is the only path that emits `UpdateCamera`. Focus/navigation
-    /// commands return `Effects::None` and emit no `UpdateCamera` themselves, so without this
-    /// root measure the camera would not recompute after a focus change between launchers.
-    ///
-    /// Architecture: The cleaner fix is to emit `UpdateCamera` directly when focus changes
-    /// (for example in `apply_keyboard_focus_change_effects`), decoupling camera sync from the
-    /// layout pass. With that in place, this root measure becomes truly redundant and can be
-    /// removed in favor of the targeted measures commands already emit.
+    /// Commands emit their own targeted `Measure` effects for the subtrees they change, and focus
+    /// changes emit `UpdateCamera` directly (see `apply_keyboard_focus_change_effects`), so no
+    /// root measure is needed here. We only append the final window-state sync.
     pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
         let mut effects = Effects::None;
         effects += command_effects;
-        effects += DesktopEffect::Measure(DesktopTarget::Desktop);
         effects += DesktopEffect::SyncFocusedViewWindowState;
         effects
     }
@@ -88,6 +79,8 @@ impl DesktopSystem {
         let state = self.focused_view_window_state()?.unwrap_or_default();
         self.window.set_title(&state.title);
         self.window.set_cursor(state.cursor);
+        // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
+        self.window.set_cursor_visible(self.is_cursor_visible());
         Ok(())
     }
 
@@ -167,11 +160,9 @@ impl DesktopSystem {
                 }
             }
         }
-        // `UpdateCamera` is emitted here unconditionally so the camera recomputes from the
-        // current focus after any placement pass. This is the only path that schedules
-        // `UpdateCamera` during a transaction; focus/navigation commands rely on a `Place`
-        // running (currently driven by the root measure in `transaction_effects`) to move
-        // the camera. See `transaction_effects` for the planned decoupling.
+        // `UpdateCamera` is emitted here so the camera follows any placement change. Pure focus
+        // changes that move no layout emit `UpdateCamera` directly via
+        // `apply_keyboard_focus_change_effects`.
         effects += DesktopEffect::UpdateCamera;
         effects += DesktopEffect::SyncHover;
 

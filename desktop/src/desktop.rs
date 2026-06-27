@@ -13,7 +13,7 @@ use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_scene::ChangeCollector;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
-use massive_shell::{AsyncWindowRenderer, ShellWindow};
+use massive_shell::AsyncWindowRenderer;
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::{
@@ -31,8 +31,6 @@ use crate::projects::{
 pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
-    window: ShellWindow,
-    cursor_visible: bool,
     system: DesktopSystem,
 
     event_manager: EventManager<ViewEvent>,
@@ -145,8 +143,6 @@ impl Desktop {
         let desktop = Self {
             scene,
             renderer,
-            window,
-            cursor_visible: true,
             system,
             event_manager,
             instance_manager,
@@ -182,19 +178,8 @@ impl Desktop {
                                     cmd,
                                     &self.scene,
                                     &mut self.instance_manager,
-                                    Some(if input_event.any_buttons_pressed() {
-                                        TransactionEffectsMode::UserGestureActive
-                                    } else {
-                                        TransactionEffectsMode::Normal
-                                    }),
+                                    None,
                                 )?;
-
-                                // That should probably be an effect.
-                                let cursor_visible = self.system.is_cursor_visible();
-                                if self.cursor_visible != cursor_visible {
-                                    self.window.set_cursor_visible(cursor_visible);
-                                    self.cursor_visible = cursor_visible;
-                                }
                             }
 
                             self.renderer.resize_redraw(&window_event)?;
@@ -261,17 +246,11 @@ impl Desktop {
         instance: InstanceId,
         submission: InstanceSubmission,
     ) -> Result<()> {
-        let effects_mode = if self.system.any_buttons_pressed() {
-            TransactionEffectsMode::UserGestureActive
-        } else {
-            TransactionEffectsMode::Normal
-        };
-
         self.system.transact(
             DesktopCommand::IntegrateInstanceSubmission(instance, submission),
             &self.scene,
             &mut self.instance_manager,
-            effects_mode,
+            None,
         )
     }
 }

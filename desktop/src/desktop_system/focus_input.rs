@@ -6,6 +6,7 @@ use massive_applications::ViewEvent;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
+use super::effects::DesktopEffect;
 use super::navigation::Direction;
 use super::{
     Cmd, DesktopCommand, DesktopSystem, DesktopTarget, Effects, FocusReason,
@@ -36,12 +37,11 @@ impl DesktopSystem {
             );
 
             match self.event_router.process(event, &hit_tester)? {
-                ProcessOutcome::Transitions(transitions) => self
-                    .apply_and_forward_focus_transitions(
-                        transitions,
-                        instance_manager,
-                        FocusReason::InputTransition,
-                    )?,
+                ProcessOutcome::Transitions(transitions) => {
+                    // Transitions from `process` never change keyboard focus, so they only need
+                    // event delivery — no focus-effect or navigation-affinity handling.
+                    self.forward_event_transitions(transitions, instance_manager)?
+                }
                 ProcessOutcome::Focus(target) => DesktopCommand::NavigateTo(target).into(),
             }
         };
@@ -110,8 +110,12 @@ impl DesktopSystem {
         let transitions = self
             .event_router
             .focus(target.as_ref().map(|target| &target.target));
-        let mut cmd =
-            self.apply_and_forward_focus_transitions(transitions, instance_manager, reason)?;
+
+        // Focus-change relayout and camera effects are deferred until the camera unlocks; queue
+        // them now and let `transact` drain them once buttons are released.
+        self.queue_focus_transition_effects(&transitions, reason);
+
+        let mut cmd = self.forward_event_transitions(transitions, instance_manager)?;
 
         if let Some(NavigationTarget {
             target,
@@ -124,32 +128,35 @@ impl DesktopSystem {
         Ok(cmd)
     }
 
-    fn apply_and_forward_focus_transitions(
+    /// Applies navigation-affinity policy for a focus change and queues its relayout/camera
+    /// effects for deferred execution (drained by `transact` once the camera unlocks).
+    fn queue_focus_transition_effects(
         &mut self,
-        transitions: EventTransitions<DesktopTarget>,
-        instance_manager: &InstanceManager,
+        transitions: &EventTransitions<DesktopTarget>,
         reason: FocusReason,
-    ) -> Result<Cmd> {
+    ) {
         if !transitions.keyboard_focus_change().is_empty() && reason.resets_navigation_affinity() {
             self.navigation_control.reset_all();
         }
 
-        let transition_effects = self.apply_keyboard_focus_change_effects(&transitions);
-        self.deferred_launcher_layout_effects += transition_effects;
-
-        self.forward_event_transitions(transitions, instance_manager)
+        let effects = self.apply_keyboard_focus_change_effects(transitions);
+        self.deferred_focus_effects += effects;
     }
 
     fn apply_keyboard_focus_change_effects(
         &mut self,
         transitions: &EventTransitions<DesktopTarget>,
     ) -> Effects {
-        // Architecture: A keyboard focus change should emit `UpdateCamera` directly here so
-        // the camera recomputes from the new focus without depending on a layout `Place` pass
-        // running. Today the camera only moves because `transaction_effects` unconditionally
-        // measures the root, which drives a `Place` that emits `UpdateCamera`. Emitting it
-        // here would let that root measure be removed. See `transaction_effects`.
-        self.invalidate_layout_for_focus_change(transitions.keyboard_focus_change())
+        let focus_change = transitions.keyboard_focus_change();
+        if focus_change.is_empty() {
+            return Effects::None;
+        }
+
+        // A keyboard focus change recomputes the camera from the new focus directly, independent
+        // of whether a layout `Place` pass runs.
+        let mut effects = Effects::from(DesktopEffect::UpdateCamera);
+        effects += self.invalidate_layout_for_focus_change(focus_change);
+        effects
     }
 
     // Sync the focused instance's launcher visor anchor to the live focus. Idempotent and skipped
