@@ -1,6 +1,5 @@
 use std::collections::VecDeque;
-use std::ops;
-use std::vec;
+use std::{ops, vec};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 use super::DesktopTarget;

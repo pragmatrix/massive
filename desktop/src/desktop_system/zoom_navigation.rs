@@ -19,7 +19,8 @@ impl OverviewBounds {
 }
 
 impl DesktopSystem {
-    pub(super) fn apply_zoom_reset_command(&mut self) -> Effects {
+    /// Put the focus of the user back to the thing that has the current keyboard focus.
+    pub(super) fn focus_user(&mut self) -> Effects {
         let changed = match self.user_state {
             UserState::Focused => false,
             UserState::Overview(_) => true,

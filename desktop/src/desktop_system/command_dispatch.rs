@@ -21,8 +21,9 @@ impl DesktopSystem {
     ) -> Result<Effects> {
         // warn!("Apply command: {command:?}");
         let mut effects = Effects::None;
+
         if command.resets_zoom() {
-            effects += self.apply_zoom_reset_command();
+            effects += self.focus_user();
         }
 
         effects += match command {
@@ -209,7 +210,8 @@ impl DesktopSystem {
             }
             InstanceChange::View(view_id, command) => {
                 let view_path: ViewPath = (instance, view_id).into();
-                self.apply_view_change(view_path, command)
+                self.apply_view_change(view_path, command)?;
+                Ok(Effects::None)
             }
             // This makes sure that all pending Scene Changes from the Instance have been collected
             // before we drop the last ref the instance has to its parent location (which in turn
@@ -218,7 +220,7 @@ impl DesktopSystem {
         }
     }
 
-    fn apply_view_change(&mut self, view_path: ViewPath, change: ViewChange) -> Result<Effects> {
+    fn apply_view_change(&mut self, view_path: ViewPath, change: ViewChange) -> Result<()> {
         // We can never be sure if the instance does exist here.
         if let Some(instance) = self.aggregates.instances.get_mut(&view_path.instance) {
             match change {
@@ -237,6 +239,6 @@ impl DesktopSystem {
             }
         }
 
-        Ok(Effects::None)
+        Ok(())
     }
 }

@@ -19,13 +19,6 @@ impl DesktopSystem {
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
     ) -> Result<()> {
-        if !effects_mode.permit_camera_moves() {
-            // Lock camera motion immediately, including already running camera animations.
-            // Ergonomics: There should probably be a function for that in Animated.
-            let camera = *self.camera.value();
-            self.camera.set_immediately(camera);
-        }
-
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
