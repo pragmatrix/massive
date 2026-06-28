@@ -27,7 +27,7 @@ mod zoom_navigation;
 use anyhow::{Result, bail};
 use derive_more::Debug;
 use log::warn;
-use std::collections::HashSet;
+use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::time::Duration;
 
@@ -46,7 +46,7 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 
-use crate::desktop_system::command_dispatch::combine;
+use crate::desktop_system::command_dispatch::{DesktopMutation, combine};
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::event_sourcing::Transaction;
 use crate::focus_path::{FocusPath, PathResolver};
@@ -55,7 +55,7 @@ use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{
     DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
-use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
+use crate::{Desktop, DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 // Require intentional mouse movement before returning pointer-first feedback after keyboard use.
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
@@ -280,8 +280,29 @@ impl DesktopSystem {
 
         let mut r = (MeasureSet::Empty, self.user_state.clone());
         let focus_before = self.event_router.focused().cloned();
-        for command in transaction.into() {
-            r = combine(r, self.apply_command(command, scene, instance_manager)?);
+
+        // The Cmd recursion is probably temporary. If we can remove MeasureSet and UserState from
+        // the return of lower_command().
+
+        let mut mutations: VecDeque<DesktopMutation> = transaction
+            .into()
+            .into_iter()
+            .map(DesktopMutation::Command)
+            .collect();
+
+        while let Some(mutation) = mutations.pop_front() {
+            if let DesktopMutation::Command(command) = mutation {
+                let (new_mutations, measure_set, user_state) =
+                    self.lower_command(command, scene, instance_manager)?;
+                for mutation in new_mutations.into_iter().rev() {
+                    mutations.push_front(mutation);
+                }
+
+                r = combine(r, (measure_set, user_state));
+                continue;
+            }
+
+            self.apply(mutation, scene)?;
         }
 
         let (measures, user_state) = r;

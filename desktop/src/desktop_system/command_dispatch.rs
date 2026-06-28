@@ -20,17 +20,22 @@ pub fn combine(
     (ma + mb, us)
 }
 
+#[derive(Debug)]
+pub enum DesktopMutation {
+    Command(DesktopCommand),
+}
+
 impl DesktopSystem {
-    /// Applies the command and returns a new MeasureSet and UserState.
+    /// Lowers the command and returns a new MeasureSet and UserState.
     ///
     /// Currently, `UserState` is available through modification `&mut self`, but we simplify a lot
     /// by threading it through and committing it outside of this function.
-    pub(super) fn apply_command(
+    pub(super) fn lower_command(
         &mut self,
         command: DesktopCommand,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-    ) -> Result<(MeasureSet, UserState)> {
+    ) -> Result<(Vec<DesktopMutation>, MeasureSet, UserState)> {
         // warn!("Apply command: {command:?}");
 
         let user_state = if command.resets_zoom() {
@@ -58,17 +63,15 @@ impl DesktopSystem {
                     root.location(),
                 )?;
 
-                // Robustness: Should this be a real, logged event?
-                // Architecture: Better to start up the primary directly, so that we can remove the PresentInstance command?
-                self.apply_command(
-                    DesktopCommand::PresentInstance {
+                Ok((
+                    vec![DesktopMutation::Command(DesktopCommand::PresentInstance {
                         launcher,
                         instance,
                         root,
-                    },
-                    scene,
-                    instance_manager,
-                )
+                    })],
+                    MeasureSet::Empty,
+                    user_state,
+                ))
             }
 
             DesktopCommand::StopInstance(instance) => {
@@ -106,7 +109,7 @@ impl DesktopSystem {
                 // navigation tree anymore.
                 let measure_set = self.hide_instance(instance)?;
 
-                Ok((measure_set, user_state))
+                Ok((vec![], measure_set, user_state))
             }
 
             DesktopCommand::PresentInstance {
@@ -134,18 +137,18 @@ impl DesktopSystem {
                     instance_manager,
                     FocusReason::PresentInstance,
                 )?;
-                Ok((MeasureSet::One(launcher.into()), user_state))
+                Ok((vec![], MeasureSet::One(launcher.into()), user_state))
             }
 
             DesktopCommand::IntegrateInstanceSubmission(instance, submission) => {
                 let measure_set =
                     self.apply_instance_submission(instance, submission, scene, instance_manager)?;
-                Ok((measure_set, user_state))
+                Ok((vec![], measure_set, user_state))
             }
 
             DesktopCommand::Project(project_command) => {
                 let measure_set = self.apply_project_command(project_command, scene)?;
-                Ok((measure_set, user_state))
+                Ok((vec![], measure_set, user_state))
             }
 
             DesktopCommand::ZoomIn => {
@@ -161,7 +164,7 @@ impl DesktopSystem {
                         )
                     })
                     .unwrap_or(user_state);
-                Ok((MeasureSet::Empty, user_state))
+                Ok((vec![], MeasureSet::Empty, user_state))
             }
 
             DesktopCommand::ZoomOut => {
@@ -177,22 +180,22 @@ impl DesktopSystem {
                         )
                     })
                     .unwrap_or(user_state);
-                Ok((MeasureSet::Empty, user_state))
+                Ok((Vec::new(), MeasureSet::Empty, user_state))
             }
 
             DesktopCommand::NavigateTo(target) => {
                 let follow_up_commands =
                     self.navigate_to(target, instance_manager, FocusReason::InputTransition)?;
-                let mut r = (MeasureSet::Empty, user_state);
-                for command in follow_up_commands {
-                    r = combine(r, self.apply_command(command, scene, instance_manager)?);
-                }
-                Ok(r)
+                let mutations = follow_up_commands
+                    .into_iter()
+                    .map(DesktopMutation::Command)
+                    .collect();
+                Ok((mutations, MeasureSet::Empty, user_state))
             }
             DesktopCommand::Navigate(direction) => {
                 let user_state =
                     self.apply_navigate_command(direction, instance_manager, user_state)?;
-                Ok((MeasureSet::Empty, user_state))
+                Ok((Vec::new(), MeasureSet::Empty, user_state))
             }
         }
     }
@@ -281,5 +284,15 @@ impl DesktopSystem {
         }
 
         Ok(())
+    }
+
+    pub(super) fn apply(&mut self, mutation: DesktopMutation, scene: &Scene) -> Result<()> {
+        match mutation {
+            DesktopMutation::Command(_desktop_command) => {
+                // This should probably be removable when we can combine the mutations of commands
+                // that generate others.
+                unreachable!("Command mutation received in command_dispatch::mutate")
+            }
+        }
     }
 }
