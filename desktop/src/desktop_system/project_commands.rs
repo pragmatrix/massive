@@ -2,8 +2,8 @@ use anyhow::Result;
 
 use massive_shell::Scene;
 
-use super::effects::{DesktopEffect, Effects};
 use super::{DesktopSystem, DesktopTarget, ProjectCommand};
+use crate::desktop_system::effects::MeasureSet;
 use crate::projects::{LauncherPresenter, ProjectPresenter};
 
 impl DesktopSystem {
@@ -11,8 +11,8 @@ impl DesktopSystem {
         &mut self,
         command: ProjectCommand,
         scene: &Scene,
-    ) -> Result<Effects> {
-        let effects = match command {
+    ) -> Result<MeasureSet> {
+        let measure_set = match command {
             ProjectCommand::AddProject { id, properties } => {
                 let parent_target = DesktopTarget::Desktop;
                 let parent_location = self.desktop_presenter.location.clone();
@@ -38,7 +38,7 @@ impl DesktopSystem {
                         &mut self.fonts.lock(),
                     ),
                 )?;
-                DesktopEffect::Measure(parent_target).into()
+                parent_target.into()
             }
             ProjectCommand::RemoveProject(project) => {
                 let effects = self.remove_target(&DesktopTarget::Project(project))?;
@@ -72,7 +72,7 @@ impl DesktopSystem {
                 self.aggregates
                     .hierarchy
                     .add(DesktopTarget::ProjectMatrix(project), id.into())?;
-                DesktopEffect::Measure(DesktopTarget::ProjectMatrix(project)).into()
+                DesktopTarget::ProjectMatrix(project).into()
             }
             ProjectCommand::RemoveLauncher(id) => {
                 let target = DesktopTarget::Launcher(id);
@@ -83,10 +83,10 @@ impl DesktopSystem {
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
                 self.aggregates.startup_profile = launch_profile_id;
-                Effects::None
+                MeasureSet::Empty
             }
         };
 
-        Ok(effects)
+        Ok(measure_set)
     }
 }

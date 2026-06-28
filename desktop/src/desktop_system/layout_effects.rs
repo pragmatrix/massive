@@ -11,7 +11,6 @@ use super::{
     DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
 };
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
-use crate::projects::LaunchProfileId;
 
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
@@ -257,14 +256,6 @@ impl DesktopSystem {
         }
     }
 
-    pub(super) fn instance_launcher(&self, instance_id: InstanceId) -> Option<LaunchProfileId> {
-        let instance_target = DesktopTarget::Instance(instance_id);
-        match self.aggregates.hierarchy.parent(&instance_target) {
-            Some(DesktopTarget::Launcher(id)) => Some(*id),
-            _ => None,
-        }
-    }
-
     pub(super) fn sync_hover_rect_to_pointer_path(
         &mut self,
         pointer_focus: Option<&DesktopTarget>,
@@ -301,7 +292,7 @@ impl DesktopSystem {
         let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
             return placement;
         };
-        let Some(launcher_id) = self.instance_launcher(instance_id) else {
+        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
             return placement;
         };
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));

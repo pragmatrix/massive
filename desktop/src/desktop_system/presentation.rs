@@ -5,7 +5,7 @@ use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_shell::Scene;
 
 use super::DesktopTarget;
-use super::effects::{DesktopEffect, Effects};
+use crate::desktop_system::effects::MeasureSet;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;
@@ -70,7 +70,7 @@ impl DesktopSystem {
         Ok(insertion_pos)
     }
 
-    pub(super) fn hide_instance(&mut self, instance: InstanceId) -> Result<Effects> {
+    pub(super) fn hide_instance(&mut self, instance: InstanceId) -> Result<MeasureSet> {
         let Some(DesktopTarget::Launcher(launcher)) =
             self.aggregates.hierarchy.parent(&instance.into()).cloned()
         else {
@@ -101,7 +101,7 @@ impl DesktopSystem {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
-    ) -> Result<Effects> {
+    ) -> Result<MeasureSet> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found (present_view)");
         };
@@ -114,14 +114,14 @@ impl DesktopSystem {
             DesktopTarget::View(view_creation_info.id),
         )?;
 
-        Ok(DesktopEffect::Measure(DesktopTarget::Instance(instance)).into())
+        Ok(DesktopTarget::Instance(instance).into())
     }
 
-    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<Effects> {
+    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<MeasureSet> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&path.instance) else {
             warn!("Can't hide view: Instance for view not found");
             // Robustness: Decide if this should return an error.
-            return Ok(Effects::None);
+            return Ok(MeasureSet::Empty);
         };
 
         instance_presenter.hide_view(path.view)?;

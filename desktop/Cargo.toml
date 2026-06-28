@@ -12,6 +12,7 @@ massive-animation.workspace = true
 massive-applications.workspace = true
 massive-geometry.workspace = true
 massive-input.workspace = true
+massive-util.workspace = true
 massive-layout.workspace = true
 massive-renderer.workspace = true
 massive-scene.workspace = true

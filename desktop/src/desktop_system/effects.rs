@@ -1,3 +1,4 @@
+use massive_util::CollectingSet;
 use std::collections::VecDeque;
 use std::{ops, vec};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
@@ -40,6 +41,8 @@ impl DesktopEffect {
         }
     }
 }
+
+pub type MeasureSet = CollectingSet<DesktopTarget>;
 
 #[must_use]
 #[derive(Debug, PartialEq)]

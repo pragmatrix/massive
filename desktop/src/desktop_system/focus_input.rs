@@ -86,7 +86,7 @@ impl DesktopSystem {
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
         reason: FocusReason,
-    ) -> Result<Effects> {
+    ) -> Result<()> {
         let cmd = self.navigate_to(
             Some(NavigationTarget {
                 target: target.clone(),
@@ -99,7 +99,7 @@ impl DesktopSystem {
         // Invariant: Programmatic focus changes must not trigger commands.
         assert!(cmd.is_none());
 
-        Ok(Effects::None)
+        Ok(())
     }
 
     pub(super) fn navigate_to(
@@ -176,10 +176,9 @@ impl DesktopSystem {
     fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
         let focused_path = self.path_of(target);
         let focused_instance = focused_path.instance()?;
-        let launcher_id = self.instance_launcher(focused_instance)?;
-        let instance_count = self
-            .aggregates
-            .hierarchy
+        let topology = &self.aggregates.hierarchy;
+        let launcher_id = topology.launcher_of_instance(focused_instance)?;
+        let instance_count = topology
             .get_nested(&DesktopTarget::Launcher(launcher_id))
             .len();
 
@@ -197,7 +196,7 @@ impl DesktopSystem {
         let Some(instance_id) = self.focused_path().instance() else {
             return;
         };
-        let Some(launcher_id) = self.instance_launcher(instance_id) else {
+        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
             return;
         };
         let launcher = self
@@ -214,7 +213,7 @@ impl DesktopSystem {
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
-    ) -> Result<Effects> {
+    ) -> Result<()> {
         if self
             .aggregates
             .hierarchy
@@ -226,7 +225,7 @@ impl DesktopSystem {
                     .is_none()
             );
         }
-        Ok(Effects::None)
+        Ok(())
     }
 
     #[allow(unused)]

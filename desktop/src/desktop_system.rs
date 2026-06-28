@@ -21,6 +21,7 @@ mod layout_state;
 mod navigation;
 mod presentation;
 mod project_commands;
+mod topology;
 mod zoom_navigation;
 
 use anyhow::{Result, bail};
@@ -43,6 +44,8 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 
+use crate::desktop_system::command_dispatch::combine;
+use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::event_sourcing::Transaction;
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
@@ -191,6 +194,8 @@ pub struct DesktopSystem {
     aggregates: Aggregates,
 }
 
+type LauncherMap = Map<LaunchProfileId, LauncherPresenter>;
+
 /// Aggregates are separated, so that we can control borrowing them in a more granular way.
 #[derive(Debug)]
 struct Aggregates {
@@ -200,7 +205,7 @@ struct Aggregates {
 
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
-    launchers: Map<LaunchProfileId, LauncherPresenter>,
+    launchers: LauncherMap,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
@@ -271,17 +276,26 @@ impl DesktopSystem {
         let effects_mode = effects_mode
             .into()
             .unwrap_or_else(|| self.live_effects_mode());
-        let mut command_effects = Effects::None;
 
+        let mut r = (MeasureSet::Empty, self.user_state.clone());
         for command in transaction.into() {
-            command_effects += self.apply_command(command, scene, instance_manager)?;
+            r = combine(r, self.apply_command(command, scene, instance_manager)?);
+        }
+
+        let (measures, user_state) = r;
+
+        let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();
+
+        if self.user_state != user_state {
+            self.user_state = user_state;
+            effects += DesktopEffect::UpdateCamera;
         }
 
         // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
         // For example, focus layout effects.
         if effects_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
-            command_effects += self.deferred_focus_effects.take();
+            effects += self.deferred_focus_effects.take();
         } else {
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in Animated.
@@ -292,7 +306,7 @@ impl DesktopSystem {
         // Commands emit their own targeted `Measure` effects for the subtrees they change, and
         // focus changes emit `UpdateCamera` directly (see `apply_keyboard_focus_change_effects`),
         // so no root measure is needed here.
-        self.run_effects_to_completion(effects_mode, command_effects)?;
+        self.run_effects_to_completion(effects_mode, effects)?;
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
         self.apply_focused_view_window_state()?;
@@ -406,7 +420,7 @@ impl DesktopSystem {
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    fn remove_target(&mut self, target: &DesktopTarget) -> Result<Effects> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<MeasureSet> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
@@ -426,7 +440,7 @@ impl DesktopSystem {
         // Mark the surviving parent, not the removed node:
         // - removed nodes are ignored by incremental recompute root collection,
         // - parent refresh updates cached children and recomputes sibling placement.
-        Ok(effects::DesktopEffect::Measure(parent).into())
+        Ok(parent.into())
     }
 
     fn placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {

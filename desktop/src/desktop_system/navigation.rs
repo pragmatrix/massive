@@ -1,10 +1,10 @@
 use anyhow::Result;
 
+use log::error;
 use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
-use super::effects::DesktopEffect;
-use super::{DesktopSystem, DesktopTarget, Effects, FocusReason, UserState};
+use super::{DesktopSystem, DesktopTarget, FocusReason, UserState};
 use crate::instance_manager::InstanceManager;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
@@ -96,19 +96,27 @@ impl DesktopSystem {
         &mut self,
         direction: Direction,
         instance_manager: &InstanceManager,
-    ) -> Result<Effects> {
+        user_state: UserState,
+    ) -> Result<UserState> {
+        // If nothing is focused (i.e. the whole window does not have the focused), we probably
+        // don't want to do anything and this is perhaps even an error.
+        let Some(focused) = self.event_router.focused() else {
+            error!("Navigation request without active focus");
+            return Ok(user_state);
+        };
+
         match self.user_state.clone() {
             UserState::Focused => {
-                let focused = self.event_router.focused().cloned();
-                if let Some(focused) = focused.as_ref()
-                    && let Some(candidate) = self.locate_navigation_candidate(focused, direction)
+                if let Some(candidate) =
+                    self.locate_navigation_candidate(&focused.clone(), direction)
                 {
-                    return self.focus(&candidate, instance_manager, FocusReason::Navigate);
+                    self.focus(&candidate, instance_manager, FocusReason::Navigate)?;
+                    return Ok(user_state);
                 }
             }
             UserState::Overview(target) => {
                 let Some(anchor) = self.overview_navigation_anchor(&target) else {
-                    return Ok(Effects::None);
+                    return Ok(user_state);
                 };
 
                 if let Some(candidate) =
@@ -116,13 +124,12 @@ impl DesktopSystem {
                     && let Some(next_target) =
                         self.overview_target_for_navigation_candidate(&target, &candidate)
                 {
-                    self.user_state = UserState::Overview(next_target);
-                    return Ok(DesktopEffect::UpdateCamera.into());
+                    return Ok(UserState::Overview(next_target));
                 }
             }
         }
 
-        Ok(Effects::None)
+        Ok(user_state)
     }
 
     pub(super) fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
