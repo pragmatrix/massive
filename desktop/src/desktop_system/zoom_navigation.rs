@@ -29,7 +29,15 @@ pub fn zoom_in(
     focused: DesktopTarget,
     user_state: UserState,
 ) -> UserState {
-    next_zoom_in_state(topo, launchers, focused, &user_state).unwrap_or(user_state)
+    {
+        match &user_state {
+            UserState::Focused => None,
+            UserState::Overview(target) => {
+                Some(next_inward_user_state(topo, launchers, focused, target))
+            }
+        }
+    }
+    .unwrap_or(user_state)
 }
 
 #[must_use]
@@ -39,37 +47,16 @@ pub fn zoom_out(
     focused: DesktopTarget,
     user_state: UserState,
 ) -> UserState {
-    next_zoom_out_target(topology, launchers, focused, &user_state)
-        .map(UserState::Overview)
-        .unwrap_or(user_state)
-}
-
-fn next_zoom_out_target(
-    topology: &DesktopTopology,
-    launchers: &LauncherMap,
-    focused: DesktopTarget,
-    user_state: &UserState,
-) -> Option<OverviewTarget> {
-    match user_state {
-        UserState::Focused => first_overview_target_from_focus(topology, launchers, focused),
-        UserState::Overview(target) => {
-            Some(next_overview_target(topology, launchers, focused, target))
+    {
+        match &user_state {
+            UserState::Focused => first_overview_target_from_focus(topology, launchers, focused),
+            UserState::Overview(target) => {
+                Some(next_overview_target(topology, launchers, focused, target))
+            }
         }
     }
-}
-
-fn next_zoom_in_state(
-    topology: &DesktopTopology,
-    launchers: &LauncherMap,
-    focused: DesktopTarget,
-    user_state: &UserState,
-) -> Option<UserState> {
-    match user_state {
-        UserState::Focused => None,
-        UserState::Overview(target) => {
-            Some(next_inward_user_state(topology, launchers, focused, target))
-        }
-    }
+    .map(UserState::Overview)
+    .unwrap_or(user_state)
 }
 
 impl DesktopSystem {
