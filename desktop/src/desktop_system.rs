@@ -27,6 +27,8 @@ mod zoom_navigation;
 use anyhow::{Result, bail};
 use derive_more::Debug;
 use log::warn;
+use std::collections::HashSet;
+use std::mem;
 use std::time::Duration;
 
 use massive_animation::Animated;
@@ -183,9 +185,8 @@ pub struct DesktopSystem {
     /// immediately steal attention, and turned back on when explicit pointer activity resumes.
     pointer_feedback_enabled: bool,
     navigation_control: NavigationControl,
-    /// Focus-change effects (launcher relayout and camera) deferred until pointer buttons are
-    /// released and the camera unlocks.
-    deferred_focus_effects: Effects,
+    /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
+    deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -252,7 +253,7 @@ impl DesktopSystem {
             user_state: UserState::Focused,
             pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
-            deferred_focus_effects: Effects::None,
+            deferred_focus_launcher_measures: Default::default(),
             layout_state,
 
             desktop_presenter,
@@ -278,6 +279,7 @@ impl DesktopSystem {
             .unwrap_or_else(|| self.live_effects_mode());
 
         let mut r = (MeasureSet::Empty, self.user_state.clone());
+        let focus_before = self.event_router.focused().cloned();
         for command in transaction.into() {
             r = combine(r, self.apply_command(command, scene, instance_manager)?);
         }
@@ -286,16 +288,28 @@ impl DesktopSystem {
 
         let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();
 
+        let mut update_camera = false;
         if self.user_state != user_state {
             self.user_state = user_state;
-            effects += DesktopEffect::UpdateCamera;
+            update_camera = true;
         }
 
         // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
         // For example, focus layout effects.
         if effects_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
-            effects += self.deferred_focus_effects.take();
+            let focus_measures = mem::take(&mut self.deferred_focus_launcher_measures);
+            if !focus_measures.is_empty() {
+                effects += focus_measures
+                    .into_iter()
+                    .map(|launcher| DesktopEffect::Measure(launcher.into()))
+                    .collect::<Effects>();
+            }
+            // The camera follows the focused target, so a focus change recomputes it even when the
+            // change moved no layout (pure navigation between siblings).
+            if self.event_router.focused() != focus_before.as_ref() {
+                update_camera = true;
+            }
         } else {
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in Animated.
@@ -303,9 +317,14 @@ impl DesktopSystem {
             self.camera.set_immediately(camera);
         }
 
-        // Commands emit their own targeted `Measure` effects for the subtrees they change, and
-        // focus changes emit `UpdateCamera` directly (see `apply_keyboard_focus_change_effects`),
-        // so no root measure is needed here.
+        // This should probably be a function call and does not need to be an effect anymore.
+        if update_camera {
+            effects += DesktopEffect::UpdateCamera;
+        }
+
+        // Commands emit their own targeted `Measure` effects for the subtrees they change, and a
+        // focus change emits `UpdateCamera` directly (see the `focus_before` comparison above), so
+        // no root measure is needed here.
         self.run_effects_to_completion(effects_mode, effects)?;
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.

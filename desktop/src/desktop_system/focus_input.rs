@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
@@ -6,10 +8,9 @@ use massive_applications::ViewEvent;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
-use super::effects::DesktopEffect;
 use super::navigation::Direction;
 use super::{
-    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, Effects, FocusReason,
+    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, FocusReason,
     POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
 };
 use crate::event_router::{EventTransitions, NavigationTarget, ProcessOutcome};
@@ -112,9 +113,19 @@ impl DesktopSystem {
             .event_router
             .focus(target.as_ref().map(|target| &target.target));
 
-        // Focus-change relayout and camera effects are deferred until the camera unlocks; queue
-        // them now and let `transact` drain them once buttons are released.
-        self.queue_focus_transition_effects(&transitions, reason);
+        // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
+        // measures now and let `transact` drain them once buttons are released. The camera move
+        // itself is driven by `transact` observing the focus change, not queued here.
+        if !transitions
+            .targets_affected_by_keyboard_focus_change()
+            .is_empty()
+        {
+            if reason.resets_navigation_affinity() {
+                self.navigation_control.reset_all();
+            }
+            let measures = self.launcher_measures_for_focus_change(&transitions);
+            self.deferred_focus_launcher_measures.extend(measures);
+        }
 
         let mut cmd = self.forward_event_transitions(transitions, instance_manager)?;
 
@@ -129,46 +140,17 @@ impl DesktopSystem {
         Ok(cmd)
     }
 
-    /// Applies navigation-affinity policy for a focus change and queues its relayout/camera
-    /// effects for deferred execution (drained by `transact` once the camera unlocks).
-    fn queue_focus_transition_effects(
-        &mut self,
+    /// Returns the launchers that must be re-laid-out when keyboard focus moves to/from the
+    /// affected targets. The camera move itself follows from `transact` observing the focus change.
+    fn launcher_measures_for_focus_change(
+        &self,
         transitions: &EventTransitions<DesktopTarget>,
-        reason: FocusReason,
-    ) {
-        if !transitions
+    ) -> HashSet<LaunchProfileId> {
+        transitions
             .targets_affected_by_keyboard_focus_change()
-            .is_empty()
-            && reason.resets_navigation_affinity()
-        {
-            self.navigation_control.reset_all();
-        }
-
-        let effects = self.apply_keyboard_focus_change_effects(transitions);
-        self.deferred_focus_effects += effects;
-    }
-
-    fn apply_keyboard_focus_change_effects(
-        &mut self,
-        transitions: &EventTransitions<DesktopTarget>,
-    ) -> Effects {
-        let targets_affected_by_focus_change =
-            transitions.targets_affected_by_keyboard_focus_change();
-        if targets_affected_by_focus_change.is_empty() {
-            return Effects::None;
-        }
-
-        let focus_targets = targets_affected_by_focus_change
             .iter()
-            .filter_map(|target| self.focus_target_launcher_for_layout(target));
-
-        // A keyboard focus change recomputes the camera from the new focus directly, independent
-        // of whether a layout `Place` pass runs.
-        let effects: Effects = focus_targets
-            .map(|focus_target| DesktopEffect::Measure(focus_target.into()))
-            .collect();
-
-        effects + DesktopEffect::UpdateCamera.into()
+            .filter_map(|target| self.focus_target_launcher_for_layout(target))
+            .collect()
     }
 
     /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or

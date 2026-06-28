@@ -147,8 +147,8 @@ impl DesktopSystem {
     /// Camera and hover follow from the placement being applied, so they are scheduled here rather
     /// than per `Place` pass: this runs only when a placement actually changed, and the scheduler
     /// dedupes the payload-less `UpdateCamera`/`SyncHover` into a single `PostLayout` run per
-    /// transaction. Pure focus changes that move no layout emit `UpdateCamera` directly via
-    /// `apply_keyboard_focus_change_effects`.
+    /// transaction. Pure focus changes that move no layout are handled by `transact`, which
+    /// observes the focus change and emits `UpdateCamera` directly.
     fn apply_layout_effect(
         &mut self,
         target: DesktopTarget,
