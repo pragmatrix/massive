@@ -232,17 +232,15 @@ impl DesktopSystem {
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused.
-                match (self.event_router.focused(), &creation_info.role) {
-                    (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary)
-                        if *focused_instance == instance =>
-                    {
-                        self.focus(
-                            &DesktopTarget::View(creation_info.id),
-                            instance_manager,
-                            FocusReason::PromotePrimaryView,
-                        )?;
-                    }
-                    _ => {}
+                if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
+                    (self.event_router.focused(), &creation_info.role)
+                    && *focused_instance == instance
+                {
+                    self.focus(
+                        &DesktopTarget::View(creation_info.id),
+                        instance_manager,
+                        FocusReason::PromotePrimaryView,
+                    )?;
                 }
 
                 Ok(measure_set)
