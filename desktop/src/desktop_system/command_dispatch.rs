@@ -1,9 +1,11 @@
 use anyhow::{Context, Result};
 use log::{debug, warn};
+use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange, ViewRole,
 };
+use massive_scene::{Location, Ref};
 use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
@@ -13,16 +15,17 @@ use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 
-pub fn combine(
-    (ma, _): (MeasureSet, UserState),
-    (mb, us): (MeasureSet, UserState),
-) -> (MeasureSet, UserState) {
-    (ma + mb, us)
-}
-
 #[derive(Debug)]
 pub enum DesktopMutation {
     Command(DesktopCommand),
+    /// Spawn a running instance for a pre-created [`InstanceId`]. Applied in the execution loop,
+    /// which owns the mutable [`InstanceManager`].
+    SpawnInstance {
+        instance: InstanceId,
+        application: String,
+        creation_mode: CreationMode,
+        root_location: Ref<Location>,
+    },
 }
 
 impl DesktopSystem {
@@ -34,7 +37,7 @@ impl DesktopSystem {
         &mut self,
         command: DesktopCommand,
         scene: &Scene,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<(Vec<DesktopMutation>, MeasureSet, UserState)> {
         // warn!("Apply command: {command:?}");
 
@@ -50,25 +53,25 @@ impl DesktopSystem {
                 parameters,
             } => {
                 // Feature: Support starting non-primary applications.
-                let application = self
-                    .env
-                    .applications
-                    .get_named(&self.env.primary_application)
-                    .context("Internal error, application not registered")?;
-
+                let instance = Uuid::new_v4().into();
                 let root = InstanceRoot::new(scene);
-                let instance = instance_manager.spawn(
-                    application,
-                    CreationMode::New(parameters),
-                    root.location(),
-                )?;
 
+                // Spawn before present so a spawn failure aborts the loop before the instance is
+                // inserted into the hierarchy.
                 Ok((
-                    vec![DesktopMutation::Command(DesktopCommand::PresentInstance {
-                        launcher,
-                        instance,
-                        root,
-                    })],
+                    vec![
+                        DesktopMutation::SpawnInstance {
+                            instance,
+                            application: self.env.primary_application.clone(),
+                            creation_mode: CreationMode::New(parameters),
+                            root_location: root.location(),
+                        },
+                        DesktopMutation::Command(DesktopCommand::PresentInstance {
+                            launcher,
+                            instance,
+                            root,
+                        }),
+                    ],
                     MeasureSet::Empty,
                     user_state,
                 ))
@@ -205,7 +208,7 @@ impl DesktopSystem {
         instance: InstanceId,
         submission: InstanceSubmission,
         scene: &Scene,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<MeasureSet> {
         let (changes, pacing) = submission.into_parts();
         let mut effects = MeasureSet::Empty;
@@ -223,7 +226,7 @@ impl DesktopSystem {
         instance: InstanceId,
         change: InstanceChange,
         scene: &Scene,
-        instance_manager: &mut InstanceManager,
+        instance_manager: &InstanceManager,
     ) -> Result<MeasureSet> {
         match change {
             InstanceChange::Scene(change) => {
@@ -286,12 +289,31 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub(super) fn apply(&mut self, mutation: DesktopMutation, scene: &Scene) -> Result<()> {
+    pub(super) fn apply(
+        &mut self,
+        mutation: DesktopMutation,
+        _scene: &Scene,
+        instance_manager: &mut InstanceManager,
+    ) -> Result<(Vec<DesktopMutation>, MeasureSet)> {
         match mutation {
             DesktopMutation::Command(_desktop_command) => {
                 // This should probably be removable when we can combine the mutations of commands
                 // that generate others.
                 unreachable!("Command mutation received in command_dispatch::mutate")
+            }
+            DesktopMutation::SpawnInstance {
+                instance,
+                application,
+                creation_mode,
+                root_location,
+            } => {
+                let application = self
+                    .env
+                    .applications
+                    .get_named(&application)
+                    .context("Internal error, application not registered")?;
+                instance_manager.spawn(instance, application, creation_mode, root_location)?;
+                Ok((vec![], MeasureSet::Empty))
             }
         }
     }

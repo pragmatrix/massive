@@ -41,9 +41,9 @@ impl DesktopSystem {
                 parent_target.into()
             }
             ProjectCommand::RemoveProject(project) => {
-                let effects = self.remove_target(&DesktopTarget::Project(project))?;
+                let measures = self.remove_target(&DesktopTarget::Project(project))?;
                 self.aggregates.projects.remove(&project)?;
-                effects
+                measures
             }
             ProjectCommand::AddLauncher {
                 project,

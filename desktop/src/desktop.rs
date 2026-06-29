@@ -12,8 +12,9 @@ use massive_applications::{
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_scene::ChangeCollector;
-use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use massive_shell::AsyncWindowRenderer;
+use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
+use uuid::Uuid;
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::{
@@ -73,7 +74,9 @@ impl Desktop {
             .expect("No primary application");
 
         let primary_root = InstanceRoot::new(&scene);
+        let primary_instance = Uuid::new_v4().into();
         instance_manager.spawn(
+            primary_instance,
             primary_application,
             CreationMode::New(InstanceParameters::new()),
             primary_root.location(),

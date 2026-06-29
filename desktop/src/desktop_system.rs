@@ -46,7 +46,7 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 
-use crate::desktop_system::command_dispatch::{DesktopMutation, combine};
+use crate::desktop_system::command_dispatch::DesktopMutation;
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::event_sourcing::Transaction;
 use crate::focus_path::{FocusPath, PathResolver};
@@ -55,7 +55,7 @@ use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{
     DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
-use crate::{Desktop, DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
+use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 // Require intentional mouse movement before returning pointer-first feedback after keyboard use.
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
@@ -278,11 +278,9 @@ impl DesktopSystem {
             .into()
             .unwrap_or_else(|| self.live_effects_mode());
 
-        let mut r = (MeasureSet::Empty, self.user_state.clone());
+        let mut measures = MeasureSet::Empty;
+        let mut user_state = self.user_state.clone();
         let focus_before = self.event_router.focused().cloned();
-
-        // The Cmd recursion is probably temporary. If we can remove MeasureSet and UserState from
-        // the return of lower_command().
 
         let mut mutations: VecDeque<DesktopMutation> = transaction
             .into()
@@ -290,22 +288,29 @@ impl DesktopSystem {
             .map(DesktopMutation::Command)
             .collect();
 
+        // Commands and applied mutations both contribute follow-up mutations and measures; only
+        // commands carry the (last-wins) user state.
         while let Some(mutation) = mutations.pop_front() {
-            if let DesktopMutation::Command(command) = mutation {
-                let (new_mutations, measure_set, user_state) =
-                    self.lower_command(command, scene, instance_manager)?;
-                for mutation in new_mutations.into_iter().rev() {
-                    mutations.push_front(mutation);
+            let new_mutations = match mutation {
+                DesktopMutation::Command(command) => {
+                    let (new_mutations, command_measures, command_user_state) =
+                        self.lower_command(command, scene, instance_manager)?;
+                    measures += command_measures;
+                    user_state = command_user_state;
+                    new_mutations
                 }
+                mutation => {
+                    let (new_mutations, mutation_measures) =
+                        self.apply(mutation, scene, instance_manager)?;
+                    measures += mutation_measures;
+                    new_mutations
+                }
+            };
 
-                r = combine(r, (measure_set, user_state));
-                continue;
+            for mutation in new_mutations.into_iter().rev() {
+                mutations.push_front(mutation);
             }
-
-            self.apply(mutation, scene)?;
         }
-
-        let (measures, user_state) = r;
 
         let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();
 
