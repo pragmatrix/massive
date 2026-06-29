@@ -34,7 +34,7 @@ impl DesktopSystem {
     ///
     /// Currently, `UserState` is available through modification `&mut self`, but we simplify a lot
     /// by threading it through and committing it outside of this function.
-    pub(super) fn plan(
+    pub(super) fn apply_command(
         &mut self,
         command: DesktopCommand,
         scene: &Scene,

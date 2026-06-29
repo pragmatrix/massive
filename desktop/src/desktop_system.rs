@@ -294,7 +294,7 @@ impl DesktopSystem {
             let new_mutations = match mutation {
                 DesktopMutation::Command(command) => {
                     let (new_mutations, command_measures, command_user_state) =
-                        self.plan(command, scene, instance_manager)?;
+                        self.apply_command(command, scene, instance_manager)?;
                     measures += command_measures;
                     user_state = command_user_state;
                     new_mutations
