@@ -29,11 +29,12 @@ pub enum DesktopMutation {
 }
 
 impl DesktopSystem {
-    /// Lowers the command and returns a new MeasureSet and UserState.
+    /// Plan the execution of the individual mutations a command causes, and return new MeasureSet
+    /// and UserState.
     ///
     /// Currently, `UserState` is available through modification `&mut self`, but we simplify a lot
     /// by threading it through and committing it outside of this function.
-    pub(super) fn lower_command(
+    pub(super) fn plan(
         &mut self,
         command: DesktopCommand,
         scene: &Scene,
@@ -84,13 +85,11 @@ impl DesktopSystem {
                 // unexpected while tear down.
 
                 let target = DesktopTarget::Instance(instance);
-                let replacement_focus = self
-                    .aggregates
-                    .hierarchy
-                    .resolve_replacement_focus_for_stopping_instance(
-                        self.event_router.focused(),
-                        instance,
-                    );
+                let replacement_focus = self.event_router.focused().and_then(|focused| {
+                    self.aggregates
+                        .hierarchy
+                        .resolve_replacement_focus_for_stopping_instance(focused, instance)
+                });
 
                 if let Some(replacement_focus) = replacement_focus {
                     self.focus(
