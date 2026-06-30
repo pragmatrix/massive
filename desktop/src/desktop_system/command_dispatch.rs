@@ -8,13 +8,14 @@ use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use crate::desktop_system::UserState;
+use crate::desktop_system::change::{DesktopChange, TopologyChange};
 use crate::desktop_system::effects::MeasureSet;
 use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 
 /// The outcome of applying a command: the measures it produced and the resulting user state.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CommandOutcome {
     pub measures: MeasureSet,
     pub user_state: UserState,
@@ -43,6 +44,136 @@ impl CommandOutcome {
 }
 
 impl DesktopSystem {
+    /// Plan the execution of a command.
+    pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Vec<DesktopChange>> {
+        match command {
+            DesktopCommand::Project(_) => {}
+            DesktopCommand::StartInstance {
+                launcher,
+                instance,
+                root,
+                parameters,
+            } => {
+                let originator_instance = self.focused_path().instance();
+                let originating_details = originator_instance
+                    .map(|originator| self.get_origination_details(launcher, originator));
+                let index = originating_details
+                    .as_ref()
+                    .map(|d| d.insertion_pos)
+                    .unwrap_or(0);
+                let (root, spawn) = match root {
+                    Some(root) => (root, false),
+                    None => (InstanceRoot::new(scene), true),
+                };
+
+                let mut changes = if spawn {
+                    vec![DesktopChange::SpawnInstance {
+                        instance,
+                        root: root.clone(),
+                        parameters,
+                    }]
+                } else {
+                    Vec::new()
+                };
+
+                changes.extend([
+                    DesktopChange::PresentInstance {
+                        launcher,
+                        initial_center_translation: originating_details
+                            .and_then(|od| od.initial_center_translation),
+                        instance,
+                        root,
+                    },
+                    DesktopChange::TopologyChange(TopologyChange::Insert {
+                        what: instance.into(),
+                        at_index: index,
+                        into: launcher.into(),
+                    }),
+                    DesktopChange::SetFocus {
+                        target: Some(DesktopTarget::Instance(instance)),
+                        reason: FocusReason::PresentInstance,
+                    },
+                ]);
+
+                return Ok(changes);
+            }
+            DesktopCommand::StopInstance(_) => {}
+            DesktopCommand::IntegrateInstanceSubmission(_, _) => {}
+            DesktopCommand::ZoomIn => {}
+            DesktopCommand::ZoomOut => {}
+            DesktopCommand::NavigateTo(_) => {}
+            DesktopCommand::Navigate(_) => {}
+        }
+        Ok(vec![DesktopChange::Cmd(command)])
+    }
+
+    pub fn apply_change(
+        &mut self,
+        change: DesktopChange,
+        scene: &Scene,
+        instance_manager: &mut InstanceManager,
+    ) -> Result<CommandOutcome> {
+        match change {
+            DesktopChange::Cmd(cmd) => return self.apply_command(cmd, scene, instance_manager),
+            DesktopChange::SpawnInstance {
+                instance,
+                root,
+                parameters,
+            } => {
+                // Probably pull the name of the application into SpawnInstance?
+                let application = self
+                    .env
+                    .applications
+                    .get_named(&self.env.primary_application)
+                    .context("Internal error, application not registered")?;
+
+                instance_manager.spawn(
+                    instance,
+                    application,
+                    CreationMode::New(parameters),
+                    root.location(),
+                )?;
+            }
+            DesktopChange::PresentInstance {
+                launcher,
+                initial_center_translation,
+                instance,
+                root,
+            } => {
+                self.present_instance(launcher, initial_center_translation, instance, root, scene)?;
+            }
+            DesktopChange::SetFocus { target, reason } => {
+                self.focus(target.as_ref(), instance_manager, reason)?;
+            }
+            DesktopChange::TopologyChange(change) => {
+                let measure_set = self.apply_topology_change(change)?;
+                return Ok(CommandOutcome {
+                    measures: measure_set,
+                    // Bug: This has to be reviewed here how we set the user_state is open.
+                    user_state: self.user_state.clone(),
+                });
+            }
+        }
+
+        Ok(CommandOutcome::default())
+    }
+
+    pub fn apply_topology_change(&mut self, change: TopologyChange) -> Result<MeasureSet> {
+        match change {
+            TopologyChange::Insert {
+                what: thing,
+                at_index,
+                into: to_parent,
+            } => {
+                self.aggregates
+                    .hierarchy
+                    .insert_at(to_parent.clone(), at_index, thing)?;
+
+                Ok(MeasureSet::One(to_parent))
+            }
+        }
+    }
+
     /// Apply a command, recursively applying any follow-up commands it causes, and return the
     /// combined [`CommandOutcome`].
     ///
@@ -63,58 +194,8 @@ impl DesktopSystem {
         };
 
         match command {
-            DesktopCommand::StartInstance {
-                launcher,
-                instance,
-                root,
-                parameters,
-            } => {
-                // Spawn the instance when no root is provided. A spawn failure aborts before the
-                // instance is inserted into the hierarchy. A provided root means the caller already
-                // spawned the instance.
-                let root = match root {
-                    Some(root) => root,
-                    None => {
-                        let root = InstanceRoot::new(scene);
-                        let application = self
-                            .env
-                            .applications
-                            .get_named(&self.env.primary_application)
-                            .context("Internal error, application not registered")?;
-                        instance_manager.spawn(
-                            instance,
-                            application,
-                            CreationMode::New(parameters),
-                            root.location(),
-                        )?;
-                        root
-                    }
-                };
-
-                let originating_from = self.focused_path().instance();
-
-                let insertion_index =
-                    self.present_instance(launcher, originating_from, instance, root, scene)?;
-
-                let instance_target = DesktopTarget::Instance(instance);
-
-                // Add this instance to the hierarchy.
-                self.aggregates.hierarchy.insert_at(
-                    launcher.into(),
-                    insertion_index,
-                    instance_target.clone(),
-                )?;
-
-                // Focus it.
-                self.focus(
-                    &instance_target,
-                    instance_manager,
-                    FocusReason::PresentInstance,
-                )?;
-                Ok(CommandOutcome::new(
-                    MeasureSet::One(launcher.into()),
-                    user_state,
-                ))
+            DesktopCommand::StartInstance { .. } => {
+                unreachable!()
             }
 
             DesktopCommand::StopInstance(instance) => {

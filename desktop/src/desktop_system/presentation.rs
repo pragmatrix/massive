@@ -2,6 +2,7 @@ use anyhow::{Result, bail};
 use log::warn;
 
 use massive_applications::{InstanceId, ViewCreationInfo};
+use massive_geometry::Vector3;
 use massive_shell::Scene;
 
 use super::DesktopTarget;
@@ -12,18 +13,21 @@ use crate::projects::LaunchProfileId;
 
 use super::DesktopSystem;
 
+#[derive(Debug)]
+pub struct OriginationDetails {
+    pub insertion_pos: usize,
+    pub initial_center_translation: Option<Vector3>,
+}
+
 impl DesktopSystem {
     pub(super) fn present_instance(
         &mut self,
         launcher: LaunchProfileId,
-        originating_from: Option<InstanceId>,
+        initial_center_translation: Option<Vector3>,
         instance: InstanceId,
         root: InstanceRoot,
         scene: &Scene,
-    ) -> Result<usize> {
-        let originating_presenter = originating_from
-            .and_then(|originating_from| self.aggregates.instances.get(&originating_from));
-
+    ) -> Result<()> {
         let (render_instance_background, launcher_location) = {
             let launcher = self
                 .aggregates
@@ -36,9 +40,6 @@ impl DesktopSystem {
             )
         };
 
-        let initial_center_translation =
-            originating_presenter.map(|op| op.layout_transform_animation.latest_value().translate);
-
         let presenter = InstancePresenter::new(
             initial_center_translation,
             render_instance_background,
@@ -49,17 +50,7 @@ impl DesktopSystem {
 
         self.aggregates.instances.insert(instance, presenter)?;
 
-        let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
-        let insertion_pos = if let Some(originating_from) = originating_from {
-            nested
-                .iter()
-                .position(|i| *i == DesktopTarget::Instance(originating_from))
-                .map(|i| i + 1)
-                .unwrap_or(nested.len())
-        } else {
-            0
-        };
-
+        // Architecture: This should be a kind of rule applied implicitly.
         // Inform the launcher to fade out.
         self.aggregates
             .launchers
@@ -67,7 +58,31 @@ impl DesktopSystem {
             .expect("Launcher not found")
             .fade_out();
 
-        Ok(insertion_pos)
+        Ok(())
+    }
+
+    pub fn get_origination_details(
+        &self,
+        launcher: LaunchProfileId,
+        originator: InstanceId,
+    ) -> OriginationDetails {
+        let originating_presenter = self.aggregates.instances.get(&originator);
+
+        let initial_center_translation =
+            originating_presenter.map(|op| op.layout_transform_animation.latest_value().translate);
+
+        let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
+
+        let insertion_pos = nested
+            .iter()
+            .position(|i| *i == DesktopTarget::Instance(originator))
+            .map(|i| i + 1)
+            .unwrap_or(nested.len());
+
+        OriginationDetails {
+            insertion_pos,
+            initial_center_translation,
+        }
     }
 
     pub(super) fn hide_instance(&mut self, instance: InstanceId) -> Result<MeasureSet> {
