@@ -19,7 +19,7 @@ impl OrderedHierarchy<DesktopTarget> {
             DesktopTarget::Instance(instance_id) => self.launcher_of_instance(*instance_id),
             DesktopTarget::View(view_id) => {
                 let parent = self.parent_of(&DesktopTarget::View(*view_id))?;
-                self.launcher_of_target(&parent)
+                self.launcher_of_target(parent)
             }
             _ => None,
         }
@@ -44,7 +44,7 @@ impl OrderedHierarchy<DesktopTarget> {
                 .and_then(|launcher_id| self.project_of_launcher(launcher_id)),
             DesktopTarget::View(view_id) => {
                 let parent = self.parent_of(&DesktopTarget::View(*view_id))?;
-                self.project_of_target(&parent)
+                self.project_of_target(parent)
             }
             DesktopTarget::Desktop => None,
         }
