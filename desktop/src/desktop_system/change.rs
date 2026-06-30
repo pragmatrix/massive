@@ -23,12 +23,17 @@ pub enum DesktopChange {
         instance: InstanceId,
         root: InstanceRoot,
     },
+    ShutdownInstance(InstanceId),
+    HideInstance {
+        launcher: LaunchProfileId,
+        instance: InstanceId,
+    },
     SetFocus {
         // None: Completely removes the focus from the application.
         target: Option<DesktopTarget>,
         reason: FocusReason,
     },
-    TopologyChange(TopologyChange),
+    Topology(TopologyChange),
 }
 
 #[derive(Debug)]
@@ -38,4 +43,7 @@ pub enum TopologyChange {
         at_index: usize,
         into: DesktopTarget,
     },
+    /// Sets the focus to the parent if a nested or itself has the focus first. Also removes the
+    /// pointer focus.
+    Remove(DesktopTarget),
 }

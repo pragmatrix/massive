@@ -85,14 +85,7 @@ impl DesktopSystem {
         }
     }
 
-    pub(super) fn hide_instance(&mut self, instance: InstanceId) -> Result<MeasureSet> {
-        let Some(DesktopTarget::Launcher(launcher)) =
-            self.aggregates.hierarchy.parent(&instance.into()).cloned()
-        else {
-            bail!("Internal error: Launcher not found");
-        };
-
-        let effects = self.remove_target(&DesktopTarget::Instance(instance))?;
+    pub fn hide_instance(&mut self, launcher: LaunchProfileId, instance: InstanceId) -> Result<()> {
         self.aggregates.instances.remove(&instance)?;
 
         if !self
@@ -108,7 +101,7 @@ impl DesktopSystem {
                 .fade_in();
         }
 
-        Ok(effects)
+        Ok(())
     }
 
     pub(super) fn present_view(

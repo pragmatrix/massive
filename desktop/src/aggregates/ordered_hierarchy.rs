@@ -83,6 +83,7 @@ where
         Ok(())
     }
 
+    // Remove this and all nested from the hierachy
     pub fn remove(&mut self, id: &Id) -> Result<()> {
         let parent = if let Some(node) = self.nodes.get(id) {
             node.parent.clone()

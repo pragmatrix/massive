@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use log::{debug, warn};
 
 use massive_applications::{
@@ -84,7 +84,7 @@ impl DesktopSystem {
                         instance,
                         root,
                     },
-                    DesktopChange::TopologyChange(TopologyChange::Insert {
+                    DesktopChange::Topology(TopologyChange::Insert {
                         what: instance.into(),
                         at_index: index,
                         into: launcher.into(),
@@ -97,7 +97,39 @@ impl DesktopSystem {
 
                 return Ok(changes);
             }
-            DesktopCommand::StopInstance(_) => {}
+            DesktopCommand::StopInstance(instance) => {
+                let Some(DesktopTarget::Launcher(launcher)) =
+                    self.aggregates.hierarchy.parent(&instance.into()).cloned()
+                else {
+                    bail!("Internal error: Launcher not found");
+                };
+
+                // Set up a replacement focus first.
+                //
+                // Detail: This causes an unfocus event sent to the instance's view which may
+                // unexpected while tear down.
+                let replacement_focus = self.event_router.focused().and_then(|focused| {
+                    self.aggregates
+                        .hierarchy
+                        .resolve_replacement_focus_for_stopping_instance(focused, instance)
+                });
+
+                let mut changes: Vec<_> = replacement_focus
+                    .map(|focus| DesktopChange::SetFocus {
+                        target: Some(focus),
+                        reason: FocusReason::StopInstanceReplacement,
+                    })
+                    .into_iter()
+                    .collect();
+
+                changes.extend([
+                    DesktopChange::Topology(TopologyChange::Remove(instance.into())),
+                    DesktopChange::HideInstance { launcher, instance },
+                    DesktopChange::ShutdownInstance(instance),
+                ]);
+
+                return Ok(changes);
+            }
             DesktopCommand::IntegrateInstanceSubmission(_, _) => {}
             DesktopCommand::ZoomIn => {}
             DesktopCommand::ZoomOut => {}
@@ -134,6 +166,13 @@ impl DesktopSystem {
                     root.location(),
                 )?;
             }
+            DesktopChange::ShutdownInstance(instance) => {
+                // This might fail if StopInstance gets triggered with an instance that ended in
+                // itself (shouldn't the instance_manager keep it until we finally free it).
+                if let Err(e) = instance_manager.request_shutdown(instance) {
+                    warn!("Failed to shutdown instance, it may be gone already: {e}");
+                };
+            }
             DesktopChange::PresentInstance {
                 launcher,
                 initial_center_translation,
@@ -142,11 +181,14 @@ impl DesktopSystem {
             } => {
                 self.present_instance(launcher, initial_center_translation, instance, root, scene)?;
             }
+            DesktopChange::HideInstance { launcher, instance } => {
+                self.hide_instance(launcher, instance)?;
+            }
             DesktopChange::SetFocus { target, reason } => {
                 self.focus(target.as_ref(), instance_manager, reason)?;
             }
-            DesktopChange::TopologyChange(change) => {
-                let measure_set = self.apply_topology_change(change)?;
+            DesktopChange::Topology(change) => {
+                let measure_set = self.apply_topology_change(change, instance_manager)?;
                 return Ok(CommandOutcome {
                     measures: measure_set,
                     // Bug: This has to be reviewed here how we set the user_state is open.
@@ -158,7 +200,11 @@ impl DesktopSystem {
         Ok(CommandOutcome::default())
     }
 
-    pub fn apply_topology_change(&mut self, change: TopologyChange) -> Result<MeasureSet> {
+    pub fn apply_topology_change(
+        &mut self,
+        change: TopologyChange,
+        instance_manager: &InstanceManager,
+    ) -> Result<MeasureSet> {
         match change {
             TopologyChange::Insert {
                 what: thing,
@@ -170,6 +216,12 @@ impl DesktopSystem {
                     .insert_at(to_parent.clone(), at_index, thing)?;
 
                 Ok(MeasureSet::One(to_parent))
+            }
+
+            TopologyChange::Remove(target) => {
+                // Bug: This should remove target from focus (but how, focus parent or unfocus completely)
+                self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
+                Ok(self.remove_target(&target)?)
             }
         }
     }
@@ -194,44 +246,8 @@ impl DesktopSystem {
         };
 
         match command {
-            DesktopCommand::StartInstance { .. } => {
-                unreachable!()
-            }
-
-            DesktopCommand::StopInstance(instance) => {
-                // Remove the instance from the focus first.
-                //
-                // Detail: This causes an unfocus event sent to the instance's view which may
-                // unexpected while tear down.
-
-                let target = DesktopTarget::Instance(instance);
-                let replacement_focus = self.event_router.focused().and_then(|focused| {
-                    self.aggregates
-                        .hierarchy
-                        .resolve_replacement_focus_for_stopping_instance(focused, instance)
-                });
-
-                if let Some(replacement_focus) = replacement_focus {
-                    self.focus(
-                        &replacement_focus,
-                        instance_manager,
-                        FocusReason::StopInstanceReplacement,
-                    )?;
-                }
-
-                self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
-
-                // This might fail if StopInstance gets triggered with an instance that ended in
-                // itself (shouldn't the instance_manager keep it until we finally free it).
-                if let Err(e) = instance_manager.request_shutdown(instance) {
-                    warn!("Failed to shutdown instance, it may be gone already: {e}");
-                };
-
-                // We hide the instance as soon we request a shutdown so that they can't be in the
-                // navigation tree anymore.
-                let measure_set = self.hide_instance(instance)?;
-
-                Ok(CommandOutcome::new(measure_set, user_state))
+            DesktopCommand::StartInstance { .. } | DesktopCommand::StopInstance(..) => {
+                unreachable!();
             }
 
             DesktopCommand::IntegrateInstanceSubmission(instance, submission) => {
