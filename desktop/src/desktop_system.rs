@@ -27,7 +27,7 @@ mod zoom_navigation;
 use anyhow::{Result, bail};
 use derive_more::Debug;
 use log::warn;
-use std::collections::{HashSet, VecDeque};
+use std::collections::HashSet;
 use std::mem;
 use std::time::Duration;
 
@@ -46,7 +46,6 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
 
-use crate::desktop_system::command_dispatch::DesktopMutation;
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::event_sourcing::Transaction;
 use crate::focus_path::{FocusPath, PathResolver};
@@ -282,34 +281,12 @@ impl DesktopSystem {
         let mut user_state = self.user_state.clone();
         let focus_before = self.event_router.focused().cloned();
 
-        let mut mutations: VecDeque<DesktopMutation> = transaction
-            .into()
-            .into_iter()
-            .map(DesktopMutation::Command)
-            .collect();
-
-        // Commands and applied mutations both contribute follow-up mutations and measures; only
-        // commands carry the (last-wins) user state.
-        while let Some(mutation) = mutations.pop_front() {
-            let new_mutations = match mutation {
-                DesktopMutation::Command(command) => {
-                    let (new_mutations, command_measures, command_user_state) =
-                        self.apply_command(command, scene, instance_manager)?;
-                    measures += command_measures;
-                    user_state = command_user_state;
-                    new_mutations
-                }
-                mutation => {
-                    let (new_mutations, mutation_measures) =
-                        self.apply(mutation, scene, instance_manager)?;
-                    measures += mutation_measures;
-                    new_mutations
-                }
-            };
-
-            for mutation in new_mutations.into_iter().rev() {
-                mutations.push_front(mutation);
-            }
+        // Each command applies its own follow-ups recursively; measures accumulate and the
+        // user state is last-wins.
+        for command in transaction.into() {
+            let outcome = self.apply_command(command, scene, instance_manager)?;
+            measures += outcome.measures;
+            user_state = outcome.user_state;
         }
 
         let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();

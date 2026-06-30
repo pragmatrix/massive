@@ -5,7 +5,6 @@ use uuid::Uuid;
 use massive_applications::{
     CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange, ViewRole,
 };
-use massive_scene::{Location, Ref};
 use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
@@ -15,22 +14,38 @@ use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 
+/// The outcome of applying a command: the measures it produced and the resulting user state.
 #[derive(Debug)]
-pub enum DesktopMutation {
-    Command(DesktopCommand),
-    /// Spawn a running instance for a pre-created [`InstanceId`]. Applied in the execution loop,
-    /// which owns the mutable [`InstanceManager`].
-    SpawnInstance {
-        instance: InstanceId,
-        application: String,
-        creation_mode: CreationMode,
-        root_location: Ref<Location>,
-    },
+pub struct CommandOutcome {
+    pub measures: MeasureSet,
+    pub user_state: UserState,
+}
+
+impl CommandOutcome {
+    /// An outcome that produced the given measures.
+    fn new(measures: MeasureSet, user_state: UserState) -> CommandOutcome {
+        CommandOutcome {
+            measures,
+            user_state,
+        }
+    }
+
+    /// An outcome that produced no measures.
+    fn measureless(user_state: UserState) -> CommandOutcome {
+        CommandOutcome::new(MeasureSet::Empty, user_state)
+    }
+
+    /// Combine with a follow-up outcome: measures accumulate, user state is last-wins.
+    fn combine(mut self, follow_up: CommandOutcome) -> CommandOutcome {
+        self.measures += follow_up.measures;
+        self.user_state = follow_up.user_state;
+        self
+    }
 }
 
 impl DesktopSystem {
-    /// Plan the execution of the individual mutations a command causes, and return new MeasureSet
-    /// and UserState.
+    /// Apply a command, recursively applying any follow-up commands it causes, and return the
+    /// combined [`CommandOutcome`].
     ///
     /// Currently, `UserState` is available through modification `&mut self`, but we simplify a lot
     /// by threading it through and committing it outside of this function.
@@ -38,8 +53,8 @@ impl DesktopSystem {
         &mut self,
         command: DesktopCommand,
         scene: &Scene,
-        instance_manager: &InstanceManager,
-    ) -> Result<(Vec<DesktopMutation>, MeasureSet, UserState)> {
+        instance_manager: &mut InstanceManager,
+    ) -> Result<CommandOutcome> {
         // warn!("Apply command: {command:?}");
 
         let user_state = if command.resets_zoom() {
@@ -59,23 +74,29 @@ impl DesktopSystem {
 
                 // Spawn before present so a spawn failure aborts the loop before the instance is
                 // inserted into the hierarchy.
-                Ok((
-                    vec![
-                        DesktopMutation::SpawnInstance {
-                            instance,
-                            application: self.env.primary_application.clone(),
-                            creation_mode: CreationMode::New(parameters),
-                            root_location: root.location(),
-                        },
-                        DesktopMutation::Command(DesktopCommand::PresentInstance {
-                            launcher,
-                            instance,
-                            root,
-                        }),
-                    ],
-                    MeasureSet::Empty,
-                    user_state,
-                ))
+                let application = self
+                    .env
+                    .applications
+                    .get_named(&self.env.primary_application)
+                    .context("Internal error, application not registered")?;
+                instance_manager.spawn(
+                    instance,
+                    application,
+                    CreationMode::New(parameters),
+                    root.location(),
+                )?;
+
+                let outcome = CommandOutcome::measureless(user_state);
+                let present = self.apply_command(
+                    DesktopCommand::PresentInstance {
+                        launcher,
+                        instance,
+                        root,
+                    },
+                    scene,
+                    instance_manager,
+                )?;
+                Ok(outcome.combine(present))
             }
 
             DesktopCommand::StopInstance(instance) => {
@@ -111,7 +132,7 @@ impl DesktopSystem {
                 // navigation tree anymore.
                 let measure_set = self.hide_instance(instance)?;
 
-                Ok((vec![], measure_set, user_state))
+                Ok(CommandOutcome::new(measure_set, user_state))
             }
 
             DesktopCommand::PresentInstance {
@@ -139,18 +160,21 @@ impl DesktopSystem {
                     instance_manager,
                     FocusReason::PresentInstance,
                 )?;
-                Ok((vec![], MeasureSet::One(launcher.into()), user_state))
+                Ok(CommandOutcome::new(
+                    MeasureSet::One(launcher.into()),
+                    user_state,
+                ))
             }
 
             DesktopCommand::IntegrateInstanceSubmission(instance, submission) => {
                 let measure_set =
                     self.apply_instance_submission(instance, submission, scene, instance_manager)?;
-                Ok((vec![], measure_set, user_state))
+                Ok(CommandOutcome::new(measure_set, user_state))
             }
 
             DesktopCommand::Project(project_command) => {
                 let measure_set = self.apply_project_command(project_command, scene)?;
-                Ok((vec![], measure_set, user_state))
+                Ok(CommandOutcome::new(measure_set, user_state))
             }
 
             DesktopCommand::ZoomIn => {
@@ -166,7 +190,7 @@ impl DesktopSystem {
                         )
                     })
                     .unwrap_or(user_state);
-                Ok((vec![], MeasureSet::Empty, user_state))
+                Ok(CommandOutcome::measureless(user_state))
             }
 
             DesktopCommand::ZoomOut => {
@@ -182,22 +206,23 @@ impl DesktopSystem {
                         )
                     })
                     .unwrap_or(user_state);
-                Ok((Vec::new(), MeasureSet::Empty, user_state))
+                Ok(CommandOutcome::measureless(user_state))
             }
 
             DesktopCommand::NavigateTo(target) => {
                 let follow_up_commands =
                     self.navigate_to(target, instance_manager, FocusReason::InputTransition)?;
-                let mutations = follow_up_commands
-                    .into_iter()
-                    .map(DesktopMutation::Command)
-                    .collect();
-                Ok((mutations, MeasureSet::Empty, user_state))
+                let mut outcome = CommandOutcome::measureless(user_state);
+                for command in follow_up_commands {
+                    let follow_up = self.apply_command(command, scene, instance_manager)?;
+                    outcome = outcome.combine(follow_up);
+                }
+                Ok(outcome)
             }
             DesktopCommand::Navigate(direction) => {
                 let user_state =
                     self.apply_navigate_command(direction, instance_manager, user_state)?;
-                Ok((Vec::new(), MeasureSet::Empty, user_state))
+                Ok(CommandOutcome::measureless(user_state))
             }
         }
     }
@@ -286,34 +311,5 @@ impl DesktopSystem {
         }
 
         Ok(())
-    }
-
-    pub(super) fn apply(
-        &mut self,
-        mutation: DesktopMutation,
-        _scene: &Scene,
-        instance_manager: &mut InstanceManager,
-    ) -> Result<(Vec<DesktopMutation>, MeasureSet)> {
-        match mutation {
-            DesktopMutation::Command(_desktop_command) => {
-                // This should probably be removable when we can combine the mutations of commands
-                // that generate others.
-                unreachable!("Command mutation received in command_dispatch::mutate")
-            }
-            DesktopMutation::SpawnInstance {
-                instance,
-                application,
-                creation_mode,
-                root_location,
-            } => {
-                let application = self
-                    .env
-                    .applications
-                    .get_named(&application)
-                    .context("Internal error, application not registered")?;
-                instance_manager.spawn(instance, application, creation_mode, root_location)?;
-                Ok((vec![], MeasureSet::Empty))
-            }
-        }
     }
 }
