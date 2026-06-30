@@ -186,6 +186,9 @@ pub struct DesktopSystem {
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
+    /// Set when a camera move is requested while the camera is locked, so it replays once the
+    /// camera unlocks (for example when a pressed mouse button is released).
+    deferred_camera_move: bool,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -253,6 +256,7 @@ impl DesktopSystem {
             pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
+            deferred_camera_move: false,
             layout_state,
 
             desktop_presenter,
@@ -291,7 +295,9 @@ impl DesktopSystem {
 
         let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();
 
-        let mut update_camera = false;
+        // The camera follows the focused target, so a focus change recomputes it even when the
+        // change moved no layout (pure navigation between siblings, or focusing a launcher).
+        let mut update_camera = self.event_router.focused() != focus_before.as_ref();
         if self.user_state != user_state {
             self.user_state = user_state;
             update_camera = true;
@@ -308,12 +314,14 @@ impl DesktopSystem {
                     .map(|launcher| DesktopEffect::Measure(launcher.into()))
                     .collect::<Effects>();
             }
-            // The camera follows the focused target, so a focus change recomputes it even when the
-            // change moved no layout (pure navigation between siblings).
-            if self.event_router.focused() != focus_before.as_ref() {
-                update_camera = true;
-            }
+            // Replay a camera move that was deferred while the camera was locked (e.g. a focus
+            // change that happened while a mouse button was held).
+            update_camera |= mem::take(&mut self.deferred_camera_move);
         } else {
+            // Camera is locked: remember a pending move so it applies once the camera unlocks (for
+            // example when the pressed mouse button is released).
+            self.deferred_camera_move |= update_camera;
+            update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in Animated.
             let camera = *self.camera.value();
