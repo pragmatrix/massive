@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
+use uuid::Uuid;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
@@ -250,6 +251,8 @@ impl DesktopSystem {
                     Key::Character(c) if c.as_str() == "t" => {
                         return Ok(DesktopCommand::StartInstance {
                             launcher: launcher_id,
+                            instance: Uuid::new_v4().into(),
+                            root: None,
                             parameters: Default::default(),
                         }
                         .into());

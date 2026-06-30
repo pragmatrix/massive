@@ -1,6 +1,5 @@
 use anyhow::{Context, Result};
 use log::{debug, warn};
-use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange, ViewRole,
@@ -64,41 +63,6 @@ impl DesktopSystem {
         };
 
         match command {
-            DesktopCommand::StartInstance {
-                launcher,
-                parameters,
-            } => {
-                // Feature: Support starting non-primary applications.
-                let instance = Uuid::new_v4().into();
-                let root = InstanceRoot::new(scene);
-
-                // Spawn before present so a spawn failure aborts the loop before the instance is
-                // inserted into the hierarchy.
-                let application = self
-                    .env
-                    .applications
-                    .get_named(&self.env.primary_application)
-                    .context("Internal error, application not registered")?;
-                instance_manager.spawn(
-                    instance,
-                    application,
-                    CreationMode::New(parameters),
-                    root.location(),
-                )?;
-
-                let outcome = CommandOutcome::measureless(user_state);
-                let present = self.apply_command(
-                    DesktopCommand::PresentInstance {
-                        launcher,
-                        instance,
-                        root,
-                    },
-                    scene,
-                    instance_manager,
-                )?;
-                Ok(outcome.combine(present))
-            }
-
             DesktopCommand::StopInstance(instance) => {
                 // Remove the instance from the focus first.
                 //
@@ -135,11 +99,34 @@ impl DesktopSystem {
                 Ok(CommandOutcome::new(measure_set, user_state))
             }
 
-            DesktopCommand::PresentInstance {
+            DesktopCommand::StartInstance {
                 launcher,
                 instance,
                 root,
+                parameters,
             } => {
+                // Spawn the instance when no root is provided. A spawn failure aborts before the
+                // instance is inserted into the hierarchy. A provided root means the caller already
+                // spawned the instance.
+                let root = match root {
+                    Some(root) => root,
+                    None => {
+                        let root = InstanceRoot::new(scene);
+                        let application = self
+                            .env
+                            .applications
+                            .get_named(&self.env.primary_application)
+                            .context("Internal error, application not registered")?;
+                        instance_manager.spawn(
+                            instance,
+                            application,
+                            CreationMode::New(parameters),
+                            root.location(),
+                        )?;
+                        root
+                    }
+                };
+
                 let originating_from = self.focused_path().instance();
 
                 let insertion_index =

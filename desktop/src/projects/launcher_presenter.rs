@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
@@ -256,6 +257,8 @@ impl LauncherPresenter {
             // Usability: Should pass this rectangle?
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
+                instance: Uuid::new_v4().into(),
+                root: None,
                 parameters: self.profile.params.clone(),
             }
             .into());
@@ -266,6 +269,8 @@ impl LauncherPresenter {
         {
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
+                instance: Uuid::new_v4().into(),
+                root: None,
                 parameters: self.profile.params.clone(),
             }
             .into());

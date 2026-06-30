@@ -119,10 +119,11 @@ impl Desktop {
         let project_setup_transaction =
             project_set_to_transaction(&project_set).map(DesktopCommand::Project);
 
-        let primary_instance_transaction: Transaction<_> = [DesktopCommand::PresentInstance {
+        let primary_instance_transaction: Transaction<_> = [DesktopCommand::StartInstance {
             launcher: primary_project.primary_launcher,
             instance: primary_instance,
-            root: primary_root,
+            root: Some(primary_root),
+            parameters: InstanceParameters::new(),
         }]
         .into();
 
