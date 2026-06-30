@@ -83,36 +83,38 @@ impl DesktopSystem {
         }
     }
 
-    pub(super) fn focus(
-        &mut self,
-        target: &DesktopTarget,
-        instance_manager: &InstanceManager,
-        reason: FocusReason,
-    ) -> Result<()> {
-        let cmd = self.navigate_to(
-            Some(NavigationTarget {
-                target: target.clone(),
-                event: None,
-            }),
-            instance_manager,
-            reason,
-        )?;
-
-        // Invariant: Programmatic focus changes must not trigger commands.
-        assert!(cmd.is_none());
-
-        Ok(())
-    }
-
     pub(super) fn navigate_to(
         &mut self,
         target: Option<NavigationTarget<DesktopTarget>>,
         instance_manager: &InstanceManager,
         reason: FocusReason,
     ) -> Result<Cmd> {
-        let transitions = self
-            .event_router
-            .focus(target.as_ref().map(|target| &target.target));
+        self.focus(
+            target.as_ref().map(|target| &target.target),
+            instance_manager,
+            reason,
+        )?;
+
+        // Deliver the carried event (e.g. the originating click) to the new focus target. This is
+        // the only command source of a navigation; the focus change itself produces none.
+        if let Some(NavigationTarget {
+            target,
+            event: Some(event),
+        }) = target
+        {
+            return self.forward_event(TargetedEvent(target, event), instance_manager);
+        }
+
+        Ok(Cmd::None)
+    }
+
+    pub(super) fn focus<'a>(
+        &mut self,
+        target: impl Into<Option<&'a DesktopTarget>>,
+        instance_manager: &InstanceManager,
+        reason: FocusReason,
+    ) -> Result<()> {
+        let transitions = self.event_router.focus(target.into());
 
         // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
         // measures now and let `transact` drain them once buttons are released. The camera move
@@ -128,17 +130,11 @@ impl DesktopSystem {
             self.deferred_focus_launcher_measures.extend(measures);
         }
 
-        let mut cmd = self.forward_event_transitions(transitions, instance_manager)?;
+        // Invariant: Forwarding focus/unfocus transitions never produces commands.
+        let cmd = self.forward_event_transitions(transitions, instance_manager)?;
+        assert!(cmd.is_none());
 
-        if let Some(NavigationTarget {
-            target,
-            event: Some(event),
-        }) = target
-        {
-            cmd += self.forward_event(TargetedEvent(target, event), instance_manager)?;
-        }
-
-        Ok(cmd)
+        Ok(())
     }
 
     /// Returns the launchers that must be re-laid-out when keyboard focus moves to/from the

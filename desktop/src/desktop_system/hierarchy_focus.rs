@@ -31,7 +31,7 @@ impl OrderedHierarchy<DesktopTarget> {
         focused: &DesktopTarget,
         instance: InstanceId,
     ) -> Option<DesktopTarget> {
-        let focused_path = self.resolve_path(focused);
+        let focused_path = self.resolve_path(Some(focused));
         if focused_path.instance() != Some(instance) {
             return None;
         }

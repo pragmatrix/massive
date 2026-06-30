@@ -95,6 +95,12 @@ mod tests {
     use super::*;
     use crate::OrderedHierarchy;
 
+    impl PathResolver<i32> for OrderedHierarchy<i32> {
+        fn parent(&self, id: &i32) -> Option<&i32> {
+            self.parent(id)
+        }
+    }
+
     fn transition_signature(transitions: Vec<TargetedEvent<i32>>) -> Vec<(i32, &'static str)> {
         transitions
             .into_iter()

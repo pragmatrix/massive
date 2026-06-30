@@ -1,6 +1,4 @@
 use std::mem;
-#[cfg(feature = "metrics")]
-use std::time::Instant;
 
 use derive_more::Deref;
 use parking_lot::Mutex;

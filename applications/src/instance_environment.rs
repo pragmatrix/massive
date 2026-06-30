@@ -67,6 +67,10 @@ impl InstanceSubmission {
         Ok(primary_view_creation_info)
     }
 
+    pub fn changes(&self) -> impl Iterator<Item = &InstanceChange> {
+        self.changes.iter()
+    }
+
     pub fn into_parts(self) -> (ChangeSet<InstanceChange>, RenderPacing) {
         (self.changes, self.pacing)
     }

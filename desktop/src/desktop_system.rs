@@ -44,7 +44,7 @@ pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
-use navigation::NavigationControl;
+pub(crate) use navigation::NavigationControl;
 
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::event_sourcing::Transaction;
@@ -126,7 +126,7 @@ pub(super) enum FocusReason {
 }
 
 impl FocusReason {
-    fn resets_navigation_affinity(self) -> bool {
+    pub fn resets_navigation_affinity(self) -> bool {
         match self {
             FocusReason::Navigate => false,
             FocusReason::InputTransition
@@ -194,7 +194,7 @@ pub struct DesktopSystem {
     aggregates: Aggregates,
 }
 
-type LauncherMap = Map<LaunchProfileId, LauncherPresenter>;
+pub type LauncherMap = Map<LaunchProfileId, LauncherPresenter>;
 
 /// Aggregates are separated, so that we can control borrowing them in a more granular way.
 #[derive(Debug)]
@@ -478,7 +478,7 @@ impl DesktopSystem {
         &'a self,
         target: impl Into<Option<&'a DesktopTarget>>,
     ) -> DesktopFocusPath {
-        self.aggregates.hierarchy.resolve_path(target)
+        self.aggregates.hierarchy.resolve_path(target.into())
     }
 }
 
@@ -514,7 +514,7 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
         self.get_nested(id)
     }
 
-    fn parent_of(&self, id: &DesktopTarget) -> Option<DesktopTarget> {
-        self.parent(id).cloned()
+    fn parent_of(&self, id: &DesktopTarget) -> Option<&DesktopTarget> {
+        self.parent(id)
     }
 }
