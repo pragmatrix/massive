@@ -6,7 +6,6 @@ mod desktop_system;
 mod event_router;
 mod event_sourcing;
 mod focus_path;
-mod focus_rules;
 mod focus_target;
 mod hit_tester;
 mod instance_manager;
