@@ -14,7 +14,6 @@ use crate::projects::{
 #[derive(Debug)]
 pub enum DesktopCommand {
     Project(ProjectCommand),
-    StopInstance(InstanceId),
     /// Present an instance under `launcher`, spawning it if necessary.
     ///
     /// When `root` is `None`, a fresh root is created and the instance is spawned. When `root` is
@@ -25,6 +24,7 @@ pub enum DesktopCommand {
         root: Option<InstanceRoot>,
         parameters: InstanceParameters,
     },
+    StopInstance(InstanceId),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
     ZoomIn,
     ZoomOut,

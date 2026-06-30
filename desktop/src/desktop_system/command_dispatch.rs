@@ -63,42 +63,6 @@ impl DesktopSystem {
         };
 
         match command {
-            DesktopCommand::StopInstance(instance) => {
-                // Remove the instance from the focus first.
-                //
-                // Detail: This causes an unfocus event sent to the instance's view which may
-                // unexpected while tear down.
-
-                let target = DesktopTarget::Instance(instance);
-                let replacement_focus = self.event_router.focused().and_then(|focused| {
-                    self.aggregates
-                        .hierarchy
-                        .resolve_replacement_focus_for_stopping_instance(focused, instance)
-                });
-
-                if let Some(replacement_focus) = replacement_focus {
-                    self.focus(
-                        &replacement_focus,
-                        instance_manager,
-                        FocusReason::StopInstanceReplacement,
-                    )?;
-                }
-
-                self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
-
-                // This might fail if StopInstance gets triggered with an instance that ended in
-                // itself (shouldn't the instance_manager keep it until we finally free it).
-                if let Err(e) = instance_manager.request_shutdown(instance) {
-                    warn!("Failed to shutdown instance, it may be gone already: {e}");
-                };
-
-                // We hide the instance as soon we request a shutdown so that they can't be in the
-                // navigation tree anymore.
-                let measure_set = self.hide_instance(instance)?;
-
-                Ok(CommandOutcome::new(measure_set, user_state))
-            }
-
             DesktopCommand::StartInstance {
                 launcher,
                 instance,
@@ -151,6 +115,42 @@ impl DesktopSystem {
                     MeasureSet::One(launcher.into()),
                     user_state,
                 ))
+            }
+
+            DesktopCommand::StopInstance(instance) => {
+                // Remove the instance from the focus first.
+                //
+                // Detail: This causes an unfocus event sent to the instance's view which may
+                // unexpected while tear down.
+
+                let target = DesktopTarget::Instance(instance);
+                let replacement_focus = self.event_router.focused().and_then(|focused| {
+                    self.aggregates
+                        .hierarchy
+                        .resolve_replacement_focus_for_stopping_instance(focused, instance)
+                });
+
+                if let Some(replacement_focus) = replacement_focus {
+                    self.focus(
+                        &replacement_focus,
+                        instance_manager,
+                        FocusReason::StopInstanceReplacement,
+                    )?;
+                }
+
+                self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
+
+                // This might fail if StopInstance gets triggered with an instance that ended in
+                // itself (shouldn't the instance_manager keep it until we finally free it).
+                if let Err(e) = instance_manager.request_shutdown(instance) {
+                    warn!("Failed to shutdown instance, it may be gone already: {e}");
+                };
+
+                // We hide the instance as soon we request a shutdown so that they can't be in the
+                // navigation tree anymore.
+                let measure_set = self.hide_instance(instance)?;
+
+                Ok(CommandOutcome::new(measure_set, user_state))
             }
 
             DesktopCommand::IntegrateInstanceSubmission(instance, submission) => {
