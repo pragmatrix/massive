@@ -1,13 +1,12 @@
-use std::{
-    collections::VecDeque,
-    time::{Duration, Instant},
-};
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
 use winit::event::{DeviceId, ElementState, MouseButton};
 
 use massive_geometry::Point;
 
-use crate::{AggregationEvent, InputEvent, event_aggregator::DeviceStates};
+use crate::event_aggregator::DeviceStates;
+use crate::{AggregationEvent, InputEvent};
 
 #[derive(Debug)]
 pub struct EventHistory<E: InputEvent> {
@@ -54,20 +53,15 @@ impl<E: InputEvent> EventHistory<E> {
     pub fn previous(&self) -> Option<&EventRecord<E>> {
         self.records.get(1)
     }
-
-    /// An iterator over all events, including the most recent one including.
-    pub fn iter(&self) -> impl Iterator<Item = &EventRecord<E>> {
-        // Can't use HistoryIterator as return type:
-        // <https://github.com/rust-lang/rust-analyzer/issues/9881>
-        self.records.iter()
-    }
-
     /// An iterator over historic events. These are all events that came before, starting with the
     /// event that came before the current / most recent one.
-    pub fn historic(&self) -> impl Iterator<Item = &EventRecord<E>> {
-        // Can't use HistoryIterator as return type:
-        // <https://github.com/rust-lang/rust-analyzer/issues/9881>
+    pub fn historic(&self) -> impl HistoryIterator<'_, Event = E> {
         self.iter().skip(1)
+    }
+
+    /// An iterator that iterates over all events, including the most recent one.
+    pub fn iter(&self) -> impl HistoryIterator<'_, Event = E> {
+        self.records.iter()
     }
 
     /// Returns the Record at the `point` or the one that is newer.
@@ -141,14 +135,22 @@ impl<E: InputEvent> EventRecord<E> {
     }
 }
 
-pub trait HistoryIterator<'a, E: InputEvent>: Iterator<Item = &'a EventRecord<E>> {
+pub trait HistoryIterator<'a>: Iterator<Item = &'a EventRecord<Self::Event>> {
+    type Event: InputEvent;
+
     /// Skips over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn from<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord<E>> + use<'a, P, E, Self>
+    fn from<P>(
+        self,
+        until: P,
+    ) -> impl Iterator<Item = &'a EventRecord<Self::Event>> + use<'a, P, Self>
     where
         P: Into<RecordPoint>;
 
     /// Iterates over events back in time until (but not including) [`Instant`] or an `EntryId`.
-    fn until<P>(self, until: P) -> impl Iterator<Item = &'a EventRecord<E>> + use<'a, P, E, Self>
+    fn until<P>(
+        self,
+        until: P,
+    ) -> impl Iterator<Item = &'a EventRecord<Self::Event>> + use<'a, P, Self>
     where
         P: Into<RecordPoint>;
 
@@ -157,11 +159,13 @@ pub trait HistoryIterator<'a, E: InputEvent>: Iterator<Item = &'a EventRecord<E>
     fn max_distance_moved(self, device_id: DeviceId, pos: Point) -> f64;
 }
 
-impl<'a, T, E> HistoryIterator<'a, E> for T
+impl<'a, T, E> HistoryIterator<'a> for T
 where
     T: Iterator<Item = &'a EventRecord<E>> + 'a,
     E: InputEvent,
 {
+    type Event = E;
+
     fn from<P>(self, point: P) -> impl Iterator<Item = &'a EventRecord<E>> + use<'a, P, E, T>
     where
         P: Into<RecordPoint>,
@@ -185,7 +189,7 @@ where
                 .map(|p| (pos - p).length())
                 .unwrap_or_default()
         })
-        // can't use `max`, because floats do not implement `Ord`.
+        // Can't use `max`, because floats do not implement `Ord`.
         .reduce(|a, b| if a > b { a } else { b })
         .unwrap_or(0.0)
     }
