@@ -53,6 +53,7 @@ impl<E: InputEvent> EventHistory<E> {
     pub fn previous(&self) -> Option<&EventRecord<E>> {
         self.records.get(1)
     }
+
     /// An iterator over historic events. These are all events that came before, starting with the
     /// event that came before the current / most recent one.
     pub fn historic(&self) -> impl HistoryIterator<'_, Event = E> {

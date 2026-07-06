@@ -1,10 +1,8 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
+use massive_applications::{InstanceId, InstanceParameters};
 
-use super::DesktopTarget;
 use super::navigation::Direction;
-use crate::event_router::NavigationTarget;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
@@ -25,11 +23,11 @@ pub enum DesktopCommand {
         parameters: InstanceParameters,
     },
     StopInstance(InstanceId),
-    IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+
     ZoomIn,
     ZoomOut,
     /// A navigation request caused by an input event (like clicking on a target).
-    NavigateTo(Option<NavigationTarget<DesktopTarget>>),
+    // NavigateTo(Option<NavigationTarget<DesktopTarget>>),
     Navigate(Direction),
 }
 

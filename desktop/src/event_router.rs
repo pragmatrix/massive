@@ -7,7 +7,7 @@
 use std::fmt;
 
 use anyhow::{Result, bail};
-use derive_more::IntoIterator;
+use derive_more::{From, IntoIterator};
 use log::warn;
 use winit::event::{DeviceId, ElementState, Modifiers};
 
@@ -149,10 +149,10 @@ where
                 // Change the cursor focus only if there is no button pressed.
                 //
                 // Robustness: There might be a change of the device here.
-                let hit = if !any_pressed {
-                    if let Some((target, hit)) = hit_tester.hit_test(screen_pos, None) {
+                let hit_pos = if !any_pressed {
+                    if let Some((target, hit_pos)) = hit_tester.hit_test(screen_pos, None) {
                         self.set_pointer_focus(Some(target), &mut event_transitions);
-                        Some(hit)
+                        Some(hit_pos)
                     } else {
                         self.set_pointer_focus(None, &mut event_transitions);
                         None
@@ -176,11 +176,12 @@ where
                     }
                 };
 
-                // If there is a current hit position, forward the event.
-                if let Some(hit) = hit
-                    && let Some(focused) = &self.pointer_focus
-                {
-                    event_transitions.send(focused, ViewEvent::CursorMoved((hit.x, hit.y).into()));
+                // If there is a current hit position & pointer focus, forward the event.
+                if let (Some(hit_pos), Some(focused)) = (hit_pos, &self.pointer_focus) {
+                    event_transitions.send(
+                        focused,
+                        ViewEvent::CursorMoved((hit_pos.x, hit_pos.y).into()),
+                    );
                 }
             }
 
@@ -371,8 +372,7 @@ pub enum ProcessOutcome<T> {
     Focus(Option<NavigationTarget<T>>),
 }
 
-#[must_use]
-#[derive(Debug, IntoIterator)]
+#[derive(Debug, From, IntoIterator)]
 pub struct EventTransitions<T>(Vec<EventTransition<T>>);
 
 impl<T> Default for EventTransitions<T> {

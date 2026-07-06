@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use log::{debug, warn};
 
 use massive_applications::{
@@ -7,36 +7,48 @@ use massive_applications::{
 use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
-use crate::desktop_system::UserState;
-use crate::desktop_system::change::{DesktopChange, TopologyChange};
+use crate::desktop_system::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
 use crate::desktop_system::effects::MeasureSet;
 use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
+use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
+use crate::projects::{LauncherPresenter, ProjectPresenter};
 
-/// The outcome of applying a command: the measures it produced and the resulting user state.
+/// The outcome of applying a change: the measures it produced and the resulting user state.
 #[derive(Debug, Default)]
-pub struct CommandOutcome {
+pub struct ChangeOutput {
+    /// Additional changes to schedule.
+    pub changes: Changes,
     pub measures: MeasureSet,
     pub user_state: UserState,
 }
 
-impl CommandOutcome {
-    /// An outcome that produced the given measures.
-    fn new(measures: MeasureSet, user_state: UserState) -> CommandOutcome {
-        CommandOutcome {
+impl ChangeOutput {
+    /// An outcome that produced the given measures and UserState.
+    fn new(measures: MeasureSet, user_state: UserState) -> Self {
+        ChangeOutput {
+            changes: Changes::Empty,
             measures,
             user_state,
         }
     }
 
+    pub fn changes(changes: Changes) -> Self {
+        Self {
+            changes,
+            ..Self::default()
+        }
+    }
+
     /// An outcome that produced no measures.
-    fn measureless(user_state: UserState) -> CommandOutcome {
-        CommandOutcome::new(MeasureSet::Empty, user_state)
+    fn measureless(user_state: UserState) -> Self {
+        ChangeOutput::new(MeasureSet::Empty, user_state)
     }
 
     /// Combine with a follow-up outcome: measures accumulate, user state is last-wins.
-    fn combine(mut self, follow_up: CommandOutcome) -> CommandOutcome {
+    fn combine(mut self, follow_up: Self) -> Self {
+        self.changes += follow_up.changes;
         self.measures += follow_up.measures;
         self.user_state = follow_up.user_state;
         self
@@ -45,9 +57,11 @@ impl CommandOutcome {
 
 impl DesktopSystem {
     /// Plan the execution of a command.
-    pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Vec<DesktopChange>> {
+    pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
         match command {
-            DesktopCommand::Project(_) => {}
+            DesktopCommand::Project(project_command) => {
+                return self.plan_project(project_command);
+            }
             DesktopCommand::StartInstance {
                 launcher,
                 instance,
@@ -57,7 +71,7 @@ impl DesktopSystem {
                 let originator_instance = self.focused_path().instance();
                 let originating_details = originator_instance
                     .map(|originator| self.get_origination_details(launcher, originator));
-                let index = originating_details
+                let insertion_pos = originating_details
                     .as_ref()
                     .map(|d| d.insertion_pos)
                     .unwrap_or(0);
@@ -66,7 +80,7 @@ impl DesktopSystem {
                     None => (InstanceRoot::new(scene), true),
                 };
 
-                let mut changes = if spawn {
+                let mut changes: Changes = if spawn {
                     vec![DesktopChange::SpawnInstance {
                         instance,
                         root: root.clone(),
@@ -74,9 +88,10 @@ impl DesktopSystem {
                     }]
                 } else {
                     Vec::new()
-                };
+                }
+                .into();
 
-                changes.extend([
+                changes += [
                     DesktopChange::PresentInstance {
                         launcher,
                         initial_center_translation: originating_details
@@ -86,23 +101,23 @@ impl DesktopSystem {
                     },
                     DesktopChange::Topology(TopologyChange::Insert {
                         what: instance.into(),
-                        at_index: index,
-                        into: launcher.into(),
+                        at_index: insertion_pos,
+                        under: launcher.into(),
                     }),
                     DesktopChange::SetFocus {
                         target: Some(DesktopTarget::Instance(instance)),
                         reason: FocusReason::PresentInstance,
                     },
-                ]);
+                ];
 
                 return Ok(changes);
             }
             DesktopCommand::StopInstance(instance) => {
-                let Some(DesktopTarget::Launcher(launcher)) =
-                    self.aggregates.hierarchy.parent(&instance.into()).cloned()
-                else {
-                    bail!("Internal error: Launcher not found");
-                };
+                let launcher = self
+                    .aggregates
+                    .hierarchy
+                    .launcher_of_instance(instance)
+                    .expect("Launcher not found");
 
                 // Set up a replacement focus first.
                 //
@@ -114,29 +129,81 @@ impl DesktopSystem {
                         .resolve_replacement_focus_for_stopping_instance(focused, instance)
                 });
 
-                let mut changes: Vec<_> = replacement_focus
-                    .map(|focus| DesktopChange::SetFocus {
+                let mut changes = Changes::Empty;
+                if let Some(focus) = replacement_focus {
+                    changes += DesktopChange::SetFocus {
                         target: Some(focus),
                         reason: FocusReason::StopInstanceReplacement,
-                    })
-                    .into_iter()
-                    .collect();
-
-                changes.extend([
+                    };
+                }
+                changes += [
                     DesktopChange::Topology(TopologyChange::Remove(instance.into())),
                     DesktopChange::HideInstance { launcher, instance },
                     DesktopChange::ShutdownInstance(instance),
-                ]);
+                ];
 
                 return Ok(changes);
             }
-            DesktopCommand::IntegrateInstanceSubmission(_, _) => {}
             DesktopCommand::ZoomIn => {}
             DesktopCommand::ZoomOut => {}
-            DesktopCommand::NavigateTo(_) => {}
+            // DesktopCommand::NavigateTo(_) => {}
             DesktopCommand::Navigate(_) => {}
         }
-        Ok(vec![DesktopChange::Cmd(command)])
+
+        Ok(Changes::Empty)
+    }
+
+    fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
+        let mut changes = Changes::Empty;
+        match command {
+            ProjectCommand::AddProject { id, properties } => {
+                let parent_target = DesktopTarget::Desktop;
+                let project_target = DesktopTarget::Project(id);
+                changes.push(TopologyChange::Add {
+                    what: project_target.clone(),
+                    under: parent_target,
+                });
+                changes.push(TopologyChange::AddNested {
+                    what: [
+                        DesktopTarget::ProjectHeader(id),
+                        DesktopTarget::ProjectMatrix(id),
+                    ]
+                    .into(),
+                    under: project_target,
+                });
+                changes.push(ProjectChange::AddProject { id, properties });
+            }
+            ProjectCommand::RemoveProject(project_id) => {
+                changes.push(TopologyChange::Remove(DesktopTarget::Project(project_id)));
+                changes.push(ProjectChange::RemoveProject(project_id));
+            }
+            ProjectCommand::AddLauncher {
+                project,
+                id: launch_profile_id,
+                profile,
+                placement,
+            } => {
+                changes.push(ProjectChange::AddLauncher {
+                    project,
+                    id: launch_profile_id,
+                    profile,
+                    placement,
+                });
+                changes.push(TopologyChange::Add {
+                    what: launch_profile_id.into(),
+                    under: DesktopTarget::ProjectMatrix(project),
+                });
+            }
+            ProjectCommand::RemoveLauncher(launch_profile_id) => {
+                changes.push(TopologyChange::Remove(launch_profile_id.into()));
+                changes.push(ProjectChange::RemoveLauncher(launch_profile_id));
+            }
+            ProjectCommand::SetStartupProfile(launch_profile_id) => {
+                changes.push(ProjectChange::SetStartupProfile(launch_profile_id))
+            }
+        }
+
+        Ok(changes)
     }
 
     pub fn apply_change(
@@ -144,9 +211,8 @@ impl DesktopSystem {
         change: DesktopChange,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-    ) -> Result<CommandOutcome> {
+    ) -> Result<ChangeOutput> {
         match change {
-            DesktopChange::Cmd(cmd) => return self.apply_command(cmd, scene, instance_manager),
             DesktopChange::SpawnInstance {
                 instance,
                 root,
@@ -189,15 +255,33 @@ impl DesktopSystem {
             }
             DesktopChange::Topology(change) => {
                 let measure_set = self.apply_topology_change(change, instance_manager)?;
-                return Ok(CommandOutcome {
-                    measures: measure_set,
-                    // Bug: This has to be reviewed here how we set the user_state is open.
-                    user_state: self.user_state.clone(),
-                });
+                return Ok(ChangeOutput::new(measure_set, self.user_state.clone()));
+            }
+            DesktopChange::ForwardEvents(transitions) => {
+                let commands = self.forward_event_transitions(transitions, instance_manager)?;
+                let mut changes = Changes::default();
+                for command in commands {
+                    changes += self.plan(command, scene)?;
+                }
+                // TODO: Support Into for Changes -> ChangeOutput (after that thing with the
+                // UserState is solved)
+                return Ok(ChangeOutput::changes(changes));
+            }
+            DesktopChange::IntegrateInstanceSubmission(instance_id, instance_submission) => {
+                let measures = self.apply_instance_submission(
+                    instance_id,
+                    instance_submission,
+                    scene,
+                    instance_manager,
+                )?;
+                return Ok(ChangeOutput::new(measures, self.user_state.clone()));
+            }
+            DesktopChange::Project(project_change) => {
+                self.apply_project_change(project_change, scene)?;
             }
         }
 
-        Ok(CommandOutcome::default())
+        Ok(ChangeOutput::default())
     }
 
     pub fn apply_topology_change(
@@ -206,24 +290,83 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<MeasureSet> {
         match change {
+            TopologyChange::Add { what, under } => {
+                self.aggregates.hierarchy.add(under.clone(), what)?;
+                Ok(under.into())
+            }
+            TopologyChange::AddNested { what, under } => {
+                self.aggregates.hierarchy.add_nested(under.clone(), what)?;
+                Ok(under.into())
+            }
             TopologyChange::Insert {
-                what: thing,
+                what,
                 at_index,
-                into: to_parent,
+                under,
             } => {
                 self.aggregates
                     .hierarchy
-                    .insert_at(to_parent.clone(), at_index, thing)?;
-
-                Ok(MeasureSet::One(to_parent))
+                    .insert_at(under.clone(), at_index, what)?;
+                Ok(under.into())
             }
-
             TopologyChange::Remove(target) => {
                 // Bug: This should remove target from focus (but how, focus parent or unfocus completely)
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
                 Ok(self.remove_target(&target)?)
             }
         }
+    }
+
+    fn apply_project_change(&mut self, change: ProjectChange, scene: &Scene) -> Result<()> {
+        match change {
+            ProjectChange::AddProject { id, properties } => {
+                let parent_location = self.desktop_presenter.location.clone();
+                self.aggregates.projects.insert(
+                    id,
+                    ProjectPresenter::new(
+                        properties,
+                        parent_location,
+                        scene,
+                        &mut self.fonts.lock(),
+                    ),
+                )?;
+            }
+            ProjectChange::RemoveProject(project) => {
+                self.aggregates.projects.remove(&project)?;
+            }
+            ProjectChange::AddLauncher {
+                project,
+                id,
+                profile,
+                placement,
+            } => {
+                let matrix_location = self
+                    .aggregates
+                    .projects
+                    .get(&project)
+                    .expect("Project missing")
+                    .matrix
+                    .location();
+
+                let presenter = LauncherPresenter::new(
+                    matrix_location,
+                    id,
+                    placement,
+                    profile,
+                    massive_geometry::Size::default(),
+                    scene,
+                    &mut self.fonts.lock(),
+                );
+                self.aggregates.launchers.insert(id, presenter)?;
+            }
+            ProjectChange::RemoveLauncher(launch_profile_id) => {
+                self.aggregates.launchers.remove(&launch_profile_id)?;
+            }
+            ProjectChange::SetStartupProfile(launch_profile_id) => {
+                self.aggregates.startup_profile = launch_profile_id;
+            }
+        }
+
+        Ok(())
     }
 
     /// Apply a command, recursively applying any follow-up commands it causes, and return the
@@ -236,7 +379,7 @@ impl DesktopSystem {
         command: DesktopCommand,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
-    ) -> Result<CommandOutcome> {
+    ) -> Result<ChangeOutput> {
         // warn!("Apply command: {command:?}");
 
         let user_state = if command.resets_zoom() {
@@ -250,15 +393,9 @@ impl DesktopSystem {
                 unreachable!();
             }
 
-            DesktopCommand::IntegrateInstanceSubmission(instance, submission) => {
-                let measure_set =
-                    self.apply_instance_submission(instance, submission, scene, instance_manager)?;
-                Ok(CommandOutcome::new(measure_set, user_state))
-            }
-
             DesktopCommand::Project(project_command) => {
                 let measure_set = self.apply_project_command(project_command, scene)?;
-                Ok(CommandOutcome::new(measure_set, user_state))
+                Ok(ChangeOutput::new(measure_set, user_state))
             }
 
             DesktopCommand::ZoomIn => {
@@ -274,7 +411,7 @@ impl DesktopSystem {
                         )
                     })
                     .unwrap_or(user_state);
-                Ok(CommandOutcome::measureless(user_state))
+                Ok(ChangeOutput::measureless(user_state))
             }
 
             DesktopCommand::ZoomOut => {
@@ -290,23 +427,13 @@ impl DesktopSystem {
                         )
                     })
                     .unwrap_or(user_state);
-                Ok(CommandOutcome::measureless(user_state))
+                Ok(ChangeOutput::measureless(user_state))
             }
 
-            DesktopCommand::NavigateTo(target) => {
-                let follow_up_commands =
-                    self.navigate_to(target, instance_manager, FocusReason::InputTransition)?;
-                let mut outcome = CommandOutcome::measureless(user_state);
-                for command in follow_up_commands {
-                    let follow_up = self.apply_command(command, scene, instance_manager)?;
-                    outcome = outcome.combine(follow_up);
-                }
-                Ok(outcome)
-            }
             DesktopCommand::Navigate(direction) => {
                 let user_state =
                     self.apply_navigate_command(direction, instance_manager, user_state)?;
-                Ok(CommandOutcome::measureless(user_state))
+                Ok(ChangeOutput::measureless(user_state))
             }
         }
     }
@@ -319,14 +446,14 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<MeasureSet> {
         let (changes, pacing) = submission.into_parts();
-        let mut effects = MeasureSet::Empty;
+        let mut measures = MeasureSet::Empty;
 
         for change in changes.release() {
-            effects += self.apply_instance_change(instance, change, scene, instance_manager)?;
+            measures += self.apply_instance_change(instance, change, scene, instance_manager)?;
         }
 
         self.set_instance_pacing(instance, pacing);
-        Ok(effects)
+        Ok(measures)
     }
 
     fn apply_instance_change(
@@ -350,6 +477,7 @@ impl DesktopSystem {
                     (self.event_router.focused(), &creation_info.role)
                     && *focused_instance == instance
                 {
+                    // TODO: Don't call this directly, this should go through the change application.
                     self.focus(
                         &DesktopTarget::View(creation_info.id),
                         instance_manager,

@@ -17,7 +17,7 @@ use massive_shell::Scene;
 
 use super::visor_layout;
 use crate::Map;
-use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
+use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, MatrixPlacement};
 
@@ -67,7 +67,9 @@ pub struct LauncherPresenter {
     /// anchor independent of the live keyboard focus.
     pub focus_anchor_instance: Option<InstanceId>,
 
-    events: EventManager<ViewEvent>,
+    /// We need our own EventManager, because the event's positions are relative to us and even if
+    /// they weren't sharing the event history isn't really possible.
+    event_manager: EventManager<ViewEvent>,
 }
 
 impl LauncherPresenter {
@@ -124,7 +126,7 @@ impl LauncherPresenter {
             name,
             fader: scene.animated(1.0),
             focus_anchor_instance: None,
-            events: EventManager::default(),
+            event_manager: EventManager::default(),
         }
     }
 
@@ -238,22 +240,20 @@ impl LauncherPresenter {
 
     // Architecture: I don't want the launcher here to directly generate commands. may be
     // LauncherCommand? Not sure.
-    pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
+    pub fn process(&mut self, event: ViewEvent) -> Result<Commands> {
         let presents_instance = self.presents_instance();
 
-        // Architecture: This looks horrible, what about just hiding `ExternalEvent` and passing
-        // each member (also make the scope type optional, generic over the `EventManager`?).
-        let Some(input_event) = self.events.add_event(view_event, Instant::now()) else {
-            return Ok(Cmd::None);
+        let Some(event) = self.event_manager.add_event(event, Instant::now()) else {
+            return Ok(Commands::Empty);
         };
 
-        if presents_instance {
-            return Ok(Cmd::None);
+        if !presents_instance {
+            return Ok(Commands::Empty);
         }
 
         // Can't go on focus here, we might focus launchers by other means (for example cursor
         // navigation).
-        if input_event.detect_click(MouseButton::Left).is_some() {
+        if event.detect_click(MouseButton::Left).is_some() {
             // Usability: Should pass this rectangle?
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
@@ -264,8 +264,8 @@ impl LauncherPresenter {
             .into());
         }
 
-        if input_event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
-            && input_event.keyboard_modifiers().super_key()
+        if event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
+            && event.keyboard_modifiers().super_key()
         {
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
@@ -276,10 +276,11 @@ impl LauncherPresenter {
             .into());
         }
 
-        Ok(Cmd::None)
+        Ok(Commands::Empty)
     }
 
     fn presents_instance(&self) -> bool {
+        // Robustness: Deriving this state from crossing into upper layer (state -> animation).
         *self.fader.final_value() == 0.0
     }
 

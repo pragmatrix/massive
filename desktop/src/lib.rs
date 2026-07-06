@@ -4,7 +4,6 @@ pub(crate) mod desktop;
 mod desktop_environment;
 mod desktop_system;
 mod event_router;
-mod event_sourcing;
 mod focus_path;
 mod focus_target;
 mod hit_tester;

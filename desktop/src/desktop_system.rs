@@ -28,6 +28,7 @@ mod zoom_navigation;
 use anyhow::{Result, bail};
 use derive_more::Debug;
 use log::warn;
+use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::time::Duration;
@@ -47,8 +48,8 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 pub(crate) use navigation::NavigationControl;
 
+use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
-use crate::event_sourcing::Transaction;
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
@@ -100,7 +101,7 @@ impl From<ViewId> for DesktopTarget {
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
-pub type Cmd = Transaction<DesktopCommand>;
+pub type Commands = CollectingVec<DesktopCommand>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum UserState {
@@ -271,11 +272,12 @@ impl DesktopSystem {
     // effects explicitly?
     pub fn transact(
         &mut self,
-        transaction: impl Into<Transaction<DesktopCommand>>,
+        changes: impl Into<Changes>,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
+        let changes = changes.into();
         // For live transactions the gesture mode is derived from the current pointer-button state;
         // callers only pass an explicit mode for setup.
         let effects_mode = effects_mode
@@ -286,16 +288,17 @@ impl DesktopSystem {
         let mut user_state = self.user_state.clone();
         let focus_before = self.event_router.focused().cloned();
 
-        let mut commands: VecDeque<DesktopCommand> = transaction.into().into_iter().collect();
+        let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
 
-        while let Some(command) = commands.pop_front() {
-            let mut changes: VecDeque<_> = self.plan(command, scene)?.into_iter().collect();
-
-            while let Some(change) = changes.pop_front() {
-                let outcome = self.apply_change(change, scene, instance_manager)?;
-                measures += outcome.measures;
-                user_state = outcome.user_state;
+        while let Some(change) = changes.pop_front() {
+            let outcome = self.apply_change(change, scene, instance_manager)?;
+            // TODO: I think Changes should support a DoubleEndedIterator.
+            let new_changes: Vec<_> = outcome.changes.into_iter().collect();
+            for new_change in new_changes.into_iter().rev() {
+                changes.push_front(new_change);
             }
+            measures += outcome.measures;
+            user_state = outcome.user_state;
         }
 
         let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();

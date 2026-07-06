@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use log::{error, info};
+use massive_util::CollectingVec;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
@@ -17,10 +18,10 @@ use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
 use uuid::Uuid;
 
 use crate::DesktopEnvironment;
+use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::{
-    DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
+    Commands, DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
 };
-use crate::event_sourcing::Transaction;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -114,12 +115,12 @@ impl Desktop {
         let mut system =
             DesktopSystem::new(env, fonts.clone(), window.clone(), default_size, &scene)?;
 
-        let primary_project_transaction = primary_project.transaction.map(DesktopCommand::Project);
+        let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
-        let project_setup_transaction =
-            project_set_to_transaction(&project_set).map(DesktopCommand::Project);
+        let project_setup_commands: Commands =
+            project_set_to_commands(&project_set).map(DesktopCommand::Project);
 
-        let primary_instance_transaction: Transaction<_> = [DesktopCommand::StartInstance {
+        let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
             launcher: primary_project.primary_launcher,
             instance: primary_instance,
             root: Some(primary_root),
@@ -127,18 +128,19 @@ impl Desktop {
         }]
         .into();
 
-        let initial_submission_transaction: Transaction<_> =
-            [DesktopCommand::IntegrateInstanceSubmission(
-                primary_instance,
-                initial_submission,
-            )]
-            .into();
+        let initial_submission_changes: Changes =
+            DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
+
+        let commands =
+            primary_project_commands + project_setup_commands + primary_instance_commands;
+
+        let mut changes = Changes::Empty;
+        for command in commands {
+            changes += system.plan(command, &scene)?;
+        }
 
         system.transact(
-            primary_project_transaction
-                + project_setup_transaction
-                + primary_instance_transaction
-                + initial_submission_transaction,
+            changes + initial_submission_changes,
             &scene,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
@@ -172,14 +174,21 @@ impl Desktop {
                                 && let Some(input_event) =
                                     self.event_manager.add_event(view_event, Instant::now())
                             {
-                                let cmd = self.system.process_input_event(
-                                    &input_event,
-                                    &self.instance_manager,
-                                    self.renderer.geometry(),
-                                )?;
+                                self.system.update_pointer_feedback(&input_event);
+
+                                let keyboard_shortcut = self.system.match_desktop_keyboard_shortcut(&input_event);
+
+                                let changes : Changes = if let Some(keyboard_cmd) = keyboard_shortcut {
+                                        self.system.plan(keyboard_cmd.into_command(), &self.scene)?
+                                    } else {
+                                        self.system.process_input_event(
+                                            &input_event,
+                                            self.renderer.geometry(),
+                                        )?
+                                    };
 
                                 self.system.transact(
-                                    cmd,
+                                    changes,
                                     &self.scene,
                                     &mut self.instance_manager,
                                     None,
@@ -202,8 +211,9 @@ impl Desktop {
                     if self.system.is_present(&instance_id) {
                         // Did it end on its own? -> Act as if the user ended it.
                         // Robustness: This should probably handled differently.
+                        let changes = self.system.plan(DesktopCommand::StopInstance(instance_id), &self.scene)?;
                         self.system.transact(
-                            DesktopCommand::StopInstance(instance_id),
+                            changes,
                             &self.scene,
                             &mut self.instance_manager,
                             None,
@@ -251,7 +261,7 @@ impl Desktop {
         submission: InstanceSubmission,
     ) -> Result<()> {
         self.system.transact(
-            DesktopCommand::IntegrateInstanceSubmission(instance, submission),
+            DesktopChange::IntegrateInstanceSubmission(instance, submission),
             &self.scene,
             &mut self.instance_manager,
             None,
@@ -262,22 +272,23 @@ impl Desktop {
 #[derive(Debug)]
 struct PrimaryProject {
     primary_launcher: LaunchProfileId,
-    transaction: Transaction<ProjectCommand>,
+    commands: CollectingVec<ProjectCommand>,
 }
 
 fn primary_project() -> PrimaryProject {
-    let mut cmds = Vec::new();
+    let mut commands = CollectingVec::default();
 
     let primary_project = ProjectId::new();
     let primary_launcher = LaunchProfileId::new();
 
-    cmds.push(ProjectCommand::AddProject {
+    commands += ProjectCommand::AddProject {
         id: primary_project,
         properties: ProjectProperties {
             name: "Primary / Local".into(),
         },
-    });
-    cmds.push(ProjectCommand::AddLauncher {
+    };
+
+    commands += ProjectCommand::AddLauncher {
         project: primary_project,
         id: primary_launcher,
         profile: LaunchProfile {
@@ -287,16 +298,16 @@ fn primary_project() -> PrimaryProject {
             params: Default::default(),
         },
         placement: MatrixPlacement { column: 0, row: 0 },
-    });
+    };
 
     PrimaryProject {
         primary_launcher,
-        transaction: cmds.into(),
+        commands,
     }
 }
 
-fn project_set_to_transaction(project_set: &ProjectSet) -> Transaction<ProjectCommand> {
-    let mut commands = Vec::new();
+fn project_set_to_commands(project_set: &ProjectSet) -> CollectingVec<ProjectCommand> {
+    let mut commands = CollectingVec::Empty;
 
     commands.push(ProjectCommand::SetStartupProfile(project_set.start));
 
@@ -304,10 +315,10 @@ fn project_set_to_transaction(project_set: &ProjectSet) -> Transaction<ProjectCo
         project_commands(project, &mut commands);
     }
 
-    commands.into()
+    commands
 }
 
-fn project_commands(project: &Project, commands: &mut Vec<ProjectCommand>) {
+fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
     commands.push(ProjectCommand::AddProject {
         id: project.id,
         properties: project.properties.clone(),
@@ -318,7 +329,11 @@ fn project_commands(project: &Project, commands: &mut Vec<ProjectCommand>) {
     }
 }
 
-fn launcher_commands(project: ProjectId, launcher: &Launcher, commands: &mut Vec<ProjectCommand>) {
+fn launcher_commands(
+    project: ProjectId,
+    launcher: &Launcher,
+    commands: &mut CollectingVec<ProjectCommand>,
+) {
     commands.push(ProjectCommand::AddLauncher {
         project,
         id: launcher.id,
