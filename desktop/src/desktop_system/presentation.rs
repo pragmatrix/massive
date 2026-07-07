@@ -6,7 +6,8 @@ use massive_geometry::Vector3;
 use massive_shell::Scene;
 
 use super::DesktopTarget;
-use crate::desktop_system::effects::MeasureSet;
+use crate::desktop_system::change::{Changes, DesktopChange, TopologyChange};
+use crate::desktop_system::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;
@@ -109,34 +110,37 @@ impl DesktopSystem {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
-    ) -> Result<MeasureSet> {
+    ) -> Result<ChangeOutput> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found (present_view)");
         };
 
         instance_presenter.present_view(view_creation_info, scene)?;
 
-        // Add the view to the hierarchy.
-        self.aggregates.hierarchy.add(
-            DesktopTarget::Instance(instance),
-            DesktopTarget::View(view_creation_info.id),
-        )?;
+        // Add the view to the hierarchy as a separate topology change.
+        let changes: Changes = DesktopChange::Topology(TopologyChange::Add {
+            what: DesktopTarget::View(view_creation_info.id),
+            under: DesktopTarget::Instance(instance),
+        })
+        .into();
 
-        Ok(DesktopTarget::Instance(instance).into())
+        Ok(ChangeOutput::changes(changes))
     }
 
-    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<MeasureSet> {
+    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<ChangeOutput> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&path.instance) else {
             warn!("Can't hide view: Instance for view not found");
             // Robustness: Decide if this should return an error.
-            return Ok(MeasureSet::Empty);
+            return Ok(ChangeOutput::default());
         };
 
         instance_presenter.hide_view(path.view)?;
 
-        // Robustness: What about focus?
+        // Remove the view from the hierarchy as a separate topology change. The remove change
+        // also retargets focus away from the removed subtree.
+        let changes: Changes =
+            DesktopChange::Topology(TopologyChange::Remove(DesktopTarget::View(path.view))).into();
 
-        // And remove the view.
-        self.remove_target(&DesktopTarget::View(path.view))
+        Ok(ChangeOutput::changes(changes))
     }
 }

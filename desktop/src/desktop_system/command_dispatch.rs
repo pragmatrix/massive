@@ -417,31 +417,26 @@ impl DesktopSystem {
                 Ok(ChangeOutput::default())
             }
             InstanceChange::CreateView(creation_info) => {
-                let measure_set = self.present_view(instance, &creation_info, scene)?;
+                let mut output = self.present_view(instance, &creation_info, scene)?;
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the
                 // focus transition (and its navigation-affinity reset) flows through change
                 // application like every other focus change.
-                let mut changes = Changes::Empty;
                 if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
                     (self.event_router.focused(), &creation_info.role)
                     && *focused_instance == instance
                 {
-                    changes += set_focus(
+                    output.changes += set_focus(
                         Some(DesktopTarget::View(creation_info.id)),
                         FocusReason::PromotePrimaryView,
                     );
                 }
-                Ok(ChangeOutput {
-                    changes,
-                    measures: measure_set,
-                })
+                Ok(output)
             }
             InstanceChange::DestroyView(id) => {
                 let view_path: ViewPath = (instance, id).into();
-                let measures = self.hide_view(view_path)?;
-                Ok(ChangeOutput::measures(measures))
+                self.hide_view(view_path)
             }
             InstanceChange::View(view_id, command) => {
                 let view_path: ViewPath = (instance, view_id).into();
