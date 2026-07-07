@@ -253,20 +253,12 @@ impl LauncherPresenter {
 
         // Can't go on focus here, we might focus launchers by other means (for example cursor
         // navigation).
-        if event.detect_click(MouseButton::Left).is_some() {
-            // Usability: Should pass this rectangle?
-            return Ok(DesktopCommand::StartInstance {
-                launcher: self.id,
-                instance: Uuid::new_v4().into(),
-                root: None,
-                parameters: self.profile.params.clone(),
-            }
-            .into());
-        }
+        let start_instance = event.detect_click(MouseButton::Left).is_some()
+            || (event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
+                && event.keyboard_modifiers().super_key());
 
-        if event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
-            && event.keyboard_modifiers().super_key()
-        {
+        if start_instance {
+            // Usability: Should pass this rectangle?
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
                 instance: Uuid::new_v4().into(),
