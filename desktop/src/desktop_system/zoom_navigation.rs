@@ -70,13 +70,13 @@ pub fn overview_target_for_navigation_candidate(
             (candidate_launcher == *current_launcher)
                 .then_some(OverviewTarget::Visor(*current_launcher))
         }
-        OverviewTarget::Band(current_launcher) => {
+        OverviewTarget::MatrixRow(current_launcher) => {
             let current_project = topology.project_of_launcher(*current_launcher)?;
             let candidate_launcher = topology.launcher_of_target(candidate)?;
             let candidate_project = topology.project_of_launcher(candidate_launcher)?;
 
             (candidate_project == current_project)
-                .then_some(OverviewTarget::Band(candidate_launcher))
+                .then_some(OverviewTarget::MatrixRow(candidate_launcher))
         }
         OverviewTarget::Project(current_project) => {
             let candidate_project = topology.project_of_target(candidate)?;
@@ -96,8 +96,8 @@ impl DesktopSystem {
             OverviewTarget::Visor(launcher_id) => {
                 self.camera_for_bounds(self.visor_bounds(*launcher_id))
             }
-            OverviewTarget::Band(launcher_id) => {
-                self.camera_for_rect(self.band_rect(*launcher_id)?)
+            OverviewTarget::MatrixRow(launcher_id) => {
+                self.camera_for_rect(self.matrix_row_rect(*launcher_id)?)
             }
             OverviewTarget::Project(project_id) => {
                 self.camera_for_rect(self.project_rect(*project_id))
@@ -136,8 +136,8 @@ fn first_overview_target_for_launcher(
         return OverviewTarget::Visor(launcher_id);
     }
 
-    if should_include_band_level(topology, launchers, launcher_id) {
-        return OverviewTarget::Band(launcher_id);
+    if should_include_matrix_row_level(topology, launchers, launcher_id) {
+        return OverviewTarget::MatrixRow(launcher_id);
     }
 
     topology
@@ -169,7 +169,7 @@ fn next_inward_user_state(
                 .map(UserState::Overview)
                 .unwrap_or(UserState::Focused)
         }
-        OverviewTarget::Band(launcher_id) => {
+        OverviewTarget::MatrixRow(launcher_id) => {
             if should_include_visor_level(topology, *launcher_id) {
                 UserState::Overview(OverviewTarget::Visor(*launcher_id))
             } else {
@@ -185,8 +185,8 @@ fn deepest_overview_target_for_launcher(
     launchers: &LauncherMap,
     launcher_id: LaunchProfileId,
 ) -> Option<OverviewTarget> {
-    if should_include_band_level(topology, launchers, launcher_id) {
-        return Some(OverviewTarget::Band(launcher_id));
+    if should_include_matrix_row_level(topology, launchers, launcher_id) {
+        return Some(OverviewTarget::MatrixRow(launcher_id));
     }
 
     if should_include_visor_level(topology, launcher_id) {
@@ -204,15 +204,15 @@ fn next_overview_target(
 ) -> OverviewTarget {
     match current {
         OverviewTarget::Visor(launcher_id) => {
-            if should_include_band_level(topology, launchers, *launcher_id) {
-                OverviewTarget::Band(*launcher_id)
+            if should_include_matrix_row_level(topology, launchers, *launcher_id) {
+                OverviewTarget::MatrixRow(*launcher_id)
             } else {
                 zoom_transition_project(topology, focused, *launcher_id)
                     .map(OverviewTarget::Project)
                     .unwrap_or(OverviewTarget::Desktop)
             }
         }
-        OverviewTarget::Band(launcher_id) => {
+        OverviewTarget::MatrixRow(launcher_id) => {
             zoom_transition_project(topology, focused, *launcher_id)
                 .map(OverviewTarget::Project)
                 .unwrap_or(OverviewTarget::Desktop)
@@ -240,7 +240,7 @@ fn should_include_visor_level(topology: &DesktopTopology, launcher_id: LaunchPro
         > 1
 }
 
-fn should_include_band_level(
+fn should_include_matrix_row_level(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
     launcher_id: LaunchProfileId,
@@ -289,7 +289,7 @@ impl DesktopSystem {
         bounds.expect("Internal error: launcher bounds should always exist")
     }
 
-    fn band_rect(&self, launcher_id: crate::projects::LaunchProfileId) -> Option<Rect> {
+    fn matrix_row_rect(&self, launcher_id: crate::projects::LaunchProfileId) -> Option<Rect> {
         let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id)?;
         let row = self.aggregates.launchers.get(&launcher_id)?.placement.row;
         let mut rect: Option<Rect> = None;
@@ -320,13 +320,13 @@ impl DesktopSystem {
         }
 
         // Be sure the full width of the project is covered.
-        rect.map(|band_rect| {
+        rect.map(|matrix_row_rect| {
             let project_matrix_rect = self.project_matrix_rect(project_id);
             (
                 project_matrix_rect.left,
-                band_rect.top,
+                matrix_row_rect.top,
                 project_matrix_rect.right,
-                band_rect.bottom,
+                matrix_row_rect.bottom,
             )
                 .into()
         })

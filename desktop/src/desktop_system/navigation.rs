@@ -350,7 +350,7 @@ fn horizontal_child_neighbor(
 
 pub fn overview_navigation_anchor(target: &OverviewTarget) -> Option<DesktopTarget> {
     match target {
-        OverviewTarget::Visor(launcher_id) | OverviewTarget::Band(launcher_id) => {
+        OverviewTarget::Visor(launcher_id) | OverviewTarget::MatrixRow(launcher_id) => {
             Some(DesktopTarget::Launcher(*launcher_id))
         }
         OverviewTarget::Project(project_id) => Some(DesktopTarget::Project(*project_id)),

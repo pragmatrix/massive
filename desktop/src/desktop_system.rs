@@ -112,7 +112,7 @@ pub enum UserState {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OverviewTarget {
     Visor(LaunchProfileId),
-    Band(LaunchProfileId),
+    MatrixRow(LaunchProfileId),
     Project(ProjectId),
     Desktop,
 }
