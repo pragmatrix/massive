@@ -2,28 +2,32 @@ use anyhow::{Result, bail};
 use log::warn;
 
 use massive_applications::{InstanceId, ViewCreationInfo};
+use massive_geometry::Vector3;
 use massive_shell::Scene;
 
 use super::DesktopTarget;
-use super::effects::{DesktopEffect, Effects};
+use crate::desktop_system::effects::MeasureSet;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;
 
 use super::DesktopSystem;
 
+#[derive(Debug)]
+pub struct OriginationDetails {
+    pub insertion_pos: usize,
+    pub initial_center_translation: Option<Vector3>,
+}
+
 impl DesktopSystem {
     pub(super) fn present_instance(
         &mut self,
         launcher: LaunchProfileId,
-        originating_from: Option<InstanceId>,
+        initial_center_translation: Option<Vector3>,
         instance: InstanceId,
         root: InstanceRoot,
         scene: &Scene,
-    ) -> Result<usize> {
-        let originating_presenter = originating_from
-            .and_then(|originating_from| self.aggregates.instances.get(&originating_from));
-
+    ) -> Result<()> {
         let (render_instance_background, launcher_location) = {
             let launcher = self
                 .aggregates
@@ -36,9 +40,6 @@ impl DesktopSystem {
             )
         };
 
-        let initial_center_translation =
-            originating_presenter.map(|op| op.layout_transform_animation.latest_value().translate);
-
         let presenter = InstancePresenter::new(
             initial_center_translation,
             render_instance_background,
@@ -49,17 +50,7 @@ impl DesktopSystem {
 
         self.aggregates.instances.insert(instance, presenter)?;
 
-        let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
-        let insertion_pos = if let Some(originating_from) = originating_from {
-            nested
-                .iter()
-                .position(|i| *i == DesktopTarget::Instance(originating_from))
-                .map(|i| i + 1)
-                .unwrap_or(nested.len())
-        } else {
-            0
-        };
-
+        // Architecture: This should be a kind of rule applied implicitly.
         // Inform the launcher to fade out.
         self.aggregates
             .launchers
@@ -67,17 +58,34 @@ impl DesktopSystem {
             .expect("Launcher not found")
             .fade_out();
 
-        Ok(insertion_pos)
+        Ok(())
     }
 
-    pub(super) fn hide_instance(&mut self, instance: InstanceId) -> Result<Effects> {
-        let Some(DesktopTarget::Launcher(launcher)) =
-            self.aggregates.hierarchy.parent(&instance.into()).cloned()
-        else {
-            bail!("Internal error: Launcher not found");
-        };
+    pub fn get_origination_details(
+        &self,
+        launcher: LaunchProfileId,
+        originator: InstanceId,
+    ) -> OriginationDetails {
+        let originating_presenter = self.aggregates.instances.get(&originator);
 
-        let effects = self.remove_target(&DesktopTarget::Instance(instance))?;
+        let initial_center_translation =
+            originating_presenter.map(|op| op.layout_transform_animation.latest_value().translate);
+
+        let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
+
+        let insertion_pos = nested
+            .iter()
+            .position(|i| *i == DesktopTarget::Instance(originator))
+            .map(|i| i + 1)
+            .unwrap_or(nested.len());
+
+        OriginationDetails {
+            insertion_pos,
+            initial_center_translation,
+        }
+    }
+
+    pub fn hide_instance(&mut self, launcher: LaunchProfileId, instance: InstanceId) -> Result<()> {
         self.aggregates.instances.remove(&instance)?;
 
         if !self
@@ -93,7 +101,7 @@ impl DesktopSystem {
                 .fade_in();
         }
 
-        Ok(effects)
+        Ok(())
     }
 
     pub(super) fn present_view(
@@ -101,7 +109,7 @@ impl DesktopSystem {
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
         scene: &Scene,
-    ) -> Result<Effects> {
+    ) -> Result<MeasureSet> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found (present_view)");
         };
@@ -114,14 +122,14 @@ impl DesktopSystem {
             DesktopTarget::View(view_creation_info.id),
         )?;
 
-        Ok(DesktopEffect::Measure(DesktopTarget::Instance(instance)).into())
+        Ok(DesktopTarget::Instance(instance).into())
     }
 
-    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<Effects> {
+    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<MeasureSet> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&path.instance) else {
             warn!("Can't hide view: Instance for view not found");
             // Robustness: Decide if this should return an error.
-            return Ok(Effects::None);
+            return Ok(MeasureSet::Empty);
         };
 
         instance_presenter.hide_view(path.view)?;

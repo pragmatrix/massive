@@ -1,6 +1,6 @@
+use massive_util::CollectingSet;
 use std::collections::VecDeque;
-use std::ops;
-use std::vec;
+use std::{ops, vec};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 use super::DesktopTarget;
@@ -11,30 +11,38 @@ pub enum DesktopEffect {
     Place(DesktopTarget),
     ApplyLayout(DesktopTarget),
     UpdateCamera,
+    /// Re-aligns the desktop's hover highlight with the current pointer-focused target.
+    ///
+    /// Runs in the `PostLayout` phase and is scheduled after any placement change so the hover
+    /// rect tracks moved/animated layout. It reads the pointer focus from the event router (only
+    /// when pointer feedback is enabled, otherwise the hover is cleared), resolves it to a
+    /// placement — an instance directly, a view via its parent instance, or a launcher — composing
+    /// the instance's animated layout transform with its launcher's world transform, and pushes
+    /// the result to the desktop presenter via `set_hover_placement`.
     SyncHover,
-    SyncFocusedViewWindowState,
 }
 
 #[derive(
     Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash, EnumCount, EnumIter,
 )]
-#[repr(usize)]
 enum DesktopEffectPhase {
     #[default]
     Layout,
+    PropagatePlacements,
     PostLayout,
-    Finalize,
 }
 
 impl DesktopEffect {
     const fn phase(&self) -> DesktopEffectPhase {
         match self {
-            Self::Measure(_) | Self::Place(_) | Self::ApplyLayout(_) => DesktopEffectPhase::Layout,
+            Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
+            Self::ApplyLayout(_) => DesktopEffectPhase::PropagatePlacements,
             Self::UpdateCamera | Self::SyncHover => DesktopEffectPhase::PostLayout,
-            Self::SyncFocusedViewWindowState => DesktopEffectPhase::Finalize,
         }
     }
 }
+
+pub type MeasureSet = CollectingSet<DesktopTarget>;
 
 #[must_use]
 #[derive(Debug, PartialEq)]
@@ -55,6 +63,12 @@ impl<const LEN: usize> From<[DesktopEffect; LEN]> for Effects {
     fn from(value: [DesktopEffect; LEN]) -> Self {
         let effects: Vec<DesktopEffect> = value.into();
         Self(effects)
+    }
+}
+
+impl FromIterator<DesktopEffect> for Effects {
+    fn from_iter<I: IntoIterator<Item = DesktopEffect>>(iter: I) -> Self {
+        Self(iter.into_iter().collect())
     }
 }
 

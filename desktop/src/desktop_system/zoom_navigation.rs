@@ -1,8 +1,12 @@
 use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
+use massive_layout::LayoutTopology;
 use massive_scene::{ToCamera, Transform};
 
-use super::effects::DesktopEffect;
-use super::{DesktopSystem, DesktopTarget, Effects, OverviewTarget, UserState};
+use crate::desktop_system::LauncherMap;
+use crate::desktop_system::topology::DesktopTopology;
+use crate::projects::{LaunchProfileId, ProjectId};
+
+use super::{DesktopSystem, DesktopTarget, OverviewTarget, UserState};
 
 #[derive(Debug, Clone)]
 struct OverviewBounds {
@@ -18,110 +22,72 @@ impl OverviewBounds {
     }
 }
 
-impl DesktopSystem {
-    pub(super) fn apply_zoom_reset_command(&mut self) -> Effects {
-        let changed = match self.user_state {
-            UserState::Focused => false,
-            UserState::Overview(_) => true,
-        };
-        self.user_state = UserState::Focused;
-
-        if changed {
-            DesktopEffect::UpdateCamera.into()
-        } else {
-            Effects::None
-        }
-    }
-
-    pub(super) fn apply_zoom_in_command(&mut self) -> Effects {
-        let Some(next_state) = self.next_zoom_in_state() else {
-            return Effects::None;
-        };
-
-        let changed = self.user_state != next_state;
-        self.user_state = next_state;
-
-        if changed {
-            DesktopEffect::UpdateCamera.into()
-        } else {
-            Effects::None
-        }
-    }
-
-    pub(super) fn apply_zoom_out_command(&mut self) -> Effects {
-        let Some(zoom_target) = self.next_zoom_out_target() else {
-            return Effects::None;
-        };
-
-        let changed = match &self.user_state {
-            UserState::Overview(current) => current != &zoom_target,
-            UserState::Focused => true,
-        };
-
-        self.user_state = UserState::Overview(zoom_target);
-
-        if changed {
-            DesktopEffect::UpdateCamera.into()
-        } else {
-            Effects::None
-        }
-    }
-
-    pub(super) fn next_zoom_out_target(&self) -> Option<OverviewTarget> {
-        match &self.user_state {
-            UserState::Focused => self.first_overview_target_from_focus(),
-            UserState::Overview(target) => Some(self.next_overview_target(target)),
-        }
-    }
-
-    fn next_zoom_in_state(&self) -> Option<UserState> {
-        match &self.user_state {
+#[must_use]
+pub fn zoom_in(
+    topo: &DesktopTopology,
+    launchers: &LauncherMap,
+    focused: DesktopTarget,
+    user_state: UserState,
+) -> UserState {
+    {
+        match &user_state {
             UserState::Focused => None,
-            UserState::Overview(target) => Some(self.next_inward_user_state(target)),
+            UserState::Overview(target) => {
+                Some(next_inward_user_state(topo, launchers, focused, target))
+            }
         }
     }
+    .unwrap_or(user_state)
+}
 
-    pub(super) fn overview_navigation_anchor(
-        &self,
-        target: &OverviewTarget,
-    ) -> Option<DesktopTarget> {
-        match target {
-            OverviewTarget::Visor(launcher_id) | OverviewTarget::Band(launcher_id) => {
-                Some(DesktopTarget::Launcher(*launcher_id))
+#[must_use]
+pub fn zoom_out(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    focused: DesktopTarget,
+    user_state: UserState,
+) -> UserState {
+    {
+        match &user_state {
+            UserState::Focused => first_overview_target_from_focus(topology, launchers, focused),
+            UserState::Overview(target) => {
+                Some(next_overview_target(topology, launchers, focused, target))
             }
-            OverviewTarget::Project(project_id) => Some(DesktopTarget::Project(*project_id)),
-            OverviewTarget::Desktop => Some(DesktopTarget::Desktop),
         }
     }
+    .map(UserState::Overview)
+    .unwrap_or(user_state)
+}
 
-    pub(super) fn overview_target_for_navigation_candidate(
-        &self,
-        current: &OverviewTarget,
-        candidate: &DesktopTarget,
-    ) -> Option<OverviewTarget> {
-        match current {
-            OverviewTarget::Visor(current_launcher) => {
-                let candidate_launcher = self.launcher_from_target(candidate)?;
-                (candidate_launcher == *current_launcher)
-                    .then_some(OverviewTarget::Visor(*current_launcher))
-            }
-            OverviewTarget::Band(current_launcher) => {
-                let current_project = self.launcher_project(*current_launcher)?;
-                let candidate_launcher = self.launcher_from_target(candidate)?;
-                let candidate_project = self.launcher_project(candidate_launcher)?;
-
-                (candidate_project == current_project)
-                    .then_some(OverviewTarget::Band(candidate_launcher))
-            }
-            OverviewTarget::Project(current_project) => {
-                let candidate_project = self.project_from_target(candidate)?;
-                (candidate_project == *current_project)
-                    .then_some(OverviewTarget::Project(*current_project))
-            }
-            OverviewTarget::Desktop => Some(OverviewTarget::Desktop),
+pub fn overview_target_for_navigation_candidate(
+    topology: &DesktopTopology,
+    current: &OverviewTarget,
+    candidate: &DesktopTarget,
+) -> Option<OverviewTarget> {
+    match current {
+        OverviewTarget::Visor(current_launcher) => {
+            let candidate_launcher = topology.launcher_of_target(candidate)?;
+            (candidate_launcher == *current_launcher)
+                .then_some(OverviewTarget::Visor(*current_launcher))
         }
-    }
+        OverviewTarget::Band(current_launcher) => {
+            let current_project = topology.project_of_launcher(*current_launcher)?;
+            let candidate_launcher = topology.launcher_of_target(candidate)?;
+            let candidate_project = topology.project_of_launcher(candidate_launcher)?;
 
+            (candidate_project == current_project)
+                .then_some(OverviewTarget::Band(candidate_launcher))
+        }
+        OverviewTarget::Project(current_project) => {
+            let candidate_project = topology.project_of_target(candidate)?;
+            (candidate_project == *current_project)
+                .then_some(OverviewTarget::Project(*current_project))
+        }
+        OverviewTarget::Desktop => Some(OverviewTarget::Desktop),
+    }
+}
+
+impl DesktopSystem {
     pub(super) fn camera_for_overview_target(
         &self,
         target: &OverviewTarget,
@@ -139,227 +105,183 @@ impl DesktopSystem {
             OverviewTarget::Desktop => self.camera_for_focus(&DesktopTarget::Desktop),
         }
     }
+}
 
-    fn first_overview_target_from_focus(&self) -> Option<OverviewTarget> {
-        let focused = self.event_router.focused()?;
-
-        if let Some(launcher_id) = self.launcher_from_target(focused) {
-            return Some(self.first_overview_target_for_launcher(launcher_id));
-        }
-
-        if let Some(project_id) = self.project_from_target(focused) {
-            return Some(OverviewTarget::Project(project_id));
-        }
-
-        Some(OverviewTarget::Desktop)
+fn first_overview_target_from_focus(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    focused: DesktopTarget,
+) -> Option<OverviewTarget> {
+    if let Some(launcher_id) = topology.launcher_of_target(&focused) {
+        return Some(first_overview_target_for_launcher(
+            topology,
+            launchers,
+            launcher_id,
+        ));
     }
 
-    fn first_overview_target_for_launcher(
-        &self,
-        launcher_id: crate::projects::LaunchProfileId,
-    ) -> OverviewTarget {
-        if self.should_include_visor_level(launcher_id) {
-            return OverviewTarget::Visor(launcher_id);
-        }
+    if let Some(project_id) = topology.project_of_target(&focused) {
+        return Some(OverviewTarget::Project(project_id));
+    }
 
-        if self.should_include_band_level(launcher_id) {
-            return OverviewTarget::Band(launcher_id);
-        }
+    Some(OverviewTarget::Desktop)
+}
 
-        self.launcher_project(launcher_id)
+fn first_overview_target_for_launcher(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    launcher_id: LaunchProfileId,
+) -> OverviewTarget {
+    if should_include_visor_level(topology, launcher_id) {
+        return OverviewTarget::Visor(launcher_id);
+    }
+
+    if should_include_band_level(topology, launchers, launcher_id) {
+        return OverviewTarget::Band(launcher_id);
+    }
+
+    topology
+        .project_of_launcher(launcher_id)
+        .map(OverviewTarget::Project)
+        .unwrap_or(OverviewTarget::Desktop)
+}
+
+fn next_inward_user_state(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    focused: DesktopTarget,
+    current: &OverviewTarget,
+) -> UserState {
+    match current {
+        OverviewTarget::Desktop => topology
+            .project_of_target(&focused)
             .map(OverviewTarget::Project)
-            .unwrap_or(OverviewTarget::Desktop)
-    }
+            .map(UserState::Overview)
+            .unwrap_or(UserState::Focused),
+        OverviewTarget::Project(project_id) => {
+            let Some(launcher_id) =
+                zoom_context_launcher_for_project(topology, focused, *project_id)
+            else {
+                return UserState::Focused;
+            };
 
-    fn deepest_overview_target_for_launcher(
-        &self,
-        launcher_id: crate::projects::LaunchProfileId,
-    ) -> Option<OverviewTarget> {
-        if self.should_include_band_level(launcher_id) {
-            return Some(OverviewTarget::Band(launcher_id));
-        }
-
-        if self.should_include_visor_level(launcher_id) {
-            return Some(OverviewTarget::Visor(launcher_id));
-        }
-
-        None
-    }
-
-    fn next_inward_user_state(&self, current: &OverviewTarget) -> UserState {
-        match current {
-            OverviewTarget::Desktop => self
-                .focused_project_id()
-                .map(OverviewTarget::Project)
+            deepest_overview_target_for_launcher(topology, launchers, launcher_id)
                 .map(UserState::Overview)
-                .unwrap_or(UserState::Focused),
-            OverviewTarget::Project(project_id) => {
-                let Some(launcher_id) = self.zoom_context_launcher_for_project(*project_id) else {
-                    return UserState::Focused;
-                };
-
-                self.deepest_overview_target_for_launcher(launcher_id)
-                    .map(UserState::Overview)
-                    .unwrap_or(UserState::Focused)
-            }
-            OverviewTarget::Band(launcher_id) => {
-                if self.should_include_visor_level(*launcher_id) {
-                    UserState::Overview(OverviewTarget::Visor(*launcher_id))
-                } else {
-                    UserState::Focused
-                }
-            }
-            OverviewTarget::Visor(_) => UserState::Focused,
+                .unwrap_or(UserState::Focused)
         }
+        OverviewTarget::Band(launcher_id) => {
+            if should_include_visor_level(topology, *launcher_id) {
+                UserState::Overview(OverviewTarget::Visor(*launcher_id))
+            } else {
+                UserState::Focused
+            }
+        }
+        OverviewTarget::Visor(_) => UserState::Focused,
+    }
+}
+
+fn deepest_overview_target_for_launcher(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    launcher_id: LaunchProfileId,
+) -> Option<OverviewTarget> {
+    if should_include_band_level(topology, launchers, launcher_id) {
+        return Some(OverviewTarget::Band(launcher_id));
     }
 
-    fn next_overview_target(&self, current: &OverviewTarget) -> OverviewTarget {
-        match current {
-            OverviewTarget::Visor(launcher_id) => {
-                if self.should_include_band_level(*launcher_id) {
-                    OverviewTarget::Band(*launcher_id)
-                } else {
-                    self.zoom_transition_project(*launcher_id)
-                        .map(OverviewTarget::Project)
-                        .unwrap_or(OverviewTarget::Desktop)
-                }
+    if should_include_visor_level(topology, launcher_id) {
+        return Some(OverviewTarget::Visor(launcher_id));
+    }
+
+    None
+}
+
+fn next_overview_target(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    focused: DesktopTarget,
+    current: &OverviewTarget,
+) -> OverviewTarget {
+    match current {
+        OverviewTarget::Visor(launcher_id) => {
+            if should_include_band_level(topology, launchers, *launcher_id) {
+                OverviewTarget::Band(*launcher_id)
+            } else {
+                zoom_transition_project(topology, focused, *launcher_id)
+                    .map(OverviewTarget::Project)
+                    .unwrap_or(OverviewTarget::Desktop)
             }
-            OverviewTarget::Band(launcher_id) => self
-                .zoom_transition_project(*launcher_id)
+        }
+        OverviewTarget::Band(launcher_id) => {
+            zoom_transition_project(topology, focused, *launcher_id)
                 .map(OverviewTarget::Project)
-                .unwrap_or(OverviewTarget::Desktop),
-            OverviewTarget::Project(_) | OverviewTarget::Desktop => OverviewTarget::Desktop,
+                .unwrap_or(OverviewTarget::Desktop)
         }
+        OverviewTarget::Project(_) | OverviewTarget::Desktop => OverviewTarget::Desktop,
     }
+}
 
-    fn zoom_transition_project(
-        &self,
-        launcher_id: crate::projects::LaunchProfileId,
-    ) -> Option<crate::projects::ProjectId> {
-        self.focused_project_id()
-            .or_else(|| self.launcher_project(launcher_id))
-    }
+fn zoom_transition_project(
+    topology: &DesktopTopology,
+    focused: DesktopTarget,
+    launcher_id: LaunchProfileId,
+) -> Option<ProjectId> {
+    topology
+        .project_of_target(&focused)
+        .or_else(|| topology.project_of_launcher(launcher_id))
+}
 
-    fn should_include_visor_level(&self, launcher_id: crate::projects::LaunchProfileId) -> bool {
-        self.aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::Launcher(launcher_id))
-            .iter()
-            .filter(|target| matches!(target, DesktopTarget::Instance(_)))
-            .count()
-            > 1
-    }
+fn should_include_visor_level(topology: &DesktopTopology, launcher_id: LaunchProfileId) -> bool {
+    topology
+        .children_of(&DesktopTarget::Launcher(launcher_id))
+        .iter()
+        .filter(|target| matches!(target, DesktopTarget::Instance(_)))
+        .count()
+        > 1
+}
 
-    fn should_include_band_level(&self, launcher_id: crate::projects::LaunchProfileId) -> bool {
-        let Some(project_id) = self.launcher_project(launcher_id) else {
-            return false;
-        };
+fn should_include_band_level(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    launcher_id: LaunchProfileId,
+) -> bool {
+    let Some(project_id) = topology.project_of_launcher(launcher_id) else {
+        return false;
+    };
 
-        let Some(row) = self
-            .aggregates
-            .launchers
-            .get(&launcher_id)
-            .map(|l| l.placement.row)
-        else {
-            return false;
-        };
+    let Some(row) = launchers.get(&launcher_id).map(|l| l.placement.row) else {
+        return false;
+    };
 
-        let launcher_count = self
-            .aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
-            .iter()
-            .filter_map(|target| match target {
-                DesktopTarget::Launcher(candidate_launcher) => {
-                    self.aggregates.launchers.get(candidate_launcher)
-                }
-                _ => None,
-            })
-            .filter(|launcher| launcher.placement.row == row)
-            .count();
-
-        launcher_count > 1
-    }
-
-    fn launcher_project(
-        &self,
-        launcher_id: crate::projects::LaunchProfileId,
-    ) -> Option<crate::projects::ProjectId> {
-        let target = DesktopTarget::Launcher(launcher_id);
-        match self.aggregates.hierarchy.parent(&target) {
-            Some(DesktopTarget::ProjectMatrix(project_id)) => Some(*project_id),
+    let launcher_count = topology
+        .children_of(&DesktopTarget::ProjectMatrix(project_id))
+        .iter()
+        .filter_map(|target| match target {
+            DesktopTarget::Launcher(candidate_launcher) => launchers.get(candidate_launcher),
             _ => None,
-        }
+        })
+        .filter(|launcher| launcher.placement.row == row)
+        .count();
+
+    launcher_count > 1
+}
+
+fn zoom_context_launcher_for_project(
+    topology: &DesktopTopology,
+    focused: DesktopTarget,
+    project_id: ProjectId,
+) -> Option<crate::projects::LaunchProfileId> {
+    // Simplify: Can't we use project_of_target directly here?
+    if let Some(focused_launcher) = topology.launcher_of_target(&focused)
+        && topology.project_of_launcher(focused_launcher) == Some(project_id)
+    {
+        return Some(focused_launcher);
     }
 
-    fn launcher_from_target(
-        &self,
-        target: &DesktopTarget,
-    ) -> Option<crate::projects::LaunchProfileId> {
-        match target {
-            DesktopTarget::Launcher(launcher_id) => Some(*launcher_id),
-            DesktopTarget::Instance(instance_id) => self.instance_launcher(*instance_id),
-            DesktopTarget::View(view_id) => {
-                let parent = self
-                    .aggregates
-                    .hierarchy
-                    .parent(&DesktopTarget::View(*view_id))?;
-                self.launcher_from_target(parent)
-            }
-            _ => None,
-        }
-    }
+    None
+}
 
-    fn project_from_target(&self, target: &DesktopTarget) -> Option<crate::projects::ProjectId> {
-        match target {
-            DesktopTarget::Project(project_id)
-            | DesktopTarget::ProjectHeader(project_id)
-            | DesktopTarget::ProjectMatrix(project_id) => Some(*project_id),
-            DesktopTarget::Launcher(launcher_id) => self.launcher_project(*launcher_id),
-            DesktopTarget::Instance(instance_id) => self
-                .instance_launcher(*instance_id)
-                .and_then(|launcher_id| self.launcher_project(launcher_id)),
-            DesktopTarget::View(view_id) => {
-                let parent = self
-                    .aggregates
-                    .hierarchy
-                    .parent(&DesktopTarget::View(*view_id))?;
-                self.project_from_target(parent)
-            }
-            DesktopTarget::Desktop => None,
-        }
-    }
-
-    fn focused_project_id(&self) -> Option<crate::projects::ProjectId> {
-        let focused = self.event_router.focused()?;
-        self.project_from_target(focused)
-    }
-
-    fn focused_launcher_id(&self) -> Option<crate::projects::LaunchProfileId> {
-        let focused = self.event_router.focused()?;
-        self.launcher_from_target(focused)
-    }
-
-    fn zoom_context_launcher_for_project(
-        &self,
-        project_id: crate::projects::ProjectId,
-    ) -> Option<crate::projects::LaunchProfileId> {
-        if let Some(focused_launcher) = self.focused_launcher_id()
-            && self.launcher_project(focused_launcher) == Some(project_id)
-        {
-            return Some(focused_launcher);
-        }
-
-        self.aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
-            .iter()
-            .find_map(|target| match target {
-                DesktopTarget::Launcher(launcher_id) => Some(*launcher_id),
-                _ => None,
-            })
-    }
-
+impl DesktopSystem {
     fn visor_bounds(&self, launcher_id: crate::projects::LaunchProfileId) -> OverviewBounds {
         let root = DesktopTarget::Launcher(launcher_id);
         let mut bounds = Some(self.target_bounds(&root));
@@ -368,7 +290,7 @@ impl DesktopSystem {
     }
 
     fn band_rect(&self, launcher_id: crate::projects::LaunchProfileId) -> Option<Rect> {
-        let project_id = self.launcher_project(launcher_id)?;
+        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id)?;
         let row = self.aggregates.launchers.get(&launcher_id)?.placement.row;
         let mut rect: Option<Rect> = None;
 

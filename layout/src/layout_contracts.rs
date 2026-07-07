@@ -48,13 +48,13 @@ impl<const RANK: usize> From<Size<RANK>> for MeasuredLayout<RANK> {
     }
 }
 
-pub trait LayoutTopology<Id>
+pub trait LayoutTopology<Id>: Debug
 where
     Id: Eq + Hash + Clone,
 {
     fn exists(&self, id: &Id) -> bool;
     fn children_of(&self, id: &Id) -> &[Id];
-    fn parent_of(&self, id: &Id) -> Option<Id>;
+    fn parent_of(&self, id: &Id) -> Option<&Id>;
 }
 
 pub trait LayoutAlgorithm<Id, T, const RANK: usize>

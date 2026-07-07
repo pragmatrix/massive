@@ -1,62 +1,72 @@
+use std::collections::HashSet;
+
 use anyhow::Result;
+use uuid::Uuid;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_applications::ViewEvent;
+use massive_applications::{InstanceId, ViewEvent};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::navigation::Direction;
-use super::{
-    Cmd, DesktopCommand, DesktopSystem, DesktopTarget, Effects, FocusReason,
-    POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
-};
-use crate::event_router::EventTransitions;
-use crate::focus_path::PathResolver;
+use super::{Commands, DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
+use super::{POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX};
+use crate::EventTransition;
+use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
+use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
+use crate::projects::LaunchProfileId;
 
 impl DesktopSystem {
+    // This processes input events and converts it to a set of commands.
     pub fn process_input_event(
         &mut self,
         event: &Event<ViewEvent>,
-        instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<(Cmd, Effects)> {
-        let keyboard_cmd = self.preprocess_keyboard_input(event)?;
-        let mut effects = Effects::None;
-        let any_buttons_pressed = event.any_buttons_pressed();
+    ) -> Result<Changes> {
+        let hit_tester = AggregateHitTester::new(
+            &self.aggregates.hierarchy,
+            &self.layout_state,
+            &self.aggregates.launchers,
+            render_geometry,
+        );
 
-        let cmd = if !keyboard_cmd.is_none() {
-            keyboard_cmd
-        } else {
-            let hit_tester = AggregateHitTester::new(
-                &self.aggregates.hierarchy,
-                &self.layout_state,
-                &self.aggregates.launchers,
-                render_geometry,
-            );
+        let changes = match self.event_router.process(event, &hit_tester)? {
+            ProcessOutcome::Transitions(transitions) => {
+                DesktopChange::ForwardEvents(transitions).into()
+            }
+            ProcessOutcome::Focus(target) => {
+                // The event router does not apply focus changes, we do.
+                // Architecture: This should probably be done for pointer focus, too? Just for symmetry?
+                if let Some(target) = target {
+                    let t = target.target;
+                    let mut changes: Changes =
+                        set_focus(Some(t.clone()), FocusReason::InputTransition);
 
-            let transitions = self.event_router.process(event, &hit_tester)?;
-            let (cmd, transition_effects) = self.apply_and_forward_focus_transitions(
-                transitions,
-                instance_manager,
-                any_buttons_pressed,
-                FocusReason::InputTransition,
-            )?;
-            effects += transition_effects;
-            cmd
+                    if let Some(event) = target.event {
+                        changes += DesktopChange::ForwardEvents(
+                            vec![EventTransition::Send(t, event)].into(),
+                        )
+                    }
+                    changes
+                } else {
+                    set_focus(None, FocusReason::InputTransition)
+                }
+            }
         };
 
-        self.update_pointer_feedback(event);
-        if !any_buttons_pressed {
-            effects += self.flush_deferred_focus_layout();
-        }
-
-        Ok((cmd, effects))
+        Ok(changes)
     }
 
-    fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
+    // Architecture: May resolve this directly via the pointer focus (and set the pointer focus to
+    // None if there is keyboard input)?
+    pub fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
+        // Mode switch:
+        // - keyboard press disables pointer-driven feedback
+        // - mouse button/wheel re-enables immediately
+        // - cursor movement re-enables only when movement is deliberate (distance + time gate)
         match (self.pointer_feedback_enabled, event.event()) {
             (
                 true,
@@ -81,87 +91,92 @@ impl DesktopSystem {
         }
     }
 
-    pub(super) fn focus(
+    pub(super) fn focus<'a>(
         &mut self,
-        target: &DesktopTarget,
+        target: impl Into<Option<&'a DesktopTarget>>,
         instance_manager: &InstanceManager,
-        reason: FocusReason,
-    ) -> Result<Effects> {
-        let transitions = self.event_router.focus(target);
-        let (cmd, effects) =
-            self.apply_and_forward_focus_transitions(transitions, instance_manager, false, reason)?;
+        _reason: FocusReason,
+    ) -> Result<()> {
+        let transitions = self.event_router.focus(target.into());
 
-        // Invariant: Programmatic focus changes must not trigger commands.
-        assert!(cmd.is_none());
-
-        Ok(effects)
-    }
-
-    fn apply_and_forward_focus_transitions(
-        &mut self,
-        transitions: EventTransitions<DesktopTarget>,
-        instance_manager: &InstanceManager,
-        defer_layout: bool,
-        reason: FocusReason,
-    ) -> Result<(Cmd, Effects)> {
-        if reason.resets_navigation_affinity() && !transitions.keyboard_focus_change().is_empty() {
-            self.navigation_control.reset_all();
+        // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
+        // measures now and let `transact` drain them once buttons are released. The camera move
+        // itself is driven by `transact` observing the focus change, not queued here.
+        // Navigation affinity resets are emitted as `SetNavigationAffinity(None)` sibling changes
+        // by `set_focus_change`, not applied here.
+        if !transitions
+            .targets_affected_by_keyboard_focus_change()
+            .is_empty()
+        {
+            let measures = self.launcher_measures_for_focus_change(&transitions);
+            self.deferred_focus_launcher_measures.extend(measures);
         }
 
-        let effects = self.apply_keyboard_focus_change_effects(&transitions, defer_layout);
-        let cmd = self.forward_event_transitions(transitions, instance_manager)?;
+        // Invariant: Forwarding focus/unfocus transitions never produces commands.
+        assert!(
+            self.forward_event_transitions(transitions, instance_manager)?
+                .is_empty()
+        );
 
-        Ok((cmd, effects))
+        Ok(())
     }
 
-    fn apply_keyboard_focus_change_effects(
-        &mut self,
+    /// Returns the launchers that must be re-laid-out when keyboard focus moves to/from the
+    /// affected targets. The camera move itself follows from `transact` observing the focus change.
+    fn launcher_measures_for_focus_change(
+        &self,
         transitions: &EventTransitions<DesktopTarget>,
-        defer_layout: bool,
-    ) -> Effects {
-        let keyboard_focus_change = transitions.keyboard_focus_change();
-
-        if !keyboard_focus_change.is_empty() {
-            self.update_launcher_focus_anchor_on_keyboard_focus_change();
-        }
-
-        if defer_layout {
-            self.defer_layout_for_focus_change(keyboard_focus_change);
-            Effects::None
-        } else {
-            self.invalidate_layout_for_focus_change(keyboard_focus_change)
-        }
+    ) -> HashSet<LaunchProfileId> {
+        transitions
+            .targets_affected_by_keyboard_focus_change()
+            .iter()
+            .filter_map(|target| self.focus_target_launcher_for_layout(target))
+            .collect()
     }
 
-    // Inform the launchers that are affected by the focus change.
-    fn update_launcher_focus_anchor_on_keyboard_focus_change(&mut self) {
-        let focused_instance = self
-            .aggregates
-            .hierarchy
-            .resolve_path(self.event_router.focused())
-            .instance();
+    /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or
+    /// `None` if the target's launcher does not require focus-driven relayout.
+    fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
+        let focused_path = self.path_of(target);
+        let focused_instance = focused_path.instance()?;
+        let topology = &self.aggregates.hierarchy;
+        let launcher_id = topology.launcher_of_instance(focused_instance)?;
+        let instance_count = topology
+            .get_nested(&DesktopTarget::Launcher(launcher_id))
+            .len();
 
-        let Some(instance_id) = focused_instance else {
+        // Architecture: Passing instance_count here is weird.
+        self.aggregates
+            .launchers
+            .get(&launcher_id)
+            .filter(|launcher| launcher.should_relayout_on_keyboard_focus_change(instance_count))
+            .map(|_| launcher_id)
+    }
+
+    // Sync the focused instance's launcher visor anchor to the live focus. Idempotent and skipped
+    // while the camera is locked; callers defer it until the camera unlocks.
+    pub(super) fn sync_focused_launcher_anchor(&mut self) {
+        let Some(instance_id) = self.focused_path().instance() else {
             return;
         };
-
-        let Some(launcher_id) = self.instance_launcher(instance_id) else {
+        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
             return;
         };
-
         let launcher = self
             .aggregates
             .launchers
             .get_mut(&launcher_id)
             .expect("Launcher missing");
-        launcher.set_focus_anchor_instance(instance_id);
+        if launcher.focus_anchor_instance != Some(instance_id) {
+            launcher.focus_anchor_instance = Some(instance_id);
+        }
     }
 
     pub(super) fn unfocus_pointer_if_path_contains(
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,
-    ) -> Result<Effects> {
+    ) -> Result<()> {
         if self
             .aggregates
             .hierarchy
@@ -170,10 +185,35 @@ impl DesktopSystem {
             let transitions = self.event_router.unfocus_pointer()?;
             assert!(
                 self.forward_event_transitions(transitions, instance_manager)?
-                    .is_none()
+                    .is_empty()
             );
         }
-        Ok(Effects::None)
+        Ok(())
+    }
+
+    /// Retarget keyboard focus to the parent if the focused path is inside the subtree rooted at
+    /// `target`.
+    ///
+    /// A removed subtree can still contain the current keyboard focus; leaving it in place would
+    /// dangle the router's `keyboard_focus` at a removed node.
+    pub(super) fn refocus_parent_if_path_contains(
+        &mut self,
+        target: &DesktopTarget,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
+        if self
+            .aggregates
+            .hierarchy
+            .path_contains_target(self.event_router.focused(), target)
+        {
+            let parent = self.aggregates.hierarchy.parent(target).cloned();
+            self.focus(
+                parent.as_ref(),
+                instance_manager,
+                FocusReason::InputTransition,
+            )?;
+        }
+        Ok(())
     }
 
     #[allow(unused)]
@@ -181,7 +221,7 @@ impl DesktopSystem {
         &mut self,
         instance_manager: &InstanceManager,
         render_geometry: &RenderGeometry,
-    ) -> Result<Cmd> {
+    ) -> Result<Commands> {
         let transitions = self
             .event_router
             .reset_pointer_focus(&AggregateHitTester::new(
@@ -194,7 +234,10 @@ impl DesktopSystem {
         self.forward_event_transitions(transitions, instance_manager)
     }
 
-    fn preprocess_keyboard_input(&self, event: &Event<ViewEvent>) -> Result<Cmd> {
+    pub fn match_desktop_keyboard_shortcut(
+        &self,
+        event: &Event<ViewEvent>,
+    ) -> Option<DesktopKeyboardShortcut> {
         // Catch `CMD+t` and `CMD+w` if an instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
@@ -204,27 +247,22 @@ impl DesktopSystem {
             && !key_event.repeat
             && event.device_states().is_command()
         {
-            let focused = self.event_router.focused();
-            let focused = self.aggregates.hierarchy.resolve_path(focused);
+            let focused_path = self.focused_path();
 
             // Simplify: Instance should probably return the launcher, too now.
-            if let Some(instance) = focused.instance()
+            if let Some(instance) = focused_path.instance()
                 && let Some(DesktopTarget::Launcher(launcher)) =
                     self.aggregates.hierarchy.parent(&instance.into())
             {
                 let launcher_id = *launcher;
                 match &key_event.logical_key {
                     Key::Character(c) if c.as_str() == "t" => {
-                        return Ok(DesktopCommand::StartInstance {
-                            launcher: launcher_id,
-                            parameters: Default::default(),
-                        }
-                        .into());
+                        return Some(DesktopKeyboardShortcut::NewInstance(launcher_id));
                     }
                     Key::Character(c) if c.as_str() == "w" => {
                         // Architecture: Shouldn't this just end the current view, and let the
                         // instance decide then?
-                        return Ok(DesktopCommand::StopInstance(instance).into());
+                        return Some(DesktopKeyboardShortcut::CloseInstance(instance));
                     }
                     _ => {}
                 }
@@ -239,17 +277,43 @@ impl DesktopSystem {
             } {
                 if event.device_states().is_ctrl() {
                     if direction == Direction::Up {
-                        return Ok(DesktopCommand::ZoomIn.into());
+                        return Some(DesktopKeyboardShortcut::ZoomIn);
                     }
 
                     if direction == Direction::Down {
-                        return Ok(DesktopCommand::ZoomOut.into());
+                        return Some(DesktopKeyboardShortcut::ZoomOut);
                     }
                 }
-                return Ok(DesktopCommand::Navigate(direction).into());
+                return Some(DesktopKeyboardShortcut::Navigate(direction));
             }
         }
 
-        Ok(Cmd::None)
+        None
+    }
+}
+
+#[derive(Debug)]
+pub enum DesktopKeyboardShortcut {
+    NewInstance(LaunchProfileId),
+    CloseInstance(InstanceId),
+    ZoomOut,
+    ZoomIn,
+    Navigate(Direction),
+}
+
+impl DesktopKeyboardShortcut {
+    pub fn into_command(self) -> DesktopCommand {
+        match self {
+            Self::NewInstance(launch_profile_id) => DesktopCommand::StartInstance {
+                launcher: launch_profile_id,
+                instance: Uuid::new_v4().into(),
+                root: None,
+                parameters: Default::default(),
+            },
+            Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
+            Self::ZoomOut => DesktopCommand::ZoomOut,
+            Self::ZoomIn => DesktopCommand::ZoomIn,
+            Self::Navigate(direction) => DesktopCommand::Navigate(direction),
+        }
     }
 }

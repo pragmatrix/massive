@@ -8,6 +8,7 @@
 //! The goal here is to remove as much as possible from the specific instances into separate systems
 //! and aggregates that are event driven.
 
+pub mod change;
 mod command_dispatch;
 mod commands;
 mod effects;
@@ -20,13 +21,15 @@ mod layout_effects;
 mod layout_state;
 mod navigation;
 mod presentation;
-mod project_commands;
+mod topology;
 mod zoom_navigation;
 
 use anyhow::{Result, bail};
 use derive_more::Debug;
 use log::warn;
-use std::collections::HashSet;
+use massive_util::CollectingVec;
+use std::collections::{HashSet, VecDeque};
+use std::mem;
 use std::time::Duration;
 
 use massive_animation::Animated;
@@ -42,9 +45,10 @@ pub use effects::Effects;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
-use navigation::NavigationControl;
+pub(crate) use navigation::NavigationControl;
 
-use crate::event_sourcing::{self, Transaction};
+use crate::desktop_system::change::{Changes, DesktopChange};
+use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
@@ -53,6 +57,7 @@ use crate::projects::{
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
+// Require intentional mouse movement before returning pointer-first feedback after keyboard use.
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
 const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 /// This enum specifies a unique target inside the navigation and layout history.
@@ -95,7 +100,7 @@ impl From<ViewId> for DesktopTarget {
 
 pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
-pub type Cmd = event_sourcing::Cmd<DesktopCommand>;
+pub type Commands = CollectingVec<DesktopCommand>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum UserState {
@@ -122,7 +127,7 @@ pub(super) enum FocusReason {
 }
 
 impl FocusReason {
-    fn resets_navigation_affinity(self) -> bool {
+    pub fn resets_navigation_affinity(self) -> bool {
         match self {
             FocusReason::Navigate => false,
             FocusReason::InputTransition
@@ -138,23 +143,27 @@ pub enum TransactionEffectsMode {
     #[default]
     Normal,
     Setup,
-    CameraLocked,
+    /// Currently, this is set when mouse buttons are pressed. I.e. the user is focusing on
+    /// something specific, selecting something, etc.
+    ///
+    /// In this mode, the camera is prevented from moving and the launchers won't expand / collapse.
+    UserGestureActive,
 }
 
 impl TransactionEffectsMode {
     pub fn animate(self) -> bool {
         match self {
-            TransactionEffectsMode::Setup => false,
-            TransactionEffectsMode::CameraLocked => true,
             TransactionEffectsMode::Normal => true,
+            TransactionEffectsMode::Setup => false,
+            TransactionEffectsMode::UserGestureActive => true,
         }
     }
 
     pub fn permit_camera_moves(self) -> bool {
         match self {
-            TransactionEffectsMode::Setup => true,
-            TransactionEffectsMode::CameraLocked => false,
             TransactionEffectsMode::Normal => true,
+            TransactionEffectsMode::Setup => true,
+            TransactionEffectsMode::UserGestureActive => false,
         }
     }
 }
@@ -170,10 +179,17 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     user_state: UserState,
+    /// Enables pointer-driven feedback (hover focus and cursor visibility).
+    ///
+    /// This is turned off when the user starts keyboard navigation so the pointer does not
+    /// immediately steal attention, and turned back on when explicit pointer activity resumes.
     pointer_feedback_enabled: bool,
     navigation_control: NavigationControl,
-    /// Launchers queued for focus-driven relayout once pointer buttons are released.
-    deferred_focus_layout_launchers: HashSet<LaunchProfileId>,
+    /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
+    deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
+    /// Set when a camera move is requested while the camera is locked, so it replays once the
+    /// camera unlocks (for example when a pressed mouse button is released).
+    deferred_camera_move: bool,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -181,6 +197,8 @@ pub struct DesktopSystem {
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
 }
+
+pub type LauncherMap = Map<LaunchProfileId, LauncherPresenter>;
 
 /// Aggregates are separated, so that we can control borrowing them in a more granular way.
 #[derive(Debug)]
@@ -191,7 +209,7 @@ struct Aggregates {
 
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
-    launchers: Map<LaunchProfileId, LauncherPresenter>,
+    launchers: LauncherMap,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
@@ -238,7 +256,8 @@ impl DesktopSystem {
             user_state: UserState::Focused,
             pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
-            deferred_focus_layout_launchers: HashSet::new(),
+            deferred_focus_launcher_measures: Default::default(),
+            deferred_camera_move: false,
             layout_state,
 
             desktop_presenter,
@@ -252,37 +271,80 @@ impl DesktopSystem {
     // effects explicitly?
     pub fn transact(
         &mut self,
-        transaction: impl Into<Transaction<DesktopCommand>>,
+        changes: impl Into<Changes>,
         scene: &Scene,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
-        let effects_mode = effects_mode.into().unwrap_or_default();
+        let changes = changes.into();
+        // For live transactions the gesture mode is derived from the current pointer-button state;
+        // callers only pass an explicit mode for setup.
+        let effects_mode = effects_mode
+            .into()
+            .unwrap_or_else(|| self.live_effects_mode());
 
-        self.transact_with_effects(
-            transaction,
-            scene,
-            instance_manager,
-            effects_mode,
-            Effects::None,
-        )
-    }
+        let mut measures = MeasureSet::Empty;
+        let user_state_before = self.user_state.clone();
+        let focus_before = self.event_router.focused().cloned();
 
-    pub fn transact_with_effects(
-        &mut self,
-        transaction: impl Into<Transaction<DesktopCommand>>,
-        scene: &Scene,
-        instance_manager: &mut InstanceManager,
-        effects_mode: TransactionEffectsMode,
-        initial_effects: Effects,
-    ) -> Result<()> {
-        let mut command_effects = initial_effects;
+        let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
 
-        for command in transaction.into() {
-            command_effects += self.apply_command(command, scene, instance_manager)?;
+        while let Some(change) = changes.pop_front() {
+            let outcome = self.apply_change(change, scene, instance_manager)?;
+            // TODO: I think Changes should support a DoubleEndedIterator.
+            let new_changes: Vec<_> = outcome.changes.into_iter().collect();
+            for new_change in new_changes.into_iter().rev() {
+                changes.push_front(new_change);
+            }
+            measures += outcome.measures;
         }
 
-        self.run_effects_to_completion(effects_mode, self.transaction_effects(command_effects))?;
+        let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();
+
+        // The camera follows the focused target, so a focus change recomputes it even when the
+        // change moved no layout (pure navigation between siblings, or focusing a launcher).
+        let mut update_camera = self.event_router.focused() != focus_before.as_ref();
+        if self.user_state != user_state_before {
+            update_camera = true;
+        }
+
+        // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
+        // For example, focus layout effects.
+        if effects_mode.permit_camera_moves() {
+            self.sync_focused_launcher_anchor();
+            let focus_measures = mem::take(&mut self.deferred_focus_launcher_measures);
+            if !focus_measures.is_empty() {
+                effects += focus_measures
+                    .into_iter()
+                    .map(|launcher| DesktopEffect::Measure(launcher.into()))
+                    .collect::<Effects>();
+            }
+            // Replay a camera move that was deferred while the camera was locked (e.g. a focus
+            // change that happened while a mouse button was held).
+            update_camera |= mem::take(&mut self.deferred_camera_move);
+        } else {
+            // Camera is locked: remember a pending move so it applies once the camera unlocks (for
+            // example when the pressed mouse button is released).
+            self.deferred_camera_move |= update_camera;
+            update_camera = false;
+            // Lock camera motion immediately, including already running camera animations.
+            // Ergonomics: There should probably be a function for that in Animated.
+            let camera = *self.camera.value();
+            self.camera.set_immediately(camera);
+        }
+
+        // This should probably be a function call and does not need to be an effect anymore.
+        if update_camera {
+            effects += DesktopEffect::UpdateCamera;
+        }
+
+        // Commands emit their own targeted `Measure` effects for the subtrees they change, and a
+        // focus change emits `UpdateCamera` directly (see the `focus_before` comparison above), so
+        // no root measure is needed here.
+        self.run_effects_to_completion(effects_mode, effects)?;
+
+        // Sync the window state (title, cursor) from the focused view after all effects settle.
+        self.apply_focused_view_window_state()?;
 
         Ok(())
     }
@@ -296,7 +358,7 @@ impl DesktopSystem {
             .map(|launcher_id| {
                 (
                     launcher_id,
-                    self.aggregates.launcher_instance_ids(launcher_id),
+                    self.aggregates.hierarchy.launcher_instances(launcher_id),
                 )
             })
             .collect();
@@ -338,6 +400,15 @@ impl DesktopSystem {
         self.event_router.any_buttons_pressed()
     }
 
+    /// The effects mode for a live (non-setup) transaction, derived from pointer-button state.
+    fn live_effects_mode(&self) -> TransactionEffectsMode {
+        if self.any_buttons_pressed() {
+            TransactionEffectsMode::UserGestureActive
+        } else {
+            TransactionEffectsMode::Normal
+        }
+    }
+
     pub fn set_instance_pacing(&mut self, instance: InstanceId, pacing: RenderPacing) {
         if let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) {
             instance_presenter.pacing = pacing;
@@ -364,7 +435,7 @@ impl DesktopSystem {
             return Ok(None);
         };
 
-        let focused_path = self.aggregates.hierarchy.resolve_path(Some(focused));
+        let focused_path = self.path_of(Some(focused));
         let Some(instance) = focused_path.instance() else {
             return Ok(None);
         };
@@ -384,7 +455,7 @@ impl DesktopSystem {
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    fn remove_target(&mut self, target: &DesktopTarget) -> Result<Effects> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<MeasureSet> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
@@ -404,12 +475,23 @@ impl DesktopSystem {
         // Mark the surviving parent, not the removed node:
         // - removed nodes are ignored by incremental recompute root collection,
         // - parent refresh updates cached children and recomputes sibling placement.
-        Ok(effects::DesktopEffect::Measure(parent).into())
+        Ok(parent.into())
     }
 
     fn placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
         self.layout_state
             .absolute_placement(target, &self.aggregates.hierarchy)
+    }
+
+    pub(super) fn focused_path(&self) -> DesktopFocusPath {
+        self.path_of(self.event_router.focused())
+    }
+
+    pub(super) fn path_of<'a>(
+        &'a self,
+        target: impl Into<Option<&'a DesktopTarget>>,
+    ) -> DesktopFocusPath {
+        self.aggregates.hierarchy.resolve_path(target.into())
     }
 }
 
@@ -421,17 +503,6 @@ impl Aggregates {
         } else {
             None
         }
-    }
-
-    pub fn launcher_instance_ids(&self, launcher_id: LaunchProfileId) -> Vec<InstanceId> {
-        self.hierarchy
-            .get_nested(&DesktopTarget::Launcher(launcher_id))
-            .iter()
-            .map(|target| match target {
-                DesktopTarget::Instance(instance_id) => *instance_id,
-                _ => panic!("launcher children must be instances"),
-            })
-            .collect()
     }
 }
 
@@ -445,7 +516,7 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
         self.get_nested(id)
     }
 
-    fn parent_of(&self, id: &DesktopTarget) -> Option<DesktopTarget> {
-        self.parent(id).cloned()
+    fn parent_of(&self, id: &DesktopTarget) -> Option<&DesktopTarget> {
+        self.parent(id)
     }
 }

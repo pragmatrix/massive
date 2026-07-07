@@ -75,7 +75,7 @@ impl DesktopLayoutState {
 
         MeasureOutcome {
             size_changed,
-            parent: topology.parent_of(target),
+            parent: topology.parent_of(target).cloned(),
         }
     }
 
@@ -207,7 +207,7 @@ impl DesktopLayoutState {
             let Some(parent) = topology.parent_of(&current) else {
                 break;
             };
-            current = parent;
+            current = parent.clone();
         }
 
         let mut origin_transform = Transform::default();
@@ -274,7 +274,7 @@ mod tests {
     use crate::desktop_system::DesktopTarget;
     use crate::projects::ProjectId;
 
-    #[derive(Default)]
+    #[derive(Debug, Default)]
     struct TestTopology {
         nodes: HashSet<DesktopTarget>,
         children: HashMap<DesktopTarget, Vec<DesktopTarget>>,
@@ -305,8 +305,8 @@ mod tests {
             self.children.get(id).map(Vec::as_slice).unwrap_or(&[])
         }
 
-        fn parent_of(&self, id: &DesktopTarget) -> Option<DesktopTarget> {
-            self.parent.get(id).cloned()
+        fn parent_of(&self, id: &DesktopTarget) -> Option<&DesktopTarget> {
+            self.parent.get(id)
         }
     }
 

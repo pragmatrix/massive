@@ -1,7 +1,9 @@
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use log::{error, info};
+use massive_util::CollectingVec;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
@@ -11,14 +13,15 @@ use massive_applications::{
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_scene::ChangeCollector;
+use massive_shell::AsyncWindowRenderer;
 use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
-use massive_shell::{AsyncWindowRenderer, ShellWindow};
+use uuid::Uuid;
 
 use crate::DesktopEnvironment;
+use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::{
-    DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
+    Commands, DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
 };
-use crate::event_sourcing::Transaction;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -30,8 +33,6 @@ use crate::projects::{
 pub struct Desktop {
     scene: Scene,
     renderer: AsyncWindowRenderer,
-    window: ShellWindow,
-    cursor_visible: bool,
     system: DesktopSystem,
 
     event_manager: EventManager<ViewEvent>,
@@ -74,7 +75,9 @@ impl Desktop {
             .expect("No primary application");
 
         let primary_root = InstanceRoot::new(&scene);
+        let primary_instance = Uuid::new_v4().into();
         instance_manager.spawn(
+            primary_instance,
             primary_application,
             CreationMode::New(InstanceParameters::new()),
             primary_root.location(),
@@ -112,30 +115,32 @@ impl Desktop {
         let mut system =
             DesktopSystem::new(env, fonts.clone(), window.clone(), default_size, &scene)?;
 
-        let primary_project_transaction = primary_project.transaction.map(DesktopCommand::Project);
+        let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
-        let project_setup_transaction =
-            project_set_to_transaction(&project_set).map(DesktopCommand::Project);
+        let project_setup_commands: Commands =
+            project_set_to_commands(&project_set).map(DesktopCommand::Project);
 
-        let primary_instance_transaction: Transaction<_> = [DesktopCommand::PresentInstance {
+        let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
             launcher: primary_project.primary_launcher,
             instance: primary_instance,
-            root: primary_root,
+            root: Some(primary_root),
+            parameters: InstanceParameters::new(),
         }]
         .into();
 
-        let initial_submission_transaction: Transaction<_> =
-            [DesktopCommand::IntegrateInstanceSubmission(
-                primary_instance,
-                initial_submission,
-            )]
-            .into();
+        let initial_submission_changes: Changes =
+            DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
+
+        let commands =
+            primary_project_commands + project_setup_commands + primary_instance_commands;
+
+        let mut changes = Changes::Empty;
+        for command in commands {
+            changes += system.plan(command, &scene)?;
+        }
 
         system.transact(
-            primary_project_transaction
-                + project_setup_transaction
-                + primary_instance_transaction
-                + initial_submission_transaction,
+            changes + initial_submission_changes,
             &scene,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
@@ -144,8 +149,6 @@ impl Desktop {
         let desktop = Self {
             scene,
             renderer,
-            window,
-            cursor_visible: true,
             system,
             event_manager,
             instance_manager,
@@ -171,26 +174,24 @@ impl Desktop {
                                 && let Some(input_event) =
                                     self.event_manager.add_event(view_event, Instant::now())
                             {
-                                let (cmd, effects) = self.system.process_input_event(
-                                    &input_event,
-                                    &self.instance_manager,
-                                    self.renderer.geometry(),
-                                )?;
-                                let cursor_visible = self.system.is_cursor_visible();
-                                if self.cursor_visible != cursor_visible {
-                                    self.window.set_cursor_visible(cursor_visible);
-                                    self.cursor_visible = cursor_visible;
-                                }
-                                self.system.transact_with_effects(
-                                    cmd,
+                                self.system.update_pointer_feedback(&input_event);
+
+                                let keyboard_shortcut = self.system.match_desktop_keyboard_shortcut(&input_event);
+
+                                let changes : Changes = if let Some(keyboard_cmd) = keyboard_shortcut {
+                                        self.system.plan(keyboard_cmd.into_command(), &self.scene)?
+                                    } else {
+                                        self.system.process_input_event(
+                                            &input_event,
+                                            self.renderer.geometry(),
+                                        )?
+                                    };
+
+                                self.system.transact(
+                                    changes,
                                     &self.scene,
                                     &mut self.instance_manager,
-                                    if input_event.any_buttons_pressed() {
-                                        TransactionEffectsMode::CameraLocked
-                                    } else {
-                                        TransactionEffectsMode::Normal
-                                    },
-                                    effects,
+                                    None,
                                 )?;
                             }
 
@@ -208,10 +209,11 @@ impl Desktop {
                     info!("Instance ended (submissions pending: {}): {instance_id:?}", self.instance_submissions.len());
 
                     if self.system.is_present(&instance_id) {
-                        // Did it end on its own? -> Act as as if the user ended it.
+                        // Did it end on its own? -> Act as if the user ended it.
                         // Robustness: This should probably handled differently.
+                        let changes = self.system.plan(DesktopCommand::StopInstance(instance_id), &self.scene)?;
                         self.system.transact(
-                            DesktopCommand::StopInstance(instance_id),
+                            changes,
                             &self.scene,
                             &mut self.instance_manager,
                             None,
@@ -258,17 +260,11 @@ impl Desktop {
         instance: InstanceId,
         submission: InstanceSubmission,
     ) -> Result<()> {
-        let effects_mode = if self.system.any_buttons_pressed() {
-            TransactionEffectsMode::CameraLocked
-        } else {
-            TransactionEffectsMode::Normal
-        };
-
         self.system.transact(
-            DesktopCommand::IntegrateInstanceSubmission(instance, submission),
+            DesktopChange::IntegrateInstanceSubmission(instance, submission),
             &self.scene,
             &mut self.instance_manager,
-            effects_mode,
+            None,
         )
     }
 }
@@ -276,22 +272,23 @@ impl Desktop {
 #[derive(Debug)]
 struct PrimaryProject {
     primary_launcher: LaunchProfileId,
-    transaction: Transaction<ProjectCommand>,
+    commands: CollectingVec<ProjectCommand>,
 }
 
 fn primary_project() -> PrimaryProject {
-    let mut cmds = Vec::new();
+    let mut commands = CollectingVec::default();
 
     let primary_project = ProjectId::new();
     let primary_launcher = LaunchProfileId::new();
 
-    cmds.push(ProjectCommand::AddProject {
+    commands += ProjectCommand::AddProject {
         id: primary_project,
         properties: ProjectProperties {
             name: "Primary / Local".into(),
         },
-    });
-    cmds.push(ProjectCommand::AddLauncher {
+    };
+
+    commands += ProjectCommand::AddLauncher {
         project: primary_project,
         id: primary_launcher,
         profile: LaunchProfile {
@@ -301,16 +298,16 @@ fn primary_project() -> PrimaryProject {
             params: Default::default(),
         },
         placement: MatrixPlacement { column: 0, row: 0 },
-    });
+    };
 
     PrimaryProject {
         primary_launcher,
-        transaction: cmds.into(),
+        commands,
     }
 }
 
-fn project_set_to_transaction(project_set: &ProjectSet) -> Transaction<ProjectCommand> {
-    let mut commands = Vec::new();
+fn project_set_to_commands(project_set: &ProjectSet) -> CollectingVec<ProjectCommand> {
+    let mut commands = CollectingVec::Empty;
 
     commands.push(ProjectCommand::SetStartupProfile(project_set.start));
 
@@ -318,10 +315,10 @@ fn project_set_to_transaction(project_set: &ProjectSet) -> Transaction<ProjectCo
         project_commands(project, &mut commands);
     }
 
-    commands.into()
+    commands
 }
 
-fn project_commands(project: &Project, commands: &mut Vec<ProjectCommand>) {
+fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
     commands.push(ProjectCommand::AddProject {
         id: project.id,
         properties: project.properties.clone(),
@@ -332,7 +329,11 @@ fn project_commands(project: &Project, commands: &mut Vec<ProjectCommand>) {
     }
 }
 
-fn launcher_commands(project: ProjectId, launcher: &Launcher, commands: &mut Vec<ProjectCommand>) {
+fn launcher_commands(
+    project: ProjectId,
+    launcher: &Launcher,
+    commands: &mut CollectingVec<ProjectCommand>,
+) {
     commands.push(ProjectCommand::AddLauncher {
         project,
         id: launcher.id,

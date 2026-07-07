@@ -83,6 +83,7 @@ where
         Ok(())
     }
 
+    // Remove this and all nested from the hierarchy.
     pub fn remove(&mut self, id: &Id) -> Result<()> {
         let parent = if let Some(node) = self.nodes.get(id) {
             node.parent.clone()
@@ -101,7 +102,7 @@ where
                 })
                 .nested;
 
-            // find + remove should be slightly faster than retain.
+            // `find` + `remove` should be slightly faster than retain.
             if let Some(index) = nested.iter().position(|nested| nested == id) {
                 nested.remove(index);
             } else {
@@ -142,6 +143,11 @@ where
 
     pub fn parent(&self, id: &Id) -> Option<&Id> {
         self.nodes.get(id).and_then(|node| node.parent.as_ref())
+    }
+
+    /// Iterate over `id` and its ancestors, from `id` up to the root.
+    pub fn parent_chain<'a>(&'a self, id: &'a Id) -> impl Iterator<Item = &'a Id> {
+        std::iter::successors(Some(id), move |id| self.parent(id))
     }
 
     /// Check whether a node exists in the hierarchy.

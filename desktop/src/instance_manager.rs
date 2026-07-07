@@ -6,7 +6,6 @@ use derive_more::{Debug, From, Into};
 use futures::FutureExt;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
-use uuid::Uuid;
 
 use massive_applications::{
     CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId, ViewEvent,
@@ -47,14 +46,14 @@ impl InstanceManager {
         }
     }
 
-    /// Spawn a new instance of an application.
+    /// Spawn a new instance of an application with a pre-created [`InstanceId`].
     pub fn spawn(
         &mut self,
+        instance_id: InstanceId,
         application: &Application,
         creation_mode: CreationMode,
         root: Ref<Location>,
-    ) -> Result<InstanceId> {
-        let instance_id = InstanceId::from(Uuid::new_v4());
+    ) -> Result<()> {
         let (events_tx, events_rx) = unbounded_channel();
 
         let instance_context = InstanceContext::new(
@@ -83,7 +82,7 @@ impl InstanceManager {
             },
         );
 
-        Ok(instance_id)
+        Ok(())
     }
 
     /// Begin the shutdown of an instance by sending [`InstanceEvent::Shutdown`]. Returns immediately

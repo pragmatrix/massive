@@ -6,148 +6,380 @@ use massive_applications::{
 };
 use massive_shell::Scene;
 
-use super::effects::{DesktopEffect, Effects};
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
-use crate::focus_path::PathResolver;
+use crate::desktop_system::change::{
+    Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
+};
+use crate::desktop_system::effects::MeasureSet;
+use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
+use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
+use crate::projects::{LauncherPresenter, ProjectPresenter};
+
+/// The outcome of applying a change: the measures it produced and any follow-up changes.
+#[derive(Debug, Default)]
+pub struct ChangeOutput {
+    /// Additional changes to schedule.
+    pub changes: Changes,
+    pub measures: MeasureSet,
+}
+
+impl ChangeOutput {
+    /// An outcome that produced the given measures.
+    fn measures(measures: MeasureSet) -> Self {
+        Self {
+            measures,
+            ..Self::default()
+        }
+    }
+
+    pub fn changes(changes: Changes) -> Self {
+        Self {
+            changes,
+            ..Self::default()
+        }
+    }
+}
 
 impl DesktopSystem {
-    // Architecture: The current focus is part of the system, so DesktopInteraction should probably be embedded here.
-    pub(super) fn apply_command(
-        &mut self,
-        command: DesktopCommand,
-        scene: &Scene,
-        instance_manager: &mut InstanceManager,
-    ) -> Result<Effects> {
-        // warn!("Apply command: {command:?}");
-        let mut effects = Effects::None;
-        if command.resets_zoom() {
-            effects += self.apply_zoom_reset_command();
-        }
-
-        effects += match command {
+    /// Plan the execution of a command.
+    pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
+        match command {
+            DesktopCommand::Project(project_command) => self.plan_project(project_command),
             DesktopCommand::StartInstance {
                 launcher,
+                instance,
+                root,
                 parameters,
             } => {
-                // Feature: Support starting non-primary applications.
+                let originator_instance = self.focused_path().instance();
+                let originating_details = originator_instance
+                    .map(|originator| self.get_origination_details(launcher, originator));
+                let insertion_pos = originating_details
+                    .as_ref()
+                    .map(|d| d.insertion_pos)
+                    .unwrap_or(0);
+                let (root, spawn) = match root {
+                    Some(root) => (root, false),
+                    None => (InstanceRoot::new(scene), true),
+                };
+
+                let mut changes: Changes = if spawn {
+                    vec![DesktopChange::SpawnInstance {
+                        instance,
+                        root: root.clone(),
+                        parameters,
+                    }]
+                } else {
+                    Vec::new()
+                }
+                .into();
+
+                changes += [
+                    DesktopChange::PresentInstance {
+                        launcher,
+                        initial_center_translation: originating_details
+                            .and_then(|od| od.initial_center_translation),
+                        instance,
+                        root,
+                    },
+                    DesktopChange::Topology(TopologyChange::Insert {
+                        what: instance.into(),
+                        at_index: insertion_pos,
+                        under: launcher.into(),
+                    }),
+                ];
+                changes += set_focus(
+                    Some(DesktopTarget::Instance(instance)),
+                    FocusReason::PresentInstance,
+                );
+                changes += DesktopChange::SetUserState(UserState::Focused);
+
+                Ok(changes)
+            }
+            DesktopCommand::StopInstance(instance) => {
+                let launcher = self
+                    .aggregates
+                    .hierarchy
+                    .launcher_of_instance(instance)
+                    .expect("Launcher not found");
+
+                // Set up a replacement focus first.
+                //
+                // Detail: This causes an unfocus event sent to the instance's view which may
+                // unexpected while tear down.
+                let replacement_focus = self.event_router.focused().and_then(|focused| {
+                    self.aggregates
+                        .hierarchy
+                        .resolve_replacement_focus_for_stopping_instance(focused, instance)
+                });
+
+                let mut changes = Changes::Empty;
+                if let Some(focus) = replacement_focus {
+                    changes += set_focus(Some(focus), FocusReason::StopInstanceReplacement);
+                }
+                changes += [
+                    DesktopChange::Topology(TopologyChange::Remove(instance.into())),
+                    DesktopChange::HideInstance { launcher, instance },
+                    DesktopChange::ShutdownInstance(instance),
+                ];
+                changes += DesktopChange::SetUserState(UserState::Focused);
+
+                Ok(changes)
+            }
+            DesktopCommand::ZoomIn => {
+                let user_state = self
+                    .event_router
+                    .focused()
+                    .and_then(|focused| {
+                        zoom_in(
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.launchers,
+                            focused.clone(),
+                            self.user_state.clone(),
+                        )
+                        .into()
+                    })
+                    .unwrap_or_else(|| self.user_state.clone());
+                Ok(DesktopChange::SetUserState(user_state).into())
+            }
+            DesktopCommand::ZoomOut => {
+                let user_state = self
+                    .event_router
+                    .focused()
+                    .and_then(|focused| {
+                        zoom_out(
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.launchers,
+                            focused.clone(),
+                            self.user_state.clone(),
+                        )
+                        .into()
+                    })
+                    .unwrap_or_else(|| self.user_state.clone());
+                Ok(DesktopChange::SetUserState(user_state).into())
+            }
+            DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
+        }
+    }
+
+    fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
+        let mut changes = Changes::Empty;
+        match command {
+            ProjectCommand::AddProject { id, properties } => {
+                let parent_target = DesktopTarget::Desktop;
+                let project_target = DesktopTarget::Project(id);
+                changes.push(TopologyChange::Add {
+                    what: project_target.clone(),
+                    under: parent_target,
+                });
+                changes.push(TopologyChange::AddNested {
+                    what: [
+                        DesktopTarget::ProjectHeader(id),
+                        DesktopTarget::ProjectMatrix(id),
+                    ]
+                    .into(),
+                    under: project_target,
+                });
+                changes.push(ProjectChange::AddProject { id, properties });
+            }
+            ProjectCommand::RemoveProject(project_id) => {
+                changes.push(TopologyChange::Remove(DesktopTarget::Project(project_id)));
+                changes.push(ProjectChange::RemoveProject(project_id));
+            }
+            ProjectCommand::AddLauncher {
+                project,
+                id: launch_profile_id,
+                profile,
+                placement,
+            } => {
+                changes.push(ProjectChange::AddLauncher {
+                    project,
+                    id: launch_profile_id,
+                    profile,
+                    placement,
+                });
+                changes.push(TopologyChange::Add {
+                    what: launch_profile_id.into(),
+                    under: DesktopTarget::ProjectMatrix(project),
+                });
+            }
+            ProjectCommand::RemoveLauncher(launch_profile_id) => {
+                changes.push(TopologyChange::Remove(launch_profile_id.into()));
+                changes.push(ProjectChange::RemoveLauncher(launch_profile_id));
+            }
+            ProjectCommand::SetStartupProfile(launch_profile_id) => {
+                changes.push(ProjectChange::SetStartupProfile(launch_profile_id))
+            }
+        }
+
+        Ok(changes)
+    }
+
+    pub fn apply_change(
+        &mut self,
+        change: DesktopChange,
+        scene: &Scene,
+        instance_manager: &mut InstanceManager,
+    ) -> Result<ChangeOutput> {
+        match change {
+            DesktopChange::SpawnInstance {
+                instance,
+                root,
+                parameters,
+            } => {
+                // Probably pull the name of the application into SpawnInstance?
                 let application = self
                     .env
                     .applications
                     .get_named(&self.env.primary_application)
                     .context("Internal error, application not registered")?;
 
-                let root = InstanceRoot::new(scene);
-                let instance = instance_manager.spawn(
+                instance_manager.spawn(
+                    instance,
                     application,
                     CreationMode::New(parameters),
                     root.location(),
                 )?;
-
-                // Robustness: Should this be a real, logged event?
-                // Architecture: Better to start up the primary directly, so that we can remove the PresentInstance command?
-                self.apply_command(
-                    DesktopCommand::PresentInstance {
-                        launcher,
-                        instance,
-                        root,
-                    },
-                    scene,
-                    instance_manager,
-                )
             }
-
-            DesktopCommand::StopInstance(instance) => {
-                // Remove the instance from the focus first.
-                //
-                // Detail: This causes an unfocus event sent to the instance's view which may
-                // unexpected while tear down.
-
-                let target = DesktopTarget::Instance(instance);
-                let replacement_focus = self
-                    .aggregates
-                    .hierarchy
-                    .resolve_replacement_focus_for_stopping_instance(
-                        self.event_router.focused(),
-                        instance,
-                    );
-
-                let mut effects = Effects::None;
-
-                if let Some(replacement_focus) = replacement_focus {
-                    effects += self.focus(
-                        &replacement_focus,
-                        instance_manager,
-                        FocusReason::StopInstanceReplacement,
-                    )?;
-                }
-
-                effects += self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
-
+            DesktopChange::ShutdownInstance(instance) => {
                 // This might fail if StopInstance gets triggered with an instance that ended in
                 // itself (shouldn't the instance_manager keep it until we finally free it).
                 if let Err(e) = instance_manager.request_shutdown(instance) {
                     warn!("Failed to shutdown instance, it may be gone already: {e}");
                 };
-
-                // We hide the instance as soon we request a shutdown so that they can't be in the
-                // navigation tree anymore.
-                effects += self.hide_instance(instance)?;
-
-                Ok(effects)
             }
-
-            DesktopCommand::PresentInstance {
+            DesktopChange::PresentInstance {
                 launcher,
+                initial_center_translation,
                 instance,
                 root,
             } => {
-                let originating_from = self
-                    .aggregates
+                self.present_instance(launcher, initial_center_translation, instance, root, scene)?;
+            }
+            DesktopChange::HideInstance { launcher, instance } => {
+                self.hide_instance(launcher, instance)?;
+            }
+            DesktopChange::SetFocus { target, reason } => {
+                self.focus(target.as_ref(), instance_manager, reason)?;
+            }
+            DesktopChange::SetNavigationAffinity(column_affinity) => {
+                self.navigation_control
+                    .commit_column_affinity(column_affinity);
+            }
+            DesktopChange::SetUserState(user_state) => {
+                self.user_state = user_state;
+            }
+            DesktopChange::Topology(change) => {
+                let measure_set = self.apply_topology_change(change, instance_manager)?;
+                return Ok(ChangeOutput::measures(measure_set));
+            }
+            DesktopChange::ForwardEvents(transitions) => {
+                let commands = self.forward_event_transitions(transitions, instance_manager)?;
+                let mut changes = Changes::default();
+                for command in commands {
+                    changes += self.plan(command, scene)?;
+                }
+                return Ok(ChangeOutput::changes(changes));
+            }
+            DesktopChange::IntegrateInstanceSubmission(instance_id, instance_submission) => {
+                return self.apply_instance_submission(instance_id, instance_submission, scene);
+            }
+            DesktopChange::Project(project_change) => {
+                self.apply_project_change(project_change, scene)?;
+            }
+        }
+
+        Ok(ChangeOutput::default())
+    }
+
+    pub fn apply_topology_change(
+        &mut self,
+        change: TopologyChange,
+        instance_manager: &InstanceManager,
+    ) -> Result<MeasureSet> {
+        match change {
+            TopologyChange::Add { what, under } => {
+                self.aggregates.hierarchy.add(under.clone(), what)?;
+                Ok(under.into())
+            }
+            TopologyChange::AddNested { what, under } => {
+                self.aggregates.hierarchy.add_nested(under.clone(), what)?;
+                Ok(under.into())
+            }
+            TopologyChange::Insert {
+                what,
+                at_index,
+                under,
+            } => {
+                self.aggregates
                     .hierarchy
-                    .resolve_path(self.event_router.focused())
-                    .instance();
+                    .insert_at(under.clone(), at_index, what)?;
+                Ok(under.into())
+            }
+            TopologyChange::Remove(target) => {
+                // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
+                // focus and retarget keyboard focus to the parent before removal so the event
+                // router is not left pointing at a removed node.
+                self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
+                self.refocus_parent_if_path_contains(&target, instance_manager)?;
+                Ok(self.remove_target(&target)?)
+            }
+        }
+    }
 
-                let insertion_index =
-                    self.present_instance(launcher, originating_from, instance, root, scene)?;
-
-                let instance_target = DesktopTarget::Instance(instance);
-
-                // Add this instance to the hierarchy.
-                self.aggregates.hierarchy.insert_at(
-                    launcher.into(),
-                    insertion_index,
-                    instance_target.clone(),
+    fn apply_project_change(&mut self, change: ProjectChange, scene: &Scene) -> Result<()> {
+        match change {
+            ProjectChange::AddProject { id, properties } => {
+                let parent_location = self.desktop_presenter.location.clone();
+                self.aggregates.projects.insert(
+                    id,
+                    ProjectPresenter::new(
+                        properties,
+                        parent_location,
+                        scene,
+                        &mut self.fonts.lock(),
+                    ),
                 )?;
-                let mut effects =
-                    Effects::from(DesktopEffect::Measure(DesktopTarget::Launcher(launcher)));
-
-                // Focus it.
-                effects += self.focus(
-                    &instance_target,
-                    instance_manager,
-                    FocusReason::PresentInstance,
-                )?;
-                Ok(effects)
             }
-
-            DesktopCommand::IntegrateInstanceSubmission(instance, submission) => {
-                self.apply_instance_submission(instance, submission, scene, instance_manager)
+            ProjectChange::RemoveProject(project) => {
+                self.aggregates.projects.remove(&project)?;
             }
+            ProjectChange::AddLauncher {
+                project,
+                id,
+                profile,
+                placement,
+            } => {
+                let matrix_location = self
+                    .aggregates
+                    .projects
+                    .get(&project)
+                    .expect("Project missing")
+                    .matrix
+                    .location();
 
-            DesktopCommand::Project(project_command) => {
-                self.apply_project_command(project_command, scene)
+                let presenter = LauncherPresenter::new(
+                    matrix_location,
+                    id,
+                    placement,
+                    profile,
+                    massive_geometry::Size::default(),
+                    scene,
+                    &mut self.fonts.lock(),
+                );
+                self.aggregates.launchers.insert(id, presenter)?;
             }
-
-            DesktopCommand::ZoomIn => Ok(self.apply_zoom_in_command()),
-            DesktopCommand::ZoomOut => Ok(self.apply_zoom_out_command()),
-            DesktopCommand::Navigate(direction) => {
-                self.apply_navigate_command(direction, instance_manager)
+            ProjectChange::RemoveLauncher(launch_profile_id) => {
+                self.aggregates.launchers.remove(&launch_profile_id)?;
             }
-        }?;
+            ProjectChange::SetStartupProfile(launch_profile_id) => {
+                self.aggregates.startup_profile = launch_profile_id;
+            }
+        }
 
-        Ok(effects)
+        Ok(())
     }
 
     fn apply_instance_submission(
@@ -155,17 +387,22 @@ impl DesktopSystem {
         instance: InstanceId,
         submission: InstanceSubmission,
         scene: &Scene,
-        instance_manager: &mut InstanceManager,
-    ) -> Result<Effects> {
+    ) -> Result<ChangeOutput> {
         let (changes, pacing) = submission.into_parts();
-        let mut effects = Effects::None;
+        let mut measures = MeasureSet::Empty;
+        let mut follow_ups = Changes::Empty;
 
         for change in changes.release() {
-            effects += self.apply_instance_change(instance, change, scene, instance_manager)?;
+            let outcome = self.apply_instance_change(instance, change, scene)?;
+            measures += outcome.measures;
+            follow_ups += outcome.changes;
         }
 
         self.set_instance_pacing(instance, pacing);
-        Ok(effects)
+        Ok(ChangeOutput {
+            changes: follow_ups,
+            measures,
+        })
     }
 
     fn apply_instance_change(
@@ -173,49 +410,52 @@ impl DesktopSystem {
         instance: InstanceId,
         change: InstanceChange,
         scene: &Scene,
-        instance_manager: &mut InstanceManager,
-    ) -> Result<Effects> {
+    ) -> Result<ChangeOutput> {
         match change {
             InstanceChange::Scene(change) => {
                 scene.push_change(change);
-                Ok(Effects::None)
+                Ok(ChangeOutput::default())
             }
             InstanceChange::CreateView(creation_info) => {
-                let mut effects = self.present_view(instance, &creation_info, scene)?;
+                let measure_set = self.present_view(instance, &creation_info, scene)?;
 
                 // If this instance is currently focused and the new view is primary, make it
-                // foreground so that the view is focused.
-                match (self.event_router.focused(), &creation_info.role) {
-                    (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary)
-                        if *focused_instance == instance =>
-                    {
-                        effects += self.focus(
-                            &DesktopTarget::View(creation_info.id),
-                            instance_manager,
-                            FocusReason::PromotePrimaryView,
-                        )?;
-                    }
-                    _ => {}
+                // foreground so that the view is focused. Emitted as a follow-up change so the
+                // focus transition (and its navigation-affinity reset) flows through change
+                // application like every other focus change.
+                let mut changes = Changes::Empty;
+                if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
+                    (self.event_router.focused(), &creation_info.role)
+                    && *focused_instance == instance
+                {
+                    changes += set_focus(
+                        Some(DesktopTarget::View(creation_info.id)),
+                        FocusReason::PromotePrimaryView,
+                    );
                 }
-
-                Ok(effects)
+                Ok(ChangeOutput {
+                    changes,
+                    measures: measure_set,
+                })
             }
             InstanceChange::DestroyView(id) => {
                 let view_path: ViewPath = (instance, id).into();
-                self.hide_view(view_path)
+                let measures = self.hide_view(view_path)?;
+                Ok(ChangeOutput::measures(measures))
             }
             InstanceChange::View(view_id, command) => {
                 let view_path: ViewPath = (instance, view_id).into();
-                self.apply_view_change(view_path, command)
+                self.apply_view_change(view_path, command)?;
+                Ok(ChangeOutput::default())
             }
             // This makes sure that all pending Scene Changes from the Instance have been collected
             // before we drop the last ref the instance has to its parent location (which in turn
             // may push other deletes to the Scene).
-            InstanceChange::End(_) => Ok(Effects::None),
+            InstanceChange::End(_) => Ok(ChangeOutput::default()),
         }
     }
 
-    fn apply_view_change(&mut self, view_path: ViewPath, change: ViewChange) -> Result<Effects> {
+    fn apply_view_change(&mut self, view_path: ViewPath, change: ViewChange) -> Result<()> {
         // We can never be sure if the instance does exist here.
         if let Some(instance) = self.aggregates.instances.get_mut(&view_path.instance) {
             match change {
@@ -234,6 +474,6 @@ impl DesktopSystem {
             }
         }
 
-        Ok(Effects::None)
+        Ok(())
     }
 }

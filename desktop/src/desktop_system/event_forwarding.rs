@@ -4,40 +4,40 @@ use log::warn;
 use crate::event_router::EventTransitions;
 use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
-use crate::send_transition::{SendTransition, convert_to_send_transitions};
+use crate::targeted_event::{TargetedEvent, convert_to_targeted_events};
 
-use super::{Cmd, DesktopSystem, DesktopTarget};
+use super::{Commands, DesktopSystem, DesktopTarget};
 
 impl DesktopSystem {
     pub(super) fn forward_event_transitions(
         &mut self,
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
-    ) -> Result<Cmd> {
-        let mut cmd = Cmd::None;
+    ) -> Result<Commands> {
+        let mut commands = Commands::Empty;
 
+        // Architecture: Don't use the keyboard_modifiers here, let the event_router provide them
+        // when creating EventTransitions for focus changes so that they are available when needed
+        // (and are in sync).
         let keyboard_modifiers = self.event_router.keyboard_modifiers();
 
-        let send_transitions = convert_to_send_transitions(
-            transitions,
-            keyboard_modifiers,
-            &self.aggregates.hierarchy,
-        );
+        let targeted_events =
+            convert_to_targeted_events(transitions, keyboard_modifiers, &self.aggregates.hierarchy);
 
         // Robustness: While we need to forward all transitions we currently process only one intent.
-        for transition in send_transitions {
-            cmd += self.forward_event_transition(transition, instance_manager)?;
+        for event in targeted_events {
+            commands += self.forward_event(event, instance_manager)?;
         }
 
-        Ok(cmd)
+        Ok(commands)
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
-    fn forward_event_transition(
+    pub(super) fn forward_event(
         &mut self,
-        SendTransition(target, event): SendTransition<DesktopTarget>,
+        TargetedEvent(target, event): TargetedEvent<DesktopTarget>,
         instance_manager: &InstanceManager,
-    ) -> Result<Cmd> {
+    ) -> Result<Commands> {
         // Route to the appropriate handler based on the last target in the path
         match target {
             DesktopTarget::Desktop => {}
@@ -55,11 +55,10 @@ impl DesktopSystem {
                     warn!(
                         "Instance of view {view_id:?} not found (path: {path:?}), can't deliver event: {event:?}"
                     );
-                    return Ok(Cmd::None);
+                    return Ok(Commands::Empty);
                 };
 
-                // Hit test already returns view-local coordinates.
-
+                // Hit testing already returned view-local coordinates.
                 if let Err(e) = instance_manager.send_view_event((instance, view_id), event.clone())
                 {
                     // This might happen when an instance ends, but we haven't yet received the
@@ -67,6 +66,7 @@ impl DesktopSystem {
                     warn!("Sending view event {event:?} failed with {e}");
                 }
             }
+
             DesktopTarget::Launcher(launcher_id) => {
                 let launcher = self
                     .aggregates
@@ -77,6 +77,6 @@ impl DesktopSystem {
             }
         }
 
-        Ok(Cmd::None)
+        Ok(Commands::Empty)
     }
 }

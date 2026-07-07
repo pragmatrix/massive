@@ -20,6 +20,18 @@ _Avoid_: zoomed out (the `ZoomOut` command name is retained, but the state is "o
 The hierarchy target the camera follows while in `Overview`. Climbs toward the root on each `ZoomOut` and pans among same-level siblings on `Navigate`.
 _Avoid_: camera anchor, zoom target
 
+**Navigate**:
+Directional movement of keyboard focus (or the overview target) one step from the current position, driven by an arrow key.
+_Avoid_: move, arrow
+
+**Navigate to target**:
+An explicit keyboard-focus change to a named target (or to nothing, which only removes focus and has no camera effect). It is the deferred outcome of a pointer click or a window focus change, applied as a command rather than mutated inline.
+_Avoid_: set focus, click focus
+
+**Focus suggestion**:
+The event router's proposal that keyboard focus should change, surfaced from input processing instead of being applied directly. It is lowered into a navigate-to-target command, which owns the actual focus change, focus-driven relayout, and anchor sync.
+_Avoid_: pending focus, focus request
+
 **Placement visibility**:
 A semantic flag on placement that states whether an instance should be interactable and visually present in the current layout state.
 _Avoid_: hidden by alpha, render-only visibility
@@ -29,8 +41,8 @@ A launcher state where only the center visor instance remains visible while non-
 _Avoid_: minimized stack, folded carousel
 
 **Center visor instance**:
-The focused visor instance that remains visible during collapse and is the primary interaction target.
-_Avoid_: active card, selected panel
+The visor focus anchor the visor centers on and that stays visible during collapse: the most recently focused instance while no mouse button was pressed. The visor centers on this anchor independent of the live keyboard focus.
+_Avoid_: active card, selected panel, currently focused instance
 
 **Non-center visor instance**:
 Any visor instance that is not the center instance and is transitioned to invisible in collapsed state.

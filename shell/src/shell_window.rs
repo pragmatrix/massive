@@ -1,14 +1,16 @@
-use std::{mem, ops::Deref, result, sync::Arc};
+use std::mem;
+use std::ops::Deref;
+use std::result;
+use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use log::error;
 use massive_geometry::SizePx;
-use tokio::sync::{mpsc::WeakUnboundedSender, oneshot};
+use tokio::sync::mpsc::WeakUnboundedSender;
+use tokio::sync::oneshot;
 use wgpu::rwh;
-use winit::{
-    event_loop::EventLoopProxy,
-    window::{CursorIcon, Window, WindowId},
-};
+use winit::event_loop::EventLoopProxy;
+use winit::window::{CursorIcon, Window, WindowId};
 
 use crate::{ShellEvent, WindowRendererBuilder, shell::ShellCommand};
 

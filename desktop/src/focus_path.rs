@@ -2,7 +2,7 @@ use std::{fmt, hash, iter};
 
 use derive_more::{Deref, From, Into};
 
-use crate::OrderedHierarchy;
+use massive_layout::LayoutTopology;
 
 /// A path into a focus tree / hierarchy.
 #[derive(Debug, Clone, PartialEq, Eq, Deref, From, Into)]
@@ -73,11 +73,11 @@ pub enum FocusTransition<T> {
 pub trait PathResolver<Id: Clone> {
     fn parent(&self, id: &Id) -> Option<&Id>;
 
-    fn resolve_path<'a>(&'a self, id: impl Into<Option<&'a Id>>) -> FocusPath<Id>
+    fn resolve_path<'a>(&'a self, id: Option<&'a Id>) -> FocusPath<Id>
     where
         Id: 'a,
     {
-        let mut v: Vec<_> = iter::successors(id.into(), |id| self.parent(id))
+        let mut v: Vec<_> = iter::successors(id, |id| self.parent(id))
             .cloned()
             .collect();
         v.reverse();
@@ -85,9 +85,12 @@ pub trait PathResolver<Id: Clone> {
     }
 }
 
-impl<Id: fmt::Debug + Clone + Eq + hash::Hash> PathResolver<Id> for OrderedHierarchy<Id> {
+impl<T, Id: fmt::Debug + Clone + Eq + hash::Hash> PathResolver<Id> for T
+where
+    T: LayoutTopology<Id> + ?Sized,
+{
     fn parent(&self, id: &Id) -> Option<&Id> {
-        self.parent(id)
+        self.parent_of(id)
     }
 }
 

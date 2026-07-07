@@ -7,11 +7,11 @@ use crate::{DirectionBias, OrderedHierarchy};
 impl OrderedHierarchy<DesktopTarget> {
     pub(super) fn resolve_replacement_focus_for_stopping_instance(
         &self,
-        focused: Option<&DesktopTarget>,
+        focused: &DesktopTarget,
         instance: InstanceId,
     ) -> Option<DesktopTarget> {
         let instance_target = DesktopTarget::Instance(instance);
-        if !self.path_contains_target(focused, &instance_target) {
+        if !self.path_contains_target(Some(focused), &instance_target) {
             return None;
         }
 
@@ -28,10 +28,10 @@ impl OrderedHierarchy<DesktopTarget> {
 
     pub(super) fn resolve_neighbor_for_stopping_instance(
         &self,
-        focused: Option<&DesktopTarget>,
+        focused: &DesktopTarget,
         instance: InstanceId,
     ) -> Option<DesktopTarget> {
-        let focused_path = self.resolve_path(focused);
+        let focused_path = self.resolve_path(Some(focused));
         if focused_path.instance() != Some(instance) {
             return None;
         }
@@ -111,7 +111,7 @@ mod tests {
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         let focused = DesktopTarget::Instance(second);
-        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(Some(&focused), first);
+        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
 
         assert_eq!(neighbor, None);
     }
@@ -123,7 +123,7 @@ mod tests {
         let (hierarchy, _launcher) = hierarchy_with_instances(&[first, second]);
 
         let focused = DesktopTarget::Instance(first);
-        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(Some(&focused), first);
+        let neighbor = hierarchy.resolve_neighbor_for_stopping_instance(&focused, first);
 
         assert_eq!(neighbor, Some(DesktopTarget::Instance(second)));
     }
@@ -137,7 +137,7 @@ mod tests {
 
         let focused = DesktopTarget::Instance(second);
         let replacement =
-            hierarchy.resolve_replacement_focus_for_stopping_instance(Some(&focused), first);
+            hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
         assert_eq!(replacement, None);
     }
@@ -155,7 +155,7 @@ mod tests {
 
         let focused = DesktopTarget::Instance(first);
         let replacement =
-            hierarchy.resolve_replacement_focus_for_stopping_instance(Some(&focused), first);
+            hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
         assert_eq!(replacement, Some(DesktopTarget::View(view)));
     }
@@ -183,7 +183,7 @@ mod tests {
 
         let focused = DesktopTarget::View(first_view);
         let replacement =
-            hierarchy.resolve_replacement_focus_for_stopping_instance(Some(&focused), first);
+            hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, first);
 
         assert_eq!(replacement, Some(DesktopTarget::View(second_view)));
     }
@@ -195,7 +195,7 @@ mod tests {
 
         let focused = DesktopTarget::Instance(instance);
         let replacement =
-            hierarchy.resolve_replacement_focus_for_stopping_instance(Some(&focused), instance);
+            hierarchy.resolve_replacement_focus_for_stopping_instance(&focused, instance);
 
         assert_eq!(replacement, Some(DesktopTarget::Launcher(launcher)));
     }

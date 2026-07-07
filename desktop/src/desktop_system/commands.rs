@@ -1,6 +1,6 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
+use massive_applications::{InstanceId, InstanceParameters};
 
 use super::navigation::Direction;
 use crate::instance_presenter::InstanceRoot;
@@ -12,26 +12,21 @@ use crate::projects::{
 #[derive(Debug)]
 pub enum DesktopCommand {
     Project(ProjectCommand),
+    /// Present an instance under `launcher`, spawning it if necessary.
+    ///
+    /// When `root` is `None`, a fresh root is created and the instance is spawned. When `root` is
+    /// `Some`, the caller has already spawned the instance, so only presentation happens.
     StartInstance {
         launcher: LaunchProfileId,
+        instance: InstanceId,
+        root: Option<InstanceRoot>,
         parameters: InstanceParameters,
     },
     StopInstance(InstanceId),
-    PresentInstance {
-        launcher: LaunchProfileId,
-        instance: InstanceId,
-        root: InstanceRoot,
-    },
-    IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+
     ZoomIn,
     ZoomOut,
     Navigate(Direction),
-}
-
-impl DesktopCommand {
-    pub fn resets_zoom(&self) -> bool {
-        matches!(self, Self::StartInstance { .. } | Self::StopInstance(_))
-    }
 }
 
 #[derive(Debug)]

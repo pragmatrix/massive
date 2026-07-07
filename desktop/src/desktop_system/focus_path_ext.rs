@@ -3,7 +3,7 @@ use massive_applications::InstanceId;
 use super::{DesktopFocusPath, DesktopTarget};
 
 impl DesktopFocusPath {
-    pub(super) fn instance(&self) -> Option<InstanceId> {
+    pub fn instance(&self) -> Option<InstanceId> {
         self.iter().rev().find_map(|t| match t {
             DesktopTarget::Instance(id) => Some(*id),
             _ => None,
@@ -12,7 +12,7 @@ impl DesktopFocusPath {
 
     #[allow(unused)]
     /// Is this or a parent something that can be added new instances to?
-    pub(super) fn instance_parent(&self) -> Option<DesktopFocusPath> {
+    pub fn instance_parent(&self) -> Option<DesktopFocusPath> {
         self.iter()
             .enumerate()
             .rev()

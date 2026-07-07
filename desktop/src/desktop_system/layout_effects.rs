@@ -10,31 +10,14 @@ use super::layout_state::PlacementUpdate;
 use super::{
     DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
 };
-use crate::focus_path::PathResolver;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
-use crate::projects::LaunchProfileId;
 
 impl DesktopSystem {
-    pub(super) fn transaction_effects(&self, command_effects: Effects) -> Effects {
-        let mut effects = Effects::None;
-        effects += command_effects;
-        effects += DesktopEffect::Measure(DesktopTarget::Desktop);
-        effects += DesktopEffect::SyncFocusedViewWindowState;
-        effects
-    }
-
     pub(super) fn run_effects_to_completion(
         &mut self,
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
     ) -> Result<()> {
-        if !effects_mode.permit_camera_moves() {
-            // Lock camera motion immediately, including already running camera animations.
-            // Ergonomics: There should probably be a function for that in Animated.
-            let camera = *self.camera.value();
-            self.camera.set_immediately(camera);
-        }
-
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
@@ -53,7 +36,9 @@ impl DesktopSystem {
         match effect {
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
-            DesktopEffect::ApplyLayout(target) => self.apply_layout_effect(target, effects_mode),
+            DesktopEffect::ApplyLayout(target) => {
+                Ok(self.apply_layout_effect(target, effects_mode))
+            }
             DesktopEffect::UpdateCamera => {
                 self.update_camera_effect(effects_mode);
                 Ok(Effects::None)
@@ -62,17 +47,15 @@ impl DesktopSystem {
                 self.sync_hover_effect();
                 Ok(Effects::None)
             }
-            DesktopEffect::SyncFocusedViewWindowState => {
-                self.apply_focused_view_window_state_effect()?;
-                Ok(Effects::None)
-            }
         }
     }
 
-    fn apply_focused_view_window_state_effect(&self) -> Result<()> {
+    pub(super) fn apply_focused_view_window_state(&self) -> Result<()> {
         let state = self.focused_view_window_state()?.unwrap_or_default();
         self.window.set_title(&state.title);
         self.window.set_cursor(state.cursor);
+        // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
+        self.window.set_cursor_visible(self.is_cursor_visible());
         Ok(())
     }
 
@@ -84,18 +67,6 @@ impl DesktopSystem {
     /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
     /// and re-enqueues `Measure(parent)` only when the measured size changed.
     fn measure_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
-        let focused_target = self.event_router.focused().cloned();
-        let focused_instance = self
-            .aggregates
-            .hierarchy
-            .resolve_path(focused_target.as_ref())
-            .instance();
-        let algorithm = DesktopLayoutAlgorithm {
-            aggregates: &self.aggregates,
-            default_panel_size: self.default_panel_size,
-            focused_instance,
-        };
-
         // If measurements of children are not available, push them as effects and return early.
         let missing_children = self
             .layout_state
@@ -105,12 +76,15 @@ impl DesktopSystem {
             for child in missing_children {
                 effects += DesktopEffect::Measure(child);
             }
-            // Each child measure reports size_changed and re-enqueues its parent, so we don't need
-            // to do this here explicitly.
-            //
-            // effects += DesktopEffect::ReflowLayout(target);
             return Ok(effects);
         }
+
+        let focused_instance = self.focused_path().instance();
+        let algorithm = DesktopLayoutAlgorithm {
+            aggregates: &self.aggregates,
+            default_panel_size: self.default_panel_size,
+            focused_instance,
+        };
 
         let outcome =
             self.layout_state
@@ -130,14 +104,9 @@ impl DesktopSystem {
     ///
     /// This consumes measured child sizes from layout state, computes child placements, and
     /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
-    /// placement changed, then always schedules camera and hover synchronization.
+    /// placement changed; camera and hover synchronization follow from `ApplyLayout` itself.
     fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
-        let focused_target = self.event_router.focused().cloned();
-        let focused_instance = self
-            .aggregates
-            .hierarchy
-            .resolve_path(focused_target.as_ref())
-            .instance();
+        let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
@@ -149,30 +118,42 @@ impl DesktopSystem {
             .layout_state
             .place_children_of(&root, children, &algorithm);
 
+        // `Place(root)` computes each child's local placement here, so `ApplyLayout(child)` is what
+        // pushes that placement to the renderer. `Place(child)` only re-places the child's own
+        // descendants and never applies the child's own placement, so it cannot stand in for
+        // `ApplyLayout(child)`.
         let mut effects = Effects::None;
-        for (target, outcome) in children.iter().zip(placement_outcomes) {
+        for (child, outcome) in children.iter().zip(placement_outcomes) {
             match outcome {
                 PlacementUpdate::Unchanged => {}
                 PlacementUpdate::ChangedSizeUnchanged => {
-                    effects += DesktopEffect::ApplyLayout(target.clone());
+                    // Placement changed but size did not, so descendants stay valid; apply only.
+                    effects += DesktopEffect::ApplyLayout(child.clone());
                 }
                 PlacementUpdate::ChangedSizeChanged => {
-                    effects += DesktopEffect::Place(target.clone());
-                    effects += DesktopEffect::ApplyLayout(target.clone());
+                    // Size changed, so re-place descendants against the new size, then apply the
+                    // child's own newly computed placement.
+                    effects += DesktopEffect::Place(child.clone());
+                    effects += DesktopEffect::ApplyLayout(child.clone());
                 }
             }
         }
-        effects += DesktopEffect::UpdateCamera;
-        effects += DesktopEffect::SyncHover;
 
         Ok(effects)
     }
 
+    /// Applies one target's local placement to the renderer and refreshes camera and hover.
+    ///
+    /// Camera and hover follow from the placement being applied, so they are scheduled here rather
+    /// than per `Place` pass: this runs only when a placement actually changed, and the scheduler
+    /// dedupes the payload-less `UpdateCamera`/`SyncHover` into a single `PostLayout` run per
+    /// transaction. Pure focus changes that move no layout are handled by `transact`, which
+    /// observes the focus change and emits `UpdateCamera` directly.
     fn apply_layout_effect(
         &mut self,
         target: DesktopTarget,
         effects_mode: TransactionEffectsMode,
-    ) -> Result<Effects> {
+    ) -> Effects {
         let placement = self.layout_state.local_placement(&target);
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
@@ -184,7 +165,7 @@ impl DesktopSystem {
             effects_mode.animate(),
         );
 
-        Ok(Effects::None)
+        Effects::from(DesktopEffect::UpdateCamera) + DesktopEffect::SyncHover.into()
     }
 
     fn update_camera_effect(&mut self, effects_mode: TransactionEffectsMode) {
@@ -275,67 +256,6 @@ impl DesktopSystem {
         }
     }
 
-    pub(super) fn instance_launcher(&self, instance_id: InstanceId) -> Option<LaunchProfileId> {
-        let instance_target = DesktopTarget::Instance(instance_id);
-        match self.aggregates.hierarchy.parent(&instance_target) {
-            Some(DesktopTarget::Launcher(id)) => Some(*id),
-            _ => None,
-        }
-    }
-
-    /// Marks launchers that need relayout due to a keyboard focus change as reflow-pending.
-    pub(super) fn invalidate_layout_for_focus_change<'a>(
-        &mut self,
-        targets: impl IntoIterator<Item = &'a DesktopTarget>,
-    ) -> Effects {
-        let mut effects = Effects::None;
-        for target in targets {
-            if let Some(launcher_id) = self.focus_target_launcher_for_layout(target) {
-                effects += DesktopEffect::Measure(DesktopTarget::Launcher(launcher_id));
-            }
-        }
-        effects
-    }
-
-    pub(super) fn defer_layout_for_focus_change<'a>(
-        &mut self,
-        targets: impl IntoIterator<Item = &'a DesktopTarget>,
-    ) {
-        let launcher_ids: Vec<_> = targets
-            .into_iter()
-            .filter_map(|target| self.focus_target_launcher_for_layout(target))
-            .collect();
-
-        self.deferred_focus_layout_launchers.extend(launcher_ids);
-    }
-
-    pub(super) fn flush_deferred_focus_layout(&mut self) -> Effects {
-        let mut effects = Effects::None;
-        for launcher_id in self.deferred_focus_layout_launchers.drain() {
-            effects += DesktopEffect::Measure(DesktopTarget::Launcher(launcher_id));
-        }
-        effects
-    }
-
-    /// Returns the launcher that should be re-laid-out when focus moves to/from `target`, or
-    /// `None` if the target's launcher does not require focus-driven relayout.
-    fn focus_target_launcher_for_layout(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
-        let focused_path = self.aggregates.hierarchy.resolve_path(Some(target));
-        let focused_instance = focused_path.instance()?;
-        let launcher_id = self.instance_launcher(focused_instance)?;
-        let instance_count = self
-            .aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::Launcher(launcher_id))
-            .len();
-
-        self.aggregates
-            .launchers
-            .get(&launcher_id)
-            .filter(|launcher| launcher.should_relayout_on_focus_change(instance_count))
-            .map(|_| launcher_id)
-    }
-
     pub(super) fn sync_hover_rect_to_pointer_path(
         &mut self,
         pointer_focus: Option<&DesktopTarget>,
@@ -372,13 +292,13 @@ impl DesktopSystem {
         let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
             return placement;
         };
-        let Some(launcher_id) = self.instance_launcher(instance_id) else {
+        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
             return placement;
         };
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
-        let launcher_anchor = Self::layout_center(launcher_placement.rect.size);
-        let instance_anchor = Self::layout_center(placement.rect.size);
+        let launcher_anchor = layout_center(launcher_placement.rect.size);
+        let instance_anchor = layout_center(placement.rect.size);
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             launcher_anchor,
@@ -388,8 +308,8 @@ impl DesktopSystem {
 
         placement
     }
+}
 
-    fn layout_center(size: LayoutSize<2>) -> Point {
-        Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
-    }
+fn layout_center(size: LayoutSize<2>) -> Point {
+    Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
 }

@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
+use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
@@ -16,7 +17,7 @@ use massive_shell::Scene;
 
 use super::visor_layout;
 use crate::Map;
-use crate::desktop_system::{Cmd, DesktopCommand, place_container_children};
+use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
 use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, MatrixPlacement};
 
@@ -61,11 +62,14 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
-    /// The most recent focused instance in this launcher, used as visor anchor when nothing in
-    /// this launcher is currently focused.
-    most_recent_focused_instance: Option<InstanceId>,
+    /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
+    /// most recently focused instance while no mouse button was pressed. The visor centers on this
+    /// anchor independent of the live keyboard focus.
+    pub focus_anchor_instance: Option<InstanceId>,
 
-    events: EventManager<ViewEvent>,
+    /// We need our own EventManager, because the event's positions are relative to us and even if
+    /// they weren't sharing the event history isn't really possible.
+    event_manager: EventManager<ViewEvent>,
 }
 
 impl LauncherPresenter {
@@ -121,8 +125,8 @@ impl LauncherPresenter {
             background,
             name,
             fader: scene.animated(1.0),
-            most_recent_focused_instance: None,
-            events: EventManager::default(),
+            focus_anchor_instance: None,
+            event_manager: EventManager::default(),
         }
     }
 
@@ -145,7 +149,7 @@ impl LauncherPresenter {
         local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
         child_instances: &[InstanceId],
-        focused_index: Option<usize>,
+        expanded: bool,
         default_panel_size: SizePx,
     ) -> Vec<Placement<Transform, 2>> {
         match self.mode {
@@ -156,14 +160,12 @@ impl LauncherPresenter {
                 child_sizes,
             ),
             LauncherMode::Visor => {
-                let expanded = focused_index.is_some();
-                let center_index = focused_index
-                    .or_else(|| {
-                        self.most_recent_focused_instance.and_then(|focused| {
-                            child_instances
-                                .iter()
-                                .position(|&instance| instance == focused)
-                        })
+                let center_index = self
+                    .focus_anchor_instance
+                    .and_then(|anchor| {
+                        child_instances
+                            .iter()
+                            .position(|&instance| instance == anchor)
                     })
                     .unwrap_or_default();
 
@@ -228,7 +230,7 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn should_relayout_on_focus_change(&self, instance_count: usize) -> bool {
+    pub fn should_relayout_on_keyboard_focus_change(&self, instance_count: usize) -> bool {
         matches!(self.mode, LauncherMode::Visor) && instance_count > 1
     }
 
@@ -236,54 +238,41 @@ impl LauncherPresenter {
         self.mode
     }
 
-    pub fn focus_anchor_instance(&self) -> Option<InstanceId> {
-        self.most_recent_focused_instance
-    }
-
-    pub fn set_focus_anchor_instance(&mut self, instance: InstanceId) {
-        self.most_recent_focused_instance = Some(instance);
-    }
-
     // Architecture: I don't want the launcher here to directly generate commands. may be
     // LauncherCommand? Not sure.
-    pub fn process(&mut self, view_event: ViewEvent) -> Result<Cmd> {
+    pub fn process(&mut self, event: ViewEvent) -> Result<Commands> {
         let presents_instance = self.presents_instance();
 
-        // Architecture: This looks horrible, what about just hiding `ExternalEvent` and passing
-        // each member (also make the scope type optional, generic over the `EventManager`?).
-        let Some(input_event) = self.events.add_event(view_event, Instant::now()) else {
-            return Ok(Cmd::None);
+        let Some(event) = self.event_manager.add_event(event, Instant::now()) else {
+            return Ok(Commands::Empty);
         };
 
         if presents_instance {
-            return Ok(Cmd::None);
+            return Ok(Commands::Empty);
         }
 
         // Can't go on focus here, we might focus launchers by other means (for example cursor
         // navigation).
-        if input_event.detect_click(MouseButton::Left).is_some() {
+        let start_instance = event.detect_click(MouseButton::Left).is_some()
+            || (event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
+                && event.keyboard_modifiers().super_key());
+
+        if start_instance {
             // Usability: Should pass this rectangle?
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
+                instance: Uuid::new_v4().into(),
+                root: None,
                 parameters: self.profile.params.clone(),
             }
             .into());
         }
 
-        if input_event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
-            && input_event.keyboard_modifiers().super_key()
-        {
-            return Ok(DesktopCommand::StartInstance {
-                launcher: self.id,
-                parameters: self.profile.params.clone(),
-            }
-            .into());
-        }
-
-        Ok(Cmd::None)
+        Ok(Commands::Empty)
     }
 
     fn presents_instance(&self) -> bool {
+        // Robustness: Deriving this state from crossing into upper layer (state -> animation).
         *self.fader.final_value() == 0.0
     }
 
