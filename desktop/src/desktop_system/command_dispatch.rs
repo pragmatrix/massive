@@ -284,12 +284,7 @@ impl DesktopSystem {
                 return Ok(ChangeOutput::changes(changes));
             }
             DesktopChange::IntegrateInstanceSubmission(instance_id, instance_submission) => {
-                return self.apply_instance_submission(
-                    instance_id,
-                    instance_submission,
-                    scene,
-                    instance_manager,
-                );
+                return self.apply_instance_submission(instance_id, instance_submission, scene);
             }
             DesktopChange::Project(project_change) => {
                 self.apply_project_change(project_change, scene)?;
@@ -389,14 +384,13 @@ impl DesktopSystem {
         instance: InstanceId,
         submission: InstanceSubmission,
         scene: &Scene,
-        instance_manager: &InstanceManager,
     ) -> Result<ChangeOutput> {
         let (changes, pacing) = submission.into_parts();
         let mut measures = MeasureSet::Empty;
         let mut follow_ups = Changes::Empty;
 
         for change in changes.release() {
-            let outcome = self.apply_instance_change(instance, change, scene, instance_manager)?;
+            let outcome = self.apply_instance_change(instance, change, scene)?;
             measures += outcome.measures;
             follow_ups += outcome.changes;
         }
@@ -413,7 +407,6 @@ impl DesktopSystem {
         instance: InstanceId,
         change: InstanceChange,
         scene: &Scene,
-        _instance_manager: &InstanceManager,
     ) -> Result<ChangeOutput> {
         match change {
             InstanceChange::Scene(change) => {
