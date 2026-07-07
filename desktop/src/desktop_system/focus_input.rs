@@ -38,8 +38,8 @@ impl DesktopSystem {
                 DesktopChange::ForwardEvents(transitions).into()
             }
             ProcessOutcome::Focus(target) => {
-                // The even router does not apply focus changes, we do.
-                // Architecture: This should probably done for pointer focus, too? Just for symmetry?
+                // The event router does not apply focus changes, we do.
+                // Architecture: This should probably be done for pointer focus, too? Just for symmetry?
                 if let Some(target) = target {
                     let t = target.target;
                     let mut changes: Changes =
