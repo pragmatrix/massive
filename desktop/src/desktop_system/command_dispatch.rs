@@ -319,8 +319,11 @@ impl DesktopSystem {
                 Ok(under.into())
             }
             TopologyChange::Remove(target) => {
-                // Bug: This should remove target from focus (but how, focus parent or unfocus completely)
+                // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
+                // focus and retarget keyboard focus to the parent before removal so the event
+                // router is not left pointing at a removed node.
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
+                self.refocus_parent_if_path_contains(&target, instance_manager)?;
                 Ok(self.remove_target(&target)?)
             }
         }

@@ -71,7 +71,7 @@ impl<T> Extend<T> for CollectingVec<T> {
                 values.reserve(incoming.size_hint().0);
                 values.extend(incoming);
             }
-            // `None`/`One` hold 0 or 1 values; combine them with the incoming
+            // `Empty`/`One` hold 0 or 1 values; combine them with the incoming
             // stream and pick the variant from the first two combined elements.
             _ => {
                 let existing = mem::replace(self, CollectingVec::Empty);

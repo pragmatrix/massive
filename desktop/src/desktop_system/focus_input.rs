@@ -191,6 +191,31 @@ impl DesktopSystem {
         Ok(())
     }
 
+    /// Retarget keyboard focus to the parent if the focused path is inside the subtree rooted at
+    /// `target`.
+    ///
+    /// A removed subtree can still contain the current keyboard focus; leaving it in place would
+    /// dangle the router's `keyboard_focus` at a removed node.
+    pub(super) fn refocus_parent_if_path_contains(
+        &mut self,
+        target: &DesktopTarget,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
+        if self
+            .aggregates
+            .hierarchy
+            .path_contains_target(self.event_router.focused(), target)
+        {
+            let parent = self.aggregates.hierarchy.parent(target).cloned();
+            self.focus(
+                parent.as_ref(),
+                instance_manager,
+                FocusReason::InputTransition,
+            )?;
+        }
+        Ok(())
+    }
+
     #[allow(unused)]
     fn refocus_pointer(
         &mut self,
