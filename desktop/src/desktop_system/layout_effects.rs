@@ -297,8 +297,8 @@ impl DesktopSystem {
         };
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
-        let launcher_anchor = Self::layout_center(launcher_placement.rect.size);
-        let instance_anchor = Self::layout_center(placement.rect.size);
+        let launcher_anchor = layout_center(launcher_placement.rect.size);
+        let instance_anchor = layout_center(placement.rect.size);
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             launcher_anchor,
@@ -308,8 +308,8 @@ impl DesktopSystem {
 
         placement
     }
+}
 
-    fn layout_center(size: LayoutSize<2>) -> Point {
-        Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
-    }
+fn layout_center(size: LayoutSize<2>) -> Point {
+    Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
 }

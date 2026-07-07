@@ -8,7 +8,7 @@ use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use crate::desktop_system::change::{
-    Changes, DesktopChange, ProjectChange, TopologyChange, set_focus_change,
+    Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
 use crate::desktop_system::effects::MeasureSet;
 use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
@@ -90,7 +90,7 @@ impl DesktopSystem {
                         under: launcher.into(),
                     }),
                 ];
-                changes += set_focus_change(
+                changes += set_focus(
                     Some(DesktopTarget::Instance(instance)),
                     FocusReason::PresentInstance,
                 );
@@ -117,7 +117,7 @@ impl DesktopSystem {
 
                 let mut changes = Changes::Empty;
                 if let Some(focus) = replacement_focus {
-                    changes += set_focus_change(Some(focus), FocusReason::StopInstanceReplacement);
+                    changes += set_focus(Some(focus), FocusReason::StopInstanceReplacement);
                 }
                 changes += [
                     DesktopChange::Topology(TopologyChange::Remove(instance.into())),
@@ -432,7 +432,7 @@ impl DesktopSystem {
                     (self.event_router.focused(), &creation_info.role)
                     && *focused_instance == instance
                 {
-                    changes += set_focus_change(
+                    changes += set_focus(
                         Some(DesktopTarget::View(creation_info.id)),
                         FocusReason::PromotePrimaryView,
                     );

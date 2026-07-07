@@ -51,10 +51,7 @@ pub enum DesktopChange {
 /// Emits `SetFocus`, and — when the focus reason resets navigation affinity — a sibling
 /// `SetNavigationAffinity(None)` so the reset flows through change application rather than being
 /// applied inline in `focus()`.
-pub fn set_focus_change(
-    target: Option<DesktopTarget>,
-    reason: FocusReason,
-) -> Changes {
+pub fn set_focus(target: Option<DesktopTarget>, reason: FocusReason) -> Changes {
     let mut changes: Changes = DesktopChange::SetFocus { target, reason }.into();
     if reason.resets_navigation_affinity() {
         changes += DesktopChange::SetNavigationAffinity(None);

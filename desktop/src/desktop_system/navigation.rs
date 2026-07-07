@@ -5,7 +5,7 @@ use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget, FocusReason, UserState};
-use crate::desktop_system::change::{Changes, DesktopChange, set_focus_change};
+use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::zoom_navigation::overview_target_for_navigation_candidate;
 use crate::desktop_system::{LauncherMap, OverviewTarget};
@@ -127,7 +127,7 @@ impl DesktopSystem {
                     direction,
                 ) {
                     let mut changes =
-                        set_focus_change(Some(plan.candidate.clone()), FocusReason::Navigate);
+                        set_focus(Some(plan.candidate.clone()), FocusReason::Navigate);
                     changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
                     return Ok(changes);
                 }
@@ -149,7 +149,7 @@ impl DesktopSystem {
                     &plan.candidate,
                 ) {
                     let mut changes =
-                        set_focus_change(Some(plan.candidate.clone()), FocusReason::Navigate);
+                        set_focus(Some(plan.candidate.clone()), FocusReason::Navigate);
                     changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
                     changes += DesktopChange::SetUserState(UserState::Overview(next_target));
                     return Ok(changes);

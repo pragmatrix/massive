@@ -13,7 +13,7 @@ use super::navigation::Direction;
 use super::{Commands, DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use super::{POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX};
 use crate::EventTransition;
-use crate::desktop_system::change::{set_focus_change, Changes, DesktopChange};
+use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -42,10 +42,8 @@ impl DesktopSystem {
                 // Architecture: This should probably done for pointer focus, too? Just for symmetry?
                 if let Some(target) = target {
                     let t = target.target;
-                    let mut changes: Changes = set_focus_change(
-                        Some(t.clone()),
-                        FocusReason::InputTransition,
-                    );
+                    let mut changes: Changes =
+                        set_focus(Some(t.clone()), FocusReason::InputTransition);
 
                     if let Some(event) = target.event {
                         changes += DesktopChange::ForwardEvents(
@@ -54,7 +52,7 @@ impl DesktopSystem {
                     }
                     changes
                 } else {
-                    set_focus_change(None, FocusReason::InputTransition)
+                    set_focus(None, FocusReason::InputTransition)
                 }
             }
         };
