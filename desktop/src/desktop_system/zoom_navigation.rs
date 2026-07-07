@@ -50,9 +50,9 @@ pub fn zoom_out(
     {
         match &user_state {
             UserState::Focused => first_overview_target_from_focus(topology, launchers, focused),
-            UserState::Overview(target) => {
-                Some(next_overview_target(topology, launchers, focused, target))
-            }
+            UserState::Overview(target) => Some(next_outward_overview_target(
+                topology, launchers, focused, target,
+            )),
         }
     }
     .map(UserState::Overview)
@@ -196,7 +196,7 @@ fn deepest_overview_target_for_launcher(
     None
 }
 
-fn next_overview_target(
+fn next_outward_overview_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
     focused: DesktopTarget,
