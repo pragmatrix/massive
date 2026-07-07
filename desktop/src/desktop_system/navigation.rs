@@ -2,14 +2,11 @@ use anyhow::Result;
 
 use log::error;
 use massive_geometry::{PixelCamera, Rect, RectPx};
-use massive_layout::LayoutTopology;
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget, FocusReason, UserState};
-use crate::desktop_system::topology::{self, DesktopTopology};
-use crate::desktop_system::zoom_navigation::{
-    overview_navigation_anchor, overview_target_for_navigation_candidate,
-};
+use crate::desktop_system::topology::DesktopTopology;
+use crate::desktop_system::zoom_navigation::overview_target_for_navigation_candidate;
 use crate::desktop_system::{LauncherMap, OverviewTarget};
 use crate::instance_manager::InstanceManager;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
@@ -125,7 +122,13 @@ impl DesktopSystem {
 
         match self.user_state.clone() {
             UserState::Focused => {
-                if let Some(plan) = self.plan_navigation_candidate(focused, direction) {
+                if let Some(plan) = plan_navigation_candidate(
+                    &self.aggregates.hierarchy,
+                    &self.aggregates.launchers,
+                    &self.navigation_control,
+                    focused,
+                    direction,
+                ) {
                     self.navigation_control
                         .commit_column_affinity(plan.column_affinity);
                     self.focus(&plan.candidate, instance_manager, FocusReason::Navigate)?;
@@ -137,13 +140,17 @@ impl DesktopSystem {
                     return Ok(user_state);
                 };
 
-                if let Some(plan) = self.plan_navigation_candidate_same_level(&anchor, direction)
-                    && let Some(next_target) = overview_target_for_navigation_candidate(
-                        &self.aggregates.hierarchy,
-                        &target,
-                        &plan.candidate,
-                    )
-                {
+                if let Some(plan) = plan_navigation_candidate_same_level(
+                    &self.aggregates.hierarchy,
+                    &self.aggregates.launchers,
+                    &self.navigation_control,
+                    &anchor,
+                    direction,
+                ) && let Some(next_target) = overview_target_for_navigation_candidate(
+                    &self.aggregates.hierarchy,
+                    &target,
+                    &plan.candidate,
+                ) {
                     self.navigation_control
                         .commit_column_affinity(plan.column_affinity);
                     return Ok(UserState::Overview(next_target));
@@ -187,150 +194,158 @@ impl DesktopSystem {
             }
         }
     }
+}
 
-    /// Plans a navigation step without mutating navigation state.
-    ///
-    /// Resolves the candidate target and the column affinity the step would commit.
-    /// Call `apply_navigation_plan` to commit the affinity once the move is taken.
-    pub(super) fn plan_navigation_candidate(
-        &self,
-        from: &DesktopTarget,
-        direction: Direction,
-    ) -> Option<NavigationPlan> {
-        let origin = self.resolve_navigation_origin(from)?;
-        let origin_placement = self.navigation_origin_placement(origin);
-        let column_affinity = self
-            .navigation_control
-            .plan_column_affinity(direction, origin_placement);
-        let target = self.navigate_from_origin(origin, direction, column_affinity)?;
-        let candidate = normalize_navigation_target(
-            &self.aggregates.hierarchy,
-            &self.aggregates.launchers,
-            target,
+/// Plans a navigation step without mutating navigation state.
+///
+/// Resolves the candidate target and the column affinity the step would commit.
+/// Call `apply_navigation_plan` to commit the affinity once the move is taken.
+fn plan_navigation_candidate(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    navigation_control: &NavigationControl,
+    from: &DesktopTarget,
+    direction: Direction,
+) -> Option<NavigationPlan> {
+    let origin = resolve_navigation_origin(hierarchy, from)?;
+    let origin_placement = navigation_origin_placement(launchers, origin);
+    let column_affinity = navigation_control.plan_column_affinity(direction, origin_placement);
+    let target = navigate_from_origin(hierarchy, launchers, origin, direction, column_affinity)?;
+    let candidate = normalize_navigation_target(hierarchy, launchers, target, direction);
+    Some(NavigationPlan {
+        candidate,
+        column_affinity,
+    })
+}
+
+/// Plans a same-level navigation step (used in overview) without mutating state.
+fn plan_navigation_candidate_same_level(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    navigation_control: &NavigationControl,
+    from: &DesktopTarget,
+    direction: Direction,
+) -> Option<NavigationPlan> {
+    if matches!(from, DesktopTarget::Instance(_)) && direction.vertical().is_some() {
+        return None;
+    }
+
+    let origin = resolve_navigation_origin(hierarchy, from)?;
+    let origin_placement = navigation_origin_placement(launchers, origin);
+    let column_affinity = navigation_control.plan_column_affinity(direction, origin_placement);
+    let candidate = navigate_from_origin(hierarchy, launchers, origin, direction, column_affinity)?;
+    Some(NavigationPlan {
+        candidate,
+        column_affinity,
+    })
+}
+
+fn resolve_navigation_origin(
+    hierarchy: &DesktopTopology,
+    from: &DesktopTarget,
+) -> Option<NavigationOrigin> {
+    match from {
+        DesktopTarget::Launcher(launcher_id) => Some(NavigationOrigin::Launcher(*launcher_id)),
+        DesktopTarget::Instance(instance_id) => {
+            let launcher = match hierarchy.parent(&DesktopTarget::Instance(*instance_id))? {
+                DesktopTarget::Launcher(launcher_id) => *launcher_id,
+                _ => return None,
+            };
+            let instances = hierarchy.launcher_instances(launcher);
+            let index = instances
+                .iter()
+                .position(|instance| instance == instance_id)?;
+            Some(NavigationOrigin::Child { launcher, index })
+        }
+        DesktopTarget::View(view_id) => {
+            let instance = match hierarchy.parent(&DesktopTarget::View(*view_id))? {
+                DesktopTarget::Instance(instance_id) => *instance_id,
+                _ => return None,
+            };
+            resolve_navigation_origin(hierarchy, &DesktopTarget::Instance(instance))
+        }
+        _ => None,
+    }
+}
+
+fn navigation_origin_placement(
+    launchers: &LauncherMap,
+    origin: NavigationOrigin,
+) -> Option<MatrixPlacement> {
+    match origin {
+        NavigationOrigin::Launcher(launcher_id)
+        | NavigationOrigin::Child {
+            launcher: launcher_id,
+            ..
+        } => launchers
+            .get(&launcher_id)
+            .map(|launcher| launcher.placement),
+    }
+}
+
+fn navigate_from_origin(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    origin: NavigationOrigin,
+    direction: Direction,
+    preferred_column: Option<u32>,
+) -> Option<DesktopTarget> {
+    match origin {
+        NavigationOrigin::Launcher(launcher) => {
+            navigate_from_launcher(hierarchy, launchers, launcher, direction, preferred_column)
+        }
+        NavigationOrigin::Child { launcher, index } => navigate_from_child(
+            hierarchy,
+            launchers,
+            launcher,
+            index,
             direction,
-        );
-        Some(NavigationPlan {
-            candidate,
-            column_affinity,
-        })
+            preferred_column,
+        ),
+    }
+}
+
+fn navigate_from_child(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    launcher_id: LaunchProfileId,
+    index: usize,
+    direction: Direction,
+    preferred_column: Option<u32>,
+) -> Option<DesktopTarget> {
+    let _ = launchers.get(&launcher_id)?;
+    let instances = hierarchy.launcher_instances(launcher_id);
+    if let Some(horizontal) = direction.horizontal() {
+        return horizontal_child_neighbor(&instances, index, horizontal)
+            .map(DesktopTarget::Instance)
+            .or_else(|| {
+                navigate_from_launcher(
+                    hierarchy,
+                    launchers,
+                    launcher_id,
+                    direction,
+                    preferred_column,
+                )
+            });
     }
 
-    /// Plans a same-level navigation step (used in overview) without mutating state.
-    pub(super) fn plan_navigation_candidate_same_level(
-        &self,
-        from: &DesktopTarget,
-        direction: Direction,
-    ) -> Option<NavigationPlan> {
-        if matches!(from, DesktopTarget::Instance(_)) && direction.vertical().is_some() {
-            return None;
-        }
+    navigate_from_launcher(
+        hierarchy,
+        launchers,
+        launcher_id,
+        direction,
+        preferred_column,
+    )
+}
 
-        let origin = self.resolve_navigation_origin(from)?;
-        let origin_placement = self.navigation_origin_placement(origin);
-        let column_affinity = self
-            .navigation_control
-            .plan_column_affinity(direction, origin_placement);
-        let candidate = self.navigate_from_origin(origin, direction, column_affinity)?;
-        Some(NavigationPlan {
-            candidate,
-            column_affinity,
-        })
-    }
-
-    fn navigation_origin_placement(&self, origin: NavigationOrigin) -> Option<MatrixPlacement> {
-        match origin {
-            NavigationOrigin::Launcher(launcher_id)
-            | NavigationOrigin::Child {
-                launcher: launcher_id,
-                ..
-            } => self
-                .aggregates
-                .launchers
-                .get(&launcher_id)
-                .map(|launcher| launcher.placement),
-        }
-    }
-
-    fn resolve_navigation_origin(&self, from: &DesktopTarget) -> Option<NavigationOrigin> {
-        match from {
-            DesktopTarget::Launcher(launcher_id) => Some(NavigationOrigin::Launcher(*launcher_id)),
-            DesktopTarget::Instance(instance_id) => {
-                let launcher = match self
-                    .aggregates
-                    .hierarchy
-                    .parent(&DesktopTarget::Instance(*instance_id))?
-                {
-                    DesktopTarget::Launcher(launcher_id) => *launcher_id,
-                    _ => return None,
-                };
-                let instances = self.aggregates.hierarchy.launcher_instances(launcher);
-                let index = instances
-                    .iter()
-                    .position(|instance| instance == instance_id)?;
-                Some(NavigationOrigin::Child { launcher, index })
-            }
-            DesktopTarget::View(view_id) => {
-                let instance = match self
-                    .aggregates
-                    .hierarchy
-                    .parent(&DesktopTarget::View(*view_id))?
-                {
-                    DesktopTarget::Instance(instance_id) => *instance_id,
-                    _ => return None,
-                };
-                self.resolve_navigation_origin(&DesktopTarget::Instance(instance))
-            }
-            _ => None,
-        }
-    }
-
-    fn navigate_from_origin(
-        &self,
-        origin: NavigationOrigin,
-        direction: Direction,
-        preferred_column: Option<u32>,
-    ) -> Option<DesktopTarget> {
-        match origin {
-            NavigationOrigin::Launcher(launcher) => {
-                self.navigate_from_launcher(launcher, direction, preferred_column)
-            }
-            NavigationOrigin::Child { launcher, index } => {
-                self.navigate_from_child(launcher, index, direction, preferred_column)
-            }
-        }
-    }
-
-    fn navigate_from_child(
-        &self,
-        launcher_id: LaunchProfileId,
-        index: usize,
-        direction: Direction,
-        preferred_column: Option<u32>,
-    ) -> Option<DesktopTarget> {
-        let _ = self.aggregates.launchers.get(&launcher_id)?;
-        let instances = self.aggregates.hierarchy.launcher_instances(launcher_id);
-        if let Some(horizontal) = direction.horizontal() {
-            return self
-                .horizontal_child_neighbor(&instances, index, horizontal)
-                .map(DesktopTarget::Instance)
-                .or_else(|| self.navigate_from_launcher(launcher_id, direction, preferred_column));
-        }
-
-        self.navigate_from_launcher(launcher_id, direction, preferred_column)
-    }
-
-    fn horizontal_child_neighbor(
-        &self,
-        instances: &[massive_applications::InstanceId],
-        index: usize,
-        direction: HorizontalDirection,
-    ) -> Option<massive_applications::InstanceId> {
-        match direction {
-            HorizontalDirection::Left => (index > 0).then(|| instances[index - 1]),
-            HorizontalDirection::Right => {
-                (index + 1 < instances.len()).then(|| instances[index + 1])
-            }
-        }
+fn horizontal_child_neighbor(
+    instances: &[massive_applications::InstanceId],
+    index: usize,
+    direction: HorizontalDirection,
+) -> Option<massive_applications::InstanceId> {
+    match direction {
+        HorizontalDirection::Left => (index > 0).then(|| instances[index - 1]),
+        HorizontalDirection::Right => (index + 1 < instances.len()).then(|| instances[index + 1]),
     }
 }
 
@@ -398,105 +413,101 @@ fn concrete_navigation_target(
     }
 }
 
-impl DesktopSystem {
-    fn navigate_from_launcher(
-        &self,
-        launcher_id: LaunchProfileId,
-        direction: Direction,
-        preferred_column: Option<u32>,
-    ) -> Option<DesktopTarget> {
-        let (project_id, origin_placement) = self.launcher_matrix_position(launcher_id)?;
-        let entries = self.create_project_matrix_entries(project_id);
-        let target =
-            select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
-                .or_else(|| {
-                    direction.vertical().and_then(|vertical| {
-                        self.cross_project_vertical_neighbor(
-                            project_id,
-                            preferred_column.unwrap_or(origin_placement.column),
-                            vertical,
-                        )
-                    })
-                })?;
-        Some(DesktopTarget::Launcher(target))
-    }
+fn navigate_from_launcher(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    launcher_id: LaunchProfileId,
+    direction: Direction,
+    preferred_column: Option<u32>,
+) -> Option<DesktopTarget> {
+    let (project_id, origin_placement) =
+        launcher_matrix_position(hierarchy, launchers, launcher_id)?;
+    let entries = create_project_matrix_entries(hierarchy, launchers, project_id);
+    let target = select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
+        .or_else(|| {
+            direction.vertical().and_then(|vertical| {
+                cross_project_vertical_neighbor(
+                    hierarchy,
+                    launchers,
+                    project_id,
+                    preferred_column.unwrap_or(origin_placement.column),
+                    vertical,
+                )
+            })
+        })?;
+    Some(DesktopTarget::Launcher(target))
+}
 
-    fn launcher_matrix_position(
-        &self,
-        launcher_id: LaunchProfileId,
-    ) -> Option<(ProjectId, MatrixPlacement)> {
-        let project_id = match self
-            .aggregates
-            .hierarchy
-            .parent(&DesktopTarget::Launcher(launcher_id))?
+fn launcher_matrix_position(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    launcher_id: LaunchProfileId,
+) -> Option<(ProjectId, MatrixPlacement)> {
+    let project_id = match hierarchy.parent(&DesktopTarget::Launcher(launcher_id))? {
+        DesktopTarget::ProjectMatrix(project_id) => *project_id,
+        _ => return None,
+    };
+
+    let placement = launchers.get(&launcher_id)?.placement;
+    Some((project_id, placement))
+}
+
+fn create_project_matrix_entries(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    project_id: ProjectId,
+) -> Vec<MatrixEntry<LaunchProfileId>> {
+    hierarchy
+        .get_nested(&DesktopTarget::ProjectMatrix(project_id))
+        .iter()
+        .filter_map(|target| {
+            let DesktopTarget::Launcher(launcher_id) = target else {
+                return None;
+            };
+            let placement = launchers.get(launcher_id)?.placement;
+            Some(MatrixEntry {
+                key: *launcher_id,
+                placement,
+            })
+        })
+        .collect()
+}
+
+fn cross_project_vertical_neighbor(
+    hierarchy: &DesktopTopology,
+    launchers: &LauncherMap,
+    project_id: ProjectId,
+    origin_column: u32,
+    direction: VerticalDirection,
+) -> Option<LaunchProfileId> {
+    let project_targets = hierarchy.get_nested(&DesktopTarget::Desktop);
+    let project_ids: Vec<_> = project_targets
+        .iter()
+        .filter_map(|target| {
+            let DesktopTarget::Project(id) = target else {
+                return None;
+            };
+            Some(*id)
+        })
+        .collect();
+
+    let project_index = project_ids.iter().position(|id| *id == project_id)?;
+
+    let candidate_projects: Box<dyn Iterator<Item = &ProjectId>> = match direction {
+        VerticalDirection::Up => Box::new(project_ids[..project_index].iter().rev()),
+        VerticalDirection::Down => Box::new(project_ids[project_index + 1..].iter()),
+    };
+
+    for candidate_project in candidate_projects {
+        let entries = create_project_matrix_entries(hierarchy, launchers, *candidate_project);
+        if let Some(target) =
+            select_cross_project_vertical_entry(&entries, origin_column, direction)
         {
-            DesktopTarget::ProjectMatrix(project_id) => *project_id,
-            _ => return None,
-        };
-
-        let placement = self.aggregates.launchers.get(&launcher_id)?.placement;
-        Some((project_id, placement))
-    }
-
-    fn create_project_matrix_entries(
-        &self,
-        project_id: ProjectId,
-    ) -> Vec<MatrixEntry<LaunchProfileId>> {
-        self.aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
-            .iter()
-            .filter_map(|target| {
-                let DesktopTarget::Launcher(launcher_id) = target else {
-                    return None;
-                };
-                let placement = self.aggregates.launchers.get(launcher_id)?.placement;
-                Some(MatrixEntry {
-                    key: *launcher_id,
-                    placement,
-                })
-            })
-            .collect()
-    }
-
-    fn cross_project_vertical_neighbor(
-        &self,
-        project_id: ProjectId,
-        origin_column: u32,
-        direction: VerticalDirection,
-    ) -> Option<LaunchProfileId> {
-        let project_targets = self
-            .aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::Desktop);
-        let project_ids: Vec<_> = project_targets
-            .iter()
-            .filter_map(|target| {
-                let DesktopTarget::Project(id) = target else {
-                    return None;
-                };
-                Some(*id)
-            })
-            .collect();
-
-        let project_index = project_ids.iter().position(|id| *id == project_id)?;
-
-        let candidate_projects: Box<dyn Iterator<Item = &ProjectId>> = match direction {
-            VerticalDirection::Up => Box::new(project_ids[..project_index].iter().rev()),
-            VerticalDirection::Down => Box::new(project_ids[project_index + 1..].iter()),
-        };
-
-        for candidate_project in candidate_projects {
-            let entries = self.create_project_matrix_entries(*candidate_project);
-            if let Some(target) =
-                select_cross_project_vertical_entry(&entries, origin_column, direction)
-            {
-                return Some(target);
-            }
+            return Some(target);
         }
-
-        None
     }
+
+    None
 }
 
 fn select_matrix_neighbor<K: Copy>(
