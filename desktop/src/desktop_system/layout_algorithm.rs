@@ -214,7 +214,7 @@ impl DesktopLayoutAlgorithm<'_> {
         };
 
         let launcher = &self.aggregates.launchers[launcher_id];
-        let child_instances = self.aggregates.launcher_instance_ids(*launcher_id);
+        let child_instances = self.aggregates.hierarchy.launcher_instances(*launcher_id);
 
         // Performance: This don't need to be computed on non-visor launchers (but we might remove
         // bands anyway)

@@ -49,4 +49,14 @@ impl OrderedHierarchy<DesktopTarget> {
             DesktopTarget::Desktop => None,
         }
     }
+
+    pub fn launcher_instances(&self, launcher_id: LaunchProfileId) -> Vec<InstanceId> {
+        self.get_nested(&DesktopTarget::Launcher(launcher_id))
+            .iter()
+            .map(|target| match target {
+                DesktopTarget::Instance(instance_id) => *instance_id,
+                _ => panic!("launcher children must be instances"),
+            })
+            .collect()
+    }
 }

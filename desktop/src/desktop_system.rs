@@ -50,6 +50,7 @@ pub(crate) use navigation::NavigationControl;
 
 use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
+use crate::desktop_system::topology::DesktopTopology;
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
@@ -361,7 +362,7 @@ impl DesktopSystem {
             .map(|launcher_id| {
                 (
                     launcher_id,
-                    self.aggregates.launcher_instance_ids(launcher_id),
+                    self.aggregates.hierarchy.launcher_instances(launcher_id),
                 )
             })
             .collect();
@@ -506,17 +507,6 @@ impl Aggregates {
         } else {
             None
         }
-    }
-
-    pub fn launcher_instance_ids(&self, launcher_id: LaunchProfileId) -> Vec<InstanceId> {
-        self.hierarchy
-            .get_nested(&DesktopTarget::Launcher(launcher_id))
-            .iter()
-            .map(|target| match target {
-                DesktopTarget::Instance(instance_id) => *instance_id,
-                _ => panic!("launcher children must be instances"),
-            })
-            .collect()
     }
 }
 

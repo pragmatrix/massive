@@ -59,49 +59,35 @@ pub fn zoom_out(
     .unwrap_or(user_state)
 }
 
+pub fn overview_target_for_navigation_candidate(
+    topology: &DesktopTopology,
+    current: &OverviewTarget,
+    candidate: &DesktopTarget,
+) -> Option<OverviewTarget> {
+    match current {
+        OverviewTarget::Visor(current_launcher) => {
+            let candidate_launcher = topology.launcher_of_target(candidate)?;
+            (candidate_launcher == *current_launcher)
+                .then_some(OverviewTarget::Visor(*current_launcher))
+        }
+        OverviewTarget::Band(current_launcher) => {
+            let current_project = topology.project_of_launcher(*current_launcher)?;
+            let candidate_launcher = topology.launcher_of_target(candidate)?;
+            let candidate_project = topology.project_of_launcher(candidate_launcher)?;
+
+            (candidate_project == current_project)
+                .then_some(OverviewTarget::Band(candidate_launcher))
+        }
+        OverviewTarget::Project(current_project) => {
+            let candidate_project = topology.project_of_target(candidate)?;
+            (candidate_project == *current_project)
+                .then_some(OverviewTarget::Project(*current_project))
+        }
+        OverviewTarget::Desktop => Some(OverviewTarget::Desktop),
+    }
+}
+
 impl DesktopSystem {
-    pub(super) fn overview_navigation_anchor(
-        &self,
-        target: &OverviewTarget,
-    ) -> Option<DesktopTarget> {
-        match target {
-            OverviewTarget::Visor(launcher_id) | OverviewTarget::Band(launcher_id) => {
-                Some(DesktopTarget::Launcher(*launcher_id))
-            }
-            OverviewTarget::Project(project_id) => Some(DesktopTarget::Project(*project_id)),
-            OverviewTarget::Desktop => Some(DesktopTarget::Desktop),
-        }
-    }
-
-    pub(super) fn overview_target_for_navigation_candidate(
-        &self,
-        current: &OverviewTarget,
-        candidate: &DesktopTarget,
-    ) -> Option<OverviewTarget> {
-        let topology = &self.aggregates.hierarchy;
-        match current {
-            OverviewTarget::Visor(current_launcher) => {
-                let candidate_launcher = topology.launcher_of_target(candidate)?;
-                (candidate_launcher == *current_launcher)
-                    .then_some(OverviewTarget::Visor(*current_launcher))
-            }
-            OverviewTarget::Band(current_launcher) => {
-                let current_project = topology.project_of_launcher(*current_launcher)?;
-                let candidate_launcher = topology.launcher_of_target(candidate)?;
-                let candidate_project = topology.project_of_launcher(candidate_launcher)?;
-
-                (candidate_project == current_project)
-                    .then_some(OverviewTarget::Band(candidate_launcher))
-            }
-            OverviewTarget::Project(current_project) => {
-                let candidate_project = topology.project_of_target(candidate)?;
-                (candidate_project == *current_project)
-                    .then_some(OverviewTarget::Project(*current_project))
-            }
-            OverviewTarget::Desktop => Some(OverviewTarget::Desktop),
-        }
-    }
-
     pub(super) fn camera_for_overview_target(
         &self,
         target: &OverviewTarget,

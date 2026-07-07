@@ -2,9 +2,15 @@ use anyhow::Result;
 
 use log::error;
 use massive_geometry::{PixelCamera, Rect, RectPx};
+use massive_layout::LayoutTopology;
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget, FocusReason, UserState};
+use crate::desktop_system::topology::{self, DesktopTopology};
+use crate::desktop_system::zoom_navigation::{
+    overview_navigation_anchor, overview_target_for_navigation_candidate,
+};
+use crate::desktop_system::{LauncherMap, OverviewTarget};
 use crate::instance_manager::InstanceManager;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
@@ -56,24 +62,36 @@ impl NavigationControl {
         self.column_affinity = None;
     }
 
-    fn begin_navigation(
-        &mut self,
+    /// Computes the column affinity a navigation step would produce, without mutating.
+    ///
+    /// Horizontal moves clear the affinity; the first vertical move latches the origin
+    /// column; subsequent vertical moves keep the latched column. The returned value is
+    /// also the preferred column to feed into matrix navigation.
+    fn plan_column_affinity(
+        &self,
         direction: Direction,
         origin: Option<MatrixPlacement>,
     ) -> Option<u32> {
         if direction.horizontal().is_some() {
-            self.column_affinity = None;
+            return None;
         }
 
-        if direction.vertical().is_some()
-            && self.column_affinity.is_none()
-            && let Some(origin) = origin
-        {
-            self.column_affinity = Some(origin.column);
+        if direction.vertical().is_some() && self.column_affinity.is_none() {
+            return origin.map(|origin| origin.column);
         }
 
         self.column_affinity
     }
+
+    fn commit_column_affinity(&mut self, column_affinity: Option<u32>) {
+        self.column_affinity = column_affinity;
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct NavigationPlan {
+    candidate: DesktopTarget,
+    column_affinity: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -107,23 +125,27 @@ impl DesktopSystem {
 
         match self.user_state.clone() {
             UserState::Focused => {
-                if let Some(candidate) =
-                    self.locate_navigation_candidate(&focused.clone(), direction)
-                {
-                    self.focus(&candidate, instance_manager, FocusReason::Navigate)?;
+                if let Some(plan) = self.plan_navigation_candidate(focused, direction) {
+                    self.navigation_control
+                        .commit_column_affinity(plan.column_affinity);
+                    self.focus(&plan.candidate, instance_manager, FocusReason::Navigate)?;
                     return Ok(user_state);
                 }
             }
             UserState::Overview(target) => {
-                let Some(anchor) = self.overview_navigation_anchor(&target) else {
+                let Some(anchor) = overview_navigation_anchor(&target) else {
                     return Ok(user_state);
                 };
 
-                if let Some(candidate) =
-                    self.locate_navigation_candidate_same_level(&anchor, direction)
-                    && let Some(next_target) =
-                        self.overview_target_for_navigation_candidate(&target, &candidate)
+                if let Some(plan) = self.plan_navigation_candidate_same_level(&anchor, direction)
+                    && let Some(next_target) = overview_target_for_navigation_candidate(
+                        &self.aggregates.hierarchy,
+                        &target,
+                        &plan.candidate,
+                    )
                 {
+                    self.navigation_control
+                        .commit_column_affinity(plan.column_affinity);
                     return Ok(UserState::Overview(next_target));
                 }
             }
@@ -166,35 +188,53 @@ impl DesktopSystem {
         }
     }
 
-    pub(super) fn locate_navigation_candidate(
-        &mut self,
+    /// Plans a navigation step without mutating navigation state.
+    ///
+    /// Resolves the candidate target and the column affinity the step would commit.
+    /// Call `apply_navigation_plan` to commit the affinity once the move is taken.
+    pub(super) fn plan_navigation_candidate(
+        &self,
         from: &DesktopTarget,
         direction: Direction,
-    ) -> Option<DesktopTarget> {
+    ) -> Option<NavigationPlan> {
         let origin = self.resolve_navigation_origin(from)?;
         let origin_placement = self.navigation_origin_placement(origin);
-        let preferred_column = self
+        let column_affinity = self
             .navigation_control
-            .begin_navigation(direction, origin_placement);
-        let target = self.navigate_from_origin(origin, direction, preferred_column)?;
-        Some(self.normalize_navigation_target(target, direction))
+            .plan_column_affinity(direction, origin_placement);
+        let target = self.navigate_from_origin(origin, direction, column_affinity)?;
+        let candidate = normalize_navigation_target(
+            &self.aggregates.hierarchy,
+            &self.aggregates.launchers,
+            target,
+            direction,
+        );
+        Some(NavigationPlan {
+            candidate,
+            column_affinity,
+        })
     }
 
-    pub(super) fn locate_navigation_candidate_same_level(
-        &mut self,
+    /// Plans a same-level navigation step (used in overview) without mutating state.
+    pub(super) fn plan_navigation_candidate_same_level(
+        &self,
         from: &DesktopTarget,
         direction: Direction,
-    ) -> Option<DesktopTarget> {
+    ) -> Option<NavigationPlan> {
         if matches!(from, DesktopTarget::Instance(_)) && direction.vertical().is_some() {
             return None;
         }
 
         let origin = self.resolve_navigation_origin(from)?;
         let origin_placement = self.navigation_origin_placement(origin);
-        let preferred_column = self
+        let column_affinity = self
             .navigation_control
-            .begin_navigation(direction, origin_placement);
-        self.navigate_from_origin(origin, direction, preferred_column)
+            .plan_column_affinity(direction, origin_placement);
+        let candidate = self.navigate_from_origin(origin, direction, column_affinity)?;
+        Some(NavigationPlan {
+            candidate,
+            column_affinity,
+        })
     }
 
     fn navigation_origin_placement(&self, origin: NavigationOrigin) -> Option<MatrixPlacement> {
@@ -223,7 +263,7 @@ impl DesktopSystem {
                     DesktopTarget::Launcher(launcher_id) => *launcher_id,
                     _ => return None,
                 };
-                let instances = self.aggregates.launcher_instance_ids(launcher);
+                let instances = self.aggregates.hierarchy.launcher_instances(launcher);
                 let index = instances
                     .iter()
                     .position(|instance| instance == instance_id)?;
@@ -268,7 +308,7 @@ impl DesktopSystem {
         preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
         let _ = self.aggregates.launchers.get(&launcher_id)?;
-        let instances = self.aggregates.launcher_instance_ids(launcher_id);
+        let instances = self.aggregates.hierarchy.launcher_instances(launcher_id);
         if let Some(horizontal) = direction.horizontal() {
             return self
                 .horizontal_child_neighbor(&instances, index, horizontal)
@@ -292,61 +332,73 @@ impl DesktopSystem {
             }
         }
     }
+}
 
-    /// Normalizes a raw navigation result into a concrete, focusable target.
-    ///
-    /// Matrix navigation may return a `Launcher` shell. This step converts launcher
-    /// targets into concrete child instances when appropriate, then delegates to the
-    /// hierarchy to resolve the final focus target (for example, a nested view).
-    fn normalize_navigation_target(
-        &self,
-        target: DesktopTarget,
-        direction: Direction,
-    ) -> DesktopTarget {
-        let target = match target {
-            DesktopTarget::Launcher(launcher_id) => {
-                self.concrete_navigation_target(launcher_id, direction)
-            }
-            _ => target,
-        };
-
-        self.aggregates
-            .hierarchy
-            .resolve_neighbor_focus_target(&target)
+pub fn overview_navigation_anchor(target: &OverviewTarget) -> Option<DesktopTarget> {
+    match target {
+        OverviewTarget::Visor(launcher_id) | OverviewTarget::Band(launcher_id) => {
+            Some(DesktopTarget::Launcher(*launcher_id))
+        }
+        OverviewTarget::Project(project_id) => Some(DesktopTarget::Project(*project_id)),
+        OverviewTarget::Desktop => Some(DesktopTarget::Desktop),
     }
+}
 
-    /// Chooses a concrete focus target for a launcher.
-    ///
-    /// If the launcher has instances, returns the preferred instance for the current
-    /// mode and direction (for example, the visor focus anchor when available).
-    /// Otherwise, it falls back to the launcher itself.
-    fn concrete_navigation_target(
-        &self,
-        launcher_id: LaunchProfileId,
-        direction: Direction,
-    ) -> DesktopTarget {
-        let (mode, focus_anchor_instance) = match self.aggregates.launchers.get(&launcher_id) {
-            Some(launcher) => (launcher.mode(), launcher.focus_anchor_instance),
-            None => return DesktopTarget::Launcher(launcher_id),
-        };
+/// Normalizes a raw navigation result into a concrete, focusable target.
+///
+/// Matrix navigation may return a `Launcher` shell. This step converts launcher
+/// targets into concrete child instances when appropriate, then delegates to the
+/// hierarchy to resolve the final focus target (for example, a nested view).
+fn normalize_navigation_target(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    target: DesktopTarget,
+    direction: Direction,
+) -> DesktopTarget {
+    let target = match target {
+        DesktopTarget::Launcher(launcher_id) => {
+            concrete_navigation_target(topology, launchers, launcher_id, direction)
+        }
+        _ => target,
+    };
 
-        let instances = self.aggregates.launcher_instance_ids(launcher_id);
-        let preferred_index = match (mode, focus_anchor_instance) {
-            (LauncherMode::Visor, Some(focused)) => {
-                instances.iter().position(|instance| *instance == focused)
-            }
-            _ => None,
-        };
+    topology.resolve_neighbor_focus_target(&target)
+}
 
-        let Some(target_index) =
-            select_concrete_instance_index(instances.len(), direction, preferred_index)
-        else {
-            return DesktopTarget::Launcher(launcher_id);
-        };
+/// Chooses a concrete focus target for a launcher.
+///
+/// If the launcher has instances, returns the preferred instance for the current
+/// mode and direction (for example, the visor focus anchor when available).
+/// Otherwise, it falls back to the launcher itself.
+fn concrete_navigation_target(
+    topology: &DesktopTopology,
+    launchers: &LauncherMap,
+    launcher_id: LaunchProfileId,
+    direction: Direction,
+) -> DesktopTarget {
+    let (mode, focus_anchor_instance) = match launchers.get(&launcher_id) {
+        Some(launcher) => (launcher.mode(), launcher.focus_anchor_instance),
+        None => return DesktopTarget::Launcher(launcher_id),
+    };
 
+    let instances = topology.launcher_instances(launcher_id);
+    let preferred_index = match (mode, focus_anchor_instance) {
+        (LauncherMode::Visor, Some(focused)) => {
+            instances.iter().position(|instance| *instance == focused)
+        }
+        _ => None,
+    };
+
+    if let Some(target_index) =
+        select_concrete_instance_index(instances.len(), direction, preferred_index)
+    {
         DesktopTarget::Instance(instances[target_index])
+    } else {
+        DesktopTarget::Launcher(launcher_id)
     }
+}
 
+impl DesktopSystem {
     fn navigate_from_launcher(
         &self,
         launcher_id: LaunchProfileId,
@@ -825,9 +877,12 @@ mod tests {
     fn navigation_control_clears_column_affinity_on_horizontal_navigation() {
         let mut control = NavigationControl::default();
 
-        let vertical = control.begin_navigation(Direction::Down, Some((3, 0).into()));
-        let horizontal = control.begin_navigation(Direction::Right, Some((3, 1).into()));
-        let next_vertical = control.begin_navigation(Direction::Up, Some((1, 1).into()));
+        let vertical = control.plan_column_affinity(Direction::Down, Some((3, 0).into()));
+        control.commit_column_affinity(vertical);
+        let horizontal = control.plan_column_affinity(Direction::Right, Some((3, 1).into()));
+        control.commit_column_affinity(horizontal);
+        let next_vertical = control.plan_column_affinity(Direction::Up, Some((1, 1).into()));
+        control.commit_column_affinity(next_vertical);
 
         assert_eq!(vertical, Some(3));
         assert_eq!(horizontal, None);
@@ -838,9 +893,11 @@ mod tests {
     fn navigation_control_reset_all_clears_affinity() {
         let mut control = NavigationControl::default();
 
-        let _ = control.begin_navigation(Direction::Down, Some((4, 0).into()));
+        let initial = control.plan_column_affinity(Direction::Down, Some((4, 0).into()));
+        control.commit_column_affinity(initial);
         control.reset_all();
-        let vertical = control.begin_navigation(Direction::Down, Some((2, 1).into()));
+        let vertical = control.plan_column_affinity(Direction::Down, Some((2, 1).into()));
+        control.commit_column_affinity(vertical);
 
         assert_eq!(vertical, Some(2));
     }
