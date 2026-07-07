@@ -7,7 +7,9 @@ use massive_applications::{
 use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
-use crate::desktop_system::change::{set_focus_change, Changes, DesktopChange, ProjectChange, TopologyChange};
+use crate::desktop_system::change::{
+    Changes, DesktopChange, ProjectChange, TopologyChange, set_focus_change,
+};
 use crate::desktop_system::effects::MeasureSet;
 use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
 use crate::desktop_system::{ProjectCommand, UserState};
@@ -44,9 +46,7 @@ impl DesktopSystem {
     /// Plan the execution of a command.
     pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
         match command {
-            DesktopCommand::Project(project_command) => {
-                return self.plan_project(project_command);
-            }
+            DesktopCommand::Project(project_command) => self.plan_project(project_command),
             DesktopCommand::StartInstance {
                 launcher,
                 instance,
@@ -96,7 +96,7 @@ impl DesktopSystem {
                 );
                 changes += DesktopChange::SetUserState(UserState::Focused);
 
-                return Ok(changes);
+                Ok(changes)
             }
             DesktopCommand::StopInstance(instance) => {
                 let launcher = self
@@ -117,10 +117,7 @@ impl DesktopSystem {
 
                 let mut changes = Changes::Empty;
                 if let Some(focus) = replacement_focus {
-                    changes += set_focus_change(
-                        Some(focus),
-                        FocusReason::StopInstanceReplacement,
-                    );
+                    changes += set_focus_change(Some(focus), FocusReason::StopInstanceReplacement);
                 }
                 changes += [
                     DesktopChange::Topology(TopologyChange::Remove(instance.into())),
@@ -129,7 +126,7 @@ impl DesktopSystem {
                 ];
                 changes += DesktopChange::SetUserState(UserState::Focused);
 
-                return Ok(changes);
+                Ok(changes)
             }
             DesktopCommand::ZoomIn => {
                 let user_state = self
@@ -145,7 +142,7 @@ impl DesktopSystem {
                         .into()
                     })
                     .unwrap_or_else(|| self.user_state.clone());
-                return Ok(DesktopChange::SetUserState(user_state).into());
+                Ok(DesktopChange::SetUserState(user_state).into())
             }
             DesktopCommand::ZoomOut => {
                 let user_state = self
@@ -161,11 +158,9 @@ impl DesktopSystem {
                         .into()
                     })
                     .unwrap_or_else(|| self.user_state.clone());
-                return Ok(DesktopChange::SetUserState(user_state).into());
+                Ok(DesktopChange::SetUserState(user_state).into())
             }
-            DesktopCommand::Navigate(direction) => {
-                return self.plan_navigate(direction);
-            }
+            DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
         }
     }
 
@@ -270,7 +265,8 @@ impl DesktopSystem {
                 self.focus(target.as_ref(), instance_manager, reason)?;
             }
             DesktopChange::SetNavigationAffinity(column_affinity) => {
-                self.navigation_control.commit_column_affinity(column_affinity);
+                self.navigation_control
+                    .commit_column_affinity(column_affinity);
             }
             DesktopChange::SetUserState(user_state) => {
                 self.user_state = user_state;
