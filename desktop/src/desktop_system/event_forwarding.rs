@@ -14,7 +14,7 @@ impl DesktopSystem {
         transitions: EventTransitions<DesktopTarget>,
         instance_manager: &InstanceManager,
     ) -> Result<Commands> {
-        let mut cmd = Commands::Empty;
+        let mut commands = Commands::Empty;
 
         // Architecture: Don't use the keyboard_modifiers here, let the event_router provide them
         // when creating EventTransitions for focus changes so that they are available when needed
@@ -26,10 +26,10 @@ impl DesktopSystem {
 
         // Robustness: While we need to forward all transitions we currently process only one intent.
         for event in targeted_events {
-            cmd += self.forward_event(event, instance_manager)?;
+            commands += self.forward_event(event, instance_manager)?;
         }
 
-        Ok(cmd)
+        Ok(commands)
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.

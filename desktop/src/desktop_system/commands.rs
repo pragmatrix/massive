@@ -26,8 +26,6 @@ pub enum DesktopCommand {
 
     ZoomIn,
     ZoomOut,
-    /// A navigation request caused by an input event (like clicking on a target).
-    // NavigateTo(Option<NavigationTarget<DesktopTarget>>),
     Navigate(Direction),
 }
 

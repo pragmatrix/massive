@@ -27,10 +27,10 @@ pub struct ChangeOutput {
 
 impl ChangeOutput {
     /// An outcome that produced the given measures.
-    fn new(measures: MeasureSet) -> Self {
-        ChangeOutput {
-            changes: Changes::Empty,
+    fn measures(measures: MeasureSet) -> Self {
+        Self {
             measures,
+            ..Self::default()
         }
     }
 
@@ -273,7 +273,7 @@ impl DesktopSystem {
             }
             DesktopChange::Topology(change) => {
                 let measure_set = self.apply_topology_change(change, instance_manager)?;
-                return Ok(ChangeOutput::new(measure_set));
+                return Ok(ChangeOutput::measures(measure_set));
             }
             DesktopChange::ForwardEvents(transitions) => {
                 let commands = self.forward_event_transitions(transitions, instance_manager)?;
@@ -438,10 +438,7 @@ impl DesktopSystem {
             InstanceChange::DestroyView(id) => {
                 let view_path: ViewPath = (instance, id).into();
                 let measures = self.hide_view(view_path)?;
-                Ok(ChangeOutput {
-                    changes: Changes::Empty,
-                    measures,
-                })
+                Ok(ChangeOutput::measures(measures))
             }
             InstanceChange::View(view_id, command) => {
                 let view_path: ViewPath = (instance, view_id).into();

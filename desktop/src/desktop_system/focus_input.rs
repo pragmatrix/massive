@@ -91,31 +91,6 @@ impl DesktopSystem {
         }
     }
 
-    // pub(super) fn navigate_to(
-    //     &mut self,
-    //     target: Option<NavigationTarget<DesktopTarget>>,
-    //     instance_manager: &InstanceManager,
-    //     reason: FocusReason,
-    // ) -> Result<Cmd> {
-    //     self.focus(
-    //         target.as_ref().map(|target| &target.target),
-    //         instance_manager,
-    //         reason,
-    //     )?;
-
-    //     // Deliver the carried event (e.g. the originating click) to the new focus target. This is
-    //     // the only command source of a navigation; the focus change itself produces none.
-    //     if let Some(NavigationTarget {
-    //         target,
-    //         event: Some(event),
-    //     }) = target
-    //     {
-    //         return self.forward_event(TargetedEvent(target, event), instance_manager);
-    //     }
-
-    //     Ok(Cmd::None)
-    // }
-
     pub(super) fn focus<'a>(
         &mut self,
         target: impl Into<Option<&'a DesktopTarget>>,
