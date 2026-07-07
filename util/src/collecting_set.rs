@@ -6,8 +6,10 @@ use std::ops::{Add, AddAssign};
 /// A set that collects values, deduplicating as they arrive.
 ///
 /// Storage stays compact: no allocation for zero or one value, a `HashSet`
-/// only once a second distinct value appears. The variant always reflects the
-/// element count (`Empty` = 0, `One` = 1, `Many` >= 2), which keeps the derived
+/// only once a second distinct value appears.
+///
+/// When constructed via this type's APIs (`insert`, `Add`, `AddAssign`, etc.), the variant
+/// reflects the distinct element count (`Empty` = 0, `One` = 1, `Many` >= 2), which keeps the
 /// equality consistent with set semantics.
 #[must_use]
 #[derive(Debug, Clone)]
