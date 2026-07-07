@@ -247,7 +247,7 @@ impl LauncherPresenter {
             return Ok(Commands::Empty);
         };
 
-        if !presents_instance {
+        if presents_instance {
             return Ok(Commands::Empty);
         }
 
