@@ -7,7 +7,7 @@ use massive_applications::{
 use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
-use crate::desktop_system::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
+use crate::desktop_system::change::{set_focus_change, Changes, DesktopChange, ProjectChange, TopologyChange};
 use crate::desktop_system::effects::MeasureSet;
 use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
 use crate::desktop_system::{ProjectCommand, UserState};
@@ -15,22 +15,20 @@ use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{LauncherPresenter, ProjectPresenter};
 
-/// The outcome of applying a change: the measures it produced and the resulting user state.
+/// The outcome of applying a change: the measures it produced and any follow-up changes.
 #[derive(Debug, Default)]
 pub struct ChangeOutput {
     /// Additional changes to schedule.
     pub changes: Changes,
     pub measures: MeasureSet,
-    pub user_state: UserState,
 }
 
 impl ChangeOutput {
-    /// An outcome that produced the given measures and UserState.
-    fn new(measures: MeasureSet, user_state: UserState) -> Self {
+    /// An outcome that produced the given measures.
+    fn new(measures: MeasureSet) -> Self {
         ChangeOutput {
             changes: Changes::Empty,
             measures,
-            user_state,
         }
     }
 
@@ -39,19 +37,6 @@ impl ChangeOutput {
             changes,
             ..Self::default()
         }
-    }
-
-    /// An outcome that produced no measures.
-    fn measureless(user_state: UserState) -> Self {
-        ChangeOutput::new(MeasureSet::Empty, user_state)
-    }
-
-    /// Combine with a follow-up outcome: measures accumulate, user state is last-wins.
-    fn combine(mut self, follow_up: Self) -> Self {
-        self.changes += follow_up.changes;
-        self.measures += follow_up.measures;
-        self.user_state = follow_up.user_state;
-        self
     }
 }
 
@@ -104,11 +89,12 @@ impl DesktopSystem {
                         at_index: insertion_pos,
                         under: launcher.into(),
                     }),
-                    DesktopChange::SetFocus {
-                        target: Some(DesktopTarget::Instance(instance)),
-                        reason: FocusReason::PresentInstance,
-                    },
                 ];
+                changes += set_focus_change(
+                    Some(DesktopTarget::Instance(instance)),
+                    FocusReason::PresentInstance,
+                );
+                changes += DesktopChange::SetUserState(UserState::Focused);
 
                 return Ok(changes);
             }
@@ -131,26 +117,56 @@ impl DesktopSystem {
 
                 let mut changes = Changes::Empty;
                 if let Some(focus) = replacement_focus {
-                    changes += DesktopChange::SetFocus {
-                        target: Some(focus),
-                        reason: FocusReason::StopInstanceReplacement,
-                    };
+                    changes += set_focus_change(
+                        Some(focus),
+                        FocusReason::StopInstanceReplacement,
+                    );
                 }
                 changes += [
                     DesktopChange::Topology(TopologyChange::Remove(instance.into())),
                     DesktopChange::HideInstance { launcher, instance },
                     DesktopChange::ShutdownInstance(instance),
                 ];
+                changes += DesktopChange::SetUserState(UserState::Focused);
 
                 return Ok(changes);
             }
-            DesktopCommand::ZoomIn => {}
-            DesktopCommand::ZoomOut => {}
-            // DesktopCommand::NavigateTo(_) => {}
-            DesktopCommand::Navigate(_) => {}
+            DesktopCommand::ZoomIn => {
+                let user_state = self
+                    .event_router
+                    .focused()
+                    .and_then(|focused| {
+                        zoom_in(
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.launchers,
+                            focused.clone(),
+                            self.user_state.clone(),
+                        )
+                        .into()
+                    })
+                    .unwrap_or_else(|| self.user_state.clone());
+                return Ok(DesktopChange::SetUserState(user_state).into());
+            }
+            DesktopCommand::ZoomOut => {
+                let user_state = self
+                    .event_router
+                    .focused()
+                    .and_then(|focused| {
+                        zoom_out(
+                            &self.aggregates.hierarchy,
+                            &self.aggregates.launchers,
+                            focused.clone(),
+                            self.user_state.clone(),
+                        )
+                        .into()
+                    })
+                    .unwrap_or_else(|| self.user_state.clone());
+                return Ok(DesktopChange::SetUserState(user_state).into());
+            }
+            DesktopCommand::Navigate(direction) => {
+                return self.plan_navigate(direction);
+            }
         }
-
-        Ok(Changes::Empty)
     }
 
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
@@ -253,9 +269,15 @@ impl DesktopSystem {
             DesktopChange::SetFocus { target, reason } => {
                 self.focus(target.as_ref(), instance_manager, reason)?;
             }
+            DesktopChange::SetNavigationAffinity(column_affinity) => {
+                self.navigation_control.commit_column_affinity(column_affinity);
+            }
+            DesktopChange::SetUserState(user_state) => {
+                self.user_state = user_state;
+            }
             DesktopChange::Topology(change) => {
                 let measure_set = self.apply_topology_change(change, instance_manager)?;
-                return Ok(ChangeOutput::new(measure_set, self.user_state.clone()));
+                return Ok(ChangeOutput::new(measure_set));
             }
             DesktopChange::ForwardEvents(transitions) => {
                 let commands = self.forward_event_transitions(transitions, instance_manager)?;
@@ -263,18 +285,15 @@ impl DesktopSystem {
                 for command in commands {
                     changes += self.plan(command, scene)?;
                 }
-                // TODO: Support Into for Changes -> ChangeOutput (after that thing with the
-                // UserState is solved)
                 return Ok(ChangeOutput::changes(changes));
             }
             DesktopChange::IntegrateInstanceSubmission(instance_id, instance_submission) => {
-                let measures = self.apply_instance_submission(
+                return self.apply_instance_submission(
                     instance_id,
                     instance_submission,
                     scene,
                     instance_manager,
-                )?;
-                return Ok(ChangeOutput::new(measures, self.user_state.clone()));
+                );
             }
             DesktopChange::Project(project_change) => {
                 self.apply_project_change(project_change, scene)?;
@@ -369,91 +388,28 @@ impl DesktopSystem {
         Ok(())
     }
 
-    /// Apply a command, recursively applying any follow-up commands it causes, and return the
-    /// combined [`CommandOutcome`].
-    ///
-    /// Currently, `UserState` is available through modification `&mut self`, but we simplify a lot
-    /// by threading it through and committing it outside of this function.
-    pub(super) fn apply_command(
-        &mut self,
-        command: DesktopCommand,
-        scene: &Scene,
-        instance_manager: &mut InstanceManager,
-    ) -> Result<ChangeOutput> {
-        // warn!("Apply command: {command:?}");
-
-        let user_state = if command.resets_zoom() {
-            UserState::Focused
-        } else {
-            self.user_state.clone()
-        };
-
-        match command {
-            DesktopCommand::StartInstance { .. } | DesktopCommand::StopInstance(..) => {
-                unreachable!();
-            }
-
-            DesktopCommand::Project(project_command) => {
-                let measure_set = self.apply_project_command(project_command, scene)?;
-                Ok(ChangeOutput::new(measure_set, user_state))
-            }
-
-            DesktopCommand::ZoomIn => {
-                let user_state = self
-                    .event_router
-                    .focused()
-                    .map(|focused| {
-                        zoom_in(
-                            &self.aggregates.hierarchy,
-                            &self.aggregates.launchers,
-                            focused.clone(),
-                            user_state.clone(),
-                        )
-                    })
-                    .unwrap_or(user_state);
-                Ok(ChangeOutput::measureless(user_state))
-            }
-
-            DesktopCommand::ZoomOut => {
-                let user_state = self
-                    .event_router
-                    .focused()
-                    .map(|focused| {
-                        zoom_out(
-                            &self.aggregates.hierarchy,
-                            &self.aggregates.launchers,
-                            focused.clone(),
-                            user_state.clone(),
-                        )
-                    })
-                    .unwrap_or(user_state);
-                Ok(ChangeOutput::measureless(user_state))
-            }
-
-            DesktopCommand::Navigate(direction) => {
-                let user_state =
-                    self.apply_navigate_command(direction, instance_manager, user_state)?;
-                Ok(ChangeOutput::measureless(user_state))
-            }
-        }
-    }
-
     fn apply_instance_submission(
         &mut self,
         instance: InstanceId,
         submission: InstanceSubmission,
         scene: &Scene,
         instance_manager: &InstanceManager,
-    ) -> Result<MeasureSet> {
+    ) -> Result<ChangeOutput> {
         let (changes, pacing) = submission.into_parts();
         let mut measures = MeasureSet::Empty;
+        let mut follow_ups = Changes::Empty;
 
         for change in changes.release() {
-            measures += self.apply_instance_change(instance, change, scene, instance_manager)?;
+            let outcome = self.apply_instance_change(instance, change, scene, instance_manager)?;
+            measures += outcome.measures;
+            follow_ups += outcome.changes;
         }
 
         self.set_instance_pacing(instance, pacing);
-        Ok(measures)
+        Ok(ChangeOutput {
+            changes: follow_ups,
+            measures,
+        })
     }
 
     fn apply_instance_change(
@@ -461,45 +417,52 @@ impl DesktopSystem {
         instance: InstanceId,
         change: InstanceChange,
         scene: &Scene,
-        instance_manager: &InstanceManager,
-    ) -> Result<MeasureSet> {
+        _instance_manager: &InstanceManager,
+    ) -> Result<ChangeOutput> {
         match change {
             InstanceChange::Scene(change) => {
                 scene.push_change(change);
-                Ok(MeasureSet::Empty)
+                Ok(ChangeOutput::default())
             }
             InstanceChange::CreateView(creation_info) => {
                 let measure_set = self.present_view(instance, &creation_info, scene)?;
 
                 // If this instance is currently focused and the new view is primary, make it
-                // foreground so that the view is focused.
+                // foreground so that the view is focused. Emitted as a follow-up change so the
+                // focus transition (and its navigation-affinity reset) flows through change
+                // application like every other focus change.
+                let mut changes = Changes::Empty;
                 if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
                     (self.event_router.focused(), &creation_info.role)
                     && *focused_instance == instance
                 {
-                    // TODO: Don't call this directly, this should go through the change application.
-                    self.focus(
-                        &DesktopTarget::View(creation_info.id),
-                        instance_manager,
+                    changes += set_focus_change(
+                        Some(DesktopTarget::View(creation_info.id)),
                         FocusReason::PromotePrimaryView,
-                    )?;
+                    );
                 }
-
-                Ok(measure_set)
+                Ok(ChangeOutput {
+                    changes,
+                    measures: measure_set,
+                })
             }
             InstanceChange::DestroyView(id) => {
                 let view_path: ViewPath = (instance, id).into();
-                self.hide_view(view_path)
+                let measures = self.hide_view(view_path)?;
+                Ok(ChangeOutput {
+                    changes: Changes::Empty,
+                    measures,
+                })
             }
             InstanceChange::View(view_id, command) => {
                 let view_path: ViewPath = (instance, view_id).into();
                 self.apply_view_change(view_path, command)?;
-                Ok(MeasureSet::Empty)
+                Ok(ChangeOutput::default())
             }
             // This makes sure that all pending Scene Changes from the Instance have been collected
             // before we drop the last ref the instance has to its parent location (which in turn
             // may push other deletes to the Scene).
-            InstanceChange::End(_) => Ok(MeasureSet::Empty),
+            InstanceChange::End(_) => Ok(ChangeOutput::default()),
         }
     }
 

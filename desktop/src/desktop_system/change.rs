@@ -4,7 +4,7 @@ use massive_util::CollectingVec;
 
 use crate::{
     DesktopTarget,
-    desktop_system::{DesktopCommand, FocusReason, ProjectCommand},
+    desktop_system::{FocusReason, ProjectCommand, UserState},
     event_router::EventTransitions,
     instance_presenter::InstanceRoot,
     projects::LaunchProfileId,
@@ -37,9 +37,29 @@ pub enum DesktopChange {
         target: Option<DesktopTarget>,
         reason: FocusReason,
     },
+    /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
+    /// changes via `set_focus_change`).
+    SetNavigationAffinity(Option<u32>),
+    SetUserState(UserState),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+}
+
+/// Constructs the change(s) for a focus transition.
+///
+/// Emits `SetFocus`, and — when the focus reason resets navigation affinity — a sibling
+/// `SetNavigationAffinity(None)` so the reset flows through change application rather than being
+/// applied inline in `focus()`.
+pub fn set_focus_change(
+    target: Option<DesktopTarget>,
+    reason: FocusReason,
+) -> Changes {
+    let mut changes: Changes = DesktopChange::SetFocus { target, reason }.into();
+    if reason.resets_navigation_affinity() {
+        changes += DesktopChange::SetNavigationAffinity(None);
+    }
+    changes
 }
 
 #[derive(Debug)]

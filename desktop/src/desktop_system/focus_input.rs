@@ -13,7 +13,7 @@ use super::navigation::Direction;
 use super::{Commands, DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use super::{POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX};
 use crate::EventTransition;
-use crate::desktop_system::change::{Changes, DesktopChange};
+use crate::desktop_system::change::{set_focus_change, Changes, DesktopChange};
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -42,11 +42,10 @@ impl DesktopSystem {
                 // Architecture: This should probably done for pointer focus, too? Just for symmetry?
                 if let Some(target) = target {
                     let t = target.target;
-                    let mut changes: Changes = DesktopChange::SetFocus {
-                        target: Some(t.clone()),
-                        reason: FocusReason::InputTransition,
-                    }
-                    .into();
+                    let mut changes: Changes = set_focus_change(
+                        Some(t.clone()),
+                        FocusReason::InputTransition,
+                    );
 
                     if let Some(event) = target.event {
                         changes += DesktopChange::ForwardEvents(
@@ -55,11 +54,7 @@ impl DesktopSystem {
                     }
                     changes
                 } else {
-                    DesktopChange::SetFocus {
-                        target: None,
-                        reason: FocusReason::InputTransition,
-                    }
-                    .into()
+                    set_focus_change(None, FocusReason::InputTransition)
                 }
             }
         };
@@ -127,20 +122,19 @@ impl DesktopSystem {
         &mut self,
         target: impl Into<Option<&'a DesktopTarget>>,
         instance_manager: &InstanceManager,
-        reason: FocusReason,
+        _reason: FocusReason,
     ) -> Result<()> {
         let transitions = self.event_router.focus(target.into());
 
         // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
         // measures now and let `transact` drain them once buttons are released. The camera move
         // itself is driven by `transact` observing the focus change, not queued here.
+        // Navigation affinity resets are emitted as `SetNavigationAffinity(None)` sibling changes
+        // by `set_focus_change`, not applied here.
         if !transitions
             .targets_affected_by_keyboard_focus_change()
             .is_empty()
         {
-            if reason.resets_navigation_affinity() {
-                self.navigation_control.reset_all();
-            }
             let measures = self.launcher_measures_for_focus_change(&transitions);
             self.deferred_focus_launcher_measures.extend(measures);
         }

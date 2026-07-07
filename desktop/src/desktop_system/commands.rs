@@ -31,12 +31,6 @@ pub enum DesktopCommand {
     Navigate(Direction),
 }
 
-impl DesktopCommand {
-    pub fn resets_zoom(&self) -> bool {
-        matches!(self, Self::StartInstance { .. } | Self::StopInstance(_))
-    }
-}
-
 #[derive(Debug)]
 pub enum ProjectCommand {
     AddProject {

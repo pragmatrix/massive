@@ -21,7 +21,6 @@ mod layout_effects;
 mod layout_state;
 mod navigation;
 mod presentation;
-mod project_commands;
 mod topology;
 mod zoom_navigation;
 
@@ -50,7 +49,6 @@ pub(crate) use navigation::NavigationControl;
 
 use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
-use crate::desktop_system::topology::DesktopTopology;
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
@@ -286,7 +284,7 @@ impl DesktopSystem {
             .unwrap_or_else(|| self.live_effects_mode());
 
         let mut measures = MeasureSet::Empty;
-        let mut user_state = self.user_state.clone();
+        let user_state_before = self.user_state.clone();
         let focus_before = self.event_router.focused().cloned();
 
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
@@ -299,7 +297,6 @@ impl DesktopSystem {
                 changes.push_front(new_change);
             }
             measures += outcome.measures;
-            user_state = outcome.user_state;
         }
 
         let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();
@@ -307,8 +304,7 @@ impl DesktopSystem {
         // The camera follows the focused target, so a focus change recomputes it even when the
         // change moved no layout (pure navigation between siblings, or focusing a launcher).
         let mut update_camera = self.event_router.focused() != focus_before.as_ref();
-        if self.user_state != user_state {
-            self.user_state = user_state;
+        if self.user_state != user_state_before {
             update_camera = true;
         }
 

@@ -5,10 +5,10 @@ use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget, FocusReason, UserState};
+use crate::desktop_system::change::{Changes, DesktopChange, set_focus_change};
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::zoom_navigation::overview_target_for_navigation_candidate;
 use crate::desktop_system::{LauncherMap, OverviewTarget};
-use crate::instance_manager::InstanceManager;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,10 +55,6 @@ pub struct NavigationControl {
 }
 
 impl NavigationControl {
-    pub fn reset_all(&mut self) {
-        self.column_affinity = None;
-    }
-
     /// Computes the column affinity a navigation step would produce, without mutating.
     ///
     /// Horizontal moves clear the affinity; the first vertical move latches the origin
@@ -80,7 +76,7 @@ impl NavigationControl {
         self.column_affinity
     }
 
-    fn commit_column_affinity(&mut self, column_affinity: Option<u32>) {
+    pub fn commit_column_affinity(&mut self, column_affinity: Option<u32>) {
         self.column_affinity = column_affinity;
     }
 }
@@ -107,17 +103,18 @@ enum NavigationOrigin {
 }
 
 impl DesktopSystem {
-    pub(super) fn apply_navigate_command(
-        &mut self,
-        direction: Direction,
-        instance_manager: &InstanceManager,
-        user_state: UserState,
-    ) -> Result<UserState> {
+    /// Plans a navigation command into changes without mutating state.
+    ///
+    /// Resolves the navigation candidate (and the column affinity the move would commit) from the
+    /// current focus and user state, then emits `SetFocus`, `SetNavigationAffinity`, and — when in
+    /// overview — `SetUserState` for the resulting overview target. The actual focus change,
+    /// affinity commit, and user-state update happen when those changes are applied.
+    pub(super) fn plan_navigate(&self, direction: Direction) -> Result<Changes> {
         // If nothing is focused (i.e. the whole window does not have the focused), we probably
         // don't want to do anything and this is perhaps even an error.
         let Some(focused) = self.event_router.focused() else {
             error!("Navigation request without active focus");
-            return Ok(user_state);
+            return Ok(Changes::Empty);
         };
 
         match self.user_state.clone() {
@@ -129,15 +126,15 @@ impl DesktopSystem {
                     focused,
                     direction,
                 ) {
-                    self.navigation_control
-                        .commit_column_affinity(plan.column_affinity);
-                    self.focus(&plan.candidate, instance_manager, FocusReason::Navigate)?;
-                    return Ok(user_state);
+                    let mut changes =
+                        set_focus_change(Some(plan.candidate.clone()), FocusReason::Navigate);
+                    changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
+                    return Ok(changes);
                 }
             }
             UserState::Overview(target) => {
                 let Some(anchor) = overview_navigation_anchor(&target) else {
-                    return Ok(user_state);
+                    return Ok(Changes::Empty);
                 };
 
                 if let Some(plan) = plan_navigation_candidate_same_level(
@@ -151,14 +148,16 @@ impl DesktopSystem {
                     &target,
                     &plan.candidate,
                 ) {
-                    self.navigation_control
-                        .commit_column_affinity(plan.column_affinity);
-                    return Ok(UserState::Overview(next_target));
+                    let mut changes =
+                        set_focus_change(Some(plan.candidate.clone()), FocusReason::Navigate);
+                    changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
+                    changes += DesktopChange::SetUserState(UserState::Overview(next_target));
+                    return Ok(changes);
                 }
             }
         }
 
-        Ok(user_state)
+        Ok(Changes::Empty)
     }
 
     pub(super) fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
@@ -906,7 +905,7 @@ mod tests {
 
         let initial = control.plan_column_affinity(Direction::Down, Some((4, 0).into()));
         control.commit_column_affinity(initial);
-        control.reset_all();
+        control.commit_column_affinity(None);
         let vertical = control.plan_column_affinity(Direction::Down, Some((2, 1).into()));
         control.commit_column_affinity(vertical);
 
