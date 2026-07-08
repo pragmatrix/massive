@@ -196,7 +196,7 @@ impl DesktopSystem {
     ///
     /// A removed subtree can still contain the current keyboard focus; leaving it in place would
     /// dangle the router's `keyboard_focus` at a removed node.
-    pub(super) fn refocus_parent_if_path_contains(
+    pub(super) fn refocus_to_parent_if_path_contains(
         &mut self,
         target: &DesktopTarget,
         instance_manager: &InstanceManager,

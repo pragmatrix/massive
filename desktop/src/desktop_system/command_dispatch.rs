@@ -323,7 +323,7 @@ impl DesktopSystem {
                 // focus and retarget keyboard focus to the parent before removal so the event
                 // router is not left pointing at a removed node.
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
-                self.refocus_parent_if_path_contains(&target, instance_manager)?;
+                self.refocus_to_parent_if_path_contains(&target, instance_manager)?;
                 Ok(self.remove_target(&target)?)
             }
         }
