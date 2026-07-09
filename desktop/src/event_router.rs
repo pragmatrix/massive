@@ -11,7 +11,7 @@ use anyhow::{Result, bail};
 use std::ops::AddAssign;
 
 use derive_more::{Deref, DerefMut, From, IntoIterator};
-use log::warn;
+use log::{error, warn};
 use massive_util::CollectingVec;
 use winit::event::{DeviceId, ElementState, KeyEvent, Modifiers};
 
@@ -166,22 +166,26 @@ where
                         if input_event.cursor_has_velocity(
                             POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
                             POINTER_FEEDBACK_REENABLE_MAX_DURATION,
-                        ) {
+                        ) &&
                             // Cursor movement velocity goes over a certain threshold, re-hit and
                             // re-enable cursor focus.
-                            if let Some((target, hit_pos)) = hit_tester.hit_test(screen_pos, None) {
-                                self.set_pointer_focus(Some(target), &mut event_transitions);
-                                Some(hit_pos)
-                            } else {
-                                None
-                            }
+                            let Some((target, hit_pos)) = hit_tester.hit_test(screen_pos, None)
+                        {
+                            self.set_pointer_focus(Some(target), &mut event_transitions);
+                            Some(hit_pos)
                         } else {
+                            error!("Internal Error: Unexpected hit test result");
+                            // Hit test should always hit Desktop at least, so this branch may never
+                            // enter.
                             None
                         }
                     } else if let Some((target, hit_pos)) = hit_tester.hit_test(screen_pos, None) {
                         self.set_pointer_focus(Some(target), &mut event_transitions);
                         Some(hit_pos)
                     } else {
+                        // Hit test should always hit Desktop at least, so this branch may never
+                        // enter (may be hit_test() should cover this).
+                        error!("Internal Error: Unexpected hit test result");
                         self.set_pointer_focus(None, &mut event_transitions);
                         None
                     }
