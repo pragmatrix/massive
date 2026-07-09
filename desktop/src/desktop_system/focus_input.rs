@@ -178,7 +178,7 @@ impl DesktopSystem {
         }
         Ok(())
     }
-    
+
     pub fn match_desktop_keyboard_shortcut(
         &self,
         event: &Event<ViewEvent>,
