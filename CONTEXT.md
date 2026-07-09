@@ -32,6 +32,14 @@ _Avoid_: set focus, click focus
 The event router's proposal that keyboard focus should change, surfaced from input processing instead of being applied directly. It is lowered into a navigate-to-target command, which owns the actual focus change, focus-driven relayout, and anchor sync.
 _Avoid_: pending focus, focus request
 
+**Launcher**:
+A configured entry in the project matrix that hosts one or more running instances. A launcher holds a dynamic set of instances that can be added (or removed) at runtime, so its instance count is not fixed by configuration even when it starts from a single command.
+_Avoid_: profile, slot, tile
+
+**Instance**:
+A single running application session owned by a launcher. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
+_Avoid_: session, tab, process
+
 **Placement visibility**:
 A semantic flag on placement that states whether an instance should be interactable and visually present in the current layout state.
 _Avoid_: hidden by alpha, render-only visibility

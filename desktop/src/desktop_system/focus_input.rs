@@ -11,7 +11,6 @@ use massive_renderer::RenderGeometry;
 
 use super::navigation::Direction;
 use super::{Commands, DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
-use super::{POINTER_FEEDBACK_REENABLE_MAX_DURATION, POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
 use crate::event_router::{EventTransitions, ProcessOutcome};
@@ -46,9 +45,8 @@ impl DesktopSystem {
                         set_focus(Some(t.clone()), FocusReason::InputTransition);
 
                     if let Some(event) = target.event {
-                        changes += DesktopChange::ForwardEvents(
-                            vec![EventTransition::Send(t, event)].into(),
-                        )
+                        changes +=
+                            DesktopChange::ForwardEvents(EventTransition::Send(t, event).into())
                     }
                     changes
                 } else {
@@ -58,37 +56,6 @@ impl DesktopSystem {
         };
 
         Ok(changes)
-    }
-
-    // Architecture: May resolve this directly via the pointer focus (and set the pointer focus to
-    // None if there is keyboard input)?
-    pub fn update_pointer_feedback(&mut self, event: &Event<ViewEvent>) {
-        // Mode switch:
-        // - keyboard press disables pointer-driven feedback
-        // - mouse button/wheel re-enables immediately
-        // - cursor movement re-enables only when movement is deliberate (distance + time gate)
-        match (self.pointer_feedback_enabled, event.event()) {
-            (
-                true,
-                ViewEvent::KeyboardInput {
-                    event: key_event, ..
-                },
-            ) if key_event.state == ElementState::Pressed && !key_event.repeat => {
-                self.pointer_feedback_enabled = false;
-            }
-            (false, ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. }) => {
-                self.pointer_feedback_enabled = true;
-            }
-            (false, ViewEvent::CursorMoved { .. })
-                if event.cursor_has_velocity(
-                    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
-                    POINTER_FEEDBACK_REENABLE_MAX_DURATION,
-                ) =>
-            {
-                self.pointer_feedback_enabled = true;
-            }
-            _ => {}
-        }
     }
 
     pub(super) fn focus<'a>(
@@ -104,10 +71,7 @@ impl DesktopSystem {
         // itself is driven by `transact` observing the focus change, not queued here.
         // Navigation affinity resets are emitted as `SetNavigationAffinity(None)` sibling changes
         // by `set_focus_change`, not applied here.
-        if !transitions
-            .targets_affected_by_keyboard_focus_change()
-            .is_empty()
-        {
+        if !targets_affected_by_keyboard_focus_change(&transitions).is_empty() {
             let measures = self.launcher_measures_for_focus_change(&transitions);
             self.deferred_focus_launcher_measures.extend(measures);
         }
@@ -127,8 +91,7 @@ impl DesktopSystem {
         &self,
         transitions: &EventTransitions<DesktopTarget>,
     ) -> HashSet<LaunchProfileId> {
-        transitions
-            .targets_affected_by_keyboard_focus_change()
+        targets_affected_by_keyboard_focus_change(transitions)
             .iter()
             .filter_map(|target| self.focus_target_launcher_for_layout(target))
             .collect()
@@ -216,24 +179,6 @@ impl DesktopSystem {
         Ok(())
     }
 
-    #[allow(unused)]
-    fn refocus_pointer(
-        &mut self,
-        instance_manager: &InstanceManager,
-        render_geometry: &RenderGeometry,
-    ) -> Result<Commands> {
-        let transitions = self
-            .event_router
-            .reset_pointer_focus(&AggregateHitTester::new(
-                &self.aggregates.hierarchy,
-                &self.layout_state,
-                &self.aggregates.launchers,
-                render_geometry,
-            ))?;
-
-        self.forward_event_transitions(transitions, instance_manager)
-    }
-
     pub fn match_desktop_keyboard_shortcut(
         &self,
         event: &Event<ViewEvent>,
@@ -290,6 +235,23 @@ impl DesktopSystem {
 
         None
     }
+}
+
+fn targets_affected_by_keyboard_focus_change<T>(this: &EventTransitions<T>) -> Vec<&T> {
+    let mut touched = Vec::new();
+
+    for transition in this.iter() {
+        if let EventTransition::ChangeKeyboardFocus { from, to } = transition {
+            if let Some(from) = from.as_ref() {
+                touched.push(from);
+            }
+            if let Some(to) = to.as_ref() {
+                touched.push(to);
+            }
+        }
+    }
+
+    touched
 }
 
 #[derive(Debug)]

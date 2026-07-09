@@ -37,6 +37,7 @@ pub struct DesktopPresenter {
     // Idea: can't we just animate a visual / Handle<Visual>?
     // Performance: This is a visual that _always_ lives inside the renderer, even though it does not contain a single shape when alpha = 0.0
     hover_visual: Handle<Visual>,
+    hover_placement_cache: Option<Placement<Transform, 2>>,
 }
 
 impl DesktopPresenter {
@@ -55,12 +56,18 @@ impl DesktopPresenter {
                 .into_visual()
                 .at(hover_location)
                 .enter(scene),
+            hover_placement_cache: None,
         }
     }
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
     pub fn set_hover_placement(&mut self, placement: Option<Placement<Transform, 2>>) {
+        if self.hover_placement_cache == placement {
+            return;
+        }
+        self.hover_placement_cache = placement;
+
         match placement {
             Some(placement) => {
                 self.hover_alpha.animate_if_changed(
@@ -68,8 +75,13 @@ impl DesktopPresenter {
                     Self::HOVER_ANIMATION_DURATION,
                     Interpolation::CubicOut,
                 );
+
                 self.hover_placement = placement;
+
+                let alpha = *self.hover_alpha.value();
+                self.update_hover_placement_and_visual(placement, alpha);
             }
+
             None => {
                 self.hover_alpha.animate_if_changed(
                     0.0,
@@ -78,21 +90,21 @@ impl DesktopPresenter {
                 );
             }
         }
-        // Placement changes must reach the scene even when the alpha animation is already idle.
-        self.apply_animations();
     }
 
     pub fn apply_animations(&mut self) {
-        let alpha = self.hover_alpha.value();
-        let hover_placement = self.hover_placement;
+        let alpha = *self.hover_alpha.value();
+        self.update_hover_placement_and_visual(self.hover_placement, alpha);
+    }
 
-        let size = hover_placement.rect.size;
+    fn update_hover_placement_and_visual(&self, placement: Placement<Transform, 2>, alpha: f32) {
+        let size = placement.rect.size;
         let local_rect = Rect::from_size((size[0] as f64, size[1] as f64));
-        let rect_alpha = (*alpha != 0.0).then_some((local_rect, *alpha));
+        let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
 
         // Position the hover visual in world space using the placement's center-based transform.
         let local_center = local_rect.center();
-        let scene_transform = hover_placement
+        let scene_transform = placement
             .transform
             .to_origin_space(Point::new(local_center.x, local_center.y));
         self.hover_scene_transform

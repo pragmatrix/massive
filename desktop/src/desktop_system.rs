@@ -26,11 +26,10 @@ mod zoom_navigation;
 
 use anyhow::{Result, bail};
 use derive_more::Debug;
-use log::warn;
+use log::{info, warn};
 use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
-use std::time::Duration;
 
 use massive_animation::Animated;
 use massive_applications::{InstanceId, ViewId};
@@ -57,9 +56,6 @@ use crate::projects::{
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
-// Require intentional mouse movement before returning pointer-first feedback after keyboard use.
-const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
-const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopTarget {
@@ -179,11 +175,6 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
     user_state: UserState,
-    /// Enables pointer-driven feedback (hover focus and cursor visibility).
-    ///
-    /// This is turned off when the user starts keyboard navigation so the pointer does not
-    /// immediately steal attention, and turned back on when explicit pointer activity resumes.
-    pointer_feedback_enabled: bool,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
@@ -254,7 +245,6 @@ impl DesktopSystem {
             event_router,
             camera: scene.animated(PixelCamera::default()),
             user_state: UserState::Focused,
-            pointer_feedback_enabled: true,
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             deferred_camera_move: false,
@@ -343,6 +333,9 @@ impl DesktopSystem {
         // no root measure is needed here.
         self.run_effects_to_completion(effects_mode, effects)?;
 
+        // Sync the hover rect.
+        self.sync_hover_with_target(self.event_router.pointer_focus().cloned().as_ref());
+
         // Sync the window state (title, cursor) from the focused view after all effects settle.
         self.apply_focused_view_window_state()?;
 
@@ -350,38 +343,36 @@ impl DesktopSystem {
     }
 
     pub fn apply_animations(&mut self) {
-        let launcher_instance_ids: Vec<_> = self
-            .aggregates
-            .launchers
-            .keys()
-            .copied()
-            .map(|launcher_id| {
-                (
-                    launcher_id,
-                    self.aggregates.hierarchy.launcher_instances(launcher_id),
-                )
-            })
-            .collect();
-
-        for (launcher_id, child_instances) in launcher_instance_ids {
-            self.aggregates
+        // Architecture: Collecting instances per launcher is quite tedious here. What are the
+        // alternatives?
+        {
+            let launcher_instance_ids: Vec<_> = self
+                .aggregates
                 .launchers
-                .get_mut(&launcher_id)
-                .expect("Launcher missing")
-                .apply_animations(&mut self.aggregates.instances, &child_instances);
+                .keys()
+                .copied()
+                .map(|launcher_id| {
+                    (
+                        launcher_id,
+                        self.aggregates.hierarchy.launcher_instances(launcher_id),
+                    )
+                })
+                .collect();
+
+            for (launcher_id, child_instances) in launcher_instance_ids {
+                self.aggregates
+                    .launchers
+                    .get_mut(&launcher_id)
+                    .expect("Launcher missing")
+                    .apply_animations(&mut self.aggregates.instances, &child_instances);
+            }
         }
 
         for project in self.aggregates.projects.values_mut() {
             project.apply_animations();
         }
 
-        let pointer_focus = if self.pointer_feedback_enabled {
-            self.event_router.pointer_focus().cloned()
-        } else {
-            None
-        };
-        // Hover must track animated instance transforms, not just transaction-time layout updates.
-        self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
+        self.desktop_presenter.apply_animations();
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
@@ -393,7 +384,7 @@ impl DesktopSystem {
     }
 
     pub fn is_cursor_visible(&self) -> bool {
-        self.pointer_feedback_enabled
+        self.event_router.pointer_focus().is_some()
     }
 
     pub fn any_buttons_pressed(&self) -> bool {

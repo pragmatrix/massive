@@ -11,15 +11,6 @@ pub enum DesktopEffect {
     Place(DesktopTarget),
     ApplyLayout(DesktopTarget),
     UpdateCamera,
-    /// Re-aligns the desktop's hover highlight with the current pointer-focused target.
-    ///
-    /// Runs in the `PostLayout` phase and is scheduled after any placement change so the hover
-    /// rect tracks moved/animated layout. It reads the pointer focus from the event router (only
-    /// when pointer feedback is enabled, otherwise the hover is cleared), resolves it to a
-    /// placement — an instance directly, a view via its parent instance, or a launcher — composing
-    /// the instance's animated layout transform with its launcher's world transform, and pushes
-    /// the result to the desktop presenter via `set_hover_placement`.
-    SyncHover,
 }
 
 #[derive(
@@ -37,7 +28,7 @@ impl DesktopEffect {
         match self {
             Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
             Self::ApplyLayout(_) => DesktopEffectPhase::PropagatePlacements,
-            Self::UpdateCamera | Self::SyncHover => DesktopEffectPhase::PostLayout,
+            Self::UpdateCamera => DesktopEffectPhase::PostLayout,
         }
     }
 }

@@ -43,10 +43,6 @@ impl DesktopSystem {
                 self.update_camera_effect(effects_mode);
                 Ok(Effects::None)
             }
-            DesktopEffect::SyncHover => {
-                self.sync_hover_effect();
-                Ok(Effects::None)
-            }
         }
     }
 
@@ -146,9 +142,9 @@ impl DesktopSystem {
     ///
     /// Camera and hover follow from the placement being applied, so they are scheduled here rather
     /// than per `Place` pass: this runs only when a placement actually changed, and the scheduler
-    /// dedupes the payload-less `UpdateCamera`/`SyncHover` into a single `PostLayout` run per
-    /// transaction. Pure focus changes that move no layout are handled by `transact`, which
-    /// observes the focus change and emits `UpdateCamera` directly.
+    /// dedupes the payload-less `UpdateCamera` into a single `PostLayout` run per transaction. Pure
+    /// focus changes that move no layout are handled by `transact`, which observes the focus change
+    /// and emits `UpdateCamera` directly.
     fn apply_layout_effect(
         &mut self,
         target: DesktopTarget,
@@ -165,7 +161,7 @@ impl DesktopSystem {
             effects_mode.animate(),
         );
 
-        Effects::from(DesktopEffect::UpdateCamera) + DesktopEffect::SyncHover.into()
+        Effects::from(DesktopEffect::UpdateCamera)
     }
 
     fn update_camera_effect(&mut self, effects_mode: TransactionEffectsMode) {
@@ -194,13 +190,29 @@ impl DesktopSystem {
         }
     }
 
-    fn sync_hover_effect(&mut self) {
-        let pointer_focus = if self.pointer_feedback_enabled {
-            self.event_router.pointer_focus().cloned()
-        } else {
-            None
+    pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
+        let hover_placement = match target {
+            Some(DesktopTarget::Instance(instance_id)) => {
+                Some(self.instance_hover_placement(*instance_id))
+            }
+            Some(DesktopTarget::View(view_id)) => match self
+                .aggregates
+                .hierarchy
+                .parent(&DesktopTarget::View(*view_id))
+            {
+                Some(DesktopTarget::Instance(instance_id)) => {
+                    Some(self.instance_hover_placement(*instance_id))
+                }
+                Some(_) => panic!("Internal error: View parent is not an instance"),
+                None => None,
+            },
+            Some(DesktopTarget::Launcher(launcher_id)) => {
+                Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
+            }
+            _ => None,
         };
-        self.sync_hover_rect_to_pointer_path(pointer_focus.as_ref());
+
+        self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
     fn apply_layout(
@@ -254,34 +266,6 @@ impl DesktopSystem {
                 // Robustness: Support resize here?
             }
         }
-    }
-
-    pub(super) fn sync_hover_rect_to_pointer_path(
-        &mut self,
-        pointer_focus: Option<&DesktopTarget>,
-    ) {
-        let hover_placement = match pointer_focus {
-            Some(DesktopTarget::Instance(instance_id)) => {
-                Some(self.instance_hover_placement(*instance_id))
-            }
-            Some(DesktopTarget::View(view_id)) => match self
-                .aggregates
-                .hierarchy
-                .parent(&DesktopTarget::View(*view_id))
-            {
-                Some(DesktopTarget::Instance(instance_id)) => {
-                    Some(self.instance_hover_placement(*instance_id))
-                }
-                Some(_) => panic!("Internal error: View parent is not an instance"),
-                None => None,
-            },
-            Some(DesktopTarget::Launcher(launcher_id)) => {
-                Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
-            }
-            _ => None,
-        };
-
-        self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
