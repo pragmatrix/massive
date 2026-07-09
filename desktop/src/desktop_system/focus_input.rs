@@ -10,7 +10,7 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::navigation::Direction;
-use super::{Commands, DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
 use crate::event_router::{EventTransitions, ProcessOutcome};

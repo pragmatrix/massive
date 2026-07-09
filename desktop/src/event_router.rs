@@ -8,18 +8,13 @@ use std::fmt;
 use std::time::Duration;
 
 use anyhow::{Result, bail};
-use std::ops::AddAssign;
-
-use derive_more::{Deref, DerefMut, From, IntoIterator};
 use log::{error, warn};
-use massive_util::CollectingVec;
-use winit::event::{DeviceId, ElementState, KeyEvent, Modifiers};
+use winit::event::{DeviceId, ElementState, Modifiers};
 
 use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::{DeviceStates, Event};
-
-use crate::DesktopTarget;
+use massive_util::CollectingVec;
 
 // Require intentional mouse movement before returning pointer-first feedback after keyboard use.
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;

@@ -26,7 +26,7 @@ mod zoom_navigation;
 
 use anyhow::{Result, bail};
 use derive_more::Debug;
-use log::{info, warn};
+use log::warn;
 use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
