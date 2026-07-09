@@ -174,11 +174,9 @@ impl Desktop {
                                 && let Some(input_event) =
                                     self.event_manager.add_event(view_event, Instant::now())
                             {
-                                self.system.update_pointer_feedback(&input_event);
-
                                 let keyboard_shortcut = self.system.match_desktop_keyboard_shortcut(&input_event);
 
-                                let changes : Changes = if let Some(keyboard_cmd) = keyboard_shortcut {
+                                let event_changes : Changes = if let Some(keyboard_cmd) = keyboard_shortcut {
                                         self.system.plan(keyboard_cmd.into_command(), &self.scene)?
                                     } else {
                                         self.system.process_input_event(
@@ -188,7 +186,7 @@ impl Desktop {
                                     };
 
                                 self.system.transact(
-                                    changes,
+                                    event_changes,
                                     &self.scene,
                                     &mut self.instance_manager,
                                     None,

@@ -1,6 +1,6 @@
 use std::mem;
 use std::ops::{Add, AddAssign};
-use std::vec;
+use std::{slice, vec};
 
 /// A sequence that collects values in insertion order, keeping duplicates.
 ///
@@ -31,6 +31,14 @@ impl<T> CollectingVec<T> {
                 *self = CollectingVec::Many(vec![existing, value]);
             }
             CollectingVec::Many(values) => values.push(value),
+        }
+    }
+
+    pub fn iter(&self) -> CollectingVecIter<'_, T> {
+        match self {
+            CollectingVec::Empty => CollectingVecIter::Empty,
+            CollectingVec::One(value) => CollectingVecIter::One(Some(value)),
+            CollectingVec::Many(values) => CollectingVecIter::Many(values.iter()),
         }
     }
 
@@ -165,6 +173,15 @@ impl<T> IntoIterator for CollectingVec<T> {
     }
 }
 
+impl<'a, T> IntoIterator for &'a CollectingVec<T> {
+    type Item = &'a T;
+    type IntoIter = CollectingVecIter<'a, T>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 pub enum CollectingVecIntoIter<T> {
     Empty,
     One(Option<T>),
@@ -195,6 +212,37 @@ impl<T> Iterator for CollectingVecIntoIter<T> {
 }
 
 impl<T> ExactSizeIterator for CollectingVecIntoIter<T> {}
+
+pub enum CollectingVecIter<'a, T> {
+    Empty,
+    One(Option<&'a T>),
+    Many(slice::Iter<'a, T>),
+}
+
+impl<'a, T> Iterator for CollectingVecIter<'a, T> {
+    type Item = &'a T;
+
+    fn next(&mut self) -> Option<&'a T> {
+        match self {
+            CollectingVecIter::Empty => None,
+            CollectingVecIter::One(value) => value.take(),
+            CollectingVecIter::Many(iter) => iter.next(),
+        }
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        match self {
+            CollectingVecIter::Empty => (0, Some(0)),
+            CollectingVecIter::One(value) => {
+                let len = value.is_some() as usize;
+                (len, Some(len))
+            }
+            CollectingVecIter::Many(iter) => iter.size_hint(),
+        }
+    }
+}
+
+impl<T> ExactSizeIterator for CollectingVecIter<'_, T> {}
 
 #[cfg(test)]
 mod tests {

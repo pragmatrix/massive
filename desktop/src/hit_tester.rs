@@ -47,7 +47,15 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
                 .map(|hit| (target.clone(), hit)),
             None => self
                 .hit_test_hierarchy(screen_pos, &DesktopTarget::Desktop)
-                .map(|hit| (hit.target, hit.local_pos)),
+                .map(|hit| (hit.target, hit.local_pos))
+                .or_else(|| {
+                    // Any position inside the window that misses all content maps to the Desktop,
+                    // so the pointer focus is never lost over empty margins. A cleared pointer
+                    // focus (`None`) then means only that pointer feedback is suppressed (keyboard
+                    // navigation active), which is what drives cursor visibility.
+                    self.hit_test_target_plane(screen_pos, &DesktopTarget::Desktop)
+                        .map(|local_pos| (DesktopTarget::Desktop, local_pos))
+                }),
         }
     }
 }

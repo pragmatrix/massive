@@ -311,6 +311,7 @@ impl LauncherPresenter {
         child_instances: &[InstanceId],
     ) {
         self.apply_presenter_animations();
+        // I think this does not make sense, we can do this externally (going over all instances)
         self.apply_child_instance_animations(instances, child_instances);
     }
 
