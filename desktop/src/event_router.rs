@@ -304,50 +304,6 @@ where
         Ok(ProcessOutcome::Transitions(event_transitions))
     }
 
-    /// Updates pointer feedback (hover focus and cursor visibility) from the incoming event.
-    ///
-    /// Pointer feedback is not a stored flag: it is "on" exactly while a pointer focus is held.
-    /// Keyboard input clears the pointer focus (feedback off); deliberate pointer activity re-hits
-    /// the current cursor position (feedback on). The previous target is never stored — re-enabling
-    /// always hit-tests anew.
-    ///
-    /// This runs for every event, including keyboard shortcuts that bypass [`Self::process`], so
-    /// keyboard navigation reliably switches feedback off.
-    pub fn update_pointer_feedback(
-        &mut self,
-        input_event: &Event<ViewEvent>,
-        hit_tester: &dyn HitTester<T>,
-    ) -> Result<EventTransitions<T>> {
-        let feedback_enabled = self.pointer_focus.is_some();
-
-        // Mode switch:
-        // - keyboard press disables pointer-driven feedback (clears the pointer focus)
-        // - mouse button/wheel re-enables immediately (re-hits the current position)
-        // - cursor movement re-enables only when movement is deliberate (distance + time gate)
-        match (feedback_enabled, input_event.event()) {
-            (
-                true,
-                ViewEvent::KeyboardInput {
-                    event: key_event, ..
-                },
-            ) if key_event.state == ElementState::Pressed && !key_event.repeat => {
-                self.unfocus_pointer()
-            }
-            (false, ViewEvent::MouseInput { .. } | ViewEvent::MouseWheel { .. }) => {
-                self.hit_test_and_set_pointer_focus(hit_tester)
-            }
-            (false, ViewEvent::CursorMoved { .. })
-                if input_event.cursor_has_velocity(
-                    POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX,
-                    POINTER_FEEDBACK_REENABLE_MAX_DURATION,
-                ) =>
-            {
-                self.hit_test_and_set_pointer_focus(hit_tester)
-            }
-            _ => Ok(EventTransitions::default()),
-        }
-    }
-
     /// The pointer focus should be tested again with hit-testing against all targets.
     ///
     /// Robustness: There is perhaps a need to send a `CursorMove` event to the newly hit target,
