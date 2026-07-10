@@ -13,6 +13,16 @@ impl OrderedHierarchy<DesktopTarget> {
             _ => None,
         }
     }
+
+    pub fn instance_of_target(&self, target: &DesktopTarget) -> Option<InstanceId> {
+        match target {
+            DesktopTarget::Instance(instance_id) => Some(*instance_id),
+            _ => self
+                .parent_of(target)
+                .and_then(|parent| self.instance_of_target(parent)),
+        }
+    }
+
     pub fn launcher_of_target(&self, target: &DesktopTarget) -> Option<LaunchProfileId> {
         match target {
             DesktopTarget::Launcher(launcher_id) => Some(*launcher_id),

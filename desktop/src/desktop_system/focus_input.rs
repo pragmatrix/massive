@@ -10,7 +10,7 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::navigation::Direction;
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
 use crate::event_router::{EventTransitions, ProcessOutcome};
@@ -42,7 +42,7 @@ impl DesktopSystem {
                 if let Some(target) = target {
                     let t = target.target;
                     let mut changes: Changes =
-                        set_focus(Some(t.clone()), FocusReason::InputTransition);
+                        set_focus(Some(t.clone()), KeyboardFocusReason::InputTransition);
 
                     if let Some(event) = target.event {
                         changes +=
@@ -50,7 +50,7 @@ impl DesktopSystem {
                     }
                     changes
                 } else {
-                    set_focus(None, FocusReason::InputTransition)
+                    set_focus(None, KeyboardFocusReason::InputTransition)
                 }
             }
         };
@@ -62,7 +62,7 @@ impl DesktopSystem {
         &mut self,
         target: impl Into<Option<&'a DesktopTarget>>,
         instance_manager: &InstanceManager,
-        _reason: FocusReason,
+        _reason: KeyboardFocusReason,
     ) -> Result<()> {
         let transitions = self.event_router.focus(target.into());
 
@@ -173,7 +173,7 @@ impl DesktopSystem {
             self.focus(
                 parent.as_ref(),
                 instance_manager,
-                FocusReason::InputTransition,
+                KeyboardFocusReason::InputTransition,
             )?;
         }
         Ok(())

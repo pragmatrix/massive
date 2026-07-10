@@ -1,5 +1,6 @@
 use anyhow::Result;
 
+use log::error;
 use massive_animation::Interpolation;
 use massive_applications::InstanceId;
 use massive_geometry::{Point, SizePx, Transform};
@@ -7,9 +8,7 @@ use massive_layout::{LayoutTopology, Placement, Size as LayoutSize};
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
-use super::{
-    DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
-};
+use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 
 impl DesktopSystem {
@@ -169,13 +168,14 @@ impl DesktopSystem {
             return;
         }
 
-        let camera_target = match &self.user_state {
-            UserState::Focused => self
-                .event_router
-                .focused()
-                .and_then(|target| self.camera_for_focus(target)),
-            UserState::Overview(target) => self.camera_for_overview_target(target),
+        let Some(focused) = self.event_router.focused() else {
+            // Not sure what we do if nothing is focused yet.
+            error!("Updating camera without something focused");
+            return;
         };
+
+        let camera_target =
+            self.resolve_camera_for_focus_and_or_ancestor_of(focused, self.user_state.focus_depth);
 
         if let Some(camera) = camera_target {
             if effects_mode.animate() {

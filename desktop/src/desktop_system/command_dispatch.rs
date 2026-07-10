@@ -6,7 +6,7 @@ use massive_applications::{
 };
 use massive_shell::Scene;
 
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
@@ -92,9 +92,9 @@ impl DesktopSystem {
                 ];
                 changes += set_focus(
                     Some(DesktopTarget::Instance(instance)),
-                    FocusReason::PresentInstance,
+                    KeyboardFocusReason::PresentInstance,
                 );
-                changes += DesktopChange::SetUserState(UserState::Focused);
+                changes += DesktopChange::SetUserState(UserState::default());
 
                 Ok(changes)
             }
@@ -117,14 +117,14 @@ impl DesktopSystem {
 
                 let mut changes = Changes::Empty;
                 if let Some(focus) = replacement_focus {
-                    changes += set_focus(Some(focus), FocusReason::StopInstanceReplacement);
+                    changes += set_focus(Some(focus), KeyboardFocusReason::StopInstanceReplacement);
                 }
                 changes += [
                     DesktopChange::Topology(TopologyChange::Remove(instance.into())),
                     DesktopChange::HideInstance { launcher, instance },
                     DesktopChange::ShutdownInstance(instance),
                 ];
-                changes += DesktopChange::SetUserState(UserState::Focused);
+                changes += DesktopChange::SetUserState(UserState::default());
 
                 Ok(changes)
             }
@@ -429,7 +429,7 @@ impl DesktopSystem {
                 {
                     output.changes += set_focus(
                         Some(DesktopTarget::View(creation_info.id)),
-                        FocusReason::PromotePrimaryView,
+                        KeyboardFocusReason::PromotePrimaryView,
                     );
                 }
                 Ok(output)

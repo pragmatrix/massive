@@ -4,11 +4,10 @@ use log::error;
 use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
-use super::{DesktopSystem, DesktopTarget, FocusReason, UserState};
+use super::{DesktopSystem, DesktopTarget, KeyboardFocusReason};
+use crate::desktop_system::LauncherMap;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
 use crate::desktop_system::topology::DesktopTopology;
-use crate::desktop_system::zoom_navigation::overview_target_for_navigation_candidate;
-use crate::desktop_system::{LauncherMap, OverviewTarget};
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -117,50 +116,63 @@ impl DesktopSystem {
             return Ok(Changes::Empty);
         };
 
-        match self.user_state.clone() {
-            UserState::Focused => {
-                if let Some(plan) = plan_navigation_candidate(
-                    &self.aggregates.hierarchy,
-                    &self.aggregates.launchers,
-                    &self.navigation_control,
-                    focused,
-                    direction,
-                ) {
-                    let mut changes =
-                        set_focus(Some(plan.candidate.clone()), FocusReason::Navigate);
-                    changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
-                    return Ok(changes);
-                }
-            }
-            UserState::Overview(target) => {
-                let Some(anchor) = overview_navigation_anchor(&target) else {
-                    return Ok(Changes::Empty);
-                };
+        // match self.user_state.clone() {
+        //     UserState::Instance => {
+        //         if let Some(plan) = plan_navigation_candidate(
+        //             &self.aggregates.hierarchy,
+        //             &self.aggregates.launchers,
+        //             &self.navigation_control,
+        //             focused,
+        //             direction,
+        //         ) {
+        //             let mut changes =
+        //                 set_focus(Some(plan.candidate.clone()), FocusReason::Navigate);
+        //             changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
+        //             return Ok(changes);
+        //         }
+        //     }
+        //     UserState::Overview(target) => {
+        //         let Some(anchor) = overview_navigation_anchor(&target) else {
+        //             return Ok(Changes::Empty);
+        //         };
 
-                if let Some(plan) = plan_navigation_candidate_same_level(
-                    &self.aggregates.hierarchy,
-                    &self.aggregates.launchers,
-                    &self.navigation_control,
-                    &anchor,
-                    direction,
-                ) && let Some(next_target) = overview_target_for_navigation_candidate(
-                    &self.aggregates.hierarchy,
-                    &target,
-                    &plan.candidate,
-                ) {
-                    let mut changes =
-                        set_focus(Some(plan.candidate.clone()), FocusReason::Navigate);
-                    changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
-                    changes += DesktopChange::SetUserState(UserState::Overview(next_target));
-                    return Ok(changes);
-                }
-            }
+        //         if let Some(plan) = plan_navigation_candidate_same_level(
+        //             &self.aggregates.hierarchy,
+        //             &self.aggregates.launchers,
+        //             &self.navigation_control,
+        //             &anchor,
+        //             direction,
+        //         ) && let Some(next_target) = overview_target_for_navigation_candidate(
+        //             &self.aggregates.hierarchy,
+        //             &target,
+        //             &plan.candidate,
+        //         ) {
+        //             let mut changes =
+        //                 set_focus(Some(plan.candidate.clone()), FocusReason::Navigate);
+        //             changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
+        //             changes += DesktopChange::SetUserState(UserState::Overview(next_target));
+        //             return Ok(changes);
+        //         }
+        //     }
+        // }
+
+        if let Some(plan) = plan_navigation_candidate(
+            &self.aggregates.hierarchy,
+            &self.aggregates.launchers,
+            &self.navigation_control,
+            focused,
+            direction,
+        ) {
+            let mut changes =
+                set_focus(Some(plan.candidate.clone()), KeyboardFocusReason::Navigate);
+            changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
+            return Ok(changes);
         }
 
         Ok(Changes::Empty)
     }
 
-    pub(super) fn camera_for_focus(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
+    pub(super) fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
         match focus {
             DesktopTarget::Desktop => {
                 let placement = self.placement(&DesktopTarget::Desktop);
@@ -189,7 +201,7 @@ impl DesktopSystem {
                 Some(transform.to_camera())
             }
             DesktopTarget::View(_) => {
-                self.camera_for_focus(self.aggregates.hierarchy.parent(focus)?)
+                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
             }
         }
     }
@@ -348,15 +360,15 @@ fn horizontal_child_neighbor(
     }
 }
 
-pub fn overview_navigation_anchor(target: &OverviewTarget) -> Option<DesktopTarget> {
-    match target {
-        OverviewTarget::Visor(launcher_id) | OverviewTarget::MatrixRow(launcher_id) => {
-            Some(DesktopTarget::Launcher(*launcher_id))
-        }
-        OverviewTarget::Project(project_id) => Some(DesktopTarget::Project(*project_id)),
-        OverviewTarget::Desktop => Some(DesktopTarget::Desktop),
-    }
-}
+// pub fn overview_navigation_anchor(target: &OverviewTarget) -> Option<DesktopTarget> {
+//     match target {
+//         OverviewTarget::Visor(launcher_id) | OverviewTarget::MatrixRow(launcher_id) => {
+//             Some(DesktopTarget::Launcher(*launcher_id))
+//         }
+//         OverviewTarget::Project(project_id) => Some(DesktopTarget::Project(*project_id)),
+//         OverviewTarget::Desktop => Some(DesktopTarget::Desktop),
+//     }
+// }
 
 /// Normalizes a raw navigation result into a concrete, focusable target.
 ///

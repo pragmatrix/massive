@@ -99,22 +99,34 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 pub type Commands = CollectingVec<DesktopCommand>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum UserState {
-    #[default]
-    Focused,
-    Overview(OverviewTarget),
+pub struct UserState {
+    focus_depth: FocusDepth,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OverviewTarget {
-    Visor(LaunchProfileId),
-    MatrixRow(LaunchProfileId),
-    Project(ProjectId),
+/// What is the user currently focusing on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
+#[repr(u8)]
+pub enum FocusDepth {
+    #[default]
+    Instance,
+    Launcher,
+    Row,
+    Project,
     Desktop,
 }
 
+impl FocusDepth {
+    pub fn zoom_in(self) -> Option<Self> {
+        Self::from_repr((self as u8).checked_sub(1)?)
+    }
+
+    pub fn zoom_out(self) -> Option<Self> {
+        Self::from_repr((self as u8).checked_add(1)?)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum FocusReason {
+pub(super) enum KeyboardFocusReason {
     InputTransition,
     StopInstanceReplacement,
     PresentInstance,
@@ -122,14 +134,14 @@ pub(super) enum FocusReason {
     PromotePrimaryView,
 }
 
-impl FocusReason {
+impl KeyboardFocusReason {
     pub fn resets_navigation_affinity(self) -> bool {
         match self {
-            FocusReason::Navigate => false,
-            FocusReason::InputTransition
-            | FocusReason::StopInstanceReplacement
-            | FocusReason::PresentInstance
-            | FocusReason::PromotePrimaryView => true,
+            KeyboardFocusReason::Navigate => false,
+            KeyboardFocusReason::InputTransition
+            | KeyboardFocusReason::StopInstanceReplacement
+            | KeyboardFocusReason::PresentInstance
+            | KeyboardFocusReason::PromotePrimaryView => true,
         }
     }
 }
@@ -244,7 +256,7 @@ impl DesktopSystem {
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
-            user_state: UserState::Focused,
+            user_state: UserState::default(),
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             deferred_camera_move: false,
