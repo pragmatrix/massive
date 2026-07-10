@@ -258,20 +258,14 @@ fn zoom_context_launcher_for_project(
 }
 
 impl DesktopSystem {
-    pub(super) fn launcher_bounds(
-        &self,
-        launcher_id: crate::projects::LaunchProfileId,
-    ) -> OverviewBounds {
+    pub(super) fn launcher_bounds(&self, launcher_id: LaunchProfileId) -> OverviewBounds {
         let root = DesktopTarget::Launcher(launcher_id);
         let mut bounds = Some(self.target_bounds(&root));
         self.extend_bounds_with_subtree(&root, &mut bounds);
         bounds.expect("Internal error: launcher bounds should always exist")
     }
 
-    pub(super) fn matrix_row_rect(
-        &self,
-        launcher_id: crate::projects::LaunchProfileId,
-    ) -> Option<Rect> {
+    pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
         let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id)?;
         let row = self.aggregates.launchers.get(&launcher_id)?.placement.row;
         let mut rect: Option<Rect> = None;
@@ -376,13 +370,13 @@ impl DesktopSystem {
         bounds.rect
     }
 
-    pub(super) fn resolve_camera_for_focus_and_or_ancestor_of(
+    pub(super) fn resolve_camera_for_target_and_or_ancestor_of(
         &self,
-        focused: &DesktopTarget,
+        target: &DesktopTarget,
         mut depth: FocusDepth,
     ) -> Option<PixelCamera> {
         loop {
-            if let Some(camera) = self.resolve_camera_focus_and_depth(focused, depth) {
+            if let Some(camera) = self.resolve_camera_focus_and_depth(target, depth) {
                 return Some(camera);
             }
 
@@ -392,31 +386,44 @@ impl DesktopSystem {
 
     pub(super) fn resolve_camera_focus_and_depth(
         &self,
-        focused: &DesktopTarget,
+        target: &DesktopTarget,
         depth: FocusDepth,
     ) -> Option<PixelCamera> {
         match depth {
             FocusDepth::Instance => self
                 .aggregates
                 .hierarchy
-                .instance_of_target(focused)
-                .and_then(|_| self.camera_for_target(focused)),
-            FocusDepth::Launcher => self
-                .aggregates
-                .hierarchy
-                .launcher_of_target(focused)
-                .and_then(|launcher| self.camera_for_bounds(self.launcher_bounds(launcher))),
+                .instance_of_target(target)
+                .and_then(|_| self.camera_for_target(target)),
+            FocusDepth::Launcher => self.camera_for_launcher_focus(target),
             FocusDepth::Row => self
                 .aggregates
                 .hierarchy
-                .launcher_of_target(focused)
+                .launcher_of_target(target)
                 .and_then(|launcher| self.camera_for_rect(self.matrix_row_rect(launcher)?)),
             FocusDepth::Project => self
                 .aggregates
                 .hierarchy
-                .project_of_target(focused)
+                .project_of_target(target)
                 .and_then(|project| self.camera_for_rect(self.project_rect(project))),
             FocusDepth::Desktop => self.camera_for_target(&DesktopTarget::Desktop),
+        }
+    }
+
+    fn camera_for_launcher_focus(&self, target: &DesktopTarget) -> Option<PixelCamera> {
+        let launcher_id = self.aggregates.hierarchy.launcher_of_target(target)?;
+        let launcher = DesktopTarget::Launcher(launcher_id);
+
+        if self
+            .aggregates
+            .hierarchy
+            .launcher_instances(launcher_id)
+            .len()
+            > 1
+        {
+            self.camera_for_bounds(self.launcher_bounds(launcher_id))
+        } else {
+            self.camera_for_target(&launcher)
         }
     }
 
