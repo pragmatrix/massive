@@ -1,15 +1,13 @@
 use anyhow::Result;
 
+use log::error;
 use massive_animation::Interpolation;
-use massive_applications::InstanceId;
-use massive_geometry::{Point, SizePx, Transform};
-use massive_layout::{LayoutTopology, Placement, Size as LayoutSize};
+use massive_geometry::{SizePx, Transform};
+use massive_layout::LayoutTopology;
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
-use super::{
-    DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode, UserState,
-};
+use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 
 impl DesktopSystem {
@@ -169,13 +167,15 @@ impl DesktopSystem {
             return;
         }
 
-        let camera_target = match &self.user_state {
-            UserState::Focused => self
-                .event_router
-                .focused()
-                .and_then(|target| self.camera_for_focus(target)),
-            UserState::Overview(target) => self.camera_for_overview_target(target),
+        let Some(focused) = self.event_router.keyboard_focus() else {
+            // Not sure what we do if nothing is focused yet.
+            error!("Updating camera without something focused");
+            return;
         };
+
+        // Hmm, I think there can't be a None case here.
+        let camera_target =
+            self.resolve_camera_for_target_or_ancestor(focused, self.user_state.focus_depth);
 
         if let Some(camera) = camera_target {
             if effects_mode.animate() {
@@ -188,31 +188,6 @@ impl DesktopSystem {
                 self.camera.set_immediately(camera);
             }
         }
-    }
-
-    pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
-        let hover_placement = match target {
-            Some(DesktopTarget::Instance(instance_id)) => {
-                Some(self.instance_hover_placement(*instance_id))
-            }
-            Some(DesktopTarget::View(view_id)) => match self
-                .aggregates
-                .hierarchy
-                .parent(&DesktopTarget::View(*view_id))
-            {
-                Some(DesktopTarget::Instance(instance_id)) => {
-                    Some(self.instance_hover_placement(*instance_id))
-                }
-                Some(_) => panic!("Internal error: View parent is not an instance"),
-                None => None,
-            },
-            Some(DesktopTarget::Launcher(launcher_id)) => {
-                Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
-            }
-            _ => None,
-        };
-
-        self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
     fn apply_layout(
@@ -267,33 +242,4 @@ impl DesktopSystem {
             }
         }
     }
-
-    fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
-        let mut placement = self.placement(&DesktopTarget::Instance(instance_id));
-
-        // Keep hover aligned with animated instance motion by composing the current instance-local
-        // animated transform with the launcher's world transform.
-        let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
-            return placement;
-        };
-        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
-            return placement;
-        };
-        let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
-
-        let launcher_anchor = layout_center(launcher_placement.rect.size);
-        let instance_anchor = layout_center(placement.rect.size);
-        placement.transform = Transform::compose_with_anchor(
-            launcher_placement.transform,
-            launcher_anchor,
-            *instance_presenter.layout_transform_animation.latest_value(),
-            instance_anchor,
-        );
-
-        placement
-    }
-}
-
-fn layout_center(size: LayoutSize<2>) -> Point {
-    Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
 }

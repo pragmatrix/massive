@@ -10,9 +10,10 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::navigation::Direction;
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
+use crate::desktop_system::zoom_navigation::focus_depth_from_target;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -42,7 +43,7 @@ impl DesktopSystem {
                 if let Some(target) = target {
                     let t = target.target;
                     let mut changes: Changes =
-                        set_focus(Some(t.clone()), FocusReason::InputTransition);
+                        set_focus(Some(t.clone()), KeyboardFocusReason::InputTransition);
 
                     if let Some(event) = target.event {
                         changes +=
@@ -50,7 +51,7 @@ impl DesktopSystem {
                     }
                     changes
                 } else {
-                    set_focus(None, FocusReason::InputTransition)
+                    set_focus(None, KeyboardFocusReason::InputTransition)
                 }
             }
         };
@@ -62,7 +63,7 @@ impl DesktopSystem {
         &mut self,
         target: impl Into<Option<&'a DesktopTarget>>,
         instance_manager: &InstanceManager,
-        _reason: FocusReason,
+        _reason: KeyboardFocusReason,
     ) -> Result<()> {
         let transitions = self.event_router.focus(target.into());
 
@@ -167,18 +168,22 @@ impl DesktopSystem {
         if self
             .aggregates
             .hierarchy
-            .path_contains_target(self.event_router.focused(), target)
+            .path_contains_target(self.event_router.keyboard_focus(), target)
         {
             let parent = self.aggregates.hierarchy.parent(target).cloned();
             self.focus(
                 parent.as_ref(),
                 instance_manager,
-                FocusReason::InputTransition,
+                KeyboardFocusReason::InputTransition,
             )?;
         }
         Ok(())
     }
 
+    /// Architecture: Somehow the desktop presenter should handle these (we need some kind of
+    /// event delivery down / up?)
+    ///
+    /// Design: This function is mixing state checks with the key detection.
     pub fn match_desktop_keyboard_shortcut(
         &self,
         event: &Event<ViewEvent>,
@@ -189,13 +194,13 @@ impl DesktopSystem {
             event: key_event, ..
         } = event.event()
             && key_event.state == ElementState::Pressed
-            && !key_event.repeat
             && event.device_states().is_command()
         {
             let focused_path = self.focused_path();
 
             // Simplify: Instance should probably return the launcher, too now.
-            if let Some(instance) = focused_path.instance()
+            if !key_event.repeat
+                && let Some(instance) = focused_path.instance()
                 && let Some(DesktopTarget::Launcher(launcher)) =
                     self.aggregates.hierarchy.parent(&instance.into())
             {
@@ -210,6 +215,21 @@ impl DesktopSystem {
                         return Some(DesktopKeyboardShortcut::CloseInstance(instance));
                     }
                     _ => {}
+                }
+            }
+
+            if !key_event.repeat
+                && key_event.logical_key == Key::Named(NamedKey::Enter)
+                && let Some(keyboard_focus) = self.event_router.keyboard_focus()
+            {
+                // Architecture: When we issue ResetZoom redundantly, we could capture the
+                // `Cmd+Enter` in situations in which it needs to be delivered to the
+                // `LauncherPresenter`. Therefore, we test upfront if the ResetZoom is needed.
+                let current_level = self.user_state.focus_depth;
+                let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
+
+                if current_level != keyboard_focus_level {
+                    return Some(DesktopKeyboardShortcut::ResetZoom);
                 }
             }
 
@@ -260,6 +280,7 @@ pub enum DesktopKeyboardShortcut {
     CloseInstance(InstanceId),
     ZoomOut,
     ZoomIn,
+    ResetZoom,
     Navigate(Direction),
 }
 
@@ -275,6 +296,7 @@ impl DesktopKeyboardShortcut {
             Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
             Self::ZoomOut => DesktopCommand::ZoomOut,
             Self::ZoomIn => DesktopCommand::ZoomIn,
+            Self::ResetZoom => DesktopCommand::ResetZoom,
             Self::Navigate(direction) => DesktopCommand::Navigate(direction),
         }
     }

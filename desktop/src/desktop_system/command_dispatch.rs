@@ -6,12 +6,12 @@ use massive_applications::{
 };
 use massive_shell::Scene;
 
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, FocusReason};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
 use crate::desktop_system::effects::MeasureSet;
-use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
+use crate::desktop_system::zoom_navigation::focus_depth_from_target;
 use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
@@ -46,7 +46,7 @@ impl DesktopSystem {
     /// Plan the execution of a command.
     pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
         match command {
-            DesktopCommand::Project(project_command) => self.plan_project(project_command),
+            DesktopCommand::Project(project_command) => return self.plan_project(project_command),
             DesktopCommand::StartInstance {
                 launcher,
                 instance,
@@ -92,11 +92,11 @@ impl DesktopSystem {
                 ];
                 changes += set_focus(
                     Some(DesktopTarget::Instance(instance)),
-                    FocusReason::PresentInstance,
+                    KeyboardFocusReason::PresentInstance,
                 );
-                changes += DesktopChange::SetUserState(UserState::Focused);
+                changes += DesktopChange::SetUserState(UserState::default());
 
-                Ok(changes)
+                return Ok(changes);
             }
             DesktopCommand::StopInstance(instance) => {
                 let launcher = self
@@ -109,7 +109,7 @@ impl DesktopSystem {
                 //
                 // Detail: This causes an unfocus event sent to the instance's view which may
                 // unexpected while tear down.
-                let replacement_focus = self.event_router.focused().and_then(|focused| {
+                let replacement_focus = self.event_router.keyboard_focus().and_then(|focused| {
                     self.aggregates
                         .hierarchy
                         .resolve_replacement_focus_for_stopping_instance(focused, instance)
@@ -117,51 +117,45 @@ impl DesktopSystem {
 
                 let mut changes = Changes::Empty;
                 if let Some(focus) = replacement_focus {
-                    changes += set_focus(Some(focus), FocusReason::StopInstanceReplacement);
+                    changes += set_focus(Some(focus), KeyboardFocusReason::StopInstanceReplacement);
                 }
                 changes += [
                     DesktopChange::Topology(TopologyChange::Remove(instance.into())),
                     DesktopChange::HideInstance { launcher, instance },
                     DesktopChange::ShutdownInstance(instance),
                 ];
-                changes += DesktopChange::SetUserState(UserState::Focused);
+                changes += DesktopChange::SetUserState(UserState::default());
 
-                Ok(changes)
+                return Ok(changes);
             }
             DesktopCommand::ZoomIn => {
-                let user_state = self
-                    .event_router
-                    .focused()
-                    .and_then(|focused| {
-                        zoom_in(
-                            &self.aggregates.hierarchy,
-                            &self.aggregates.launchers,
-                            focused.clone(),
-                            self.user_state.clone(),
-                        )
-                        .into()
-                    })
-                    .unwrap_or_else(|| self.user_state.clone());
-                Ok(DesktopChange::SetUserState(user_state).into())
+                if let Some(focus_depth) = self.user_state.focus_depth.zoom_in() {
+                    let user_state = UserState { focus_depth };
+                    return Ok(DesktopChange::SetUserState(user_state).into());
+                }
             }
             DesktopCommand::ZoomOut => {
-                let user_state = self
-                    .event_router
-                    .focused()
-                    .and_then(|focused| {
-                        zoom_out(
-                            &self.aggregates.hierarchy,
-                            &self.aggregates.launchers,
-                            focused.clone(),
-                            self.user_state.clone(),
-                        )
-                        .into()
-                    })
-                    .unwrap_or_else(|| self.user_state.clone());
-                Ok(DesktopChange::SetUserState(user_state).into())
+                if let Some(focus_depth) = self.user_state.focus_depth.zoom_out() {
+                    let user_state = UserState { focus_depth };
+                    return Ok(DesktopChange::SetUserState(user_state).into());
+                }
             }
-            DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
+            DesktopCommand::ResetZoom => {
+                if let Some(keyboard_focus) = self.event_router.keyboard_focus() {
+                    let current_level = self.user_state.focus_depth;
+                    let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
+
+                    if current_level != keyboard_focus_level {
+                        let mut new_user_state = self.user_state.clone();
+                        new_user_state.focus_depth = keyboard_focus_level;
+                        return Ok(DesktopChange::SetUserState(new_user_state).into());
+                    }
+                }
+            }
+            DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
         }
+
+        Ok([].into())
     }
 
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
@@ -424,12 +418,12 @@ impl DesktopSystem {
                 // focus transition (and its navigation-affinity reset) flows through change
                 // application like every other focus change.
                 if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
-                    (self.event_router.focused(), &creation_info.role)
+                    (self.event_router.keyboard_focus(), &creation_info.role)
                     && *focused_instance == instance
                 {
                     output.changes += set_focus(
                         Some(DesktopTarget::View(creation_info.id)),
-                        FocusReason::PromotePrimaryView,
+                        KeyboardFocusReason::PromotePrimaryView,
                     );
                 }
                 Ok(output)

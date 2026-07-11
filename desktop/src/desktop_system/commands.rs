@@ -26,6 +26,7 @@ pub enum DesktopCommand {
 
     ZoomIn,
     ZoomOut,
+    ResetZoom,
     Navigate(Direction),
 }
 

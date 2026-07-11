@@ -99,22 +99,34 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 pub type Commands = CollectingVec<DesktopCommand>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum UserState {
-    #[default]
-    Focused,
-    Overview(OverviewTarget),
+pub struct UserState {
+    focus_depth: FocusDepth,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OverviewTarget {
-    Visor(LaunchProfileId),
-    MatrixRow(LaunchProfileId),
-    Project(ProjectId),
+/// What is the user currently focusing on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
+#[repr(u8)]
+pub enum FocusDepth {
+    #[default]
+    Instance,
+    Launcher,
+    Row,
+    Project,
     Desktop,
 }
 
+impl FocusDepth {
+    pub fn zoom_in(self) -> Option<Self> {
+        Self::from_repr((self as u8).checked_sub(1)?)
+    }
+
+    pub fn zoom_out(self) -> Option<Self> {
+        Self::from_repr((self as u8).checked_add(1)?)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum FocusReason {
+pub(super) enum KeyboardFocusReason {
     InputTransition,
     StopInstanceReplacement,
     PresentInstance,
@@ -122,14 +134,14 @@ pub(super) enum FocusReason {
     PromotePrimaryView,
 }
 
-impl FocusReason {
+impl KeyboardFocusReason {
     pub fn resets_navigation_affinity(self) -> bool {
         match self {
-            FocusReason::Navigate => false,
-            FocusReason::InputTransition
-            | FocusReason::StopInstanceReplacement
-            | FocusReason::PresentInstance
-            | FocusReason::PromotePrimaryView => true,
+            KeyboardFocusReason::Navigate => false,
+            KeyboardFocusReason::InputTransition
+            | KeyboardFocusReason::StopInstanceReplacement
+            | KeyboardFocusReason::PresentInstance
+            | KeyboardFocusReason::PromotePrimaryView => true,
         }
     }
 }
@@ -244,7 +256,7 @@ impl DesktopSystem {
 
             event_router,
             camera: scene.animated(PixelCamera::default()),
-            user_state: UserState::Focused,
+            user_state: UserState::default(),
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             deferred_camera_move: false,
@@ -275,7 +287,7 @@ impl DesktopSystem {
 
         let mut measures = MeasureSet::Empty;
         let user_state_before = self.user_state.clone();
-        let focus_before = self.event_router.focused().cloned();
+        let focus_before = self.event_router.keyboard_focus().cloned();
 
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
 
@@ -293,7 +305,7 @@ impl DesktopSystem {
 
         // The camera follows the focused target, so a focus change recomputes it even when the
         // change moved no layout (pure navigation between siblings, or focusing a launcher).
-        let mut update_camera = self.event_router.focused() != focus_before.as_ref();
+        let mut update_camera = self.event_router.keyboard_focus() != focus_before.as_ref();
         if self.user_state != user_state_before {
             update_camera = true;
         }
@@ -333,8 +345,18 @@ impl DesktopSystem {
         // no root measure is needed here.
         self.run_effects_to_completion(effects_mode, effects)?;
 
-        // Sync the hover rect.
-        self.sync_hover_with_target(self.event_router.pointer_focus().cloned().as_ref());
+        // Update the hover target.
+        {
+            // Use keyboard focus for the hover if we are not focusing the thing directly.
+            let hover_target = if self.user_state.focus_depth != FocusDepth::default() {
+                self.event_router.keyboard_focus()
+            } else {
+                self.event_router.pointer_focus()
+            };
+
+            // Sync the hover rect.
+            self.sync_hover_with_target(hover_target.cloned().as_ref());
+        }
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
         self.apply_focused_view_window_state()?;
@@ -422,7 +444,7 @@ impl DesktopSystem {
     }
 
     pub fn focused_view_window_state(&self) -> Result<Option<ViewWindowState>> {
-        let Some(focused) = self.event_router.focused() else {
+        let Some(focused) = self.event_router.keyboard_focus() else {
             return Ok(None);
         };
 
@@ -477,7 +499,7 @@ impl DesktopSystem {
     }
 
     pub(super) fn focused_path(&self) -> DesktopFocusPath {
-        self.path_of(self.event_router.focused())
+        self.path_of(self.event_router.keyboard_focus())
     }
 
     pub(super) fn path_of<'a>(

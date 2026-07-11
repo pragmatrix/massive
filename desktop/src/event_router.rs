@@ -93,7 +93,7 @@ where
         Ok(())
     }
 
-    pub fn focused(&self) -> Option<&T> {
+    pub fn keyboard_focus(&self) -> Option<&T> {
         self.keyboard_focus.as_ref()
     }
 
