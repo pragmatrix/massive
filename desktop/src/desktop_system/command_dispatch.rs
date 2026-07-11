@@ -11,7 +11,7 @@ use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
 use crate::desktop_system::effects::MeasureSet;
-use crate::desktop_system::zoom_navigation::{focus_depth_from_target, zoom_in, zoom_out};
+use crate::desktop_system::zoom_navigation::focus_depth_from_target;
 use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
@@ -46,7 +46,7 @@ impl DesktopSystem {
     /// Plan the execution of a command.
     pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
         match command {
-            DesktopCommand::Project(project_command) => self.plan_project(project_command),
+            DesktopCommand::Project(project_command) => return self.plan_project(project_command),
             DesktopCommand::StartInstance {
                 launcher,
                 instance,
@@ -96,7 +96,7 @@ impl DesktopSystem {
                 );
                 changes += DesktopChange::SetUserState(UserState::default());
 
-                Ok(changes)
+                return Ok(changes);
             }
             DesktopCommand::StopInstance(instance) => {
                 let launcher = self
@@ -126,37 +126,19 @@ impl DesktopSystem {
                 ];
                 changes += DesktopChange::SetUserState(UserState::default());
 
-                Ok(changes)
+                return Ok(changes);
             }
             DesktopCommand::ZoomIn => {
-                let user_state = self
-                    .event_router
-                    .keyboard_focus()
-                    .and_then(|focused| {
-                        zoom_in(
-                            &self.aggregates.hierarchy,
-                            &self.aggregates.launchers,
-                            focused.clone(),
-                            self.user_state.clone(),
-                        )
-                    })
-                    .unwrap_or_else(|| self.user_state.clone());
-                Ok(DesktopChange::SetUserState(user_state).into())
+                if let Some(focus_depth) = self.user_state.focus_depth.zoom_in() {
+                    let user_state = UserState { focus_depth };
+                    return Ok(DesktopChange::SetUserState(user_state).into());
+                }
             }
             DesktopCommand::ZoomOut => {
-                let user_state = self
-                    .event_router
-                    .keyboard_focus()
-                    .and_then(|focused| {
-                        zoom_out(
-                            &self.aggregates.hierarchy,
-                            &self.aggregates.launchers,
-                            focused.clone(),
-                            self.user_state.clone(),
-                        )
-                    })
-                    .unwrap_or_else(|| self.user_state.clone());
-                Ok(DesktopChange::SetUserState(user_state).into())
+                if let Some(focus_depth) = self.user_state.focus_depth.zoom_out() {
+                    let user_state = UserState { focus_depth };
+                    return Ok(DesktopChange::SetUserState(user_state).into());
+                }
             }
             DesktopCommand::ResetZoom => {
                 if let Some(keyboard_focus) = self.event_router.keyboard_focus() {
@@ -169,10 +151,11 @@ impl DesktopSystem {
                         return Ok(DesktopChange::SetUserState(new_user_state).into());
                     }
                 }
-                Ok([].into())
             }
-            DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
+            DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
         }
+
+        Ok([].into())
     }
 
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {

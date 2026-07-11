@@ -1,9 +1,8 @@
 use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
 use massive_scene::{ToCamera, Transform};
 
-use super::{DesktopSystem, DesktopTarget, UserState};
-use crate::desktop_system::topology::DesktopTopology;
-use crate::desktop_system::{FocusDepth, LauncherMap};
+use super::{DesktopSystem, DesktopTarget};
+use crate::desktop_system::FocusDepth;
 use crate::projects::LaunchProfileId;
 
 #[derive(Debug, Clone)]
@@ -18,28 +17,6 @@ impl OverviewBounds {
         self.points.append(&mut other.points);
         self
     }
-}
-
-#[must_use]
-pub fn zoom_in(
-    _topo: &DesktopTopology,
-    _launchers: &LauncherMap,
-    _focused: DesktopTarget,
-    mut user_state: UserState,
-) -> Option<UserState> {
-    user_state.focus_depth = user_state.focus_depth.zoom_in()?;
-    Some(user_state)
-}
-
-#[must_use]
-pub fn zoom_out(
-    _topology: &DesktopTopology,
-    _launchers: &LauncherMap,
-    _focused: DesktopTarget,
-    mut user_state: UserState,
-) -> Option<UserState> {
-    user_state.focus_depth = user_state.focus_depth.zoom_out()?;
-    Some(user_state)
 }
 
 pub(super) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
