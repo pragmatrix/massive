@@ -56,118 +56,6 @@ fn focus_depth_from_target(target: DesktopTarget) -> FocusDepth {
 }
 
 impl DesktopSystem {
-    pub(super) fn launcher_bounds(&self, launcher_id: LaunchProfileId) -> OverviewBounds {
-        let root = DesktopTarget::Launcher(launcher_id);
-        let mut bounds = Some(self.target_bounds(&root));
-        self.extend_bounds_with_subtree(&root, &mut bounds);
-        bounds.expect("Internal error: launcher bounds should always exist")
-    }
-
-    pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
-        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id)?;
-        let row = self.aggregates.launchers.get(&launcher_id)?.placement.row;
-        let mut rect: Option<Rect> = None;
-
-        for target in self
-            .aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
-        {
-            let DesktopTarget::Launcher(candidate_launcher) = target else {
-                continue;
-            };
-
-            let Some(candidate) = self.aggregates.launchers.get(candidate_launcher) else {
-                continue;
-            };
-
-            if candidate.placement.row != row {
-                continue;
-            }
-
-            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(*candidate_launcher));
-
-            rect = Some(match rect {
-                Some(existing) => existing.joined(launcher_rect),
-                None => launcher_rect,
-            });
-        }
-
-        // Be sure the full width of the project is covered.
-        rect.map(|matrix_row_rect| {
-            let project_matrix_rect = self.project_matrix_rect(project_id);
-            (
-                project_matrix_rect.left,
-                matrix_row_rect.top,
-                project_matrix_rect.right,
-                matrix_row_rect.bottom,
-            )
-                .into()
-        })
-    }
-
-    fn project_matrix_rect(&self, project_id: crate::projects::ProjectId) -> Rect {
-        self.target_rect(&DesktopTarget::ProjectMatrix(project_id))
-    }
-
-    pub(super) fn project_rect(&self, project_id: crate::projects::ProjectId) -> Rect {
-        let root = DesktopTarget::Project(project_id);
-        let mut rect = Some(self.target_rect(&root));
-        self.extend_rect_with_subtree(&root, &mut rect);
-        rect.expect("Internal error: project bounds should always exist")
-    }
-
-    fn extend_rect_with_subtree(&self, root: &DesktopTarget, rect: &mut Option<Rect>) {
-        for child in self.aggregates.hierarchy.get_nested(root) {
-            let child_rect = self.target_rect(child);
-            *rect = Some(match *rect {
-                Some(existing) => existing.joined(child_rect),
-                None => child_rect,
-            });
-
-            self.extend_rect_with_subtree(child, rect);
-        }
-    }
-
-    fn extend_bounds_with_subtree(
-        &self,
-        root: &DesktopTarget,
-        bounds: &mut Option<OverviewBounds>,
-    ) {
-        for child in self.aggregates.hierarchy.get_nested(root) {
-            let child_bounds = self.target_bounds(child);
-            *bounds = Some(match bounds.take() {
-                Some(existing) => existing.joined(child_bounds),
-                None => child_bounds,
-            });
-
-            self.extend_bounds_with_subtree(child, bounds);
-        }
-    }
-
-    fn target_bounds(&self, target: &DesktopTarget) -> OverviewBounds {
-        let placement = self.placement(target);
-        let rect_px: RectPx = placement.rect.into();
-        let size = Rect::from(rect_px).size();
-        // `placement.transform` is anchor-space for this target. Convert to origin-space
-        // before transforming local rectangle corners.
-        let local_rect = size.to_rect();
-        let local_center = local_rect.center();
-        let origin_transform = placement.transform.to_origin_space(local_center);
-        Self::transform_rect(local_rect, origin_transform)
-    }
-
-    fn target_rect(&self, target: &DesktopTarget) -> Rect {
-        let placement = self.placement(target);
-        let rect_px: RectPx = placement.rect.into();
-        let size = Rect::from(rect_px).size();
-        let local_rect = size.to_rect();
-        let local_center = local_rect.center();
-        let origin_transform = placement.transform.to_origin_space(local_center);
-        let bounds = Self::transform_rect(local_rect, origin_transform);
-        bounds.rect
-    }
-
     pub(super) fn resolve_camera_for_target_and_or_ancestor_of(
         &self,
         target: &DesktopTarget,
@@ -254,6 +142,53 @@ impl DesktopSystem {
         Some(center.to_camera().with_size(rect.size()))
     }
 
+    pub(super) fn launcher_bounds(&self, launcher_id: LaunchProfileId) -> OverviewBounds {
+        let root = DesktopTarget::Launcher(launcher_id);
+        let mut bounds = Some(self.target_bounds(&root));
+        self.extend_bounds_with_subtree(&root, &mut bounds);
+        bounds.expect("Internal error: launcher bounds should always exist")
+    }
+
+    pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
+        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id)?;
+        let row = self.aggregates.launchers.get(&launcher_id)?.placement.row;
+        let mut rect: Option<Rect> = None;
+
+        for target in self
+            .aggregates
+            .hierarchy
+            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
+        {
+            let DesktopTarget::Launcher(candidate_launcher) = target else {
+                continue;
+            };
+
+            let Some(candidate) = self.aggregates.launchers.get(candidate_launcher) else {
+                continue;
+            };
+
+            if candidate.placement.row != row {
+                continue;
+            }
+
+            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(*candidate_launcher));
+
+            rect = Some(match rect {
+                Some(existing) => existing.joined(launcher_rect),
+                None => launcher_rect,
+            });
+        }
+
+        rect.map(|matrix_row_rect| self.with_desktop_width(matrix_row_rect))
+    }
+
+    pub(super) fn project_rect(&self, project_id: crate::projects::ProjectId) -> Rect {
+        let root = DesktopTarget::Project(project_id);
+        let mut rect = Some(self.target_rect(&root));
+        self.extend_rect_with_subtree(&root, &mut rect);
+        self.with_desktop_width(rect.expect("Internal error: project bounds should always exist"))
+    }
+
     fn fit_size_for_points(
         rect: Rect,
         center: Vector3,
@@ -326,6 +261,62 @@ impl DesktopSystem {
         }
 
         true
+    }
+
+    fn with_desktop_width(&self, rect: Rect) -> Rect {
+        let desktop_rect = self.target_rect(&DesktopTarget::Desktop);
+        (desktop_rect.left, rect.top, desktop_rect.right, rect.bottom).into()
+    }
+
+    fn extend_rect_with_subtree(&self, root: &DesktopTarget, rect: &mut Option<Rect>) {
+        for child in self.aggregates.hierarchy.get_nested(root) {
+            let child_rect = self.target_rect(child);
+            *rect = Some(match *rect {
+                Some(existing) => existing.joined(child_rect),
+                None => child_rect,
+            });
+
+            self.extend_rect_with_subtree(child, rect);
+        }
+    }
+
+    fn target_rect(&self, target: &DesktopTarget) -> Rect {
+        let placement = self.placement(target);
+        let rect_px: RectPx = placement.rect.into();
+        let size = Rect::from(rect_px).size();
+        let local_rect = size.to_rect();
+        let local_center = local_rect.center();
+        let origin_transform = placement.transform.to_origin_space(local_center);
+        let bounds = Self::transform_rect(local_rect, origin_transform);
+        bounds.rect
+    }
+
+    fn extend_bounds_with_subtree(
+        &self,
+        root: &DesktopTarget,
+        bounds: &mut Option<OverviewBounds>,
+    ) {
+        for child in self.aggregates.hierarchy.get_nested(root) {
+            let child_bounds = self.target_bounds(child);
+            *bounds = Some(match bounds.take() {
+                Some(existing) => existing.joined(child_bounds),
+                None => child_bounds,
+            });
+
+            self.extend_bounds_with_subtree(child, bounds);
+        }
+    }
+
+    fn target_bounds(&self, target: &DesktopTarget) -> OverviewBounds {
+        let placement = self.placement(target);
+        let rect_px: RectPx = placement.rect.into();
+        let size = Rect::from(rect_px).size();
+        // `placement.transform` is anchor-space for this target. Convert to origin-space
+        // before transforming local rectangle corners.
+        let local_rect = size.to_rect();
+        let local_center = local_rect.center();
+        let origin_transform = placement.transform.to_origin_space(local_center);
+        Self::transform_rect(local_rect, origin_transform)
     }
 
     fn transform_rect(rect: Rect, transform: Transform) -> OverviewBounds {
