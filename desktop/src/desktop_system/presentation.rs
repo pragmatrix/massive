@@ -169,23 +169,25 @@ impl DesktopSystem {
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
         let mut placement = self.placement(&DesktopTarget::Instance(instance_id));
 
-        // Keep hover aligned with animated instance motion by composing the current instance-local
-        // animated transform with the launcher's world transform.
-        let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
-            return placement;
-        };
-        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
-            return placement;
-        };
+        let instance_presenter = self
+            .aggregates
+            .instances
+            .get(&instance_id)
+            .expect("Instance not found");
+        let launcher_id = self
+            .aggregates
+            .hierarchy
+            .launcher_of_instance(instance_id)
+            .expect("Instance without launcher");
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
-        let launcher_anchor = layout_center(launcher_placement.rect.size);
-        let instance_anchor = layout_center(placement.rect.size);
+        // Keep hover aligned with animated instance motion by composing the current instance-local
+        // animated transform with the launcher's world transform.
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
-            launcher_anchor,
+            layout_center(launcher_placement.rect.size),
             *instance_presenter.layout_transform_animation.latest_value(),
-            instance_anchor,
+            layout_center(placement.rect.size),
         );
 
         placement
