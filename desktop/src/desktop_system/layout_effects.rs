@@ -175,7 +175,7 @@ impl DesktopSystem {
 
         // Hmm, I think there can't be a None case here.
         let camera_target =
-            self.resolve_camera_for_target_and_or_ancestor_of(focused, self.user_state.focus_depth);
+            self.resolve_camera_for_target_or_ancestor(focused, self.user_state.focus_depth);
 
         if let Some(camera) = camera_target {
             if effects_mode.animate() {

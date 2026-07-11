@@ -32,7 +32,7 @@ pub(super) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
 }
 
 impl DesktopSystem {
-    pub(super) fn resolve_camera_for_target_and_or_ancestor_of(
+    pub(super) fn resolve_camera_for_target_or_ancestor(
         &self,
         target: &DesktopTarget,
         mut depth: FocusDepth,
