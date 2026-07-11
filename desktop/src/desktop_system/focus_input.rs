@@ -180,7 +180,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    /// Architecture: Somehow the desktop presenter should be handle these (we need some kind of
+    /// Architecture: Somehow the desktop presenter should handle these (we need some kind of
     /// event delivery down / up?)
     ///
     /// Design: This function is mixing state checks with the key detection.
