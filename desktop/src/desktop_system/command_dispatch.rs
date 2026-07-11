@@ -139,7 +139,6 @@ impl DesktopSystem {
                             focused.clone(),
                             self.user_state.clone(),
                         )
-                        .into()
                     })
                     .unwrap_or_else(|| self.user_state.clone());
                 Ok(DesktopChange::SetUserState(user_state).into())
@@ -155,7 +154,6 @@ impl DesktopSystem {
                             focused.clone(),
                             self.user_state.clone(),
                         )
-                        .into()
                     })
                     .unwrap_or_else(|| self.user_state.clone());
                 Ok(DesktopChange::SetUserState(user_state).into())

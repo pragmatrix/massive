@@ -1,11 +1,10 @@
 use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
-use massive_layout::LayoutTopology;
 use massive_scene::{ToCamera, Transform};
 
 use super::{DesktopSystem, DesktopTarget, UserState};
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{FocusDepth, LauncherMap};
-use crate::projects::{LaunchProfileId, ProjectId};
+use crate::projects::LaunchProfileId;
 
 #[derive(Debug, Clone)]
 pub(super) struct OverviewBounds {
@@ -43,54 +42,7 @@ pub fn zoom_out(
     Some(user_state)
 }
 
-// pub fn overview_target_for_navigation_candidate(
-//     topology: &DesktopTopology,
-//     current: &OverviewTarget,
-//     candidate: &DesktopTarget,
-// ) -> Option<OverviewTarget> {
-//     match current {
-//         OverviewTarget::Visor(current_launcher) => {
-//             let candidate_launcher = topology.launcher_of_target(candidate)?;
-//             (candidate_launcher == *current_launcher)
-//                 .then_some(OverviewTarget::Visor(*current_launcher))
-//         }
-//         OverviewTarget::MatrixRow(current_launcher) => {
-//             let current_project = topology.project_of_launcher(*current_launcher)?;
-//             let candidate_launcher = topology.launcher_of_target(candidate)?;
-//             let candidate_project = topology.project_of_launcher(candidate_launcher)?;
-
-//             (candidate_project == current_project)
-//                 .then_some(OverviewTarget::MatrixRow(candidate_launcher))
-//         }
-//         OverviewTarget::Project(current_project) => {
-//             let candidate_project = topology.project_of_target(candidate)?;
-//             (candidate_project == *current_project)
-//                 .then_some(OverviewTarget::Project(*current_project))
-//         }
-//         OverviewTarget::Desktop => Some(OverviewTarget::Desktop),
-//     }
-// }
-
-// impl DesktopSystem {
-//     pub(super) fn camera_for_overview_target(
-//         &self,
-//         target: &OverviewTarget,
-//     ) -> Option<PixelCamera> {
-//         match target {
-//             OverviewTarget::Visor(launcher_id) => {
-//                 self.camera_for_bounds(self.launcher_bounds(*launcher_id))
-//             }
-//             OverviewTarget::MatrixRow(launcher_id) => {
-//                 self.camera_for_rect(self.matrix_row_rect(*launcher_id)?)
-//             }
-//             OverviewTarget::Project(project_id) => {
-//                 self.camera_for_rect(self.project_rect(*project_id))
-//             }
-//             OverviewTarget::Desktop => self.camera_for_target(&DesktopTarget::Desktop),
-//         }
-//     }
-// }
-
+#[allow(dead_code)]
 fn focus_depth_from_target(target: DesktopTarget) -> FocusDepth {
     match target {
         DesktopTarget::View(_) => FocusDepth::Instance,
@@ -101,160 +53,6 @@ fn focus_depth_from_target(target: DesktopTarget) -> FocusDepth {
         | DesktopTarget::ProjectMatrix(_) => FocusDepth::Project,
         DesktopTarget::Desktop => FocusDepth::Desktop,
     }
-}
-
-// fn first_overview_target_for_launcher(
-//     topology: &DesktopTopology,
-//     launchers: &LauncherMap,
-//     launcher_id: LaunchProfileId,
-// ) -> OverviewTarget {
-//     if should_include_visor_level(topology, launcher_id) {
-//         return OverviewTarget::Visor(launcher_id);
-//     }
-
-//     if should_include_matrix_row_level(topology, launchers, launcher_id) {
-//         return OverviewTarget::MatrixRow(launcher_id);
-//     }
-
-//     topology
-//         .project_of_launcher(launcher_id)
-//         .map(OverviewTarget::Project)
-//         .unwrap_or(OverviewTarget::Desktop)
-// }
-
-// fn next_inward_user_state(
-//     topology: &DesktopTopology,
-//     launchers: &LauncherMap,
-//     focused: DesktopTarget,
-//     current: &OverviewTarget,
-// ) -> UserState {
-//     match current {
-//         OverviewTarget::Desktop => topology
-//             .project_of_target(&focused)
-//             .map(OverviewTarget::Project)
-//             .map(UserState::Overview)
-//             .unwrap_or(UserState::Instance),
-//         OverviewTarget::Project(project_id) => {
-//             let Some(launcher_id) =
-//                 zoom_context_launcher_for_project(topology, focused, *project_id)
-//             else {
-//                 return UserState::Instance;
-//             };
-
-//             deepest_overview_target_for_launcher(topology, launchers, launcher_id)
-//                 .map(UserState::Overview)
-//                 .unwrap_or(UserState::Instance)
-//         }
-//         OverviewTarget::MatrixRow(launcher_id) => {
-//             if should_include_visor_level(topology, *launcher_id) {
-//                 UserState::Overview(OverviewTarget::Visor(*launcher_id))
-//             } else {
-//                 UserState::Instance
-//             }
-//         }
-//         OverviewTarget::Visor(_) => UserState::Instance,
-//     }
-// }
-
-// fn deepest_overview_target_for_launcher(
-//     topology: &DesktopTopology,
-//     launchers: &LauncherMap,
-//     launcher_id: LaunchProfileId,
-// ) -> Option<OverviewTarget> {
-//     if should_include_matrix_row_level(topology, launchers, launcher_id) {
-//         return Some(OverviewTarget::MatrixRow(launcher_id));
-//     }
-
-//     if should_include_visor_level(topology, launcher_id) {
-//         return Some(OverviewTarget::Visor(launcher_id));
-//     }
-
-//     None
-// }
-
-// fn next_outward_overview_target(
-//     topology: &DesktopTopology,
-//     launchers: &LauncherMap,
-//     focused: DesktopTarget,
-//     current: &OverviewTarget,
-// ) -> OverviewTarget {
-//     match current {
-//         OverviewTarget::Visor(launcher_id) => {
-//             if should_include_matrix_row_level(topology, launchers, *launcher_id) {
-//                 OverviewTarget::MatrixRow(*launcher_id)
-//             } else {
-//                 zoom_transition_project(topology, focused, *launcher_id)
-//                     .map(OverviewTarget::Project)
-//                     .unwrap_or(OverviewTarget::Desktop)
-//             }
-//         }
-//         OverviewTarget::MatrixRow(launcher_id) => {
-//             zoom_transition_project(topology, focused, *launcher_id)
-//                 .map(OverviewTarget::Project)
-//                 .unwrap_or(OverviewTarget::Desktop)
-//         }
-//         OverviewTarget::Project(_) | OverviewTarget::Desktop => OverviewTarget::Desktop,
-//     }
-// }
-
-fn zoom_transition_project(
-    topology: &DesktopTopology,
-    focused: DesktopTarget,
-    launcher_id: LaunchProfileId,
-) -> Option<ProjectId> {
-    topology
-        .project_of_target(&focused)
-        .or_else(|| topology.project_of_launcher(launcher_id))
-}
-
-fn should_include_visor_level(topology: &DesktopTopology, launcher_id: LaunchProfileId) -> bool {
-    topology
-        .children_of(&DesktopTarget::Launcher(launcher_id))
-        .iter()
-        .filter(|target| matches!(target, DesktopTarget::Instance(_)))
-        .count()
-        > 1
-}
-
-fn should_include_matrix_row_level(
-    topology: &DesktopTopology,
-    launchers: &LauncherMap,
-    launcher_id: LaunchProfileId,
-) -> bool {
-    let Some(project_id) = topology.project_of_launcher(launcher_id) else {
-        return false;
-    };
-
-    let Some(row) = launchers.get(&launcher_id).map(|l| l.placement.row) else {
-        return false;
-    };
-
-    let launcher_count = topology
-        .children_of(&DesktopTarget::ProjectMatrix(project_id))
-        .iter()
-        .filter_map(|target| match target {
-            DesktopTarget::Launcher(candidate_launcher) => launchers.get(candidate_launcher),
-            _ => None,
-        })
-        .filter(|launcher| launcher.placement.row == row)
-        .count();
-
-    launcher_count > 1
-}
-
-fn zoom_context_launcher_for_project(
-    topology: &DesktopTopology,
-    focused: DesktopTarget,
-    project_id: ProjectId,
-) -> Option<crate::projects::LaunchProfileId> {
-    // Simplify: Can't we use project_of_target directly here?
-    if let Some(focused_launcher) = topology.launcher_of_target(&focused)
-        && topology.project_of_launcher(focused_launcher) == Some(project_id)
-    {
-        return Some(focused_launcher);
-    }
-
-    None
 }
 
 impl DesktopSystem {
