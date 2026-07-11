@@ -347,7 +347,7 @@ impl DesktopSystem {
 
         // Update the hover target.
         {
-            // Use keyboard focus for the howver if we are not focusing the thing directly.
+            // Use keyboard focus for the hover if we are not focusing the thing directly.
             let hover_target = if self.user_state.focus_depth != FocusDepth::default() {
                 self.event_router.keyboard_focus()
             } else {
