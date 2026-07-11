@@ -173,7 +173,7 @@ impl DesktopSystem {
             return;
         };
 
-        // Hmm, I think there can't ba None case here.
+        // Hmm, I think there can't be a None case here.
         let camera_target =
             self.resolve_camera_for_target_and_or_ancestor_of(focused, self.user_state.focus_depth);
 
