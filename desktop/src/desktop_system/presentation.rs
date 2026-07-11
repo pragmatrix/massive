@@ -2,7 +2,8 @@ use anyhow::{Result, bail};
 use log::warn;
 
 use massive_applications::{InstanceId, ViewCreationInfo};
-use massive_geometry::Vector3;
+use massive_geometry::{Point, Transform, Vector3};
+use massive_layout::{Placement, Size as LayoutSize};
 use massive_shell::Scene;
 
 use super::DesktopTarget;
@@ -143,4 +144,54 @@ impl DesktopSystem {
 
         Ok(ChangeOutput::changes(changes))
     }
+
+    pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
+        let Some(target) = target else {
+            self.desktop_presenter.set_hover_placement(None);
+            return;
+        };
+
+        let hover_placement = match target {
+            target @ (DesktopTarget::Instance(..) | DesktopTarget::View(..)) => self
+                .aggregates
+                .hierarchy
+                .instance_of_target(target)
+                .map(|instance_id| self.instance_hover_placement(instance_id)),
+            DesktopTarget::Launcher(launcher_id) => {
+                Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
+            }
+            _ => None,
+        };
+
+        self.desktop_presenter.set_hover_placement(hover_placement);
+    }
+
+    fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
+        let mut placement = self.placement(&DesktopTarget::Instance(instance_id));
+
+        // Keep hover aligned with animated instance motion by composing the current instance-local
+        // animated transform with the launcher's world transform.
+        let Some(instance_presenter) = self.aggregates.instances.get(&instance_id) else {
+            return placement;
+        };
+        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
+            return placement;
+        };
+        let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
+
+        let launcher_anchor = layout_center(launcher_placement.rect.size);
+        let instance_anchor = layout_center(placement.rect.size);
+        placement.transform = Transform::compose_with_anchor(
+            launcher_placement.transform,
+            launcher_anchor,
+            *instance_presenter.layout_transform_animation.latest_value(),
+            instance_anchor,
+        );
+
+        placement
+    }
+}
+
+fn layout_center(size: LayoutSize<2>) -> Point {
+    Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
 }
