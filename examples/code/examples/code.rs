@@ -6,7 +6,7 @@ use std::{
 };
 
 use anyhow::Result;
-use base_db::{RootQueryDb, SourceDatabase};
+use base_db::SourceDatabase;
 use chrono::{DateTime, Local};
 use tracing::info;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
@@ -33,7 +33,9 @@ use shared::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let env_filter = EnvFilter::from_default_env();
+    let env_filter = EnvFilter::from_default_env()
+        .add_directive("salsa=warn".parse()?)
+        .add_directive("hir_ty=warn".parse()?);
     let console_formatter = tracing_subscriber::fmt::Layer::default();
     // let (flame_layer, _flame_guard) = FlameLayer::with_file("./tracing.folded").unwrap();
 
@@ -80,6 +82,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         load_out_dirs_from_check: false,
         with_proc_macro_server: ProcMacroServerChoice::None,
         prefill_caches: false,
+        num_worker_threads: 1,
         proc_macro_processes: 1,
     };
 
@@ -115,8 +118,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let names = {
         let mut names = Vec::new();
-        let file_id = EditionedFileId::current_edition_guess_origin(db, file_id);
-        let tree = db.parse(file_id).tree();
+        let file_id = EditionedFileId::current_edition(db, file_id);
+        let tree = file_id.parse(db).tree();
         let syntax = tree.syntax().preorder();
         for event in syntax {
             match event {
@@ -193,7 +196,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         macro_bang: true,
         syntactic_name_ref_highlighting: true,
         comments: true,
-        minicore: Default::default(),
+        ra_fixture: ide::RaFixtureConfig::default(),
     };
 
     let syntax = analysis.highlight(highlight_config, file_id)?;

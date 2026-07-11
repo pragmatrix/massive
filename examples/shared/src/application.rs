@@ -152,6 +152,7 @@ impl Application {
 
                 self.modifiers = *modifiers
             }
+            #[allow(clippy::unneeded_wildcard_pattern)]
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
