@@ -189,13 +189,13 @@ impl DesktopSystem {
             event: key_event, ..
         } = event.event()
             && key_event.state == ElementState::Pressed
-            && !key_event.repeat
             && event.device_states().is_command()
         {
             let focused_path = self.focused_path();
 
             // Simplify: Instance should probably return the launcher, too now.
-            if let Some(instance) = focused_path.instance()
+            if !key_event.repeat
+                && let Some(instance) = focused_path.instance()
                 && let Some(DesktopTarget::Launcher(launcher)) =
                     self.aggregates.hierarchy.parent(&instance.into())
             {
