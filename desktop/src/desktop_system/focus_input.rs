@@ -13,6 +13,7 @@ use super::navigation::Direction;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
+use crate::desktop_system::zoom_navigation::focus_depth_from_target;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -179,6 +180,10 @@ impl DesktopSystem {
         Ok(())
     }
 
+    /// Architecture: Somehow the desktop presenter should be handle these (we need some kind of
+    /// event delivery down / up?)
+    ///
+    /// Design: This function is mixing state checks with the key detection.
     pub fn match_desktop_keyboard_shortcut(
         &self,
         event: &Event<ViewEvent>,
@@ -210,6 +215,21 @@ impl DesktopSystem {
                         return Some(DesktopKeyboardShortcut::CloseInstance(instance));
                     }
                     _ => {}
+                }
+            }
+
+            if !key_event.repeat
+                && key_event.logical_key == Key::Named(NamedKey::Enter)
+                && let Some(keyboard_focus) = self.event_router.keyboard_focus()
+            {
+                // Architecture: When we issue ResetZoom redundantly, we could capture the
+                // `Cmd+Enter` in situations in which it needs to be delivered to the
+                // `LauncherPresenter`. Therefore, we test upfront if the ResetZoom is needed.
+                let current_level = self.user_state.focus_depth;
+                let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
+
+                if current_level != keyboard_focus_level {
+                    return Some(DesktopKeyboardShortcut::ResetZoom);
                 }
             }
 
@@ -260,6 +280,7 @@ pub enum DesktopKeyboardShortcut {
     CloseInstance(InstanceId),
     ZoomOut,
     ZoomIn,
+    ResetZoom,
     Navigate(Direction),
 }
 
@@ -275,6 +296,7 @@ impl DesktopKeyboardShortcut {
             Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
             Self::ZoomOut => DesktopCommand::ZoomOut,
             Self::ZoomIn => DesktopCommand::ZoomIn,
+            Self::ResetZoom => DesktopCommand::ResetZoom,
             Self::Navigate(direction) => DesktopCommand::Navigate(direction),
         }
     }

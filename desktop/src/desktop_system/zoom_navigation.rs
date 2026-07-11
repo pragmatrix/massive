@@ -42,8 +42,7 @@ pub fn zoom_out(
     Some(user_state)
 }
 
-#[allow(dead_code)]
-fn focus_depth_from_target(target: DesktopTarget) -> FocusDepth {
+pub(super) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
     match target {
         DesktopTarget::View(_) => FocusDepth::Instance,
         DesktopTarget::Instance(_) => FocusDepth::Instance,

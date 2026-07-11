@@ -11,7 +11,7 @@ use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
 use crate::desktop_system::effects::MeasureSet;
-use crate::desktop_system::zoom_navigation::{zoom_in, zoom_out};
+use crate::desktop_system::zoom_navigation::{focus_depth_from_target, zoom_in, zoom_out};
 use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
@@ -157,6 +157,19 @@ impl DesktopSystem {
                     })
                     .unwrap_or_else(|| self.user_state.clone());
                 Ok(DesktopChange::SetUserState(user_state).into())
+            }
+            DesktopCommand::ResetZoom => {
+                if let Some(keyboard_focus) = self.event_router.keyboard_focus() {
+                    let current_level = self.user_state.focus_depth;
+                    let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
+
+                    if current_level != keyboard_focus_level {
+                        let mut new_user_state = self.user_state.clone();
+                        new_user_state.focus_depth = keyboard_focus_level;
+                        return Ok(DesktopChange::SetUserState(new_user_state).into());
+                    }
+                }
+                Ok([].into())
             }
             DesktopCommand::Navigate(direction) => self.plan_navigate(direction),
         }
