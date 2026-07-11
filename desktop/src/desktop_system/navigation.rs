@@ -111,7 +111,7 @@ impl DesktopSystem {
     pub(super) fn plan_navigate(&self, direction: Direction) -> Result<Changes> {
         // If nothing is focused (i.e. the whole window does not have the focused), we probably
         // don't want to do anything and this is perhaps even an error.
-        let Some(focused) = self.event_router.focused() else {
+        let Some(focused) = self.event_router.keyboard_focus() else {
             error!("Navigation request without active focus");
             return Ok(Changes::Empty);
         };

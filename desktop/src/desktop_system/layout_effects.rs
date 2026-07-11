@@ -167,7 +167,7 @@ impl DesktopSystem {
             return;
         }
 
-        let Some(focused) = self.event_router.focused() else {
+        let Some(focused) = self.event_router.keyboard_focus() else {
             // Not sure what we do if nothing is focused yet.
             error!("Updating camera without something focused");
             return;

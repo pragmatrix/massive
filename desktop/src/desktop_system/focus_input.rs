@@ -167,7 +167,7 @@ impl DesktopSystem {
         if self
             .aggregates
             .hierarchy
-            .path_contains_target(self.event_router.focused(), target)
+            .path_contains_target(self.event_router.keyboard_focus(), target)
         {
             let parent = self.aggregates.hierarchy.parent(target).cloned();
             self.focus(

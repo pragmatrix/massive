@@ -109,7 +109,7 @@ impl DesktopSystem {
                 //
                 // Detail: This causes an unfocus event sent to the instance's view which may
                 // unexpected while tear down.
-                let replacement_focus = self.event_router.focused().and_then(|focused| {
+                let replacement_focus = self.event_router.keyboard_focus().and_then(|focused| {
                     self.aggregates
                         .hierarchy
                         .resolve_replacement_focus_for_stopping_instance(focused, instance)
@@ -131,7 +131,7 @@ impl DesktopSystem {
             DesktopCommand::ZoomIn => {
                 let user_state = self
                     .event_router
-                    .focused()
+                    .keyboard_focus()
                     .and_then(|focused| {
                         zoom_in(
                             &self.aggregates.hierarchy,
@@ -146,7 +146,7 @@ impl DesktopSystem {
             DesktopCommand::ZoomOut => {
                 let user_state = self
                     .event_router
-                    .focused()
+                    .keyboard_focus()
                     .and_then(|focused| {
                         zoom_out(
                             &self.aggregates.hierarchy,
@@ -422,7 +422,7 @@ impl DesktopSystem {
                 // focus transition (and its navigation-affinity reset) flows through change
                 // application like every other focus change.
                 if let (Some(DesktopTarget::Instance(focused_instance)), ViewRole::Primary) =
-                    (self.event_router.focused(), &creation_info.role)
+                    (self.event_router.keyboard_focus(), &creation_info.role)
                     && *focused_instance == instance
                 {
                     output.changes += set_focus(

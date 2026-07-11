@@ -287,7 +287,7 @@ impl DesktopSystem {
 
         let mut measures = MeasureSet::Empty;
         let user_state_before = self.user_state.clone();
-        let focus_before = self.event_router.focused().cloned();
+        let focus_before = self.event_router.keyboard_focus().cloned();
 
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
 
@@ -305,7 +305,7 @@ impl DesktopSystem {
 
         // The camera follows the focused target, so a focus change recomputes it even when the
         // change moved no layout (pure navigation between siblings, or focusing a launcher).
-        let mut update_camera = self.event_router.focused() != focus_before.as_ref();
+        let mut update_camera = self.event_router.keyboard_focus() != focus_before.as_ref();
         if self.user_state != user_state_before {
             update_camera = true;
         }
@@ -345,8 +345,18 @@ impl DesktopSystem {
         // no root measure is needed here.
         self.run_effects_to_completion(effects_mode, effects)?;
 
-        // Sync the hover rect.
-        self.sync_hover_with_target(self.event_router.pointer_focus().cloned().as_ref());
+        // Update the hover target.
+        {
+            // Use keyboard focus for the howver if we are not focusing the thing directly.
+            let hover_target = if self.user_state.focus_depth != FocusDepth::default() {
+                self.event_router.keyboard_focus()
+            } else {
+                self.event_router.pointer_focus()
+            };
+
+            // Sync the hover rect.
+            self.sync_hover_with_target(hover_target.cloned().as_ref());
+        }
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
         self.apply_focused_view_window_state()?;
@@ -434,7 +444,7 @@ impl DesktopSystem {
     }
 
     pub fn focused_view_window_state(&self) -> Result<Option<ViewWindowState>> {
-        let Some(focused) = self.event_router.focused() else {
+        let Some(focused) = self.event_router.keyboard_focus() else {
             return Ok(None);
         };
 
@@ -489,7 +499,7 @@ impl DesktopSystem {
     }
 
     pub(super) fn focused_path(&self) -> DesktopFocusPath {
-        self.path_of(self.event_router.focused())
+        self.path_of(self.event_router.keyboard_focus())
     }
 
     pub(super) fn path_of<'a>(
