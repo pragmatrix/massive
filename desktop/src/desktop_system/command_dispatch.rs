@@ -164,30 +164,30 @@ impl DesktopSystem {
             ProjectCommand::AddProject {
                 id,
                 properties,
-                after: below,
+                after,
             } => {
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
 
-                changes.push(TopologyChange::Add {
+                changes <<= TopologyChange::Add {
                     what: project_target.clone(),
                     under: parent_target,
-                    after: below.map(DesktopTarget::Project),
-                });
+                    after: after.map(DesktopTarget::Project),
+                };
 
-                changes.push(TopologyChange::AddNested {
+                changes <<= TopologyChange::AddNested {
                     what: [
                         DesktopTarget::ProjectHeader(id),
                         DesktopTarget::ProjectMatrix(id),
                     ]
                     .into(),
                     under: project_target,
-                });
-                changes.push(ProjectChange::AddProject { id, properties });
+                };
+                changes <<= ProjectChange::AddProject { id, properties };
             }
             ProjectCommand::RemoveProject(project_id) => {
-                changes.push(TopologyChange::Remove(DesktopTarget::Project(project_id)));
-                changes.push(ProjectChange::RemoveProject(project_id));
+                changes <<= TopologyChange::Remove(DesktopTarget::Project(project_id));
+                changes <<= ProjectChange::RemoveProject(project_id);
             }
             ProjectCommand::AddLauncher {
                 project,
@@ -195,24 +195,24 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
-                changes.push(ProjectChange::AddLauncher {
+                changes <<= ProjectChange::AddLauncher {
                     project,
                     id: launch_profile_id,
                     profile,
                     placement,
-                });
-                changes.push(TopologyChange::Add {
+                };
+                changes <<= TopologyChange::Add {
                     what: launch_profile_id.into(),
                     under: DesktopTarget::ProjectMatrix(project),
                     after: None,
-                });
+                };
             }
             ProjectCommand::RemoveLauncher(launch_profile_id) => {
-                changes.push(TopologyChange::Remove(launch_profile_id.into()));
-                changes.push(ProjectChange::RemoveLauncher(launch_profile_id));
+                changes <<= TopologyChange::Remove(launch_profile_id.into());
+                changes <<= ProjectChange::RemoveLauncher(launch_profile_id);
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
-                changes.push(ProjectChange::SetStartupProfile(launch_profile_id))
+                changes <<= ProjectChange::SetStartupProfile(launch_profile_id)
             }
         }
 
@@ -304,6 +304,7 @@ impl DesktopSystem {
         match change {
             TopologyChange::Add { what, under, after } => {
                 if let Some(after) = after {
+                    // Design: `under` can be resolved via `after`!
                     self.aggregates.hierarchy.add_after(after, what)?;
                 } else {
                     self.aggregates.hierarchy.add(under.clone(), what)?;

@@ -60,7 +60,6 @@ where
     }
 }
 
-
 impl<T> AddAssign<T> for CollectingVec<T> {
     fn add_assign(&mut self, value: T) {
         self.push(value);
