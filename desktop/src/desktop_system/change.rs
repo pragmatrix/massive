@@ -4,14 +4,13 @@ use massive_util::CollectingVec;
 
 use crate::{
     DesktopTarget,
-    desktop_system::{KeyboardFocusReason, ProjectCommand, UserState},
+    desktop_system::{KeyboardFocusReason, UserState},
     event_router::EventTransitions,
     instance_presenter::InstanceRoot,
-    projects::LaunchProfileId,
+    projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties},
 };
 
 pub type Changes = CollectingVec<DesktopChange>;
-pub type ProjectChange = ProjectCommand;
 
 #[derive(Debug)]
 pub enum DesktopChange {
@@ -46,6 +45,23 @@ pub enum DesktopChange {
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
 }
 
+#[derive(Debug)]
+pub enum ProjectChange {
+    AddProject {
+        id: ProjectId,
+        properties: ProjectProperties,
+    },
+    RemoveProject(ProjectId),
+    AddLauncher {
+        project: ProjectId,
+        id: LaunchProfileId,
+        profile: LaunchProfile,
+        placement: MatrixPlacement,
+    },
+    RemoveLauncher(LaunchProfileId),
+    SetStartupProfile(Option<LaunchProfileId>),
+}
+
 /// Constructs the change(s) for a focus transition.
 ///
 /// Emits `SetFocus`, and — when the focus reason resets navigation affinity — a sibling
@@ -65,6 +81,7 @@ pub enum TopologyChange {
     Add {
         what: DesktopTarget,
         under: DesktopTarget,
+        after: Option<DesktopTarget>,
     },
     AddNested {
         what: Vec<DesktopTarget>,

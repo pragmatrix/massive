@@ -43,6 +43,7 @@ impl InstanceEnvironment {
 #[derive(Debug, Constructor)]
 pub struct InstanceSubmission {
     changes: ChangeSet<InstanceChange>,
+    /// Submission-level render metadata, including for empty change sets.
     pacing: RenderPacing,
 }
 
@@ -79,11 +80,31 @@ impl InstanceSubmission {
 #[derive(Debug)]
 pub enum InstanceChange {
     Scene(SceneChange),
+
+    // Design: Combine the following three?
     CreateView(ViewCreationInfo),
     View(ViewId, ViewChange),
     DestroyView(ViewId),
+
+    /// Design: This should probably converted to a kind of custom boxed command / request
+    /// (discriminated by type), so that the interface stays abstract over what outer shell is
+    /// driving the instance.
+    Desktop(DesktopRequest),
+
     /// The instance ended. The `Ref<Location>` can just be dropped now as soon this event got
     /// received (and so may enqueue its deletion into the `ChangeCollector` after all other events
     /// have been received).
     End(Ref<Location>),
+}
+
+#[derive(Debug)]
+pub enum DesktopRequest {
+    NewProject,
+    // `title` is for deleting a specific project without selecting it first.
+    DeleteProject { name: Option<String> },
+    NewLauncher,
+    // `title` is for deleting a launcher project without selecting it first.
+    DeleteLauncher { name: Option<String> },
+    Undo,
+    Redo,
 }

@@ -122,6 +122,7 @@ impl DesktopSystem {
         let changes: Changes = DesktopChange::Topology(TopologyChange::Add {
             what: DesktopTarget::View(view_creation_info.id),
             under: DesktopTarget::Instance(instance),
+            after: None,
         })
         .into();
 

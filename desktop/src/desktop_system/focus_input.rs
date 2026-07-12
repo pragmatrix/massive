@@ -294,10 +294,10 @@ impl DesktopKeyboardShortcut {
                 parameters: Default::default(),
             },
             Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
+            Self::Navigate(direction) => DesktopCommand::Navigate(direction),
             Self::ZoomOut => DesktopCommand::ZoomOut,
             Self::ZoomIn => DesktopCommand::ZoomIn,
             Self::ResetZoom => DesktopCommand::ResetZoom,
-            Self::Navigate(direction) => DesktopCommand::Navigate(direction),
         }
     }
 }

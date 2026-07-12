@@ -24,10 +24,11 @@ pub enum DesktopCommand {
     },
     StopInstance(InstanceId),
 
+    Navigate(Direction),
+
     ZoomIn,
     ZoomOut,
     ResetZoom,
-    Navigate(Direction),
 }
 
 #[derive(Debug)]
@@ -35,6 +36,7 @@ pub enum ProjectCommand {
     AddProject {
         id: ProjectId,
         properties: ProjectProperties,
+        after: Option<ProjectId>,
     },
     #[allow(unused)]
     RemoveProject(ProjectId),

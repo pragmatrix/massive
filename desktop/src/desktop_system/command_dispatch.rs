@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 
 use massive_applications::{
-    CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange, ViewRole,
+    CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
+    ViewRole,
 };
 use massive_shell::Scene;
 
@@ -15,7 +16,7 @@ use crate::desktop_system::zoom_navigation::focus_depth_from_target;
 use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{LauncherPresenter, ProjectPresenter};
+use crate::projects::{LauncherPresenter, ProjectId, ProjectPresenter, ProjectProperties};
 
 /// The outcome of applying a change: the measures it produced and any follow-up changes.
 #[derive(Debug, Default)]
@@ -24,7 +25,6 @@ pub struct ChangeOutput {
     pub changes: Changes,
     pub measures: MeasureSet,
 }
-
 impl ChangeOutput {
     /// An outcome that produced the given measures.
     fn measures(measures: MeasureSet) -> Self {
@@ -128,6 +128,7 @@ impl DesktopSystem {
 
                 return Ok(changes);
             }
+            DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
             DesktopCommand::ZoomIn => {
                 if let Some(focus_depth) = self.user_state.focus_depth.zoom_in() {
                     let user_state = UserState { focus_depth };
@@ -152,7 +153,6 @@ impl DesktopSystem {
                     }
                 }
             }
-            DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
         }
 
         Ok([].into())
@@ -161,13 +161,20 @@ impl DesktopSystem {
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
         let mut changes = Changes::Empty;
         match command {
-            ProjectCommand::AddProject { id, properties } => {
+            ProjectCommand::AddProject {
+                id,
+                properties,
+                after: below,
+            } => {
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
+
                 changes.push(TopologyChange::Add {
                     what: project_target.clone(),
                     under: parent_target,
+                    after: below.map(DesktopTarget::Project),
                 });
+
                 changes.push(TopologyChange::AddNested {
                     what: [
                         DesktopTarget::ProjectHeader(id),
@@ -197,6 +204,7 @@ impl DesktopSystem {
                 changes.push(TopologyChange::Add {
                     what: launch_profile_id.into(),
                     under: DesktopTarget::ProjectMatrix(project),
+                    after: None,
                 });
             }
             ProjectCommand::RemoveLauncher(launch_profile_id) => {
@@ -294,8 +302,12 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<MeasureSet> {
         match change {
-            TopologyChange::Add { what, under } => {
-                self.aggregates.hierarchy.add(under.clone(), what)?;
+            TopologyChange::Add { what, under, after } => {
+                if let Some(after) = after {
+                    self.aggregates.hierarchy.add_after(after, what)?;
+                } else {
+                    self.aggregates.hierarchy.add(under.clone(), what)?;
+                }
                 Ok(under.into())
             }
             TopologyChange::AddNested { what, under } => {
@@ -437,6 +449,9 @@ impl DesktopSystem {
                 self.apply_view_change(view_path, command)?;
                 Ok(ChangeOutput::default())
             }
+            InstanceChange::Desktop(request) => {
+                self.handle_desktop_request(instance, request, scene)
+            }
             // This makes sure that all pending Scene Changes from the Instance have been collected
             // before we drop the last ref the instance has to its parent location (which in turn
             // may push other deletes to the Scene).
@@ -465,4 +480,36 @@ impl DesktopSystem {
 
         Ok(())
     }
+
+    fn handle_desktop_request(
+        &self,
+        instance: InstanceId,
+        request: DesktopRequest,
+        scene: &Scene,
+    ) -> Result<ChangeOutput> {
+        let current_project = self
+            .aggregates
+            .hierarchy
+            .project_of_target(&instance.into())
+            .expect("Instance has not project?");
+        match &request {
+            DesktopRequest::NewProject => Ok(ChangeOutput::changes(self.plan(
+                DesktopCommand::Project(ProjectCommand::AddProject {
+                    id: ProjectId::new(),
+                    properties: ProjectProperties {
+                        name: DEFAULT_NEW_PROJECT_NAME.to_string(),
+                    },
+                    after: Some(current_project),
+                }),
+                scene,
+            )?)),
+            DesktopRequest::DeleteProject { name: _ } => todo!(),
+            DesktopRequest::NewLauncher => todo!(),
+            DesktopRequest::DeleteLauncher { name: _ } => todo!(),
+            DesktopRequest::Undo => todo!(),
+            DesktopRequest::Redo => todo!(),
+        }
+    }
 }
+
+const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
