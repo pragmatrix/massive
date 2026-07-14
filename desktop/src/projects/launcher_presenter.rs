@@ -137,6 +137,10 @@ impl LauncherPresenter {
         }
     }
 
+    pub fn name(&self) -> &str {
+        &self.profile.name
+    }
+
     pub fn includes_overflow_children_in_hit_testing(&self) -> bool {
         match self.mode {
             LauncherMode::Band => false,

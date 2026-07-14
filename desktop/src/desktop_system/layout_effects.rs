@@ -46,11 +46,44 @@ impl DesktopSystem {
 
     pub(super) fn apply_focused_view_window_state(&self) -> Result<()> {
         let state = self.focused_view_window_state()?.unwrap_or_default();
-        self.window.set_title(&state.title);
+        self.window.set_title(&self.focused_window_title(state.title)?);
         self.window.set_cursor(state.cursor);
         // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
         self.window.set_cursor_visible(self.is_cursor_visible());
         Ok(())
+    }
+
+    fn focused_window_title(&self, terminal_title: String) -> Result<String> {
+        let focused = self.event_router.keyboard_focus();
+        let launcher = focused
+            .and_then(|target| self.aggregates.hierarchy.launcher_of_target(target))
+            .map(|id| {
+                self.aggregates
+                    .launchers
+                    .get(&id)
+                    .map(|launcher| launcher.name())
+                    .expect("Focused launcher has no presenter")
+            });
+        let project = focused
+            .and_then(|target| self.aggregates.hierarchy.project_of_target(target))
+            .map(|id| {
+                self.aggregates
+                    .projects
+                    .get(&id)
+                    .map(|project| project.name())
+                    .expect("Focused project has no presenter")
+            });
+
+        let mut title = if terminal_title.is_empty() {
+                self.env.primary_application.clone()
+        } else {
+            terminal_title
+        };
+        for name in launcher.into_iter().chain(project) {
+            title.push_str(" - ");
+            title.push_str(name);
+        }
+        Ok(title)
     }
 
     /// Measures one layout target in a bottom-up pass and schedules follow-up work.
