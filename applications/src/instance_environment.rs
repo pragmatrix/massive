@@ -100,12 +100,12 @@ pub enum InstanceChange {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub enum DesktopRequest {
-    NewProject,
-    // `title` is for deleting a specific project without selecting it first.
-    DeleteProject { name: Option<String> },
-    NewLauncher,
-    // `title` is for deleting a launcher project without selecting it first.
-    DeleteLauncher { name: Option<String> },
+    AddProject,
+    // `title` is for removing a specific project without selecting it first.
+    RemoveProject { name: Option<String> },
+    AddLauncher,
+    // `title` is for removing a launcher project without selecting it first.
+    RemoveLauncher { name: Option<String> },
     Undo,
     Redo,
 }

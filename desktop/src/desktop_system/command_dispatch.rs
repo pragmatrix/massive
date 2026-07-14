@@ -6,6 +6,7 @@ use massive_applications::{
     ViewRole,
 };
 use massive_shell::Scene;
+use massive_util::CollectingVec;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::desktop_system::change::{
@@ -16,7 +17,10 @@ use crate::desktop_system::zoom_navigation::focus_depth_from_target;
 use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{LauncherPresenter, ProjectId, ProjectPresenter, ProjectProperties};
+use crate::projects::{
+    LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
+    ProjectPresenter, ProjectProperties,
+};
 
 /// The outcome of applying a change: the measures it produced and any follow-up changes.
 #[derive(Debug, Default)]
@@ -450,9 +454,7 @@ impl DesktopSystem {
                 self.apply_view_change(view_path, command)?;
                 Ok(ChangeOutput::default())
             }
-            InstanceChange::Desktop(request) => {
-                self.handle_desktop_request(instance, request, scene)
-            }
+            InstanceChange::Desktop(request) => self.handle_desktop_request(instance, request),
             // This makes sure that all pending Scene Changes from the Instance have been collected
             // before we drop the last ref the instance has to its parent location (which in turn
             // may push other deletes to the Scene).
@@ -486,7 +488,6 @@ impl DesktopSystem {
         &self,
         instance: InstanceId,
         request: DesktopRequest,
-        scene: &Scene,
     ) -> Result<ChangeOutput> {
         let current_project = self
             .aggregates
@@ -494,19 +495,44 @@ impl DesktopSystem {
             .project_of_target(&instance.into())
             .expect("Instance has not project?");
         match &request {
-            DesktopRequest::NewProject => Ok(ChangeOutput::changes(self.plan(
-                DesktopCommand::Project(ProjectCommand::AddProject {
-                    id: ProjectId::new(),
-                    properties: ProjectProperties {
-                        name: DEFAULT_NEW_PROJECT_NAME.to_string(),
+            DesktopRequest::AddProject => {
+                let project = ProjectId::new();
+                let launcher = LaunchProfileId::new();
+
+                // ADR: Decided to add a bare launcher if a new project is added, so that we can
+                // enter it and add further launchers from there.
+
+                let commands = [
+                    ProjectCommand::AddProject {
+                        id: project,
+                        properties: ProjectProperties {
+                            name: DEFAULT_NEW_PROJECT_NAME.to_string(),
+                        },
+                        after: Some(current_project),
                     },
-                    after: Some(current_project),
-                }),
-                scene,
-            )?)),
-            DesktopRequest::DeleteProject { name: _ } => todo!(),
-            DesktopRequest::NewLauncher => todo!(),
-            DesktopRequest::DeleteLauncher { name: _ } => todo!(),
+                    ProjectCommand::AddLauncher {
+                        project,
+                        id: launcher,
+                        profile: LaunchProfile {
+                            name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
+                            mode: LauncherMode::Visor,
+                            tags: Vec::new(),
+                            params: Default::default(),
+                        },
+                        placement: MatrixPlacement { column: 0, row: 0 },
+                    },
+                ];
+
+                let mut changes = Changes::Empty;
+                for command in commands {
+                    changes += self.plan_project(command)?;
+                }
+
+                Ok(ChangeOutput::changes(changes))
+            }
+            DesktopRequest::RemoveProject { name: _ } => todo!(),
+            DesktopRequest::AddLauncher => todo!(),
+            DesktopRequest::RemoveLauncher { name: _ } => todo!(),
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),
         }
@@ -514,3 +540,4 @@ impl DesktopSystem {
 }
 
 const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
+const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
