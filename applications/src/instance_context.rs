@@ -15,8 +15,8 @@ use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::view_builder::ViewBuilder;
 use crate::{
-    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene,
-    ViewEvent, ViewExtent, ViewId,
+    DesktopRequest, InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters,
+    InstanceSubmission, Scene, ViewEvent, ViewExtent, ViewId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -145,6 +145,11 @@ impl InstanceContext {
             extent.into().into(),
             self.new_scene(),
         )
+    }
+
+    /// Design: This may interfere with animations and requires a final submit()!
+    pub fn collect_desktop_request(&mut self, request: DesktopRequest) {
+        self.changes.collect(InstanceChange::Desktop(request))
     }
 
     pub fn submit(&mut self) -> Result<()> {

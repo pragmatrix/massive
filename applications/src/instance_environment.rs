@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use derive_more::Constructor;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -97,7 +98,7 @@ pub enum InstanceChange {
     End(Ref<Location>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub enum DesktopRequest {
     NewProject,
     // `title` is for deleting a specific project without selecting it first.
