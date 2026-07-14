@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::{Result, bail};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{ViewCreationInfo, ViewId, ViewRole};
+use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_renderer::RenderPacing;
 use massive_scene::{At, Handle, Location, Object, Ref, StageIdentityLocation, Visual};
@@ -38,6 +38,7 @@ const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
 #[derive(Debug)]
 pub struct InstancePresenter {
     state: InstancePresenterState,
+    parameters: InstanceParameters,
     /// The instance layout transform stores the panel center translation and yaw rotation.
     /// Position-only consumers should read `layout_transform_animation.*.translate`.
     pub layout_transform_animation: Animated<Transform>,
@@ -85,6 +86,7 @@ impl InstancePresenter {
         initial_center_translation: Option<Vector3>,
         show_background: bool,
         root: InstanceRoot,
+        parameters: InstanceParameters,
         parent: Handle<Location>,
         scene: &Scene,
     ) -> Self {
@@ -106,6 +108,7 @@ impl InstancePresenter {
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
+            parameters,
             layout_transform_animation: scene.animated(Transform::from_translation(
                 initial_center_translation.unwrap_or_default(),
             )),
@@ -119,6 +122,10 @@ impl InstancePresenter {
 
     pub fn presents_primary_view(&self) -> bool {
         self.state.view().is_some()
+    }
+
+    pub fn parameters(&self) -> &InstanceParameters {
+        &self.parameters
     }
 
     pub fn present_view(

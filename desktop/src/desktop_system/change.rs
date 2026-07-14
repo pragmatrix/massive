@@ -25,6 +25,7 @@ pub enum DesktopChange {
         initial_center_translation: Option<Vector3>,
         instance: InstanceId,
         root: InstanceRoot,
+        parameters: InstanceParameters,
     },
     ShutdownInstance(InstanceId),
     HideInstance {

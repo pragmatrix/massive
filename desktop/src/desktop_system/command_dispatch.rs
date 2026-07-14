@@ -73,7 +73,7 @@ impl DesktopSystem {
                     vec![DesktopChange::SpawnInstance {
                         instance,
                         root: root.clone(),
-                        parameters,
+                        parameters: parameters.clone(),
                     }]
                 } else {
                     Vec::new()
@@ -87,6 +87,7 @@ impl DesktopSystem {
                             .and_then(|od| od.initial_center_translation),
                         instance,
                         root,
+                        parameters,
                     },
                     DesktopChange::Topology(TopologyChange::Insert {
                         what: instance.into(),
@@ -261,8 +262,16 @@ impl DesktopSystem {
                 initial_center_translation,
                 instance,
                 root,
+                parameters,
             } => {
-                self.present_instance(launcher, initial_center_translation, instance, root, scene)?;
+                self.present_instance(
+                    launcher,
+                    initial_center_translation,
+                    instance,
+                    root,
+                    parameters,
+                    scene,
+                )?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
                 self.hide_instance(launcher, instance)?;

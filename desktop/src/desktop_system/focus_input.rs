@@ -5,7 +5,7 @@ use uuid::Uuid;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
@@ -206,8 +206,24 @@ impl DesktopSystem {
             {
                 let launcher_id = *launcher;
                 match &key_event.logical_key {
-                    Key::Character(c) if c.as_str() == "t" => {
-                        return Some(DesktopKeyboardShortcut::NewInstance(launcher_id));
+                    // Shift results in `T`.
+                    Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => {
+                        // Design: I don't like that a) this policy is decided here, and b) that we
+                        // pull the parameters here, too.
+                        let parameters = if event.device_states().is_shift() {
+                            Default::default()
+                        } else {
+                            self.aggregates
+                                .instances
+                                .get(&instance)
+                                .expect("Focused instance has no presenter")
+                                .parameters()
+                                .clone()
+                        };
+                        return Some(DesktopKeyboardShortcut::NewInstance {
+                            launcher: launcher_id,
+                            parameters,
+                        });
                     }
                     Key::Character(c) if c.as_str() == "w" => {
                         // Architecture: Shouldn't this just end the current view, and let the
@@ -276,7 +292,10 @@ fn targets_affected_by_keyboard_focus_change<T>(this: &EventTransitions<T>) -> V
 
 #[derive(Debug)]
 pub enum DesktopKeyboardShortcut {
-    NewInstance(LaunchProfileId),
+    NewInstance {
+        launcher: LaunchProfileId,
+        parameters: InstanceParameters,
+    },
     CloseInstance(InstanceId),
     ZoomOut,
     ZoomIn,
@@ -287,11 +306,14 @@ pub enum DesktopKeyboardShortcut {
 impl DesktopKeyboardShortcut {
     pub fn into_command(self) -> DesktopCommand {
         match self {
-            Self::NewInstance(launch_profile_id) => DesktopCommand::StartInstance {
-                launcher: launch_profile_id,
+            Self::NewInstance {
+                launcher,
+                parameters,
+            } => DesktopCommand::StartInstance {
+                launcher,
                 instance: Uuid::new_v4().into(),
                 root: None,
-                parameters: Default::default(),
+                parameters,
             },
             Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
             Self::Navigate(direction) => DesktopCommand::Navigate(direction),
