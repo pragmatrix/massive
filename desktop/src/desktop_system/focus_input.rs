@@ -104,7 +104,7 @@ impl DesktopSystem {
         let focused_path = self.path_of(target);
         let focused_instance = focused_path.instance()?;
         let topology = &self.aggregates.hierarchy;
-        let launcher_id = topology.launcher_of_instance(focused_instance)?;
+        let launcher_id = topology.launcher_of_instance(focused_instance);
         let instance_count = topology
             .get_nested(&DesktopTarget::Launcher(launcher_id))
             .len();
@@ -123,9 +123,7 @@ impl DesktopSystem {
         let Some(instance_id) = self.focused_path().instance() else {
             return;
         };
-        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
-            return;
-        };
+        let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
         let launcher = self
             .aggregates
             .launchers

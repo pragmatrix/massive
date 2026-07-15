@@ -125,7 +125,7 @@ impl DesktopSystem {
     }
 
     pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
-        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id)?;
+        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id);
         let row = self.aggregates.matrix_positions.get(&launcher_id)?.row;
         let mut rect: Option<Rect> = None;
 

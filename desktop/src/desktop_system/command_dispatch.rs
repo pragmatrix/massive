@@ -104,11 +104,7 @@ impl DesktopSystem {
                 return Ok(changes);
             }
             DesktopCommand::StopInstance(instance) => {
-                let launcher = self
-                    .aggregates
-                    .hierarchy
-                    .launcher_of_instance(instance)
-                    .expect("Launcher not found");
+                let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
 
                 // Set up a replacement focus first.
                 //
@@ -573,11 +569,7 @@ impl DesktopSystem {
             }
             DesktopRequest::RemoveProject { name: _ } => todo!(),
             DesktopRequest::AddLauncher => {
-                let current_launcher = self
-                    .aggregates
-                    .hierarchy
-                    .launcher_of_instance(instance)
-                    .expect("Instance has no launcher");
+                let current_launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&current_launcher];
 
                 Ok(ChangeOutput::changes(self.plan_project(

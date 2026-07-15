@@ -213,7 +213,7 @@ impl DeviceStates {
     pub fn all_pressed(
         &self,
         button: MouseButton,
-    ) -> impl Iterator<Item = (DeviceId, (Instant, Point))> + '_ {
+    ) -> impl Iterator<Item = (DeviceId, (Instant, Point))> {
         self.pointing_devices
             .iter()
             .flat_map(move |(id, state)| {

@@ -177,11 +177,7 @@ impl DesktopSystem {
             .instances
             .get(&instance_id)
             .expect("Instance not found");
-        let launcher_id = self
-            .aggregates
-            .hierarchy
-            .launcher_of_instance(instance_id)
-            .expect("Instance without launcher");
+        let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
         // Keep hover aligned with animated instance motion by composing the current instance-local
