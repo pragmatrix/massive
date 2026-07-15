@@ -13,7 +13,7 @@ use super::navigation::Direction;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
-use crate::desktop_system::zoom_navigation::focus_depth_from_target;
+use crate::desktop_system::navigation::focus_depth_from_target;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;

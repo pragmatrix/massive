@@ -60,6 +60,10 @@ pub enum ProjectChange {
         placement: MatrixPlacement,
     },
     RemoveLauncher(LaunchProfileId),
+    MakeSlotAvailable {
+        project: ProjectId,
+        placement: MatrixPlacement,
+    },
     SetStartupProfile(Option<LaunchProfileId>),
 }
 

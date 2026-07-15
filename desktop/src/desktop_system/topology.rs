@@ -60,6 +60,18 @@ impl OrderedHierarchy<DesktopTarget> {
         }
     }
 
+    pub fn matrix_launchers(
+        &self,
+        project_id: ProjectId,
+    ) -> impl Iterator<Item = LaunchProfileId> + '_ {
+        self.get_nested(&DesktopTarget::ProjectMatrix(project_id))
+            .iter()
+            .map(|target| match target {
+                DesktopTarget::Launcher(launcher_id) => *launcher_id,
+                _ => panic!("project matrix children must be launchers"),
+            })
+    }
+
     pub fn launcher_instances(&self, launcher_id: LaunchProfileId) -> Vec<InstanceId> {
         self.get_nested(&DesktopTarget::Launcher(launcher_id))
             .iter()

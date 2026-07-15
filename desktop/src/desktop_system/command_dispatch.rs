@@ -6,14 +6,14 @@ use massive_applications::{
     ViewRole,
 };
 use massive_shell::Scene;
-use massive_util::CollectingVec;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
+use crate::ShiftingPolicy;
 use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
 use crate::desktop_system::effects::MeasureSet;
-use crate::desktop_system::zoom_navigation::focus_depth_from_target;
+use crate::desktop_system::navigation::focus_depth_from_target;
 use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
@@ -200,6 +200,14 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
+                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                if !self
+                    .aggregates
+                    .matrix_positions
+                    .is_available(launchers, placement)
+                {
+                    changes <<= ProjectChange::MakeSlotAvailable { project, placement };
+                }
                 changes <<= ProjectChange::AddLauncher {
                     project,
                     id: launch_profile_id,
@@ -302,7 +310,7 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission, scene);
             }
             DesktopChange::Project(project_change) => {
-                self.apply_project_change(project_change, scene)?;
+                return self.apply_project_change(project_change, scene);
             }
         }
 
@@ -349,7 +357,11 @@ impl DesktopSystem {
         }
     }
 
-    fn apply_project_change(&mut self, change: ProjectChange, scene: &Scene) -> Result<()> {
+    fn apply_project_change(
+        &mut self,
+        change: ProjectChange,
+        scene: &Scene,
+    ) -> Result<ChangeOutput> {
         match change {
             ProjectChange::AddProject { id, properties } => {
                 let parent_location = self.desktop_presenter.location.clone();
@@ -366,12 +378,19 @@ impl DesktopSystem {
             ProjectChange::RemoveProject(project) => {
                 self.aggregates.projects.remove(&project)?;
             }
+            // Keep matrix placement and removal in launcher lifecycle changes so they carry
+            // complete state instead of requiring an ordered sequence of partial changes.
             ProjectChange::AddLauncher {
                 project,
                 id,
                 profile,
                 placement,
             } => {
+                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                self.aggregates
+                    .matrix_positions
+                    .place(launchers, id, placement)?;
+
                 let matrix_location = self
                     .aggregates
                     .projects
@@ -383,7 +402,6 @@ impl DesktopSystem {
                 let presenter = LauncherPresenter::new(
                     matrix_location,
                     id,
-                    placement,
                     profile,
                     massive_geometry::Size::default(),
                     scene,
@@ -393,13 +411,27 @@ impl DesktopSystem {
             }
             ProjectChange::RemoveLauncher(launch_profile_id) => {
                 self.aggregates.launchers.remove(&launch_profile_id)?;
+                self.aggregates
+                    .matrix_positions
+                    .remove(&launch_profile_id)?;
+            }
+            ProjectChange::MakeSlotAvailable { project, placement } => {
+                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                self.aggregates.matrix_positions.make_slot_available(
+                    launchers,
+                    placement,
+                    ShiftingPolicy::ShiftRight,
+                )?;
+                return Ok(ChangeOutput::measures(
+                    DesktopTarget::ProjectMatrix(project).into(),
+                ));
             }
             ProjectChange::SetStartupProfile(launch_profile_id) => {
                 self.aggregates.startup_profile = launch_profile_id;
             }
         }
 
-        Ok(())
+        Ok(ChangeOutput::default())
     }
 
     fn apply_instance_submission(

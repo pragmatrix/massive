@@ -72,7 +72,9 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             // Launcher panels run a dedicated path because transform assignment is
             // a second phase over the regular 2D child placement.
             DesktopTarget::Launcher(_) => self.place_launcher_children(id, &child_sizes),
-            DesktopTarget::ProjectMatrix(_) => self.place_project_matrix_children(id, &child_sizes),
+            DesktopTarget::ProjectMatrix(project_id) => {
+                self.place_project_matrix_children(*project_id, &child_sizes)
+            }
             _ => self.place_standard_children(id, parent_size, child_measurements),
         }
     }
@@ -90,7 +92,9 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
                 .map(Into::into)
                 .unwrap_or_else(|| self.measure_via_layout_spec(id, &child_sizes).into()),
             DesktopTarget::ProjectHeader(project_id) => self.project_header_size(*project_id),
-            DesktopTarget::ProjectMatrix(_) => self.measure_project_matrix(id, &child_sizes).into(),
+            DesktopTarget::ProjectMatrix(project_id) => self
+                .measure_project_matrix(*project_id, &child_sizes)
+                .into(),
             _ => self.measure_via_layout_spec(id, &child_sizes).into(),
         }
     }
@@ -126,8 +130,8 @@ impl DesktopLayoutAlgorithm<'_> {
         }
     }
 
-    fn measure_project_matrix(&self, id: &DesktopTarget, child_sizes: &[Size<2>]) -> Size<2> {
-        let (columns, rows) = self.project_matrix_tracks(id, child_sizes);
+    fn measure_project_matrix(&self, project_id: ProjectId, child_sizes: &[Size<2>]) -> Size<2> {
+        let (columns, rows) = self.project_matrix_tracks(project_id, child_sizes);
         let matrix_width = tracks_span(&columns, MATRIX_COLUMN_SPACING);
         let matrix_height = tracks_span(&rows, MATRIX_ROW_SPACING);
         [matrix_width, matrix_height].into()
@@ -135,18 +139,19 @@ impl DesktopLayoutAlgorithm<'_> {
 
     fn place_project_matrix_children(
         &self,
-        id: &DesktopTarget,
+        project_id: ProjectId,
         child_sizes: &[Size<2>],
     ) -> Vec<Placement<Transform, 2>> {
-        let children = self.aggregates.hierarchy.get_nested(id);
-        let (columns, rows) = self.project_matrix_tracks(id, child_sizes);
+        let (columns, rows) = self.project_matrix_tracks(project_id, child_sizes);
         let mut placements = Vec::with_capacity(child_sizes.len());
 
-        for (child, child_size) in children.iter().zip(child_sizes.iter().copied()) {
-            let DesktopTarget::Launcher(launcher_id) = child else {
-                panic!("Project matrix children must be launchers")
-            };
-            let placement = self.aggregates.launchers[launcher_id].placement;
+        for (launcher_id, child_size) in self
+            .aggregates
+            .hierarchy
+            .matrix_launchers(project_id)
+            .zip(child_sizes.iter().copied())
+        {
+            let placement = self.aggregates.matrix_positions[&launcher_id];
             let offset = Offset::from([
                 track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
                 track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
@@ -165,18 +170,19 @@ impl DesktopLayoutAlgorithm<'_> {
 
     fn project_matrix_tracks(
         &self,
-        id: &DesktopTarget,
+        project_id: ProjectId,
         child_sizes: &[Size<2>],
     ) -> (Vec<u32>, Vec<u32>) {
-        let children = self.aggregates.hierarchy.get_nested(id);
         let mut columns = Vec::new();
         let mut rows = Vec::new();
 
-        for (child, child_size) in children.iter().zip(child_sizes.iter().copied()) {
-            let DesktopTarget::Launcher(launcher_id) = child else {
-                panic!("Project matrix children must be launchers")
-            };
-            let placement = self.aggregates.launchers[launcher_id].placement;
+        for (launcher_id, child_size) in self
+            .aggregates
+            .hierarchy
+            .matrix_launchers(project_id)
+            .zip(child_sizes.iter().copied())
+        {
+            let placement = self.aggregates.matrix_positions[&launcher_id];
             let column = placement.column as usize;
             let row = placement.row as usize;
 

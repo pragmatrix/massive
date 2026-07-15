@@ -22,7 +22,6 @@ mod layout_state;
 mod navigation;
 mod presentation;
 mod topology;
-mod zoom_navigation;
 
 use anyhow::{Result, bail};
 use derive_more::Debug;
@@ -54,7 +53,7 @@ use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{
     DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
-use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
+use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -213,6 +212,7 @@ struct Aggregates {
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: LauncherMap,
+    matrix_positions: MatrixPositions,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
@@ -224,6 +224,7 @@ impl Aggregates {
             projects: Map::default(),
 
             launchers: Map::default(),
+            matrix_positions: MatrixPositions::default(),
             instances: Map::default(),
         }
     }
