@@ -572,7 +572,31 @@ impl DesktopSystem {
                 Ok(ChangeOutput::changes(changes))
             }
             DesktopRequest::RemoveProject { name: _ } => todo!(),
-            DesktopRequest::AddLauncher => todo!(),
+            DesktopRequest::AddLauncher => {
+                let current_launcher = self
+                    .aggregates
+                    .hierarchy
+                    .launcher_of_instance(instance)
+                    .expect("Instance has no launcher");
+                let current_placement = self.aggregates.matrix_positions[&current_launcher];
+
+                Ok(ChangeOutput::changes(self.plan_project(
+                    ProjectCommand::AddLauncher {
+                        project: current_project,
+                        id: LaunchProfileId::new(),
+                        profile: LaunchProfile {
+                            name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
+                            mode: LauncherMode::Visor,
+                            tags: Vec::new(),
+                            params: Default::default(),
+                        },
+                        placement: MatrixPlacement {
+                            column: current_placement.column + 1,
+                            row: current_placement.row,
+                        },
+                    },
+                )?))
+            }
             DesktopRequest::RemoveLauncher { name: _ } => todo!(),
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),
