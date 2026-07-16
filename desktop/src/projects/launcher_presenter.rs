@@ -6,7 +6,7 @@ use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
@@ -259,12 +259,18 @@ impl LauncherPresenter {
                 && event.keyboard_modifiers().super_key());
 
         if start_instance {
+            let parameters = if event.keyboard_modifiers().shift_key() {
+                InstanceParameters::new()
+            } else {
+                self.profile.params.clone()
+            };
+
             // Usability: Should pass this rectangle?
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
                 instance: Uuid::new_v4().into(),
                 root: None,
-                parameters: self.profile.params.clone(),
+                parameters,
             }
             .into());
         }
