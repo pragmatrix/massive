@@ -228,13 +228,14 @@ impl DesktopSystem {
                 }
 
                 let launcher_target = DesktopTarget::Launcher(launch_profile_id);
-                if self
-                    .aggregates
-                    .hierarchy
-                    .path_contains_target(self.event_router.keyboard_focus(), &launcher_target)
+                if let Some(focused) = self.event_router.keyboard_focus()
+                    && self
+                        .aggregates
+                        .hierarchy
+                        .path_contains_target(Some(focused), &launcher_target)
                 {
                     changes += set_focus(
-                        Some(self.launcher_removal_focus(launch_profile_id)),
+                        Some(self.launcher_removal_focus(launch_profile_id, focused)),
                         KeyboardFocusReason::InputTransition,
                     );
                 }

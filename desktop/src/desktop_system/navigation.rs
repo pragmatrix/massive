@@ -134,12 +134,16 @@ impl DesktopSystem {
         Ok(Changes::Empty)
     }
 
-    pub(super) fn launcher_removal_focus(&self, launcher: LaunchProfileId) -> DesktopTarget {
+    pub(super) fn launcher_removal_focus(
+        &self,
+        launcher: LaunchProfileId,
+        focused: &DesktopTarget,
+    ) -> DesktopTarget {
         let matrix_navigation = MatrixNavigation::new(
             &self.aggregates.hierarchy,
             &self.aggregates.matrix_positions,
         );
-        [Direction::Right, Direction::Down]
+        let replacement = [Direction::Right, Direction::Down]
             .into_iter()
             .find_map(|direction| {
                 matrix_navigation.navigate_from_launcher(launcher, direction, None)
@@ -148,7 +152,49 @@ impl DesktopSystem {
                 DesktopTarget::ProjectMatrix(
                     self.aggregates.hierarchy.project_of_launcher(launcher),
                 )
+            });
+
+        self.restore_launcher_removal_focus_depth(replacement, focused)
+    }
+
+    // Robustness: This parallels `normalize_navigation_target`: both turn a launcher into a
+    // concrete focus target. Keep their instance/view selection policies aligned; they may need
+    // to be combined once directional navigation also preserves the original focus depth.
+    fn restore_launcher_removal_focus_depth(
+        &self,
+        replacement: DesktopTarget,
+        focused: &DesktopTarget,
+    ) -> DesktopTarget {
+        let DesktopTarget::Launcher(replacement_launcher) = replacement else {
+            return replacement;
+        };
+
+        let (DesktopTarget::Instance(_) | DesktopTarget::View(_)) = focused else {
+            return DesktopTarget::Launcher(replacement_launcher);
+        };
+
+        let Some(instance) = self
+            .aggregates
+            .launchers
+            .get(&replacement_launcher)
+            .and_then(|launcher| launcher.focus_anchor_instance)
+            .filter(|instance| {
+                self.aggregates
+                    .hierarchy
+                    .parent(&DesktopTarget::Instance(*instance))
+                    == Some(&DesktopTarget::Launcher(replacement_launcher))
             })
+        else {
+            return DesktopTarget::Launcher(replacement_launcher);
+        };
+
+        let instance = DesktopTarget::Instance(instance);
+        match focused {
+            DesktopTarget::Instance(_) => instance,
+            DesktopTarget::View(_) => self.aggregates.hierarchy.resolve_neighbor_focus_target(&instance),
+            // The `let ... else` above limits this branch to instance or view focus.
+            _ => unreachable!(),
+        }
     }
 
     pub(super) fn project_removal_focus(&self, project: ProjectId) -> DesktopTarget {
@@ -299,6 +345,9 @@ fn navigate_from_origin(
 /// Matrix navigation may return a `Launcher` shell. This step converts launcher
 /// targets into concrete child instances when appropriate, then delegates to the
 /// hierarchy to resolve the final focus target (for example, a nested view).
+// Robustness: This parallels `restore_launcher_removal_focus_depth`, which also resolves a
+// launcher to an instance or view. They may need to be combined when directional navigation and
+// launcher removal use the same focus-depth policy.
 fn normalize_navigation_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
