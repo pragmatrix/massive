@@ -8,7 +8,7 @@ use massive_applications::{
 use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
-use crate::ShiftingPolicy;
+use crate::{MakeSlotAvailableShiftingPolicy, RemoveSlotShiftingPolicy};
 use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
@@ -280,6 +280,8 @@ impl DesktopSystem {
 
     fn plan_remove_launcher(&self, launcher: LaunchProfileId) -> Changes {
         let mut changes = Changes::Empty;
+        let project = self.aggregates.hierarchy.project_of_launcher(launcher);
+        let placement = self.aggregates.matrix_positions[&launcher];
         for instance in self.aggregates.hierarchy.launcher_instances(launcher) {
             changes += [
                 DesktopChange::Topology(TopologyChange::Remove(instance.into())),
@@ -289,6 +291,11 @@ impl DesktopSystem {
         }
         changes <<= TopologyChange::Remove(launcher.into());
         changes <<= ProjectChange::RemoveLauncher(launcher);
+        changes <<= ProjectChange::RemoveSlot {
+            project,
+            placement,
+            shifting_policy: RemoveSlotShiftingPolicy::ShiftLeft,
+        };
         changes
     }
 
@@ -438,8 +445,6 @@ impl DesktopSystem {
             ProjectChange::RemoveProject(project) => {
                 self.aggregates.projects.remove(&project)?;
             }
-            // Keep matrix placement and removal in launcher lifecycle changes so they carry
-            // complete state instead of requiring an ordered sequence of partial changes.
             ProjectChange::AddLauncher {
                 project,
                 id,
@@ -480,8 +485,23 @@ impl DesktopSystem {
                 self.aggregates.matrix_positions.make_slot_available(
                     launchers,
                     placement,
-                    ShiftingPolicy::ShiftRight,
+                    MakeSlotAvailableShiftingPolicy::ShiftRight,
                 )?;
+                return Ok(ChangeOutput::measures(
+                    DesktopTarget::ProjectMatrix(project).into(),
+                ));
+            }
+            ProjectChange::RemoveSlot {
+                project,
+                placement,
+                shifting_policy,
+            } => {
+                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                self.aggregates.matrix_positions.remove_slot(
+                    launchers,
+                    placement,
+                    shifting_policy,
+                );
                 return Ok(ChangeOutput::measures(
                     DesktopTarget::ProjectMatrix(project).into(),
                 ));

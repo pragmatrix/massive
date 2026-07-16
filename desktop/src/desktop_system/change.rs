@@ -3,7 +3,7 @@ use massive_geometry::Vector3;
 use massive_util::CollectingVec;
 
 use crate::{
-    DesktopTarget,
+    DesktopTarget, RemoveSlotShiftingPolicy,
     desktop_system::{KeyboardFocusReason, UserState},
     event_router::EventTransitions,
     instance_presenter::InstanceRoot,
@@ -63,6 +63,11 @@ pub enum ProjectChange {
     MakeSlotAvailable {
         project: ProjectId,
         placement: MatrixPlacement,
+    },
+    RemoveSlot {
+        project: ProjectId,
+        placement: MatrixPlacement,
+        shifting_policy: RemoveSlotShiftingPolicy,
     },
     SetStartupProfile(Option<LaunchProfileId>),
 }

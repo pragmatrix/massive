@@ -5,8 +5,13 @@ use crate::Map;
 use crate::projects::{LaunchProfileId, MatrixPlacement};
 
 #[derive(Debug, Clone, Copy)]
-pub enum ShiftingPolicy {
+pub enum MakeSlotAvailableShiftingPolicy {
     ShiftRight,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum RemoveSlotShiftingPolicy {
+    ShiftLeft,
 }
 
 #[derive(Debug, Default, Index)]
@@ -29,7 +34,7 @@ impl MatrixPositions {
         &mut self,
         launchers: impl IntoIterator<Item = LaunchProfileId>,
         placement: MatrixPlacement,
-        shifting_policy: ShiftingPolicy,
+        shifting_policy: MakeSlotAvailableShiftingPolicy,
     ) -> Result<()> {
         let launchers: Vec<_> = launchers.into_iter().collect();
         if self.is_available(launchers.iter().copied(), placement) {
@@ -46,7 +51,7 @@ impl MatrixPositions {
             .collect();
 
         match shifting_policy {
-            ShiftingPolicy::ShiftRight => {
+            MakeSlotAvailableShiftingPolicy::ShiftRight => {
                 if shifted
                     .iter()
                     .any(|launcher| self.positions[launcher].column.checked_add(1).is_none())
@@ -85,6 +90,27 @@ impl MatrixPositions {
 
     pub fn remove(&mut self, launcher: &LaunchProfileId) -> Result<()> {
         self.positions.remove(launcher)
+    }
+
+    pub fn remove_slot(
+        &mut self,
+        launchers: impl IntoIterator<Item = LaunchProfileId>,
+        placement: MatrixPlacement,
+        shifting_policy: RemoveSlotShiftingPolicy,
+    ) {
+        match shifting_policy {
+            RemoveSlotShiftingPolicy::ShiftLeft => {
+                for launcher in launchers {
+                    let position = self
+                        .positions
+                        .get_mut(&launcher)
+                        .expect("Matrix position missing for launcher");
+                    if position.row == placement.row && position.column > placement.column {
+                        position.column -= 1;
+                    }
+                }
+            }
+        }
     }
 
     pub fn get(&self, launcher: &LaunchProfileId) -> Option<&MatrixPlacement> {
