@@ -589,7 +589,28 @@ impl DesktopSystem {
                     },
                 )?))
             }
-            DesktopRequest::RemoveLauncher { name: _ } => todo!(),
+            DesktopRequest::RemoveLauncher { name } => {
+                let launcher = match name {
+                    Some(name) => {
+                        // ADR, stay on the project for now.
+                        let Some(launcher) = self
+                            .aggregates
+                            .hierarchy
+                            .matrix_launchers(current_project)
+                            .find(|launcher| self.aggregates.launchers[launcher].name() == name)
+                        else {
+                            warn!("Launcher '{name}' not found in the current project");
+                            return Ok(ChangeOutput::default());
+                        };
+                        launcher
+                    }
+                    None => self.aggregates.hierarchy.launcher_of_instance(instance),
+                };
+
+                Ok(ChangeOutput::changes(
+                    self.plan_project(ProjectCommand::RemoveLauncher(launcher))?,
+                ))
+            }
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),
         }
