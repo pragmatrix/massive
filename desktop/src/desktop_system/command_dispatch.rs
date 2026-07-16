@@ -187,8 +187,30 @@ impl DesktopSystem {
                 changes <<= ProjectChange::AddProject { id, properties };
             }
             ProjectCommand::RemoveProject(project_id) => {
+                let project_target = DesktopTarget::Project(project_id);
+                if self
+                    .aggregates
+                    .hierarchy
+                    .path_contains_target(self.event_router.keyboard_focus(), &project_target)
+                {
+                    changes += set_focus(
+                        Some(self.project_removal_focus(project_id)),
+                        KeyboardFocusReason::InputTransition,
+                    );
+                }
+
+                let launchers: Vec<_> = self
+                    .aggregates
+                    .hierarchy
+                    .matrix_launchers(project_id)
+                    .collect();
+                for launcher in launchers {
+                    changes += self.plan_remove_launcher(launcher);
+                }
+
                 changes <<= TopologyChange::Remove(DesktopTarget::Project(project_id));
                 changes <<= ProjectChange::RemoveProject(project_id);
+                changes <<= DesktopChange::SetUserState(UserState::default());
             }
             ProjectCommand::AddLauncher {
                 project,
@@ -217,8 +239,20 @@ impl DesktopSystem {
                 };
             }
             ProjectCommand::RemoveLauncher(launch_profile_id) => {
-                changes <<= TopologyChange::Remove(launch_profile_id.into());
-                changes <<= ProjectChange::RemoveLauncher(launch_profile_id);
+                let launcher_target = DesktopTarget::Launcher(launch_profile_id);
+                if self
+                    .aggregates
+                    .hierarchy
+                    .path_contains_target(self.event_router.keyboard_focus(), &launcher_target)
+                {
+                    changes += set_focus(
+                        Some(self.launcher_removal_focus(launch_profile_id)),
+                        KeyboardFocusReason::InputTransition,
+                    );
+                }
+
+                changes += self.plan_remove_launcher(launch_profile_id);
+                changes <<= DesktopChange::SetUserState(UserState::default());
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
                 changes <<= ProjectChange::SetStartupProfile(launch_profile_id)
@@ -226,6 +260,20 @@ impl DesktopSystem {
         }
 
         Ok(changes)
+    }
+
+    fn plan_remove_launcher(&self, launcher: LaunchProfileId) -> Changes {
+        let mut changes = Changes::Empty;
+        for instance in self.aggregates.hierarchy.launcher_instances(launcher) {
+            changes += [
+                DesktopChange::Topology(TopologyChange::Remove(instance.into())),
+                DesktopChange::HideInstance { launcher, instance },
+                DesktopChange::ShutdownInstance(instance),
+            ];
+        }
+        changes <<= TopologyChange::Remove(launcher.into());
+        changes <<= ProjectChange::RemoveLauncher(launcher);
+        changes
     }
 
     pub fn apply_change(

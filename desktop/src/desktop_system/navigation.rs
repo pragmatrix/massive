@@ -9,7 +9,7 @@ use crate::MatrixPositions;
 use crate::desktop_system::LauncherMap;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
 use crate::desktop_system::topology::DesktopTopology;
-use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement};
+use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
 mod matrix_navigation;
 mod zoom_navigation;
@@ -132,6 +132,39 @@ impl DesktopSystem {
         }
 
         Ok(Changes::Empty)
+    }
+
+    pub(super) fn launcher_removal_focus(&self, launcher: LaunchProfileId) -> DesktopTarget {
+        let matrix_navigation = MatrixNavigation::new(
+            &self.aggregates.hierarchy,
+            &self.aggregates.matrix_positions,
+        );
+        [Direction::Right, Direction::Down]
+            .into_iter()
+            .find_map(|direction| {
+                matrix_navigation.navigate_from_launcher(launcher, direction, None)
+            })
+            .unwrap_or_else(|| {
+                DesktopTarget::ProjectMatrix(
+                    self.aggregates.hierarchy.project_of_launcher(launcher),
+                )
+            })
+    }
+
+    pub(super) fn project_removal_focus(&self, project: ProjectId) -> DesktopTarget {
+        let project_target = DesktopTarget::Project(project);
+        let projects = self
+            .aggregates
+            .hierarchy
+            .get_nested(&DesktopTarget::Desktop);
+        let project_index = projects
+            .iter()
+            .position(|target| target == &project_target)
+            .expect("Project missing from desktop hierarchy");
+        projects
+            .get(project_index + 1)
+            .cloned()
+            .unwrap_or(DesktopTarget::Desktop)
     }
 
     pub(super) fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
