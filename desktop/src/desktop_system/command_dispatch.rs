@@ -8,7 +8,6 @@ use massive_applications::{
 use massive_shell::Scene;
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
-use crate::{MakeSlotAvailableShiftingPolicy, RemoveSlotShiftingPolicy};
 use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
@@ -21,6 +20,7 @@ use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
     ProjectPresenter, ProjectProperties,
 };
+use crate::{MakeSlotAvailableShiftingPolicy, RemoveSlotShiftingPolicy};
 
 /// The outcome of applying a change: the measures it produced and any follow-up changes.
 #[derive(Debug, Default)]
@@ -498,11 +498,9 @@ impl DesktopSystem {
                 shifting_policy,
             } => {
                 let launchers = self.aggregates.hierarchy.matrix_launchers(project);
-                self.aggregates.matrix_positions.remove_slot(
-                    launchers,
-                    placement,
-                    shifting_policy,
-                );
+                self.aggregates
+                    .matrix_positions
+                    .remove_slot(launchers, placement, shifting_policy);
                 return Ok(ChangeOutput::measures(
                     DesktopTarget::ProjectMatrix(project).into(),
                 ));

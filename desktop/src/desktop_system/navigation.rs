@@ -191,7 +191,10 @@ impl DesktopSystem {
         let instance = DesktopTarget::Instance(instance);
         match focused {
             DesktopTarget::Instance(_) => instance,
-            DesktopTarget::View(_) => self.aggregates.hierarchy.resolve_neighbor_focus_target(&instance),
+            DesktopTarget::View(_) => self
+                .aggregates
+                .hierarchy
+                .resolve_neighbor_focus_target(&instance),
             // The `let ... else` above limits this branch to instance or view focus.
             _ => unreachable!(),
         }
