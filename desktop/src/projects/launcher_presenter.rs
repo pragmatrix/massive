@@ -50,7 +50,7 @@ pub struct LauncherPresenter {
     id: LaunchProfileId,
     profile: LaunchProfile,
     mode: LauncherMode,
-    layout_transform: Transform,
+    layout_transform: Animated<Transform>,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
 
@@ -115,7 +115,7 @@ impl LauncherPresenter {
             id,
             profile,
             mode,
-            layout_transform: Transform::IDENTITY,
+            layout_transform: scene.animated(Transform::IDENTITY),
             scene_transform: our_transform,
             location: our_location,
             size: scene.animated(size),
@@ -278,15 +278,20 @@ impl LauncherPresenter {
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
-        self.layout_transform = layout_transform;
         let size = Size::new(size.width as f64, size.height as f64);
         if animate {
+            self.layout_transform.animate_if_changed(
+                layout_transform,
+                STRUCTURAL_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
             self.size.animate_if_changed(
                 size,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {
+            self.layout_transform.set_immediately(layout_transform);
             self.size.set_immediately(size);
             self.apply_presenter_animations();
         }
@@ -321,6 +326,7 @@ impl LauncherPresenter {
 
         let scene_transform = self
             .layout_transform
+            .value()
             .to_origin_space_from_size(size.width, size.height);
         self.scene_transform.update_if_changed(scene_transform);
 
