@@ -187,30 +187,8 @@ impl DesktopSystem {
                 changes <<= ProjectChange::AddProject { id, properties };
             }
             ProjectCommand::RemoveProject(project_id) => {
-                let project_target = DesktopTarget::Project(project_id);
-                if self
-                    .aggregates
-                    .hierarchy
-                    .path_contains_target(self.event_router.keyboard_focus(), &project_target)
-                {
-                    changes += set_focus(
-                        Some(self.project_removal_focus(project_id)),
-                        KeyboardFocusReason::InputTransition,
-                    );
-                }
-
-                let launchers: Vec<_> = self
-                    .aggregates
-                    .hierarchy
-                    .matrix_launchers(project_id)
-                    .collect();
-                for launcher in launchers {
-                    changes += self.plan_remove_launcher(launcher);
-                }
-
-                changes <<= TopologyChange::Remove(DesktopTarget::Project(project_id));
-                changes <<= ProjectChange::RemoveProject(project_id);
-                changes <<= DesktopChange::SetUserState(UserState::default());
+                changes += self.plan_project_removal_focus(project_id);
+                changes += self.plan_remove_project(project_id);
             }
             ProjectCommand::AddLauncher {
                 project,
@@ -239,6 +217,16 @@ impl DesktopSystem {
                 };
             }
             ProjectCommand::RemoveLauncher(launch_profile_id) => {
+                let project = self
+                    .aggregates
+                    .hierarchy
+                    .project_of_launcher(launch_profile_id);
+                if self.aggregates.hierarchy.matrix_launchers(project).count() == 1 {
+                    changes += self.plan_project_removal_focus(project);
+                    changes += self.plan_remove_project(project);
+                    return Ok(changes);
+                }
+
                 let launcher_target = DesktopTarget::Launcher(launch_profile_id);
                 if self
                     .aggregates
@@ -260,6 +248,34 @@ impl DesktopSystem {
         }
 
         Ok(changes)
+    }
+
+    fn plan_project_removal_focus(&self, project: ProjectId) -> Changes {
+        let project_target = DesktopTarget::Project(project);
+        if self
+            .aggregates
+            .hierarchy
+            .path_contains_target(self.event_router.keyboard_focus(), &project_target)
+        {
+            return set_focus(
+                Some(self.project_removal_focus(project)),
+                KeyboardFocusReason::InputTransition,
+            );
+        }
+
+        Changes::Empty
+    }
+
+    fn plan_remove_project(&self, project: ProjectId) -> Changes {
+        let mut changes = Changes::Empty;
+        for launcher in self.aggregates.hierarchy.matrix_launchers(project) {
+            changes += self.plan_remove_launcher(launcher);
+        }
+
+        changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
+        changes <<= ProjectChange::RemoveProject(project);
+        changes <<= DesktopChange::SetUserState(UserState::default());
+        changes
     }
 
     fn plan_remove_launcher(&self, launcher: LaunchProfileId) -> Changes {
@@ -615,7 +631,35 @@ impl DesktopSystem {
 
                 Ok(ChangeOutput::changes(changes))
             }
-            DesktopRequest::RemoveProject { name: _ } => todo!(),
+            DesktopRequest::RemoveProject { name } => {
+                let project = match name {
+                    Some(name) => {
+                        let Some(project) = self
+                            .aggregates
+                            .hierarchy
+                            .get_nested(&DesktopTarget::Desktop)
+                            .iter()
+                            .find_map(|target| match target {
+                                DesktopTarget::Project(project)
+                                    if self.aggregates.projects[project].name() == name =>
+                                {
+                                    Some(*project)
+                                }
+                                _ => None,
+                            })
+                        else {
+                            warn!("Project '{name}' not found");
+                            return Ok(ChangeOutput::default());
+                        };
+                        project
+                    }
+                    None => current_project,
+                };
+
+                Ok(ChangeOutput::changes(
+                    self.plan_project(ProjectCommand::RemoveProject(project))?,
+                ))
+            }
             DesktopRequest::AddLauncher => {
                 let current_launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&current_launcher];
