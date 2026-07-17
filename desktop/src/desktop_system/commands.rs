@@ -38,7 +38,6 @@ pub enum ProjectCommand {
         properties: ProjectProperties,
         after: Option<ProjectId>,
     },
-    #[allow(unused)]
     RemoveProject(ProjectId),
     AddLauncher {
         project: ProjectId,
@@ -46,7 +45,6 @@ pub enum ProjectCommand {
         profile: LaunchProfile,
         placement: MatrixPlacement,
     },
-    #[allow(unused)]
     RemoveLauncher(LaunchProfileId),
     SetStartupProfile(Option<LaunchProfileId>),
 }
