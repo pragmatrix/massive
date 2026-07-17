@@ -212,8 +212,13 @@ impl DesktopSystem {
             .expect("Project missing from desktop hierarchy");
         projects
             .get(project_index + 1)
-            .cloned()
-            .unwrap_or(DesktopTarget::Desktop)
+            .or_else(|| {
+                project_index
+                    .checked_sub(1)
+                    .and_then(|index| projects.get(index))
+            })
+            .unwrap_or(&DesktopTarget::Desktop)
+            .clone()
     }
 
     pub(super) fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
