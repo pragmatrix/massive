@@ -2,12 +2,8 @@ use anyhow::{Result, bail};
 use derive_more::Index;
 
 use crate::Map;
+use crate::desktop_system::Direction;
 use crate::projects::{LaunchProfileId, MatrixPlacement};
-
-#[derive(Debug, Clone, Copy)]
-pub enum MakeSlotAvailableShiftingPolicy {
-    ShiftRight,
-}
 
 #[derive(Debug, Clone, Copy)]
 pub enum RemoveSlotShiftingPolicy {
@@ -34,38 +30,65 @@ impl MatrixPositions {
         &mut self,
         launchers: impl IntoIterator<Item = LaunchProfileId>,
         placement: MatrixPlacement,
-        shifting_policy: MakeSlotAvailableShiftingPolicy,
+        direction: Direction,
     ) -> Result<()> {
         let launchers: Vec<_> = launchers.into_iter().collect();
         if self.is_available(launchers.iter().copied(), placement) {
             return Ok(());
         }
 
+        let is_shifted = |position: MatrixPlacement| match direction {
+            Direction::Left => position.row == placement.row && position.column <= placement.column,
+            Direction::Right => {
+                position.row == placement.row && position.column >= placement.column
+            }
+            Direction::Up => position.column == placement.column && position.row <= placement.row,
+            Direction::Down => position.column == placement.column && position.row >= placement.row,
+        };
+        let shifted_position = |position: MatrixPlacement| match direction {
+            Direction::Left => position
+                .column
+                .checked_sub(1)
+                .map(|column| MatrixPlacement {
+                    column,
+                    row: position.row,
+                }),
+            Direction::Right => position
+                .column
+                .checked_add(1)
+                .map(|column| MatrixPlacement {
+                    column,
+                    row: position.row,
+                }),
+            Direction::Up => position.row.checked_sub(1).map(|row| MatrixPlacement {
+                column: position.column,
+                row,
+            }),
+            Direction::Down => position.row.checked_add(1).map(|row| MatrixPlacement {
+                column: position.column,
+                row,
+            }),
+        };
+
         let shifted: Vec<_> = launchers
             .into_iter()
-            .filter(|launcher| {
-                self.positions.get(launcher).is_some_and(|position| {
-                    position.row == placement.row && position.column >= placement.column
-                })
-            })
+            .filter(|launcher| is_shifted(self.positions[launcher]))
             .collect();
 
-        match shifting_policy {
-            MakeSlotAvailableShiftingPolicy::ShiftRight => {
-                if shifted
-                    .iter()
-                    .any(|launcher| self.positions[launcher].column.checked_add(1).is_none())
-                {
-                    bail!("Can't shift matrix positions right beyond the maximum column");
-                }
+        if shifted
+            .iter()
+            .any(|launcher| shifted_position(self.positions[launcher]).is_none())
+        {
+            bail!("Can't shift matrix positions {direction:?} beyond the matrix boundary");
+        }
 
-                for launcher in shifted {
-                    self.positions
-                        .get_mut(&launcher)
-                        .expect("Matrix position missing after collecting launcher")
-                        .column += 1;
-                }
-            }
+        for launcher in shifted {
+            let position = self
+                .positions
+                .get_mut(&launcher)
+                .expect("Matrix position missing after collecting launcher");
+            *position = shifted_position(*position)
+                .expect("Matrix position stopped matching the shifting predicate");
         }
 
         Ok(())

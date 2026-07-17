@@ -2,7 +2,7 @@ use derive_more::Debug;
 
 use massive_applications::{InstanceId, InstanceParameters};
 
-use super::navigation::Direction;
+use super::Direction;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,

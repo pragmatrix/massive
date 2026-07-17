@@ -1,7 +1,8 @@
 use massive_applications::InstanceId;
 
-use super::{Direction, HorizontalDirection, VerticalDirection};
+use super::{HorizontalDirection, VerticalDirection};
 use crate::MatrixPositions;
+use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{DesktopTarget, LauncherMap};
 use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId};

@@ -69,6 +69,14 @@ pub enum DesktopTarget {
     View(ViewId),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
+}
+
 impl From<ProjectId> for DesktopTarget {
     fn from(value: ProjectId) -> Self {
         Self::Project(value)

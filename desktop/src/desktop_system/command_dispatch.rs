@@ -7,7 +7,8 @@ use massive_applications::{
 };
 use massive_shell::Scene;
 
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
+use crate::RemoveSlotShiftingPolicy;
 use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
@@ -20,7 +21,6 @@ use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
     ProjectPresenter, ProjectProperties,
 };
-use crate::{MakeSlotAvailableShiftingPolicy, RemoveSlotShiftingPolicy};
 
 /// The outcome of applying a change: the measures it produced and any follow-up changes.
 #[derive(Debug, Default)]
@@ -202,7 +202,11 @@ impl DesktopSystem {
                     .matrix_positions
                     .is_available(launchers, placement)
                 {
-                    changes <<= ProjectChange::MakeSlotAvailable { project, placement };
+                    changes <<= ProjectChange::MakeSlotAvailable {
+                        project,
+                        placement,
+                        direction: Direction::Right,
+                    };
                 }
                 changes <<= ProjectChange::AddLauncher {
                     project,
@@ -491,13 +495,15 @@ impl DesktopSystem {
                     .matrix_positions
                     .remove(&launch_profile_id)?;
             }
-            ProjectChange::MakeSlotAvailable { project, placement } => {
+            ProjectChange::MakeSlotAvailable {
+                project,
+                placement,
+                direction,
+            } => {
                 let launchers = self.aggregates.hierarchy.matrix_launchers(project);
-                self.aggregates.matrix_positions.make_slot_available(
-                    launchers,
-                    placement,
-                    MakeSlotAvailableShiftingPolicy::ShiftRight,
-                )?;
+                self.aggregates
+                    .matrix_positions
+                    .make_slot_available(launchers, placement, direction)?;
                 return Ok(ChangeOutput::measures(
                     DesktopTarget::ProjectMatrix(project).into(),
                 ));
@@ -693,22 +699,22 @@ impl DesktopSystem {
                 let current_launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&current_launcher];
 
-                Ok(ChangeOutput::changes(self.plan_project(
-                    ProjectCommand::AddLauncher {
-                        project: current_project,
-                        id: LaunchProfileId::new(),
-                        profile: LaunchProfile {
-                            name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
-                            mode: LauncherMode::Visor,
-                            tags: Vec::new(),
-                            params: Default::default(),
-                        },
-                        placement: MatrixPlacement {
-                            column: current_placement.column + 1,
-                            row: current_placement.row,
-                        },
+                let changes = self.plan_project(ProjectCommand::AddLauncher {
+                    project: current_project,
+                    id: LaunchProfileId::new(),
+                    profile: LaunchProfile {
+                        name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
+                        mode: LauncherMode::Visor,
+                        tags: Vec::new(),
+                        params: Default::default(),
                     },
-                )?))
+                    placement: MatrixPlacement {
+                        column: current_placement.column + 1,
+                        row: current_placement.row,
+                    },
+                })?;
+
+                Ok(ChangeOutput::changes(changes))
             }
             DesktopRequest::RemoveLauncher { name } => {
                 let launcher = match name {

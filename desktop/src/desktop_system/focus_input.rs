@@ -9,7 +9,7 @@ use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
-use super::navigation::Direction;
+use super::Direction;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};

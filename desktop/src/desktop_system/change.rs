@@ -4,7 +4,7 @@ use massive_util::CollectingVec;
 
 use crate::{
     DesktopTarget, RemoveSlotShiftingPolicy,
-    desktop_system::{KeyboardFocusReason, UserState},
+    desktop_system::{Direction, KeyboardFocusReason, UserState},
     event_router::EventTransitions,
     instance_presenter::InstanceRoot,
     projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties},
@@ -67,6 +67,7 @@ pub enum ProjectChange {
     MakeSlotAvailable {
         project: ProjectId,
         placement: MatrixPlacement,
+        direction: Direction,
     },
     RemoveSlot {
         project: ProjectId,

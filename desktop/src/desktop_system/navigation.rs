@@ -4,7 +4,7 @@ use log::error;
 use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
-use super::{DesktopSystem, DesktopTarget, KeyboardFocusReason};
+use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
 use crate::MatrixPositions;
 use crate::desktop_system::LauncherMap;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
@@ -16,14 +16,6 @@ mod zoom_navigation;
 
 use matrix_navigation::MatrixNavigation;
 pub(crate) use zoom_navigation::focus_depth_from_target;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Direction {
-    Left,
-    Right,
-    Up,
-    Down,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HorizontalDirection {
