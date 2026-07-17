@@ -28,6 +28,13 @@ impl<Key: fmt::Debug + Eq + hash::Hash, Value: Sized> Map<Key, Value> {
         self.map.insert(key, value.into());
     }
 
+    pub fn update(&mut self, key: Key, value: impl Into<Value>) -> Result<()> {
+        if self.map.insert(key, value.into()).is_none() {
+            bail!("Update failed, key does not exist")
+        }
+        Ok(())
+    }
+
     pub fn remove(&mut self, key: &Key) -> Result<()> {
         if self.map.remove(key).is_none() {
             bail!(

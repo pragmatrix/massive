@@ -88,6 +88,14 @@ impl MatrixPositions {
         self.positions.insert(launcher, placement)
     }
 
+    pub fn move_launcher(
+        &mut self,
+        launcher: LaunchProfileId,
+        placement: MatrixPlacement,
+    ) -> Result<()> {
+        self.positions.update(launcher, placement)
+    }
+
     pub fn remove(&mut self, launcher: &LaunchProfileId) -> Result<()> {
         self.positions.remove(launcher)
     }

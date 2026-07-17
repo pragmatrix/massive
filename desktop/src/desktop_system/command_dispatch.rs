@@ -2,8 +2,8 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 
 use massive_applications::{
-    CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
-    ViewRole,
+    CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, MoveDirection,
+    ViewChange, ViewRole,
 };
 use massive_shell::Scene;
 
@@ -473,6 +473,18 @@ impl DesktopSystem {
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
             }
+            ProjectChange::MoveLauncher {
+                launcher,
+                placement,
+            } => {
+                let project = self.aggregates.hierarchy.project_of_launcher(launcher);
+                self.aggregates
+                    .matrix_positions
+                    .move_launcher(launcher, placement)?;
+                return Ok(ChangeOutput::measures(
+                    DesktopTarget::ProjectMatrix(project).into(),
+                ));
+            }
             ProjectChange::RemoveLauncher(launch_profile_id) => {
                 self.aggregates.launchers.remove(&launch_profile_id)?;
                 self.aggregates
@@ -719,6 +731,72 @@ impl DesktopSystem {
                 Ok(ChangeOutput::changes(
                     self.plan_project(ProjectCommand::RemoveLauncher(launcher))?,
                 ))
+            }
+            DesktopRequest::MoveLauncher { direction } => {
+                let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
+                let current_placement = self.aggregates.matrix_positions[&launcher];
+                let placement = match direction {
+                    MoveDirection::Left => {
+                        current_placement
+                            .column
+                            .checked_sub(1)
+                            .map(|column| MatrixPlacement {
+                                column,
+                                row: current_placement.row,
+                            })
+                    }
+                    MoveDirection::Right => {
+                        current_placement
+                            .column
+                            .checked_add(1)
+                            .map(|column| MatrixPlacement {
+                                column,
+                                row: current_placement.row,
+                            })
+                    }
+                    MoveDirection::Up => {
+                        current_placement
+                            .row
+                            .checked_sub(1)
+                            .map(|row| MatrixPlacement {
+                                column: current_placement.column,
+                                row,
+                            })
+                    }
+                    MoveDirection::Down => {
+                        current_placement
+                            .row
+                            .checked_add(1)
+                            .map(|row| MatrixPlacement {
+                                column: current_placement.column,
+                                row,
+                            })
+                    }
+                };
+                let Some(placement) = placement else {
+                    warn!(
+                        "Ignoring {direction:?} launcher move from matrix position ({}, {})",
+                        current_placement.column, current_placement.row,
+                    );
+                    return Ok(ChangeOutput::default());
+                };
+                let swapped_launcher = self
+                    .aggregates
+                    .hierarchy
+                    .matrix_launchers(current_project)
+                    .find(|candidate| self.aggregates.matrix_positions[candidate] == placement);
+                let mut changes = Changes::Empty;
+                if let Some(swapped_launcher) = swapped_launcher {
+                    changes <<= ProjectChange::MoveLauncher {
+                        launcher: swapped_launcher,
+                        placement: current_placement,
+                    };
+                }
+                changes <<= ProjectChange::MoveLauncher {
+                    launcher,
+                    placement,
+                };
+                Ok(ChangeOutput::changes(changes))
             }
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),

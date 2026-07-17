@@ -106,6 +106,15 @@ pub enum DesktopRequest {
     AddLauncher,
     // `title` is for removing a launcher project without selecting it first.
     RemoveLauncher { name: Option<String> },
+    MoveLauncher { direction: MoveDirection },
     Undo,
     Redo,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum MoveDirection {
+    Left,
+    Right,
+    Up,
+    Down,
 }
