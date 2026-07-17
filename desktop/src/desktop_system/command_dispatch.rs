@@ -217,6 +217,7 @@ impl DesktopSystem {
                 };
             }
             ProjectCommand::RemoveLauncher(launch_profile_id) => {
+                // If this is the last launcher of a project, remove the whole project.
                 let project = self
                     .aggregates
                     .hierarchy
