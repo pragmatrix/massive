@@ -241,7 +241,7 @@ impl DesktopSystem {
                     );
                 }
 
-                changes += self.plan_remove_launcher(launch_profile_id);
+                changes += self.plan_remove_launcher(project, launch_profile_id);
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
                 changes <<= ProjectChange::SetStartupProfile(launch_profile_id)
@@ -270,18 +270,16 @@ impl DesktopSystem {
     fn plan_remove_project(&self, project: ProjectId) -> Changes {
         let mut changes = Changes::Empty;
         for launcher in self.aggregates.hierarchy.matrix_launchers(project) {
-            changes += self.plan_remove_launcher(launcher);
+            changes += self.plan_remove_launcher(project, launcher);
         }
 
-        changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
         changes <<= ProjectChange::RemoveProject(project);
+        changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
         changes
     }
 
-    fn plan_remove_launcher(&self, launcher: LaunchProfileId) -> Changes {
+    fn plan_remove_launcher(&self, project: ProjectId, launcher: LaunchProfileId) -> Changes {
         let mut changes = Changes::Empty;
-        let project = self.aggregates.hierarchy.project_of_launcher(launcher);
-        let placement = self.aggregates.matrix_positions[&launcher];
         for instance in self.aggregates.hierarchy.launcher_instances(launcher) {
             changes += [
                 DesktopChange::Topology(TopologyChange::Remove(instance.into())),
@@ -289,6 +287,7 @@ impl DesktopSystem {
                 DesktopChange::ShutdownInstance(instance),
             ];
         }
+        let placement = self.aggregates.matrix_positions[&launcher];
         changes <<= TopologyChange::Remove(launcher.into());
         changes <<= ProjectChange::RemoveLauncher(launcher);
         changes <<= ProjectChange::RemoveSlot {
