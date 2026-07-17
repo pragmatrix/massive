@@ -242,7 +242,6 @@ impl DesktopSystem {
                 }
 
                 changes += self.plan_remove_launcher(launch_profile_id);
-                changes <<= DesktopChange::SetUserState(UserState::default());
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
                 changes <<= ProjectChange::SetStartupProfile(launch_profile_id)
@@ -276,7 +275,6 @@ impl DesktopSystem {
 
         changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
         changes <<= ProjectChange::RemoveProject(project);
-        changes <<= DesktopChange::SetUserState(UserState::default());
         changes
     }
 
