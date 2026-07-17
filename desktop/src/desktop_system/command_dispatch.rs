@@ -741,44 +741,7 @@ impl DesktopSystem {
             DesktopRequest::MoveLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&launcher];
-                let placement = match direction {
-                    MoveDirection::Left => {
-                        current_placement
-                            .column
-                            .checked_sub(1)
-                            .map(|column| MatrixPlacement {
-                                column,
-                                row: current_placement.row,
-                            })
-                    }
-                    MoveDirection::Right => {
-                        current_placement
-                            .column
-                            .checked_add(1)
-                            .map(|column| MatrixPlacement {
-                                column,
-                                row: current_placement.row,
-                            })
-                    }
-                    MoveDirection::Up => {
-                        current_placement
-                            .row
-                            .checked_sub(1)
-                            .map(|row| MatrixPlacement {
-                                column: current_placement.column,
-                                row,
-                            })
-                    }
-                    MoveDirection::Down => {
-                        current_placement
-                            .row
-                            .checked_add(1)
-                            .map(|row| MatrixPlacement {
-                                column: current_placement.column,
-                                row,
-                            })
-                    }
-                };
+                let placement = moved_placement(current_placement, *direction);
                 let Some(placement) = placement else {
                     warn!(
                         "Ignoring {direction:?} launcher move from matrix position ({}, {})",
@@ -804,9 +767,79 @@ impl DesktopSystem {
                 };
                 Ok(ChangeOutput::changes(changes))
             }
+            DesktopRequest::PushLauncher { direction } => {
+                let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
+                let current_placement = self.aggregates.matrix_positions[&launcher];
+                let launchers = self
+                    .aggregates
+                    .hierarchy
+                    .matrix_launchers(current_project)
+                    .collect::<Vec<_>>();
+                let mut pushed_launchers = vec![(launcher, current_placement)];
+
+                loop {
+                    let (_, leading_placement) = *pushed_launchers
+                        .last()
+                        .expect("Pushed launchers are never empty");
+                    let Some(next_placement) = moved_placement(leading_placement, *direction)
+                    else {
+                        warn!(
+                            "Ignoring {direction:?} launcher push from matrix position ({}, {})",
+                            current_placement.column, current_placement.row,
+                        );
+                        return Ok(ChangeOutput::default());
+                    };
+                    let Some(next_launcher) = launchers.iter().copied().find(|candidate| {
+                        self.aggregates.matrix_positions[candidate] == next_placement
+                    }) else {
+                        break;
+                    };
+                    pushed_launchers.push((next_launcher, next_placement));
+                }
+
+                let mut changes = Changes::Empty;
+                for (launcher, placement) in pushed_launchers.into_iter().rev() {
+                    changes <<= ProjectChange::MoveLauncher {
+                        launcher,
+                        placement: moved_placement(placement, *direction)
+                            .expect("Pushed launcher placement was validated"),
+                    };
+                }
+                Ok(ChangeOutput::changes(changes))
+            }
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),
         }
+    }
+}
+
+fn moved_placement(
+    placement: MatrixPlacement,
+    direction: MoveDirection,
+) -> Option<MatrixPlacement> {
+    match direction {
+        MoveDirection::Left => placement
+            .column
+            .checked_sub(1)
+            .map(|column| MatrixPlacement {
+                column,
+                row: placement.row,
+            }),
+        MoveDirection::Right => placement
+            .column
+            .checked_add(1)
+            .map(|column| MatrixPlacement {
+                column,
+                row: placement.row,
+            }),
+        MoveDirection::Up => placement.row.checked_sub(1).map(|row| MatrixPlacement {
+            column: placement.column,
+            row,
+        }),
+        MoveDirection::Down => placement.row.checked_add(1).map(|row| MatrixPlacement {
+            column: placement.column,
+            row,
+        }),
     }
 }
 

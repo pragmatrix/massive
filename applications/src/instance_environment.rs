@@ -107,6 +107,7 @@ pub enum DesktopRequest {
     // `title` is for removing a launcher project without selecting it first.
     RemoveLauncher { name: Option<String> },
     MoveLauncher { direction: MoveDirection },
+    PushLauncher { direction: MoveDirection },
     Undo,
     Redo,
 }
