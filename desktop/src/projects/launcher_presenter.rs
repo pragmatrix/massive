@@ -50,6 +50,7 @@ pub struct LauncherPresenter {
     id: LaunchProfileId,
     profile: LaunchProfile,
     mode: LauncherMode,
+
     layout_transform: Animated<Transform>,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
@@ -61,6 +62,7 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
+
     /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
     /// most recently focused instance while no mouse button was pressed. The visor centers on this
     /// anchor independent of the live keyboard focus.
