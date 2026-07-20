@@ -55,7 +55,6 @@ pub struct InstancePresenter {
 struct InstanceBackground {
     visual: Handle<Visual>,
     local_rect: Rect,
-    visible: bool,
 }
 
 #[derive(Debug)]
@@ -95,14 +94,13 @@ impl InstancePresenter {
         });
 
         let background = show_background.then(|| {
-            let visual = background_shapes(false, Rect::ZERO)
+            let visual = InstanceBackground::shapes(Rect::ZERO)
                 .at(&root.location)
                 .enter(scene);
 
             InstanceBackground {
                 visual,
                 local_rect: Rect::ZERO,
-                visible: false,
             }
         });
 
@@ -164,7 +162,7 @@ impl InstancePresenter {
         if let Some(background) = &mut self.background {
             background.visual.update_if_changed_with(|visual| {
                 visual.location = self.root.location.to_ref();
-                visual.shapes = background_shapes(background.visible, background.centered_rect());
+                visual.shapes = InstanceBackground::shapes(background.centered_rect());
             });
         }
 
@@ -230,45 +228,36 @@ impl InstancePresenter {
         visible: bool,
         animate: bool,
     ) {
-        if let Some(background) = &mut self.background {
-            background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
-            background.visible = size.width > 0 && size.height > 0;
-        }
+        let (target_visibility_alpha, layout_transform) = if visible {
+            (1.0, layout_transform)
+        } else {
+            // Keep panel x/y pose but pull hidden instances back to baseline depth.
+            (0.0, layout_transform.with_z(0.0))
+        };
 
-        let target_visibility_alpha = if visible { 1.0 } else { 0.0 };
         if animate {
             self.visibility_alpha.animate_if_changed(
                 target_visibility_alpha,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
-        } else {
-            self.visibility_alpha
-                .set_immediately(target_visibility_alpha);
-        }
-
-        let layout_transform = if visible {
-            layout_transform
-        } else {
-            // Keep panel x/y pose but pull hidden instances back to baseline depth.
-            layout_transform.with_z(0.0)
-        };
-
-        if animate {
             self.layout_transform_animation.animate_if_changed(
                 layout_transform,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {
+            self.visibility_alpha
+                .set_immediately(target_visibility_alpha);
             self.layout_transform_animation
                 .set_immediately(layout_transform);
         }
 
         if let Some(background) = &mut self.background {
+            background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
             background.visual.update_if_changed_with(|visual| {
                 // Background geometry stays in instance space; views apply their own local offset.
-                visual.shapes = background_shapes(background.visible, background.centered_rect());
+                visual.shapes = InstanceBackground::shapes(background.centered_rect());
             });
         }
 
@@ -320,6 +309,13 @@ impl InstanceBackground {
     fn centered_rect(&self) -> Rect {
         self.local_rect - self.local_rect.center()
     }
+
+    fn shapes(rect: Rect) -> Arc<[Shape]> {
+        (!rect.is_empty())
+            .then(|| background_shape(rect))
+            .into_iter()
+            .collect()
+    }
 }
 
 impl InstancePresenterState {
@@ -342,11 +338,4 @@ impl InstancePresenterState {
 
 fn background_shape(rect: Rect) -> Shape {
     shapes::Rect::new(rect, INSTANCE_BACKGROUND_COLOR).into()
-}
-
-fn background_shapes(visible: bool, rect: Rect) -> Arc<[Shape]> {
-    visible
-        .then(|| background_shape(rect))
-        .into_iter()
-        .collect()
 }
