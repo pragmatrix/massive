@@ -2,13 +2,13 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::Vector3;
 use massive_util::CollectingVec;
 
-use crate::{
-    DesktopTarget, RemoveSlotShiftingPolicy,
-    desktop_system::{KeyboardFocusReason, UserState},
-    event_router::EventTransitions,
-    instance_presenter::InstanceRoot,
-    projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties},
+use crate::desktop_system::{KeyboardFocusReason, UserState};
+use crate::event_router::EventTransitions;
+use crate::instance_presenter::InstanceRoot;
+use crate::projects::{
+    LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
 };
+use crate::{DesktopTarget, RemoveSlotShiftingPolicy};
 
 pub type Changes = CollectingVec<DesktopChange>;
 
