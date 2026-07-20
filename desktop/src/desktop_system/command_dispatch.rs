@@ -2,13 +2,12 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 
 use massive_applications::{
-    CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, MoveDirection,
-    ViewChange, ViewRole,
+    CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
+    ViewRole,
 };
 use massive_shell::Scene;
 
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
-use crate::RemoveSlotShiftingPolicy;
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
@@ -21,6 +20,7 @@ use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
     ProjectPresenter, ProjectProperties,
 };
+use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
 
 /// The outcome of applying a change: the measures it produced and any follow-up changes.
 #[derive(Debug, Default)]
@@ -196,17 +196,15 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
-                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
-                if !self
-                    .aggregates
-                    .matrix_positions
-                    .is_available(launchers, placement)
+                let mut launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                if let Some(launcher) = launchers
+                    .find(|launcher| self.aggregates.matrix_positions[launcher] == placement)
                 {
-                    changes <<= ProjectChange::MakeSlotAvailable {
+                    changes += self.launcher_shift_sequence(
                         project,
-                        placement,
-                        direction: Direction::Right,
-                    };
+                        launcher,
+                        massive_applications::MoveDirection::Right,
+                    )?;
                 }
                 changes <<= ProjectChange::AddLauncher {
                     project,
@@ -482,9 +480,11 @@ impl DesktopSystem {
                 placement,
             } => {
                 let project = self.aggregates.hierarchy.project_of_launcher(launcher);
-                self.aggregates
+                *self
+                    .aggregates
                     .matrix_positions
-                    .move_launcher(launcher, placement)?;
+                    .get_mut(&launcher)
+                    .expect("Matrix position missing for launcher") = placement;
                 return Ok(ChangeOutput::measures(
                     DesktopTarget::ProjectMatrix(project).into(),
                 ));
@@ -494,19 +494,6 @@ impl DesktopSystem {
                 self.aggregates
                     .matrix_positions
                     .remove(&launch_profile_id)?;
-            }
-            ProjectChange::MakeSlotAvailable {
-                project,
-                placement,
-                direction,
-            } => {
-                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
-                self.aggregates
-                    .matrix_positions
-                    .make_slot_available(launchers, placement, direction)?;
-                return Ok(ChangeOutput::measures(
-                    DesktopTarget::ProjectMatrix(project).into(),
-                ));
             }
             ProjectChange::RemoveSlot {
                 project,
@@ -741,7 +728,7 @@ impl DesktopSystem {
             DesktopRequest::MoveLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&launcher];
-                let placement = moved_placement(current_placement, *direction);
+                let placement = MatrixPositions::moved_placement(current_placement, *direction);
                 let Some(placement) = placement else {
                     warn!(
                         "Ignoring {direction:?} launcher move from matrix position ({}, {})",
@@ -770,42 +757,16 @@ impl DesktopSystem {
             DesktopRequest::PushLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&launcher];
-                let launchers = self
-                    .aggregates
-                    .hierarchy
-                    .matrix_launchers(current_project)
-                    .collect::<Vec<_>>();
-                let mut pushed_launchers = vec![(launcher, current_placement)];
-
-                loop {
-                    let (_, leading_placement) = *pushed_launchers
-                        .last()
-                        .expect("Pushed launchers are never empty");
-                    let Some(next_placement) = moved_placement(leading_placement, *direction)
-                    else {
+                match self.launcher_shift_sequence(current_project, launcher, *direction) {
+                    Ok(changes) => Ok(ChangeOutput::changes(changes)),
+                    Err(_) => {
                         warn!(
                             "Ignoring {direction:?} launcher push from matrix position ({}, {})",
                             current_placement.column, current_placement.row,
                         );
-                        return Ok(ChangeOutput::default());
-                    };
-                    let Some(next_launcher) = launchers.iter().copied().find(|candidate| {
-                        self.aggregates.matrix_positions[candidate] == next_placement
-                    }) else {
-                        break;
-                    };
-                    pushed_launchers.push((next_launcher, next_placement));
+                        Ok(ChangeOutput::default())
+                    }
                 }
-
-                let mut changes = Changes::Empty;
-                for (launcher, placement) in pushed_launchers.into_iter().rev() {
-                    changes <<= ProjectChange::MoveLauncher {
-                        launcher,
-                        placement: moved_placement(placement, *direction)
-                            .expect("Pushed launcher placement was validated"),
-                    };
-                }
-                Ok(ChangeOutput::changes(changes))
             }
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),
@@ -813,33 +774,27 @@ impl DesktopSystem {
     }
 }
 
-fn moved_placement(
-    placement: MatrixPlacement,
-    direction: MoveDirection,
-) -> Option<MatrixPlacement> {
-    match direction {
-        MoveDirection::Left => placement
-            .column
-            .checked_sub(1)
-            .map(|column| MatrixPlacement {
-                column,
-                row: placement.row,
-            }),
-        MoveDirection::Right => placement
-            .column
-            .checked_add(1)
-            .map(|column| MatrixPlacement {
-                column,
-                row: placement.row,
-            }),
-        MoveDirection::Up => placement.row.checked_sub(1).map(|row| MatrixPlacement {
-            column: placement.column,
-            row,
-        }),
-        MoveDirection::Down => placement.row.checked_add(1).map(|row| MatrixPlacement {
-            column: placement.column,
-            row,
-        }),
+impl DesktopSystem {
+    fn launcher_shift_sequence(
+        &self,
+        project: ProjectId,
+        launcher: LaunchProfileId,
+        direction: massive_applications::MoveDirection,
+    ) -> Result<Changes> {
+        let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+        let shifted_launchers = self
+            .aggregates
+            .matrix_positions
+            .shifted_launchers(launchers, launcher, direction)?;
+
+        let mut changes = Changes::Empty;
+        for (launcher, placement) in shifted_launchers {
+            changes <<= ProjectChange::MoveLauncher {
+                launcher,
+                placement,
+            };
+        }
+        Ok(changes)
     }
 }
 
