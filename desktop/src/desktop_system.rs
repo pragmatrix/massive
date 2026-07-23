@@ -22,7 +22,6 @@ mod layout_state;
 mod navigation;
 mod presentation;
 mod topology;
-mod zoom_navigation;
 
 use anyhow::{Result, bail};
 use derive_more::Debug;
@@ -54,7 +53,7 @@ use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{
     DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
-use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
+use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -68,6 +67,14 @@ pub enum DesktopTarget {
 
     Instance(InstanceId),
     View(ViewId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Direction {
+    Left,
+    Right,
+    Up,
+    Down,
 }
 
 impl From<ProjectId> for DesktopTarget {
@@ -213,6 +220,7 @@ struct Aggregates {
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: LauncherMap,
+    matrix_positions: MatrixPositions,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
@@ -224,6 +232,7 @@ impl Aggregates {
             projects: Map::default(),
 
             launchers: Map::default(),
+            matrix_positions: MatrixPositions::default(),
             instances: Map::default(),
         }
     }
@@ -301,7 +310,13 @@ impl DesktopSystem {
             measures += outcome.measures;
         }
 
-        let mut effects: Effects = measures.into_iter().map(DesktopEffect::Measure).collect();
+        // A nested removal measures its surviving parent, but a later change in the same
+        // transaction may remove that parent as well. Only measure targets in the final topology.
+        let mut effects: Effects = measures
+            .into_iter()
+            .filter(|target| self.aggregates.hierarchy.exists(target))
+            .map(DesktopEffect::Measure)
+            .collect();
 
         // The camera follows the focused target, so a focus change recomputes it even when the
         // change moved no layout (pure navigation between siblings, or focusing a launcher).
@@ -316,8 +331,15 @@ impl DesktopSystem {
             self.sync_focused_launcher_anchor();
             let focus_measures = mem::take(&mut self.deferred_focus_launcher_measures);
             if !focus_measures.is_empty() {
+                // Moving focus out of a removed subtree queues its former launcher before the
+                // topology changes run. Do not measure that launcher after the transaction.
                 effects += focus_measures
                     .into_iter()
+                    .filter(|launcher| {
+                        self.aggregates
+                            .hierarchy
+                            .exists(&DesktopTarget::Launcher(*launcher))
+                    })
                     .map(|launcher| DesktopEffect::Measure(launcher.into()))
                     .collect::<Effects>();
             }

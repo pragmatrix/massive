@@ -2,16 +2,15 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::Vector3;
 use massive_util::CollectingVec;
 
-use crate::{
-    DesktopTarget,
-    desktop_system::{KeyboardFocusReason, ProjectCommand, UserState},
-    event_router::EventTransitions,
-    instance_presenter::InstanceRoot,
-    projects::LaunchProfileId,
+use crate::desktop_system::{KeyboardFocusReason, UserState};
+use crate::event_router::EventTransitions;
+use crate::instance_presenter::InstanceRoot;
+use crate::projects::{
+    LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
 };
+use crate::{DesktopTarget, RemoveSlotShiftingPolicy};
 
 pub type Changes = CollectingVec<DesktopChange>;
-pub type ProjectChange = ProjectCommand;
 
 #[derive(Debug)]
 pub enum DesktopChange {
@@ -26,6 +25,7 @@ pub enum DesktopChange {
         initial_center_translation: Option<Vector3>,
         instance: InstanceId,
         root: InstanceRoot,
+        parameters: InstanceParameters,
     },
     ShutdownInstance(InstanceId),
     HideInstance {
@@ -44,6 +44,32 @@ pub enum DesktopChange {
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+}
+
+#[derive(Debug)]
+pub enum ProjectChange {
+    AddProject {
+        id: ProjectId,
+        properties: ProjectProperties,
+    },
+    RemoveProject(ProjectId),
+    AddLauncher {
+        project: ProjectId,
+        id: LaunchProfileId,
+        profile: LaunchProfile,
+        placement: MatrixPlacement,
+    },
+    MoveLauncher {
+        launcher: LaunchProfileId,
+        placement: MatrixPlacement,
+    },
+    RemoveLauncher(LaunchProfileId),
+    RemoveSlot {
+        project: ProjectId,
+        placement: MatrixPlacement,
+        shifting_policy: RemoveSlotShiftingPolicy,
+    },
+    SetStartupProfile(Option<LaunchProfileId>),
 }
 
 /// Constructs the change(s) for a focus transition.
@@ -65,6 +91,7 @@ pub enum TopologyChange {
     Add {
         what: DesktopTarget,
         under: DesktopTarget,
+        after: Option<DesktopTarget>,
     },
     AddNested {
         what: Vec<DesktopTarget>,

@@ -2,7 +2,7 @@ use derive_more::Debug;
 
 use massive_applications::{InstanceId, InstanceParameters};
 
-use super::navigation::Direction;
+use super::Direction;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
@@ -24,10 +24,11 @@ pub enum DesktopCommand {
     },
     StopInstance(InstanceId),
 
+    Navigate(Direction),
+
     ZoomIn,
     ZoomOut,
     ResetZoom,
-    Navigate(Direction),
 }
 
 #[derive(Debug)]
@@ -35,8 +36,8 @@ pub enum ProjectCommand {
     AddProject {
         id: ProjectId,
         properties: ProjectProperties,
+        after: Option<ProjectId>,
     },
-    #[allow(unused)]
     RemoveProject(ProjectId),
     AddLauncher {
         project: ProjectId,
@@ -44,7 +45,6 @@ pub enum ProjectCommand {
         profile: LaunchProfile,
         placement: MatrixPlacement,
     },
-    #[allow(unused)]
     RemoveLauncher(LaunchProfileId),
     SetStartupProfile(Option<LaunchProfileId>),
 }

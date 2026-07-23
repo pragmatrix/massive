@@ -1,8 +1,7 @@
 use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
 use massive_scene::{ToCamera, Transform};
 
-use super::{DesktopSystem, DesktopTarget};
-use crate::desktop_system::FocusDepth;
+use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
 use crate::projects::LaunchProfileId;
 
 #[derive(Debug, Clone)]
@@ -19,7 +18,7 @@ impl OverviewBounds {
     }
 }
 
-pub(super) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
+pub(crate) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
     match target {
         DesktopTarget::View(_) => FocusDepth::Instance,
         DesktopTarget::Instance(_) => FocusDepth::Instance,
@@ -32,7 +31,7 @@ pub(super) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
 }
 
 impl DesktopSystem {
-    pub(super) fn resolve_camera_for_target_or_ancestor(
+    pub(crate) fn resolve_camera_for_target_or_ancestor(
         &self,
         target: &DesktopTarget,
         mut depth: FocusDepth,
@@ -126,28 +125,20 @@ impl DesktopSystem {
     }
 
     pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
-        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id)?;
-        let row = self.aggregates.launchers.get(&launcher_id)?.placement.row;
+        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id);
+        let row = self.aggregates.matrix_positions.get(&launcher_id)?.row;
         let mut rect: Option<Rect> = None;
 
-        for target in self
-            .aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::ProjectMatrix(project_id))
-        {
-            let DesktopTarget::Launcher(candidate_launcher) = target else {
+        for candidate_launcher in self.aggregates.hierarchy.matrix_launchers(project_id) {
+            let Some(candidate) = self.aggregates.matrix_positions.get(&candidate_launcher) else {
                 continue;
             };
 
-            let Some(candidate) = self.aggregates.launchers.get(candidate_launcher) else {
-                continue;
-            };
-
-            if candidate.placement.row != row {
+            if candidate.row != row {
                 continue;
             }
 
-            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(*candidate_launcher));
+            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(candidate_launcher));
 
             rect = Some(match rect {
                 Some(existing) => existing.joined(launcher_rect),

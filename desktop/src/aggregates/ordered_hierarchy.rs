@@ -47,6 +47,26 @@ where
         Ok(())
     }
 
+    pub fn add_after(&mut self, after: Id, nested: Id) -> Result<()> {
+        let Some(parent) = self.parent(&after).cloned() else {
+            bail!("Nested item not found");
+        };
+        let index = self.entry(&after).index_under(&parent).unwrap_or_else(|| {
+            panic!("Internal error (add_after): parent {parent:?} did not contain nested item {after:?}")
+        });
+        self.insert_at(parent, index + 1, nested)
+    }
+
+    pub fn add_before(&mut self, before: Id, nested: Id) -> Result<()> {
+        let Some(parent) = self.parent(&before).cloned() else {
+            bail!("Nested item not found");
+        };
+        let index = self.entry(&before).index_under(&parent).unwrap_or_else(|| {
+            panic!("Internal error (add_before): parent {parent:?} did not contain nested item {before:?}")
+        });
+        self.insert_at(parent, index, nested)
+    }
+
     /// Add an id to the end of the parent's nested list.
     pub fn add(&mut self, parent: Id, nested: Id) -> Result<()> {
         let nested_state = self.nodes.entry(nested.clone()).or_default();
@@ -203,8 +223,12 @@ where
     }
 
     pub fn index(&self) -> Option<usize> {
+        self.index_under(self.parent()?)
+    }
+
+    fn index_under(&self, parent: &Id) -> Option<usize> {
         self.hierarchy
-            .get_nested(self.parent()?)
+            .get_nested(parent)
             .iter()
             .position(|nested| nested == self.id)
     }
@@ -263,6 +287,28 @@ mod tests {
         hierarchy.insert_at(1, 0, 3).unwrap();
 
         assert_eq!(hierarchy.get_nested(&1), &[3, 2]);
+    }
+
+    #[test]
+    fn insert_nested_after_sibling() {
+        let mut hierarchy = hierarchy();
+        hierarchy.add_nested(1, [2, 4]).unwrap();
+
+        hierarchy.add_after(2, 3).unwrap();
+
+        assert_eq!(hierarchy.get_nested(&1), &[2, 3, 4]);
+        assert_eq!(hierarchy.parent(&3), Some(&1));
+    }
+
+    #[test]
+    fn insert_nested_before_sibling() {
+        let mut hierarchy = hierarchy();
+        hierarchy.add_nested(1, [2, 4]).unwrap();
+
+        hierarchy.add_before(4, 3).unwrap();
+
+        assert_eq!(hierarchy.get_nested(&1), &[2, 3, 4]);
+        assert_eq!(hierarchy.parent(&3), Some(&1));
     }
 
     #[test]

@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 
 use massive_applications::{
-    CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange, ViewRole,
+    CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
+    ViewRole,
 };
 use massive_shell::Scene;
 
@@ -11,11 +12,15 @@ use crate::desktop_system::change::{
     Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
 };
 use crate::desktop_system::effects::MeasureSet;
-use crate::desktop_system::zoom_navigation::focus_depth_from_target;
+use crate::desktop_system::navigation::focus_depth_from_target;
 use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{LauncherPresenter, ProjectPresenter};
+use crate::projects::{
+    LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
+    ProjectPresenter, ProjectProperties,
+};
+use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
 
 /// The outcome of applying a change: the measures it produced and any follow-up changes.
 #[derive(Debug, Default)]
@@ -24,7 +29,6 @@ pub struct ChangeOutput {
     pub changes: Changes,
     pub measures: MeasureSet,
 }
-
 impl ChangeOutput {
     /// An outcome that produced the given measures.
     fn measures(measures: MeasureSet) -> Self {
@@ -69,7 +73,7 @@ impl DesktopSystem {
                     vec![DesktopChange::SpawnInstance {
                         instance,
                         root: root.clone(),
-                        parameters,
+                        parameters: parameters.clone(),
                     }]
                 } else {
                     Vec::new()
@@ -83,6 +87,7 @@ impl DesktopSystem {
                             .and_then(|od| od.initial_center_translation),
                         instance,
                         root,
+                        parameters,
                     },
                     DesktopChange::Topology(TopologyChange::Insert {
                         what: instance.into(),
@@ -99,11 +104,7 @@ impl DesktopSystem {
                 return Ok(changes);
             }
             DesktopCommand::StopInstance(instance) => {
-                let launcher = self
-                    .aggregates
-                    .hierarchy
-                    .launcher_of_instance(instance)
-                    .expect("Launcher not found");
+                let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
 
                 // Set up a replacement focus first.
                 //
@@ -128,6 +129,7 @@ impl DesktopSystem {
 
                 return Ok(changes);
             }
+            DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
             DesktopCommand::ZoomIn => {
                 if let Some(focus_depth) = self.user_state.focus_depth.zoom_in() {
                     let user_state = UserState { focus_depth };
@@ -152,7 +154,6 @@ impl DesktopSystem {
                     }
                 }
             }
-            DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
         }
 
         Ok([].into())
@@ -161,26 +162,33 @@ impl DesktopSystem {
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
         let mut changes = Changes::Empty;
         match command {
-            ProjectCommand::AddProject { id, properties } => {
+            ProjectCommand::AddProject {
+                id,
+                properties,
+                after,
+            } => {
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
-                changes.push(TopologyChange::Add {
+
+                changes <<= TopologyChange::Add {
                     what: project_target.clone(),
                     under: parent_target,
-                });
-                changes.push(TopologyChange::AddNested {
+                    after: after.map(DesktopTarget::Project),
+                };
+
+                changes <<= TopologyChange::AddNested {
                     what: [
                         DesktopTarget::ProjectHeader(id),
                         DesktopTarget::ProjectMatrix(id),
                     ]
                     .into(),
                     under: project_target,
-                });
-                changes.push(ProjectChange::AddProject { id, properties });
+                };
+                changes <<= ProjectChange::AddProject { id, properties };
             }
             ProjectCommand::RemoveProject(project_id) => {
-                changes.push(TopologyChange::Remove(DesktopTarget::Project(project_id)));
-                changes.push(ProjectChange::RemoveProject(project_id));
+                changes += self.plan_project_removal_focus(project_id);
+                changes += self.plan_remove_project(project_id);
             }
             ProjectCommand::AddLauncher {
                 project,
@@ -188,27 +196,119 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
-                changes.push(ProjectChange::AddLauncher {
+                let mut launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                if let Some(launcher) = launchers
+                    .find(|launcher| self.aggregates.matrix_positions[launcher] == placement)
+                {
+                    changes += self.launcher_shift_sequence(
+                        project,
+                        launcher,
+                        massive_applications::MoveDirection::Right,
+                    )?;
+                }
+                changes <<= ProjectChange::AddLauncher {
                     project,
                     id: launch_profile_id,
                     profile,
                     placement,
-                });
-                changes.push(TopologyChange::Add {
+                };
+                changes <<= TopologyChange::Add {
                     what: launch_profile_id.into(),
                     under: DesktopTarget::ProjectMatrix(project),
-                });
+                    after: None,
+                };
             }
             ProjectCommand::RemoveLauncher(launch_profile_id) => {
-                changes.push(TopologyChange::Remove(launch_profile_id.into()));
-                changes.push(ProjectChange::RemoveLauncher(launch_profile_id));
+                // If this is the last launcher of a project, remove the whole project.
+                let project = self
+                    .aggregates
+                    .hierarchy
+                    .project_of_launcher(launch_profile_id);
+                if self.aggregates.hierarchy.matrix_launchers(project).count() == 1 {
+                    changes += self.plan_project_removal_focus(project);
+                    changes += self.plan_remove_project(project);
+                    return Ok(changes);
+                }
+
+                let launcher_target = DesktopTarget::Launcher(launch_profile_id);
+                if let Some(focused) = self.event_router.keyboard_focus()
+                    && self
+                        .aggregates
+                        .hierarchy
+                        .path_contains_target(Some(focused), &launcher_target)
+                {
+                    changes += set_focus(
+                        Some(self.launcher_removal_focus(launch_profile_id, focused)),
+                        KeyboardFocusReason::InputTransition,
+                    );
+                }
+
+                changes += self.plan_remove_launcher(
+                    project,
+                    launch_profile_id,
+                    Some(RemoveSlotShiftingPolicy::ShiftLeft),
+                );
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
-                changes.push(ProjectChange::SetStartupProfile(launch_profile_id))
+                changes <<= ProjectChange::SetStartupProfile(launch_profile_id)
             }
         }
 
         Ok(changes)
+    }
+
+    fn plan_project_removal_focus(&self, project: ProjectId) -> Changes {
+        let project_target = DesktopTarget::Project(project);
+        if self
+            .aggregates
+            .hierarchy
+            .path_contains_target(self.event_router.keyboard_focus(), &project_target)
+        {
+            return set_focus(
+                Some(self.project_removal_focus(project)),
+                KeyboardFocusReason::InputTransition,
+            );
+        }
+
+        Changes::Empty
+    }
+
+    fn plan_remove_project(&self, project: ProjectId) -> Changes {
+        let mut changes = Changes::Empty;
+        for launcher in self.aggregates.hierarchy.matrix_launchers(project) {
+            changes += self.plan_remove_launcher(project, launcher, None);
+        }
+
+        changes <<= ProjectChange::RemoveProject(project);
+        changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
+        changes
+    }
+
+    fn plan_remove_launcher(
+        &self,
+        project: ProjectId,
+        launcher: LaunchProfileId,
+        shifting_policy: Option<RemoveSlotShiftingPolicy>,
+    ) -> Changes {
+        let mut changes = Changes::Empty;
+        for instance in self.aggregates.hierarchy.launcher_instances(launcher) {
+            changes += [
+                DesktopChange::Topology(TopologyChange::Remove(instance.into())),
+                DesktopChange::HideInstance { launcher, instance },
+                DesktopChange::ShutdownInstance(instance),
+            ];
+        }
+        let placement = self.aggregates.matrix_positions[&launcher];
+        changes <<= TopologyChange::Remove(launcher.into());
+        changes <<= ProjectChange::RemoveLauncher(launcher);
+        if let Some(shifting_policy) = shifting_policy {
+            changes <<= ProjectChange::RemoveSlot {
+                project,
+                placement,
+                shifting_policy,
+            };
+        }
+        changes
     }
 
     pub fn apply_change(
@@ -249,8 +349,16 @@ impl DesktopSystem {
                 initial_center_translation,
                 instance,
                 root,
+                parameters,
             } => {
-                self.present_instance(launcher, initial_center_translation, instance, root, scene)?;
+                self.present_instance(
+                    launcher,
+                    initial_center_translation,
+                    instance,
+                    root,
+                    parameters,
+                    scene,
+                )?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
                 self.hide_instance(launcher, instance)?;
@@ -281,7 +389,7 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission, scene);
             }
             DesktopChange::Project(project_change) => {
-                self.apply_project_change(project_change, scene)?;
+                return self.apply_project_change(project_change, scene);
             }
         }
 
@@ -294,8 +402,13 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<MeasureSet> {
         match change {
-            TopologyChange::Add { what, under } => {
-                self.aggregates.hierarchy.add(under.clone(), what)?;
+            TopologyChange::Add { what, under, after } => {
+                if let Some(after) = after {
+                    // Design: `under` can be resolved via `after`!
+                    self.aggregates.hierarchy.add_after(after, what)?;
+                } else {
+                    self.aggregates.hierarchy.add(under.clone(), what)?;
+                }
                 Ok(under.into())
             }
             TopologyChange::AddNested { what, under } => {
@@ -323,7 +436,11 @@ impl DesktopSystem {
         }
     }
 
-    fn apply_project_change(&mut self, change: ProjectChange, scene: &Scene) -> Result<()> {
+    fn apply_project_change(
+        &mut self,
+        change: ProjectChange,
+        scene: &Scene,
+    ) -> Result<ChangeOutput> {
         match change {
             ProjectChange::AddProject { id, properties } => {
                 let parent_location = self.desktop_presenter.location.clone();
@@ -346,6 +463,11 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
+                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                self.aggregates
+                    .matrix_positions
+                    .place(launchers, id, placement)?;
+
                 let matrix_location = self
                     .aggregates
                     .projects
@@ -357,7 +479,6 @@ impl DesktopSystem {
                 let presenter = LauncherPresenter::new(
                     matrix_location,
                     id,
-                    placement,
                     profile,
                     massive_geometry::Size::default(),
                     scene,
@@ -365,15 +486,45 @@ impl DesktopSystem {
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
             }
+            ProjectChange::MoveLauncher {
+                launcher,
+                placement,
+            } => {
+                let project = self.aggregates.hierarchy.project_of_launcher(launcher);
+                *self
+                    .aggregates
+                    .matrix_positions
+                    .get_mut(&launcher)
+                    .expect("Matrix position missing for launcher") = placement;
+                return Ok(ChangeOutput::measures(
+                    DesktopTarget::ProjectMatrix(project).into(),
+                ));
+            }
             ProjectChange::RemoveLauncher(launch_profile_id) => {
                 self.aggregates.launchers.remove(&launch_profile_id)?;
+                self.aggregates
+                    .matrix_positions
+                    .remove(&launch_profile_id)?;
+            }
+            ProjectChange::RemoveSlot {
+                project,
+                placement,
+                shifting_policy,
+            } => {
+                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+                self.aggregates
+                    .matrix_positions
+                    .remove_slot(launchers, placement, shifting_policy);
+                return Ok(ChangeOutput::measures(
+                    DesktopTarget::ProjectMatrix(project).into(),
+                ));
             }
             ProjectChange::SetStartupProfile(launch_profile_id) => {
                 self.aggregates.startup_profile = launch_profile_id;
             }
         }
 
-        Ok(())
+        Ok(ChangeOutput::default())
     }
 
     fn apply_instance_submission(
@@ -437,6 +588,7 @@ impl DesktopSystem {
                 self.apply_view_change(view_path, command)?;
                 Ok(ChangeOutput::default())
             }
+            InstanceChange::Desktop(request) => self.handle_desktop_request(instance, request),
             // This makes sure that all pending Scene Changes from the Instance have been collected
             // before we drop the last ref the instance has to its parent location (which in turn
             // may push other deletes to the Scene).
@@ -465,4 +617,197 @@ impl DesktopSystem {
 
         Ok(())
     }
+
+    fn handle_desktop_request(
+        &self,
+        instance: InstanceId,
+        request: DesktopRequest,
+    ) -> Result<ChangeOutput> {
+        let current_project = self
+            .aggregates
+            .hierarchy
+            .project_of_target(&instance.into())
+            .expect("Instance has no project");
+        match &request {
+            DesktopRequest::AddProject => {
+                let project = ProjectId::new();
+                let launcher = LaunchProfileId::new();
+
+                // ADR: Decided to add a bare launcher if a new project is added, so that we can
+                // enter it and add further launchers from there.
+
+                let commands = [
+                    ProjectCommand::AddProject {
+                        id: project,
+                        properties: ProjectProperties {
+                            name: DEFAULT_NEW_PROJECT_NAME.to_string(),
+                        },
+                        after: Some(current_project),
+                    },
+                    ProjectCommand::AddLauncher {
+                        project,
+                        id: launcher,
+                        profile: LaunchProfile {
+                            name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
+                            mode: LauncherMode::Visor,
+                            tags: Vec::new(),
+                            params: Default::default(),
+                        },
+                        placement: MatrixPlacement { column: 0, row: 0 },
+                    },
+                ];
+
+                let mut changes = Changes::Empty;
+                for command in commands {
+                    changes += self.plan_project(command)?;
+                }
+
+                Ok(ChangeOutput::changes(changes))
+            }
+            DesktopRequest::RemoveProject { name } => {
+                let project = match name {
+                    Some(name) => {
+                        let Some(project) = self
+                            .aggregates
+                            .hierarchy
+                            .get_nested(&DesktopTarget::Desktop)
+                            .iter()
+                            .find_map(|target| match target {
+                                DesktopTarget::Project(project)
+                                    if self.aggregates.projects[project].name() == name =>
+                                {
+                                    Some(*project)
+                                }
+                                _ => None,
+                            })
+                        else {
+                            warn!("Project '{name}' not found");
+                            return Ok(ChangeOutput::default());
+                        };
+                        project
+                    }
+                    None => current_project,
+                };
+
+                Ok(ChangeOutput::changes(
+                    self.plan_project(ProjectCommand::RemoveProject(project))?,
+                ))
+            }
+            DesktopRequest::AddLauncher => {
+                let current_launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
+                let current_placement = self.aggregates.matrix_positions[&current_launcher];
+
+                let changes = self.plan_project(ProjectCommand::AddLauncher {
+                    project: current_project,
+                    id: LaunchProfileId::new(),
+                    profile: LaunchProfile {
+                        name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
+                        mode: LauncherMode::Visor,
+                        tags: Vec::new(),
+                        params: Default::default(),
+                    },
+                    placement: MatrixPlacement {
+                        column: current_placement.column + 1,
+                        row: current_placement.row,
+                    },
+                })?;
+
+                Ok(ChangeOutput::changes(changes))
+            }
+            DesktopRequest::RemoveLauncher { name } => {
+                let launcher = match name {
+                    Some(name) => {
+                        // ADR, stay on the project for now.
+                        let Some(launcher) = self
+                            .aggregates
+                            .hierarchy
+                            .matrix_launchers(current_project)
+                            .find(|launcher| self.aggregates.launchers[launcher].name() == name)
+                        else {
+                            warn!("Launcher '{name}' not found in the current project");
+                            return Ok(ChangeOutput::default());
+                        };
+                        launcher
+                    }
+                    None => self.aggregates.hierarchy.launcher_of_instance(instance),
+                };
+
+                Ok(ChangeOutput::changes(
+                    self.plan_project(ProjectCommand::RemoveLauncher(launcher))?,
+                ))
+            }
+            DesktopRequest::MoveLauncher { direction } => {
+                let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
+                let current_placement = self.aggregates.matrix_positions[&launcher];
+                let placement = MatrixPositions::moved_placement(current_placement, *direction);
+                let Some(placement) = placement else {
+                    warn!(
+                        "Ignoring {direction:?} launcher move from matrix position ({}, {})",
+                        current_placement.column, current_placement.row,
+                    );
+                    return Ok(ChangeOutput::default());
+                };
+                let swapped_launcher = self
+                    .aggregates
+                    .hierarchy
+                    .matrix_launchers(current_project)
+                    .find(|candidate| self.aggregates.matrix_positions[candidate] == placement);
+                let mut changes = Changes::Empty;
+                if let Some(swapped_launcher) = swapped_launcher {
+                    changes <<= ProjectChange::MoveLauncher {
+                        launcher: swapped_launcher,
+                        placement: current_placement,
+                    };
+                }
+                changes <<= ProjectChange::MoveLauncher {
+                    launcher,
+                    placement,
+                };
+                Ok(ChangeOutput::changes(changes))
+            }
+            DesktopRequest::PushLauncher { direction } => {
+                let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
+                let current_placement = self.aggregates.matrix_positions[&launcher];
+                match self.launcher_shift_sequence(current_project, launcher, *direction) {
+                    Ok(changes) => Ok(ChangeOutput::changes(changes)),
+                    Err(_) => {
+                        warn!(
+                            "Ignoring {direction:?} launcher push from matrix position ({}, {})",
+                            current_placement.column, current_placement.row,
+                        );
+                        Ok(ChangeOutput::default())
+                    }
+                }
+            }
+            DesktopRequest::Undo => todo!(),
+            DesktopRequest::Redo => todo!(),
+        }
+    }
 }
+
+impl DesktopSystem {
+    fn launcher_shift_sequence(
+        &self,
+        project: ProjectId,
+        launcher: LaunchProfileId,
+        direction: massive_applications::MoveDirection,
+    ) -> Result<Changes> {
+        let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+        let shifted_launchers = self
+            .aggregates
+            .matrix_positions
+            .shifted_launchers(launchers, launcher, direction)?;
+
+        let mut changes = Changes::Empty;
+        for (launcher, placement) in shifted_launchers {
+            changes <<= ProjectChange::MoveLauncher {
+                launcher,
+                placement,
+            };
+        }
+        Ok(changes)
+    }
+}
+
+const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
+const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";

@@ -1,5 +1,6 @@
 use anyhow::{Result, bail};
 use derive_more::Constructor;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -43,6 +44,7 @@ impl InstanceEnvironment {
 #[derive(Debug, Constructor)]
 pub struct InstanceSubmission {
     changes: ChangeSet<InstanceChange>,
+    /// Submission-level render metadata, including for empty change sets.
     pacing: RenderPacing,
 }
 
@@ -79,11 +81,41 @@ impl InstanceSubmission {
 #[derive(Debug)]
 pub enum InstanceChange {
     Scene(SceneChange),
+
+    // Design: Combine the following three?
     CreateView(ViewCreationInfo),
     View(ViewId, ViewChange),
     DestroyView(ViewId),
+
+    /// Design: This should probably converted to a kind of custom boxed command / request
+    /// (discriminated by type), so that the interface stays abstract over what outer shell is
+    /// driving the instance.
+    Desktop(DesktopRequest),
+
     /// The instance ended. The `Ref<Location>` can just be dropped now as soon this event got
     /// received (and so may enqueue its deletion into the `ChangeCollector` after all other events
     /// have been received).
     End(Ref<Location>),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub enum DesktopRequest {
+    AddProject,
+    // `name` is for removing a specific project without selecting it first.
+    RemoveProject { name: Option<String> },
+    AddLauncher,
+    // `name` is for removing a specific launcher without selecting it first.
+    RemoveLauncher { name: Option<String> },
+    MoveLauncher { direction: MoveDirection },
+    PushLauncher { direction: MoveDirection },
+    Undo,
+    Redo,
+}
+
+#[derive(Debug, Copy, Clone, Serialize, Deserialize)]
+pub enum MoveDirection {
+    Left,
+    Right,
+    Up,
+    Down,
 }

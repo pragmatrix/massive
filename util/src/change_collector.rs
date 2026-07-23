@@ -35,6 +35,8 @@ impl<C> ChangeCollector<C> {
     }
 }
 
+// Architecture: This should be replaced by `CollectingVec`, but we need a kind of time tracker and
+// drop checks (may optionally add this to `CollectingVec`).
 #[derive(Debug, Deref)]
 pub struct ChangeSet<C> {
     #[deref]
@@ -96,7 +98,7 @@ impl<C> ChangeSet<C> {
 
     pub fn map<M>(mut self, map_change: impl FnMut(C) -> M) -> ChangeSet<M> {
         ChangeSet {
-            // take is needed because of Drop.
+            // Take is needed because of Drop.
             changes: mem::take(&mut self.changes)
                 .into_iter()
                 .map(map_change)

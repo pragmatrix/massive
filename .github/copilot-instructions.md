@@ -90,6 +90,7 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Communication
 - Explanations should be concise and strictly relevant.
 - When unsure, ask clarifying questions before making assumptions.
+- When a request leaves a material design choice open, suggest viable solutions and wait for direction before implementing one.
 
 ## Continuous Learning
 - After completing meaningful work, update this file with high-level, reusable guidance learned from the task.

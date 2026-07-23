@@ -6,7 +6,7 @@ use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, Interpolation};
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
@@ -19,7 +19,7 @@ use super::visor_layout;
 use crate::Map;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::{LaunchProfileId, MatrixPlacement};
+use crate::projects::LaunchProfileId;
 
 use super::configuration::{LaunchProfile, LauncherMode};
 
@@ -49,9 +49,9 @@ pub struct LauncherPresenter {
     #[allow(unused)]
     id: LaunchProfileId,
     profile: LaunchProfile,
-    pub placement: MatrixPlacement,
     mode: LauncherMode,
-    layout_transform: Transform,
+
+    layout_transform: Animated<Transform>,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
 
@@ -62,6 +62,7 @@ pub struct LauncherPresenter {
 
     // Alpha fading of name / background.
     fader: Animated<f32>,
+
     /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
     /// most recently focused instance while no mouse button was pressed. The visor centers on this
     /// anchor independent of the live keyboard focus.
@@ -78,7 +79,6 @@ impl LauncherPresenter {
     pub fn new(
         parent_location: Handle<Location>,
         id: LaunchProfileId,
-        placement: MatrixPlacement,
         profile: LaunchProfile,
         size: Size,
         scene: &Scene,
@@ -116,9 +116,8 @@ impl LauncherPresenter {
         Self {
             id,
             profile,
-            placement,
             mode,
-            layout_transform: Transform::IDENTITY,
+            layout_transform: scene.animated(Transform::IDENTITY),
             scene_transform: our_transform,
             location: our_location,
             size: scene.animated(size),
@@ -135,6 +134,10 @@ impl LauncherPresenter {
             LauncherMode::Band => false,
             LauncherMode::Visor => true,
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.profile.name
     }
 
     pub fn includes_overflow_children_in_hit_testing(&self) -> bool {
@@ -258,12 +261,18 @@ impl LauncherPresenter {
                 && event.keyboard_modifiers().super_key());
 
         if start_instance {
+            let parameters = if event.keyboard_modifiers().shift_key() {
+                InstanceParameters::new()
+            } else {
+                self.profile.params.clone()
+            };
+
             // Usability: Should pass this rectangle?
             return Ok(DesktopCommand::StartInstance {
                 launcher: self.id,
                 instance: Uuid::new_v4().into(),
                 root: None,
-                parameters: self.profile.params.clone(),
+                parameters,
             }
             .into());
         }
@@ -277,15 +286,20 @@ impl LauncherPresenter {
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
-        self.layout_transform = layout_transform;
         let size = Size::new(size.width as f64, size.height as f64);
         if animate {
+            self.layout_transform.animate_if_changed(
+                layout_transform,
+                STRUCTURAL_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
             self.size.animate_if_changed(
                 size,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {
+            self.layout_transform.set_immediately(layout_transform);
             self.size.set_immediately(size);
             self.apply_presenter_animations();
         }
@@ -320,6 +334,7 @@ impl LauncherPresenter {
 
         let scene_transform = self
             .layout_transform
+            .value()
             .to_origin_space_from_size(size.width, size.height);
         self.scene_transform.update_if_changed(scene_transform);
 

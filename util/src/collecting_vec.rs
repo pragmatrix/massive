@@ -1,5 +1,5 @@
 use std::mem;
-use std::ops::{Add, AddAssign};
+use std::ops::{Add, AddAssign, ShlAssign};
 use std::{slice, vec};
 
 /// A sequence that collects values in insertion order, keeping duplicates.
@@ -48,6 +48,15 @@ impl<T> CollectingVec<T> {
             CollectingVec::One(value) => CollectingVec::One(f(value)),
             CollectingVec::Many(values) => CollectingVec::Many(values.into_iter().map(f).collect()),
         }
+    }
+}
+
+impl<E, T> ShlAssign<E> for CollectingVec<T>
+where
+    T: From<E>,
+{
+    fn shl_assign(&mut self, value: E) {
+        self.push(T::from(value));
     }
 }
 

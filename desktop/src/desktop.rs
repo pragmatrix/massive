@@ -284,6 +284,7 @@ fn primary_project() -> PrimaryProject {
         properties: ProjectProperties {
             name: "Primary / Local".into(),
         },
+        after: None,
     };
 
     commands += ProjectCommand::AddLauncher {
@@ -320,6 +321,7 @@ fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectComma
     commands.push(ProjectCommand::AddProject {
         id: project.id,
         properties: project.properties.clone(),
+        after: None,
     });
 
     for launcher in &project.launchers {

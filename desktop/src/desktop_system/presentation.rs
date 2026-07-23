@@ -1,7 +1,7 @@
 use anyhow::{Result, bail};
 use log::warn;
 
-use massive_applications::{InstanceId, ViewCreationInfo};
+use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 use massive_geometry::{Point, Transform, Vector3};
 use massive_layout::{Placement, Size as LayoutSize};
 use massive_shell::Scene;
@@ -28,6 +28,7 @@ impl DesktopSystem {
         initial_center_translation: Option<Vector3>,
         instance: InstanceId,
         root: InstanceRoot,
+        parameters: InstanceParameters,
         scene: &Scene,
     ) -> Result<()> {
         let (render_instance_background, launcher_location) = {
@@ -46,6 +47,7 @@ impl DesktopSystem {
             initial_center_translation,
             render_instance_background,
             root,
+            parameters,
             launcher_location,
             scene,
         );
@@ -122,6 +124,7 @@ impl DesktopSystem {
         let changes: Changes = DesktopChange::Topology(TopologyChange::Add {
             what: DesktopTarget::View(view_creation_info.id),
             under: DesktopTarget::Instance(instance),
+            after: None,
         })
         .into();
 
@@ -174,11 +177,7 @@ impl DesktopSystem {
             .instances
             .get(&instance_id)
             .expect("Instance not found");
-        let launcher_id = self
-            .aggregates
-            .hierarchy
-            .launcher_of_instance(instance_id)
-            .expect("Instance without launcher");
+        let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
         // Keep hover aligned with animated instance motion by composing the current instance-local

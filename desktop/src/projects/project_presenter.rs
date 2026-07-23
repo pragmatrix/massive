@@ -138,6 +138,7 @@ fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
+    name: String,
     scene_transform: Handle<Transform>,
     pub header: ProjectHeaderPresenter,
     pub matrix: ProjectMatrixPresenter,
@@ -154,14 +155,20 @@ impl ProjectPresenter {
         let location = scene_transform
             .to_location_relative(&parent_location)
             .enter(scene);
+        let name = properties.name.clone();
         let header = ProjectHeaderPresenter::new(properties, location.clone(), scene, font_system);
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
 
         Self {
+            name,
             scene_transform,
             header,
             matrix,
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {

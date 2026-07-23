@@ -5,15 +5,15 @@ use uuid::Uuid;
 use winit::event::ElementState;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
-use super::navigation::Direction;
+use super::Direction;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
-use crate::desktop_system::zoom_navigation::focus_depth_from_target;
+use crate::desktop_system::navigation::focus_depth_from_target;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -104,7 +104,7 @@ impl DesktopSystem {
         let focused_path = self.path_of(target);
         let focused_instance = focused_path.instance()?;
         let topology = &self.aggregates.hierarchy;
-        let launcher_id = topology.launcher_of_instance(focused_instance)?;
+        let launcher_id = topology.launcher_of_instance(focused_instance);
         let instance_count = topology
             .get_nested(&DesktopTarget::Launcher(launcher_id))
             .len();
@@ -123,9 +123,7 @@ impl DesktopSystem {
         let Some(instance_id) = self.focused_path().instance() else {
             return;
         };
-        let Some(launcher_id) = self.aggregates.hierarchy.launcher_of_instance(instance_id) else {
-            return;
-        };
+        let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
         let launcher = self
             .aggregates
             .launchers
@@ -206,8 +204,24 @@ impl DesktopSystem {
             {
                 let launcher_id = *launcher;
                 match &key_event.logical_key {
-                    Key::Character(c) if c.as_str() == "t" => {
-                        return Some(DesktopKeyboardShortcut::NewInstance(launcher_id));
+                    // Shift results in `T`.
+                    Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => {
+                        // Design: I don't like that a) this policy is decided here, and b) that we
+                        // pull the parameters here, too.
+                        let parameters = if event.device_states().is_shift() {
+                            Default::default()
+                        } else {
+                            self.aggregates
+                                .instances
+                                .get(&instance)
+                                .expect("Focused instance has no presenter")
+                                .parameters()
+                                .clone()
+                        };
+                        return Some(DesktopKeyboardShortcut::NewInstance {
+                            launcher: launcher_id,
+                            parameters,
+                        });
                     }
                     Key::Character(c) if c.as_str() == "w" => {
                         // Architecture: Shouldn't this just end the current view, and let the
@@ -276,7 +290,10 @@ fn targets_affected_by_keyboard_focus_change<T>(this: &EventTransitions<T>) -> V
 
 #[derive(Debug)]
 pub enum DesktopKeyboardShortcut {
-    NewInstance(LaunchProfileId),
+    NewInstance {
+        launcher: LaunchProfileId,
+        parameters: InstanceParameters,
+    },
     CloseInstance(InstanceId),
     ZoomOut,
     ZoomIn,
@@ -287,17 +304,20 @@ pub enum DesktopKeyboardShortcut {
 impl DesktopKeyboardShortcut {
     pub fn into_command(self) -> DesktopCommand {
         match self {
-            Self::NewInstance(launch_profile_id) => DesktopCommand::StartInstance {
-                launcher: launch_profile_id,
+            Self::NewInstance {
+                launcher,
+                parameters,
+            } => DesktopCommand::StartInstance {
+                launcher,
                 instance: Uuid::new_v4().into(),
                 root: None,
-                parameters: Default::default(),
+                parameters,
             },
             Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
+            Self::Navigate(direction) => DesktopCommand::Navigate(direction),
             Self::ZoomOut => DesktopCommand::ZoomOut,
             Self::ZoomIn => DesktopCommand::ZoomIn,
             Self::ResetZoom => DesktopCommand::ResetZoom,
-            Self::Navigate(direction) => DesktopCommand::Navigate(direction),
         }
     }
 }
