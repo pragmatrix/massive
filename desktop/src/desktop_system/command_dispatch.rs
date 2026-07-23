@@ -243,7 +243,11 @@ impl DesktopSystem {
                     );
                 }
 
-                changes += self.plan_remove_launcher(project, launch_profile_id);
+                changes += self.plan_remove_launcher(
+                    project,
+                    launch_profile_id,
+                    Some(RemoveSlotShiftingPolicy::ShiftLeft),
+                );
             }
             ProjectCommand::SetStartupProfile(launch_profile_id) => {
                 changes <<= ProjectChange::SetStartupProfile(launch_profile_id)
@@ -272,7 +276,7 @@ impl DesktopSystem {
     fn plan_remove_project(&self, project: ProjectId) -> Changes {
         let mut changes = Changes::Empty;
         for launcher in self.aggregates.hierarchy.matrix_launchers(project) {
-            changes += self.plan_remove_launcher(project, launcher);
+            changes += self.plan_remove_launcher(project, launcher, None);
         }
 
         changes <<= ProjectChange::RemoveProject(project);
@@ -280,7 +284,12 @@ impl DesktopSystem {
         changes
     }
 
-    fn plan_remove_launcher(&self, project: ProjectId, launcher: LaunchProfileId) -> Changes {
+    fn plan_remove_launcher(
+        &self,
+        project: ProjectId,
+        launcher: LaunchProfileId,
+        shifting_policy: Option<RemoveSlotShiftingPolicy>,
+    ) -> Changes {
         let mut changes = Changes::Empty;
         for instance in self.aggregates.hierarchy.launcher_instances(launcher) {
             changes += [
@@ -292,11 +301,13 @@ impl DesktopSystem {
         let placement = self.aggregates.matrix_positions[&launcher];
         changes <<= TopologyChange::Remove(launcher.into());
         changes <<= ProjectChange::RemoveLauncher(launcher);
-        changes <<= ProjectChange::RemoveSlot {
-            project,
-            placement,
-            shifting_policy: RemoveSlotShiftingPolicy::ShiftLeft,
-        };
+        if let Some(shifting_policy) = shifting_policy {
+            changes <<= ProjectChange::RemoveSlot {
+                project,
+                placement,
+                shifting_policy,
+            };
+        }
         changes
     }
 
