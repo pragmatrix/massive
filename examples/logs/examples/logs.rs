@@ -17,7 +17,7 @@ use winit::{
     event::{ElementState, KeyEvent, WindowEvent},
 };
 
-use massive_animation::{Animated, Interpolation};
+use massive_animation::{AnimatedRaw, AnimationContext, Interpolation};
 use massive_geometry::Vector3;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::Shape;
@@ -90,12 +90,12 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         select! {
             Some(bytes) = receiver.recv() => {
                 logs.add_line(&scene, &bytes);
-                logs.update_layout()?;
+                logs.update_layout(&scene)?;
                 scene.render_to(&mut renderer)?;
             },
 
             Ok(event) = ctx.wait_for_shell_event() => {
-                if logs.handle_shell_event(&event, &window) == UpdateResponse::Exit {
+                if logs.handle_shell_event(&scene, &event, &window) == UpdateResponse::Exit {
                     return Ok(())
                 }
                 renderer.resize_redraw(&event)?;
@@ -113,8 +113,8 @@ struct Logs {
     content_transform: Handle<Transform>,
 
     content_width: u32,
-    content_height: Animated<f64>,
-    vertical_center: Animated<f64>,
+    content_height: AnimatedRaw<f64>,
+    vertical_center: AnimatedRaw<f64>,
     vertical_center_transform: Handle<Transform>,
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
@@ -129,7 +129,7 @@ impl Logs {
         let content_transform = current_transform.enter(scene);
         let content_location = content_transform.to_location().enter(scene);
 
-        let vertical_center = scene.animated(0.0);
+        let vertical_center = 0.0.into();
 
         // We move up the lines by their top position.
         let vertical_center_transform = Transform::IDENTITY.enter(scene);
@@ -140,7 +140,7 @@ impl Logs {
             .relative_to(&content_location)
             .enter(scene);
 
-        let content_height = scene.animated(0.0);
+        let content_height = 0.0.into();
 
         Self {
             fonts,
@@ -166,9 +166,12 @@ impl Logs {
 
         let line = glyph_runs.at(&self.location).enter(scene);
 
+        let mut fader: AnimatedRaw<f64> = 0.0.into();
+        fader.animate(scene, 1.0, FADE_DURATION, Interpolation::CubicOut);
+
         self.lines.push_back(LogLine {
             top: self.next_line_top,
-            fader: scene.animation(0., 1., FADE_DURATION, Interpolation::CubicOut),
+            fader,
             visual: line,
             fading_out: false,
         });
@@ -176,7 +179,7 @@ impl Logs {
         self.next_line_top += height;
     }
 
-    fn update_layout(&mut self) -> Result<()> {
+    fn update_layout(&mut self, context: &impl AnimationContext) -> Result<()> {
         // See if some lines need to be faded out.
 
         {
@@ -185,7 +188,7 @@ impl Logs {
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
                     line.fader
-                        .animate(0., FADE_DURATION, Interpolation::CubicIn);
+                        .animate(context, 0., FADE_DURATION, Interpolation::CubicIn);
                     line.fading_out = true;
                 }
             }
@@ -193,12 +196,12 @@ impl Logs {
 
         // Update page size.
 
-        self.update_vertical_alignment();
+        self.update_vertical_alignment(context);
 
         Ok(())
     }
 
-    fn update_vertical_alignment(&mut self) {
+    fn update_vertical_alignment(&mut self, context: &impl AnimationContext) {
         let top_line = self
             .lines
             .iter()
@@ -206,6 +209,7 @@ impl Logs {
             .unwrap_or(self.lines.front().unwrap());
 
         self.vertical_center.animate(
+            context,
             -top_line.top,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
@@ -216,6 +220,7 @@ impl Logs {
         // While a size animation runs, it's fine that we don't.
         assert!(new_height.is_multiple_of(2));
         self.content_height.animate(
+            context,
             new_height as f64,
             VERTICAL_ALIGNMENT_DURATION,
             Interpolation::CubicOut,
@@ -224,11 +229,12 @@ impl Logs {
 
     fn handle_shell_event(
         &mut self,
+        context: &impl AnimationContext,
         shell_event: &ShellEvent,
         window: &ShellWindow,
     ) -> UpdateResponse {
         if shell_event.apply_animations() {
-            self.apply_animations();
+            self.apply_animations(context);
             return UpdateResponse::Continue;
         }
 
@@ -253,14 +259,14 @@ impl Logs {
                 UpdateResponse::Continue => {}
             }
 
-            self.update_content_transform();
+            self.update_content_transform(context);
         }
 
         UpdateResponse::Continue
     }
 
-    fn apply_animations(&mut self) {
-        let v_center = *self.vertical_center.value();
+    fn apply_animations(&mut self, context: &impl AnimationContext) {
+        let v_center = *self.vertical_center.value(context);
         self.vertical_center_transform
             .update((0., v_center, 0.).into());
 
@@ -279,18 +285,18 @@ impl Logs {
         }
 
         if update_v_alignment {
-            self.update_vertical_alignment();
+            self.update_vertical_alignment(context);
         }
 
-        self.update_content_transform();
+        self.update_content_transform(context);
 
         for line in &mut self.lines {
-            line.apply_animations();
+            line.apply_animations(context);
         }
     }
 
-    fn update_content_transform(&mut self) {
-        let content_height = *self.content_height.value();
+    fn update_content_transform(&mut self, context: &impl AnimationContext) {
+        let content_height = *self.content_height.value(context);
         let new_transform = self
             .application
             .get_transform((self.content_width, content_height as u32));
@@ -333,7 +339,7 @@ fn shape_log_line(
 struct LogLine {
     top: f64,
     visual: Handle<Visual>,
-    fader: Animated<f64>,
+    fader: AnimatedRaw<f64>,
     fading_out: bool,
 }
 
@@ -344,12 +350,12 @@ impl LogLine {
         self.fader.is_animating()
     }
 
-    pub fn apply_animations(&mut self) {
+    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
         if !self.fader.is_animating() {
             return;
         }
 
-        let fading = *self.fader.value();
+        let fading = *self.fader.value(context);
 
         self.visual.update_with(|v| {
             v.shapes = v

@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use log::warn;
 
+use massive_animation::AnimationContext;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 use massive_geometry::{Point, Transform, Vector3};
 use massive_layout::{Placement, Size as LayoutSize};
@@ -60,7 +61,7 @@ impl DesktopSystem {
             .launchers
             .get_mut(&launcher)
             .expect("Launcher not found")
-            .fade_out();
+            .fade_out(scene);
 
         Ok(())
     }
@@ -89,7 +90,12 @@ impl DesktopSystem {
         }
     }
 
-    pub fn hide_instance(&mut self, launcher: LaunchProfileId, instance: InstanceId) -> Result<()> {
+    pub fn hide_instance(
+        &mut self,
+        context: &impl AnimationContext,
+        launcher: LaunchProfileId,
+        instance: InstanceId,
+    ) -> Result<()> {
         self.aggregates.instances.remove(&instance)?;
 
         if !self
@@ -102,7 +108,7 @@ impl DesktopSystem {
                 .launchers
                 .get_mut(&launcher)
                 .expect("Launcher not found")
-                .fade_in();
+                .fade_in(context);
         }
 
         Ok(())
@@ -112,13 +118,13 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
-        scene: &Scene,
+        context: &impl AnimationContext,
     ) -> Result<ChangeOutput> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found (present_view)");
         };
 
-        instance_presenter.present_view(view_creation_info, scene)?;
+        instance_presenter.present_view(view_creation_info, context)?;
 
         // Add the view to the hierarchy as a separate topology change.
         let changes: Changes = DesktopChange::Topology(TopologyChange::Add {
@@ -148,9 +154,13 @@ impl DesktopSystem {
         Ok(ChangeOutput::changes(changes))
     }
 
-    pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
+    pub(super) fn sync_hover_with_target(
+        &mut self,
+        context: &impl AnimationContext,
+        target: Option<&DesktopTarget>,
+    ) {
         let Some(target) = target else {
-            self.desktop_presenter.set_hover_placement(None);
+            self.desktop_presenter.set_hover_placement(context, None);
             return;
         };
 
@@ -166,7 +176,8 @@ impl DesktopSystem {
             _ => None,
         };
 
-        self.desktop_presenter.set_hover_placement(hover_placement);
+        self.desktop_presenter
+            .set_hover_placement(context, hover_placement);
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {

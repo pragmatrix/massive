@@ -4,7 +4,7 @@ use crate::AnimationCoordinator;
 
 /// `TimeScale` computes durations from one update cycle to the next.
 ///
-/// Architecture: Shouldn't this be the underlying mechanism for [`Animated`], a more fundamental
+/// Architecture: Shouldn't this be the underlying mechanism for [`AnimatedRaw`], a more fundamental
 /// one?
 #[derive(Debug)]
 pub struct TimeScale {

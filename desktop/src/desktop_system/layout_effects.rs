@@ -37,7 +37,7 @@ impl DesktopSystem {
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::ApplyLayout(target) => {
-                Ok(self.apply_layout_effect(target, effects_mode))
+                Ok(self.apply_layout_effect(context, target, effects_mode))
             }
             DesktopEffect::UpdateCamera => {
                 self.update_camera_effect(context, effects_mode);
@@ -181,6 +181,7 @@ impl DesktopSystem {
     /// and emits `UpdateCamera` directly.
     fn apply_layout_effect(
         &mut self,
+        context: &impl AnimationContext,
         target: DesktopTarget,
         effects_mode: TransactionEffectsMode,
     ) -> Effects {
@@ -188,6 +189,7 @@ impl DesktopSystem {
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
         self.apply_layout(
+            context,
             target,
             size_px,
             placement.transform,
@@ -233,6 +235,7 @@ impl DesktopSystem {
 
     fn apply_layout(
         &mut self,
+        context: &impl AnimationContext,
         target: DesktopTarget,
         size_px: SizePx,
         transform: Transform,
@@ -246,7 +249,7 @@ impl DesktopSystem {
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
-                    .set_layout(size_px, transform, visible, animate);
+                    .set_layout(context, size_px, transform, visible, animate);
             }
             DesktopTarget::Project(project_id) => {
                 self.aggregates
@@ -261,7 +264,7 @@ impl DesktopSystem {
                     .get_mut(&project_id)
                     .expect("Missing project")
                     .header
-                    .set_layout(size_px, transform, animate);
+                    .set_layout(context, size_px, transform, animate);
             }
             DesktopTarget::ProjectMatrix(project_id) => {
                 self.aggregates
@@ -276,7 +279,7 @@ impl DesktopSystem {
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .set_layout(size_px, transform, animate);
+                    .set_layout(context, size_px, transform, animate);
             }
             DesktopTarget::View(..) => {
                 // Robustness: Support resize here?

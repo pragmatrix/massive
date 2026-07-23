@@ -5,7 +5,7 @@ use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_animation::{Animated, Interpolation};
+use massive_animation::{AnimatedRaw, AnimationContext, Interpolation};
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
@@ -51,17 +51,17 @@ pub struct LauncherPresenter {
     profile: LaunchProfile,
     mode: LauncherMode,
 
-    layout_transform: Animated<Transform>,
+    layout_transform: AnimatedRaw<Transform>,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
 
-    pub size: Animated<Size>,
+    pub size: AnimatedRaw<Size>,
     background: Handle<Visual>,
     // The text, either centered, or on top of the border.
     name: Handle<Visual>,
 
     // Alpha fading of name / background.
-    fader: Animated<f32>,
+    fader: AnimatedRaw<f32>,
 
     /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
     /// most recently focused instance while no mouse button was pressed. The visor centers on this
@@ -117,13 +117,13 @@ impl LauncherPresenter {
             id,
             profile,
             mode,
-            layout_transform: scene.animated(Transform::IDENTITY),
+            layout_transform: Transform::IDENTITY.into(),
             scene_transform: our_transform,
             location: our_location,
-            size: scene.animated(size),
+            size: size.into(),
             background,
             name,
-            fader: scene.animated(1.0),
+            fader: 1.0.into(),
             focus_anchor_instance: None,
             event_manager: EventManager::default(),
         }
@@ -285,15 +285,23 @@ impl LauncherPresenter {
         *self.fader.target() == 0.0
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
+    pub fn set_layout(
+        &mut self,
+        context: &impl AnimationContext,
+        size: SizePx,
+        layout_transform: Transform,
+        animate: bool,
+    ) {
         let size = Size::new(size.width as f64, size.height as f64);
         if animate {
             self.layout_transform.animate_if_changed(
+                context,
                 layout_transform,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
             self.size.animate_if_changed(
+                context,
                 size,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
@@ -301,7 +309,7 @@ impl LauncherPresenter {
         } else {
             self.layout_transform.set_immediately(layout_transform);
             self.size.set_immediately(size);
-            self.apply_presenter_animations();
+            self.apply_presenter_animations(context);
         }
     }
 
@@ -309,36 +317,37 @@ impl LauncherPresenter {
         self.location.clone()
     }
 
-    pub fn fade_out(&mut self) {
+    pub fn fade_out(&mut self, context: &impl AnimationContext) {
         self.fader
-            .animate(0.0, FADING_DURATION, Interpolation::CubicOut);
+            .animate(context, 0.0, FADING_DURATION, Interpolation::CubicOut);
     }
 
-    pub fn fade_in(&mut self) {
+    pub fn fade_in(&mut self, context: &impl AnimationContext) {
         self.fader
-            .animate(1.0, FADING_DURATION, Interpolation::CubicOut);
+            .animate(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
     }
 
     pub fn apply_animations(
         &mut self,
+        context: &impl AnimationContext,
         instances: &mut Map<InstanceId, InstancePresenter>,
         child_instances: &[InstanceId],
     ) {
-        self.apply_presenter_animations();
+        self.apply_presenter_animations(context);
         // I think this does not make sense, we can do this externally (going over all instances)
-        self.apply_child_instance_animations(instances, child_instances);
+        self.apply_child_instance_animations(context, instances, child_instances);
     }
 
-    fn apply_presenter_animations(&mut self) {
-        let size = self.size.value();
+    fn apply_presenter_animations(&mut self, context: &impl AnimationContext) {
+        let size = self.size.value(context);
 
         let scene_transform = self
             .layout_transform
-            .value()
+            .value(context)
             .to_origin_space_from_size(size.width, size.height);
         self.scene_transform.update_if_changed(scene_transform);
 
-        let alpha = self.fader.value();
+        let alpha = self.fader.value(context);
 
         // Performance: How can we not call this if `self.size` and `self.fader` are both not
         // animating. `is_animating()` is perhaps not reliable.
@@ -365,6 +374,7 @@ impl LauncherPresenter {
 
     fn apply_child_instance_animations(
         &mut self,
+        context: &impl AnimationContext,
         instances: &mut Map<InstanceId, InstancePresenter>,
         child_instances: &[InstanceId],
     ) {
@@ -372,7 +382,7 @@ impl LauncherPresenter {
             instances
                 .get_mut(instance_id)
                 .expect("Instance missing")
-                .apply_animations();
+                .apply_animations(context);
         }
     }
 }

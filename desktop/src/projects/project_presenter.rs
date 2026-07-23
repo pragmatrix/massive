@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use massive_animation::{Animated, Interpolation};
+use massive_animation::{AnimatedRaw, AnimationContext, Interpolation};
 use massive_geometry::{Color, Point, Rect, Size, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
 use massive_renderer::text::FontSystem;
@@ -30,7 +30,7 @@ pub struct DesktopPresenter {
 
     // Idea: Use a type that combines Alpha with another `Interpolatable` type.
     // Robustness: Alpha should be a type.
-    hover_alpha: Animated<f32>,
+    hover_alpha: AnimatedRaw<f32>,
     hover_placement: Placement<Transform, 2>,
     hover_scene_transform: Handle<Transform>,
     hover_location: Handle<Location>,
@@ -48,7 +48,7 @@ impl DesktopPresenter {
 
         Self {
             location: location.clone(),
-            hover_alpha: scene.animated(0.0),
+            hover_alpha: 0.0.into(),
             hover_placement: Placement::new(Transform::IDENTITY, LayoutRect::EMPTY),
             hover_scene_transform,
             hover_location: hover_location.clone(),
@@ -62,7 +62,11 @@ impl DesktopPresenter {
 
     const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
-    pub fn set_hover_placement(&mut self, placement: Option<Placement<Transform, 2>>) {
+    pub fn set_hover_placement(
+        &mut self,
+        context: &impl AnimationContext,
+        placement: Option<Placement<Transform, 2>>,
+    ) {
         if self.hover_placement_cache == placement {
             return;
         }
@@ -71,6 +75,7 @@ impl DesktopPresenter {
         match placement {
             Some(placement) => {
                 self.hover_alpha.animate_if_changed(
+                    context,
                     1.0,
                     Self::HOVER_ANIMATION_DURATION,
                     Interpolation::CubicOut,
@@ -78,12 +83,13 @@ impl DesktopPresenter {
 
                 self.hover_placement = placement;
 
-                let alpha = *self.hover_alpha.value();
+                let alpha = *self.hover_alpha.value(context);
                 self.update_hover_placement_and_visual(placement, alpha);
             }
 
             None => {
                 self.hover_alpha.animate_if_changed(
+                    context,
                     0.0,
                     Self::HOVER_ANIMATION_DURATION,
                     Interpolation::CubicOut,
@@ -92,8 +98,8 @@ impl DesktopPresenter {
         }
     }
 
-    pub fn apply_animations(&mut self) {
-        let alpha = *self.hover_alpha.value();
+    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
+        let alpha = *self.hover_alpha.value(context);
         self.update_hover_placement_and_visual(self.hover_placement, alpha);
     }
 
@@ -177,15 +183,15 @@ impl ProjectPresenter {
         self.scene_transform.update_if_changed(scene_transform);
     }
 
-    pub fn apply_animations(&mut self) {
-        self.header.apply_animations();
+    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
+        self.header.apply_animations(context);
     }
 }
 
 #[derive(Debug)]
 pub struct ProjectHeaderPresenter {
     layout_transform: Transform,
-    animated_size: Animated<Size>,
+    animated_size: AnimatedRaw<Size>,
     measured_size: SizePx,
     scene_transform: Handle<Transform>,
     background: Handle<Visual>,
@@ -225,7 +231,7 @@ impl ProjectHeaderPresenter {
 
         Self {
             layout_transform: Transform::IDENTITY,
-            animated_size: scene.animated(Size::default()),
+            animated_size: Size::default().into(),
             measured_size,
             scene_transform,
             background,
@@ -237,24 +243,31 @@ impl ProjectHeaderPresenter {
         self.measured_size
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
+    pub fn set_layout(
+        &mut self,
+        context: &impl AnimationContext,
+        size: SizePx,
+        layout_transform: Transform,
+        animate: bool,
+    ) {
         self.layout_transform = layout_transform;
         let size = Size::new(size.width as f64, size.height as f64);
 
         if animate {
             self.animated_size.animate_if_changed(
+                context,
                 size,
                 PROJECT_HEADER_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
         } else {
             self.animated_size.set_immediately(size);
-            self.apply_animations();
+            self.apply_animations(context);
         }
     }
 
-    pub fn apply_animations(&mut self) {
-        let size = self.animated_size.value();
+    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
+        let size = self.animated_size.value(context);
         let scene_transform = self
             .layout_transform
             .to_origin_space_from_size(size.width, size.height);

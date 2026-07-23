@@ -1,12 +1,10 @@
 //! A wrapper around a regular Scene that adds animation support.
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 
 use anyhow::Result;
 use derive_more::Deref;
 
-use massive_animation::{
-    Animated, AnimationContext, AnimationCoordinator, Interpolatable, Interpolation, TimeScale,
-};
+use massive_animation::{AnimationContext, AnimationCoordinator, TimeScale};
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::ChangeCollector;
 
@@ -52,24 +50,6 @@ impl Scene {
             inner: scene,
             animation_coordinator,
         }
-    }
-
-    /// Create an [`Animated`] with an initial value.
-    pub fn animated<T: Interpolatable + Send>(&self, value: T) -> Animated<T> {
-        self.animation_coordinator.animated(value)
-    }
-
-    /// Create an animated value that is animating from a starting value to a target value.
-    pub fn animation<T: Interpolatable + 'static + Send>(
-        &self,
-        value: T,
-        target_value: T,
-        duration: Duration,
-        interpolation: Interpolation,
-    ) -> Animated<T> {
-        let mut animated = self.animation_coordinator.animated(value);
-        animated.animate(target_value, duration, interpolation);
-        animated
     }
 
     /// Creates an animated value that can be used to animate other values.

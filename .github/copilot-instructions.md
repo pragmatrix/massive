@@ -49,7 +49,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When implementing newtypes, include `Copy` and `Clone` when the wrapped type supports them.
 - Prefer named structs over tuple returns when ordering or intent may be ambiguous.
 - Prefer behavior-named capability methods over exposing raw mode enums to higher-level callers.
-- Apply the Interface Segregation Principle: pass only the narrow capability a call path needs, rather than a richer owner object.
+- Apply the Interface Segregation Principle: helper methods accept only the narrow capability they need, rather than a richer owner object available to their caller.
 - For graphics crate major upgrades, prefer release-note-driven API migrations first (constructor changes, enum-return replacements, and option-wrapped descriptor fields) before broader refactors.
 
 ## Safety & Quality

@@ -352,7 +352,7 @@ impl DesktopSystem {
             self.deferred_camera_move |= update_camera;
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
-            // Ergonomics: There should probably be a function for that in Animated.
+            // Ergonomics: There should probably be a function for that in AnimatedRaw.
             let camera = *self.camera.value(scene);
             self.camera.set_immediately(camera);
         }
@@ -377,7 +377,7 @@ impl DesktopSystem {
             };
 
             // Sync the hover rect.
-            self.sync_hover_with_target(hover_target.cloned().as_ref());
+            self.sync_hover_with_target(scene, hover_target.cloned().as_ref());
         }
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
@@ -386,7 +386,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self) {
+    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
         // Architecture: Collecting instances per launcher is quite tedious here. What are the
         // alternatives?
         {
@@ -408,15 +408,15 @@ impl DesktopSystem {
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .apply_animations(&mut self.aggregates.instances, &child_instances);
+                    .apply_animations(context, &mut self.aggregates.instances, &child_instances);
             }
         }
 
         for project in self.aggregates.projects.values_mut() {
-            project.apply_animations();
+            project.apply_animations(context);
         }
 
-        self.desktop_presenter.apply_animations();
+        self.desktop_presenter.apply_animations(context);
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
