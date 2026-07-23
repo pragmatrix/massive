@@ -627,7 +627,7 @@ impl DesktopSystem {
             .aggregates
             .hierarchy
             .project_of_target(&instance.into())
-            .expect("Instance has not project?");
+            .expect("Instance has no project");
         match &request {
             DesktopRequest::AddProject => {
                 let project = ProjectId::new();
