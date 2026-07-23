@@ -12,7 +12,8 @@ use wgpu::rwh;
 use winit::event_loop::EventLoopProxy;
 use winit::window::{CursorIcon, Window, WindowId};
 
-use crate::{ShellEvent, WindowRendererBuilder, shell::ShellCommand};
+use crate::shell::ShellCommand;
+use crate::{ShellEvent, WindowRendererBuilder};
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
