@@ -30,7 +30,7 @@ use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 
-use massive_animation::Animated;
+use massive_animation::{AnimatedRaw, AnimationContext};
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -192,7 +192,7 @@ pub struct DesktopSystem {
     default_panel_size: SizePx,
 
     event_router: EventRouter<DesktopTarget>,
-    camera: Animated<PixelCamera>,
+    camera: AnimatedRaw<PixelCamera>,
     user_state: UserState,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
@@ -264,7 +264,7 @@ impl DesktopSystem {
             default_panel_size,
 
             event_router,
-            camera: scene.animated(PixelCamera::default()),
+            camera: PixelCamera::default().into(),
             user_state: UserState::default(),
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
@@ -353,7 +353,7 @@ impl DesktopSystem {
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in Animated.
-            let camera = *self.camera.value();
+            let camera = *self.camera.value(scene);
             self.camera.set_immediately(camera);
         }
 
@@ -365,7 +365,7 @@ impl DesktopSystem {
         // Commands emit their own targeted `Measure` effects for the subtrees they change, and a
         // focus change emits `UpdateCamera` directly (see the `focus_before` comparison above), so
         // no root measure is needed here.
-        self.run_effects_to_completion(effects_mode, effects)?;
+        self.run_effects_to_completion(scene, effects_mode, effects)?;
 
         // Update the hover target.
         {
@@ -423,8 +423,8 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self) -> &PixelCamera {
-        self.camera.value()
+    pub fn camera(&mut self, context: &impl AnimationContext) -> &PixelCamera {
+        self.camera.value(context)
     }
 
     pub fn is_cursor_visible(&self) -> bool {

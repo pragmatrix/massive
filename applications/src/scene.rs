@@ -4,7 +4,9 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Result;
 use derive_more::Deref;
 
-use massive_animation::{Animated, AnimationCoordinator, Interpolatable, Interpolation, TimeScale};
+use massive_animation::{
+    Animated, AnimationContext, AnimationCoordinator, Interpolatable, Interpolation, TimeScale,
+};
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::ChangeCollector;
 
@@ -13,6 +15,12 @@ pub struct Scene {
     #[deref]
     inner: massive_scene::Scene,
     animation_coordinator: AnimationCoordinator,
+}
+
+impl AnimationContext for Scene {
+    fn animation_coordinator(&self) -> &AnimationCoordinator {
+        &self.animation_coordinator
+    }
 }
 
 impl Scene {
@@ -30,6 +38,10 @@ impl Scene {
             inner: scene,
             animation_coordinator,
         }
+    }
+
+    pub fn ac(&self) -> &AnimationCoordinator {
+        &self.animation_coordinator
     }
 
     pub(crate) fn from_parts(

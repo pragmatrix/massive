@@ -73,7 +73,7 @@ impl DesktopSystem {
         let originating_presenter = self.aggregates.instances.get(&originator);
 
         let initial_center_translation =
-            originating_presenter.map(|op| op.layout_transform_animation.latest_value().translate);
+            originating_presenter.map(|op| op.layout_transform_animation.latest().translate);
 
         let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
 
@@ -185,7 +185,7 @@ impl DesktopSystem {
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             layout_center(launcher_placement.rect.size),
-            *instance_presenter.layout_transform_animation.latest_value(),
+            *instance_presenter.layout_transform_animation.latest(),
             layout_center(placement.rect.size),
         );
 

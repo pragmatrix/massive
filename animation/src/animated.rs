@@ -2,6 +2,16 @@ use std::time::Duration;
 
 use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolation};
 
+pub trait AnimationContext {
+    fn animation_coordinator(&self) -> &AnimationCoordinator;
+}
+
+impl AnimationContext for AnimationCoordinator {
+    fn animation_coordinator(&self) -> &AnimationCoordinator {
+        self
+    }
+}
+
 /// `Animated` represents an animated value over time.
 ///
 /// `Animated` implicitly supports animation blending. New animations added are combined with the
@@ -10,14 +20,14 @@ use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolatio
 pub struct Animated<T: Send> {
     coordinator: AnimationCoordinator,
     /// The current value and the current state of the animation.
-    inner: AnimatedInner<T>,
+    inner: AnimatedRaw<T>,
 }
 
 impl<T: Interpolatable + Send> Animated<T> {
     pub(crate) fn new(coordinator: AnimationCoordinator, value: T) -> Self {
         Self {
             coordinator,
-            inner: AnimatedInner::new(value),
+            inner: AnimatedRaw::new(value),
         }
     }
 
@@ -67,19 +77,18 @@ impl<T: Interpolatable + Send> Animated<T> {
 
     /// The current value of this animated value, progressing active animations first.
     pub fn value(&mut self) -> &T {
-        self.inner.progress(&self.coordinator);
-        self.latest_value()
+        self.inner.value(&self.coordinator)
     }
 
     /// The latest stored value of this animated value without progressing active animations.
-    pub fn latest_value(&self) -> &T {
-        self.inner.value()
+    pub fn latest(&self) -> &T {
+        self.inner.latest()
     }
 
-    /// The final value of this animated value after all current animations ran through or the
-    /// current value one if no animations are active.
-    pub fn final_value(&self) -> &T {
-        self.inner.final_value()
+    /// The target / final value of this animated value after all current animations ran through or
+    /// the current value one if no animations are active.
+    pub fn target(&self) -> &T {
+        self.inner.target()
     }
 
     /// `true` if this is currently animating.
@@ -103,7 +112,7 @@ impl<T: Interpolatable + Send> Animated<T> {
 }
 
 #[derive(Debug)]
-struct AnimatedInner<T>
+pub struct AnimatedRaw<T>
 where
     T: Send,
 {
@@ -113,7 +122,13 @@ where
     animation: BlendedAnimation<T>,
 }
 
-impl<T: Send + Interpolatable> AnimatedInner<T> {
+impl<T: Send + Interpolatable> From<T> for AnimatedRaw<T> {
+    fn from(value: T) -> Self {
+        Self::new(value)
+    }
+}
+
+impl<T: Send + Interpolatable> AnimatedRaw<T> {
     pub fn new(value: T) -> Self {
         Self {
             value,
@@ -123,30 +138,32 @@ impl<T: Send + Interpolatable> AnimatedInner<T> {
 
     pub fn animate_if_changed(
         &mut self,
-        coordinator: &AnimationCoordinator,
+        context: &impl AnimationContext,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
     ) where
         T: 'static + PartialEq,
     {
-        if *self.final_value() == target_value {
+        if *self.target() == target_value {
             return;
         }
 
-        self.animate(coordinator, target_value, duration, interpolation);
+        self.animate(context, target_value, duration, interpolation);
     }
 
     pub fn animate(
         &mut self,
-        coordinator: &AnimationCoordinator,
+        context: &impl AnimationContext,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
     ) where
         T: 'static,
     {
-        let instant = coordinator.allocate_animation_time(duration);
+        let instant = context
+            .animation_coordinator()
+            .allocate_animation_time(duration);
         let value = self.value.clone();
         self.animation
             .animate_to(value, instant, target_value, duration, interpolation);
@@ -163,17 +180,22 @@ impl<T: Send + Interpolatable> AnimatedInner<T> {
         }
     }
 
-    pub fn final_value(&self) -> &T {
-        self.animation.final_value().unwrap_or(&self.value)
-    }
-
-    pub fn value(&self) -> &T {
+    pub fn latest(&self) -> &T {
         &self.value
     }
 
-    pub fn progress(&mut self, coordinator: &AnimationCoordinator) {
+    pub fn target(&self) -> &T {
+        self.animation.target().unwrap_or(&self.value)
+    }
+
+    pub fn value(&mut self, context: &impl AnimationContext) -> &T {
+        self.progress(context);
+        self.latest()
+    }
+
+    fn progress(&mut self, context: &impl AnimationContext) {
         if self.animation.is_active() {
-            let instant = coordinator.current_cycle_time();
+            let instant = context.animation_coordinator().current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {
                 self.value = new_value;
             }

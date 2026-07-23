@@ -49,6 +49,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - When implementing newtypes, include `Copy` and `Clone` when the wrapped type supports them.
 - Prefer named structs over tuple returns when ordering or intent may be ambiguous.
 - Prefer behavior-named capability methods over exposing raw mode enums to higher-level callers.
+- Apply the Interface Segregation Principle: pass only the narrow capability a call path needs, rather than a richer owner object.
 - For graphics crate major upgrades, prefer release-note-driven API migrations first (constructor changes, enum-return replacements, and option-wrapped descriptor fields) before broader refactors.
 
 ## Safety & Quality
@@ -94,6 +95,7 @@ Update it whenever you learn something new about the project's patterns, convent
 
 ## Continuous Learning
 - After completing meaningful work, update this file with high-level, reusable guidance learned from the task.
+- When the user says "remember", record the applicable guidance in this file as well as persistent memory.
 - Keep additions general (patterns, principles, decision heuristics), not task- or file-specific details.
 - Do not add project-specific implementation facts (feature behavior, constants, file-local decisions); keep guidance broadly reusable.
 - Do not add one-off, narrowly scoped rules that only apply to a single recent change.

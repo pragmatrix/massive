@@ -282,7 +282,7 @@ impl LauncherPresenter {
 
     fn presents_instance(&self) -> bool {
         // Robustness: Deriving this state from crossing into upper layer (state -> animation).
-        *self.fader.final_value() == 0.0
+        *self.fader.target() == 0.0
     }
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
