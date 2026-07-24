@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use derive_more::Deref;
 
-use massive_animation::{AnimationContext, AnimationCoordinator, TimeScale};
+use massive_animation::{AnimationContext, AnimationCoordinator};
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::ChangeCollector;
 
@@ -50,18 +50,6 @@ impl Scene {
             inner: scene,
             animation_coordinator,
         }
-    }
-
-    /// Creates an animated value that can be used to animate other values.
-    ///
-    /// This tracks durations from one update cycle to the next and provides a way to animate other
-    /// values indirectly so that - even when update cycles are not called in regular intervals -
-    /// animations are as smooth as possible.
-    ///
-    /// As long as a `TimeScale` is asked to scale values, the system stays in "animation mode"
-    /// (attempts to re-render every frame) and sends regular [`ShellEvent::ApplyAnimations`].
-    pub fn time_scale(&self) -> TimeScale {
-        self.animation_coordinator.time_scale()
     }
 
     // Render all the current scene changes.
