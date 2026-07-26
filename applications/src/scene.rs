@@ -38,7 +38,6 @@ impl Scene {
         }
     }
 
-
     pub(crate) fn from_parts(
         scene: massive_scene::Scene,
         animation_coordinator: AnimationCoordinator,
