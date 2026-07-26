@@ -13,7 +13,7 @@ impl AnimationContext for AnimationCoordinator {
 }
 
 #[derive(Debug)]
-pub struct AnimatedRaw<T>
+pub struct Animated<T>
 where
     T: Send,
 {
@@ -23,13 +23,13 @@ where
     animation: BlendedAnimation<T>,
 }
 
-impl<T: Send + Interpolatable> From<T> for AnimatedRaw<T> {
+impl<T: Send + Interpolatable> From<T> for Animated<T> {
     fn from(value: T) -> Self {
         Self::new(value)
     }
 }
 
-impl<T: Send + Interpolatable> AnimatedRaw<T> {
+impl<T: Send + Interpolatable> Animated<T> {
     pub fn new(value: T) -> Self {
         Self {
             value,

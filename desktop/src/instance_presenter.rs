@@ -2,7 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Result, bail};
 
-use massive_animation::{AnimatedRaw, AnimationContext, Interpolation};
+use massive_animation::{Animated, AnimationContext, Interpolation};
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_renderer::RenderPacing;
@@ -41,8 +41,8 @@ pub struct InstancePresenter {
     parameters: InstanceParameters,
     /// The instance layout transform stores the panel center translation and yaw rotation.
     /// Position-only consumers should read `layout_transform_animation.*.translate`.
-    pub layout_transform_animation: AnimatedRaw<Transform>,
-    visibility_alpha: AnimatedRaw<f32>,
+    pub layout_transform_animation: Animated<Transform>,
+    visibility_alpha: Animated<f32>,
     /// Shared animated instance node for background and view.
     /// This avoids per-child world updates that can drift during animation.
     root: InstanceRoot,
@@ -71,7 +71,7 @@ enum InstancePresenterState {
 struct PrimaryViewPresenter {
     creation_info: ViewCreationInfo,
     window_state: ViewWindowState,
-    alpha: AnimatedRaw<f32>,
+    alpha: Animated<f32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -144,7 +144,7 @@ impl InstancePresenter {
         }
 
         // Blend in.
-        let mut alpha: AnimatedRaw<f32> = 0.0.into();
+        let mut alpha: Animated<f32> = 0.0.into();
         {
             self.root.location.update_with(|location| {
                 location.alpha = 0.0;

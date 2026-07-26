@@ -17,7 +17,7 @@ use winit::{
     event::{ElementState, KeyEvent, WindowEvent},
 };
 
-use massive_animation::{AnimatedRaw, AnimationContext, Interpolation};
+use massive_animation::{Animated, AnimationContext, Interpolation};
 use massive_geometry::Vector3;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::Shape;
@@ -113,8 +113,8 @@ struct Logs {
     content_transform: Handle<Transform>,
 
     content_width: u32,
-    content_height: AnimatedRaw<f64>,
-    vertical_center: AnimatedRaw<f64>,
+    content_height: Animated<f64>,
+    vertical_center: Animated<f64>,
     vertical_center_transform: Handle<Transform>,
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
@@ -166,7 +166,7 @@ impl Logs {
 
         let line = glyph_runs.at(&self.location).enter(scene);
 
-        let mut fader: AnimatedRaw<f64> = 0.0.into();
+        let mut fader: Animated<_> = 0.0.into();
         fader.animate(scene, 1.0, FADE_DURATION, Interpolation::CubicOut);
 
         self.lines.push_back(LogLine {
@@ -339,7 +339,7 @@ fn shape_log_line(
 struct LogLine {
     top: f64,
     visual: Handle<Visual>,
-    fader: AnimatedRaw<f64>,
+    fader: Animated<f64>,
     fading_out: bool,
 }
 

@@ -5,7 +5,7 @@ use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_animation::{AnimatedRaw, AnimationContext, Interpolation};
+use massive_animation::{Animated, AnimationContext, Interpolation};
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
@@ -51,17 +51,17 @@ pub struct LauncherPresenter {
     profile: LaunchProfile,
     mode: LauncherMode,
 
-    layout_transform: AnimatedRaw<Transform>,
+    layout_transform: Animated<Transform>,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
 
-    pub size: AnimatedRaw<Size>,
+    pub size: Animated<Size>,
     background: Handle<Visual>,
     // The text, either centered, or on top of the border.
     name: Handle<Visual>,
 
     // Alpha fading of name / background.
-    fader: AnimatedRaw<f32>,
+    fader: Animated<f32>,
 
     /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
     /// most recently focused instance while no mouse button was pressed. The visor centers on this

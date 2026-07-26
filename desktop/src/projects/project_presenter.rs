@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Duration};
 
-use massive_animation::{AnimatedRaw, AnimationContext, Interpolation};
+use massive_animation::{Animated, AnimationContext, Interpolation};
 use massive_geometry::{Color, Point, Rect, Size, SizePx, Transform};
 use massive_layout::{Placement, Rect as LayoutRect};
 use massive_renderer::text::FontSystem;
@@ -30,7 +30,7 @@ pub struct DesktopPresenter {
 
     // Idea: Use a type that combines Alpha with another `Interpolatable` type.
     // Robustness: Alpha should be a type.
-    hover_alpha: AnimatedRaw<f32>,
+    hover_alpha: Animated<f32>,
     hover_placement: Placement<Transform, 2>,
     hover_scene_transform: Handle<Transform>,
     hover_location: Handle<Location>,
@@ -191,7 +191,7 @@ impl ProjectPresenter {
 #[derive(Debug)]
 pub struct ProjectHeaderPresenter {
     layout_transform: Transform,
-    animated_size: AnimatedRaw<Size>,
+    animated_size: Animated<Size>,
     measured_size: SizePx,
     scene_transform: Handle<Transform>,
     background: Handle<Visual>,

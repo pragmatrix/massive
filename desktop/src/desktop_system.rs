@@ -30,7 +30,7 @@ use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 
-use massive_animation::{AnimatedRaw, AnimationContext};
+use massive_animation::{Animated, AnimationContext};
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -192,7 +192,7 @@ pub struct DesktopSystem {
     default_panel_size: SizePx,
 
     event_router: EventRouter<DesktopTarget>,
-    camera: AnimatedRaw<PixelCamera>,
+    camera: Animated<PixelCamera>,
     user_state: UserState,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
