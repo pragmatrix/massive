@@ -198,7 +198,7 @@ impl Desktop {
                         ShellEvent::ApplyAnimations(_) => {
                             // Performance: Not every instance needs that, only the ones animating.
                             self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
-                            self.system.apply_animations();
+                            self.system.apply_animations(&self.scene);
                         }
                     }
                 }
@@ -243,7 +243,7 @@ impl Desktop {
 
             // Get the camera, build the frame, and submit it to the renderer.
             {
-                let camera = *self.system.camera();
+                let camera = *self.system.camera(&self.scene);
                 let mut frame = self.scene.begin_frame().with_camera(camera);
                 if self.system.effective_pacing() == RenderPacing::Smooth {
                     frame = frame.with_pacing(RenderPacing::Smooth);

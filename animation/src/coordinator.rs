@@ -36,8 +36,6 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::{Animated, Interpolatable, TimeScale};
-
 #[derive(Debug, Clone)]
 pub struct AnimationCoordinator {
     inner: Arc<Mutex<Inner>>,
@@ -59,14 +57,6 @@ impl AnimationCoordinator {
             })
             .into(),
         }
-    }
-
-    pub fn animated<T: Interpolatable + Send>(&self, value: T) -> Animated<T> {
-        Animated::new(self.clone(), value)
-    }
-
-    pub fn time_scale(&self) -> TimeScale {
-        TimeScale::new(self.clone())
     }
 
     /// Upgrade the current cycle to an apply animations cycle.

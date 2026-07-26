@@ -1,7 +1,7 @@
 use anyhow::Result;
 
 use log::error;
-use massive_animation::Interpolation;
+use massive_animation::{AnimationContext, Interpolation};
 use massive_geometry::{SizePx, Transform};
 use massive_layout::LayoutTopology;
 
@@ -13,13 +13,14 @@ use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
         &mut self,
+        context: &impl AnimationContext,
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
     ) -> Result<()> {
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
-            let follow_up = self.handle_effect(effect, effects_mode)?;
+            let follow_up = self.handle_effect(context, effect, effects_mode)?;
             effects.enqueue_all(follow_up);
         }
 
@@ -28,6 +29,7 @@ impl DesktopSystem {
 
     fn handle_effect(
         &mut self,
+        context: &impl AnimationContext,
         effect: DesktopEffect,
         effects_mode: TransactionEffectsMode,
     ) -> Result<Effects> {
@@ -35,10 +37,10 @@ impl DesktopSystem {
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
             DesktopEffect::Place(root) => self.place_layout_effect(root),
             DesktopEffect::ApplyLayout(target) => {
-                Ok(self.apply_layout_effect(target, effects_mode))
+                Ok(self.apply_layout_effect(context, target, effects_mode))
             }
             DesktopEffect::UpdateCamera => {
-                self.update_camera_effect(effects_mode);
+                self.update_camera_effect(context, effects_mode);
                 Ok(Effects::None)
             }
         }
@@ -179,6 +181,7 @@ impl DesktopSystem {
     /// and emits `UpdateCamera` directly.
     fn apply_layout_effect(
         &mut self,
+        context: &impl AnimationContext,
         target: DesktopTarget,
         effects_mode: TransactionEffectsMode,
     ) -> Effects {
@@ -186,6 +189,7 @@ impl DesktopSystem {
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
         self.apply_layout(
+            context,
             target,
             size_px,
             placement.transform,
@@ -196,7 +200,11 @@ impl DesktopSystem {
         Effects::from(DesktopEffect::UpdateCamera)
     }
 
-    fn update_camera_effect(&mut self, effects_mode: TransactionEffectsMode) {
+    fn update_camera_effect(
+        &mut self,
+        context: &impl AnimationContext,
+        effects_mode: TransactionEffectsMode,
+    ) {
         if !effects_mode.permit_camera_moves() {
             return;
         }
@@ -214,6 +222,7 @@ impl DesktopSystem {
         if let Some(camera) = camera_target {
             if effects_mode.animate() {
                 self.camera.animate_if_changed(
+                    context,
                     camera,
                     STRUCTURAL_ANIMATION_DURATION,
                     Interpolation::CubicOut,
@@ -226,6 +235,7 @@ impl DesktopSystem {
 
     fn apply_layout(
         &mut self,
+        context: &impl AnimationContext,
         target: DesktopTarget,
         size_px: SizePx,
         transform: Transform,
@@ -239,7 +249,7 @@ impl DesktopSystem {
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
-                    .set_layout(size_px, transform, visible, animate);
+                    .set_layout(context, size_px, transform, visible, animate);
             }
             DesktopTarget::Project(project_id) => {
                 self.aggregates
@@ -254,7 +264,7 @@ impl DesktopSystem {
                     .get_mut(&project_id)
                     .expect("Missing project")
                     .header
-                    .set_layout(size_px, transform, animate);
+                    .set_layout(context, size_px, transform, animate);
             }
             DesktopTarget::ProjectMatrix(project_id) => {
                 self.aggregates
@@ -269,7 +279,7 @@ impl DesktopSystem {
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .set_layout(size_px, transform, animate);
+                    .set_layout(context, size_px, transform, animate);
             }
             DesktopTarget::View(..) => {
                 // Robustness: Support resize here?

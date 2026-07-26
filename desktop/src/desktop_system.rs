@@ -30,7 +30,7 @@ use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 
-use massive_animation::Animated;
+use massive_animation::{Animated, AnimationContext};
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -264,7 +264,7 @@ impl DesktopSystem {
             default_panel_size,
 
             event_router,
-            camera: scene.animated(PixelCamera::default()),
+            camera: PixelCamera::default().into(),
             user_state: UserState::default(),
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
@@ -352,8 +352,8 @@ impl DesktopSystem {
             self.deferred_camera_move |= update_camera;
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
-            // Ergonomics: There should probably be a function for that in Animated.
-            let camera = *self.camera.value();
+            // Ergonomics: There should probably be a function for that in `Animated`.
+            let camera = *self.camera.value(scene);
             self.camera.set_immediately(camera);
         }
 
@@ -365,7 +365,7 @@ impl DesktopSystem {
         // Commands emit their own targeted `Measure` effects for the subtrees they change, and a
         // focus change emits `UpdateCamera` directly (see the `focus_before` comparison above), so
         // no root measure is needed here.
-        self.run_effects_to_completion(effects_mode, effects)?;
+        self.run_effects_to_completion(scene, effects_mode, effects)?;
 
         // Update the hover target.
         {
@@ -377,7 +377,7 @@ impl DesktopSystem {
             };
 
             // Sync the hover rect.
-            self.sync_hover_with_target(hover_target.cloned().as_ref());
+            self.sync_hover_with_target(scene, hover_target.cloned().as_ref());
         }
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
@@ -386,7 +386,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self) {
+    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
         // Architecture: Collecting instances per launcher is quite tedious here. What are the
         // alternatives?
         {
@@ -408,23 +408,23 @@ impl DesktopSystem {
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .apply_animations(&mut self.aggregates.instances, &child_instances);
+                    .apply_animations(context, &mut self.aggregates.instances, &child_instances);
             }
         }
 
         for project in self.aggregates.projects.values_mut() {
-            project.apply_animations();
+            project.apply_animations(context);
         }
 
-        self.desktop_presenter.apply_animations();
+        self.desktop_presenter.apply_animations(context);
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self) -> &PixelCamera {
-        self.camera.value()
+    pub fn camera(&mut self, context: &impl AnimationContext) -> &PixelCamera {
+        self.camera.value(context)
     }
 
     pub fn is_cursor_visible(&self) -> bool {

@@ -12,11 +12,12 @@ use wgpu::rwh;
 use winit::event_loop::EventLoopProxy;
 use winit::window::{CursorIcon, Window, WindowId};
 
-use crate::{ShellEvent, WindowRendererBuilder, shell::ShellCommand};
+use crate::shell::ShellCommand;
+use crate::{ShellEvent, WindowRendererBuilder};
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
-    /// We need to make Window "sharable", because the Renderer needs to lock it, so that it does
+    /// We need to make Window "shareable", because the Renderer needs to lock it, so that it does
     /// not close with a renderer running.
     shared: Arc<ShellWindowShared>,
 }
@@ -92,7 +93,7 @@ impl Drop for ShellWindowShared {
         {
             error!("Failed to send back Window to the event loop (Event loop closed)");
             // Dropping it here would most likely block this thread indefinitely, so we forget the
-            // window, which is in the ShellRequest returned in the Error.
+            // window, which is in the `ShellRequest` returned in the Error.
             mem::forget(e)
         }
     }
@@ -148,7 +149,7 @@ impl ShellWindowShared {
     }
 }
 
-// Forward wgpu requirements to the window. This is so that we can create a SurfaceTarget.
+// Forward wgpu requirements to the window. This is so that we can create a `SurfaceTarget`.
 //
 // We can't pass the Arc<Window> to the Surface target, because then we would not know from where
 // (its last instance) it gets destroyed and could not guarantee that this is done on the event

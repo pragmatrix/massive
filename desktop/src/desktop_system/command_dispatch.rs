@@ -361,7 +361,7 @@ impl DesktopSystem {
                 )?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
-                self.hide_instance(launcher, instance)?;
+                self.hide_instance(scene, launcher, instance)?;
             }
             DesktopChange::SetFocus { target, reason } => {
                 self.focus(target.as_ref(), instance_manager, reason)?;
