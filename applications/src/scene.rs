@@ -38,9 +38,6 @@ impl Scene {
         }
     }
 
-    pub fn ac(&self) -> &AnimationCoordinator {
-        &self.animation_coordinator
-    }
 
     pub(crate) fn from_parts(
         scene: massive_scene::Scene,
