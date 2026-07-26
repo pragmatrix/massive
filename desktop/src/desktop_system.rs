@@ -352,7 +352,7 @@ impl DesktopSystem {
             self.deferred_camera_move |= update_camera;
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
-            // Ergonomics: There should probably be a function for that in AnimatedRaw.
+            // Ergonomics: There should probably be a function for that in `Animated`.
             let camera = *self.camera.value(scene);
             self.camera.set_immediately(camera);
         }
