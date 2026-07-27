@@ -36,7 +36,7 @@ use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
 use massive_scene::{StageIdentityLocation, Transform};
-use massive_shell::{FontManager, Scene, ShellWindow};
+use massive_shell::{FontManager, Frame, Scene, ShellWindow};
 
 pub use commands::{DesktopCommand, ProjectCommand};
 pub use effects::Effects;
@@ -283,7 +283,7 @@ impl DesktopSystem {
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
-        scene: &Scene,
+        frame: &mut Frame,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<()> {
@@ -301,7 +301,7 @@ impl DesktopSystem {
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
 
         while let Some(change) = changes.pop_front() {
-            let outcome = self.apply_change(change, scene, instance_manager)?;
+            let outcome = self.apply_change(change, frame, instance_manager)?;
             // TODO: I think Changes should support a DoubleEndedIterator.
             let new_changes: Vec<_> = outcome.changes.into_iter().collect();
             for new_change in new_changes.into_iter().rev() {
@@ -353,7 +353,7 @@ impl DesktopSystem {
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in `Animated`.
-            let camera = *self.camera.value(scene);
+            let camera = *self.camera.value(frame);
             self.camera.set_immediately(camera);
         }
 
@@ -365,7 +365,7 @@ impl DesktopSystem {
         // Commands emit their own targeted `Measure` effects for the subtrees they change, and a
         // focus change emits `UpdateCamera` directly (see the `focus_before` comparison above), so
         // no root measure is needed here.
-        self.run_effects_to_completion(scene, effects_mode, effects)?;
+        self.run_effects_to_completion(frame, effects_mode, effects)?;
 
         // Update the hover target.
         {
@@ -377,7 +377,7 @@ impl DesktopSystem {
             };
 
             // Sync the hover rect.
-            self.sync_hover_with_target(scene, hover_target.cloned().as_ref());
+            self.sync_hover_with_target(frame, hover_target.cloned().as_ref());
         }
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
@@ -386,7 +386,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
+    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
         // Architecture: Collecting instances per launcher is quite tedious here. What are the
         // alternatives?
         {
@@ -423,7 +423,7 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self, context: &impl AnimationContext) -> &PixelCamera {
+    pub fn camera(&mut self, context: &mut impl AnimationContext) -> &PixelCamera {
         self.camera.value(context)
     }
 

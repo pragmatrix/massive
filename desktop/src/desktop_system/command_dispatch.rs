@@ -5,7 +5,7 @@ use massive_applications::{
     CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
     ViewRole,
 };
-use massive_shell::Scene;
+use massive_shell::{Frame, Scene};
 
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
 use crate::desktop_system::change::{
@@ -314,7 +314,7 @@ impl DesktopSystem {
     pub fn apply_change(
         &mut self,
         change: DesktopChange,
-        scene: &Scene,
+        frame: &mut Frame,
         instance_manager: &mut InstanceManager,
     ) -> Result<ChangeOutput> {
         match change {
@@ -357,11 +357,11 @@ impl DesktopSystem {
                     instance,
                     root,
                     parameters,
-                    scene,
+                    frame,
                 )?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
-                self.hide_instance(scene, launcher, instance)?;
+                self.hide_instance(frame, launcher, instance)?;
             }
             DesktopChange::SetFocus { target, reason } => {
                 self.focus(target.as_ref(), instance_manager, reason)?;
@@ -381,15 +381,15 @@ impl DesktopSystem {
                 let commands = self.forward_event_transitions(transitions, instance_manager)?;
                 let mut changes = Changes::default();
                 for command in commands {
-                    changes += self.plan(command, scene)?;
+                    changes += self.plan(command, frame.scene())?;
                 }
                 return Ok(ChangeOutput::changes(changes));
             }
             DesktopChange::IntegrateInstanceSubmission(instance_id, instance_submission) => {
-                return self.apply_instance_submission(instance_id, instance_submission, scene);
+                return self.apply_instance_submission(instance_id, instance_submission, frame);
             }
             DesktopChange::Project(project_change) => {
-                return self.apply_project_change(project_change, scene);
+                return self.apply_project_change(project_change, frame.scene());
             }
         }
 
@@ -531,14 +531,14 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         submission: InstanceSubmission,
-        scene: &Scene,
+        frame: &mut Frame,
     ) -> Result<ChangeOutput> {
         let (changes, pacing) = submission.into_parts();
         let mut measures = MeasureSet::Empty;
         let mut follow_ups = Changes::Empty;
 
         for change in changes.release() {
-            let outcome = self.apply_instance_change(instance, change, scene)?;
+            let outcome = self.apply_instance_change(instance, change, frame)?;
             measures += outcome.measures;
             follow_ups += outcome.changes;
         }
@@ -554,15 +554,15 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         change: InstanceChange,
-        scene: &Scene,
+        frame: &mut Frame,
     ) -> Result<ChangeOutput> {
         match change {
             InstanceChange::Scene(change) => {
-                scene.push_change(change);
+                frame.push_change(change);
                 Ok(ChangeOutput::default())
             }
             InstanceChange::CreateView(creation_info) => {
-                let mut output = self.present_view(instance, &creation_info, scene)?;
+                let mut output = self.present_view(instance, &creation_info, frame)?;
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the

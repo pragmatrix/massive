@@ -3,11 +3,11 @@ use std::time::Duration;
 use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolation};
 
 pub trait AnimationContext {
-    fn animation_coordinator(&self) -> &AnimationCoordinator;
+    fn animation_coordinator(&mut self) -> &mut AnimationCoordinator;
 }
 
 impl AnimationContext for AnimationCoordinator {
-    fn animation_coordinator(&self) -> &AnimationCoordinator {
+    fn animation_coordinator(&mut self) -> &mut AnimationCoordinator {
         self
     }
 }
@@ -39,7 +39,7 @@ impl<T: Send + Interpolatable> Animated<T> {
 
     pub fn animate_if_changed(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
@@ -55,7 +55,7 @@ impl<T: Send + Interpolatable> Animated<T> {
 
     pub fn animate(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
@@ -89,12 +89,12 @@ impl<T: Send + Interpolatable> Animated<T> {
         self.animation.target().unwrap_or(&self.value)
     }
 
-    pub fn value(&mut self, context: &impl AnimationContext) -> &T {
+    pub fn value(&mut self, context: &mut impl AnimationContext) -> &T {
         self.progress(context);
         self.latest()
     }
 
-    fn progress(&mut self, context: &impl AnimationContext) {
+    fn progress(&mut self, context: &mut impl AnimationContext) {
         if self.animation.is_active() {
             let instant = context.animation_coordinator().current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {

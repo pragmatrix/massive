@@ -43,7 +43,7 @@ pub struct Desktop {
 }
 
 impl Desktop {
-    pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
+    pub async fn new(env: DesktopEnvironment, mut context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
         let projects_dir = env.projects_dir();
@@ -141,7 +141,7 @@ impl Desktop {
 
         system.transact(
             changes + initial_submission_changes,
-            &scene,
+            &mut context.frame(&scene),
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;
@@ -187,7 +187,7 @@ impl Desktop {
 
                                 self.system.transact(
                                     event_changes,
-                                    &self.scene,
+                                    &mut self.context.frame(&self.scene),
                                     &mut self.instance_manager,
                                     None,
                                 )?;
@@ -198,7 +198,7 @@ impl Desktop {
                         ShellEvent::ApplyAnimations(_) => {
                             // Performance: Not every instance needs that, only the ones animating.
                             self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
-                            self.system.apply_animations(&self.scene);
+                            self.system.apply_animations(&mut self.context.frame(&self.scene));
                         }
                     }
                 }
@@ -212,7 +212,7 @@ impl Desktop {
                         let changes = self.system.plan(DesktopCommand::StopInstance(instance_id), &self.scene)?;
                         self.system.transact(
                             changes,
-                            &self.scene,
+                            &mut self.context.frame(&self.scene),
                             &mut self.instance_manager,
                             None,
                         )?;
@@ -243,12 +243,13 @@ impl Desktop {
 
             // Get the camera, build the frame, and submit it to the renderer.
             {
-                let camera = *self.system.camera(&self.scene);
-                let mut frame = self.scene.begin_frame().with_camera(camera);
+                let mut frame = self.context.frame(&self.scene);
+                let camera = *self.system.camera(&mut frame);
+                let mut submission = frame.submission().with_camera(camera);
                 if self.system.effective_pacing() == RenderPacing::Smooth {
-                    frame = frame.with_pacing(RenderPacing::Smooth);
+                    submission = submission.with_pacing(RenderPacing::Smooth);
                 }
-                frame.submit_to(&mut self.renderer)?;
+                submission.submit_to(&mut self.renderer)?;
             }
         }
     }
@@ -260,7 +261,7 @@ impl Desktop {
     ) -> Result<()> {
         self.system.transact(
             DesktopChange::IntegrateInstanceSubmission(instance, submission),
-            &self.scene,
+            &mut self.context.frame(&self.scene),
             &mut self.instance_manager,
             None,
         )

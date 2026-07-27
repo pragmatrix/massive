@@ -130,7 +130,7 @@ impl InstancePresenter {
     pub fn present_view(
         &mut self,
         view_creation_info: &ViewCreationInfo,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
     ) -> Result<()> {
         if view_creation_info.role != ViewRole::Primary {
             bail!("Only primary views are supported yet");
@@ -216,7 +216,7 @@ impl InstancePresenter {
 
     pub fn set_layout(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         size: SizePx,
         layout_transform: Transform,
         visible: bool,
@@ -236,7 +236,7 @@ impl InstancePresenter {
 
     fn apply_layout(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         size: SizePx,
         layout_transform: Transform,
         visible: bool,
@@ -281,7 +281,7 @@ impl InstancePresenter {
         self.apply_animations(context);
     }
 
-    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
+    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
         let layout_transform = self.layout_transform_animation.value(context);
         self.root.transform.update_if_changed(*layout_transform);
 
