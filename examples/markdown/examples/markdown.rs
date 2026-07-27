@@ -119,7 +119,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         }
 
         renderer.resize_redraw(&event)?;
-        scene.render_to(&mut renderer)?;
+        ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }
 

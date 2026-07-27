@@ -13,7 +13,7 @@ use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
     ) -> Result<()> {
@@ -29,7 +29,7 @@ impl DesktopSystem {
 
     fn handle_effect(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         effect: DesktopEffect,
         effects_mode: TransactionEffectsMode,
     ) -> Result<Effects> {
@@ -181,7 +181,7 @@ impl DesktopSystem {
     /// and emits `UpdateCamera` directly.
     fn apply_layout_effect(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         target: DesktopTarget,
         effects_mode: TransactionEffectsMode,
     ) -> Effects {
@@ -202,7 +202,7 @@ impl DesktopSystem {
 
     fn update_camera_effect(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         effects_mode: TransactionEffectsMode,
     ) {
         if !effects_mode.permit_camera_moves() {
@@ -235,7 +235,7 @@ impl DesktopSystem {
 
     fn apply_layout(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         target: DesktopTarget,
         size_px: SizePx,
         transform: Transform,

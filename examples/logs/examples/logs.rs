@@ -22,7 +22,7 @@ use massive_geometry::Vector3;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::Shape;
 use massive_shell::{
-    ApplicationContext, FontManager, Scene, ShellWindow,
+    ApplicationContext, FontManager, Frame, Scene, ShellWindow,
     shell::{self, ShellEvent},
 };
 
@@ -87,22 +87,34 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     // Application
 
     loop {
-        select! {
-            Some(bytes) = receiver.recv() => {
-                logs.add_line(&scene, &bytes);
-                logs.update_layout(&scene)?;
-                scene.render_to(&mut renderer)?;
-            },
+        // Resolve the wakeup first, so that the borrow of `ctx` ends before the frame is built.
+        let wakeup = select! {
+            Some(bytes) = receiver.recv() => Wakeup::Line(bytes),
+            Ok(event) = ctx.wait_for_shell_event() => Wakeup::Shell(event),
+        };
 
-            Ok(event) = ctx.wait_for_shell_event() => {
-                if logs.handle_shell_event(&scene, &event, &window) == UpdateResponse::Exit {
-                    return Ok(())
+        let mut frame = ctx.frame(&scene);
+
+        match wakeup {
+            Wakeup::Line(bytes) => {
+                logs.add_line(&mut frame, &bytes);
+                logs.update_layout(&mut frame)?;
+            }
+            Wakeup::Shell(event) => {
+                if logs.handle_shell_event(&mut frame, &event, &window) == UpdateResponse::Exit {
+                    return Ok(());
                 }
                 renderer.resize_redraw(&event)?;
-                scene.render_to(&mut renderer)?;
             }
         }
+
+        frame.render_to(&mut renderer)?;
     }
+}
+
+enum Wakeup {
+    Line(Vec<u8>),
+    Shell(ShellEvent),
 }
 
 struct Logs {
@@ -156,7 +168,7 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, scene: &Scene, bytes: &[u8]) {
+    fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
         let (glyph_runs, height) = {
             let mut font_system = self.fonts.lock();
             shape_log_line(bytes, self.next_line_top, &mut font_system)
@@ -164,10 +176,10 @@ impl Logs {
 
         let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
-        let line = glyph_runs.at(&self.location).enter(scene);
+        let line = glyph_runs.at(&self.location).enter(frame.scene());
 
         let mut fader: Animated<_> = 0.0.into();
-        fader.animate(scene, 1.0, FADE_DURATION, Interpolation::CubicOut);
+        fader.animate(frame, 1.0, FADE_DURATION, Interpolation::CubicOut);
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,
@@ -179,7 +191,7 @@ impl Logs {
         self.next_line_top += height;
     }
 
-    fn update_layout(&mut self, context: &impl AnimationContext) -> Result<()> {
+    fn update_layout(&mut self, context: &mut impl AnimationContext) -> Result<()> {
         // See if some lines need to be faded out.
 
         {
@@ -201,7 +213,7 @@ impl Logs {
         Ok(())
     }
 
-    fn update_vertical_alignment(&mut self, context: &impl AnimationContext) {
+    fn update_vertical_alignment(&mut self, context: &mut impl AnimationContext) {
         let top_line = self
             .lines
             .iter()
@@ -229,7 +241,7 @@ impl Logs {
 
     fn handle_shell_event(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         shell_event: &ShellEvent,
         window: &ShellWindow,
     ) -> UpdateResponse {
@@ -265,7 +277,7 @@ impl Logs {
         UpdateResponse::Continue
     }
 
-    fn apply_animations(&mut self, context: &impl AnimationContext) {
+    fn apply_animations(&mut self, context: &mut impl AnimationContext) {
         let v_center = *self.vertical_center.value(context);
         self.vertical_center_transform
             .update((0., v_center, 0.).into());
@@ -295,7 +307,7 @@ impl Logs {
         }
     }
 
-    fn update_content_transform(&mut self, context: &impl AnimationContext) {
+    fn update_content_transform(&mut self, context: &mut impl AnimationContext) {
         let content_height = *self.content_height.value(context);
         let new_transform = self
             .application
@@ -350,7 +362,7 @@ impl LogLine {
         self.fader.is_animating()
     }
 
-    pub fn apply_animations(&mut self, context: &impl AnimationContext) {
+    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
         if !self.fader.is_animating() {
             return;
         }

@@ -287,7 +287,7 @@ impl LauncherPresenter {
 
     pub fn set_layout(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         size: SizePx,
         layout_transform: Transform,
         animate: bool,
@@ -317,19 +317,19 @@ impl LauncherPresenter {
         self.location.clone()
     }
 
-    pub fn fade_out(&mut self, context: &impl AnimationContext) {
+    pub fn fade_out(&mut self, context: &mut impl AnimationContext) {
         self.fader
             .animate(context, 0.0, FADING_DURATION, Interpolation::CubicOut);
     }
 
-    pub fn fade_in(&mut self, context: &impl AnimationContext) {
+    pub fn fade_in(&mut self, context: &mut impl AnimationContext) {
         self.fader
             .animate(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
     }
 
     pub fn apply_animations(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         instances: &mut Map<InstanceId, InstancePresenter>,
         child_instances: &[InstanceId],
     ) {
@@ -338,7 +338,7 @@ impl LauncherPresenter {
         self.apply_child_instance_animations(context, instances, child_instances);
     }
 
-    fn apply_presenter_animations(&mut self, context: &impl AnimationContext) {
+    fn apply_presenter_animations(&mut self, context: &mut impl AnimationContext) {
         let size = self.size.value(context);
 
         let scene_transform = self
@@ -374,7 +374,7 @@ impl LauncherPresenter {
 
     fn apply_child_instance_animations(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         instances: &mut Map<InstanceId, InstancePresenter>,
         child_instances: &[InstanceId],
     ) {

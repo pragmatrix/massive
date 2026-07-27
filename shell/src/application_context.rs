@@ -1,6 +1,6 @@
+use std::sync::Arc;
+
 use anyhow::{Result, anyhow};
-use massive_geometry::SizePx;
-use massive_scene::ChangeCollector;
 use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
 use tokio::sync::oneshot;
 use winit::dpi::PhysicalSize;
@@ -11,6 +11,9 @@ use crate::shell::ShellCommand;
 use crate::{Scene, ShellEvent, ShellWindow};
 
 use massive_animation::AnimationCoordinator;
+use massive_applications::Frame;
+use massive_geometry::SizePx;
+use massive_scene::ChangeCollector;
 use massive_util::CoalescingReceiver;
 
 /// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
@@ -53,21 +56,19 @@ impl ApplicationContext {
         self.monitor_scale_factor
     }
 
-    pub fn animation_coordinator(&self) -> &AnimationCoordinator {
-        &self.animation_coordinator
-    }
-
-    /// Creates a new scene with the shared animation coordinator.
+    /// Creates a new scene with a new change collector.
     pub fn new_scene(&self) -> Scene {
-        Scene::new(self.animation_coordinator.clone())
+        Scene::new(Arc::new(ChangeCollector::default()))
     }
 
     /// Creates a new scene with a caller-provided change collector.
-    pub fn new_scene_with_change_collector(
-        &self,
-        collector: std::sync::Arc<ChangeCollector>,
-    ) -> Scene {
-        Scene::new_with_change_collector(self.animation_coordinator.clone(), collector)
+    pub fn new_scene_with_change_collector(&self, collector: Arc<ChangeCollector>) -> Scene {
+        Scene::new(collector)
+    }
+
+    /// Bundle a scene with the application's animation clock for one update cycle.
+    pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
+        Frame::new(scene, &mut self.animation_coordinator)
     }
 
     /// Creates a new window.

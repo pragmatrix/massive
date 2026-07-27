@@ -112,6 +112,6 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         transform.update_if_changed(application.get_transform(content_size));
 
         renderer.resize_redraw(&event)?;
-        scene.render_to(&mut renderer)?;
+        ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

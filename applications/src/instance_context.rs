@@ -15,7 +15,7 @@ use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::view_builder::ViewBuilder;
 use crate::{
-    DesktopRequest, InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters,
+    DesktopRequest, Frame, InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters,
     InstanceSubmission, Scene, ViewEvent, ViewExtent, ViewId,
 };
 
@@ -123,8 +123,12 @@ impl InstanceContext {
     /// send to desktop coordinated. Also, changes can't be submitted independently, all updates
     /// from all views need to be submitted at once.
     pub fn new_scene(&self) -> Scene {
-        let scene = massive_scene::Scene::new(self.changes.clone());
-        Scene::from_parts(scene, self.animation_coordinator.clone())
+        Scene::new(self.changes.clone())
+    }
+
+    /// Bundle a scene with this instance's animation clock for one update cycle.
+    pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
+        Frame::new(scene, &mut self.animation_coordinator)
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {

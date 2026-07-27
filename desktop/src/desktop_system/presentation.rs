@@ -5,7 +5,7 @@ use massive_animation::AnimationContext;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 use massive_geometry::{Point, Transform, Vector3};
 use massive_layout::{Placement, Size as LayoutSize};
-use massive_shell::Scene;
+use massive_shell::Frame;
 
 use super::DesktopTarget;
 use crate::desktop_system::change::{Changes, DesktopChange, TopologyChange};
@@ -30,7 +30,7 @@ impl DesktopSystem {
         instance: InstanceId,
         root: InstanceRoot,
         parameters: InstanceParameters,
-        scene: &Scene,
+        frame: &mut Frame,
     ) -> Result<()> {
         let (render_instance_background, launcher_location) = {
             let launcher = self
@@ -50,7 +50,7 @@ impl DesktopSystem {
             root,
             parameters,
             launcher_location,
-            scene,
+            frame.scene(),
         );
 
         self.aggregates.instances.insert(instance, presenter)?;
@@ -61,7 +61,7 @@ impl DesktopSystem {
             .launchers
             .get_mut(&launcher)
             .expect("Launcher not found")
-            .fade_out(scene);
+            .fade_out(frame);
 
         Ok(())
     }
@@ -92,7 +92,7 @@ impl DesktopSystem {
 
     pub fn hide_instance(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         launcher: LaunchProfileId,
         instance: InstanceId,
     ) -> Result<()> {
@@ -118,7 +118,7 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
     ) -> Result<ChangeOutput> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found (present_view)");
@@ -156,7 +156,7 @@ impl DesktopSystem {
 
     pub(super) fn sync_hover_with_target(
         &mut self,
-        context: &impl AnimationContext,
+        context: &mut impl AnimationContext,
         target: Option<&DesktopTarget>,
     ) {
         let Some(target) = target else {
