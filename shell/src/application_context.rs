@@ -56,7 +56,7 @@ impl ApplicationContext {
         self.monitor_scale_factor
     }
 
-    /// Creates a new scene with the shared animation coordinator.
+    /// Creates a new scene with a new change collector.
     pub fn new_scene(&self) -> Scene {
         Scene::new(Arc::new(ChangeCollector::default()))
     }
