@@ -95,7 +95,7 @@ impl AnimationCoordinator {
         self.current_cycle().start_time
     }
 
-    /// Allocate an animation range for the given duration and return it's starting time.
+    /// Allocate an animation range for the given duration and return its starting time.
     ///
     /// If not in a cycle, this starts a cycle at the current time and sets `animating` to `true`.
     pub(crate) fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
