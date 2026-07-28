@@ -91,14 +91,14 @@ impl AnimationCoordinator {
     /// Returns the current cycle starting time that should be used for animated values.
     ///
     /// If not set, the now is set and the cycle mode is set to "implicit".
-    pub(crate) fn current_cycle_time(&mut self) -> Instant {
+    pub fn current_cycle_time(&mut self) -> Instant {
         self.current_cycle().start_time
     }
 
     /// Allocate an animation range for the given duration and return its starting time.
     ///
     /// If not in a cycle, this starts a cycle at the current time and sets `animating` to `true`.
-    pub(crate) fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+    pub fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
         let current = self.current_cycle().start_time;
         self.notify_ending_time(current + duration);
         current

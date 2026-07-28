@@ -10,6 +10,7 @@ use derive_more::Deref;
 use massive_animation::{AnimationContext, AnimationCoordinator};
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::Scene;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Deref)]
 pub struct Frame<'a> {
@@ -19,8 +20,12 @@ pub struct Frame<'a> {
 }
 
 impl AnimationContext for Frame<'_> {
-    fn animation_coordinator(&mut self) -> &mut AnimationCoordinator {
-        self.animation
+    fn current_cycle_time(&mut self) -> Instant {
+        self.animation.current_cycle_time()
+    }
+
+    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+        self.animation.allocate_animation_time(duration)
     }
 }
 
