@@ -8,14 +8,13 @@ use std::sync::Arc;
 
 use parking_lot::Mutex;
 
-use crate::AnimationCoordinator;
+use crate::AnimationContext;
 
 pub trait ApplyAnimations {
-    fn apply_animations(&mut self, coordinator: &AnimationCoordinator);
+    fn apply_animations(&mut self, coordinator: &mut dyn AnimationContext);
 }
 
 pub struct Movements {
-    coordinator: AnimationCoordinator,
     active: HashMap<*const (), Box<dyn ActiveMovement>>,
     queue: Arc<Mutex<Vec<MovementAction>>>,
     // Reused while draining the queue so recurring actions retain their allocation capacity.
@@ -26,16 +25,20 @@ impl fmt::Debug for Movements {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Movements")
-            .field("coordinator", &self.coordinator)
             .field("active_count", &self.active.len())
             .finish()
     }
 }
 
+impl Default for Movements {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Movements {
-    pub fn new(coordinator: AnimationCoordinator) -> Self {
+    pub fn new() -> Self {
         Self {
-            coordinator,
             active: Default::default(),
             queue: Arc::new(Mutex::new(Vec::new())),
             actions: Vec::new(),
@@ -62,7 +65,7 @@ impl Movements {
                 MovementAction::Drop(pointer) => {
                     self.active.remove(&pointer);
                 }
-                MovementAction::Apply(pointer, apply) => {
+                MovementAction::Modify(pointer, apply) => {
                     if let Some(instance) = self.active.get_mut(&pointer) {
                         apply(instance.as_any_mut());
                     }
@@ -71,9 +74,9 @@ impl Movements {
         }
     }
 
-    pub fn apply_animations(&mut self) {
+    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
         for movement in self.active.values_mut() {
-            movement.apply_animations(&self.coordinator);
+            movement.apply_animations(context);
         }
     }
 }
@@ -94,17 +97,17 @@ impl<T> MovementReference<T> {
         }
     }
 
-    pub fn apply(&self, apply: impl FnOnce(&mut T) + Send + 'static)
+    pub fn modify(&self, modifier: impl FnOnce(&mut T) + Send + 'static)
     where
         T: Any + Send,
     {
-        self.queue.lock().push(MovementAction::Apply(
+        self.queue.lock().push(MovementAction::Modify(
             self.instance,
             Box::new(move |value| {
                 let value = value
                     .downcast_mut::<T>()
                     .expect("movement reference has the wrong value type");
-                apply(value);
+                modifier(value);
             }),
         ));
     }
@@ -129,11 +132,11 @@ impl<T: Any + Send + ApplyAnimations> ActiveMovement for T {
     }
 }
 
-type ApplyMovement = Box<dyn FnOnce(&mut (dyn Any + Send)) + Send>;
+type ModifyMovement = Box<dyn FnOnce(&mut (dyn Any + Send)) + Send>;
 
 enum MovementAction {
     Drop(*const ()),
-    Apply(*const (), ApplyMovement),
+    Modify(*const (), ModifyMovement),
 }
 
 // The pointer is an opaque identifier; it is only used by `Movements::run_actions` for lookup.
@@ -143,7 +146,7 @@ impl fmt::Debug for MovementAction {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Drop(_) => formatter.write_str("Drop"),
-            Self::Apply(_, _) => formatter.write_str("Apply"),
+            Self::Modify(_, _) => formatter.write_str("Modify"),
         }
     }
 }
