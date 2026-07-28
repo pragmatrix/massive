@@ -10,7 +10,7 @@ use winit::window::WindowAttributes;
 use crate::shell::ShellCommand;
 use crate::{Scene, ShellEvent, ShellWindow};
 
-use massive_animation::AnimationCoordinator;
+use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::Frame;
 use massive_geometry::SizePx;
 use massive_scene::ChangeCollector;
@@ -34,6 +34,7 @@ pub struct ApplicationContext {
     monitor_scale_factor: f64,
 
     animation_coordinator: AnimationCoordinator,
+    movement_runtime: MovementRuntime,
 }
 
 impl ApplicationContext {
@@ -49,6 +50,7 @@ impl ApplicationContext {
             event_loop_proxy,
             monitor_scale_factor,
             animation_coordinator: AnimationCoordinator::new(),
+            movement_runtime: MovementRuntime::default(),
         }
     }
 
@@ -68,7 +70,11 @@ impl ApplicationContext {
 
     /// Bundle a scene with the application's animation clock for one update cycle.
     pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
-        Frame::new(scene, &mut self.animation_coordinator)
+        Frame::new(
+            scene,
+            &mut self.animation_coordinator,
+            &mut self.movement_runtime,
+        )
     }
 
     /// Creates a new window.

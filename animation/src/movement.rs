@@ -10,18 +10,27 @@ use parking_lot::Mutex;
 
 use crate::AnimationContext;
 
-pub trait ApplyAnimations {
-    fn apply_animations(&mut self, coordinator: &mut dyn AnimationContext);
-}
-
-pub struct Movements {
-    active: HashMap<*const (), Box<dyn ActiveMovement>>,
+pub struct MovementRuntime {
+    active: HashMap<MovementReference, Box<dyn ActiveMovement>>,
     queue: Arc<Mutex<Vec<MovementAction>>>,
     // Reused while draining the queue so recurring actions retain their allocation capacity.
     actions: Vec<MovementAction>,
 }
 
-impl fmt::Debug for Movements {
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+struct MovementReference(*const ());
+
+// This is an opaque identity only; movement values are never accessed through the pointer.
+unsafe impl Send for MovementReference {}
+unsafe impl Sync for MovementReference {}
+
+impl MovementReference {
+    fn new<T>(value: &T) -> Self {
+        Self(ptr::from_ref(value).cast())
+    }
+}
+
+impl fmt::Debug for MovementRuntime {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Movements")
@@ -30,13 +39,13 @@ impl fmt::Debug for Movements {
     }
 }
 
-impl Default for Movements {
+impl Default for MovementRuntime {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Movements {
+impl MovementRuntime {
     pub fn new() -> Self {
         Self {
             active: Default::default(),
@@ -46,18 +55,22 @@ impl Movements {
     }
 
     #[must_use]
-    pub fn add<T>(&mut self, value: T) -> MovementReference<T>
+    pub fn add<T, F>(&mut self, value: T, apply_animations: F) -> Movement<T>
     where
-        T: Any + Send + ApplyAnimations,
+        T: Any + Send + Sync,
+        F: FnMut(&mut T, &mut dyn AnimationContext) + Send + Sync + 'static,
     {
-        let value = Box::new(value);
-        let reference = MovementReference::new(value.as_ref(), self.queue.clone());
-        self.active.insert(reference.instance, value);
+        let active = Box::new(ActiveMovementValue {
+            apply_animations,
+            value,
+        });
+        let reference = Movement::new(&active.value, self.queue.clone());
+        self.active.insert(reference.instance, active);
 
         reference
     }
 
-    pub fn run_actions(&mut self) {
+    pub fn run_actions(&mut self, context: &mut dyn AnimationContext) {
         mem::swap(&mut self.actions, &mut *self.queue.lock());
 
         for action in self.actions.drain(..) {
@@ -67,14 +80,14 @@ impl Movements {
                 }
                 MovementAction::Modify(pointer, apply) => {
                     if let Some(instance) = self.active.get_mut(&pointer) {
-                        apply(instance.as_any_mut());
+                        apply(instance.as_any_mut(), context);
                     }
                 }
             }
         }
     }
 
-    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
+    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
         for movement in self.active.values_mut() {
             movement.apply_animations(context);
         }
@@ -82,65 +95,77 @@ impl Movements {
 }
 
 #[derive(Debug)]
-pub struct MovementReference<T> {
-    instance: *const (),
+pub struct Movement<T> {
+    instance: MovementReference,
     queue: Arc<Mutex<Vec<MovementAction>>>,
     marker: PhantomData<fn(T)>,
 }
 
-impl<T> MovementReference<T> {
+impl<T> Movement<T> {
     fn new(instance: &T, queue: Arc<Mutex<Vec<MovementAction>>>) -> Self {
         Self {
-            instance: ptr::from_ref(instance).cast(),
+            instance: MovementReference::new(instance),
             queue,
             marker: PhantomData,
         }
     }
 
-    pub fn modify(&self, modifier: impl FnOnce(&mut T) + Send + 'static)
-    where
-        T: Any + Send,
+    pub fn modify(
+        &self,
+        modifier: impl FnOnce(&mut T, &mut dyn AnimationContext) + Send + Sync + 'static,
+    ) where
+        T: Any + Send + Sync,
     {
         self.queue.lock().push(MovementAction::Modify(
             self.instance,
-            Box::new(move |value| {
+            Box::new(move |value, context| {
                 let value = value
                     .downcast_mut::<T>()
                     .expect("movement reference has the wrong value type");
-                modifier(value);
+                modifier(value, context);
             }),
         ));
     }
 }
 
-// The pointer is an opaque identifier; it is only dereferenced by the owner thread through `active`.
-unsafe impl<T> Send for MovementReference<T> {}
-
-impl<T> Drop for MovementReference<T> {
+impl<T> Drop for Movement<T> {
     fn drop(&mut self) {
         self.queue.lock().push(MovementAction::Drop(self.instance));
     }
 }
 
-trait ActiveMovement: Any + Send + ApplyAnimations {
+trait ActiveMovement: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
+
+    fn apply_animations(&mut self, context: &mut dyn AnimationContext);
 }
 
-impl<T: Any + Send + ApplyAnimations> ActiveMovement for T {
+struct ActiveMovementValue<T, F> {
+    apply_animations: F,
+    value: T,
+}
+
+impl<T, F> ActiveMovement for ActiveMovementValue<T, F>
+where
+    T: Any + Send + Sync,
+    F: FnMut(&mut T, &mut dyn AnimationContext) + Send + Sync + 'static,
+{
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
-        self
+        &mut self.value
+    }
+
+    fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
+        (self.apply_animations)(&mut self.value, context);
     }
 }
 
-type ModifyMovement = Box<dyn FnOnce(&mut (dyn Any + Send)) + Send>;
+type ModifyMovement =
+    Box<dyn FnOnce(&mut (dyn Any + Send), &mut dyn AnimationContext) + Send + Sync>;
 
 enum MovementAction {
-    Drop(*const ()),
-    Modify(*const (), ModifyMovement),
+    Drop(MovementReference),
+    Modify(MovementReference, ModifyMovement),
 }
-
-// The pointer is an opaque identifier; it is only used by `Movements::run_actions` for lookup.
-unsafe impl Send for MovementAction {}
 
 impl fmt::Debug for MovementAction {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {

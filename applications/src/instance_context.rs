@@ -8,7 +8,7 @@ use derive_more::Deref;
 use log::{error, trace, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use massive_animation::AnimationCoordinator;
+use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_renderer::{FontManager, RenderPacing};
 use massive_scene::{HandleChangeReceiver, Location, Ref, SceneChange};
 use massive_util::{CoalescingKey, CoalescingReceiver};
@@ -45,6 +45,7 @@ pub struct InstanceContext {
     /// We currently use one Scene per Context, so that everything is ordered properly. This also
     /// contains the AnimationCoordinator, which we need one only per instance anyway.
     animation_coordinator: AnimationCoordinator,
+    movement_runtime: MovementRuntime,
 
     /// The current changes of this instance. This includes all Scene changes interleaved with the
     /// instance changes (in order).
@@ -91,6 +92,7 @@ impl InstanceContext {
             environment,
             view_parent,
             animation_coordinator,
+            movement_runtime: MovementRuntime::default(),
             changes: changes.into(),
             events: events.into(),
         }
@@ -128,7 +130,11 @@ impl InstanceContext {
 
     /// Bundle a scene with this instance's animation clock for one update cycle.
     pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
-        Frame::new(scene, &mut self.animation_coordinator)
+        Frame::new(
+            scene,
+            &mut self.animation_coordinator,
+            &mut self.movement_runtime,
+        )
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {

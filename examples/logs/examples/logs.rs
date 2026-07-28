@@ -1,35 +1,33 @@
-use std::{collections::VecDeque, io, time::Duration};
+use std::collections::VecDeque;
+use std::io;
+use std::time::Duration;
 
 use anyhow::Result;
-use cosmic_text::FontSystem;
 use log::{debug, warn};
-use logs::terminal::{self, color_schemes};
-use termwiz::escape;
-use tokio::{
-    select,
-    sync::mpsc::{self, UnboundedReceiver},
-};
-use tracing_subscriber::{
-    EnvFilter, Layer, filter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
-};
-use winit::{
-    dpi::LogicalSize,
-    event::{ElementState, KeyEvent, WindowEvent},
-};
+use logs::terminal;
+use logs::terminal::color_schemes;
+use tokio::select;
+use tokio::sync::mpsc::{self, UnboundedReceiver};
+use tracing_subscriber::filter;
+use tracing_subscriber::fmt;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
 
-use massive_animation::{Animated, AnimationContext, Interpolation};
+use cosmic_text::FontSystem;
+use termwiz::escape;
+use winit::dpi::LogicalSize;
+use winit::event::{ElementState, KeyEvent, WindowEvent};
+
+use massive_animation::{Animated, AnimationContext, Interpolation, Movement};
 use massive_geometry::Vector3;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
 use massive_shapes::Shape;
-use massive_shell::{
-    ApplicationContext, FontManager, Frame, Scene, ShellWindow,
-    shell::{self, ShellEvent},
-};
+use massive_shell::shell::{self, ShellEvent};
+use massive_shell::{ApplicationContext, FontManager, Frame, Scene, ShellWindow};
 
-use shared::{
-    application::{Application, UpdateResponse},
-    attributed_text,
-};
+use shared::application::{Application, UpdateResponse};
+use shared::attributed_text;
 
 const FADE_DURATION: Duration = Duration::from_millis(400);
 const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
@@ -183,15 +181,36 @@ impl Logs {
 
         self.lines.push_back(LogLine {
             top: self.next_line_top,
-            fader,
-            visual: line,
+            fader: frame.movement(fader, move |fader, context| {
+                assert!(
+                    fader.is_animating(),
+                    "Internal error: animation state is not in sync with the context"
+                );
+                let fading = *fader.value(context);
+                line.update_with(|visual| {
+                    visual.shapes = visual
+                        .shapes
+                        .iter()
+                        .cloned()
+                        .map(|mut shape| {
+                            if let Shape::GlyphRun(ref mut glyph_run) = shape {
+                                glyph_run.text_color.alpha = fading as f32;
+                                glyph_run.translation.z =
+                                    (1.0 - fading) * -LogLine::FADE_TRANSLATION;
+                            }
+                            shape
+                        })
+                        .collect::<Vec<_>>()
+                        .into()
+                });
+            }),
             fading_out: false,
         });
 
         self.next_line_top += height;
     }
 
-    fn update_layout(&mut self, context: &mut impl AnimationContext) -> Result<()> {
+    fn update_layout(&mut self, context: &mut dyn AnimationContext) -> Result<()> {
         // See if some lines need to be faded out.
 
         {
@@ -199,8 +218,9 @@ impl Logs {
 
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
-                    line.fader
-                        .animate(context, 0., FADE_DURATION, Interpolation::CubicIn);
+                    line.fader.modify(|fader, context| {
+                        fader.animate(context, 0., FADE_DURATION, Interpolation::CubicIn);
+                    });
                     line.fading_out = true;
                 }
             }
@@ -213,7 +233,7 @@ impl Logs {
         Ok(())
     }
 
-    fn update_vertical_alignment(&mut self, context: &mut impl AnimationContext) {
+    fn update_vertical_alignment(&mut self, context: &mut dyn AnimationContext) {
         let top_line = self
             .lines
             .iter()
@@ -301,10 +321,6 @@ impl Logs {
         }
 
         self.update_content_transform(context);
-
-        for line in &mut self.lines {
-            line.apply_animations(context);
-        }
     }
 
     fn update_content_transform(&mut self, context: &mut impl AnimationContext) {
@@ -323,11 +339,11 @@ fn shape_log_line(
     y: f64,
     font_system: &mut FontSystem,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
-    // OO: Share Parser between runs.
+    // Optimization: Share Parser between runs.
     let mut parser = escape::parser::Parser::new();
     let parsed = parser.parse_as_vec(bytes);
 
-    // OO: Share Processor between runs.
+    // Optimization: Share Processor between runs.
     let mut processor = terminal::TextAttributor::new(color_schemes::light::PAPER);
     for action in parsed {
         processor.process(action)
@@ -350,8 +366,7 @@ fn shape_log_line(
 
 struct LogLine {
     top: f64,
-    visual: Handle<Visual>,
-    fader: Animated<f64>,
+    fader: Movement<Animated<f64>>,
     fading_out: bool,
 }
 
@@ -360,29 +375,5 @@ impl LogLine {
 
     pub fn is_fading(&self) -> bool {
         self.fader.is_animating()
-    }
-
-    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
-        if !self.fader.is_animating() {
-            return;
-        }
-
-        let fading = *self.fader.value(context);
-
-        self.visual.update_with(|v| {
-            v.shapes = v
-                .shapes
-                .iter()
-                .cloned()
-                .map(|mut shape| {
-                    if let Shape::GlyphRun(ref mut glyph_run) = shape {
-                        glyph_run.text_color.alpha = fading as f32;
-                        glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
-                    }
-                    shape
-                })
-                .collect::<Vec<_>>()
-                .into()
-        });
     }
 }
