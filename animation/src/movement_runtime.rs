@@ -11,9 +11,9 @@ use parking_lot::Mutex;
 use crate::AnimationContext;
 
 pub struct MovementRuntime {
-    active: HashMap<MovementReference, Box<dyn ActiveMovement>>,
-    queue: Arc<Mutex<Vec<MovementAction>>>,
-    // Reused while draining the queue so recurring actions retain their allocation capacity.
+    movements: HashMap<MovementReference, Box<dyn ActiveMovement>>,
+    action_inbox: Arc<Mutex<Vec<MovementAction>>>,
+    // Reused while draining the inbox so recurring actions retain their allocation capacity.
     actions: Vec<MovementAction>,
 }
 
@@ -34,7 +34,7 @@ impl fmt::Debug for MovementRuntime {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Movements")
-            .field("active_count", &self.active.len())
+            .field("count", &self.movements.len())
             .finish()
     }
 }
@@ -48,8 +48,8 @@ impl Default for MovementRuntime {
 impl MovementRuntime {
     pub fn new() -> Self {
         Self {
-            active: Default::default(),
-            queue: Arc::new(Mutex::new(Vec::new())),
+            movements: Default::default(),
+            action_inbox: Arc::new(Mutex::new(Vec::new())),
             actions: Vec::new(),
         }
     }
@@ -64,22 +64,22 @@ impl MovementRuntime {
             apply_animations,
             value,
         });
-        let reference = Movement::new(&active.value, self.queue.clone());
-        self.active.insert(reference.instance, active);
+        let reference = Movement::new(&active.value, self.action_inbox.clone());
+        self.movements.insert(reference.instance, active);
 
         reference
     }
 
     pub fn run_actions(&mut self, context: &mut dyn AnimationContext) {
-        mem::swap(&mut self.actions, &mut *self.queue.lock());
+        mem::swap(&mut self.actions, &mut *self.action_inbox.lock());
 
         for action in self.actions.drain(..) {
             match action {
                 MovementAction::Drop(pointer) => {
-                    self.active.remove(&pointer);
+                    self.movements.remove(&pointer);
                 }
                 MovementAction::Modify(pointer, apply) => {
-                    if let Some(instance) = self.active.get_mut(&pointer) {
+                    if let Some(instance) = self.movements.get_mut(&pointer) {
                         apply(instance.as_any_mut(), context);
                     }
                 }
@@ -88,7 +88,7 @@ impl MovementRuntime {
     }
 
     pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
-        for movement in self.active.values_mut() {
+        for movement in self.movements.values_mut() {
             movement.apply_animations(context);
         }
     }
@@ -97,15 +97,15 @@ impl MovementRuntime {
 #[derive(Debug)]
 pub struct Movement<T> {
     instance: MovementReference,
-    queue: Arc<Mutex<Vec<MovementAction>>>,
+    actions_inbox: Arc<Mutex<Vec<MovementAction>>>,
     marker: PhantomData<fn(T)>,
 }
 
 impl<T> Movement<T> {
-    fn new(instance: &T, queue: Arc<Mutex<Vec<MovementAction>>>) -> Self {
+    fn new(instance: &T, actions_inbox: Arc<Mutex<Vec<MovementAction>>>) -> Self {
         Self {
             instance: MovementReference::new(instance),
-            queue,
+            actions_inbox,
             marker: PhantomData,
         }
     }
@@ -116,7 +116,7 @@ impl<T> Movement<T> {
     ) where
         T: Any + Send + Sync,
     {
-        self.queue.lock().push(MovementAction::Modify(
+        self.actions_inbox.lock().push(MovementAction::Modify(
             self.instance,
             Box::new(move |value, context| {
                 let value = value
@@ -130,7 +130,9 @@ impl<T> Movement<T> {
 
 impl<T> Drop for Movement<T> {
     fn drop(&mut self) {
-        self.queue.lock().push(MovementAction::Drop(self.instance));
+        self.actions_inbox
+            .lock()
+            .push(MovementAction::Drop(self.instance));
     }
 }
 
