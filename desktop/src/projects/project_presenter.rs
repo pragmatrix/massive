@@ -98,7 +98,7 @@ impl DesktopPresenter {
         }
     }
 
-    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
         let alpha = *self.hover_alpha.value(context);
         self.update_hover_placement_and_visual(self.hover_placement, alpha);
     }
@@ -183,7 +183,7 @@ impl ProjectPresenter {
         self.scene_transform.update_if_changed(scene_transform);
     }
 
-    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
         self.header.apply_animations(context);
     }
 }
@@ -266,7 +266,7 @@ impl ProjectHeaderPresenter {
         }
     }
 
-    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
         let size = self.animated_size.value(context);
         let scene_transform = self
             .layout_transform

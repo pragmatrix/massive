@@ -326,7 +326,7 @@ impl Logs {
         self.update_content_transform(context);
     }
 
-    fn update_content_transform(&mut self, context: &mut impl AnimationContext) {
+    fn update_content_transform(&mut self, context: &impl AnimationContext) {
         let content_height = *self.content_height.value(context);
         let new_transform = self
             .application

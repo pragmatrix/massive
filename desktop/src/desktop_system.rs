@@ -386,7 +386,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
         // Architecture: Collecting instances per launcher is quite tedious here. What are the
         // alternatives?
         {
@@ -423,7 +423,7 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self, context: &mut impl AnimationContext) -> &PixelCamera {
+    pub fn camera(&mut self, context: &impl AnimationContext) -> &PixelCamera {
         self.camera.value(context)
     }
 

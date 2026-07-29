@@ -58,7 +58,7 @@ impl MovementRuntime {
     pub fn add<T, F>(&mut self, value: T, apply_animations: F) -> Movement<T>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &mut dyn AnimationContext) + Send + Sync + 'static,
+        F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
     {
         let active = Box::new(ActiveMovementValue {
             apply_animations,
@@ -87,7 +87,7 @@ impl MovementRuntime {
         }
     }
 
-    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
         for movement in self.movements.values_mut() {
             movement.apply_animations(context);
         }
@@ -139,7 +139,7 @@ impl<T> Drop for Movement<T> {
 trait ActiveMovement: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
-    fn apply_animations(&mut self, context: &mut dyn AnimationContext);
+    fn apply_animations(&mut self, context: &dyn AnimationContext);
 }
 
 struct ActiveMovementValue<T, F> {
@@ -150,13 +150,13 @@ struct ActiveMovementValue<T, F> {
 impl<T, F> ActiveMovement for ActiveMovementValue<T, F>
 where
     T: Any + Send + Sync,
-    F: FnMut(&mut T, &mut dyn AnimationContext) + Send + Sync + 'static,
+    F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
 {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
         &mut self.value
     }
 
-    fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
+    fn apply_animations(&mut self, context: &dyn AnimationContext) {
         (self.apply_animations)(&mut self.value, context);
     }
 }

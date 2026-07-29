@@ -85,7 +85,7 @@ impl<'scene, 'context> Frame<'scene, 'context> {
     pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> Movement<T>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &mut dyn AnimationContext) + Send + Sync + 'static,
+        F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
     {
         self.movement.add(value, apply_animations)
     }

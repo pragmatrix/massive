@@ -220,7 +220,7 @@ impl Desktop {
                     // Performance: Not every instance needs that, only the ones animating.
                     self.instance_manager
                         .broadcast_event(InstanceEvent::ApplyAnimations);
-                    self.system.apply_animations(&mut frame);
+                    self.system.apply_animations(&frame);
                 }
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
@@ -274,10 +274,10 @@ impl Desktop {
 
 fn submit_frame(
     system: &mut DesktopSystem,
-    mut frame: Frame,
+    frame: Frame,
     renderer: &mut AsyncWindowRenderer,
 ) -> Result<()> {
-    let camera = *system.camera(&mut frame);
+    let camera = *system.camera(&frame);
     let mut submission = frame.submission().render_submission().with_camera(camera);
     if system.effective_pacing() == RenderPacing::Smooth {
         submission = submission.with_pacing(RenderPacing::Smooth);
