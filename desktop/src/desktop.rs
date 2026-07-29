@@ -7,7 +7,7 @@ use massive_util::CollectingVec;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
-    CreationMode, InstanceEnvironment, InstanceEvent, InstanceId, InstanceParameters,
+    CreationMode, Frame, InstanceEnvironment, InstanceEvent, InstanceId, InstanceParameters,
     InstanceSubmission, ViewEvent,
 };
 use massive_input::EventManager;
@@ -40,6 +40,13 @@ pub struct Desktop {
     instance_manager: InstanceManager,
     instance_submissions: UnboundedReceiver<(InstanceId, InstanceSubmission)>,
     context: ApplicationContext,
+}
+
+#[derive(Debug)]
+enum DesktopEvent {
+    Shell(ShellEvent),
+    InstanceSubmission(InstanceId, InstanceSubmission),
+    InstanceEnded(InstanceId, massive_shell::Result<()>),
 }
 
 impl Desktop {
@@ -98,7 +105,7 @@ impl Desktop {
         let default_size = creation_info.size();
 
         let window = context.new_window(creation_info.size()).await?;
-        let renderer = window
+        let mut renderer = window
             .renderer()
             .with_shapes()
             .with_text(fonts.clone())
@@ -139,12 +146,14 @@ impl Desktop {
             changes += system.plan(command, &scene)?;
         }
 
+        let mut frame = context.frame(&scene);
         system.transact(
             changes + initial_submission_changes,
-            &mut context.frame(&scene),
+            &mut frame,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
         )?;
+        submit_frame(&mut system, frame, &mut renderer)?;
 
         let desktop = Self {
             scene,
@@ -160,59 +169,80 @@ impl Desktop {
 
     pub async fn run(&mut self) -> Result<()> {
         loop {
-            tokio::select! {
+            let event = tokio::select! {
                 Some((instance_id, submission)) = self.instance_submissions.recv() => {
-                    self.integrate_instance_submission(instance_id, submission)?;
+                    DesktopEvent::InstanceSubmission(instance_id, submission)
                 }
 
                 shell_event = self.context.wait_for_shell_event() => {
-                    let event = shell_event?;
-
-                    match event {
-                        ShellEvent::WindowEvent(_window_id, window_event) => {
-                            if let Some(view_event) = ViewEvent::from_window_event(&window_event)
-                                && let Some(input_event) =
-                                    self.event_manager.add_event(view_event, Instant::now())
-                            {
-                                let keyboard_shortcut = self.system.match_desktop_keyboard_shortcut(&input_event);
-
-                                let event_changes : Changes = if let Some(keyboard_cmd) = keyboard_shortcut {
-                                        self.system.plan(keyboard_cmd.into_command(), &self.scene)?
-                                    } else {
-                                        self.system.process_input_event(
-                                            &input_event,
-                                            self.renderer.geometry(),
-                                        )?
-                                    };
-
-                                self.system.transact(
-                                    event_changes,
-                                    &mut self.context.frame(&self.scene),
-                                    &mut self.instance_manager,
-                                    None,
-                                )?;
-                            }
-
-                            self.renderer.resize_redraw(&window_event)?;
-                        }
-                        ShellEvent::ApplyAnimations(_) => {
-                            // Performance: Not every instance needs that, only the ones animating.
-                            self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
-                            self.system.apply_animations(self.context.animation_context_mut());
-                        }
-                    }
+                    DesktopEvent::Shell(shell_event?)
                 }
 
                 Ok((instance_id, instance_result)) = self.instance_manager.join_next() => {
-                    info!("Instance ended (submissions pending: {}): {instance_id:?}", self.instance_submissions.len());
+                    DesktopEvent::InstanceEnded(instance_id, instance_result)
+                }
+
+                else => {
+                    return Ok(());
+                }
+            };
+
+            let mut frame = self.context.frame(&self.scene);
+
+            match event {
+                DesktopEvent::Shell(ShellEvent::WindowEvent(_window_id, window_event)) => {
+                    if let Some(view_event) = ViewEvent::from_window_event(&window_event)
+                        && let Some(input_event) =
+                            self.event_manager.add_event(view_event, Instant::now())
+                    {
+                        let keyboard_shortcut =
+                            self.system.match_desktop_keyboard_shortcut(&input_event);
+
+                        let event_changes: Changes = if let Some(keyboard_cmd) = keyboard_shortcut {
+                            self.system.plan(keyboard_cmd.into_command(), &self.scene)?
+                        } else {
+                            self.system
+                                .process_input_event(&input_event, self.renderer.geometry())?
+                        };
+
+                        self.system.transact(
+                            event_changes,
+                            &mut frame,
+                            &mut self.instance_manager,
+                            None,
+                        )?;
+                    }
+
+                    self.renderer.resize_redraw(&window_event)?;
+                }
+                DesktopEvent::Shell(ShellEvent::ApplyAnimations(_)) => {
+                    frame.upgrade_to_apply_animations_cycle();
+                    // Performance: Not every instance needs that, only the ones animating.
+                    self.instance_manager
+                        .broadcast_event(InstanceEvent::ApplyAnimations);
+                    self.system.apply_animations(&mut frame);
+                }
+                DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
+                    DesktopChange::IntegrateInstanceSubmission(instance, submission),
+                    &mut frame,
+                    &mut self.instance_manager,
+                    None,
+                )?,
+                DesktopEvent::InstanceEnded(instance_id, instance_result) => {
+                    info!(
+                        "Instance ended (submissions pending: {}): {instance_id:?}",
+                        self.instance_submissions.len()
+                    );
 
                     if self.system.is_present(&instance_id) {
                         // Did it end on its own? -> Act as if the user ended it.
                         // Robustness: This should probably handled differently.
-                        let changes = self.system.plan(DesktopCommand::StopInstance(instance_id), &self.scene)?;
+                        let changes = self
+                            .system
+                            .plan(DesktopCommand::StopInstance(instance_id), &self.scene)?;
                         self.system.transact(
                             changes,
-                            &mut self.context.frame(&self.scene),
+                            &mut frame,
                             &mut self.instance_manager,
                             None,
                         )?;
@@ -235,37 +265,24 @@ impl Desktop {
                         return Ok(());
                     }
                 }
-
-                else => {
-                    return Ok(());
-                }
             }
 
-            // Get the camera, build the frame, and submit it to the renderer.
-            {
-                let mut frame = self.context.frame(&self.scene);
-                let camera = *self.system.camera(&mut frame);
-                let mut submission = frame.submission().with_camera(camera);
-                if self.system.effective_pacing() == RenderPacing::Smooth {
-                    submission = submission.with_pacing(RenderPacing::Smooth);
-                }
-                submission.submit_to(&mut self.renderer)?;
-            }
+            submit_frame(&mut self.system, frame, &mut self.renderer)?;
         }
     }
+}
 
-    fn integrate_instance_submission(
-        &mut self,
-        instance: InstanceId,
-        submission: InstanceSubmission,
-    ) -> Result<()> {
-        self.system.transact(
-            DesktopChange::IntegrateInstanceSubmission(instance, submission),
-            &mut self.context.frame(&self.scene),
-            &mut self.instance_manager,
-            None,
-        )
+fn submit_frame(
+    system: &mut DesktopSystem,
+    mut frame: Frame,
+    renderer: &mut AsyncWindowRenderer,
+) -> Result<()> {
+    let camera = *system.camera(&mut frame);
+    let mut submission = frame.submission().render_submission().with_camera(camera);
+    if system.effective_pacing() == RenderPacing::Smooth {
+        submission = submission.with_pacing(RenderPacing::Smooth);
     }
+    submission.submit_to(renderer)
 }
 
 #[derive(Debug)]

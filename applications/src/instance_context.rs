@@ -15,8 +15,8 @@ use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::view_builder::ViewBuilder;
 use crate::{
-    DesktopRequest, Frame, InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters,
-    InstanceSubmission, Scene, ViewEvent, ViewExtent, ViewId,
+    DesktopRequest, Frame, FrameSubmission, InstanceChange, InstanceEnvironment, InstanceId,
+    InstanceParameters, InstanceSubmission, Scene, ViewEvent, ViewExtent, ViewId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,7 +60,12 @@ impl Drop for InstanceContext {
         // If the instance ends, we _must_ submit all pending changes.
         self.changes
             .collect(InstanceChange::End(self.view_parent.clone()));
-        if let Err(e) = self.submit() {
+        let pacing = if self.animation_coordinator.end_cycle() {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        };
+        if let Err(e) = self.submit_with_pacing(pacing) {
             error!("Final instance submit error for {:?}: {e:?}", self.id);
         }
     }
@@ -129,7 +134,10 @@ impl InstanceContext {
     }
 
     /// Bundle a scene with this instance's animation clock for one update cycle.
-    pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
+    pub fn frame<'scene, 'context>(
+        &'context mut self,
+        scene: &'scene Scene,
+    ) -> Frame<'scene, 'context> {
         Frame::new(
             scene,
             &mut self.animation_coordinator,
@@ -162,19 +170,13 @@ impl InstanceContext {
         self.changes.collect(InstanceChange::Desktop(request))
     }
 
-    pub fn submit(&mut self) -> Result<()> {
-        // Robustness: To be really thread safe, we would need to collect the changes and end the
-        // cycle in one go.
-        let animations_active = self.animation_coordinator.end_cycle();
+    pub fn submit(&mut self, submission: FrameSubmission<'_>) -> Result<()> {
+        self.submit_with_pacing(submission.pacing())
+    }
 
+    fn submit_with_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
         // Empty changes need to end in a submission (we might have done some before, without ending
         // the animation cycle)
-
-        let pacing = if animations_active {
-            RenderPacing::Smooth
-        } else {
-            RenderPacing::Fast
-        };
 
         let changes = self.changes.take_all();
         let change_count = changes.len();

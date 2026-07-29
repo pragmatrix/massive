@@ -99,6 +99,9 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                 logs.update_layout(&mut frame)?;
             }
             Wakeup::Shell(event) => {
+                if matches!(event, ShellEvent::ApplyAnimations(..)) {
+                    frame.upgrade_to_apply_animations_cycle();
+                }
                 if logs.handle_shell_event(&mut frame, &event, &window) == UpdateResponse::Exit {
                     return Ok(());
                 }

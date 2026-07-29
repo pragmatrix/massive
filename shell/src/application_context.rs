@@ -9,7 +9,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::EventLoopProxy;
 use winit::window::{WindowAttributes, WindowId};
 
-use massive_animation::{AnimationContext, AnimationCoordinator, MovementRuntime};
+use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::Frame;
 use massive_geometry::SizePx;
 use massive_scene::ChangeCollector;
@@ -67,11 +67,6 @@ impl ApplicationContext {
         self.monitor_scale_factor
     }
 
-    // Temporary, until the `MovementRuntime` takes over.
-    pub fn animation_context_mut(&mut self) -> &mut dyn AnimationContext {
-        &mut self.animation_coordinator
-    }
-
     /// Creates a new scene with a new change collector.
     pub fn new_scene(&self) -> Scene {
         Scene::new(Arc::new(ChangeCollector::default()))
@@ -83,7 +78,10 @@ impl ApplicationContext {
     }
 
     /// Bundle a scene with the application's animation clock for one update cycle.
-    pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
+    pub fn frame<'scene, 'context>(
+        &'context mut self,
+        scene: &'scene Scene,
+    ) -> Frame<'scene, 'context> {
         Frame::new(
             scene,
             &mut self.animation_coordinator,
@@ -123,14 +121,7 @@ impl ApplicationContext {
     /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
     /// [`ShellEvent::ApplyAnimations`] can be produced.
     pub async fn wait_for_shell_event(&mut self) -> Result<ShellEvent> {
-        let event = self.event_receiver.recv().await?;
-
-        if matches!(event, ShellEvent::ApplyAnimations(..)) {
-            self.animation_coordinator
-                .upgrade_to_apply_animations_cycle();
-        }
-
-        Ok(event)
+        self.event_receiver.recv().await
     }
 
     /// Wait for an application event treating custom events of type `T`. If custom events are
@@ -144,8 +135,9 @@ impl ApplicationContext {
             self.animation_coordinator
                 .upgrade_to_apply_animations_cycle();
 
-            self.movement_runtime
-                .apply_animations(&mut self.animation_coordinator);
+            // We seem to need a frame here, perhaps move this to the client?
+            // self.movement_runtime
+            //     .apply_animations(&mut self.animation_coordinator);
         }
 
         let application_event = match event {

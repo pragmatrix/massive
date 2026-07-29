@@ -4,7 +4,7 @@ use crate::time::Instant;
 use crate::{BlendedAnimation, Interpolatable, Interpolation};
 
 pub trait AnimationContext {
-    fn current_cycle_time(&mut self) -> Instant;
+    fn current_cycle_time(&self) -> Instant;
 
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant;
 }
