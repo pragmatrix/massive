@@ -1,6 +1,7 @@
 use objc2::sel;
 use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem, NSWindow};
-use objc2_foundation::{MainThreadMarker, ns_string};
+use objc2_foundation::MainThreadMarker;
+use objc2_foundation::ns_string;
 
 pub(crate) fn initialize_platform_menu() {
     let Some(mtm) = MainThreadMarker::new() else {

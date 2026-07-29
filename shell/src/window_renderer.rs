@@ -7,15 +7,18 @@ use std::time::Instant;
 use anyhow::{Context, Result, anyhow};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::WeakUnboundedSender;
+
 use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
 use massive_geometry::{Color, Matrix4, SizePx};
 use massive_renderer::{PresentationMode, RenderPacing, Renderer};
-use massive_scene::{SceneChangeSet, id_generator};
+use massive_scene::SceneChangeSet;
+use massive_scene::id_generator;
 use massive_util::message_filter;
 
-use crate::{ShellEvent, shell_window::ShellWindowShared};
+use crate::ShellEvent;
+use crate::shell_window::ShellWindowShared;
 
 const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
 const FULLSCREEN_VSYNC_MAXIMUM_FRAME_LATENCY: u32 = 2;

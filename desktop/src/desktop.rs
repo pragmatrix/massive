@@ -198,7 +198,7 @@ impl Desktop {
                         ShellEvent::ApplyAnimations(_) => {
                             // Performance: Not every instance needs that, only the ones animating.
                             self.instance_manager.broadcast_event(InstanceEvent::ApplyAnimations);
-                            self.system.apply_animations(&mut self.context.frame(&self.scene));
+                            self.system.apply_animations(self.context.animation_context_mut());
                         }
                     }
                 }

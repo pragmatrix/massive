@@ -1,25 +1,21 @@
-use std::{
-    mem,
-    sync::{
-        Arc,
-        mpsc::{self, Sender},
-    },
-    thread::{self, JoinHandle},
-};
+use std::mem;
+use std::sync::Arc;
+use std::sync::mpsc::{self, Sender};
+use std::thread::{self, JoinHandle};
 
 use anyhow::{Context, Result};
 use log::{error, info};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::WeakUnboundedSender;
-use winit::{event, window::WindowId};
+
+use winit::event;
+use winit::window::WindowId;
 
 use massive_geometry::{Color, SizePx};
 use massive_renderer::{RenderGeometry, RenderSubmission, RenderTarget};
 
-use crate::{
-    ShellEvent,
-    window_renderer::{RenderThreadSubmission, RendererMessage, WindowRenderer},
-};
+use crate::ShellEvent;
+use crate::window_renderer::{RenderThreadSubmission, RendererMessage, WindowRenderer};
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {

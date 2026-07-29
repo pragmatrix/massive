@@ -386,7 +386,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
+    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
         // Architecture: Collecting instances per launcher is quite tedious here. What are the
         // alternatives?
         {

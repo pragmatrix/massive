@@ -281,7 +281,7 @@ impl InstancePresenter {
         self.apply_animations(context);
     }
 
-    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
+    pub fn apply_animations(&mut self, context: &mut dyn AnimationContext) {
         let layout_transform = self.layout_transform_animation.value(context);
         self.root.transform.update_if_changed(*layout_transform);
 

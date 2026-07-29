@@ -3,18 +3,27 @@ use std::sync::Arc;
 use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
 use tokio::sync::oneshot;
+
 use winit::dpi::PhysicalSize;
+use winit::event::WindowEvent;
 use winit::event_loop::EventLoopProxy;
-use winit::window::WindowAttributes;
+use winit::window::{WindowAttributes, WindowId};
 
-use crate::shell::ShellCommand;
-use crate::{Scene, ShellEvent, ShellWindow};
-
-use massive_animation::{AnimationCoordinator, MovementRuntime};
+use massive_animation::{AnimationContext, AnimationCoordinator, MovementRuntime};
 use massive_applications::Frame;
 use massive_geometry::SizePx;
 use massive_scene::ChangeCollector;
 use massive_util::CoalescingReceiver;
+
+use crate::shell::ShellCommand;
+use crate::{Scene, ShellEvent, ShellWindow};
+
+#[derive(Debug)]
+pub enum ApplicationEvent<T> {
+    Window(WindowId, WindowEvent),
+    Custom(T),
+    ApplyAnimations(WindowId),
+}
 
 /// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
 /// new windows and to wait for events while also forwarding scene changes to the renderer.
@@ -56,6 +65,11 @@ impl ApplicationContext {
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.monitor_scale_factor
+    }
+
+    // Temporary, until the `MovementRuntime` takes over.
+    pub fn animation_context_mut(&mut self) -> &mut dyn AnimationContext {
+        &mut self.animation_coordinator
     }
 
     /// Creates a new scene with a new change collector.
@@ -117,5 +131,30 @@ impl ApplicationContext {
         }
 
         Ok(event)
+    }
+
+    /// Wait for an application event treating custom events of type `T`. If custom events are
+    /// received that are not of type `T`, this results in an error.
+    ///
+    /// Right now, custom events may be produced by the [`MovementRuntime`].
+    pub async fn wait_for_event<T>(&mut self) -> Result<ApplicationEvent<T>> {
+        let event = self.event_receiver.recv().await?;
+
+        if matches!(event, ShellEvent::ApplyAnimations(..)) {
+            self.animation_coordinator
+                .upgrade_to_apply_animations_cycle();
+
+            self.movement_runtime
+                .apply_animations(&mut self.animation_coordinator);
+        }
+
+        let application_event = match event {
+            ShellEvent::WindowEvent(window_id, window_event) => {
+                ApplicationEvent::Window(window_id, window_event)
+            }
+            ShellEvent::ApplyAnimations(window_id) => ApplicationEvent::ApplyAnimations(window_id),
+        };
+
+        Ok(application_event)
     }
 }

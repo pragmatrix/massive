@@ -5,12 +5,14 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use log::error;
-use massive_geometry::SizePx;
 use tokio::sync::mpsc::WeakUnboundedSender;
 use tokio::sync::oneshot;
+
 use wgpu::rwh;
 use winit::event_loop::EventLoopProxy;
 use winit::window::{CursorIcon, Window, WindowId};
+
+use massive_geometry::SizePx;
 
 use crate::shell::ShellCommand;
 use crate::{ShellEvent, WindowRendererBuilder};
