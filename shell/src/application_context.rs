@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
@@ -128,17 +129,37 @@ impl ApplicationContext {
     /// are received that are not of type `T`, this results in an error.
     ///
     /// Right now, custom events may be produced by the [`MovementRuntime`].
-    pub async fn wait_for_events<T>(&mut self) -> Result<Vec<ApplicationEvent<T>>> {
-        
-        let event = self.event_receiver.recv().await?;
+    pub async fn wait_for_events<T: Any>(&mut self) -> Result<Vec<ApplicationEvent<T>>> {
+        let events = self.event_receiver.recv_all().await?;
 
-        let application_event = match event {
-            ShellEvent::WindowEvent(window_id, window_event) => {
-                ApplicationEvent::Window(window_id, window_event)
+        let mut application_events = Vec::with_capacity(events.len());
+        for event in events {
+            match event {
+                ShellEvent::WindowEvent(window_id, window_event) => {
+                    application_events.push(ApplicationEvent::Window(window_id, window_event));
+                }
+                ShellEvent::ApplyAnimations(window_id) => {
+                    self.animation_coordinator
+                        .upgrade_to_apply_animations_cycle();
+                    let completion_events = self
+                        .movement_runtime
+                        .apply_animations(&self.animation_coordinator);
+                    application_events.push(ApplicationEvent::ApplyAnimations(window_id));
+                    application_events.extend(
+                        completion_events
+                            .into_iter()
+                            .map(|event| {
+                                let event = event.downcast::<T>().map_err(|_| {
+                                    anyhow!("movement completion event has the wrong type")
+                                })?;
+                                Ok(ApplicationEvent::Custom(*event))
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    );
+                }
             }
-            ShellEvent::ApplyAnimations(window_id) => ApplicationEvent::ApplyAnimations(window_id),
-        };
+        }
 
-        Ok(application_event)
+        Ok(application_events)
     }
 }

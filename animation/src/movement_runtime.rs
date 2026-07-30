@@ -57,13 +57,21 @@ impl MovementRuntime {
     }
 
     #[must_use]
-    pub fn mount<T, F>(&mut self, movement: T, apply_animations: F) -> Movement<T>
+    pub fn mount<T, F, E, G>(
+        &mut self,
+        movement: T,
+        apply_animations: F,
+        completion_event: G,
+    ) -> Movement<T>
     where
         T: Any + Send + Sync,
         F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+        E: Any + Send,
+        G: FnMut() -> E + Send + Sync + 'static,
     {
         let instance = Box::new(MovementInstance {
             apply_animations,
+            completion_event,
             value: movement,
         });
         let reference = Movement::new(&instance.value, self.action_inbox.clone());
@@ -99,8 +107,9 @@ impl MovementRuntime {
         }
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationContext) -> Vec<Box<dyn Any + Send>> {
         let now = context.current_cycle_time();
+        let mut events = Vec::new();
         for movement in self.movements.values_mut() {
             let Some(ending_time) = movement.ending_time else {
                 continue;
@@ -111,8 +120,11 @@ impl MovementRuntime {
             // Keep applying through the first cycle at or past the movement end, then stop.
             if now >= ending_time {
                 movement.ending_time = None;
+                events.push(movement.movement.completion_event());
             }
         }
+
+        events
     }
 }
 
@@ -162,6 +174,8 @@ trait AnimatableMovement: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
     fn apply_animations(&mut self, context: &dyn AnimationContext);
+
+    fn completion_event(&mut self) -> Box<dyn Any + Send>;
 }
 
 struct MountedMovement {
@@ -169,15 +183,18 @@ struct MountedMovement {
     ending_time: Option<Instant>,
 }
 
-struct MovementInstance<T, F> {
+struct MovementInstance<T, F, G> {
     apply_animations: F,
+    completion_event: G,
     value: T,
 }
 
-impl<T, F> AnimatableMovement for MovementInstance<T, F>
+impl<T, F, E, G> AnimatableMovement for MovementInstance<T, F, G>
 where
     T: Any + Send + Sync,
     F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+    E: Any + Send,
+    G: FnMut() -> E + Send + Sync + 'static,
 {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
         &mut self.value
@@ -185,6 +202,10 @@ where
 
     fn apply_animations(&mut self, context: &dyn AnimationContext) {
         (self.apply_animations)(&mut self.value, context);
+    }
+
+    fn completion_event(&mut self) -> Box<dyn Any + Send> {
+        Box::new((self.completion_event)())
     }
 }
 

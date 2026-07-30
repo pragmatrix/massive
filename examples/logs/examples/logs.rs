@@ -21,10 +21,11 @@ use winit::event::{ElementState, KeyEvent, WindowEvent};
 
 use massive_animation::{Animated, AnimationContext, Interpolation, Movement};
 use massive_geometry::Vector3;
-use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
+use massive_scene::{At, Handle, Location, Object, ToLocation, Transform};
 use massive_shapes::Shape;
-use massive_shell::shell::{self, ShellEvent};
-use massive_shell::{ApplicationContext, FontManager, Frame, Scene, ShellWindow};
+use massive_shell::application_context::ApplicationEvent;
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text;
@@ -88,7 +89,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         // Resolve the wakeup first, so that the borrow of `ctx` ends before the frame is built.
         let wakeup = select! {
             Some(bytes) = receiver.recv() => Wakeup::Line(bytes),
-            Ok(event) = ctx.wait_for_shell_event() => Wakeup::Shell(event),
+            Ok(events) = ctx.wait_for_events::<LogEvent>() => Wakeup::Events(events),
         };
 
         let mut frame = ctx.frame(&scene);
@@ -98,14 +99,25 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
                 logs.add_line(&mut frame, &bytes);
                 logs.update_layout(&mut frame)?;
             }
-            Wakeup::Shell(event) => {
-                if matches!(event, ShellEvent::ApplyAnimations(..)) {
-                    frame.upgrade_to_apply_animations_cycle();
+            Wakeup::Events(events) => {
+                for event in events {
+                    match event {
+                        ApplicationEvent::Window(_, window_event) => {
+                            if logs.handle_window_event(&mut frame, &window_event)
+                                == UpdateResponse::Exit
+                            {
+                                return Ok(());
+                            }
+                            renderer.resize_redraw(&window_event)?;
+                        }
+                        ApplicationEvent::ApplyAnimations(_) => {
+                            logs.apply_animations(&mut frame);
+                        }
+                        ApplicationEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
+                            logs.finish_fade_out(line_id, &mut frame);
+                        }
+                    }
                 }
-                if logs.handle_shell_event(&mut frame, &event, &window) == UpdateResponse::Exit {
-                    return Ok(());
-                }
-                renderer.resize_redraw(&event)?;
             }
         }
 
@@ -115,7 +127,12 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
 enum Wakeup {
     Line(Vec<u8>),
-    Shell(ShellEvent),
+    Events(Vec<ApplicationEvent<LogEvent>>),
+}
+
+#[derive(Debug)]
+enum LogEvent {
+    FadeCompleted(usize),
 }
 
 struct Logs {
@@ -132,6 +149,7 @@ struct Logs {
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
     next_line_top: f64,
+    next_line_id: usize,
 }
 
 impl Logs {
@@ -166,6 +184,7 @@ impl Logs {
             location,
             lines: VecDeque::new(),
             next_line_top: 0.,
+            next_line_id: 0,
         }
     }
 
@@ -179,12 +198,11 @@ impl Logs {
 
         let line = glyph_runs.at(&self.location).enter(frame.scene());
 
-        let mut fader: Animated<_> = 0.0.into();
-        fader.animate(frame, 1.0, FADE_DURATION, Interpolation::CubicOut);
-
-        self.lines.push_back(LogLine {
-            top: self.next_line_top,
-            fader: frame.movement(fader, move |fader, context| {
+        let line_id = self.next_line_id;
+        let fader: Animated<_> = 0.0.into();
+        let fader = frame.movement(
+            fader,
+            move |fader, context| {
                 assert!(
                     fader.is_animating(),
                     "Internal error: animation state is not in sync with the context"
@@ -206,11 +224,21 @@ impl Logs {
                         .collect::<Vec<_>>()
                         .into()
                 });
-            }),
+            },
+            move || LogEvent::FadeCompleted(line_id),
+        );
+        fader.modify(|fader, context| {
+            fader.animate(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
+        });
+        self.lines.push_back(LogLine {
+            id: line_id,
+            top: self.next_line_top,
+            fader,
             fading_out: false,
         });
 
         self.next_line_top += height;
+        self.next_line_id += 1;
     }
 
     fn update_layout(&mut self, context: &mut dyn AnimationContext) -> Result<()> {
@@ -262,40 +290,32 @@ impl Logs {
         );
     }
 
-    fn handle_shell_event(
+    fn handle_window_event(
         &mut self,
         context: &mut impl AnimationContext,
-        shell_event: &ShellEvent,
-        window: &ShellWindow,
+        window_event: &WindowEvent,
     ) -> UpdateResponse {
-        if shell_event.apply_animations() {
-            self.apply_animations(context);
-            return UpdateResponse::Continue;
+        if let WindowEvent::KeyboardInput {
+            event:
+                KeyEvent {
+                    state: ElementState::Pressed,
+                    ..
+                },
+            ..
+        } = window_event
+        {
+            // Warning levels gets captured and forwarded to the application itself.
+            warn!("{window_event:?}");
         }
 
-        if let Some(window_event) = shell_event.window_event_for(window) {
-            if let WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } = window_event
-            {
-                // Warning levels gets captured and forwarded to the application itself.
-                warn!("{window_event:?}");
+        match self.application.update(window_event) {
+            UpdateResponse::Exit => {
+                return UpdateResponse::Exit;
             }
-
-            match self.application.update(window_event) {
-                UpdateResponse::Exit => {
-                    return UpdateResponse::Exit;
-                }
-                UpdateResponse::Continue => {}
-            }
-
-            self.update_content_transform(context);
+            UpdateResponse::Continue => {}
         }
+
+        self.update_content_transform(context);
 
         UpdateResponse::Continue
     }
@@ -305,24 +325,22 @@ impl Logs {
         self.vertical_center_transform
             .update((0., v_center, 0.).into());
 
-        // Remove all lines that finished fading out from top to bottom.
+        self.update_content_transform(context);
+    }
 
-        let mut update_v_alignment = false;
+    fn finish_fade_out(&mut self, line_id: usize, context: &mut impl AnimationContext) {
+        let Some(position) = self
+            .lines
+            .iter()
+            .position(|line| line.id == line_id && line.fading_out)
+        else {
+            return;
+        };
 
-        while let Some(line) = self.lines.front() {
-            if line.fading_out && !line.fader.is_animating() {
-                debug!("faded out at: {}", line.fader.latest());
-                self.lines.pop_front();
-                update_v_alignment = true;
-            } else {
-                break;
-            }
-        }
+        self.lines.remove(position);
+        debug!("faded out");
 
-        if update_v_alignment {
-            self.update_vertical_alignment(context);
-        }
-
+        self.update_vertical_alignment(context);
         self.update_content_transform(context);
     }
 
@@ -368,6 +386,7 @@ fn shape_log_line(
 }
 
 struct LogLine {
+    id: usize,
     top: f64,
     fader: Movement<Animated<f64>>,
     fading_out: bool,
@@ -377,6 +396,6 @@ impl LogLine {
     const FADE_TRANSLATION: f64 = 256.0;
 
     pub fn is_fading(&self) -> bool {
-        self.fader.is_animating()
+        self.fading_out
     }
 }
