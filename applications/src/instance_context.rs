@@ -146,7 +146,7 @@ impl InstanceContext {
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {
-        Ok(self.events.recv().await?)
+        self.events.recv().await
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {

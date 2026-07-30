@@ -1,7 +1,11 @@
-use std::{collections::VecDeque, fmt, hash::Hash};
+use std::collections::VecDeque;
+use std::fmt;
+use std::hash::Hash;
 
-use anyhow::{Result, bail};
-use tokio::sync::mpsc::{UnboundedReceiver, error::TryRecvError};
+use anyhow::Result;
+use anyhow::bail;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::error::TryRecvError;
 
 use crate::message_filter;
 
@@ -31,6 +35,22 @@ impl<T: CoalescingKey + fmt::Debug> CoalescingReceiver<T> {
         }
     }
 
+    /// Receives all currently available events and returns an error when no events remain.
+    pub async fn recv_all(&mut self) -> Result<Vec<T>> {
+        if self.pending.is_empty() {
+            let Some(event) = self.receiver.recv().await else {
+                bail!("Sender disconnected");
+            };
+            self.pending.push_back(event);
+        }
+
+        while let Ok(event) = self.receiver.try_recv() {
+            self.pending.push_back(event);
+        }
+
+        Ok(self.drain_and_coalesce_pending())
+    }
+
     /// Receives an event and returns an error when the sender disconnects.
     pub async fn recv(&mut self) -> Result<T> {
         loop {
@@ -47,16 +67,7 @@ impl<T: CoalescingKey + fmt::Debug> CoalescingReceiver<T> {
                 }
             }
 
-            // Robustness: Going from VecDeque to Vec and back is a mess.
-            //
-            // Performance: Reuse capacity?
-            {
-                let events: Vec<T> =
-                    message_filter::keep_last_per_key(self.pending.drain(..).collect(), |ev| {
-                        ev.coalescing_key()
-                    });
-                self.pending = events.into();
-            }
+            self.pending = self.drain_and_coalesce_pending().into();
 
             // Any events?
 
@@ -71,5 +82,11 @@ impl<T: CoalescingKey + fmt::Debug> CoalescingReceiver<T> {
                 bail!("Sender disconnected");
             }
         }
+    }
+
+    fn drain_and_coalesce_pending(&mut self) -> Vec<T> {
+        message_filter::keep_last_per_key(self.pending.drain(..).collect(), |event| {
+            event.coalescing_key()
+        })
     }
 }

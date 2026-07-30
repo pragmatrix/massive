@@ -124,11 +124,12 @@ impl ApplicationContext {
         self.event_receiver.recv().await
     }
 
-    /// Wait for an application event treating custom events of type `T`. If custom events are
-    /// received that are not of type `T`, this results in an error.
+    /// Wait for multiple application events treating custom events of type `T`. If custom events
+    /// are received that are not of type `T`, this results in an error.
     ///
     /// Right now, custom events may be produced by the [`MovementRuntime`].
-    pub async fn wait_for_event<T>(&mut self) -> Result<ApplicationEvent<T>> {
+    pub async fn wait_for_events<T>(&mut self) -> Result<Vec<ApplicationEvent<T>>> {
+        
         let event = self.event_receiver.recv().await?;
 
         let application_event = match event {
