@@ -33,6 +33,8 @@
 use std::cmp::max;
 use std::time::{Duration, Instant};
 
+use crate::AnimationContext;
+
 #[derive(Debug)]
 pub struct AnimationCoordinator {
     /// This is the public state that indicates if there are currently animations running.
@@ -78,6 +80,13 @@ impl AnimationCoordinator {
         self.cycle_mut().mode = CycleMode::ApplyAnimations;
     }
 
+    /// `true` if the current cycle is an apply-animations cycle.
+    pub fn is_apply_animations_cycle(&self) -> bool {
+        self.cycle
+            .as_ref()
+            .is_some_and(|cycle| cycle.mode == CycleMode::ApplyAnimations)
+    }
+
     /// `true` if there are active animations right now.
     pub fn animations_active(&self) -> bool {
         self.animating
@@ -121,6 +130,16 @@ impl AnimationCoordinator {
     fn notify_ending_time(&mut self, ending_time: Instant) {
         self.ending_time = max(self.ending_time, ending_time);
         self.animating = true;
+    }
+}
+
+impl AnimationContext for AnimationCoordinator {
+    fn current_cycle_time(&self) -> Instant {
+        AnimationCoordinator::current_cycle_time(self)
+    }
+
+    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+        AnimationCoordinator::allocate_animation_time(self, duration)
     }
 }
 

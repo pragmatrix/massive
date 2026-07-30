@@ -146,14 +146,7 @@ impl InstanceContext {
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {
-        let event = self.events.recv().await?;
-
-        if matches!(event, InstanceEvent::ApplyAnimations) {
-            self.animation_coordinator
-                .upgrade_to_apply_animations_cycle();
-        }
-
-        Ok(event)
+        Ok(self.events.recv().await?)
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {

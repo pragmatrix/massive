@@ -1,17 +1,19 @@
 use std::any::Any;
+use std::cmp::max;
 use std::collections::HashMap;
 use std::fmt;
 use std::marker::PhantomData;
 use std::mem;
 use std::ptr;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
 use crate::AnimationContext;
 
 pub struct MovementRuntime {
-    movements: HashMap<MovementReference, Box<dyn ActiveMovement>>,
+    movements: HashMap<MovementReference, MountedMovement>,
     action_inbox: Arc<Mutex<Vec<MovementAction>>>,
     // Reused while draining the inbox so recurring actions retain their allocation capacity.
     actions: Vec<MovementAction>,
@@ -55,17 +57,23 @@ impl MovementRuntime {
     }
 
     #[must_use]
-    pub fn add<T, F>(&mut self, value: T, apply_animations: F) -> Movement<T>
+    pub fn mount<T, F>(&mut self, movement: T, apply_animations: F) -> Movement<T>
     where
         T: Any + Send + Sync,
         F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
     {
-        let active = Box::new(ActiveMovementValue {
+        let instance = Box::new(MovementInstance {
             apply_animations,
-            value,
+            value: movement,
         });
-        let reference = Movement::new(&active.value, self.action_inbox.clone());
-        self.movements.insert(reference.instance, active);
+        let reference = Movement::new(&instance.value, self.action_inbox.clone());
+        self.movements.insert(
+            reference.instance,
+            MountedMovement {
+                movement: instance,
+                ending_time: None,
+            },
+        );
 
         reference
     }
@@ -80,7 +88,11 @@ impl MovementRuntime {
                 }
                 MovementAction::Modify(pointer, apply) => {
                     if let Some(instance) = self.movements.get_mut(&pointer) {
-                        apply(instance.as_any_mut(), context);
+                        let mut intermediate = MovementAnimationContext {
+                            inner: context,
+                            ending_time: &mut instance.ending_time,
+                        };
+                        apply(instance.movement.as_any_mut(), &mut intermediate);
                     }
                 }
             }
@@ -88,8 +100,18 @@ impl MovementRuntime {
     }
 
     pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
+        let now = context.current_cycle_time();
         for movement in self.movements.values_mut() {
-            movement.apply_animations(context);
+            let Some(ending_time) = movement.ending_time else {
+                continue;
+            };
+
+            movement.movement.apply_animations(context);
+
+            // Keep applying through the first cycle at or past the movement end, then stop.
+            if now >= ending_time {
+                movement.ending_time = None;
+            }
         }
     }
 }
@@ -136,18 +158,23 @@ impl<T> Drop for Movement<T> {
     }
 }
 
-trait ActiveMovement: Any + Send + Sync {
+trait AnimatableMovement: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
     fn apply_animations(&mut self, context: &dyn AnimationContext);
 }
 
-struct ActiveMovementValue<T, F> {
+struct MountedMovement {
+    movement: Box<dyn AnimatableMovement>,
+    ending_time: Option<Instant>,
+}
+
+struct MovementInstance<T, F> {
     apply_animations: F,
     value: T,
 }
 
-impl<T, F> ActiveMovement for ActiveMovementValue<T, F>
+impl<T, F> AnimatableMovement for MovementInstance<T, F>
 where
     T: Any + Send + Sync,
     F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
@@ -158,6 +185,28 @@ where
 
     fn apply_animations(&mut self, context: &dyn AnimationContext) {
         (self.apply_animations)(&mut self.value, context);
+    }
+}
+
+/// Forwards animation allocations to the real context while tracking this movement's ending time.
+struct MovementAnimationContext<'a> {
+    inner: &'a mut dyn AnimationContext,
+    ending_time: &'a mut Option<Instant>,
+}
+
+impl AnimationContext for MovementAnimationContext<'_> {
+    fn current_cycle_time(&self) -> Instant {
+        self.inner.current_cycle_time()
+    }
+
+    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+        let start = self.inner.allocate_animation_time(duration);
+        let end = start + duration;
+        *self.ending_time = Some(match *self.ending_time {
+            Some(existing) => max(existing, end),
+            None => end,
+        });
+        start
     }
 }
 

@@ -59,6 +59,12 @@ impl<'scene, 'context> Frame<'scene, 'context> {
         animation: &'context mut AnimationCoordinator,
         movement: &'context mut MovementRuntime,
     ) -> Self {
+        // Apply-cycle upgrades go through Frame only; the coordinator must not already be one.
+        debug_assert!(
+            !animation.is_apply_animations_cycle(),
+            "animation cycle must not be an apply-animations cycle before Frame::new"
+        );
+
         animation.begin_cycle();
 
         Self {
@@ -72,6 +78,8 @@ impl<'scene, 'context> Frame<'scene, 'context> {
 
     pub fn upgrade_to_apply_animations_cycle(&mut self) {
         self.animation.upgrade_to_apply_animations_cycle();
+        // Apply before the rest of the cycle so subsequent systems can react to movement updates.
+        self.movement.apply_animations(self.animation);
     }
 
     /// The scene, borrowed for the frame's full lifetime.
@@ -87,7 +95,7 @@ impl<'scene, 'context> Frame<'scene, 'context> {
         T: Any + Send + Sync,
         F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
     {
-        self.movement.add(value, apply_animations)
+        self.movement.mount(value, apply_animations)
     }
 
     // Render all the current scene changes.
@@ -107,6 +115,11 @@ impl<'scene, 'context> Frame<'scene, 'context> {
 
     fn end_cycle(&mut self) -> RenderPacing {
         self.submitted = true;
+
+        // Event cycles drain queued movement actions. Apply cycles intentionally do not.
+        if !self.animation.is_apply_animations_cycle() {
+            self.movement.run_actions(self.animation);
+        }
 
         if self.animation.end_cycle() {
             RenderPacing::Smooth

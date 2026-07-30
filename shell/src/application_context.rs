@@ -131,15 +131,6 @@ impl ApplicationContext {
     pub async fn wait_for_event<T>(&mut self) -> Result<ApplicationEvent<T>> {
         let event = self.event_receiver.recv().await?;
 
-        if matches!(event, ShellEvent::ApplyAnimations(..)) {
-            self.animation_coordinator
-                .upgrade_to_apply_animations_cycle();
-
-            // We seem to need a frame here, perhaps move this to the client?
-            // self.movement_runtime
-            //     .apply_animations(&mut self.animation_coordinator);
-        }
-
         let application_event = match event {
             ShellEvent::WindowEvent(window_id, window_event) => {
                 ApplicationEvent::Window(window_id, window_event)
