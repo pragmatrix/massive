@@ -19,19 +19,6 @@ pub struct MovementRuntime {
     actions: Vec<MovementAction>,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-struct MovementReference(*const ());
-
-// This is an opaque identity only; movement values are never accessed through the pointer.
-unsafe impl Send for MovementReference {}
-unsafe impl Sync for MovementReference {}
-
-impl MovementReference {
-    fn new<T>(value: &T) -> Self {
-        Self(ptr::from_ref(value).cast())
-    }
-}
-
 impl fmt::Debug for MovementRuntime {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
@@ -56,24 +43,27 @@ impl MovementRuntime {
         }
     }
 
-    #[must_use]
-    pub fn mount<T, F, E, G>(
-        &mut self,
-        movement: T,
-        apply_animations: F,
-        completion_event: G,
-    ) -> Movement<T>
+    pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
     where
         T: Any + Send + Sync,
         F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
-        E: Any + Send,
-        G: FnMut() -> E + Send + Sync + 'static,
     {
-        let instance = Box::new(MovementInstance {
-            apply_animations,
-            completion_event,
-            value: movement,
-        });
+        MovementBuilder {
+            runtime: self,
+            instance: MovementInstance {
+                value,
+                apply_animations,
+                completion_event: None,
+            },
+        }
+    }
+
+    fn mount<T, F>(&mut self, instance: MovementInstance<T, F>) -> Movement<T>
+    where
+        T: Any + Send + Sync,
+        F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+    {
+        let instance = Box::new(instance);
         let reference = Movement::new(&instance.value, self.action_inbox.clone());
         self.movements.insert(
             reference.instance,
@@ -120,7 +110,9 @@ impl MovementRuntime {
             // Keep applying through the first cycle at or past the movement end, then stop.
             if now >= ending_time {
                 movement.ending_time = None;
-                events.push(movement.movement.completion_event());
+                if let Some(event) = movement.movement.completion_event() {
+                    events.push(event);
+                }
             }
         }
 
@@ -128,6 +120,34 @@ impl MovementRuntime {
     }
 }
 
+#[must_use]
+pub struct MovementBuilder<'a, T, F> {
+    runtime: &'a mut MovementRuntime,
+    instance: MovementInstance<T, F>,
+}
+
+impl<T, F> MovementBuilder<'_, T, F> {
+    pub fn completion_event<E, G>(mut self, mut completion_event: G) -> Self
+    where
+        E: Any + Send,
+        G: FnMut() -> E + Send + Sync + 'static,
+    {
+        self.instance.completion_event = Some(Box::new(move || Box::new(completion_event())));
+        self
+    }
+}
+
+impl<T, F> MovementBuilder<'_, T, F>
+where
+    T: Any + Send + Sync,
+    F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+{
+    pub fn mount(self) -> Movement<T> {
+        self.runtime.mount(self.instance)
+    }
+}
+
+#[must_use]
 #[derive(Debug)]
 pub struct Movement<T> {
     instance: MovementReference,
@@ -170,12 +190,25 @@ impl<T> Drop for Movement<T> {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+struct MovementReference(*const ());
+
+// This is an opaque identity only; movement values are never accessed through the pointer.
+unsafe impl Send for MovementReference {}
+unsafe impl Sync for MovementReference {}
+
+impl MovementReference {
+    fn new<T>(value: &T) -> Self {
+        Self(ptr::from_ref(value).cast())
+    }
+}
+
 trait AnimatableMovement: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
     fn apply_animations(&mut self, context: &dyn AnimationContext);
 
-    fn completion_event(&mut self) -> Box<dyn Any + Send>;
+    fn completion_event(&mut self) -> Option<Box<dyn Any + Send>>;
 }
 
 struct MountedMovement {
@@ -183,18 +216,16 @@ struct MountedMovement {
     ending_time: Option<Instant>,
 }
 
-struct MovementInstance<T, F, G> {
-    apply_animations: F,
-    completion_event: G,
+struct MovementInstance<T, F> {
     value: T,
+    apply_animations: F,
+    completion_event: Option<Box<dyn FnMut() -> Box<dyn Any + Send> + Send + Sync>>,
 }
 
-impl<T, F, E, G> AnimatableMovement for MovementInstance<T, F, G>
+impl<T, F> AnimatableMovement for MovementInstance<T, F>
 where
     T: Any + Send + Sync,
     F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
-    E: Any + Send,
-    G: FnMut() -> E + Send + Sync + 'static,
 {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
         &mut self.value
@@ -204,8 +235,10 @@ where
         (self.apply_animations)(&mut self.value, context);
     }
 
-    fn completion_event(&mut self) -> Box<dyn Any + Send> {
-        Box::new((self.completion_event)())
+    fn completion_event(&mut self) -> Option<Box<dyn Any + Send>> {
+        self.completion_event
+            .as_mut()
+            .map(|completion_event| Box::new(completion_event()) as Box<dyn Any + Send>)
     }
 }
 

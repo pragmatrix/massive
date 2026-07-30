@@ -200,9 +200,8 @@ impl Logs {
 
         let line_id = self.next_line_id;
         let fader: Animated<_> = 0.0.into();
-        let fader = frame.movement(
-            fader,
-            move |fader, context| {
+        let fader = frame
+            .movement(fader, move |fader, context| {
                 assert!(
                     fader.is_animating(),
                     "Internal error: animation state is not in sync with the context"
@@ -224,9 +223,9 @@ impl Logs {
                         .collect::<Vec<_>>()
                         .into()
                 });
-            },
-            move || LogEvent::FadeCompleted(line_id),
-        );
+            })
+            .completion_event(move || LogEvent::FadeCompleted(line_id))
+            .mount();
         fader.modify(|fader, context| {
             fader.animate(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
         });

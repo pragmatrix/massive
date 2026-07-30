@@ -12,7 +12,7 @@ use anyhow::Result;
 use derive_more::Deref;
 use log::error;
 
-use massive_animation::{AnimationContext, AnimationCoordinator, Movement, MovementRuntime};
+use massive_animation::{AnimationContext, AnimationCoordinator, MovementBuilder, MovementRuntime};
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::Scene;
 
@@ -82,20 +82,12 @@ impl<'scene, 'context> Frame<'scene, 'context> {
         self.scene
     }
 
-    pub fn movement<T, F, E, G>(
-        &mut self,
-        value: T,
-        apply_animations: F,
-        completion_event: G,
-    ) -> Movement<T>
+    pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
     where
         T: Any + Send + Sync,
         F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
-        E: Any + Send,
-        G: FnMut() -> E + Send + Sync + 'static,
     {
-        self.movement
-            .mount(value, apply_animations, completion_event)
+        self.movement.movement(value, apply_animations)
     }
 
     // Render all the current scene changes.
