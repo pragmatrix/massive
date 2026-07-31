@@ -213,6 +213,7 @@ impl Desktop {
                         )?;
                     }
 
+                    // This is completely weird here. We need a better solution for resize_redraw().
                     self.renderer.resize_redraw(&window_event)?;
                 }
                 DesktopEvent::Shell(ShellEvent::ApplyAnimations(_)) => {
@@ -279,6 +280,7 @@ fn submit_frame(
 ) -> Result<()> {
     let camera = *system.camera(&frame);
     let mut submission = frame.submission().render_submission().with_camera(camera);
+    // If any instance runs on smooth pacing, we need to, too.
     if system.effective_pacing() == RenderPacing::Smooth {
         submission = submission.with_pacing(RenderPacing::Smooth);
     }

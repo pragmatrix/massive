@@ -78,6 +78,11 @@ impl ApplicationContext {
         Scene::new(collector)
     }
 
+    /// The application movement runtime for mounting long-lived movements.
+    pub fn movement_runtime(&mut self) -> &mut MovementRuntime {
+        &mut self.movement_runtime
+    }
+
     /// Bundle a scene with the application's animation clock for one update cycle.
     pub fn frame<'scene, 'context>(
         &'context mut self,

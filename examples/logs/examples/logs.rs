@@ -19,7 +19,7 @@ use termwiz::escape;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent, WindowEvent};
 
-use massive_animation::{Animated, AnimationContext, Interpolation, Movement};
+use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_geometry::Vector3;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform};
 use massive_shapes::Shape;
@@ -81,7 +81,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
     let scene = ctx.new_scene();
-    let mut logs = Logs::new(&scene, fonts);
+    let mut logs = Logs::new(&scene, ctx.movement_runtime(), fonts);
 
     // Application
 
@@ -89,7 +89,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         // Resolve the wakeup first, so that the borrow of `ctx` ends before the frame is built.
         let wakeup = select! {
             Some(bytes) = receiver.recv() => Wakeup::Line(bytes),
-            Ok(events) = ctx.wait_for_events::<LogEvent>() => Wakeup::Events(events),
+            Ok(events) = ctx.wait_for_events() => Wakeup::Events(events),
         };
 
         let mut frame = ctx.frame(&scene);
@@ -97,24 +97,20 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         match wakeup {
             Wakeup::Line(bytes) => {
                 logs.add_line(&mut frame, &bytes);
-                logs.update_layout(&mut frame)?;
+                logs.update_layout()?;
             }
             Wakeup::Events(events) => {
                 for event in events {
                     match event {
                         ApplicationEvent::Window(_, window_event) => {
-                            if logs.handle_window_event(&mut frame, &window_event)
-                                == UpdateResponse::Exit
-                            {
+                            if logs.handle_window_event(&window_event) == UpdateResponse::Exit {
                                 return Ok(());
                             }
                             renderer.resize_redraw(&window_event)?;
                         }
-                        ApplicationEvent::ApplyAnimations(_) => {
-                            logs.apply_animations(&mut frame);
-                        }
+                        ApplicationEvent::ApplyAnimations(_) => {}
                         ApplicationEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
-                            logs.finish_fade_out(line_id, &mut frame);
+                            logs.finish_fade_out(line_id);
                         }
                     }
                 }
@@ -140,12 +136,8 @@ struct Logs {
 
     application: Application,
 
-    content_transform: Handle<Transform>,
-
-    content_width: u32,
-    content_height: Animated<f64>,
-    vertical_center: Animated<f64>,
-    vertical_center_transform: Handle<Transform>,
+    application_transform: Handle<Transform>,
+    layout: Movement<LayoutMovement>,
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
     next_line_top: f64,
@@ -153,34 +145,50 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(scene: &Scene, fonts: FontManager) -> Self {
+    fn new(scene: &Scene, movement: &mut MovementRuntime, fonts: FontManager) -> Self {
         let content_width = 1280;
         let application = Application::default();
-        let current_transform = application.get_transform((content_width, content_width));
-        let content_transform = current_transform.enter(scene);
-        let content_location = content_transform.to_location().enter(scene);
 
-        let vertical_center = 0.0.into();
+        let application_transform = application.get_transform((0, 0)).enter(scene);
+        let application_location = application_transform.to_location().enter(scene);
 
-        // We move up the lines by their top position.
+        // Keep interaction transforms separate so the movement owns only animated centering.
+        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).enter(scene);
+        let content_location = content_transform
+            .to_location()
+            .relative_to(&application_location)
+            .enter(scene);
+
         let vertical_center_transform = Transform::IDENTITY.enter(scene);
-
-        // Final position for all lines (runs are y-translated, but only increasing).
         let location = vertical_center_transform
             .to_location()
             .relative_to(&content_location)
             .enter(scene);
 
-        let content_height = 0.0.into();
+        let layout = movement
+            .movement(
+                LayoutMovement {
+                    content_height: 0.0.into(),
+                    vertical_center: 0.0.into(),
+                },
+                move |layout, context| {
+                    let content_height = *layout.content_height.value(context);
+                    content_transform.update_if_changed(Transform::from_xy(
+                        -(content_width as f64) / 2.,
+                        -content_height / 2.,
+                    ));
+
+                    let vertical_center = *layout.vertical_center.value(context);
+                    vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
+                },
+            )
+            .mount();
 
         Self {
             fonts,
             application,
-            content_transform,
-            content_width,
-            content_height,
-            vertical_center,
-            vertical_center_transform,
+            application_transform,
+            layout,
             location,
             lines: VecDeque::new(),
             next_line_top: 0.,
@@ -240,7 +248,7 @@ impl Logs {
         self.next_line_id += 1;
     }
 
-    fn update_layout(&mut self, context: &mut dyn AnimationContext) -> Result<()> {
+    fn update_layout(&mut self) -> Result<()> {
         // See if some lines need to be faded out.
 
         {
@@ -258,42 +266,40 @@ impl Logs {
 
         // Update page size.
 
-        self.update_vertical_alignment(context);
+        self.update_vertical_alignment();
 
         Ok(())
     }
 
-    fn update_vertical_alignment(&mut self, context: &mut dyn AnimationContext) {
+    fn update_vertical_alignment(&mut self) {
         let top_line = self
             .lines
             .iter()
             .find(|l| !l.is_fading())
             .unwrap_or(self.lines.front().unwrap());
-
-        self.vertical_center.animate(
-            context,
-            -top_line.top,
-            VERTICAL_ALIGNMENT_DURATION,
-            Interpolation::CubicOut,
-        );
+        let top_line_top = top_line.top;
 
         let new_height = self.lines.len().min(MAX_LINES) as u32 * LINE_HEIGHT;
         // Final value should always a multiple of two so that we snap on the pixels when centering.
         // While a size animation runs, it's fine that we don't.
         assert!(new_height.is_multiple_of(2));
-        self.content_height.animate(
-            context,
-            new_height as f64,
-            VERTICAL_ALIGNMENT_DURATION,
-            Interpolation::CubicOut,
-        );
+        self.layout.modify(move |layout, context| {
+            layout.vertical_center.animate(
+                context,
+                -top_line_top,
+                VERTICAL_ALIGNMENT_DURATION,
+                Interpolation::CubicOut,
+            );
+            layout.content_height.animate(
+                context,
+                new_height as f64,
+                VERTICAL_ALIGNMENT_DURATION,
+                Interpolation::CubicOut,
+            );
+        });
     }
 
-    fn handle_window_event(
-        &mut self,
-        context: &mut impl AnimationContext,
-        window_event: &WindowEvent,
-    ) -> UpdateResponse {
+    fn handle_window_event(&mut self, window_event: &WindowEvent) -> UpdateResponse {
         if let WindowEvent::KeyboardInput {
             event:
                 KeyEvent {
@@ -314,20 +320,12 @@ impl Logs {
             UpdateResponse::Continue => {}
         }
 
-        self.update_content_transform(context);
+        self.update_application_transform();
 
         UpdateResponse::Continue
     }
 
-    fn apply_animations(&mut self, context: &mut impl AnimationContext) {
-        let v_center = *self.vertical_center.value(context);
-        self.vertical_center_transform
-            .update((0., v_center, 0.).into());
-
-        self.update_content_transform(context);
-    }
-
-    fn finish_fade_out(&mut self, line_id: usize, context: &mut impl AnimationContext) {
+    fn finish_fade_out(&mut self, line_id: usize) {
         let Some(position) = self
             .lines
             .iter()
@@ -339,17 +337,20 @@ impl Logs {
         self.lines.remove(position);
         debug!("faded out");
 
-        self.update_vertical_alignment(context);
-        self.update_content_transform(context);
+        // Fading lines remain in layout until removal, then start a successor transition.
+        self.update_vertical_alignment();
     }
 
-    fn update_content_transform(&mut self, context: &impl AnimationContext) {
-        let content_height = *self.content_height.value(context);
-        let new_transform = self
-            .application
-            .get_transform((self.content_width, content_height as u32));
-        self.content_transform.update_if_changed(new_transform);
+    fn update_application_transform(&mut self) {
+        self.application_transform
+            .update_if_changed(self.application.get_transform((0, 0)));
     }
+}
+
+#[derive(Debug)]
+struct LayoutMovement {
+    content_height: Animated<f64>,
+    vertical_center: Animated<f64>,
 }
 
 const LINE_HEIGHT: u32 = 40;

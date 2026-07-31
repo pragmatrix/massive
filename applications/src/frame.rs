@@ -108,10 +108,9 @@ impl<'scene, 'context> Frame<'scene, 'context> {
     fn end_cycle(&mut self) -> RenderPacing {
         self.submitted = true;
 
-        // Event cycles drain queued movement actions. Apply cycles intentionally do not.
-        if !self.animation.is_apply_animations_cycle() {
-            self.movement.run_actions(self.animation);
-        }
+        // Completion events arrive during apply-animation cycles and may queue successor actions.
+        // Drain them now so they do not wait for unrelated input.
+        self.movement.run_actions(self.animation);
 
         if self.animation.end_cycle() {
             RenderPacing::Smooth
