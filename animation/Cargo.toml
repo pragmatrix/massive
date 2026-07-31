@@ -7,6 +7,7 @@ edition = "2021"
 # For implementing Interpolatable on geometry types.
 massive-geometry.workspace = true
 derive_more.workspace = true
+parking_lot.workspace = true
 
 log.workspace = true
 

@@ -1,13 +1,12 @@
 use std::collections::HashMap;
 
 use massive_geometry::{Quaternion, SizePx, Transform, Vector3, VectorPx};
-use winit::{
-    event::{
-        DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
-        WindowEvent,
-    },
-    keyboard::{Key, NamedKey},
+
+use winit::event::{
+    DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
+    WindowEvent,
 };
+use winit::keyboard::{Key, NamedKey};
 
 enum ActiveGesture {
     Movement(MovementGesture),

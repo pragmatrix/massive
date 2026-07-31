@@ -1,15 +1,12 @@
 use std::time::Duration;
 
-use crate::{AnimationCoordinator, BlendedAnimation, Interpolatable, Interpolation};
+use crate::time::Instant;
+use crate::{BlendedAnimation, Interpolatable, Interpolation};
 
 pub trait AnimationContext {
-    fn animation_coordinator(&mut self) -> &mut AnimationCoordinator;
-}
+    fn current_cycle_time(&self) -> Instant;
 
-impl AnimationContext for AnimationCoordinator {
-    fn animation_coordinator(&mut self) -> &mut AnimationCoordinator {
-        self
-    }
+    fn allocate_animation_time(&mut self, duration: Duration) -> Instant;
 }
 
 #[derive(Debug)]
@@ -39,7 +36,7 @@ impl<T: Send + Interpolatable> Animated<T> {
 
     pub fn animate_if_changed(
         &mut self,
-        context: &mut impl AnimationContext,
+        context: &mut dyn AnimationContext,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
@@ -55,16 +52,14 @@ impl<T: Send + Interpolatable> Animated<T> {
 
     pub fn animate(
         &mut self,
-        context: &mut impl AnimationContext,
+        context: &mut dyn AnimationContext,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
     ) where
         T: 'static,
     {
-        let instant = context
-            .animation_coordinator()
-            .allocate_animation_time(duration);
+        let instant = context.allocate_animation_time(duration);
         let value = self.value.clone();
         self.animation
             .animate_to(value, instant, target_value, duration, interpolation);
@@ -89,14 +84,14 @@ impl<T: Send + Interpolatable> Animated<T> {
         self.animation.target().unwrap_or(&self.value)
     }
 
-    pub fn value(&mut self, context: &mut impl AnimationContext) -> &T {
+    pub fn value(&mut self, context: &dyn AnimationContext) -> &T {
         self.progress(context);
         self.latest()
     }
 
-    fn progress(&mut self, context: &mut impl AnimationContext) {
+    fn progress(&mut self, context: &dyn AnimationContext) {
         if self.animation.is_active() {
-            let instant = context.animation_coordinator().current_cycle_time();
+            let instant = context.current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {
                 self.value = new_value;
             }

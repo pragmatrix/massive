@@ -1,18 +1,22 @@
-use std::{future::Future, mem, sync::Arc};
+use std::future::Future;
+use std::mem;
+use std::sync::Arc;
 
-use anyhow::{Result, anyhow, bail};
+use anyhow::Result;
+use anyhow::{anyhow, bail};
 use log::{debug, error, info, warn};
-use massive_util::CoalescingKey;
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use wgpu::{Surface, SurfaceTarget};
-use winit::{
-    application::ApplicationHandler,
-    event::{DeviceId, WindowEvent},
-    event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy},
-    window::{Window, WindowAttributes, WindowId},
-};
 
-use crate::{ApplicationContext, ShellWindow, shell_window::ShellWindowShared};
+use wgpu::{Surface, SurfaceTarget};
+use winit::application::ApplicationHandler;
+use winit::event::{DeviceId, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy};
+use winit::window::{Window, WindowAttributes, WindowId};
+
+use massive_util::CoalescingKey;
+
+use crate::shell_window::ShellWindowShared;
+use crate::{ApplicationContext, ShellWindow};
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
 
@@ -115,7 +119,7 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
 #[derive(Debug, Clone)]
 pub enum ShellEvent {
     // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
-    // as a event pathway from the WinitApplicationHandler anymore.
+    // as an event pathway from the `WinitApplicationHandler` anymore.
     WindowEvent(WindowId, WindowEvent),
     ApplyAnimations(WindowId),
 }
@@ -211,7 +215,7 @@ enum WinitApplicationHandler {
     Initializing {
         proxy: EventLoopProxy<ShellCommand>,
         // ADR: Option because we need to move it out.
-        // Robustness: use a replace_with variant, so that we don't need an Option<Box<..>> here.
+        // Robustness: use a replace_with variant, so that we don't need an `Option<Box<..>>` here.
         spawner: Option<ApplicationSpawner>,
     },
     Running {

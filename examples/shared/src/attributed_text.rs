@@ -1,10 +1,12 @@
 use std::ops::Range;
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
-use massive_geometry::{Color, Vector3};
-use massive_shapes::{GlyphRun, TextWeight};
 use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
+
+use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
+
+use massive_geometry::{Color, Vector3};
+use massive_shapes::{GlyphRun, TextWeight};
 
 use crate::positioning;
 

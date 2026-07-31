@@ -6,7 +6,8 @@ use massive_scene::{At, Object, ToLocation};
 use massive_shapes::{
     BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };
-use massive_shell::{ApplicationContext, shell};
+use massive_shell::ApplicationContext;
+use massive_shell::shell;
 
 use shared::application::{Application, UpdateResponse};
 

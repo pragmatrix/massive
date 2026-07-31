@@ -1,20 +1,30 @@
+use std::any::Any;
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
 use tokio::sync::oneshot;
+
 use winit::dpi::PhysicalSize;
+use winit::event::WindowEvent;
 use winit::event_loop::EventLoopProxy;
-use winit::window::WindowAttributes;
+use winit::window::{WindowAttributes, WindowId};
 
-use crate::shell::ShellCommand;
-use crate::{Scene, ShellEvent, ShellWindow};
-
-use massive_animation::AnimationCoordinator;
+use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::Frame;
 use massive_geometry::SizePx;
 use massive_scene::ChangeCollector;
 use massive_util::CoalescingReceiver;
+
+use crate::shell::ShellCommand;
+use crate::{Scene, ShellEvent, ShellWindow};
+
+#[derive(Debug)]
+pub enum ApplicationEvent<T> {
+    Window(WindowId, WindowEvent),
+    Custom(T),
+    ApplyAnimations(WindowId),
+}
 
 /// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
 /// new windows and to wait for events while also forwarding scene changes to the renderer.
@@ -34,6 +44,7 @@ pub struct ApplicationContext {
     monitor_scale_factor: f64,
 
     animation_coordinator: AnimationCoordinator,
+    movement_runtime: MovementRuntime,
 }
 
 impl ApplicationContext {
@@ -49,6 +60,7 @@ impl ApplicationContext {
             event_loop_proxy,
             monitor_scale_factor,
             animation_coordinator: AnimationCoordinator::new(),
+            movement_runtime: MovementRuntime::default(),
         }
     }
 
@@ -66,9 +78,21 @@ impl ApplicationContext {
         Scene::new(collector)
     }
 
+    /// The application movement runtime for mounting long-lived movements.
+    pub fn movement_runtime(&mut self) -> &mut MovementRuntime {
+        &mut self.movement_runtime
+    }
+
     /// Bundle a scene with the application's animation clock for one update cycle.
-    pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
-        Frame::new(scene, &mut self.animation_coordinator)
+    pub fn frame<'scene, 'context>(
+        &'context mut self,
+        scene: &'scene Scene,
+    ) -> Frame<'scene, 'context> {
+        Frame::new(
+            scene,
+            &mut self.animation_coordinator,
+            &mut self.movement_runtime,
+        )
     }
 
     /// Creates a new window.
@@ -103,13 +127,44 @@ impl ApplicationContext {
     /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
     /// [`ShellEvent::ApplyAnimations`] can be produced.
     pub async fn wait_for_shell_event(&mut self) -> Result<ShellEvent> {
-        let event = self.event_receiver.recv().await?;
+        self.event_receiver.recv().await
+    }
 
-        if matches!(event, ShellEvent::ApplyAnimations(..)) {
-            self.animation_coordinator
-                .upgrade_to_apply_animations_cycle();
+    /// Wait for multiple application events treating custom events of type `T`. If custom events
+    /// are received that are not of type `T`, this results in an error.
+    ///
+    /// Right now, custom events may be produced by the [`MovementRuntime`].
+    pub async fn wait_for_events<T: Any>(&mut self) -> Result<Vec<ApplicationEvent<T>>> {
+        let events = self.event_receiver.recv_all().await?;
+
+        let mut application_events = Vec::with_capacity(events.len());
+        for event in events {
+            match event {
+                ShellEvent::WindowEvent(window_id, window_event) => {
+                    application_events.push(ApplicationEvent::Window(window_id, window_event));
+                }
+                ShellEvent::ApplyAnimations(window_id) => {
+                    self.animation_coordinator
+                        .upgrade_to_apply_animations_cycle();
+                    let completion_events = self
+                        .movement_runtime
+                        .apply_animations(&self.animation_coordinator);
+                    application_events.push(ApplicationEvent::ApplyAnimations(window_id));
+                    application_events.extend(
+                        completion_events
+                            .into_iter()
+                            .map(|event| {
+                                let event = event.downcast::<T>().map_err(|_| {
+                                    anyhow!("movement completion event has the wrong type")
+                                })?;
+                                Ok(ApplicationEvent::Custom(*event))
+                            })
+                            .collect::<Result<Vec<_>>>()?,
+                    );
+                }
+            }
         }
 
-        Ok(event)
+        Ok(application_events)
     }
 }

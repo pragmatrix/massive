@@ -33,6 +33,8 @@
 use std::cmp::max;
 use std::time::{Duration, Instant};
 
+use crate::AnimationContext;
+
 #[derive(Debug)]
 pub struct AnimationCoordinator {
     /// This is the public state that indicates if there are currently animations running.
@@ -60,6 +62,12 @@ impl AnimationCoordinator {
         }
     }
 
+    /// Start the current event processing cycle, if it has not started yet.
+    pub fn begin_cycle(&mut self) {
+        self.cycle
+            .get_or_insert_with(|| AnimationCycle::implicit(Instant::now()));
+    }
+
     /// Upgrade the current cycle to an apply animations cycle.
     ///
     /// If the cycle has not been started yet, it's started now.
@@ -68,8 +76,15 @@ impl AnimationCoordinator {
     /// least one `ApplyAnimations` is running at a time > the ending time of all animations to
     /// guarantee that all the computed values represent their final values.
     pub fn upgrade_to_apply_animations_cycle(&mut self) {
-        // Be sure there is a current cycle.
-        self.current_cycle().mode = CycleMode::ApplyAnimations;
+        self.begin_cycle();
+        self.cycle_mut().mode = CycleMode::ApplyAnimations;
+    }
+
+    /// `true` if the current cycle is an apply-animations cycle.
+    pub fn is_apply_animations_cycle(&self) -> bool {
+        self.cycle
+            .as_ref()
+            .is_some_and(|cycle| cycle.mode == CycleMode::ApplyAnimations)
     }
 
     /// `true` if there are active animations right now.
@@ -89,29 +104,42 @@ impl AnimationCoordinator {
     }
 
     /// Returns the current cycle starting time that should be used for animated values.
-    ///
-    /// If not set, the now is set and the cycle mode is set to "implicit".
-    pub(crate) fn current_cycle_time(&mut self) -> Instant {
-        self.current_cycle().start_time
+    pub fn current_cycle_time(&self) -> Instant {
+        self.cycle().start_time
     }
 
     /// Allocate an animation range for the given duration and return its starting time.
-    ///
-    /// If not in a cycle, this starts a cycle at the current time and sets `animating` to `true`.
-    pub(crate) fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
-        let current = self.current_cycle().start_time;
+    pub fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+        let current = self.cycle().start_time;
         self.notify_ending_time(current + duration);
         current
     }
 
-    fn current_cycle(&mut self) -> &mut AnimationCycle {
+    fn cycle(&self) -> &AnimationCycle {
         self.cycle
-            .get_or_insert_with(|| AnimationCycle::implicit(Instant::now()))
+            .as_ref()
+            .expect("animation cycle must be started before it is used")
+    }
+
+    fn cycle_mut(&mut self) -> &mut AnimationCycle {
+        self.cycle
+            .as_mut()
+            .expect("animation cycle must be started before it is used")
     }
 
     fn notify_ending_time(&mut self, ending_time: Instant) {
         self.ending_time = max(self.ending_time, ending_time);
         self.animating = true;
+    }
+}
+
+impl AnimationContext for AnimationCoordinator {
+    fn current_cycle_time(&self) -> Instant {
+        AnimationCoordinator::current_cycle_time(self)
+    }
+
+    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+        AnimationCoordinator::allocate_animation_time(self, duration)
     }
 }
 

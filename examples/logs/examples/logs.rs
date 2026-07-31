@@ -1,35 +1,34 @@
-use std::{collections::VecDeque, io, time::Duration};
+use std::collections::VecDeque;
+use std::io;
+use std::time::Duration;
 
 use anyhow::Result;
-use cosmic_text::FontSystem;
 use log::{debug, warn};
-use logs::terminal::{self, color_schemes};
+use logs::terminal;
+use logs::terminal::color_schemes;
+use tokio::select;
+use tokio::sync::mpsc::{self, UnboundedReceiver};
+use tracing_subscriber::filter;
+use tracing_subscriber::fmt;
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Layer};
+
+use cosmic_text::FontSystem;
 use termwiz::escape;
-use tokio::{
-    select,
-    sync::mpsc::{self, UnboundedReceiver},
-};
-use tracing_subscriber::{
-    EnvFilter, Layer, filter, fmt, layer::SubscriberExt, util::SubscriberInitExt,
-};
-use winit::{
-    dpi::LogicalSize,
-    event::{ElementState, KeyEvent, WindowEvent},
-};
+use winit::dpi::LogicalSize;
+use winit::event::{ElementState, KeyEvent, WindowEvent};
 
-use massive_animation::{Animated, AnimationContext, Interpolation};
+use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_geometry::Vector3;
-use massive_scene::{At, Handle, Location, Object, ToLocation, Transform, Visual};
+use massive_scene::{At, Handle, Location, Object, ToLocation, Transform};
 use massive_shapes::Shape;
-use massive_shell::{
-    ApplicationContext, FontManager, Frame, Scene, ShellWindow,
-    shell::{self, ShellEvent},
-};
+use massive_shell::application_context::ApplicationEvent;
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
-use shared::{
-    application::{Application, UpdateResponse},
-    attributed_text,
-};
+use shared::application::{Application, UpdateResponse};
+use shared::attributed_text;
 
 const FADE_DURATION: Duration = Duration::from_millis(400);
 const VERTICAL_ALIGNMENT_DURATION: Duration = Duration::from_millis(400);
@@ -82,7 +81,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
     let scene = ctx.new_scene();
-    let mut logs = Logs::new(&scene, fonts);
+    let mut logs = Logs::new(&scene, ctx.movement_runtime(), fonts);
 
     // Application
 
@@ -90,7 +89,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         // Resolve the wakeup first, so that the borrow of `ctx` ends before the frame is built.
         let wakeup = select! {
             Some(bytes) = receiver.recv() => Wakeup::Line(bytes),
-            Ok(event) = ctx.wait_for_shell_event() => Wakeup::Shell(event),
+            events = ctx.wait_for_events() => Wakeup::Events(events?),
         };
 
         let mut frame = ctx.frame(&scene);
@@ -98,13 +97,23 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         match wakeup {
             Wakeup::Line(bytes) => {
                 logs.add_line(&mut frame, &bytes);
-                logs.update_layout(&mut frame)?;
+                logs.update_layout()?;
             }
-            Wakeup::Shell(event) => {
-                if logs.handle_shell_event(&mut frame, &event, &window) == UpdateResponse::Exit {
-                    return Ok(());
+            Wakeup::Events(events) => {
+                for event in events {
+                    match event {
+                        ApplicationEvent::Window(_, window_event) => {
+                            if logs.handle_window_event(&window_event) == UpdateResponse::Exit {
+                                return Ok(());
+                            }
+                            renderer.resize_redraw(&window_event)?;
+                        }
+                        ApplicationEvent::ApplyAnimations(_) => {}
+                        ApplicationEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
+                            logs.finish_fade_out(line_id);
+                        }
+                    }
                 }
-                renderer.resize_redraw(&event)?;
             }
         }
 
@@ -114,7 +123,12 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
 enum Wakeup {
     Line(Vec<u8>),
-    Shell(ShellEvent),
+    Events(Vec<ApplicationEvent<LogEvent>>),
+}
+
+#[derive(Debug)]
+enum LogEvent {
+    FadeCompleted(usize),
 }
 
 struct Logs {
@@ -122,49 +136,63 @@ struct Logs {
 
     application: Application,
 
-    content_transform: Handle<Transform>,
-
-    content_width: u32,
-    content_height: Animated<f64>,
-    vertical_center: Animated<f64>,
-    vertical_center_transform: Handle<Transform>,
+    application_transform: Handle<Transform>,
+    layout: Movement<LayoutMovement>,
     location: Handle<Location>,
     lines: VecDeque<LogLine>,
     next_line_top: f64,
+    next_line_id: usize,
 }
 
 impl Logs {
-    fn new(scene: &Scene, fonts: FontManager) -> Self {
+    fn new(scene: &Scene, movement: &mut MovementRuntime, fonts: FontManager) -> Self {
         let content_width = 1280;
         let application = Application::default();
-        let current_transform = application.get_transform((content_width, content_width));
-        let content_transform = current_transform.enter(scene);
-        let content_location = content_transform.to_location().enter(scene);
 
-        let vertical_center = 0.0.into();
+        let application_transform = application.get_transform((0, 0)).enter(scene);
+        let application_location = application_transform.to_location().enter(scene);
 
-        // We move up the lines by their top position.
+        // Keep interaction transforms separate so the movement owns only animated centering.
+        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).enter(scene);
+        let content_location = content_transform
+            .to_location()
+            .relative_to(&application_location)
+            .enter(scene);
+
         let vertical_center_transform = Transform::IDENTITY.enter(scene);
-
-        // Final position for all lines (runs are y-translated, but only increasing).
         let location = vertical_center_transform
             .to_location()
             .relative_to(&content_location)
             .enter(scene);
 
-        let content_height = 0.0.into();
+        let layout = movement
+            .movement(
+                LayoutMovement {
+                    content_height: 0.0.into(),
+                    vertical_center: 0.0.into(),
+                },
+                move |layout, context| {
+                    let content_height = *layout.content_height.value(context);
+                    content_transform.update_if_changed(Transform::from_xy(
+                        -(content_width as f64) / 2.,
+                        -content_height / 2.,
+                    ));
+
+                    let vertical_center = *layout.vertical_center.value(context);
+                    vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
+                },
+            )
+            .mount();
 
         Self {
             fonts,
             application,
-            content_transform,
-            content_width,
-            content_height,
-            vertical_center,
-            vertical_center_transform,
+            application_transform,
+            layout,
             location,
             lines: VecDeque::new(),
             next_line_top: 0.,
+            next_line_id: 0,
         }
     }
 
@@ -176,22 +204,54 @@ impl Logs {
 
         let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
-        let line = glyph_runs.at(&self.location).enter(frame.scene());
+        let line = glyph_runs
+            .at(&self.location)
+            .with_decal_order(0)
+            .enter(frame.scene());
 
-        let mut fader: Animated<_> = 0.0.into();
-        fader.animate(frame, 1.0, FADE_DURATION, Interpolation::CubicOut);
-
+        let line_id = self.next_line_id;
+        let fader: Animated<_> = 0.0.into();
+        let fader = frame
+            .movement(fader, move |fader, context| {
+                assert!(
+                    fader.is_animating(),
+                    "Internal error: animation state is not in sync with the context"
+                );
+                let fading = *fader.value(context);
+                line.update_with(|visual| {
+                    visual.shapes = visual
+                        .shapes
+                        .iter()
+                        .cloned()
+                        .map(|mut shape| {
+                            if let Shape::GlyphRun(ref mut glyph_run) = shape {
+                                glyph_run.text_color.alpha = fading as f32;
+                                glyph_run.translation.z =
+                                    (1.0 - fading) * -LogLine::FADE_TRANSLATION;
+                            }
+                            shape
+                        })
+                        .collect::<Vec<_>>()
+                        .into()
+                });
+            })
+            .completion_event(move || LogEvent::FadeCompleted(line_id))
+            .mount();
+        fader.modify(|fader, context| {
+            fader.animate(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
+        });
         self.lines.push_back(LogLine {
+            id: line_id,
             top: self.next_line_top,
             fader,
-            visual: line,
             fading_out: false,
         });
 
         self.next_line_top += height;
+        self.next_line_id += 1;
     }
 
-    fn update_layout(&mut self, context: &mut impl AnimationContext) -> Result<()> {
+    fn update_layout(&mut self) -> Result<()> {
         // See if some lines need to be faded out.
 
         {
@@ -199,8 +259,9 @@ impl Logs {
 
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
-                    line.fader
-                        .animate(context, 0., FADE_DURATION, Interpolation::CubicIn);
+                    line.fader.modify(|fader, context| {
+                        fader.animate(context, 0., FADE_DURATION, Interpolation::CubicIn);
+                    });
                     line.fading_out = true;
                 }
             }
@@ -208,112 +269,87 @@ impl Logs {
 
         // Update page size.
 
-        self.update_vertical_alignment(context);
+        self.update_vertical_alignment();
 
         Ok(())
     }
 
-    fn update_vertical_alignment(&mut self, context: &mut impl AnimationContext) {
+    fn handle_window_event(&mut self, window_event: &WindowEvent) -> UpdateResponse {
+        if let WindowEvent::KeyboardInput {
+            event:
+                KeyEvent {
+                    state: ElementState::Pressed,
+                    ..
+                },
+            ..
+        } = window_event
+        {
+            // Warning levels gets captured and forwarded to the application itself.
+            warn!("{window_event:?}");
+        }
+
+        match self.application.update(window_event) {
+            UpdateResponse::Exit => {
+                return UpdateResponse::Exit;
+            }
+            UpdateResponse::Continue => {}
+        }
+
+        self.application_transform
+            .update_if_changed(self.application.get_transform((0, 0)));
+
+        UpdateResponse::Continue
+    }
+
+    fn finish_fade_out(&mut self, line_id: usize) {
+        let Some(position) = self
+            .lines
+            .iter()
+            .position(|line| line.id == line_id && line.fading_out)
+        else {
+            return;
+        };
+
+        self.lines.remove(position);
+        debug!("faded out");
+
+        // Fading lines remain in layout until removal, then start a successor transition.
+        self.update_vertical_alignment();
+    }
+
+    fn update_vertical_alignment(&mut self) {
         let top_line = self
             .lines
             .iter()
             .find(|l| !l.is_fading())
             .unwrap_or(self.lines.front().unwrap());
-
-        self.vertical_center.animate(
-            context,
-            -top_line.top,
-            VERTICAL_ALIGNMENT_DURATION,
-            Interpolation::CubicOut,
-        );
+        let top_line_top = top_line.top;
 
         let new_height = self.lines.len().min(MAX_LINES) as u32 * LINE_HEIGHT;
         // Final value should always a multiple of two so that we snap on the pixels when centering.
         // While a size animation runs, it's fine that we don't.
         assert!(new_height.is_multiple_of(2));
-        self.content_height.animate(
-            context,
-            new_height as f64,
-            VERTICAL_ALIGNMENT_DURATION,
-            Interpolation::CubicOut,
-        );
+        self.layout.modify(move |layout, context| {
+            layout.vertical_center.animate(
+                context,
+                -top_line_top,
+                VERTICAL_ALIGNMENT_DURATION,
+                Interpolation::CubicOut,
+            );
+            layout.content_height.animate(
+                context,
+                new_height as f64,
+                VERTICAL_ALIGNMENT_DURATION,
+                Interpolation::CubicOut,
+            );
+        });
     }
+}
 
-    fn handle_shell_event(
-        &mut self,
-        context: &mut impl AnimationContext,
-        shell_event: &ShellEvent,
-        window: &ShellWindow,
-    ) -> UpdateResponse {
-        if shell_event.apply_animations() {
-            self.apply_animations(context);
-            return UpdateResponse::Continue;
-        }
-
-        if let Some(window_event) = shell_event.window_event_for(window) {
-            if let WindowEvent::KeyboardInput {
-                event:
-                    KeyEvent {
-                        state: ElementState::Pressed,
-                        ..
-                    },
-                ..
-            } = window_event
-            {
-                // Warning levels gets captured and forwarded to the application itself.
-                warn!("{window_event:?}");
-            }
-
-            match self.application.update(window_event) {
-                UpdateResponse::Exit => {
-                    return UpdateResponse::Exit;
-                }
-                UpdateResponse::Continue => {}
-            }
-
-            self.update_content_transform(context);
-        }
-
-        UpdateResponse::Continue
-    }
-
-    fn apply_animations(&mut self, context: &mut impl AnimationContext) {
-        let v_center = *self.vertical_center.value(context);
-        self.vertical_center_transform
-            .update((0., v_center, 0.).into());
-
-        // Remove all lines that finished fading out from top to bottom.
-
-        let mut update_v_alignment = false;
-
-        while let Some(line) = self.lines.front() {
-            if line.fading_out && !line.fader.is_animating() {
-                debug!("faded out at: {}", line.fader.latest());
-                self.lines.pop_front();
-                update_v_alignment = true;
-            } else {
-                break;
-            }
-        }
-
-        if update_v_alignment {
-            self.update_vertical_alignment(context);
-        }
-
-        self.update_content_transform(context);
-
-        for line in &mut self.lines {
-            line.apply_animations(context);
-        }
-    }
-
-    fn update_content_transform(&mut self, context: &mut impl AnimationContext) {
-        let content_height = *self.content_height.value(context);
-        let new_transform = self
-            .application
-            .get_transform((self.content_width, content_height as u32));
-        self.content_transform.update_if_changed(new_transform);
-    }
+#[derive(Debug)]
+struct LayoutMovement {
+    content_height: Animated<f64>,
+    vertical_center: Animated<f64>,
 }
 
 const LINE_HEIGHT: u32 = 40;
@@ -323,11 +359,11 @@ fn shape_log_line(
     y: f64,
     font_system: &mut FontSystem,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
-    // OO: Share Parser between runs.
+    // Optimization: Share Parser between runs.
     let mut parser = escape::parser::Parser::new();
     let parsed = parser.parse_as_vec(bytes);
 
-    // OO: Share Processor between runs.
+    // Optimization: Share Processor between runs.
     let mut processor = terminal::TextAttributor::new(color_schemes::light::PAPER);
     for action in parsed {
         processor.process(action)
@@ -349,9 +385,9 @@ fn shape_log_line(
 }
 
 struct LogLine {
+    id: usize,
     top: f64,
-    visual: Handle<Visual>,
-    fader: Animated<f64>,
+    fader: Movement<Animated<f64>>,
     fading_out: bool,
 }
 
@@ -359,30 +395,6 @@ impl LogLine {
     const FADE_TRANSLATION: f64 = 256.0;
 
     pub fn is_fading(&self) -> bool {
-        self.fader.is_animating()
-    }
-
-    pub fn apply_animations(&mut self, context: &mut impl AnimationContext) {
-        if !self.fader.is_animating() {
-            return;
-        }
-
-        let fading = *self.fader.value(context);
-
-        self.visual.update_with(|v| {
-            v.shapes = v
-                .shapes
-                .iter()
-                .cloned()
-                .map(|mut shape| {
-                    if let Shape::GlyphRun(ref mut glyph_run) = shape {
-                        glyph_run.text_color.alpha = fading as f32;
-                        glyph_run.translation.z = (1.0 - fading) * -Self::FADE_TRANSLATION;
-                    }
-                    shape
-                })
-                .collect::<Vec<_>>()
-                .into()
-        });
+        self.fading_out
     }
 }

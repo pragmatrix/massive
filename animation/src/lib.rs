@@ -1,15 +1,17 @@
 mod animated;
+mod animation_coordinator;
 mod blended_animation;
-mod coordinator;
 mod interpolatable;
 mod interpolation;
+mod movement_runtime;
 mod time_scale;
 
 pub use animated::*;
+pub use animation_coordinator::*;
 pub use blended_animation::*;
-pub use coordinator::*;
 pub use interpolatable::*;
 pub use interpolation::*;
+pub use movement_runtime::*;
 pub use time_scale::*;
 
 mod time {

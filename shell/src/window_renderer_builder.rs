@@ -6,7 +6,8 @@ use log::debug;
 use massive_geometry::{Color, PixelCamera, SizePx};
 use massive_renderer::{FontManager, RenderDevice, RenderGeometry, RendererBuilder};
 
-use crate::{AsyncWindowRenderer, WindowRenderer, shell_window::ShellWindowShared};
+use crate::shell_window::ShellWindowShared;
+use crate::{AsyncWindowRenderer, WindowRenderer};
 
 #[derive(Debug)]
 pub struct WindowRendererBuilder {

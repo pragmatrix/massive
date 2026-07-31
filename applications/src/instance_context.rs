@@ -8,15 +8,15 @@ use derive_more::Deref;
 use log::{error, trace, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use massive_animation::AnimationCoordinator;
+use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_renderer::{FontManager, RenderPacing};
 use massive_scene::{HandleChangeReceiver, Location, Ref, SceneChange};
 use massive_util::{CoalescingKey, CoalescingReceiver};
 
 use crate::view_builder::ViewBuilder;
 use crate::{
-    DesktopRequest, Frame, InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters,
-    InstanceSubmission, Scene, ViewEvent, ViewExtent, ViewId,
+    DesktopRequest, Frame, FrameSubmission, InstanceChange, InstanceEnvironment, InstanceId,
+    InstanceParameters, InstanceSubmission, Scene, ViewEvent, ViewExtent, ViewId,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +45,7 @@ pub struct InstanceContext {
     /// We currently use one Scene per Context, so that everything is ordered properly. This also
     /// contains the AnimationCoordinator, which we need one only per instance anyway.
     animation_coordinator: AnimationCoordinator,
+    movement_runtime: MovementRuntime,
 
     /// The current changes of this instance. This includes all Scene changes interleaved with the
     /// instance changes (in order).
@@ -59,7 +60,12 @@ impl Drop for InstanceContext {
         // If the instance ends, we _must_ submit all pending changes.
         self.changes
             .collect(InstanceChange::End(self.view_parent.clone()));
-        if let Err(e) = self.submit() {
+        let pacing = if self.animation_coordinator.end_cycle() {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        };
+        if let Err(e) = self.submit_with_pacing(pacing) {
             error!("Final instance submit error for {:?}: {e:?}", self.id);
         }
     }
@@ -91,6 +97,7 @@ impl InstanceContext {
             environment,
             view_parent,
             animation_coordinator,
+            movement_runtime: MovementRuntime::default(),
             changes: changes.into(),
             events: events.into(),
         }
@@ -127,19 +134,19 @@ impl InstanceContext {
     }
 
     /// Bundle a scene with this instance's animation clock for one update cycle.
-    pub fn frame<'a>(&'a mut self, scene: &'a Scene) -> Frame<'a> {
-        Frame::new(scene, &mut self.animation_coordinator)
+    pub fn frame<'scene, 'context>(
+        &'context mut self,
+        scene: &'scene Scene,
+    ) -> Frame<'scene, 'context> {
+        Frame::new(
+            scene,
+            &mut self.animation_coordinator,
+            &mut self.movement_runtime,
+        )
     }
 
     pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {
-        let event = self.events.recv().await?;
-
-        if matches!(event, InstanceEvent::ApplyAnimations) {
-            self.animation_coordinator
-                .upgrade_to_apply_animations_cycle();
-        }
-
-        Ok(event)
+        self.events.recv().await
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
@@ -156,19 +163,13 @@ impl InstanceContext {
         self.changes.collect(InstanceChange::Desktop(request))
     }
 
-    pub fn submit(&mut self) -> Result<()> {
-        // Robustness: To be really thread safe, we would need to collect the changes and end the
-        // cycle in one go.
-        let animations_active = self.animation_coordinator.end_cycle();
+    pub fn submit(&mut self, submission: FrameSubmission<'_>) -> Result<()> {
+        self.submit_with_pacing(submission.pacing())
+    }
 
+    fn submit_with_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
         // Empty changes need to end in a submission (we might have done some before, without ending
         // the animation cycle)
-
-        let pacing = if animations_active {
-            RenderPacing::Smooth
-        } else {
-            RenderPacing::Fast
-        };
 
         let changes = self.changes.take_all();
         let change_count = changes.len();

@@ -1,11 +1,11 @@
+use std::future::Future;
+
+use anyhow::Result;
+
 pub mod application;
 pub mod attributed_text;
 pub mod fonts;
 pub mod positioning;
-
-use std::future::Future;
-
-use anyhow::Result;
 
 // Even though not used, this is left here for reference.
 //

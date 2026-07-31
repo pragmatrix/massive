@@ -1,7 +1,8 @@
 #![allow(dead_code)]
 
-use cosmic_text::{LayoutGlyph, LayoutRun};
 use itertools::Itertools;
+
+use cosmic_text::{LayoutGlyph, LayoutRun};
 
 use massive_geometry::{Color, Vector3};
 use massive_shapes::{GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};

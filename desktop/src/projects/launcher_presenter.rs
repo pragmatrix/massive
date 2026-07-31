@@ -329,7 +329,7 @@ impl LauncherPresenter {
 
     pub fn apply_animations(
         &mut self,
-        context: &mut impl AnimationContext,
+        context: &dyn AnimationContext,
         instances: &mut Map<InstanceId, InstancePresenter>,
         child_instances: &[InstanceId],
     ) {
@@ -338,7 +338,7 @@ impl LauncherPresenter {
         self.apply_child_instance_animations(context, instances, child_instances);
     }
 
-    fn apply_presenter_animations(&mut self, context: &mut impl AnimationContext) {
+    fn apply_presenter_animations(&mut self, context: &dyn AnimationContext) {
         let size = self.size.value(context);
 
         let scene_transform = self
@@ -374,7 +374,7 @@ impl LauncherPresenter {
 
     fn apply_child_instance_animations(
         &mut self,
-        context: &mut impl AnimationContext,
+        context: &dyn AnimationContext,
         instances: &mut Map<InstanceId, InstancePresenter>,
         child_instances: &[InstanceId],
     ) {
