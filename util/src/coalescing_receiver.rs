@@ -35,7 +35,7 @@ impl<T: CoalescingKey + fmt::Debug> CoalescingReceiver<T> {
         }
     }
 
-    /// Receives all currently available events and returns an error when no events remain.
+    /// Receives all currently available events, waiting for at least one if none are pending. Returns an error if the sender disconnects before an event is received.
     pub async fn recv_all(&mut self) -> Result<Vec<T>> {
         if self.pending.is_empty() {
             let Some(event) = self.receiver.recv().await else {
