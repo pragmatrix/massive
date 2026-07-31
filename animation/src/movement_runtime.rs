@@ -238,7 +238,7 @@ where
     fn completion_event(&mut self) -> Option<Box<dyn Any + Send>> {
         self.completion_event
             .as_mut()
-            .map(|completion_event| Box::new(completion_event()) as Box<dyn Any + Send>)
+            .map(|completion_event| completion_event())
     }
 }
 
