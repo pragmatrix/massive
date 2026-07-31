@@ -89,7 +89,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         // Resolve the wakeup first, so that the borrow of `ctx` ends before the frame is built.
         let wakeup = select! {
             Some(bytes) = receiver.recv() => Wakeup::Line(bytes),
-            Ok(events) = ctx.wait_for_events() => Wakeup::Events(events),
+            events = ctx.wait_for_events() => Wakeup::Events(events?),
         };
 
         let mut frame = ctx.frame(&scene);
