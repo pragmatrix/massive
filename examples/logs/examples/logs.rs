@@ -271,6 +271,49 @@ impl Logs {
         Ok(())
     }
 
+    fn handle_window_event(&mut self, window_event: &WindowEvent) -> UpdateResponse {
+        if let WindowEvent::KeyboardInput {
+            event:
+                KeyEvent {
+                    state: ElementState::Pressed,
+                    ..
+                },
+            ..
+        } = window_event
+        {
+            // Warning levels gets captured and forwarded to the application itself.
+            warn!("{window_event:?}");
+        }
+
+        match self.application.update(window_event) {
+            UpdateResponse::Exit => {
+                return UpdateResponse::Exit;
+            }
+            UpdateResponse::Continue => {}
+        }
+
+        self.application_transform
+            .update_if_changed(self.application.get_transform((0, 0)));
+
+        UpdateResponse::Continue
+    }
+
+    fn finish_fade_out(&mut self, line_id: usize) {
+        let Some(position) = self
+            .lines
+            .iter()
+            .position(|line| line.id == line_id && line.fading_out)
+        else {
+            return;
+        };
+
+        self.lines.remove(position);
+        debug!("faded out");
+
+        // Fading lines remain in layout until removal, then start a successor transition.
+        self.update_vertical_alignment();
+    }
+
     fn update_vertical_alignment(&mut self) {
         let top_line = self
             .lines
@@ -297,53 +340,6 @@ impl Logs {
                 Interpolation::CubicOut,
             );
         });
-    }
-
-    fn handle_window_event(&mut self, window_event: &WindowEvent) -> UpdateResponse {
-        if let WindowEvent::KeyboardInput {
-            event:
-                KeyEvent {
-                    state: ElementState::Pressed,
-                    ..
-                },
-            ..
-        } = window_event
-        {
-            // Warning levels gets captured and forwarded to the application itself.
-            warn!("{window_event:?}");
-        }
-
-        match self.application.update(window_event) {
-            UpdateResponse::Exit => {
-                return UpdateResponse::Exit;
-            }
-            UpdateResponse::Continue => {}
-        }
-
-        self.update_application_transform();
-
-        UpdateResponse::Continue
-    }
-
-    fn finish_fade_out(&mut self, line_id: usize) {
-        let Some(position) = self
-            .lines
-            .iter()
-            .position(|line| line.id == line_id && line.fading_out)
-        else {
-            return;
-        };
-
-        self.lines.remove(position);
-        debug!("faded out");
-
-        // Fading lines remain in layout until removal, then start a successor transition.
-        self.update_vertical_alignment();
-    }
-
-    fn update_application_transform(&mut self) {
-        self.application_transform
-            .update_if_changed(self.application.get_transform((0, 0)));
     }
 }
 
