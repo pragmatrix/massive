@@ -204,7 +204,10 @@ impl Logs {
 
         let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
 
-        let line = glyph_runs.at(&self.location).enter(frame.scene());
+        let line = glyph_runs
+            .at(&self.location)
+            .with_decal_order(0)
+            .enter(frame.scene());
 
         let line_id = self.next_line_id;
         let fader: Animated<_> = 0.0.into();
