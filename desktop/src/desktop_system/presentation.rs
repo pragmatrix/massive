@@ -155,18 +155,13 @@ impl DesktopSystem {
     }
 
     pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
-        let Some(target) = target else {
-            self.desktop_presenter.set_hover_placement(None);
-            return;
-        };
-
         let hover_placement = match target {
-            target @ (DesktopTarget::Instance(..) | DesktopTarget::View(..)) => self
+            Some(target @ (DesktopTarget::Instance(..) | DesktopTarget::View(..))) => self
                 .aggregates
                 .hierarchy
                 .instance_of_target(target)
                 .map(|instance_id| self.instance_hover_placement(instance_id)),
-            DesktopTarget::Launcher(launcher_id) => {
+            Some(DesktopTarget::Launcher(launcher_id)) => {
                 Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
             }
             _ => None,
