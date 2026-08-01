@@ -13,6 +13,7 @@ use massive_input::{AggregationEvent, InputEvent};
 /// Because DeviceId is not supported on macOS and iOS, we don't support that for simplicity.
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
+    // Both `Resized` and `RedrawRequested` are triggered only in `ShellWindow` views.
     Resized(SizePx),
     RedrawRequested,
     CloseRequested,
