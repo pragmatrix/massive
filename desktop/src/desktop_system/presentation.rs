@@ -182,12 +182,12 @@ impl DesktopSystem {
         let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
-        // Keep hover aligned with animated instance motion by composing the current instance-local
-        // animated transform with the launcher's world transform.
+        // Keep hover aligned with animated instance motion by composing its target instance-local
+        // transform with the launcher's world transform.
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             layout_center(launcher_placement.rect.size),
-            *instance_presenter.layout_transform_animation.latest(),
+            *instance_presenter.layout_transform_animation.target(),
             layout_center(placement.rect.size),
         );
 
