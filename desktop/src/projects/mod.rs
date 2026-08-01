@@ -12,7 +12,7 @@ mod visor_layout;
 pub use self::configuration::*;
 pub use self::launcher_presenter::LauncherPresenter;
 pub use self::project::*;
-pub use self::project_presenter::{DesktopPresenter, ProjectPresenter};
+pub use self::project_presenter::ProjectPresenter;
 
 impl ProjectConfiguration {
     /// Loads the configuration from the the project directory. If the project directory is not set,

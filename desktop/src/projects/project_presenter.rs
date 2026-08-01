@@ -1,13 +1,10 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
 use massive_animation::{Animated, AnimationContext, Interpolation};
-use massive_geometry::{Color, Point, Rect, Size, SizePx, Transform};
-use massive_layout::{Placement, Rect as LayoutRect};
+use massive_geometry::{Color, Rect, Size, SizePx, Transform};
 use massive_renderer::text::FontSystem;
-use massive_scene::{
-    At, Handle, IntoVisual, Location, Object, StageIdentityLocation, ToLocationRelative, Visual,
-};
-use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt, StrokeRect};
+use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Visual};
+use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::ProjectProperties;
@@ -18,129 +15,6 @@ const PROJECT_HEADER_BACKGROUND_ALPHA: f32 = 0.65;
 const PROJECT_HEADER_TEXT_COLOR: Color = Color::WHITE;
 const PROJECT_HEADER_TEXT_DECAL_ORDER: usize = 0;
 const PROJECT_HEADER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
-
-/// Presents project-level visuals and scene anchors.
-///
-/// Responsibilities:
-/// - Provides the shared parent location for launcher and instance presenters.
-/// - Presents the project's hover outline visual.
-#[derive(Debug)]
-pub struct DesktopPresenter {
-    pub location: Handle<Location>,
-
-    // Idea: Use a type that combines Alpha with another `Interpolatable` type.
-    // Robustness: Alpha should be a type.
-    hover_alpha: Animated<f32>,
-    hover_placement: Placement<Transform, 2>,
-    hover_scene_transform: Handle<Transform>,
-    hover_location: Handle<Location>,
-    // Idea: can't we just animate a visual / Handle<Visual>?
-    // Performance: This is a visual that _always_ lives inside the renderer, even though it does not contain a single shape when alpha = 0.0
-    hover_visual: Handle<Visual>,
-    hover_placement_cache: Option<Placement<Transform, 2>>,
-}
-
-impl DesktopPresenter {
-    const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
-
-    pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
-        let (hover_scene_transform, hover_location) = scene.stage_identity_location();
-
-        Self {
-            location: location.clone(),
-            hover_alpha: 0.0.into(),
-            hover_placement: Placement::new(Transform::IDENTITY, LayoutRect::EMPTY),
-            hover_scene_transform,
-            hover_location: hover_location.clone(),
-            hover_visual: create_hover_shapes(None)
-                .into_visual()
-                .at(hover_location)
-                .enter(scene),
-            hover_placement_cache: None,
-        }
-    }
-
-    const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
-
-    pub fn set_hover_placement(
-        &mut self,
-        context: &mut impl AnimationContext,
-        placement: Option<Placement<Transform, 2>>,
-    ) {
-        if self.hover_placement_cache == placement {
-            return;
-        }
-        self.hover_placement_cache = placement;
-
-        match placement {
-            Some(placement) => {
-                self.hover_alpha.animate_if_changed(
-                    context,
-                    1.0,
-                    Self::HOVER_ANIMATION_DURATION,
-                    Interpolation::CubicOut,
-                );
-
-                self.hover_placement = placement;
-
-                let alpha = *self.hover_alpha.value(context);
-                self.update_hover_placement_and_visual(placement, alpha);
-            }
-
-            None => {
-                self.hover_alpha.animate_if_changed(
-                    context,
-                    0.0,
-                    Self::HOVER_ANIMATION_DURATION,
-                    Interpolation::CubicOut,
-                );
-            }
-        }
-    }
-
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        let alpha = *self.hover_alpha.value(context);
-        self.update_hover_placement_and_visual(self.hover_placement, alpha);
-    }
-
-    fn update_hover_placement_and_visual(&self, placement: Placement<Transform, 2>, alpha: f32) {
-        let size = placement.rect.size;
-        let local_rect = Rect::from_size((size[0] as f64, size[1] as f64));
-        let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
-
-        // Position the hover visual in world space using the placement's center-based transform.
-        let local_center = local_rect.center();
-        let scene_transform = placement
-            .transform
-            .to_origin_space(Point::new(local_center.x, local_center.y));
-        self.hover_scene_transform
-            .update_if_changed(scene_transform);
-
-        // Ergonomics: What something like `apply_to_if_changed(&mut self.hover_visual)` or so?
-        //
-        // Performance: Can't be update just the shapes here with apply...
-        let visual = create_hover_shapes(rect_alpha)
-            .into_visual()
-            .at(&self.hover_location)
-            .with_decal_order(5);
-        self.hover_visual.update_if_changed(visual);
-    }
-}
-
-fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
-    rect_alpha
-        .map(|(r, a)| {
-            let stroke = DesktopPresenter::HOVER_STROKE;
-            StrokeRect {
-                rect: r.with_outset(stroke),
-                stroke: stroke.into(),
-                color: Color::rgb_u32(0xff0000).with_alpha(a),
-            }
-            .into()
-        })
-        .into_iter()
-        .collect()
-}
 
 #[derive(Debug)]
 pub struct ProjectPresenter {

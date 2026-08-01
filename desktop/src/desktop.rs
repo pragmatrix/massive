@@ -120,7 +120,14 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(env, fonts.clone(), window, default_size, &scene)?;
+        let mut system = DesktopSystem::new(
+            env,
+            fonts.clone(),
+            window,
+            default_size,
+            &scene,
+            context.movement_runtime(),
+        )?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
@@ -178,12 +185,9 @@ impl Desktop {
                     DesktopEvent::ApplicationEvents(events?)
                 }
 
-                Ok((instance_id, instance_result)) = self.instance_manager.join_next() => {
+                instance = self.instance_manager.join_next() => {
+                    let (instance_id, instance_result) = instance?;
                     DesktopEvent::InstanceEnded(instance_id, instance_result)
-                }
-
-                else => {
-                    return Ok(());
                 }
             };
 

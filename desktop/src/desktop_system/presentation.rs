@@ -154,13 +154,9 @@ impl DesktopSystem {
         Ok(ChangeOutput::changes(changes))
     }
 
-    pub(super) fn sync_hover_with_target(
-        &mut self,
-        context: &mut impl AnimationContext,
-        target: Option<&DesktopTarget>,
-    ) {
+    pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
         let Some(target) = target else {
-            self.desktop_presenter.set_hover_placement(context, None);
+            self.desktop_presenter.set_hover_placement(None);
             return;
         };
 
@@ -176,8 +172,7 @@ impl DesktopSystem {
             _ => None,
         };
 
-        self.desktop_presenter
-            .set_hover_placement(context, hover_placement);
+        self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {

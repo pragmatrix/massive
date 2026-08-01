@@ -30,7 +30,7 @@ use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 
-use massive_animation::{Animated, AnimationContext};
+use massive_animation::{Animated, AnimationContext, MovementRuntime};
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -45,14 +45,13 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 pub(crate) use navigation::NavigationControl;
 
+use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
-use crate::projects::{
-    DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
-};
+use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 
 /// This enum specifies a unique target inside the navigation and layout history.
@@ -245,12 +244,13 @@ impl DesktopSystem {
         window: ShellWindow,
         default_panel_size: SizePx,
         scene: &Scene,
+        movement_runtime: &mut MovementRuntime,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let (_, location) = scene.stage_identity_location();
 
-        let desktop_presenter = DesktopPresenter::new(location, scene);
+        let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
 
         let event_router = EventRouter::new();
 
@@ -377,7 +377,7 @@ impl DesktopSystem {
             };
 
             // Sync the hover rect.
-            self.sync_hover_with_target(frame, hover_target.cloned().as_ref());
+            self.sync_hover_with_target(hover_target.cloned().as_ref());
         }
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
@@ -415,8 +415,6 @@ impl DesktopSystem {
         for project in self.aggregates.projects.values_mut() {
             project.apply_animations(context);
         }
-
-        self.desktop_presenter.apply_animations(context);
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
