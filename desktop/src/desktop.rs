@@ -229,11 +229,14 @@ impl Desktop {
                             }
                             ApplicationEvent::ApplyAnimations(presentation_id) => {
                                 frame.upgrade_to_apply_animations_cycle();
-                                // Performance: Not every instance needs that, only the ones animating. The
-                                // presentation ID preserves the renderer clock that produced this tick.
-                                self.instance_manager.broadcast_event(
-                                    ApplicationMessage::ApplyAnimations(presentation_id),
-                                );
+                                let animating_instances =
+                                    self.system.animating_instances().collect::<Vec<_>>();
+                                for instance in animating_instances {
+                                    _ = self.instance_manager.send_event(
+                                        instance,
+                                        ApplicationMessage::ApplyAnimations(presentation_id),
+                                    );
+                                }
                                 self.system.apply_animations(&frame);
                             }
                             ApplicationEvent::Shutdown(_) => {

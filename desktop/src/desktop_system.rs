@@ -450,6 +450,14 @@ impl DesktopSystem {
         }
     }
 
+    pub fn animating_instances(&self) -> impl Iterator<Item = InstanceId> + '_ {
+        self.aggregates
+            .instances
+            .iter()
+            .filter(|(_, instance)| instance.pacing == RenderPacing::Smooth)
+            .map(|(id, _)| *id)
+    }
+
     pub fn effective_pacing(&self) -> RenderPacing {
         if self
             .aggregates
