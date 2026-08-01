@@ -5,10 +5,8 @@ use anyhow::Result;
 use massive_geometry::{BoxPx, Color};
 use massive_scene::{Location, Ref};
 
-use crate::{
-    InstanceChangeCollector, Scene,
-    view::{View, ViewRole},
-};
+use crate::view::{View, ViewRole};
+use crate::{InstanceChangeCollector, Scene};
 
 #[derive(Debug)]
 pub struct ViewBuilder {

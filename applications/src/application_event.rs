@@ -1,7 +1,8 @@
 use std::mem;
 
-use massive_util::CoalescingKey;
 use winit::event::DeviceId;
+
+use massive_util::CoalescingKey;
 
 use crate::{InstanceId, PresentationId, ViewEvent, ViewId};
 
