@@ -291,8 +291,7 @@ where
 
             ViewEvent::ModifiersChanged(_) => {
                 // Robustness: Not sure if this is the right call, we send modifiers changed to
-                // both, the keyboard focused _and_ if different from the keybaord focus, to the
-                // pointer focused.
+                // both, the keyboard focused _and_ if different from the keyboard focus, to the
                 if let Some(keyboard_focus) = &self.keyboard_focus {
                     event_transitions += send(keyboard_focus, view_event.clone());
                 }
