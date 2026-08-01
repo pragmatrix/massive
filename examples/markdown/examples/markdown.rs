@@ -1,35 +1,37 @@
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
-use std::{
-    collections::{HashMap, VecDeque},
-    mem,
-    sync::{Arc, Mutex},
-};
+use std::mem;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
-use cosmic_text::{FontSystem, fontdb};
-use inlyne::{
-    Element,
-    color::Theme,
-    interpreter::HtmlInterpreter,
-    opts::ResolvedTheme,
-    positioner::{DEFAULT_MARGIN, Positioned, Positioner},
-    text::{CachedTextArea, TextCache, TextSystem},
-    utils::{Rect, markdown_to_html},
-};
 use log::info;
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Registry};
 use winit::dpi::{LogicalSize, PhysicalSize};
+
+use cosmic_text::FontSystem;
+use cosmic_text::fontdb;
+use inlyne::Element;
+use inlyne::color::Theme;
+use inlyne::interpreter::HtmlInterpreter;
+use inlyne::opts::ResolvedTheme;
+use inlyne::positioner::DEFAULT_MARGIN;
+use inlyne::positioner::{Positioned, Positioner};
+use inlyne::text::{CachedTextArea, TextCache, TextSystem};
+use inlyne::utils::Rect;
+use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
 use massive_geometry::{SizePx, Vector3};
 use massive_scene::{At, Object, ToLocation};
 use massive_shapes::GlyphRun;
-use massive_shell::{ApplicationContext, FontManager, shell};
-use shared::{
-    application::{Application, UpdateResponse},
-    fonts, positioning,
-};
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager};
+
+use shared::application::{Application, UpdateResponse};
+use shared::{fonts, positioning};
 
 #[tokio::main]
 async fn main() -> Result<()> {

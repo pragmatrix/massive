@@ -222,7 +222,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         .enter(&scene);
     let location = transform.to_location().enter(&scene);
 
-    let _visual = shapes.at(&location).enter(&scene);
+    let _visual = shapes.at(&location).with_decal_order(0).enter(&scene);
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -232,7 +232,8 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
                         UpdateResponse::Exit => return Ok(()),
                         UpdateResponse::Continue => {}
                     }
-                    transform.update_if_changed(application.get_transform((page_width, page_height)));
+                    transform
+                        .update_if_changed(application.get_transform((page_width, page_height)));
                     renderer.resize_redraw(&view_event)?;
                 }
                 ApplicationEvent::View(..)

@@ -9,6 +9,7 @@ use massive_geometry::SizePx;
 use massive_scene::{At, Object, ToLocation};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
+
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, AttributedText};
 

@@ -1,32 +1,30 @@
+use std::collections::{HashMap, VecDeque};
 use std::convert::Infallible;
-use std::{
-    collections::{HashMap, VecDeque},
-    mem,
-    sync::{Arc, Mutex},
-};
+use std::mem;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use cosmic_text::FontSystem;
-use inlyne::{
-    Element,
-    color::Theme,
-    interpreter::HtmlInterpreter,
-    opts::ResolvedTheme,
-    positioner::{DEFAULT_MARGIN, Positioned, Positioner},
-    text::{CachedTextArea, TextCache, TextSystem},
-    utils::{Rect, markdown_to_html},
-};
 use log::info;
 use winit::dpi::LogicalSize;
+
+use cosmic_text::FontSystem;
+use inlyne::Element;
+use inlyne::color::Theme;
+use inlyne::interpreter::HtmlInterpreter;
+use inlyne::opts::ResolvedTheme;
+use inlyne::positioner::DEFAULT_MARGIN;
+use inlyne::positioner::{Positioned, Positioner};
+use inlyne::text::{CachedTextArea, TextCache, TextSystem};
+use inlyne::utils::Rect;
+use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
 use massive_geometry::{SizePx, Vector3};
 use massive_scene::{At, Object, ToLocation};
-use massive_shell::{ApplicationContext, FontManager, shell};
-use shared::{
-    application::{Application, UpdateResponse},
-    positioning,
-};
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager};
+use shared::application::{Application, UpdateResponse};
+use shared::positioning;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -156,6 +154,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
+        .with_decal_order(0)
         .enter(&scene);
 
     loop {

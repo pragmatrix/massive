@@ -17,10 +17,10 @@ use tracing_subscriber::{EnvFilter, Layer};
 use cosmic_text::FontSystem;
 use termwiz::escape;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent};
 
 use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
-use massive_applications::ApplicationEvent;
+use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform};
 use massive_shapes::Shape;
@@ -103,7 +103,9 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             Wakeup::Events(events) => {
                 for event in events {
                     match event {
-                        ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                        ApplicationEvent::View(event_view_id, view_event)
+                            if event_view_id == view_id =>
+                        {
                             if logs.handle_window_event(&view_event) == UpdateResponse::Exit {
                                 return Ok(());
                             }
@@ -276,21 +278,21 @@ impl Logs {
         Ok(())
     }
 
-    fn handle_window_event(&mut self, window_event: &WindowEvent) -> UpdateResponse {
-        if let WindowEvent::KeyboardInput {
+    fn handle_window_event(&mut self, view_event: &ViewEvent) -> UpdateResponse {
+        if let ViewEvent::KeyboardInput {
             event:
                 KeyEvent {
                     state: ElementState::Pressed,
                     ..
                 },
             ..
-        } = window_event
+        } = view_event
         {
             // Warning levels gets captured and forwarded to the application itself.
-            warn!("{window_event:?}");
+            warn!("{view_event:?}");
         }
 
-        match self.application.update(window_event) {
+        match self.application.update(view_event) {
             UpdateResponse::Exit => {
                 return UpdateResponse::Exit;
             }

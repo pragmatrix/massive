@@ -1,16 +1,16 @@
-use std::{
-    collections::HashMap,
-    convert::Infallible,
-    env, fs,
-    io::{self, Write},
-    path::Path,
-};
+use std::collections::HashMap;
+use std::convert::Infallible;
+use std::io::Write;
+use std::path::Path;
+use std::{env, fs, io};
 
 use anyhow::Result;
 use base_db::SourceDatabase;
 use chrono::{DateTime, Local};
 use tracing::info;
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Registry};
 use winit::dpi::LogicalSize;
 
 use hir::EditionedFileId;
@@ -27,11 +27,11 @@ use massive_applications::ApplicationEvent;
 use massive_geometry::{Color, SizePx};
 use massive_scene::{At, Object, ToLocation};
 use massive_shapes::TextWeight;
-use massive_shell::{ApplicationContext, FontManager, shell};
-use shared::{
-    application::{Application, UpdateResponse},
-    attributed_text::{self, AttributedText, TextAttribute},
-};
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager};
+
+use shared::application::{Application, UpdateResponse};
+use shared::attributed_text::{self, AttributedText, TextAttribute};
 
 #[tokio::main]
 async fn main() -> Result<()> {
