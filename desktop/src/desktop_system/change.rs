@@ -2,7 +2,7 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::Vector3;
 use massive_util::CollectingVec;
 
-use crate::desktop_system::{KeyboardFocusReason, UserState};
+use super::{KeyboardFocusReason, UserState};
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{

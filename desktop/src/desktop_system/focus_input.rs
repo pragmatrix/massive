@@ -9,11 +9,10 @@ use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
-use super::Direction;
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
+use super::change::{Changes, DesktopChange, set_focus};
+use super::navigation::focus_depth_from_target;
+use super::{DesktopCommand, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
 use crate::EventTransition;
-use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
-use crate::desktop_system::navigation::focus_depth_from_target;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;

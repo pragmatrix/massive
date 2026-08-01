@@ -1,4 +1,5 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
+use anyhow::bail;
 use log::warn;
 
 use massive_animation::AnimationContext;
@@ -8,8 +9,8 @@ use massive_layout::{Placement, Size as LayoutSize};
 use massive_shell::Frame;
 
 use super::DesktopTarget;
-use crate::desktop_system::change::{Changes, DesktopChange, TopologyChange};
-use crate::desktop_system::command_dispatch::ChangeOutput;
+use super::change::{Changes, DesktopChange, TopologyChange};
+use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;

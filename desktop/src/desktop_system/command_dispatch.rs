@@ -7,13 +7,13 @@ use massive_applications::{
 };
 use massive_shell::{Frame, Scene};
 
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason};
-use crate::desktop_system::change::{
-    Changes, DesktopChange, ProjectChange, TopologyChange, set_focus,
+use super::change::set_focus;
+use super::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
+use super::effects::MeasureSet;
+use super::navigation::focus_depth_from_target;
+use super::{
+    DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason, ProjectCommand, UserState,
 };
-use crate::desktop_system::effects::MeasureSet;
-use crate::desktop_system::navigation::focus_depth_from_target;
-use crate::desktop_system::{ProjectCommand, UserState};
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -783,9 +783,7 @@ impl DesktopSystem {
             DesktopRequest::Redo => todo!(),
         }
     }
-}
 
-impl DesktopSystem {
     fn launcher_shift_sequence(
         &self,
         project: ProjectId,
