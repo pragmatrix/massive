@@ -283,7 +283,7 @@ where
             ViewEvent::HoveredFileCancelled | ViewEvent::CloseRequested => {}
 
             // Robustness: Figure out how to handle these.
-            ViewEvent::Resized(_) => {}
+            ViewEvent::RedrawRequested | ViewEvent::Resized(_) => {}
         }
 
         // Commit device states.

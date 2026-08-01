@@ -8,18 +8,14 @@ use log::{error, info};
 use parking_lot::Mutex;
 use tokio::sync::mpsc::WeakUnboundedSender;
 
-use winit::event;
-use winit::window::WindowId;
-
+use massive_applications::{ApplicationMessage, ViewEvent};
 use massive_geometry::{Color, SizePx};
 use massive_renderer::{RenderGeometry, RenderSubmission, RenderTarget};
 
-use crate::ShellEvent;
 use crate::window_renderer::{RenderThreadSubmission, RendererMessage, WindowRenderer};
 
 #[derive(Debug)]
 pub struct AsyncWindowRenderer {
-    window_id: WindowId,
     msg_sender: Sender<RendererMessage>,
     thread_handle: Option<JoinHandle<()>>,
     geometry: RenderGeometry,
@@ -36,9 +32,8 @@ impl AsyncWindowRenderer {
     pub fn new(
         window_renderer: WindowRenderer,
         geometry: RenderGeometry,
-        shell_events: WeakUnboundedSender<ShellEvent>,
+        application_messages: WeakUnboundedSender<ApplicationMessage>,
     ) -> Self {
-        let id = window_renderer.window_id();
         let view_projection = geometry.view_projection();
 
         let (msg_sender, msg_receiver) = mpsc::channel();
@@ -50,7 +45,7 @@ impl AsyncWindowRenderer {
         let renderer_submission = submission.clone();
 
         let thread_handle = thread::spawn(move || {
-            match window_renderer.render_thread(msg_receiver, renderer_submission, shell_events) {
+            match window_renderer.render_thread(msg_receiver, renderer_submission, application_messages) {
                 Ok(()) => {
                     info!("Render loop ended because the sender disconnected");
                 }
@@ -61,16 +56,11 @@ impl AsyncWindowRenderer {
         });
 
         Self {
-            window_id: id,
             msg_sender,
             thread_handle: Some(thread_handle),
             geometry,
             submission,
         }
-    }
-
-    pub fn window_id(&self) -> WindowId {
-        self.window_id
     }
 
     pub fn geometry(&self) -> &RenderGeometry {
@@ -79,12 +69,6 @@ impl AsyncWindowRenderer {
 
     pub fn resize_redraw(&mut self, rrr: impl Into<ResizeRedrawRequest>) -> Result<()> {
         let rrr = rrr.into();
-
-        if let Some(window) = rrr.window
-            && window != self.window_id
-        {
-            return Ok(());
-        }
 
         match rrr.mode {
             ResizeRedrawMode::Resize(wh) => self.resize_and_redraw(wh),
@@ -172,7 +156,6 @@ impl RenderTarget for AsyncWindowRenderer {
 
 #[derive(Debug, Default)]
 pub struct ResizeRedrawRequest {
-    window: Option<WindowId>,
     mode: ResizeRedrawMode,
 }
 
@@ -185,30 +168,14 @@ pub enum ResizeRedrawMode {
     None,
 }
 
-impl From<&event::WindowEvent> for ResizeRedrawRequest {
-    fn from(window_event: &event::WindowEvent) -> Self {
-        use event::WindowEvent;
-        let mode = match window_event {
-            WindowEvent::Resized(physical_size) => {
-                ResizeRedrawMode::Resize((physical_size.width, physical_size.height).into())
-            }
-            WindowEvent::RedrawRequested => ResizeRedrawMode::Redraw,
+impl From<&ViewEvent> for ResizeRedrawRequest {
+    fn from(view_event: &ViewEvent) -> Self {
+        let mode = match view_event {
+            ViewEvent::Resized(size) => ResizeRedrawMode::Resize(*size),
+            ViewEvent::RedrawRequested => ResizeRedrawMode::Redraw,
             _ => ResizeRedrawMode::None,
         };
 
-        ResizeRedrawRequest { window: None, mode }
-    }
-}
-
-impl From<&ShellEvent> for ResizeRedrawRequest {
-    fn from(value: &ShellEvent) -> Self {
-        match value {
-            ShellEvent::WindowEvent(window_id, window_event) => {
-                let mut request: ResizeRedrawRequest = window_event.into();
-                request.window = (*window_id).into();
-                request
-            }
-            _ => Self::default(),
-        }
+        ResizeRedrawRequest { mode }
     }
 }

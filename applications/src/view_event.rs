@@ -14,6 +14,7 @@ use massive_input::{AggregationEvent, InputEvent};
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
     Resized(SizePx),
+    RedrawRequested,
     CloseRequested,
     DroppedFile(PathBuf),
     HoveredFile(PathBuf),
@@ -92,6 +93,7 @@ impl ViewEvent {
             } => Some(Self::CursorMoved((position.x, position.y).into())),
             WindowEvent::Focused(focused) => Some(Self::Focused(*focused)),
             WindowEvent::Resized(size) => Some(Self::Resized((size.width, size.height).into())),
+            WindowEvent::RedrawRequested => Some(Self::RedrawRequested),
 
             // Unhandled events
             WindowEvent::ActivationTokenDone { .. } => None,
@@ -107,7 +109,6 @@ impl ViewEvent {
             WindowEvent::ScaleFactorChanged { .. } => None,
             WindowEvent::ThemeChanged(..) => None,
             WindowEvent::Occluded(..) => None,
-            WindowEvent::RedrawRequested => None,
         }
     }
 

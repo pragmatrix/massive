@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::{
     collections::{HashMap, VecDeque},
     mem,
@@ -20,6 +21,7 @@ use log::info;
 use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
 use winit::dpi::{LogicalSize, PhysicalSize};
 
+use massive_applications::ApplicationEvent;
 use massive_geometry::{SizePx, Vector3};
 use massive_scene::{At, Object, ToLocation};
 use massive_shapes::GlyphRun;
@@ -73,6 +75,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let window = ctx
         .new_window((physical_size.width, physical_size.height))
         .await?;
+    let view_id = window.view_id();
 
     let font_system = Arc::new(Mutex::new(font_system));
 
@@ -100,25 +103,29 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .enter(&scene);
 
     loop {
-        let event = ctx.wait_for_shell_event().await?;
+        for event in ctx.wait_for_events::<Infallible>().await? {
+            match event {
+                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                    info!("View Event: {view_event:?}");
 
-        let window_id = renderer.window_id();
+                    match application.update(&view_event) {
+                        UpdateResponse::Exit => {
+                            info!("Exiting Markdown application");
+                            return Ok(());
+                        }
+                        UpdateResponse::Continue => {}
+                    }
 
-        if let Some(window_event) = event.window_event_for_id(window_id) {
-            info!("Window Event: {window_event:?}");
-
-            match application.update(window_event) {
-                UpdateResponse::Exit => {
-                    info!("Exiting Markdown application");
-                    return Ok(());
+                    transform.update_if_changed(application.get_transform(content_size));
+                    renderer.resize_redraw(&view_event)?;
                 }
-                UpdateResponse::Continue => {}
+                ApplicationEvent::View(..)
+                | ApplicationEvent::ApplyAnimations(_)
+                | ApplicationEvent::Shutdown(_) => {}
+                ApplicationEvent::Custom(event) => match event {},
             }
-
-            transform.update_if_changed(application.get_transform(content_size));
         }
 
-        renderer.resize_redraw(&event)?;
         ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

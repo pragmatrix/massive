@@ -5,9 +5,12 @@ edition.workspace = true
 
 [dependencies]
 termwiz = "0.23.3"
+
+shared = { path = "../shared" }
+
+massive-applications = { workspace = true }
 massive-geometry = { workspace = true }
 massive-shapes = { workspace = true }
-shared = { path = "../shared" }
 
 [dev-dependencies]
 

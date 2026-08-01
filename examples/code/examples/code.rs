@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    convert::Infallible,
     env, fs,
     io::{self, Write},
     path::Path,
@@ -22,6 +23,7 @@ use project_model::CargoConfig;
 use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
+use massive_applications::ApplicationEvent;
 use massive_geometry::{Color, SizePx};
 use massive_scene::{At, Object, ToLocation};
 use massive_shapes::TextWeight;
@@ -254,6 +256,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let size = LogicalSize::new(1024, 800).to_physical(ctx.primary_monitor_scale_factor());
     let window = ctx.new_window((size.width, size.height)).await?;
+    let view_id = window.view_id();
 
     // Application
 
@@ -275,16 +278,21 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .enter(&scene);
 
     loop {
-        let event = ctx.wait_for_shell_event().await?;
+        for event in ctx.wait_for_events::<Infallible>().await? {
+            info!("Event: {event:?}");
 
-        info!("Event: {event:?}");
-
-        if let Some(window_event) = event.window_event_for_id(window.id()) {
-            match application.update(window_event) {
-                UpdateResponse::Exit => {
-                    return Ok(());
+            match event {
+                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                    match application.update(&view_event) {
+                        UpdateResponse::Exit => return Ok(()),
+                        UpdateResponse::Continue => {}
+                    }
+                    renderer.resize_redraw(&view_event)?;
                 }
-                UpdateResponse::Continue => {}
+                ApplicationEvent::View(..)
+                | ApplicationEvent::ApplyAnimations(_)
+                | ApplicationEvent::Shutdown(_) => {}
+                ApplicationEvent::Custom(event) => match event {},
             }
         }
 
@@ -292,7 +300,6 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        renderer.resize_redraw(&event)?;
         ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

@@ -11,13 +11,13 @@ use tokio::sync::mpsc::WeakUnboundedSender;
 use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
+use massive_applications::ApplicationMessage;
 use massive_geometry::{Color, Matrix4, SizePx};
 use massive_renderer::{PresentationMode, RenderPacing, Renderer};
 use massive_scene::SceneChangeSet;
 use massive_scene::id_generator;
 use massive_util::message_filter;
 
-use crate::ShellEvent;
 use crate::shell_window::ShellWindowShared;
 
 const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
@@ -46,7 +46,7 @@ impl WindowRenderer {
     }
 
     pub fn window_id(&self) -> WindowId {
-        self.window.id()
+        self.window.window_id()
     }
 
     /// The format chosen for the swapchain.
@@ -74,7 +74,7 @@ impl WindowRenderer {
         mut self,
         msg_receiver: mpsc::Receiver<RendererMessage>,
         submission: Arc<Mutex<RenderThreadSubmission>>,
-        shell_events: WeakUnboundedSender<ShellEvent>,
+        application_messages: WeakUnboundedSender<ApplicationMessage>,
     ) -> Result<()> {
         let mut messages = Vec::new();
 
@@ -87,7 +87,7 @@ impl WindowRenderer {
                 // blocking path.
                 if vblank_driven {
                     // Smooth rendering. This may block.
-                    self.render_frame(&shell_events, &submission)?;
+                    self.render_frame(&application_messages, &submission)?;
                 } else {
                     // Fast mode. Wait until at least one event is there.
                     if wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue {
@@ -115,7 +115,7 @@ impl WindowRenderer {
                 RendererMessage::Redraw => {
                     // In smooth mode, we ignore explicit redraw requests.
                     if !vblank_driven {
-                        self.render_frame(&shell_events, &submission)?;
+                        self.render_frame(&application_messages, &submission)?;
                     } else {
                         // Architecture: Well, what to do with all the Redraw requests in smooth
                         // rendering mode? Currently the problem is that we don't even know when to send
@@ -137,7 +137,7 @@ impl WindowRenderer {
     // Detail: This always produces a new frame. Even if there are no changes.
     fn render_frame(
         &mut self,
-        apply_animations_to: &WeakUnboundedSender<ShellEvent>,
+        apply_animations_to: &WeakUnboundedSender<ApplicationMessage>,
         submission: &Arc<Mutex<RenderThreadSubmission>>,
     ) -> Result<()> {
         // Detail: In VSync presentation mode, this blocks until the next VSync beginning
@@ -160,9 +160,11 @@ impl WindowRenderer {
         if self.current_pacing == RenderPacing::Smooth {
             let sender = apply_animations_to
                 .upgrade()
-                .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for ShellEvents anymore, application vanished)"))?;
+                .ok_or(anyhow!("Failed to dispatch apply animations (no receiver for application events anymore, application vanished)"))?;
 
-            sender.send(ShellEvent::ApplyAnimations(self.window_id()))?;
+            sender.send(ApplicationMessage::ApplyAnimations(
+                self.window.presentation_id(),
+            ))?;
         }
 
         let submission = submission.lock().take();

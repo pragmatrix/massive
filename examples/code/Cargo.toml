@@ -7,10 +7,11 @@ edition.workspace = true
 
 shared = { path = "../shared" }
 
+massive-applications = { workspace = true }
 massive-geometry = { workspace = true }
-massive-shell = { workspace = true }
 massive-scene = { workspace = true }
 massive-shapes = { workspace = true }
+massive-shell = { workspace = true }
 
 postcard = { workspace = true }
 anyhow = { workspace = true }

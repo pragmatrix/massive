@@ -1,7 +1,10 @@
+use std::convert::Infallible;
+
 use anyhow::Result;
 use tracing::info;
 use winit::dpi::LogicalSize;
 
+use massive_applications::ApplicationEvent;
 use massive_geometry::SizePx;
 use massive_scene::{At, Object, ToLocation};
 use massive_shell::shell;
@@ -69,6 +72,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     let window = ctx
         .new_window((initial_size.width, initial_size.height))
         .await?;
+    let view_id = window.view_id();
     // Using inner size screws up the renderer initialization, because the window has no size yet.
     // So we compute the proper physical for now.
     // spellcheck: ignore
@@ -90,20 +94,26 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         .enter(&scene);
 
     loop {
-        let event = ctx.wait_for_shell_event().await?;
+        for event in ctx.wait_for_events::<Infallible>().await? {
+            info!("Event: {event:?}");
 
-        info!("Event: {event:?}");
-
-        if let Some(window_event) = event.window_event_for_id(window.id()) {
-            match application.update(window_event) {
-                UpdateResponse::Exit => return Ok(()),
-                UpdateResponse::Continue => {}
+            match event {
+                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                    match application.update(&view_event) {
+                        UpdateResponse::Exit => return Ok(()),
+                        UpdateResponse::Continue => {}
+                    }
+                    renderer.resize_redraw(&view_event)?;
+                }
+                ApplicationEvent::View(..)
+                | ApplicationEvent::ApplyAnimations(_)
+                | ApplicationEvent::Shutdown(_) => {}
+                ApplicationEvent::Custom(event) => match event {},
             }
         }
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        renderer.resize_redraw(&event)?;
         ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

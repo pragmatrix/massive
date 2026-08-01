@@ -1,5 +1,5 @@
+use std::collections::HashMap;
 use std::future::Future;
-use std::mem;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -9,14 +9,14 @@ use tokio::sync::{mpsc::UnboundedSender, oneshot};
 
 use wgpu::{Surface, SurfaceTarget};
 use winit::application::ApplicationHandler;
-use winit::event::{DeviceId, WindowEvent};
+use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use massive_util::CoalescingKey;
+use massive_applications::{ApplicationMessage, ViewEvent, ViewId};
 
+use crate::ApplicationContext;
 use crate::shell_window::ShellWindowShared;
-use crate::{ApplicationContext, ShellWindow};
 
 const FALLBACK_SCALE_FACTOR: f64 = 1.;
 
@@ -115,18 +115,10 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     final_result
 }
 
-// Robustness: Try to remove Clone.
-#[derive(Debug, Clone)]
-pub enum ShellEvent {
-    // Architecture: Separate this into a separate WindowEvent, because ApplyAnimations isn't used
-    // as an event pathway from the `WinitApplicationHandler` anymore.
-    WindowEvent(WindowId, WindowEvent),
-    ApplyAnimations(WindowId),
-}
-
 #[derive(Debug)]
 pub(crate) enum ShellCommand {
     CreateWindow {
+        view_id: ViewId,
         // Box because of large size.
         attributes: Box<WindowAttributes>,
         on_created: oneshot::Sender<Result<Window>>,
@@ -141,64 +133,6 @@ pub(crate) enum ShellCommand {
         on_created: oneshot::Sender<Result<Surface<'static>>>,
     },
     ApplicationEnded(Result<()>),
-}
-
-impl ShellEvent {
-    #[must_use]
-    pub fn window_event_for(&self, window: &ShellWindow) -> Option<&WindowEvent> {
-        match self {
-            ShellEvent::WindowEvent(id, window_event) if *id == window.id() => Some(window_event),
-            _ => None,
-        }
-    }
-
-    #[must_use]
-    pub fn window_event_for_id(&self, id: WindowId) -> Option<&WindowEvent> {
-        match self {
-            ShellEvent::WindowEvent(wid, window_event) if *wid == id => Some(window_event),
-            _ => None,
-        }
-    }
-
-    #[must_use]
-    pub fn apply_animations(&self) -> bool {
-        matches!(self, Self::ApplyAnimations(_))
-    }
-}
-
-impl CoalescingKey for ShellEvent {
-    type Key = ShellEventCoalescingKey;
-
-    fn coalescing_key(&self) -> Option<ShellEventCoalescingKey> {
-        match self {
-            ShellEvent::WindowEvent(window_id, window_event) => match window_event {
-                WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::RedrawRequested => {
-                    Some(ShellEventCoalescingKey::WindowEvent(
-                        *window_id,
-                        None,
-                        mem::discriminant(window_event),
-                    ))
-                }
-                WindowEvent::CursorMoved { device_id, .. } => {
-                    Some(ShellEventCoalescingKey::WindowEvent(
-                        *window_id,
-                        Some(*device_id),
-                        mem::discriminant(window_event),
-                    ))
-                }
-                _ => None,
-            },
-            ShellEvent::ApplyAnimations(window_id) => {
-                Some(ShellEventCoalescingKey::ApplyAnimations(*window_id))
-            }
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum ShellEventCoalescingKey {
-    ApplyAnimations(WindowId),
-    WindowEvent(WindowId, Option<DeviceId>, mem::Discriminant<WindowEvent>),
 }
 
 #[allow(unused)]
@@ -219,7 +153,8 @@ enum WinitApplicationHandler {
         spawner: Option<ApplicationSpawner>,
     },
     Running {
-        event_sender: UnboundedSender<ShellEvent>,
+        event_sender: UnboundedSender<ApplicationMessage>,
+        views: HashMap<WindowId, ViewId>,
     },
     Ended {
         application_result: Result<()>,
@@ -258,21 +193,39 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         );
 
         (spawner.take().unwrap())(application_context);
-        *self = Self::Running { event_sender }
+        *self = Self::Running {
+            event_sender,
+            views: HashMap::new(),
+        }
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {
         match event {
             ShellCommand::CreateWindow {
+                view_id,
                 attributes,
                 on_created,
             } => {
+                let Self::Running { views, .. } = self else {
+                    panic!(
+                        "Received CreateWindow user event while WinitApplicationHandler is not Running"
+                    );
+                };
                 let r = event_loop.create_window(*attributes);
+                if let Ok(window) = &r {
+                    views.insert(window.id(), view_id);
+                }
                 on_created
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
             ShellCommand::DestroyWindow { window } => {
+                let Self::Running { views, .. } = self else {
+                    panic!(
+                        "Received DestroyWindow user event while WinitApplicationHandler is not Running"
+                    );
+                };
+                views.remove(&window.id());
                 info!("Destroying window");
                 drop(window);
             }
@@ -309,8 +262,16 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         // Don't send Window destroyed events for now, the Window is already gone, no need to handle
         // this. This might also happen when the system is winding down (i.e. we are already not
         // anymore in the Running state)
-        if event != WindowEvent::Destroyed {
-            self.send_event(event_loop, ShellEvent::WindowEvent(window_id, event))
+        let view_event = match self {
+            Self::Running { views, .. } if event != WindowEvent::Destroyed => views
+                .get(&window_id)
+                .copied()
+                .zip(ViewEvent::from_window_event(&event)),
+            _ => None,
+        };
+
+        if let Some((view_id, event)) = view_event {
+            self.send_event(event_loop, ApplicationMessage::View(view_id, event))
         }
     }
 
@@ -336,13 +297,13 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
 }
 
 impl WinitApplicationHandler {
-    fn send_event(&mut self, event_loop: &ActiveEventLoop, shell_event: ShellEvent) {
+    fn send_event(&mut self, event_loop: &ActiveEventLoop, event: ApplicationMessage) {
         let Self::Running { event_sender, .. } = self else {
             error!("Cannot send shell event: application handler must be in the running state.");
             return;
         };
 
-        if let Err(e) = event_sender.send(shell_event) {
+        if let Err(e) = event_sender.send(event) {
             // Don't log when we are already exiting.
             if !event_loop.exiting() {
                 info!("Receiver for events dropped, exiting event loop: {e:?}");
