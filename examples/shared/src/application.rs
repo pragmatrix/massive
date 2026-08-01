@@ -57,7 +57,7 @@ impl Application {
                     },
                 ..
             } => return UpdateResponse::Exit,
-            ViewEvent::CursorMoved(position) => {
+            ViewEvent::CursorMoved { position, .. } => {
                 // Track positions.
                 //
                 // These positions aren't discrete / integral on macOS, but why?
@@ -81,6 +81,7 @@ impl Application {
             ViewEvent::MouseWheel {
                 delta: MouseScrollDelta::PixelDelta(physical_position),
                 phase: TouchPhase::Moved,
+                ..
             } => {
                 self.translation_z +=
                     (physical_position.y * MOUSE_WHEEL_PIXEL_DELTA_TO_Z_PIXELS).round() as i32
@@ -88,10 +89,12 @@ impl Application {
             ViewEvent::MouseWheel {
                 delta: MouseScrollDelta::LineDelta(_, y_delta),
                 phase: TouchPhase::Moved,
+                ..
             } => self.translation_z += y_delta.round() as i32 * MOUSE_WHEEL_LINE_DELTA_TO_Z_PIXELS,
             ViewEvent::MouseInput {
                 state,
                 button: MouseButton::Left,
+                ..
             } if self.position.is_some() => {
                 if state.is_pressed() {
                     if self.modifiers.state().super_key() {
@@ -112,6 +115,7 @@ impl Application {
             ViewEvent::MouseInput {
                 state,
                 button: MouseButton::Middle,
+                ..
             } => {
                 if state.is_pressed() {
                     self.gesture = Some(ActiveGesture::Rotation(RotationGesture {
