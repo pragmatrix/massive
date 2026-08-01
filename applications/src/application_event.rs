@@ -1,6 +1,7 @@
 use std::mem;
 
 use massive_util::CoalescingKey;
+use winit::event::DeviceId;
 
 use crate::{InstanceId, PresentationId, ViewEvent, ViewId};
 
@@ -37,9 +38,18 @@ impl CoalescingKey for ApplicationMessage {
     fn coalescing_key(&self) -> Option<ApplicationEventCoalescingKey> {
         match self {
             ApplicationMessage::View(view_id, event) => match event {
-                ViewEvent::Resized(..) | ViewEvent::CursorMoved { .. } => Some(
-                    ApplicationEventCoalescingKey::View(*view_id, mem::discriminant(event)),
-                ),
+                ViewEvent::Resized(..) => Some(ApplicationEventCoalescingKey::View(
+                    *view_id,
+                    mem::discriminant(event),
+                    None,
+                )),
+                ViewEvent::CursorMoved { device_id, .. } => {
+                    Some(ApplicationEventCoalescingKey::View(
+                        *view_id,
+                        mem::discriminant(event),
+                        Some(*device_id),
+                    ))
+                }
                 _ => None,
             },
             ApplicationMessage::ApplyAnimations(presentation_id) => Some(
@@ -53,5 +63,5 @@ impl CoalescingKey for ApplicationMessage {
 #[derive(Debug, PartialEq, Eq, Hash)]
 pub enum ApplicationEventCoalescingKey {
     ApplyAnimations(PresentationId),
-    View(ViewId, mem::Discriminant<ViewEvent>),
+    View(ViewId, mem::Discriminant<ViewEvent>, Option<DeviceId>),
 }
