@@ -27,9 +27,10 @@ pub struct InstanceId(Uuid);
 pub struct ViewId(Uuid);
 
 impl ViewId {
-	pub fn new() -> Self {
-		Uuid::new_v4().into()
-	}
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
 }
 
 /// Identifies a shell presentation clock.
@@ -41,7 +42,8 @@ impl ViewId {
 pub struct PresentationId(Uuid);
 
 impl PresentationId {
-	pub fn new() -> Self {
-		Uuid::new_v4().into()
-	}
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
 }
