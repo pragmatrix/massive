@@ -8,8 +8,8 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
 use massive_applications::{
-    ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment, InstanceId,
-    ViewEvent, ViewId,
+    ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment, InstanceId, ViewEvent,
+    ViewId,
 };
 use massive_scene::{Location, Ref};
 use massive_shell::Result;

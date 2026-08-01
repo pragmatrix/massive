@@ -15,8 +15,8 @@ use winit::window::{CursorIcon, Window, WindowId};
 use massive_applications::{ApplicationMessage, PresentationId, ViewId};
 use massive_geometry::SizePx;
 
-use crate::shell::ShellCommand;
 use crate::WindowRendererBuilder;
+use crate::shell::ShellCommand;
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {

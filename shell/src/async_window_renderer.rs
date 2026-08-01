@@ -45,7 +45,11 @@ impl AsyncWindowRenderer {
         let renderer_submission = submission.clone();
 
         let thread_handle = thread::spawn(move || {
-            match window_renderer.render_thread(msg_receiver, renderer_submission, application_messages) {
+            match window_renderer.render_thread(
+                msg_receiver,
+                renderer_submission,
+                application_messages,
+            ) {
                 Ok(()) => {
                     info!("Render loop ended because the sender disconnected");
                 }

@@ -14,9 +14,8 @@ use massive_util::CoalescingReceiver;
 
 use crate::view_builder::ViewBuilder;
 use crate::{
-    ApplicationEvent, ApplicationMessage, DesktopRequest, Frame, FrameSubmission,
-    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission,
-    Scene, ViewExtent,
+    ApplicationEvent, ApplicationMessage, DesktopRequest, Frame, FrameSubmission, InstanceChange,
+    InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene, ViewExtent,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,4 +192,3 @@ impl InstanceContext {
         Ok(())
     }
 }
-

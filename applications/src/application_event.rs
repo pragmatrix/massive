@@ -42,9 +42,9 @@ impl CoalescingKey for ApplicationMessage {
                 ),
                 _ => None,
             },
-            ApplicationMessage::ApplyAnimations(presentation_id) => {
-                Some(ApplicationEventCoalescingKey::ApplyAnimations(*presentation_id))
-            }
+            ApplicationMessage::ApplyAnimations(presentation_id) => Some(
+                ApplicationEventCoalescingKey::ApplyAnimations(*presentation_id),
+            ),
             ApplicationMessage::Shutdown(_) => None,
         }
     }
