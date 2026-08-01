@@ -37,14 +37,31 @@ where
                 ));
             }
             EventTransition::ChangePointerFocus { from, to } => {
-                send_transitions.extend(focus_change_to_targeted_events(
-                    from.as_ref(),
-                    to.as_ref(),
-                    keyboard_modifiers,
-                    || ViewEvent::CursorLeft,
-                    || ViewEvent::CursorEntered,
-                    path_resolver,
-                ));
+                let (from_target, from_device) = from
+                    .as_ref()
+                    .map(|(target, device_id)| (target, *device_id))
+                    .unzip();
+                let (to_target, to_device) = to
+                    .as_ref()
+                    .map(|(target, device_id)| (target, *device_id))
+                    .unzip();
+
+                if from_target != to_target {
+                    send_transitions.extend(focus_change_to_targeted_events(
+                        from_target,
+                        to_target,
+                        keyboard_modifiers,
+                        || ViewEvent::CursorLeft {
+                            device_id: from_device
+                                .expect("Internal error: Pointer exit must have a device"),
+                        },
+                        || ViewEvent::CursorEntered {
+                            device_id: to_device
+                                .expect("Internal error: Pointer enter must have a device"),
+                        },
+                        path_resolver,
+                    ));
+                }
             }
         }
     }
@@ -93,6 +110,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use winit::event::DeviceId;
+
     use crate::OrderedHierarchy;
 
     impl PathResolver<i32> for OrderedHierarchy<i32> {
@@ -108,8 +127,8 @@ mod tests {
                 let kind = match event {
                     ViewEvent::Focused(true) => "FocusIn",
                     ViewEvent::Focused(false) => "FocusOut",
-                    ViewEvent::CursorEntered => "CursorEntered",
-                    ViewEvent::CursorLeft => "CursorLeft",
+                    ViewEvent::CursorEntered { .. } => "CursorEntered",
+                    ViewEvent::CursorLeft { .. } => "CursorLeft",
                     ViewEvent::ModifiersChanged(_) => "ModifiersChanged",
                     _ => "Other",
                 };
@@ -156,8 +175,8 @@ mod tests {
         let hierarchy = tree_with_shared_root();
         let transitions = convert_to_targeted_events(
             [EventTransition::ChangePointerFocus {
-                from: Some(3),
-                to: Some(5),
+                from: Some((3, DeviceId::dummy())),
+                to: Some((5, DeviceId::dummy())),
             }],
             Modifiers::default(),
             &hierarchy,

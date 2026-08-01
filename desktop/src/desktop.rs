@@ -232,7 +232,11 @@ impl Desktop {
                                 );
                                 self.system.apply_animations(&frame);
                             }
-                            ApplicationEvent::Shutdown(_) => {}
+                            ApplicationEvent::Shutdown(_) => {
+                                // Robustness: Clarify if and when this happens.
+                                info!("Desktop shutdown request received");
+                                return Ok(());
+                            }
                             ApplicationEvent::Custom(event) => match event {},
                         }
                     }

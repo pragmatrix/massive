@@ -37,7 +37,7 @@ impl CoalescingKey for ApplicationMessage {
     fn coalescing_key(&self) -> Option<ApplicationEventCoalescingKey> {
         match self {
             ApplicationMessage::View(view_id, event) => match event {
-                ViewEvent::Resized(..) | ViewEvent::CursorMoved(..) => Some(
+                ViewEvent::Resized(..) | ViewEvent::CursorMoved { .. } => Some(
                     ApplicationEventCoalescingKey::View(*view_id, mem::discriminant(event)),
                 ),
                 _ => None,
