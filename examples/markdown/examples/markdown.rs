@@ -100,6 +100,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
+        .with_decal_order(0)
         .enter(&scene);
 
     loop {
