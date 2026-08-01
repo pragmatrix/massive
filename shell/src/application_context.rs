@@ -6,25 +6,17 @@ use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
 use tokio::sync::oneshot;
 
 use winit::dpi::PhysicalSize;
-use winit::event::WindowEvent;
 use winit::event_loop::EventLoopProxy;
-use winit::window::{WindowAttributes, WindowId};
+use winit::window::WindowAttributes;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
-use massive_applications::Frame;
+use massive_applications::{ApplicationEvent, ApplicationMessage, Frame, PresentationId, ViewId};
 use massive_geometry::SizePx;
 use massive_scene::ChangeCollector;
 use massive_util::CoalescingReceiver;
 
 use crate::shell::ShellCommand;
-use crate::{Scene, ShellEvent, ShellWindow};
-
-#[derive(Debug)]
-pub enum ApplicationEvent<T> {
-    Window(WindowId, WindowEvent),
-    Custom(T),
-    ApplyAnimations(WindowId),
-}
+use crate::{Scene, ShellWindow};
 
 /// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
 /// new windows and to wait for events while also forwarding scene changes to the renderer.
@@ -34,8 +26,8 @@ pub enum ApplicationEvent<T> {
 #[derive(Debug)]
 pub struct ApplicationContext {
     // We use this to send `ApplyAnimations` from the renderers.
-    event_sender: WeakUnboundedSender<ShellEvent>,
-    event_receiver: CoalescingReceiver<ShellEvent>,
+    event_sender: WeakUnboundedSender<ApplicationMessage>,
+    event_receiver: CoalescingReceiver<ApplicationMessage>,
     // Used for stuff that needs to run on the event loop thread. Like Window creation, for example.
     pub(crate) event_loop_proxy: EventLoopProxy<ShellCommand>,
 
@@ -49,8 +41,8 @@ pub struct ApplicationContext {
 
 impl ApplicationContext {
     pub(crate) fn new(
-        event_sender: WeakUnboundedSender<ShellEvent>,
-        event_receiver: UnboundedReceiver<ShellEvent>,
+        event_sender: WeakUnboundedSender<ApplicationMessage>,
+        event_receiver: UnboundedReceiver<ApplicationMessage>,
         event_loop_proxy: EventLoopProxy<ShellCommand>,
         monitor_scale_factor: f64,
     ) -> Self {
@@ -101,11 +93,14 @@ impl ApplicationContext {
     /// is actually created.
     pub async fn new_window(&self, inner_size: impl Into<SizePx>) -> Result<ShellWindow> {
         let (on_created, when_created) = oneshot::channel();
+        let view_id = ViewId::new();
+        let presentation_id = PresentationId::new();
         let inner_size = inner_size.into();
         let attributes = WindowAttributes::default()
             .with_inner_size(PhysicalSize::new(inner_size.width, inner_size.height));
         self.event_loop_proxy
             .send_event(ShellCommand::CreateWindow {
+                view_id,
                 attributes: attributes.into(),
                 on_created,
             })
@@ -113,21 +108,12 @@ impl ApplicationContext {
 
         let window = when_created.await??;
         Ok(ShellWindow::new(
+            view_id,
+            presentation_id,
             window,
             self.event_loop_proxy.clone(),
             self.event_sender.clone(),
         ))
-    }
-
-    /// Wait for the next shell event.
-    ///
-    /// This function is cancel safe _and_ must be used in an atomic fashion (i.e. not preserved in a
-    /// `select!` loop with `&mut` reference to the returning future).
-    ///
-    /// `renderer` is needed here so that we know when the renderer finished in animation mode and a
-    /// [`ShellEvent::ApplyAnimations`] can be produced.
-    pub async fn wait_for_shell_event(&mut self) -> Result<ShellEvent> {
-        self.event_receiver.recv().await
     }
 
     /// Wait for multiple application events treating custom events of type `T`. If custom events
@@ -140,16 +126,16 @@ impl ApplicationContext {
         let mut application_events = Vec::with_capacity(events.len());
         for event in events {
             match event {
-                ShellEvent::WindowEvent(window_id, window_event) => {
-                    application_events.push(ApplicationEvent::Window(window_id, window_event));
+                ApplicationMessage::View(view_id, view_event) => {
+                    application_events.push(ApplicationEvent::View(view_id, view_event));
                 }
-                ShellEvent::ApplyAnimations(window_id) => {
+                ApplicationMessage::ApplyAnimations(presentation_id) => {
                     self.animation_coordinator
                         .upgrade_to_apply_animations_cycle();
                     let completion_events = self
                         .movement_runtime
                         .apply_animations(&self.animation_coordinator);
-                    application_events.push(ApplicationEvent::ApplyAnimations(window_id));
+                    application_events.push(ApplicationEvent::ApplyAnimations(presentation_id));
                     application_events.extend(
                         completion_events
                             .into_iter()
@@ -161,6 +147,9 @@ impl ApplicationContext {
                             })
                             .collect::<Result<Vec<_>>>()?,
                     );
+                }
+                ApplicationMessage::Shutdown(instance_id) => {
+                    application_events.push(ApplicationEvent::Shutdown(instance_id));
                 }
             }
         }

@@ -10,7 +10,6 @@ pub use application_context::ApplicationContext;
 pub use async_window_renderer::*;
 // pub use font_system_builder::FontSystemBuilder;
 pub use massive_applications::{Frame, Scene};
-pub use shell::ShellEvent;
 pub use shell_window::ShellWindow;
 pub use window_renderer::WindowRenderer;
 pub use window_renderer_builder::WindowRendererBuilder;

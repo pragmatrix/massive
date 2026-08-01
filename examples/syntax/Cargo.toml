@@ -9,8 +9,8 @@ shared = { path = "../shared" }
 tokio = { workspace = true }
 anyhow = { workspace = true }
 
-
 massive-geometry = {workspace = true }
+massive-applications = { workspace = true }
 massive-shell = {workspace = true }
 massive-scene = {workspace = true }
 massive-shapes = {workspace = true }

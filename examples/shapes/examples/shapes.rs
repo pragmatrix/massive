@@ -1,6 +1,9 @@
+use std::convert::Infallible;
+
 use anyhow::Result;
 use winit::dpi::LogicalSize;
 
+use massive_applications::ApplicationEvent;
 use massive_geometry::{Color, Rect, Size};
 use massive_scene::{At, Object, ToLocation};
 use massive_shapes::{
@@ -23,6 +26,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
     let window = ctx
         .new_window((window_size.width, window_size.height))
         .await?;
+    let view_id = window.view_id();
 
     let mut renderer = window.renderer().with_shapes().build().await?;
 
@@ -218,20 +222,27 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         .enter(&scene);
     let location = transform.to_location().enter(&scene);
 
-    let _visual = shapes.at(&location).enter(&scene);
+    let _visual = shapes.at(&location).with_decal_order(0).enter(&scene);
 
     loop {
-        let event = ctx.wait_for_shell_event().await?;
-
-        if let Some(window_event) = event.window_event_for_id(window.id()) {
-            match application.update(window_event) {
-                UpdateResponse::Exit => return Ok(()),
-                UpdateResponse::Continue => {}
+        for event in ctx.wait_for_events::<Infallible>().await? {
+            match event {
+                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                    match application.update(&view_event) {
+                        UpdateResponse::Exit => return Ok(()),
+                        UpdateResponse::Continue => {}
+                    }
+                    transform
+                        .update_if_changed(application.get_transform((page_width, page_height)));
+                    renderer.resize_redraw(&view_event)?;
+                }
+                ApplicationEvent::View(..)
+                | ApplicationEvent::ApplyAnimations(_)
+                | ApplicationEvent::Shutdown(_) => {}
+                ApplicationEvent::Custom(event) => match event {},
             }
-            transform.update_if_changed(application.get_transform((page_width, page_height)));
         }
 
-        renderer.resize_redraw(&event)?;
         ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

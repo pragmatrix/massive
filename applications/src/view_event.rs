@@ -9,11 +9,11 @@ use massive_input::{AggregationEvent, InputEvent};
 /// The events a view can receive.
 ///
 /// Most of them are taken from winit::WindowEvent and simplified if appropriate.
-///
-/// Because DeviceId is not supported on macOS and iOS, we don't support that for simplicity.
 #[derive(Debug, Clone)]
 pub enum ViewEvent {
+    // Both `Resized` and `RedrawRequested` are triggered only in `ShellWindow` views.
     Resized(SizePx),
+    RedrawRequested,
     CloseRequested,
     DroppedFile(PathBuf),
     HoveredFile(PathBuf),
@@ -21,6 +21,7 @@ pub enum ViewEvent {
     /// Feature: This is probably related to a "level of detail" management.
     Focused(bool),
     KeyboardInput {
+        device_id: DeviceId,
         event: event::KeyEvent,
         is_synthetic: bool,
     },
@@ -29,15 +30,24 @@ pub enum ViewEvent {
     ModifiersChanged(event::Modifiers),
     Ime(event::Ime),
     // This is in view relative coordinates.
-    CursorMoved(Point),
+    CursorMoved {
+        device_id: DeviceId,
+        position: Point,
+    },
     // Naming: Should probably be renamed to PointerEntered / PointerLeft?
-    CursorEntered,
-    CursorLeft,
+    CursorEntered {
+        device_id: DeviceId,
+    },
+    CursorLeft {
+        device_id: DeviceId,
+    },
     MouseWheel {
+        device_id: DeviceId,
         delta: event::MouseScrollDelta,
         phase: event::TouchPhase,
     },
     MouseInput {
+        device_id: DeviceId,
         state: event::ElementState,
         button: event::MouseButton,
     },
@@ -51,22 +61,28 @@ pub enum ViewEvent {
 impl ViewEvent {
     pub fn from_window_event(window_event: &WindowEvent) -> Option<Self> {
         match window_event {
-            WindowEvent::CursorEntered { device_id: _ } => Some(Self::CursorEntered),
-            WindowEvent::CursorLeft { device_id: _ } => Some(Self::CursorLeft),
+            WindowEvent::CursorEntered { device_id } => Some(Self::CursorEntered {
+                device_id: *device_id,
+            }),
+            WindowEvent::CursorLeft { device_id } => Some(Self::CursorLeft {
+                device_id: *device_id,
+            }),
             WindowEvent::MouseInput {
-                device_id: _,
+                device_id,
                 state,
                 button,
                 ..
             } => Some(ViewEvent::MouseInput {
+                device_id: *device_id,
                 state: *state,
                 button: *button,
             }),
             WindowEvent::MouseWheel {
-                device_id: _,
+                device_id,
                 delta,
                 phase,
             } => Some(ViewEvent::MouseWheel {
+                device_id: *device_id,
                 delta: *delta,
                 phase: *phase,
             }),
@@ -78,20 +94,25 @@ impl ViewEvent {
             WindowEvent::HoveredFileCancelled => Some(Self::HoveredFileCancelled),
             WindowEvent::CloseRequested => Some(Self::CloseRequested),
             WindowEvent::KeyboardInput {
-                device_id: _,
+                device_id,
                 event,
                 is_synthetic,
             } => Some(Self::KeyboardInput {
+                device_id: *device_id,
                 event: event.clone(),
                 is_synthetic: *is_synthetic,
             }),
             WindowEvent::Ime(ime) => Some(Self::Ime(ime.clone())),
             WindowEvent::CursorMoved {
-                device_id: _,
+                device_id,
                 position,
-            } => Some(Self::CursorMoved((position.x, position.y).into())),
+            } => Some(Self::CursorMoved {
+                device_id: *device_id,
+                position: (position.x, position.y).into(),
+            }),
             WindowEvent::Focused(focused) => Some(Self::Focused(*focused)),
             WindowEvent::Resized(size) => Some(Self::Resized((size.width, size.height).into())),
+            WindowEvent::RedrawRequested => Some(Self::RedrawRequested),
 
             // Unhandled events
             WindowEvent::ActivationTokenDone { .. } => None,
@@ -107,7 +128,6 @@ impl ViewEvent {
             WindowEvent::ScaleFactorChanged { .. } => None,
             WindowEvent::ThemeChanged(..) => None,
             WindowEvent::Occluded(..) => None,
-            WindowEvent::RedrawRequested => None,
         }
     }
 
@@ -133,7 +153,13 @@ impl ViewEvent {
 
     pub fn translate(self, v: Vector) -> ViewEvent {
         match self {
-            Self::CursorMoved(position) => Self::CursorMoved(position + v),
+            Self::CursorMoved {
+                device_id,
+                position,
+            } => Self::CursorMoved {
+                device_id,
+                position: position + v,
+            },
             _ => self,
         }
     }
@@ -142,18 +168,25 @@ impl ViewEvent {
 impl InputEvent for ViewEvent {
     fn to_aggregation_event(&self) -> Option<AggregationEvent> {
         match self {
-            Self::CursorMoved(position) => Some(AggregationEvent::CursorMoved {
-                device_id: DeviceId::dummy(),
+            Self::CursorMoved {
+                device_id,
+                position,
+            } => Some(AggregationEvent::CursorMoved {
+                device_id: *device_id,
                 position: *position,
             }),
-            Self::CursorEntered => Some(AggregationEvent::CursorEntered {
-                device_id: DeviceId::dummy(),
+            Self::CursorEntered { device_id } => Some(AggregationEvent::CursorEntered {
+                device_id: *device_id,
             }),
-            Self::CursorLeft => Some(AggregationEvent::CursorLeft {
-                device_id: DeviceId::dummy(),
+            Self::CursorLeft { device_id } => Some(AggregationEvent::CursorLeft {
+                device_id: *device_id,
             }),
-            Self::MouseInput { state, button, .. } => Some(AggregationEvent::MouseInput {
-                device_id: DeviceId::dummy(),
+            Self::MouseInput {
+                device_id,
+                state,
+                button,
+            } => Some(AggregationEvent::MouseInput {
+                device_id: *device_id,
                 state: *state,
                 button: *button,
             }),
@@ -166,12 +199,12 @@ impl InputEvent for ViewEvent {
 
     fn device(&self) -> Option<DeviceId> {
         match self {
-            ViewEvent::KeyboardInput { .. }
-            | ViewEvent::CursorMoved(_)
-            | ViewEvent::CursorEntered
-            | ViewEvent::CursorLeft
-            | ViewEvent::MouseWheel { .. }
-            | ViewEvent::MouseInput { .. } => Some(DeviceId::dummy()),
+            ViewEvent::KeyboardInput { device_id, .. }
+            | ViewEvent::CursorMoved { device_id, .. }
+            | ViewEvent::CursorEntered { device_id }
+            | ViewEvent::CursorLeft { device_id }
+            | ViewEvent::MouseWheel { device_id, .. }
+            | ViewEvent::MouseInput { device_id, .. } => Some(*device_id),
             _ => None,
         }
     }

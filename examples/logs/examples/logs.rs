@@ -17,13 +17,13 @@ use tracing_subscriber::{EnvFilter, Layer};
 use cosmic_text::FontSystem;
 use termwiz::escape;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, KeyEvent, WindowEvent};
+use winit::event::{ElementState, KeyEvent};
 
 use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
+use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::{At, Handle, Location, Object, ToLocation, Transform};
 use massive_shapes::Shape;
-use massive_shell::application_context::ApplicationEvent;
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
@@ -77,6 +77,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let size = LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
     let window = ctx.new_window((size.width, size.height)).await?;
+    let view_id = window.view_id();
 
     let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
 
@@ -102,12 +103,15 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             Wakeup::Events(events) => {
                 for event in events {
                     match event {
-                        ApplicationEvent::Window(_, window_event) => {
-                            if logs.handle_window_event(&window_event) == UpdateResponse::Exit {
+                        ApplicationEvent::View(event_view_id, view_event)
+                            if event_view_id == view_id =>
+                        {
+                            if logs.handle_window_event(&view_event) == UpdateResponse::Exit {
                                 return Ok(());
                             }
-                            renderer.resize_redraw(&window_event)?;
+                            renderer.resize_redraw(&view_event)?;
                         }
+                        ApplicationEvent::View(..) | ApplicationEvent::Shutdown(_) => {}
                         ApplicationEvent::ApplyAnimations(_) => {}
                         ApplicationEvent::Custom(LogEvent::FadeCompleted(line_id)) => {
                             logs.finish_fade_out(line_id);
@@ -274,21 +278,21 @@ impl Logs {
         Ok(())
     }
 
-    fn handle_window_event(&mut self, window_event: &WindowEvent) -> UpdateResponse {
-        if let WindowEvent::KeyboardInput {
+    fn handle_window_event(&mut self, view_event: &ViewEvent) -> UpdateResponse {
+        if let ViewEvent::KeyboardInput {
             event:
                 KeyEvent {
                     state: ElementState::Pressed,
                     ..
                 },
             ..
-        } = window_event
+        } = view_event
         {
             // Warning levels gets captured and forwarded to the application itself.
-            warn!("{window_event:?}");
+            warn!("{view_event:?}");
         }
 
-        match self.application.update(window_event) {
+        match self.application.update(view_event) {
             UpdateResponse::Exit => {
                 return UpdateResponse::Exit;
             }

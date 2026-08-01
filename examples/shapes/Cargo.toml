@@ -10,10 +10,12 @@ cosmic-text = { workspace = true }
 winit = { workspace = true }
 tokio = { workspace = true }
 
+massive-applications = { workspace = true }
 massive-geometry = { workspace = true }
+massive-scene = { workspace = true }
 massive-shapes = { workspace = true }
 massive-shell = { workspace = true }
-massive-scene = { workspace = true }
+
 shared = { path = "../shared" }
 
 [dev-dependencies]

@@ -1,3 +1,5 @@
+use std::convert::Infallible;
+
 use anyhow::Result;
 use syntect::{
     easy::HighlightLines,
@@ -7,6 +9,7 @@ use syntect::{
 };
 use winit::dpi::LogicalSize;
 
+use massive_applications::ApplicationEvent;
 use massive_geometry::Color;
 use massive_scene::{At, Object, ToLocation};
 use massive_shapes::TextWeight;
@@ -78,6 +81,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     let window = ctx
         .new_window((inner_size.width, inner_size.height))
         .await?;
+    let view_id = window.view_id();
 
     let scene = ctx.new_scene();
     let mut renderer = window.renderer().with_text(fonts).build().await?;
@@ -98,12 +102,19 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .enter(&scene);
 
     loop {
-        let event = ctx.wait_for_shell_event().await?;
-
-        if let Some(window_event) = event.window_event_for_id(window.id()) {
-            match application.update(window_event) {
-                UpdateResponse::Exit => return Ok(()),
-                UpdateResponse::Continue => {}
+        for event in ctx.wait_for_events::<Infallible>().await? {
+            match event {
+                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                    match application.update(&view_event) {
+                        UpdateResponse::Exit => return Ok(()),
+                        UpdateResponse::Continue => {}
+                    }
+                    renderer.resize_redraw(&view_event)?;
+                }
+                ApplicationEvent::View(..)
+                | ApplicationEvent::ApplyAnimations(_)
+                | ApplicationEvent::Shutdown(_) => {}
+                ApplicationEvent::Custom(event) => match event {},
             }
         }
 
@@ -111,7 +122,6 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        renderer.resize_redraw(&event)?;
         ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

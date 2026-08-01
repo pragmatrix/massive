@@ -5,9 +5,6 @@ edition.workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
-massive-geometry = { workspace = true }
-massive-shapes = { workspace = true }
-massive-shell = { workspace = true }
 winit = { workspace = true }
 glam = { workspace = true }
 serde = { workspace = true }
@@ -16,6 +13,11 @@ cosmic-text = { workspace = true }
 itertools = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }
+
+massive-applications = { workspace = true }
+massive-geometry = { workspace = true }
+massive-shapes = { workspace = true }
+massive-shell = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 

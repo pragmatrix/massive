@@ -1,30 +1,30 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    mem,
-    sync::{Arc, Mutex},
-};
+use std::collections::{HashMap, VecDeque};
+use std::convert::Infallible;
+use std::mem;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
-use cosmic_text::FontSystem;
-use inlyne::{
-    Element,
-    color::Theme,
-    interpreter::HtmlInterpreter,
-    opts::ResolvedTheme,
-    positioner::{DEFAULT_MARGIN, Positioned, Positioner},
-    text::{CachedTextArea, TextCache, TextSystem},
-    utils::{Rect, markdown_to_html},
-};
 use log::info;
 use winit::dpi::LogicalSize;
 
+use cosmic_text::FontSystem;
+use inlyne::Element;
+use inlyne::color::Theme;
+use inlyne::interpreter::HtmlInterpreter;
+use inlyne::opts::ResolvedTheme;
+use inlyne::positioner::DEFAULT_MARGIN;
+use inlyne::positioner::{Positioned, Positioner};
+use inlyne::text::{CachedTextArea, TextCache, TextSystem};
+use inlyne::utils::Rect;
+use inlyne::utils::markdown_to_html;
+
+use massive_applications::ApplicationEvent;
 use massive_geometry::{SizePx, Vector3};
 use massive_scene::{At, Object, ToLocation};
-use massive_shell::{ApplicationContext, FontManager, shell};
-use shared::{
-    application::{Application, UpdateResponse},
-    positioning,
-};
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager};
+use shared::application::{Application, UpdateResponse};
+use shared::positioning;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -54,6 +54,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     let window = ctx
         .new_window((initial_size.width, initial_size.height))
         .await?;
+    let view_id = window.view_id();
 
     let mut renderer = window.renderer().with_text(fonts).build().await?;
 
@@ -153,23 +154,30 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
+        .with_decal_order(0)
         .enter(&scene);
 
     loop {
-        let event = ctx.wait_for_shell_event().await?;
+        for event in ctx.wait_for_events::<Infallible>().await? {
+            info!("Event: {event:?}");
 
-        info!("Event: {event:?}");
-
-        if let Some(window_event) = event.window_event_for_id(window.id()) {
-            match application.update(window_event) {
-                UpdateResponse::Exit => return Ok(()),
-                UpdateResponse::Continue => {}
+            match event {
+                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                    match application.update(&view_event) {
+                        UpdateResponse::Exit => return Ok(()),
+                        UpdateResponse::Continue => {}
+                    }
+                    renderer.resize_redraw(&view_event)?;
+                }
+                ApplicationEvent::View(..)
+                | ApplicationEvent::ApplyAnimations(_)
+                | ApplicationEvent::Shutdown(_) => {}
+                ApplicationEvent::Custom(event) => match event {},
             }
         }
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        renderer.resize_redraw(&event)?;
         ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

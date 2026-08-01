@@ -1,33 +1,37 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    mem,
-    sync::{Arc, Mutex},
-};
+use std::collections::{HashMap, VecDeque};
+use std::convert::Infallible;
+use std::mem;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local};
-use cosmic_text::{FontSystem, fontdb};
-use inlyne::{
-    Element,
-    color::Theme,
-    interpreter::HtmlInterpreter,
-    opts::ResolvedTheme,
-    positioner::{DEFAULT_MARGIN, Positioned, Positioner},
-    text::{CachedTextArea, TextCache, TextSystem},
-    utils::{Rect, markdown_to_html},
-};
 use log::info;
-use tracing_subscriber::{EnvFilter, Registry, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
+use tracing_subscriber::{EnvFilter, Registry};
 use winit::dpi::{LogicalSize, PhysicalSize};
 
+use cosmic_text::FontSystem;
+use cosmic_text::fontdb;
+use inlyne::Element;
+use inlyne::color::Theme;
+use inlyne::interpreter::HtmlInterpreter;
+use inlyne::opts::ResolvedTheme;
+use inlyne::positioner::DEFAULT_MARGIN;
+use inlyne::positioner::{Positioned, Positioner};
+use inlyne::text::{CachedTextArea, TextCache, TextSystem};
+use inlyne::utils::Rect;
+use inlyne::utils::markdown_to_html;
+
+use massive_applications::ApplicationEvent;
 use massive_geometry::{SizePx, Vector3};
 use massive_scene::{At, Object, ToLocation};
 use massive_shapes::GlyphRun;
-use massive_shell::{ApplicationContext, FontManager, shell};
-use shared::{
-    application::{Application, UpdateResponse},
-    fonts, positioning,
-};
+use massive_shell::shell;
+use massive_shell::{ApplicationContext, FontManager};
+
+use shared::application::{Application, UpdateResponse};
+use shared::{fonts, positioning};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -73,6 +77,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let window = ctx
         .new_window((physical_size.width, physical_size.height))
         .await?;
+    let view_id = window.view_id();
 
     let font_system = Arc::new(Mutex::new(font_system));
 
@@ -97,28 +102,33 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
+        .with_decal_order(0)
         .enter(&scene);
 
     loop {
-        let event = ctx.wait_for_shell_event().await?;
+        for event in ctx.wait_for_events::<Infallible>().await? {
+            match event {
+                ApplicationEvent::View(event_view_id, view_event) if event_view_id == view_id => {
+                    info!("View Event: {view_event:?}");
 
-        let window_id = renderer.window_id();
+                    match application.update(&view_event) {
+                        UpdateResponse::Exit => {
+                            info!("Exiting Markdown application");
+                            return Ok(());
+                        }
+                        UpdateResponse::Continue => {}
+                    }
 
-        if let Some(window_event) = event.window_event_for_id(window_id) {
-            info!("Window Event: {window_event:?}");
-
-            match application.update(window_event) {
-                UpdateResponse::Exit => {
-                    info!("Exiting Markdown application");
-                    return Ok(());
+                    transform.update_if_changed(application.get_transform(content_size));
+                    renderer.resize_redraw(&view_event)?;
                 }
-                UpdateResponse::Continue => {}
+                ApplicationEvent::View(..)
+                | ApplicationEvent::ApplyAnimations(_)
+                | ApplicationEvent::Shutdown(_) => {}
+                ApplicationEvent::Custom(event) => match event {},
             }
-
-            transform.update_if_changed(application.get_transform(content_size));
         }
 
-        renderer.resize_redraw(&event)?;
         ctx.frame(&scene).render_to(&mut renderer)?;
     }
 }

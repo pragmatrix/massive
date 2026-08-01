@@ -12,10 +12,11 @@ use wgpu::rwh;
 use winit::event_loop::EventLoopProxy;
 use winit::window::{CursorIcon, Window, WindowId};
 
+use massive_applications::{ApplicationMessage, PresentationId, ViewId};
 use massive_geometry::SizePx;
 
+use crate::WindowRendererBuilder;
 use crate::shell::ShellCommand;
-use crate::{ShellEvent, WindowRendererBuilder};
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
@@ -35,14 +36,18 @@ impl Deref for ShellWindow {
 
 impl ShellWindow {
     pub(crate) fn new(
+        view_id: ViewId,
+        presentation_id: PresentationId,
         window: Window,
         event_loop_proxy: EventLoopProxy<ShellCommand>,
-        event_sender: WeakUnboundedSender<ShellEvent>,
+        event_sender: WeakUnboundedSender<ApplicationMessage>,
     ) -> Self {
         // We retrieve the window id early on, because retrieving seem to run on the main thread?
         let window_id = window.id();
         Self {
             shared: ShellWindowShared {
+                view_id,
+                presentation_id,
                 window_id,
                 window: Some(window),
                 event_loop_proxy,
@@ -52,8 +57,12 @@ impl ShellWindow {
         }
     }
 
-    pub fn id(&self) -> WindowId {
-        self.window_id
+    pub fn view_id(&self) -> ViewId {
+        self.shared.view_id()
+    }
+
+    pub fn presentation_id(&self) -> PresentationId {
+        self.shared.presentation_id()
     }
 
     pub fn set_title(&self, title: &str) {
@@ -77,13 +86,15 @@ impl ShellWindow {
 
 #[derive(Debug)]
 pub struct ShellWindowShared {
+    view_id: ViewId,
+    presentation_id: PresentationId,
     window_id: WindowId,
     // ADR: Option, because we have to send it back to the event loop for closing.
     window: Option<Window>,
     // For creating surfaces, we need to communicate with the Shell.
     event_loop_proxy: EventLoopProxy<ShellCommand>,
     /// For Sending out ApplyAnimations
-    pub(crate) event_sender: WeakUnboundedSender<ShellEvent>,
+    pub(crate) event_sender: WeakUnboundedSender<ApplicationMessage>,
 }
 
 impl Drop for ShellWindowShared {
@@ -106,8 +117,16 @@ impl ShellWindowShared {
         self.window().scale_factor()
     }
 
-    pub fn id(&self) -> WindowId {
-        self.window().id()
+    pub fn view_id(&self) -> ViewId {
+        self.view_id
+    }
+
+    pub fn presentation_id(&self) -> PresentationId {
+        self.presentation_id
+    }
+
+    pub(crate) fn window_id(&self) -> WindowId {
+        self.window_id
     }
 
     pub fn request_redraw(&self) {

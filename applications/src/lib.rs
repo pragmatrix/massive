@@ -1,6 +1,7 @@
 use derive_more::From;
 use uuid::Uuid;
 
+mod application_event;
 mod frame;
 mod instance_context;
 mod instance_environment;
@@ -9,6 +10,7 @@ mod view;
 mod view_builder;
 mod view_event;
 
+pub use application_event::*;
 pub use frame::*;
 pub use instance_context::*;
 pub use instance_environment::*;
@@ -23,3 +25,25 @@ pub struct InstanceId(Uuid);
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
 pub struct ViewId(Uuid);
+
+impl ViewId {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
+}
+
+/// Identifies a shell presentation clock.
+///
+/// This is neither a [`ViewId`], which identifies logical application content and input targets,
+/// nor a native window identifier. A presentation may be backed by a window, an embedded surface,
+/// or another host-specific rendering target.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
+pub struct PresentationId(Uuid);
+
+impl PresentationId {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Uuid::new_v4().into()
+    }
+}

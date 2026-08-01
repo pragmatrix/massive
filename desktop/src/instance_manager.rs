@@ -8,7 +8,7 @@ use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
 use massive_applications::{
-    CreationMode, InstanceContext, InstanceEnvironment, InstanceEvent, InstanceId, ViewEvent,
+    ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment, InstanceId, ViewEvent,
     ViewId,
 };
 use massive_scene::{Location, Ref};
@@ -28,7 +28,7 @@ pub struct InstanceManager {
 struct RunningInstance {
     #[allow(unused)]
     application_name: String,
-    events_tx: UnboundedSender<InstanceEvent>,
+    events_tx: UnboundedSender<ApplicationMessage>,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, From, Into)]
@@ -85,7 +85,7 @@ impl InstanceManager {
         Ok(())
     }
 
-    /// Begin the shutdown of an instance by sending [`InstanceEvent::Shutdown`]. Returns immediately
+    /// Begin the shutdown of an instance by sending [`ApplicationMessage::Shutdown`]. Returns immediately
     /// after sending the event
     pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self.instances.get(&instance_id).ok_or_else(|| {
@@ -97,7 +97,7 @@ impl InstanceManager {
 
         instance
             .events_tx
-            .send(InstanceEvent::Shutdown)
+            .send(ApplicationMessage::Shutdown(instance_id))
             .map_err(|_| {
                 anyhow!(
                     "Failed to send shutdown event to instance {:?}",
@@ -125,10 +125,10 @@ impl InstanceManager {
 
     pub fn send_view_event(&self, path: impl Into<ViewPath>, event: ViewEvent) -> Result<()> {
         let (instance, view) = path.into().into();
-        self.send_event(instance, InstanceEvent::View(view, event))
+        self.send_event(instance, ApplicationMessage::View(view, event))
     }
 
-    pub fn send_event(&self, instance_id: InstanceId, event: InstanceEvent) -> Result<()> {
+    pub fn send_event(&self, instance_id: InstanceId, event: ApplicationMessage) -> Result<()> {
         let instance = self.get_instance(instance_id)?;
 
         instance
@@ -137,7 +137,7 @@ impl InstanceManager {
             .with_context(|| format!("Failed to send event to instance {:?}", instance_id))
     }
 
-    pub fn broadcast_event(&self, event: InstanceEvent) {
+    pub fn broadcast_event(&self, event: ApplicationMessage) {
         for instance in self.instances.values() {
             let _ = instance.events_tx.send(event.clone());
         }

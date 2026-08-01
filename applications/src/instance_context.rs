@@ -1,6 +1,5 @@
 //! The context for an instance.
 
-use std::mem;
 use std::sync::Arc;
 
 use anyhow::{Result, bail};
@@ -11,12 +10,12 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_renderer::{FontManager, RenderPacing};
 use massive_scene::{HandleChangeReceiver, Location, Ref, SceneChange};
-use massive_util::{CoalescingKey, CoalescingReceiver};
+use massive_util::CoalescingReceiver;
 
 use crate::view_builder::ViewBuilder;
 use crate::{
-    DesktopRequest, Frame, FrameSubmission, InstanceChange, InstanceEnvironment, InstanceId,
-    InstanceParameters, InstanceSubmission, Scene, ViewEvent, ViewExtent, ViewId,
+    ApplicationEvent, ApplicationMessage, DesktopRequest, Frame, FrameSubmission, InstanceChange,
+    InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene, ViewExtent,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -51,7 +50,7 @@ pub struct InstanceContext {
     /// instance changes (in order).
     changes: Arc<InstanceChangeCollector>,
 
-    events: CoalescingReceiver<InstanceEvent>,
+    events: CoalescingReceiver<ApplicationMessage>,
 }
 
 impl Drop for InstanceContext {
@@ -77,7 +76,7 @@ impl InstanceContext {
         creation_mode: CreationMode,
         environment: InstanceEnvironment,
         view_parent: Ref<Location>,
-        events: UnboundedReceiver<InstanceEvent>,
+        events: UnboundedReceiver<ApplicationMessage>,
     ) -> Self {
         // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
         // the scene is rendered. This way, consistence can be preserved when animations are applied
@@ -145,8 +144,8 @@ impl InstanceContext {
         )
     }
 
-    pub async fn wait_for_event(&mut self) -> Result<InstanceEvent> {
-        self.events.recv().await
+    pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent<std::convert::Infallible>> {
+        Ok(self.events.recv().await?.into())
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
@@ -192,40 +191,4 @@ impl InstanceContext {
 
         Ok(())
     }
-}
-
-#[derive(Debug, Clone)]
-pub enum InstanceEvent {
-    View(ViewId, ViewEvent),
-    /// Destroy the whole instance.
-    Shutdown,
-    ApplyAnimations,
-}
-
-impl CoalescingKey for InstanceEvent {
-    type Key = InstanceEventCoalescingKey;
-
-    fn coalescing_key(&self) -> Option<InstanceEventCoalescingKey> {
-        match self {
-            InstanceEvent::View(view_id, view_event) => match view_event {
-                ViewEvent::Resized(..) => Some(InstanceEventCoalescingKey::ViewEvent(
-                    *view_id,
-                    mem::discriminant(view_event),
-                )),
-                ViewEvent::CursorMoved(..) => Some(InstanceEventCoalescingKey::ViewEvent(
-                    *view_id,
-                    mem::discriminant(view_event),
-                )),
-                _ => None,
-            },
-            InstanceEvent::ApplyAnimations => Some(InstanceEventCoalescingKey::ApplyAnimations),
-            InstanceEvent::Shutdown => None,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Eq, Hash)]
-pub enum InstanceEventCoalescingKey {
-    ApplyAnimations,
-    ViewEvent(ViewId, mem::Discriminant<ViewEvent>),
 }

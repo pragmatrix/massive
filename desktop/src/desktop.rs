@@ -1,3 +1,4 @@
+use std::convert::Infallible;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -7,14 +8,14 @@ use massive_util::CollectingVec;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
 use massive_applications::{
-    CreationMode, Frame, InstanceEnvironment, InstanceEvent, InstanceId, InstanceParameters,
-    InstanceSubmission, ViewEvent,
+    ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceEnvironment, InstanceId,
+    InstanceParameters, InstanceSubmission, ViewEvent,
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_scene::ChangeCollector;
 use massive_shell::AsyncWindowRenderer;
-use massive_shell::{ApplicationContext, FontManager, Scene, ShellEvent};
+use massive_shell::{ApplicationContext, FontManager, Scene};
 use uuid::Uuid;
 
 use crate::DesktopEnvironment;
@@ -44,7 +45,7 @@ pub struct Desktop {
 
 #[derive(Debug)]
 enum DesktopEvent {
-    Shell(ShellEvent),
+    ApplicationEvents(Vec<ApplicationEvent<Infallible>>),
     InstanceSubmission(InstanceId, InstanceSubmission),
     InstanceEnded(InstanceId, massive_shell::Result<()>),
 }
@@ -119,8 +120,7 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system =
-            DesktopSystem::new(env, fonts.clone(), window.clone(), default_size, &scene)?;
+        let mut system = DesktopSystem::new(env, fonts.clone(), window, default_size, &scene)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
@@ -174,8 +174,8 @@ impl Desktop {
                     DesktopEvent::InstanceSubmission(instance_id, submission)
                 }
 
-                shell_event = self.context.wait_for_shell_event() => {
-                    DesktopEvent::Shell(shell_event?)
+                events = self.context.wait_for_events::<Infallible>() => {
+                    DesktopEvent::ApplicationEvents(events?)
                 }
 
                 Ok((instance_id, instance_result)) = self.instance_manager.join_next() => {
@@ -190,38 +190,56 @@ impl Desktop {
             let mut frame = self.context.frame(&self.scene);
 
             match event {
-                DesktopEvent::Shell(ShellEvent::WindowEvent(_window_id, window_event)) => {
-                    if let Some(view_event) = ViewEvent::from_window_event(&window_event)
-                        && let Some(input_event) =
-                            self.event_manager.add_event(view_event, Instant::now())
-                    {
-                        let keyboard_shortcut =
-                            self.system.match_desktop_keyboard_shortcut(&input_event);
+                DesktopEvent::ApplicationEvents(events) => {
+                    for event in events {
+                        match event {
+                            ApplicationEvent::View(_, view_event) => {
+                                if let Some(input_event) = self
+                                    .event_manager
+                                    .add_event(view_event.clone(), Instant::now())
+                                {
+                                    let keyboard_shortcut =
+                                        self.system.match_desktop_keyboard_shortcut(&input_event);
 
-                        let event_changes: Changes = if let Some(keyboard_cmd) = keyboard_shortcut {
-                            self.system.plan(keyboard_cmd.into_command(), &self.scene)?
-                        } else {
-                            self.system
-                                .process_input_event(&input_event, self.renderer.geometry())?
-                        };
+                                    let event_changes: Changes =
+                                        if let Some(keyboard_cmd) = keyboard_shortcut {
+                                            self.system
+                                                .plan(keyboard_cmd.into_command(), &self.scene)?
+                                        } else {
+                                            self.system.process_input_event(
+                                                &input_event,
+                                                self.renderer.geometry(),
+                                            )?
+                                        };
 
-                        self.system.transact(
-                            event_changes,
-                            &mut frame,
-                            &mut self.instance_manager,
-                            None,
-                        )?;
+                                    self.system.transact(
+                                        event_changes,
+                                        &mut frame,
+                                        &mut self.instance_manager,
+                                        None,
+                                    )?;
+                                }
+
+                                // This is completely weird here. We need a better solution for resize_redraw().
+                                self.renderer.resize_redraw(&view_event)?;
+                            }
+                            ApplicationEvent::ApplyAnimations(presentation_id) => {
+                                frame.upgrade_to_apply_animations_cycle();
+                                // Performance: Not every instance needs that, only the ones animating. The
+                                // presentation ID preserves the renderer clock that produced this tick.
+                                self.instance_manager.broadcast_event(
+                                    ApplicationMessage::ApplyAnimations(presentation_id),
+                                );
+                                self.system.apply_animations(&frame);
+                            }
+                            ApplicationEvent::Shutdown(_) => {
+                                // Robustness: Clarify if and when this happens.
+                                info!("Desktop shutdown request received");
+                                return Ok(());
+                            }
+                            ApplicationEvent::Custom(event) => match event {},
+                        }
                     }
-
-                    // This is completely weird here. We need a better solution for resize_redraw().
-                    self.renderer.resize_redraw(&window_event)?;
-                }
-                DesktopEvent::Shell(ShellEvent::ApplyAnimations(_)) => {
-                    frame.upgrade_to_apply_animations_cycle();
-                    // Performance: Not every instance needs that, only the ones animating.
-                    self.instance_manager
-                        .broadcast_event(InstanceEvent::ApplyAnimations);
-                    self.system.apply_animations(&frame);
                 }
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
