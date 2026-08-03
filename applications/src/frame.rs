@@ -12,7 +12,10 @@ use anyhow::Result;
 use derive_more::Deref;
 use log::error;
 
-use massive_animation::{AnimationContext, AnimationCoordinator, MovementBuilder, MovementRuntime};
+use massive_animation::{
+    AnimationAllocator, AnimationCoordinator, AnimationTimeProvider, MovementBuilder,
+    MovementRuntime,
+};
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::Scene;
 
@@ -42,9 +45,15 @@ impl FrameSubmission<'_> {
     }
 }
 
-impl AnimationContext for Frame<'_, '_> {
+impl AnimationTimeProvider for Frame<'_, '_> {
     fn current_cycle_time(&self) -> Instant {
         self.animation.current_cycle_time()
+    }
+}
+
+impl AnimationAllocator for Frame<'_, '_> {
+    fn time_provider(&self) -> &dyn AnimationTimeProvider {
+        self
     }
 
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
@@ -85,7 +94,7 @@ impl<'scene, 'context> Frame<'scene, 'context> {
     pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+        F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
     {
         self.movement.movement(value, apply_animations)
     }

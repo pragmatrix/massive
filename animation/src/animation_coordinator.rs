@@ -33,7 +33,7 @@
 use std::cmp::max;
 use std::time::{Duration, Instant};
 
-use crate::AnimationContext;
+use crate::{AnimationAllocator, AnimationTimeProvider};
 
 #[derive(Debug)]
 pub struct AnimationCoordinator {
@@ -133,9 +133,15 @@ impl AnimationCoordinator {
     }
 }
 
-impl AnimationContext for AnimationCoordinator {
+impl AnimationTimeProvider for AnimationCoordinator {
     fn current_cycle_time(&self) -> Instant {
         AnimationCoordinator::current_cycle_time(self)
+    }
+}
+
+impl AnimationAllocator for AnimationCoordinator {
+    fn time_provider(&self) -> &dyn AnimationTimeProvider {
+        self
     }
 
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {

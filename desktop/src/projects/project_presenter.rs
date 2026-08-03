@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use massive_animation::{Animated, AnimationContext, Interpolation};
+use massive_animation::{Animated, AnimationAllocator, AnimationTimeProvider, Interpolation};
 use massive_geometry::{Color, Rect, Size, SizePx, Transform};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Visual};
@@ -57,7 +57,7 @@ impl ProjectPresenter {
         self.scene_transform.update_if_changed(scene_transform);
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
         self.header.apply_animations(context);
     }
 }
@@ -119,7 +119,7 @@ impl ProjectHeaderPresenter {
 
     pub fn set_layout(
         &mut self,
-        context: &mut impl AnimationContext,
+        context: &mut dyn AnimationAllocator,
         size: SizePx,
         layout_transform: Transform,
         animate: bool,
@@ -136,11 +136,11 @@ impl ProjectHeaderPresenter {
             );
         } else {
             self.animated_size.snap(size);
-            self.apply_animations(context);
+            self.apply_animations(context.time_provider());
         }
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
         let size = self.animated_size.value(context);
         let scene_transform = self
             .layout_transform

@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::AnimationContext;
+use crate::{AnimationAllocator, AnimationTimeProvider};
 
 pub struct MovementRuntime {
     movements: HashMap<MovementReference, MountedMovement>,
@@ -46,7 +46,7 @@ impl MovementRuntime {
     pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+        F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
     {
         MovementBuilder {
             runtime: self,
@@ -61,7 +61,7 @@ impl MovementRuntime {
     fn mount<T, F>(&mut self, instance: MovementInstance<T, F>) -> Movement<T>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+        F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
     {
         let instance = Box::new(instance);
         let reference = Movement::new(&instance.value, self.action_inbox.clone());
@@ -76,7 +76,7 @@ impl MovementRuntime {
         reference
     }
 
-    pub fn run_actions(&mut self, context: &mut dyn AnimationContext) {
+    pub fn run_actions(&mut self, context: &mut dyn AnimationAllocator) {
         mem::swap(&mut self.actions, &mut *self.action_inbox.lock());
 
         for action in self.actions.drain(..) {
@@ -86,7 +86,7 @@ impl MovementRuntime {
                 }
                 MovementAction::Modify(pointer, apply) => {
                     if let Some(instance) = self.movements.get_mut(&pointer) {
-                        let mut intermediate = MovementAnimationContext {
+                        let mut intermediate = MovementAnimationAllocator {
                             inner: context,
                             ending_time: &mut instance.ending_time,
                         };
@@ -97,7 +97,10 @@ impl MovementRuntime {
         }
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) -> Vec<Box<dyn Any + Send>> {
+    pub fn apply_animations(
+        &mut self,
+        context: &dyn AnimationTimeProvider,
+    ) -> Vec<Box<dyn Any + Send>> {
         let now = context.current_cycle_time();
         let mut events = Vec::new();
         for movement in self.movements.values_mut() {
@@ -140,7 +143,7 @@ impl<T, F> MovementBuilder<'_, T, F> {
 impl<T, F> MovementBuilder<'_, T, F>
 where
     T: Any + Send + Sync,
-    F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+    F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
 {
     pub fn mount(self) -> Movement<T> {
         self.runtime.mount(self.instance)
@@ -166,7 +169,7 @@ impl<T> Movement<T> {
 
     pub fn modify(
         &self,
-        modifier: impl FnOnce(&mut T, &mut dyn AnimationContext) + Send + Sync + 'static,
+        modifier: impl FnOnce(&mut T, &mut dyn AnimationAllocator) + Send + Sync + 'static,
     ) where
         T: Any + Send + Sync,
     {
@@ -206,7 +209,7 @@ impl MovementReference {
 trait AnimatableMovement: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
-    fn apply_animations(&mut self, context: &dyn AnimationContext);
+    fn apply_animations(&mut self, context: &dyn AnimationTimeProvider);
 
     fn completion_event(&mut self) -> Option<Box<dyn Any + Send>>;
 }
@@ -225,13 +228,13 @@ struct MovementInstance<T, F> {
 impl<T, F> AnimatableMovement for MovementInstance<T, F>
 where
     T: Any + Send + Sync,
-    F: FnMut(&mut T, &dyn AnimationContext) + Send + Sync + 'static,
+    F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
 {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
         &mut self.value
     }
 
-    fn apply_animations(&mut self, context: &dyn AnimationContext) {
+    fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
         (self.apply_animations)(&mut self.value, context);
     }
 
@@ -243,14 +246,20 @@ where
 }
 
 /// Forwards animation allocations to the real context while tracking this movement's ending time.
-struct MovementAnimationContext<'a> {
-    inner: &'a mut dyn AnimationContext,
+struct MovementAnimationAllocator<'a> {
+    inner: &'a mut dyn AnimationAllocator,
     ending_time: &'a mut Option<Instant>,
 }
 
-impl AnimationContext for MovementAnimationContext<'_> {
+impl AnimationTimeProvider for MovementAnimationAllocator<'_> {
     fn current_cycle_time(&self) -> Instant {
         self.inner.current_cycle_time()
+    }
+}
+
+impl AnimationAllocator for MovementAnimationAllocator<'_> {
+    fn time_provider(&self) -> &dyn AnimationTimeProvider {
+        self.inner.time_provider()
     }
 
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
@@ -265,7 +274,7 @@ impl AnimationContext for MovementAnimationContext<'_> {
 }
 
 type ModifyMovement =
-    Box<dyn FnOnce(&mut (dyn Any + Send), &mut dyn AnimationContext) + Send + Sync>;
+    Box<dyn FnOnce(&mut (dyn Any + Send), &mut dyn AnimationAllocator) + Send + Sync>;
 
 enum MovementAction {
     Drop(MovementReference),

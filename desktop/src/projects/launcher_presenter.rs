@@ -5,7 +5,9 @@ use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_animation::{Animated, AnimationContext, Interpolation, Movement, MovementRuntime};
+use massive_animation::{
+    Animated, AnimationAllocator, AnimationTimeProvider, Interpolation, Movement, MovementRuntime,
+};
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_input::EventManager;
@@ -48,7 +50,9 @@ pub struct LauncherPresenter {
     id: LaunchProfileId,
     profile: LaunchProfile,
     mode: LauncherMode,
+
     movement: Movement<LauncherMovement>,
+
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
     background: Handle<Visual>,
@@ -119,17 +123,14 @@ impl LauncherPresenter {
         let movement_background = background.clone();
         let movement_name = name.clone();
         let movement = movement_runtime
-            .movement(
-                LauncherMovement::new(size),
-                move |movement, context| {
-                    movement.apply_animations(
-                        context,
-                        &scene_transform,
-                        &movement_background,
-                        &movement_name,
-                    );
-                },
-            )
+            .movement(LauncherMovement::new(size), move |movement, context| {
+                movement.apply_animations(
+                    context,
+                    &scene_transform,
+                    &movement_background,
+                    &movement_name,
+                );
+            })
             .mount();
 
         Self {
@@ -302,19 +303,19 @@ impl LauncherPresenter {
         self.presents_instance
     }
 
-    pub fn set_layout(
-        &mut self,
-        size: SizePx,
-        layout_transform: Transform,
-        animate: bool,
-    ) {
+    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
         let size = Size::new(size.width as f64, size.height as f64);
         let scene_transform = self.scene_transform.clone();
         let background = self.background.clone();
         let name = self.name.clone();
         self.movement.modify(move |movement, context| {
             movement.set_layout(context, layout_transform, size, animate);
-            movement.apply_animations(context, &scene_transform, &background, &name);
+            movement.apply_animations(
+                context.time_provider(),
+                &scene_transform,
+                &background,
+                &name,
+            );
         });
     }
 
@@ -352,7 +353,7 @@ impl LauncherMovement {
 
     fn set_layout(
         &mut self,
-        context: &mut dyn AnimationContext,
+        context: &mut dyn AnimationAllocator,
         layout_transform: Transform,
         size: Size,
         animate: bool,
@@ -378,7 +379,7 @@ impl LauncherMovement {
 
     fn apply_animations(
         &mut self,
-        context: &dyn AnimationContext,
+        context: &dyn AnimationTimeProvider,
         scene_transform_handle: &Handle<Transform>,
         background: &Handle<Visual>,
         name: &Handle<Visual>,

@@ -1,6 +1,8 @@
 use std::{sync::Arc, time::Duration};
 
-use massive_animation::{Animated, AnimationContext, Interpolation, Movement, MovementRuntime};
+use massive_animation::{
+    Animated, AnimationAllocator, AnimationTimeProvider, Interpolation, Movement, MovementRuntime,
+};
 use massive_geometry::{Color, Point, Rect, Size, Transform};
 use massive_layout::Placement;
 use massive_scene::{Handle, IntoVisual, Location, Object, StageIdentityLocation, Visual};
@@ -77,7 +79,7 @@ impl Default for HoverMovement {
 impl HoverMovement {
     fn update_hover_placement_and_visual(
         &mut self,
-        context: &dyn AnimationContext,
+        context: &dyn AnimationTimeProvider,
         hover_scene_transform: &Handle<Transform>,
         hover_location: &Handle<Location>,
         hover_visual: &Handle<Visual>,
@@ -100,7 +102,7 @@ impl HoverMovement {
 
     fn set_placement(
         &mut self,
-        context: &mut dyn AnimationContext,
+        context: &mut dyn AnimationAllocator,
         placement: Option<Placement<Transform, 2>>,
     ) {
         match placement {

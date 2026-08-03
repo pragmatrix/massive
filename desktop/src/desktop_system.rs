@@ -30,7 +30,7 @@ use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 
-use massive_animation::{Animated, AnimationContext, MovementRuntime};
+use massive_animation::{Animated, AnimationTimeProvider, MovementRuntime};
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -386,7 +386,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
         for project in self.aggregates.projects.values_mut() {
             project.apply_animations(context);
         }
@@ -396,7 +396,7 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self, context: &impl AnimationContext) -> &PixelCamera {
+    pub fn camera(&mut self, context: &dyn AnimationTimeProvider) -> &PixelCamera {
         self.camera.value(context)
     }
 

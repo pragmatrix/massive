@@ -2,7 +2,9 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::{Result, bail};
 
-use massive_animation::{Animated, AnimationContext, Interpolation, Movement, MovementRuntime};
+use massive_animation::{
+    Animated, AnimationAllocator, AnimationTimeProvider, Interpolation, Movement, MovementRuntime,
+};
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_renderer::RenderPacing;
@@ -274,7 +276,7 @@ impl InstancePresenter {
         let location = self.root.location.clone();
         self.movement.modify(move |movement, context| {
             movement.set_layout(context, layout_transform, target_visibility_alpha, animate);
-            movement.apply_animations(context, &transform, &location);
+            movement.apply_animations(context.time_provider(), &transform, &location);
         });
 
         if let Some(background) = &mut self.background {
@@ -322,7 +324,7 @@ impl InstanceMovement {
 
     fn set_layout(
         &mut self,
-        context: &mut dyn AnimationContext,
+        context: &mut dyn AnimationAllocator,
         layout_transform: Transform,
         visibility_alpha: f32,
         animate: bool,
@@ -348,7 +350,7 @@ impl InstanceMovement {
 
     fn apply_animations(
         &mut self,
-        context: &dyn AnimationContext,
+        context: &dyn AnimationTimeProvider,
         transform: &Handle<Transform>,
         location: &Handle<Location>,
     ) {
