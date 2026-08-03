@@ -65,7 +65,7 @@ impl<T: Send + Interpolatable> Animated<T> {
             .animate_to(value, instant, target_value, duration, interpolation);
     }
 
-    pub fn set_immediately(&mut self, value: T) {
+    pub fn snap(&mut self, value: T) {
         self.animation.end();
         self.value = value;
     }

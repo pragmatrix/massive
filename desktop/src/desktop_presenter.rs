@@ -113,8 +113,8 @@ impl HoverMovement {
                     Interpolation::CubicOut,
                 );
                 if *self.alpha.latest() == 0.0 {
-                    self.transform.set_immediately(placement.transform);
-                    self.size.set_immediately(size);
+                    self.transform.snap(placement.transform);
+                    self.size.snap(size);
                 } else {
                     self.transform.animate_if_changed(
                         context,

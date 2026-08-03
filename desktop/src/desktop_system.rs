@@ -354,7 +354,7 @@ impl DesktopSystem {
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in `Animated`.
             let camera = *self.camera.value(frame);
-            self.camera.set_immediately(camera);
+            self.camera.snap(camera);
         }
 
         // This should probably be a function call and does not need to be an effect anymore.

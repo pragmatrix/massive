@@ -135,7 +135,7 @@ impl ProjectHeaderPresenter {
                 Interpolation::CubicOut,
             );
         } else {
-            self.animated_size.set_immediately(size);
+            self.animated_size.snap(size);
             self.apply_animations(context);
         }
     }

@@ -305,8 +305,8 @@ impl LauncherPresenter {
                 Interpolation::CubicOut,
             );
         } else {
-            self.layout_transform.set_immediately(layout_transform);
-            self.size.set_immediately(size);
+            self.layout_transform.snap(layout_transform);
+            self.size.snap(size);
             self.apply_presenter_animations(context);
         }
     }
@@ -362,7 +362,6 @@ impl LauncherPresenter {
             }
         });
     }
-
 }
 
 fn background_shape(rect: Rect, color: Color) -> Shape {

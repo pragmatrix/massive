@@ -177,7 +177,7 @@ impl InstancePresenter {
         });
         self.movement.modify(move |movement, context| {
             // Same here, this looks weird.
-            movement.view_alpha.set_immediately(0.0);
+            movement.view_alpha.snap(0.0);
             movement.view_alpha.animate(
                 context,
                 1.0,
@@ -341,8 +341,8 @@ impl InstanceMovement {
                 Interpolation::CubicOut,
             );
         } else {
-            self.visibility_alpha.set_immediately(visibility_alpha);
-            self.layout_transform.set_immediately(layout_transform);
+            self.visibility_alpha.snap(visibility_alpha);
+            self.layout_transform.snap(layout_transform);
         }
     }
 

@@ -228,7 +228,7 @@ impl DesktopSystem {
                     Interpolation::CubicOut,
                 );
             } else {
-                self.camera.set_immediately(camera);
+                self.camera.snap(camera);
             }
         }
     }
