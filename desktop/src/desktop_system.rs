@@ -387,10 +387,6 @@ impl DesktopSystem {
     }
 
     pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        for launcher in self.aggregates.launchers.values_mut() {
-            launcher.apply_animations(context);
-        }
-
         for project in self.aggregates.projects.values_mut() {
             project.apply_animations(context);
         }

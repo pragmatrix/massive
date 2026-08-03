@@ -70,7 +70,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Prefer native, user-remappable command routing over hardcoded shortcut matching when platform conventions support remapping.
 - When refactoring eventful flows, extract pure target/decision helpers first and keep side-effect dispatch ordering unchanged until tests lock transition semantics.
 - When adding hierarchical layout metadata, compose effective values across the full ancestor path at absolute-placement boundaries instead of relying only on the target-local value.
-- For runtime-driven presenter animation, keep mutable animation state in a dedicated movement value, retain its `Movement` handle on the presenter, and capture scene outputs in the movement callback.
+- For runtime-driven presenter animation, keep mutable animation state in a dedicated movement value, retain its `Movement` handle and scene outputs on the presenter, and capture cloned scene handles in the movement callback.
 
 ## Testing
 - Don't add tests unless explicitly asked.

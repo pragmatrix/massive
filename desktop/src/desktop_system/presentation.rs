@@ -2,7 +2,6 @@ use anyhow::Result;
 use anyhow::bail;
 use log::warn;
 
-use massive_animation::AnimationContext;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 use massive_geometry::{Point, Transform, Vector3};
 use massive_layout::{Placement, Size as LayoutSize};
@@ -63,7 +62,7 @@ impl DesktopSystem {
             .launchers
             .get_mut(&launcher)
             .expect("Launcher not found")
-            .fade_out(frame);
+            .fade_out();
 
         Ok(())
     }
@@ -94,7 +93,6 @@ impl DesktopSystem {
 
     pub fn hide_instance(
         &mut self,
-        context: &mut impl AnimationContext,
         launcher: LaunchProfileId,
         instance: InstanceId,
     ) -> Result<()> {
@@ -110,7 +108,7 @@ impl DesktopSystem {
                 .launchers
                 .get_mut(&launcher)
                 .expect("Launcher not found")
-                .fade_in(context);
+                .fade_in();
         }
 
         Ok(())

@@ -279,7 +279,7 @@ impl DesktopSystem {
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .set_layout(context, size_px, transform, animate);
+                    .set_layout(size_px, transform, animate);
             }
             DesktopTarget::View(..) => {
                 // Robustness: Support resize here?

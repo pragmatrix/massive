@@ -361,7 +361,7 @@ impl DesktopSystem {
                 )?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
-                self.hide_instance(frame, launcher, instance)?;
+                self.hide_instance(launcher, instance)?;
             }
             DesktopChange::SetFocus { target, reason } => {
                 self.focus(target.as_ref(), instance_manager, reason)?;
@@ -389,7 +389,7 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission, frame);
             }
             DesktopChange::Project(project_change) => {
-                return self.apply_project_change(project_change, frame.scene());
+                return self.apply_project_change(project_change, frame);
             }
         }
 
@@ -439,7 +439,7 @@ impl DesktopSystem {
     fn apply_project_change(
         &mut self,
         change: ProjectChange,
-        scene: &Scene,
+        frame: &mut Frame,
     ) -> Result<ChangeOutput> {
         match change {
             ProjectChange::AddProject { id, properties } => {
@@ -449,7 +449,7 @@ impl DesktopSystem {
                     ProjectPresenter::new(
                         properties,
                         parent_location,
-                        scene,
+                        frame.scene(),
                         &mut self.fonts.lock(),
                     ),
                 )?;
@@ -481,8 +481,9 @@ impl DesktopSystem {
                     id,
                     profile,
                     massive_geometry::Size::default(),
-                    scene,
+                    frame.scene(),
                     &mut self.fonts.lock(),
+                    frame.movement_runtime(),
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
             }
