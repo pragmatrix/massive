@@ -451,6 +451,7 @@ impl DesktopSystem {
                         parent_location,
                         frame.scene(),
                         &mut self.fonts.lock(),
+                        frame.movement_runtime(),
                     ),
                 )?;
             }

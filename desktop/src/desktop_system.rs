@@ -387,12 +387,6 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self, instant: Instant) {
-        for project in self.aggregates.projects.values_mut() {
-            project.apply_animations(instant);
-        }
-    }
-
     pub fn is_present(&self, instance: &InstanceId) -> bool {
         self.aggregates.instances.contains_key(instance)
     }

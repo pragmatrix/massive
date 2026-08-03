@@ -237,7 +237,6 @@ impl Desktop {
                                         ApplicationMessage::ApplyAnimations(presentation_id),
                                     );
                                 }
-                                self.system.apply_animations(frame.animation_time());
                             }
                             ApplicationEvent::Shutdown(_) => {
                                 // Robustness: Clarify if and when this happens.

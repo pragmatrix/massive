@@ -1,6 +1,8 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation};
+use massive_animation::{
+    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
+};
 use massive_geometry::{Color, Rect, Size, SizePx, Transform};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Visual};
@@ -30,13 +32,20 @@ impl ProjectPresenter {
         parent_location: Handle<Location>,
         scene: &Scene,
         font_system: &mut FontSystem,
+        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
             .to_location_relative(&parent_location)
             .enter(scene);
         let name = properties.name.clone();
-        let header = ProjectHeaderPresenter::new(properties, location.clone(), scene, font_system);
+        let header = ProjectHeaderPresenter::new(
+            properties,
+            location.clone(),
+            scene,
+            font_system,
+            movement_runtime,
+        );
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
 
         Self {
@@ -57,19 +66,12 @@ impl ProjectPresenter {
         self.scene_transform.update_if_changed(scene_transform);
     }
 
-    pub fn apply_animations(&mut self, instant: Instant) {
-        self.header.apply_animations(instant);
-    }
 }
 
 #[derive(Debug)]
 pub struct ProjectHeaderPresenter {
-    layout_transform: Transform,
-    animated_size: Animated<Size>,
     measured_size: SizePx,
-    scene_transform: Handle<Transform>,
-    background: Handle<Visual>,
-    name: Handle<Visual>,
+    movement: Movement<ProjectHeaderMovement>,
 }
 
 impl ProjectHeaderPresenter {
@@ -78,6 +80,7 @@ impl ProjectHeaderPresenter {
         parent_location: Handle<Location>,
         scene: &Scene,
         font_system: &mut FontSystem,
+        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
@@ -103,13 +106,23 @@ impl ProjectHeaderPresenter {
             .with_decal_order(PROJECT_HEADER_TEXT_DECAL_ORDER)
             .enter(scene);
 
+        let movement_scene_transform = scene_transform.clone();
+        let movement_background = background.clone();
+        let movement_name = name.clone();
+        let movement = movement_runtime
+            .movement(ProjectHeaderMovement::default(), move |movement, progress| {
+                movement.apply_animations(
+                    progress,
+                    &movement_scene_transform,
+                    &movement_background,
+                    &movement_name,
+                );
+            })
+            .mount();
+
         Self {
-            layout_transform: Transform::IDENTITY,
-            animated_size: Size::default().into(),
             measured_size,
-            scene_transform,
-            background,
-            name,
+            movement,
         }
     }
 
@@ -118,42 +131,78 @@ impl ProjectHeaderPresenter {
     }
 
     pub fn set_layout(
-        &mut self,
-        context: &mut dyn AnimationAllocator,
+        &self,
         size: SizePx,
         layout_transform: Transform,
         animate: bool,
     ) {
-        self.layout_transform = layout_transform;
         let size = Size::new(size.width as f64, size.height as f64);
-
-        if animate {
-            self.animated_size.animate_if_changed(
-                context,
-                size,
-                PROJECT_HEADER_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.animated_size.snap(size);
-            self.apply_animations(AnimationProgress::Snap);
+        self.movement.modify(move |movement, context| {
+            movement.set_layout(context, size, layout_transform);
+        });
+        if !animate {
+            self.movement.snap();
         }
     }
+}
 
-    pub fn apply_animations(&mut self, progress: impl Into<AnimationProgress>) {
-        let size = self.animated_size.proceed(progress);
+#[derive(Debug)]
+struct ProjectHeaderMovement {
+    layout_transform: Animated<Transform>,
+    size: Animated<Size>,
+}
+
+impl Default for ProjectHeaderMovement {
+    fn default() -> Self {
+        Self {
+            layout_transform: Transform::IDENTITY.into(),
+            size: Size::default().into(),
+        }
+    }
+}
+
+impl ProjectHeaderMovement {
+    fn set_layout(
+        &mut self,
+        context: &mut dyn AnimationAllocator,
+        size: Size,
+        layout_transform: Transform,
+    ) {
+        self.layout_transform.animate_if_changed(
+            context,
+            layout_transform,
+            PROJECT_HEADER_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+        self.size.animate_if_changed(
+            context,
+            size,
+            PROJECT_HEADER_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+    }
+
+    fn apply_animations(
+        &mut self,
+        progress: AnimationProgress,
+        scene_transform_handle: &Handle<Transform>,
+        background: &Handle<Visual>,
+        name: &Handle<Visual>,
+    ) {
+        let size = self.size.proceed(progress);
         let scene_transform = self
             .layout_transform
+            .proceed(progress)
             .to_origin_space_from_size(size.width, size.height);
-        self.scene_transform.update_if_changed(scene_transform);
-        self.background.update_if_changed_with(|visual| {
+        scene_transform_handle.update_if_changed(scene_transform);
+        background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
                 size.to_rect(),
                 PROJECT_HEADER_BACKGROUND_COLOR.with_alpha(PROJECT_HEADER_BACKGROUND_ALPHA),
             )]
             .into()
         });
-        self.name.update_if_changed_with(|visual| {
+        name.update_if_changed_with(|visual| {
             visual.shapes = match &*visual.shapes {
                 [Shape::GlyphRun(gr)] => [gr
                     .clone()

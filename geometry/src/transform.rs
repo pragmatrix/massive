@@ -109,6 +109,10 @@ impl Transform {
         )
     }
 
+    pub fn to_origin_space_from_size(self, width: f64, height: f64) -> Self {
+        self.to_origin_space(Point::new(width * 0.5, height * 0.5))
+    }
+
     /// Converts an anchor-based transform into an origin-based transform.
     ///
     /// The input transform translation is interpreted as the world-space position of `anchor`
@@ -117,10 +121,6 @@ impl Transform {
         let anchor = Vector3::new(anchor.x, anchor.y, 0.0);
         let origin_translation = self.translate + self.rotate * -anchor;
         Self::new(origin_translation, self.rotate, self.scale)
-    }
-
-    pub fn to_origin_space_from_size(self, width: f64, height: f64) -> Self {
-        self.to_origin_space(Point::new(width * 0.5, height * 0.5))
     }
 
     /// Converts an origin-based transform into an anchor-based transform.
