@@ -53,7 +53,7 @@ pub struct LauncherPresenter {
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
 
-    pub size: Animated<Size>,
+    size: Animated<Size>,
     background: Handle<Visual>,
     // The text, either centered, or on top of the border.
     name: Handle<Visual>,
