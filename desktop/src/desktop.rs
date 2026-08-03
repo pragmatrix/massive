@@ -237,7 +237,7 @@ impl Desktop {
                                         ApplicationMessage::ApplyAnimations(presentation_id),
                                     );
                                 }
-                                self.system.apply_animations(&frame);
+                                self.system.apply_animations(frame.animation_time());
                             }
                             ApplicationEvent::Shutdown(_) => {
                                 // Robustness: Clarify if and when this happens.
@@ -303,7 +303,7 @@ fn submit_frame(
     frame: Frame,
     renderer: &mut AsyncWindowRenderer,
 ) -> Result<()> {
-    let camera = *system.camera(&frame);
+    let camera = *system.camera(frame.animation_time());
     let mut submission = frame.submission().render_submission().with_camera(camera);
     // If any instance runs on smooth pacing, we need to, too.
     if system.effective_pacing() == RenderPacing::Smooth {

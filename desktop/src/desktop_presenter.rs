@@ -1,7 +1,7 @@
 use std::{sync::Arc, time::Duration};
 
 use massive_animation::{
-    Animated, AnimationAllocator, AnimationTimeProvider, Interpolation, Movement, MovementRuntime,
+    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_geometry::{Color, Point, Rect, Size, Transform};
 use massive_layout::Placement;
@@ -79,14 +79,14 @@ impl Default for HoverMovement {
 impl HoverMovement {
     fn update_hover_placement_and_visual(
         &mut self,
-        context: &dyn AnimationTimeProvider,
+        progress: AnimationProgress,
         hover_scene_transform: &Handle<Transform>,
         hover_location: &Handle<Location>,
         hover_visual: &Handle<Visual>,
     ) {
-        let alpha = *self.alpha.progress(context);
-        let transform = *self.transform.progress(context);
-        let size = *self.size.progress(context);
+        let alpha = *self.alpha.proceed(progress);
+        let transform = *self.transform.proceed(progress);
+        let size = *self.size.proceed(progress);
         let local_rect = size.to_rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
         let local_center = local_rect.center();

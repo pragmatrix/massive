@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 
-use crate::{AnimationAllocator, AnimationTimeProvider};
+use crate::{AnimationAllocator, AnimationProgress};
 
 pub struct MovementRuntime {
     movements: HashMap<MovementReference, MountedMovement>,
@@ -46,7 +46,7 @@ impl MovementRuntime {
     pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
+        F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
     {
         MovementBuilder {
             runtime: self,
@@ -61,7 +61,7 @@ impl MovementRuntime {
     fn mount<T, F>(&mut self, instance: MovementInstance<T, F>) -> Movement<T>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
+        F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
     {
         let instance = Box::new(instance);
         let reference = Movement::new(&instance.value, self.action_inbox.clone());
@@ -93,25 +93,30 @@ impl MovementRuntime {
                         apply(instance.movement.as_any_mut(), &mut intermediate);
                     }
                 }
+                MovementAction::Snap(pointer) => {
+                    if let Some(instance) = self.movements.get_mut(&pointer) {
+                        // Snapping is deliberately local and does not emit completion events yet.
+                        instance.movement.apply_animations(AnimationProgress::Snap);
+                        instance.ending_time = None;
+                    }
+                }
             }
         }
     }
 
-    pub fn apply_animations(
-        &mut self,
-        context: &dyn AnimationTimeProvider,
-    ) -> Vec<Box<dyn Any + Send>> {
-        let now = context.current_cycle_time();
+    pub fn apply_animations(&mut self, instant: Instant) -> Vec<Box<dyn Any + Send>> {
         let mut events = Vec::new();
         for movement in self.movements.values_mut() {
             let Some(ending_time) = movement.ending_time else {
                 continue;
             };
 
-            movement.movement.apply_animations(context);
+            movement
+                .movement
+                .apply_animations(AnimationProgress::Proceed(instant));
 
             // Keep applying through the first cycle at or past the movement end, then stop.
-            if now >= ending_time {
+            if instant >= ending_time {
                 movement.ending_time = None;
                 if let Some(event) = movement.movement.completion_event() {
                     events.push(event);
@@ -143,7 +148,7 @@ impl<T, F> MovementBuilder<'_, T, F> {
 impl<T, F> MovementBuilder<'_, T, F>
 where
     T: Any + Send + Sync,
-    F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
+    F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
 {
     pub fn mount(self) -> Movement<T> {
         self.runtime.mount(self.instance)
@@ -183,6 +188,12 @@ impl<T> Movement<T> {
             }),
         ));
     }
+
+    pub fn snap(&self) {
+        self.actions_inbox
+            .lock()
+            .push(MovementAction::Snap(self.instance));
+    }
 }
 
 impl<T> Drop for Movement<T> {
@@ -209,7 +220,7 @@ impl MovementReference {
 trait AnimatableMovement: Any + Send + Sync {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send);
 
-    fn apply_animations(&mut self, context: &dyn AnimationTimeProvider);
+    fn apply_animations(&mut self, progress: AnimationProgress);
 
     fn completion_event(&mut self) -> Option<Box<dyn Any + Send>>;
 }
@@ -228,14 +239,14 @@ struct MovementInstance<T, F> {
 impl<T, F> AnimatableMovement for MovementInstance<T, F>
 where
     T: Any + Send + Sync,
-    F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
+    F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
 {
     fn as_any_mut(&mut self) -> &mut (dyn Any + Send) {
         &mut self.value
     }
 
-    fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
-        (self.apply_animations)(&mut self.value, context);
+    fn apply_animations(&mut self, progress: AnimationProgress) {
+        (self.apply_animations)(&mut self.value, progress);
     }
 
     fn completion_event(&mut self) -> Option<Box<dyn Any + Send>> {
@@ -251,17 +262,7 @@ struct MovementAnimationAllocator<'a> {
     ending_time: &'a mut Option<Instant>,
 }
 
-impl AnimationTimeProvider for MovementAnimationAllocator<'_> {
-    fn current_cycle_time(&self) -> Instant {
-        self.inner.current_cycle_time()
-    }
-}
-
 impl AnimationAllocator for MovementAnimationAllocator<'_> {
-    fn time_provider(&self) -> &dyn AnimationTimeProvider {
-        self.inner.time_provider()
-    }
-
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
         let start = self.inner.allocate_animation_time(duration);
         let end = start + duration;
@@ -279,6 +280,7 @@ type ModifyMovement =
 enum MovementAction {
     Drop(MovementReference),
     Modify(MovementReference, ModifyMovement),
+    Snap(MovementReference),
 }
 
 impl fmt::Debug for MovementAction {
@@ -286,6 +288,7 @@ impl fmt::Debug for MovementAction {
         match self {
             Self::Drop(_) => formatter.write_str("Drop"),
             Self::Modify(_, _) => formatter.write_str("Modify"),
+            Self::Snap(_) => formatter.write_str("Snap"),
         }
     }
 }

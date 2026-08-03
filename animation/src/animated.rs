@@ -3,13 +3,20 @@ use std::time::Duration;
 use crate::time::Instant;
 use crate::{BlendedAnimation, Interpolatable, Interpolation};
 
-pub trait AnimationTimeProvider {
-    fn current_cycle_time(&self) -> Instant;
+#[derive(Debug, Copy, Clone)]
+pub enum AnimationProgress {
+    Proceed(Instant),
+    /// Completes an animation without producing a movement completion event.
+    Snap,
 }
 
-pub trait AnimationAllocator: AnimationTimeProvider {
-    fn time_provider(&self) -> &dyn AnimationTimeProvider;
+impl From<Instant> for AnimationProgress {
+    fn from(instant: Instant) -> Self {
+        Self::Proceed(instant)
+    }
+}
 
+pub trait AnimationAllocator {
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant;
 }
 
@@ -88,14 +95,16 @@ impl<T: Send + Interpolatable> Animated<T> {
         self.animation.target().unwrap_or(&self.value)
     }
 
-    pub fn progress(&mut self, context: &dyn AnimationTimeProvider) -> &T {
-        self.progress_animation(context);
+    pub fn proceed(&mut self, progress: impl Into<AnimationProgress>) -> &T {
+        match progress.into() {
+            AnimationProgress::Proceed(instant) => self.proceed_animation(instant),
+            AnimationProgress::Snap => self.finish(),
+        }
         self.latest()
     }
 
-    fn progress_animation(&mut self, context: &dyn AnimationTimeProvider) {
+    fn proceed_animation(&mut self, instant: Instant) {
         if self.animation.is_active() {
-            let instant = context.current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {
                 self.value = new_value;
             }

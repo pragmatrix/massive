@@ -1,9 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 
+use winit::window::CursorIcon;
+
 use massive_animation::{
-    Animated, AnimationAllocator, AnimationTimeProvider, Interpolation, Movement, MovementRuntime,
+    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
@@ -11,7 +14,6 @@ use massive_renderer::RenderPacing;
 use massive_scene::{At, Handle, Location, Object, Ref, StageIdentityLocation, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
-use winit::window::CursorIcon;
 
 #[derive(Debug, Clone)]
 pub struct InstanceRoot {
@@ -106,6 +108,14 @@ impl InstancePresenter {
             location.parent = Some(parent.to_ref());
         });
 
+        let has_initial_center_translation = initial_center_translation.is_some();
+        let initial_center_translation = initial_center_translation.unwrap_or_default();
+        root.transform
+            .update_if_changed(Transform::from_translation(initial_center_translation));
+        root.location.update_if_changed_with(|location| {
+            location.alpha = 0.0;
+        });
+
         let background = show_background.then(|| {
             let visual = InstanceBackground::shapes(Rect::ZERO)
                 .at(&root.location)
@@ -121,7 +131,7 @@ impl InstancePresenter {
         let location = root.location.clone();
         let movement = movement_runtime
             .movement(
-                InstanceMovement::new(initial_center_translation.unwrap_or_default()),
+                InstanceMovement::new(initial_center_translation),
                 move |movement, context| {
                     movement.apply_animations(context, &transform, &location);
                 },
@@ -133,10 +143,8 @@ impl InstancePresenter {
             parameters,
             movement,
             root,
-            target_transform: Transform::from_translation(
-                initial_center_translation.unwrap_or_default(),
-            ),
-            has_applied_layout: initial_center_translation.is_some(),
+            target_transform: Transform::from_translation(initial_center_translation),
+            has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
         }
@@ -251,19 +259,16 @@ impl InstancePresenter {
         visible: bool,
         animate: bool,
     ) {
-        let snap_layout = !self.has_applied_layout;
+        let snap_layout = !self.has_applied_layout || !animate;
 
-        self.apply_layout(size, layout_transform, visible, animate && !snap_layout);
+        self.apply_layout(size, layout_transform, visible);
+        if snap_layout {
+            self.movement.snap();
+        }
         self.has_applied_layout = true;
     }
 
-    fn apply_layout(
-        &mut self,
-        size: SizePx,
-        layout_transform: Transform,
-        visible: bool,
-        animate: bool,
-    ) {
+    fn apply_layout(&mut self, size: SizePx, layout_transform: Transform, visible: bool) {
         let (target_visibility_alpha, layout_transform) = if visible {
             (1.0, layout_transform)
         } else {
@@ -272,11 +277,8 @@ impl InstancePresenter {
         };
         self.target_transform = layout_transform;
 
-        let transform = self.root.transform();
-        let location = self.root.location.clone();
         self.movement.modify(move |movement, context| {
-            movement.set_layout(context, layout_transform, target_visibility_alpha, animate);
-            movement.apply_animations(context.time_provider(), &transform, &location);
+            movement.set_layout(context, layout_transform, target_visibility_alpha);
         });
 
         if let Some(background) = &mut self.background {
@@ -318,7 +320,7 @@ impl InstanceMovement {
         Self {
             layout_transform: Transform::from_translation(initial_center_translation).into(),
             visibility_alpha: 1.0.into(),
-            view_alpha: 1.0.into(),
+            view_alpha: 0.0.into(),
         }
     }
 
@@ -327,38 +329,32 @@ impl InstanceMovement {
         context: &mut dyn AnimationAllocator,
         layout_transform: Transform,
         visibility_alpha: f32,
-        animate: bool,
     ) {
-        if animate {
-            self.visibility_alpha.animate_if_changed(
-                context,
-                visibility_alpha,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-            self.layout_transform.animate_if_changed(
-                context,
-                layout_transform,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.visibility_alpha.snap(visibility_alpha);
-            self.layout_transform.snap(layout_transform);
-        }
+        self.visibility_alpha.animate_if_changed(
+            context,
+            visibility_alpha,
+            STRUCTURAL_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+        self.layout_transform.animate_if_changed(
+            context,
+            layout_transform,
+            STRUCTURAL_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
     }
 
     fn apply_animations(
         &mut self,
-        context: &dyn AnimationTimeProvider,
+        progress: AnimationProgress,
         transform: &Handle<Transform>,
         location: &Handle<Location>,
     ) {
         // Apply transform and alpha animation updates for this frame.
-        transform.update_if_changed(*self.layout_transform.progress(context));
+        transform.update_if_changed(*self.layout_transform.proceed(progress));
         location.update_if_changed_with(|location| {
             location.alpha =
-            *self.view_alpha.progress(context) * *self.visibility_alpha.progress(context);
+                *self.view_alpha.proceed(progress) * *self.visibility_alpha.proceed(progress);
         });
     }
 }

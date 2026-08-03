@@ -6,7 +6,7 @@ use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{
-    Animated, AnimationAllocator, AnimationTimeProvider, Interpolation, Movement, MovementRuntime,
+    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
@@ -53,11 +53,7 @@ pub struct LauncherPresenter {
 
     movement: Movement<LauncherMovement>,
 
-    scene_transform: Handle<Transform>,
     location: Handle<Location>,
-    background: Handle<Visual>,
-    // The text, either centered, or on top of the border.
-    name: Handle<Visual>,
     presents_instance: bool,
 
     /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
@@ -138,10 +134,7 @@ impl LauncherPresenter {
             profile,
             mode,
             movement,
-            scene_transform: our_transform,
             location: our_location,
-            background,
-            name,
             presents_instance: false,
             focus_anchor_instance: None,
             event_manager: EventManager::default(),
@@ -305,18 +298,12 @@ impl LauncherPresenter {
 
     pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
         let size = Size::new(size.width as f64, size.height as f64);
-        let scene_transform = self.scene_transform.clone();
-        let background = self.background.clone();
-        let name = self.name.clone();
         self.movement.modify(move |movement, context| {
-            movement.set_layout(context, layout_transform, size, animate);
-            movement.apply_animations(
-                context.time_provider(),
-                &scene_transform,
-                &background,
-                &name,
-            );
+            movement.set_layout(context, layout_transform, size);
         });
+        if !animate {
+            self.movement.snap();
+        }
     }
 
     pub fn location(&self) -> Handle<Location> {
@@ -356,43 +343,37 @@ impl LauncherMovement {
         context: &mut dyn AnimationAllocator,
         layout_transform: Transform,
         size: Size,
-        animate: bool,
     ) {
-        if animate {
-            self.layout_transform.animate_if_changed(
-                context,
-                layout_transform,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-            self.size.animate_if_changed(
-                context,
-                size,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.layout_transform.snap(layout_transform);
-            self.size.snap(size);
-        }
+        self.layout_transform.animate_if_changed(
+            context,
+            layout_transform,
+            STRUCTURAL_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+        self.size.animate_if_changed(
+            context,
+            size,
+            STRUCTURAL_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
     }
 
     fn apply_animations(
         &mut self,
-        context: &dyn AnimationTimeProvider,
+        progress: AnimationProgress,
         scene_transform_handle: &Handle<Transform>,
         background: &Handle<Visual>,
         name: &Handle<Visual>,
     ) {
-        let size = self.size.progress(context);
+        let size = self.size.proceed(progress);
 
         let scene_transform = self
             .layout_transform
-            .progress(context)
+            .proceed(progress)
             .to_origin_space_from_size(size.width, size.height);
         scene_transform_handle.update_if_changed(scene_transform);
 
-        let alpha = self.fader.progress(context);
+        let alpha = self.fader.proceed(progress);
 
         // Performance: How can we not call this if `self.size` and `self.fader` are both not
         // animating. `is_animating()` is perhaps not reliable.

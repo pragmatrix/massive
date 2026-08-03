@@ -13,8 +13,7 @@ use derive_more::Deref;
 use log::error;
 
 use massive_animation::{
-    AnimationAllocator, AnimationCoordinator, AnimationTimeProvider, MovementBuilder,
-    MovementRuntime,
+    AnimationAllocator, AnimationCoordinator, AnimationProgress, MovementBuilder, MovementRuntime,
 };
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::Scene;
@@ -45,17 +44,7 @@ impl FrameSubmission<'_> {
     }
 }
 
-impl AnimationTimeProvider for Frame<'_, '_> {
-    fn current_cycle_time(&self) -> Instant {
-        self.animation.current_cycle_time()
-    }
-}
-
 impl AnimationAllocator for Frame<'_, '_> {
-    fn time_provider(&self) -> &dyn AnimationTimeProvider {
-        self
-    }
-
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
         self.animation.allocate_animation_time(duration)
     }
@@ -83,6 +72,10 @@ impl<'scene, 'context> Frame<'scene, 'context> {
         self.animation.upgrade_to_apply_animations_cycle();
     }
 
+    pub fn animation_time(&self) -> Instant {
+        self.animation.animation_time()
+    }
+
     /// The scene, borrowed for the frame's full lifetime.
     ///
     /// Use this instead of the `Deref` when the reference has to outlive a mutable use of the
@@ -94,7 +87,7 @@ impl<'scene, 'context> Frame<'scene, 'context> {
     pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
     where
         T: Any + Send + Sync,
-        F: FnMut(&mut T, &dyn AnimationTimeProvider) + Send + Sync + 'static,
+        F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
     {
         self.movement.movement(value, apply_animations)
     }

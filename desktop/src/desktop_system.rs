@@ -29,8 +29,9 @@ use log::warn;
 use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
+use std::time::Instant;
 
-use massive_animation::{Animated, AnimationTimeProvider, MovementRuntime};
+use massive_animation::{Animated, MovementRuntime};
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -353,7 +354,7 @@ impl DesktopSystem {
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in `Animated`.
-            let camera = *self.camera.progress(frame);
+            let camera = *self.camera.proceed(frame.animation_time());
             self.camera.snap(camera);
         }
 
@@ -386,9 +387,9 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
+    pub fn apply_animations(&mut self, instant: Instant) {
         for project in self.aggregates.projects.values_mut() {
-            project.apply_animations(context);
+            project.apply_animations(instant);
         }
     }
 
@@ -396,8 +397,8 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self, context: &dyn AnimationTimeProvider) -> &PixelCamera {
-        self.camera.progress(context)
+    pub fn camera(&mut self, instant: Instant) -> &PixelCamera {
+        self.camera.proceed(instant)
     }
 
     pub fn is_cursor_visible(&self) -> bool {

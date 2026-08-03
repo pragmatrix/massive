@@ -1,6 +1,6 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use massive_animation::{Animated, AnimationAllocator, AnimationTimeProvider, Interpolation};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation};
 use massive_geometry::{Color, Rect, Size, SizePx, Transform};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Visual};
@@ -57,8 +57,8 @@ impl ProjectPresenter {
         self.scene_transform.update_if_changed(scene_transform);
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
-        self.header.apply_animations(context);
+    pub fn apply_animations(&mut self, instant: Instant) {
+        self.header.apply_animations(instant);
     }
 }
 
@@ -136,12 +136,12 @@ impl ProjectHeaderPresenter {
             );
         } else {
             self.animated_size.snap(size);
-            self.apply_animations(context.time_provider());
+            self.apply_animations(AnimationProgress::Snap);
         }
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
-        let size = self.animated_size.progress(context);
+    pub fn apply_animations(&mut self, progress: impl Into<AnimationProgress>) {
+        let size = self.animated_size.proceed(progress);
         let scene_transform = self
             .layout_transform
             .to_origin_space_from_size(size.width, size.height);
