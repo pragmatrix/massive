@@ -562,7 +562,7 @@ impl DesktopSystem {
                 Ok(ChangeOutput::default())
             }
             InstanceChange::CreateView(creation_info) => {
-                let mut output = self.present_view(instance, &creation_info, frame)?;
+                let mut output = self.present_view(instance, &creation_info)?;
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the

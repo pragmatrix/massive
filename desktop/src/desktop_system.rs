@@ -387,29 +387,8 @@ impl DesktopSystem {
     }
 
     pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        // Architecture: Collecting instances per launcher is quite tedious here. What are the
-        // alternatives?
-        {
-            let launcher_instance_ids: Vec<_> = self
-                .aggregates
-                .launchers
-                .keys()
-                .copied()
-                .map(|launcher_id| {
-                    (
-                        launcher_id,
-                        self.aggregates.hierarchy.launcher_instances(launcher_id),
-                    )
-                })
-                .collect();
-
-            for (launcher_id, child_instances) in launcher_instance_ids {
-                self.aggregates
-                    .launchers
-                    .get_mut(&launcher_id)
-                    .expect("Launcher missing")
-                    .apply_animations(context, &mut self.aggregates.instances, &child_instances);
-            }
+        for launcher in self.aggregates.launchers.values_mut() {
+            launcher.apply_animations(context);
         }
 
         for project in self.aggregates.projects.values_mut() {

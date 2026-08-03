@@ -16,9 +16,7 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::visor_layout;
-use crate::Map;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
-use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
 use super::configuration::{LaunchProfile, LauncherMode};
@@ -327,15 +325,8 @@ impl LauncherPresenter {
             .animate(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
     }
 
-    pub fn apply_animations(
-        &mut self,
-        context: &dyn AnimationContext,
-        instances: &mut Map<InstanceId, InstancePresenter>,
-        child_instances: &[InstanceId],
-    ) {
+    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
         self.apply_presenter_animations(context);
-        // I think this does not make sense, we can do this externally (going over all instances)
-        self.apply_child_instance_animations(context, instances, child_instances);
     }
 
     fn apply_presenter_animations(&mut self, context: &dyn AnimationContext) {
@@ -372,19 +363,6 @@ impl LauncherPresenter {
         });
     }
 
-    fn apply_child_instance_animations(
-        &mut self,
-        context: &dyn AnimationContext,
-        instances: &mut Map<InstanceId, InstancePresenter>,
-        child_instances: &[InstanceId],
-    ) {
-        for instance_id in child_instances {
-            instances
-                .get_mut(instance_id)
-                .expect("Instance missing")
-                .apply_animations(context);
-        }
-    }
 }
 
 fn background_shape(rect: Rect, color: Color) -> Shape {

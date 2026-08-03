@@ -52,6 +52,7 @@ impl DesktopSystem {
             parameters,
             launcher_location,
             frame.scene(),
+            frame.movement_runtime(),
         );
 
         self.aggregates.instances.insert(instance, presenter)?;
@@ -75,7 +76,7 @@ impl DesktopSystem {
         let originating_presenter = self.aggregates.instances.get(&originator);
 
         let initial_center_translation =
-            originating_presenter.map(|op| op.layout_transform_animation.latest().translate);
+            originating_presenter.map(|presenter| presenter.latest_transform().translate);
 
         let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
 
@@ -119,13 +120,12 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
-        context: &mut impl AnimationContext,
     ) -> Result<ChangeOutput> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found (present_view)");
         };
 
-        instance_presenter.present_view(view_creation_info, context)?;
+        instance_presenter.present_view(view_creation_info)?;
 
         // Add the view to the hierarchy as a separate topology change.
         let changes: Changes = DesktopChange::Topology(TopologyChange::Add {
@@ -187,7 +187,7 @@ impl DesktopSystem {
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             layout_center(launcher_placement.rect.size),
-            *instance_presenter.layout_transform_animation.target(),
+            instance_presenter.target_transform(),
             layout_center(placement.rect.size),
         );
 

@@ -90,6 +90,10 @@ impl<'scene, 'context> Frame<'scene, 'context> {
         self.movement.movement(value, apply_animations)
     }
 
+    pub fn movement_runtime(&mut self) -> &mut MovementRuntime {
+        self.movement
+    }
+
     // Render all the current scene changes.
     pub fn render_to(self, render_target: &mut dyn RenderTarget) -> Result<()> {
         render_target.render(self.submission().render_submission())
