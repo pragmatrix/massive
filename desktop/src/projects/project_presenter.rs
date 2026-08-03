@@ -141,7 +141,7 @@ impl ProjectHeaderPresenter {
     }
 
     pub fn apply_animations(&mut self, context: &dyn AnimationTimeProvider) {
-        let size = self.animated_size.value(context);
+        let size = self.animated_size.progress(context);
         let scene_transform = self
             .layout_transform
             .to_origin_space_from_size(size.width, size.height);

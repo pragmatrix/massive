@@ -355,10 +355,10 @@ impl InstanceMovement {
         location: &Handle<Location>,
     ) {
         // Apply transform and alpha animation updates for this frame.
-        transform.update_if_changed(*self.layout_transform.value(context));
+        transform.update_if_changed(*self.layout_transform.progress(context));
         location.update_if_changed_with(|location| {
             location.alpha =
-                *self.view_alpha.value(context) * *self.visibility_alpha.value(context);
+            *self.view_alpha.progress(context) * *self.visibility_alpha.progress(context);
         });
     }
 }

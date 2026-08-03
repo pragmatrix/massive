@@ -84,9 +84,9 @@ impl HoverMovement {
         hover_location: &Handle<Location>,
         hover_visual: &Handle<Visual>,
     ) {
-        let alpha = *self.alpha.value(context);
-        let transform = *self.transform.value(context);
-        let size = *self.size.value(context);
+        let alpha = *self.alpha.progress(context);
+        let transform = *self.transform.progress(context);
+        let size = *self.size.progress(context);
         let local_rect = size.to_rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
         let local_center = local_rect.center();

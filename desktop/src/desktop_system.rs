@@ -353,7 +353,7 @@ impl DesktopSystem {
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in `Animated`.
-            let camera = *self.camera.value(frame);
+            let camera = *self.camera.progress(frame);
             self.camera.snap(camera);
         }
 
@@ -397,7 +397,7 @@ impl DesktopSystem {
     }
 
     pub fn camera(&mut self, context: &dyn AnimationTimeProvider) -> &PixelCamera {
-        self.camera.value(context)
+        self.camera.progress(context)
     }
 
     pub fn is_cursor_visible(&self) -> bool {

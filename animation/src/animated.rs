@@ -88,12 +88,12 @@ impl<T: Send + Interpolatable> Animated<T> {
         self.animation.target().unwrap_or(&self.value)
     }
 
-    pub fn value(&mut self, context: &dyn AnimationTimeProvider) -> &T {
-        self.progress(context);
+    pub fn progress(&mut self, context: &dyn AnimationTimeProvider) -> &T {
+        self.progress_animation(context);
         self.latest()
     }
 
-    fn progress(&mut self, context: &dyn AnimationTimeProvider) {
+    fn progress_animation(&mut self, context: &dyn AnimationTimeProvider) {
         if self.animation.is_active() {
             let instant = context.current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {

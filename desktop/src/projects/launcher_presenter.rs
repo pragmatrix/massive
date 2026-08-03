@@ -384,15 +384,15 @@ impl LauncherMovement {
         background: &Handle<Visual>,
         name: &Handle<Visual>,
     ) {
-        let size = self.size.value(context);
+        let size = self.size.progress(context);
 
         let scene_transform = self
             .layout_transform
-            .value(context)
+            .progress(context)
             .to_origin_space_from_size(size.width, size.height);
         scene_transform_handle.update_if_changed(scene_transform);
 
-        let alpha = self.fader.value(context);
+        let alpha = self.fader.progress(context);
 
         // Performance: How can we not call this if `self.size` and `self.fader` are both not
         // animating. `is_animating()` is perhaps not reliable.
