@@ -81,9 +81,6 @@ impl MovementRuntime {
 
         for action in self.actions.drain(..) {
             match action {
-                MovementAction::Drop(pointer) => {
-                    self.movements.remove(&pointer);
-                }
                 MovementAction::Modify(pointer, apply) => {
                     if let Some(instance) = self.movements.get_mut(&pointer) {
                         let mut intermediate = MovementAnimationAllocator {
@@ -99,6 +96,9 @@ impl MovementRuntime {
                         instance.movement.apply_animations(AnimationProgress::Snap);
                         instance.ending_time = None;
                     }
+                }
+                MovementAction::Drop(pointer) => {
+                    self.movements.remove(&pointer);
                 }
             }
         }
@@ -278,17 +278,17 @@ type ModifyMovement =
     Box<dyn FnOnce(&mut (dyn Any + Send), &mut dyn AnimationAllocator) + Send + Sync>;
 
 enum MovementAction {
-    Drop(MovementReference),
     Modify(MovementReference, ModifyMovement),
     Snap(MovementReference),
+    Drop(MovementReference),
 }
 
 impl fmt::Debug for MovementAction {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Drop(_) => formatter.write_str("Drop"),
             Self::Modify(_, _) => formatter.write_str("Modify"),
             Self::Snap(_) => formatter.write_str("Snap"),
+            Self::Drop(_) => formatter.write_str("Drop"),
         }
     }
 }
