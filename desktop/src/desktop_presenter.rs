@@ -11,11 +11,11 @@ use massive_shell::Scene;
 
 const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
-/// Presents project-level visuals and scene anchors.
+/// Presents desktop-level visuals and scene anchors.
 ///
 /// Responsibilities:
 /// - Provides the shared parent location for launcher and instance presenters.
-/// - Presents the project's hover outline visual.
+/// - Presents the hover outline visual.
 #[derive(Debug)]
 pub struct DesktopPresenter {
     pub location: Handle<Location>,
