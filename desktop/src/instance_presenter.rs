@@ -9,7 +9,7 @@ use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
+use massive_geometry::{Color, Rect, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
 use massive_scene::{At, Handle, Location, Object, Ref, StageIdentityLocation, Visual};
 use massive_shapes::{self as shapes, Shape};
@@ -254,26 +254,25 @@ impl InstancePresenter {
 
     pub fn set_layout(
         &mut self,
-        size: SizePx,
-        layout_transform: Transform,
+        layout: SizedTransform,
         visible: bool,
         animate: bool,
     ) {
         let snap_layout = !self.has_applied_layout || !animate;
 
-        self.apply_layout(size, layout_transform, visible);
+        self.apply_layout(layout, visible);
         if snap_layout {
             self.movement.snap();
         }
         self.has_applied_layout = true;
     }
 
-    fn apply_layout(&mut self, size: SizePx, layout_transform: Transform, visible: bool) {
+    fn apply_layout(&mut self, layout: SizedTransform, visible: bool) {
         let (target_visibility_alpha, layout_transform) = if visible {
-            (1.0, layout_transform)
+            (1.0, layout.transform)
         } else {
             // Keep panel x/y pose but pull hidden instances back to baseline depth.
-            (0.0, layout_transform.with_z(0.0))
+            (0.0, layout.transform.with_z(0.0))
         };
         self.target_transform = layout_transform;
 
@@ -282,7 +281,7 @@ impl InstancePresenter {
         });
 
         if let Some(background) = &mut self.background {
-            background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
+            background.local_rect = layout.rect();
             background.visual.update_if_changed_with(|visual| {
                 // Background geometry stays in instance space; views apply their own local offset.
                 visual.shapes = InstanceBackground::shapes(background.centered_rect());

@@ -9,7 +9,9 @@ use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
-use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
+use massive_geometry::{
+    Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3,
+};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
@@ -68,8 +70,7 @@ pub struct LauncherPresenter {
 
 #[derive(Debug)]
 struct LauncherMovement {
-    layout_transform: Animated<Transform>,
-    size: Animated<Size>,
+    layout: Animated<SizedTransform>,
     // Alpha fading of name / background.
     fader: Animated<f32>,
 }
@@ -296,10 +297,9 @@ impl LauncherPresenter {
         self.presents_instance
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform, animate: bool) {
-        let size = Size::new(size.width as f64, size.height as f64);
+    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
         self.movement.modify(move |movement, context| {
-            movement.set_layout(context, layout_transform, size);
+            movement.set_layout(context, layout);
         });
         if !animate {
             self.movement.snap();
@@ -332,8 +332,7 @@ impl LauncherPresenter {
 impl LauncherMovement {
     fn new(size: Size) -> Self {
         Self {
-            layout_transform: Transform::IDENTITY.into(),
-            size: size.into(),
+            layout: SizedTransform::new(size, Transform::IDENTITY).into(),
             fader: 1.0.into(),
         }
     }
@@ -341,18 +340,11 @@ impl LauncherMovement {
     fn set_layout(
         &mut self,
         context: &mut dyn AnimationAllocator,
-        layout_transform: Transform,
-        size: Size,
+        layout: SizedTransform,
     ) {
-        self.layout_transform.animate_if_changed(
+        self.layout.animate_if_changed(
             context,
-            layout_transform,
-            STRUCTURAL_ANIMATION_DURATION,
-            Interpolation::CubicOut,
-        );
-        self.size.animate_if_changed(
-            context,
-            size,
+            layout,
             STRUCTURAL_ANIMATION_DURATION,
             Interpolation::CubicOut,
         );
@@ -365,12 +357,8 @@ impl LauncherMovement {
         background: &Handle<Visual>,
         name: &Handle<Visual>,
     ) {
-        let size = self.size.proceed(progress);
-
-        let scene_transform = self
-            .layout_transform
-            .proceed(progress)
-            .to_origin_space_from_size(size.width, size.height);
+        let layout = *self.layout.proceed(progress);
+        let scene_transform = layout.to_origin_space();
         scene_transform_handle.update_if_changed(scene_transform);
 
         let alpha = self.fader.proceed(progress);
@@ -379,7 +367,7 @@ impl LauncherMovement {
         // animating. `is_animating()` is perhaps not reliable.
         background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
-                size.to_rect(),
+                layout.rect(),
                 BACKGROUND_COLOR.with_alpha(*alpha),
             )]
             .into()

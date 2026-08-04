@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::error;
 
 use massive_animation::{AnimationAllocator, Interpolation};
-use massive_geometry::{SizePx, Transform};
+use massive_geometry::{SizePx, SizedTransform};
 use massive_layout::LayoutTopology;
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
@@ -187,10 +187,10 @@ impl DesktopSystem {
         let placement = self.layout_state.local_placement(&target);
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
+        let layout = SizedTransform::from_pixels(size_px, placement.transform);
         self.apply_layout(
             target,
-            size_px,
-            placement.transform,
+            layout,
             placement.visible,
             effects_mode.animate(),
         );
@@ -234,8 +234,7 @@ impl DesktopSystem {
     fn apply_layout(
         &mut self,
         target: DesktopTarget,
-        size_px: SizePx,
-        transform: Transform,
+        layout: SizedTransform,
         visible: bool,
         animate: bool,
     ) {
@@ -246,14 +245,14 @@ impl DesktopSystem {
                     .instances
                     .get_mut(&instance_id)
                     .expect("Instance missing")
-                    .set_layout(size_px, transform, visible, animate);
+                    .set_layout(layout, visible, animate);
             }
             DesktopTarget::Project(project_id) => {
                 self.aggregates
                     .projects
                     .get_mut(&project_id)
                     .expect("Missing project")
-                    .set_layout(size_px, transform);
+                    .set_layout(layout);
             }
             DesktopTarget::ProjectHeader(project_id) => {
                 self.aggregates
@@ -261,7 +260,7 @@ impl DesktopSystem {
                     .get_mut(&project_id)
                     .expect("Missing project")
                     .header
-                    .set_layout(size_px, transform, animate);
+                    .set_layout(layout, animate);
             }
             DesktopTarget::ProjectMatrix(project_id) => {
                 self.aggregates
@@ -269,14 +268,14 @@ impl DesktopSystem {
                     .get_mut(&project_id)
                     .expect("Missing project")
                     .matrix
-                    .set_layout(size_px, transform);
+                    .set_layout(layout);
             }
             DesktopTarget::Launcher(launcher_id) => {
                 self.aggregates
                     .launchers
                     .get_mut(&launcher_id)
                     .expect("Launcher missing")
-                    .set_layout(size_px, transform, animate);
+                    .set_layout(layout, animate);
             }
             DesktopTarget::View(..) => {
                 // Robustness: Support resize here?

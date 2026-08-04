@@ -1,6 +1,30 @@
 use std::ops::{Mul, MulAssign};
 
-use crate::{Matrix4, Point, Quaternion, ToVector3, Vector3};
+use crate::{Matrix4, Point, Quaternion, Rect, Size, SizePx, ToVector3, Vector3};
+
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct SizedTransform {
+    pub size: Size,
+    pub transform: Transform,
+}
+
+impl SizedTransform {
+    pub const fn new(size: Size, transform: Transform) -> Self {
+        Self { size, transform }
+    }
+
+    pub fn from_pixels(size: SizePx, transform: Transform) -> Self {
+        Self::new(Size::new(size.width as f64, size.height as f64), transform)
+    }
+
+    pub fn rect(self) -> Rect {
+        self.size.to_rect()
+    }
+
+    pub fn to_origin_space(self) -> Transform {
+        self.transform.to_origin_space_from_size(self.size)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transform {
@@ -109,8 +133,8 @@ impl Transform {
         )
     }
 
-    pub fn to_origin_space_from_size(self, width: f64, height: f64) -> Self {
-        self.to_origin_space(Point::new(width * 0.5, height * 0.5))
+    pub fn to_origin_space_from_size(self, size: Size) -> Self {
+        self.to_origin_space(size.to_rect().center())
     }
 
     /// Converts an anchor-based transform into an origin-based transform.

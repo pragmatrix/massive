@@ -3,7 +3,7 @@ use std::time::Duration;
 use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
-use massive_geometry::{Color, Rect, Size, SizePx, Transform};
+use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_renderer::text::FontSystem;
 use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Visual};
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
@@ -60,12 +60,10 @@ impl ProjectPresenter {
         &self.name
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
-        let scene_transform =
-            layout_transform.to_origin_space_from_size(size.width as f64, size.height as f64);
+    pub fn set_layout(&mut self, layout: SizedTransform) {
+        let scene_transform = layout.to_origin_space();
         self.scene_transform.update_if_changed(scene_transform);
     }
-
 }
 
 #[derive(Debug)]
@@ -110,14 +108,17 @@ impl ProjectHeaderPresenter {
         let movement_background = background.clone();
         let movement_name = name.clone();
         let movement = movement_runtime
-            .movement(ProjectHeaderMovement::default(), move |movement, progress| {
-                movement.apply_animations(
-                    progress,
-                    &movement_scene_transform,
-                    &movement_background,
-                    &movement_name,
-                );
-            })
+            .movement(
+                ProjectHeaderMovement::default(),
+                move |movement, progress| {
+                    movement.apply_animations(
+                        progress,
+                        &movement_scene_transform,
+                        &movement_background,
+                        &movement_name,
+                    );
+                },
+            )
             .mount();
 
         Self {
@@ -130,15 +131,9 @@ impl ProjectHeaderPresenter {
         self.measured_size
     }
 
-    pub fn set_layout(
-        &self,
-        size: SizePx,
-        layout_transform: Transform,
-        animate: bool,
-    ) {
-        let size = Size::new(size.width as f64, size.height as f64);
+    pub fn set_layout(&self, layout: SizedTransform, animate: bool) {
         self.movement.modify(move |movement, context| {
-            movement.set_layout(context, size, layout_transform);
+            movement.set_layout(context, layout);
         });
         if !animate {
             self.movement.snap();
@@ -148,35 +143,22 @@ impl ProjectHeaderPresenter {
 
 #[derive(Debug)]
 struct ProjectHeaderMovement {
-    layout_transform: Animated<Transform>,
-    size: Animated<Size>,
+    layout: Animated<SizedTransform>,
 }
 
 impl Default for ProjectHeaderMovement {
     fn default() -> Self {
         Self {
-            layout_transform: Transform::IDENTITY.into(),
-            size: Size::default().into(),
+            layout: SizedTransform::default().into(),
         }
     }
 }
 
 impl ProjectHeaderMovement {
-    fn set_layout(
-        &mut self,
-        context: &mut dyn AnimationAllocator,
-        size: Size,
-        layout_transform: Transform,
-    ) {
-        self.layout_transform.animate_if_changed(
+    fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
+        self.layout.animate_if_changed(
             context,
-            layout_transform,
-            PROJECT_HEADER_ANIMATION_DURATION,
-            Interpolation::CubicOut,
-        );
-        self.size.animate_if_changed(
-            context,
-            size,
+            layout,
             PROJECT_HEADER_ANIMATION_DURATION,
             Interpolation::CubicOut,
         );
@@ -189,15 +171,12 @@ impl ProjectHeaderMovement {
         background: &Handle<Visual>,
         name: &Handle<Visual>,
     ) {
-        let size = self.size.proceed(progress);
-        let scene_transform = self
-            .layout_transform
-            .proceed(progress)
-            .to_origin_space_from_size(size.width, size.height);
+        let layout = *self.layout.proceed(progress);
+        let scene_transform = layout.to_origin_space();
         scene_transform_handle.update_if_changed(scene_transform);
         background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
-                size.to_rect(),
+                layout.rect(),
                 PROJECT_HEADER_BACKGROUND_COLOR.with_alpha(PROJECT_HEADER_BACKGROUND_ALPHA),
             )]
             .into()
@@ -221,7 +200,6 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
 
 #[derive(Debug)]
 pub struct ProjectMatrixPresenter {
-    pub size: SizePx,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
 }
@@ -234,7 +212,6 @@ impl ProjectMatrixPresenter {
             .enter(scene);
 
         Self {
-            size: SizePx::default(),
             scene_transform,
             location,
         }
@@ -244,10 +221,8 @@ impl ProjectMatrixPresenter {
         self.location.clone()
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
-        self.size = size;
-        let scene_transform =
-            layout_transform.to_origin_space_from_size(size.width as f64, size.height as f64);
+    pub fn set_layout(&mut self, layout: SizedTransform) {
+        let scene_transform = layout.to_origin_space();
         self.scene_transform.update_if_changed(scene_transform);
     }
 }
