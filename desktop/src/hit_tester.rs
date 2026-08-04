@@ -1,5 +1,5 @@
 use massive_geometry::{
-    Contains, PerspectiveDivide, Point, Rect, RectPx, Size, Transform, Vector3, Vector4,
+    Contains, PerspectiveDivide, Point, Rect, RectPx, SizedTransform, Transform, Vector3, Vector4,
 };
 use massive_layout::Placement;
 use massive_renderer::RenderGeometry;
@@ -20,12 +20,6 @@ pub(crate) struct AggregateHitTester<'a> {
     placements: &'a dyn PlacementSource,
     launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
     geometry: &'a RenderGeometry,
-}
-
-#[derive(Debug)]
-struct HitSurface {
-    transform: Transform,
-    size: Size,
 }
 
 #[derive(Debug)]
@@ -179,7 +173,7 @@ impl<'a> AggregateHitTester<'a> {
         None
     }
 
-    fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<HitSurface> {
+    fn resolve_hit_surface(&self, target: &DesktopTarget) -> Option<SizedTransform> {
         let placement = self.placements.placement(target, self.hierarchy);
         if !placement.visible {
             return None;
@@ -188,10 +182,10 @@ impl<'a> AggregateHitTester<'a> {
         let size = Rect::from(rect_px).size();
 
         let transform = self.hit_test_transform(target, placement);
-        Some(HitSurface { transform, size })
+        Some(SizedTransform::new(size, transform))
     }
 
-    fn hit_test_surface(&self, screen_pos: Point, hit_surface: &HitSurface) -> Option<Vector3> {
+    fn hit_test_surface(&self, screen_pos: Point, hit_surface: &SizedTransform) -> Option<Vector3> {
         self.geometry
             .unproject_to_model_z0(screen_pos, &hit_surface.transform.to_matrix4())
     }
