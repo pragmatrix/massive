@@ -50,6 +50,8 @@ pub struct InstanceContext {
     /// instance changes (in order).
     changes: Arc<InstanceChangeCollector>,
 
+    /// This is here so that we don't submit empty instance submissions when the pacing did not
+    /// change.
     last_submitted_pacing: RenderPacing,
 
     events: CoalescingReceiver<ApplicationMessage>,

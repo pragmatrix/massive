@@ -166,7 +166,7 @@ pub enum TransactionEffectsMode {
 }
 
 impl TransactionEffectsMode {
-    pub fn animate(self) -> bool {
+    pub fn permit_animations(self) -> bool {
         match self {
             TransactionEffectsMode::Normal => true,
             TransactionEffectsMode::Setup => false,

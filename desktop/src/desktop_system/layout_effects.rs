@@ -188,7 +188,12 @@ impl DesktopSystem {
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
         let layout = SizedTransform::from_pixels(size_px, placement.transform);
-        self.apply_layout(target, layout, placement.visible, effects_mode.animate());
+        self.apply_layout(
+            target,
+            layout,
+            placement.visible,
+            effects_mode.permit_animations(),
+        );
 
         Effects::from(DesktopEffect::UpdateCamera)
     }
@@ -204,25 +209,22 @@ impl DesktopSystem {
 
         let Some(focused) = self.event_router.keyboard_focus() else {
             // Not sure what we do if nothing is focused yet.
-            error!("Updating camera without something focused");
+            error!("Updating camera without keyboard focus");
             return;
         };
 
-        // Hmm, I think there can't be a None case here.
-        let camera_target =
+        let camera =
             self.resolve_camera_for_target_or_ancestor(focused, self.user_state.focus_depth);
 
-        if let Some(camera) = camera_target {
-            if effects_mode.animate() {
-                self.camera.animate_if_changed(
-                    context,
-                    camera,
-                    STRUCTURAL_ANIMATION_DURATION,
-                    Interpolation::CubicOut,
-                );
-            } else {
-                self.camera.snap(camera);
-            }
+        if effects_mode.permit_animations() {
+            self.camera.animate_if_changed(
+                context,
+                camera,
+                STRUCTURAL_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
+        } else {
+            self.camera.snap(camera);
         }
     }
 

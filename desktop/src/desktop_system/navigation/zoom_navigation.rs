@@ -35,13 +35,15 @@ impl DesktopSystem {
         &self,
         target: &DesktopTarget,
         mut depth: FocusDepth,
-    ) -> Option<PixelCamera> {
+    ) -> PixelCamera {
         loop {
             if let Some(camera) = self.resolve_camera_focus_and_depth(target, depth) {
-                return Some(camera);
+                return camera;
             }
 
-            depth = depth.zoom_out()?;
+            depth = depth
+                .zoom_out()
+                .expect("Internal error: no camera found for target or ancestor");
         }
     }
 
