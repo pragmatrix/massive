@@ -9,9 +9,7 @@ use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
-use massive_geometry::{
-    Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3,
-};
+use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
@@ -337,11 +335,7 @@ impl LauncherMovement {
         }
     }
 
-    fn set_layout(
-        &mut self,
-        context: &mut dyn AnimationAllocator,
-        layout: SizedTransform,
-    ) {
+    fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
         self.layout.animate_if_changed(
             context,
             layout,

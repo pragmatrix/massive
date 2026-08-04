@@ -188,12 +188,7 @@ impl DesktopSystem {
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
         let layout = SizedTransform::from_pixels(size_px, placement.transform);
-        self.apply_layout(
-            target,
-            layout,
-            placement.visible,
-            effects_mode.animate(),
-        );
+        self.apply_layout(target, layout, placement.visible, effects_mode.animate());
 
         Effects::from(DesktopEffect::UpdateCamera)
     }

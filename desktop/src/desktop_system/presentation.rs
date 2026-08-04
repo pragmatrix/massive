@@ -91,11 +91,7 @@ impl DesktopSystem {
         }
     }
 
-    pub fn hide_instance(
-        &mut self,
-        launcher: LaunchProfileId,
-        instance: InstanceId,
-    ) -> Result<()> {
+    pub fn hide_instance(&mut self, launcher: LaunchProfileId, instance: InstanceId) -> Result<()> {
         self.aggregates.instances.remove(&instance)?;
 
         if !self

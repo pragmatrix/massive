@@ -252,12 +252,7 @@ impl InstancePresenter {
         self.presented_view(view_id).map(|view| &view.window_state)
     }
 
-    pub fn set_layout(
-        &mut self,
-        layout: SizedTransform,
-        visible: bool,
-        animate: bool,
-    ) {
+    pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
         let snap_layout = !self.has_applied_layout || !animate;
 
         self.apply_layout(layout, visible);
