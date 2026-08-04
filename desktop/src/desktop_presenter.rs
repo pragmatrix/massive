@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
-use massive_geometry::{Color, Point, Rect, Size, Transform};
+use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_layout::Placement;
 use massive_scene::{Handle, IntoVisual, Location, Object, StageIdentityLocation, Visual};
 use massive_shapes::{IntoShape, Shape, StrokeRect};
@@ -62,16 +62,14 @@ impl DesktopPresenter {
 #[derive(Debug)]
 struct HoverMovement {
     alpha: Animated<f32>,
-    transform: Animated<Transform>,
-    size: Animated<Size>,
+    layout: Animated<SizedTransform>,
 }
 
 impl Default for HoverMovement {
     fn default() -> Self {
         Self {
             alpha: 0.0.into(),
-            transform: Transform::IDENTITY.into(),
-            size: Size::default().into(),
+            layout: SizedTransform::default().into(),
         }
     }
 }
@@ -85,13 +83,10 @@ impl HoverMovement {
         hover_visual: &Handle<Visual>,
     ) {
         let alpha = *self.alpha.proceed(progress);
-        let transform = *self.transform.proceed(progress);
-        let size = *self.size.proceed(progress);
-        let local_rect = size.to_rect();
+        let layout = *self.layout.proceed(progress);
+        let local_rect = layout.rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
-        let local_center = local_rect.center();
-        let scene_transform = transform.to_origin_space(Point::new(local_center.x, local_center.y));
-        hover_scene_transform.update_if_changed(scene_transform);
+        hover_scene_transform.update_if_changed(layout.to_origin_space());
 
         let visual = create_hover_shapes(rect_alpha)
             .into_visual()
@@ -107,7 +102,9 @@ impl HoverMovement {
     ) {
         match placement {
             Some(placement) => {
-                let size = Size::new(placement.rect.size[0] as f64, placement.rect.size[1] as f64);
+                let size = placement.rect.size;
+                let layout =
+                    SizedTransform::from_pixels(SizePx::new(size[0], size[1]), placement.transform);
                 self.alpha.animate_if_changed(
                     context,
                     1.0,
@@ -115,18 +112,11 @@ impl HoverMovement {
                     Interpolation::CubicOut,
                 );
                 if *self.alpha.latest() == 0.0 {
-                    self.transform.snap(placement.transform);
-                    self.size.snap(size);
+                    self.layout.snap(layout);
                 } else {
-                    self.transform.animate_if_changed(
+                    self.layout.animate_if_changed(
                         context,
-                        placement.transform,
-                        HOVER_ANIMATION_DURATION,
-                        Interpolation::CubicOut,
-                    );
-                    self.size.animate_if_changed(
-                        context,
-                        size,
+                        layout,
                         HOVER_ANIMATION_DURATION,
                         Interpolation::CubicOut,
                     );
