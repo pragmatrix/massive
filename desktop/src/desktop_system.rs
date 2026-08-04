@@ -29,8 +29,9 @@ use log::warn;
 use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
+use std::time::Instant;
 
-use massive_animation::{Animated, AnimationContext};
+use massive_animation::{Animated, MovementRuntime};
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -45,14 +46,13 @@ pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
 pub(crate) use navigation::NavigationControl;
 
+use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
-use crate::projects::{
-    DesktopPresenter, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
-};
+use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 
 /// This enum specifies a unique target inside the navigation and layout history.
@@ -166,7 +166,7 @@ pub enum TransactionEffectsMode {
 }
 
 impl TransactionEffectsMode {
-    pub fn animate(self) -> bool {
+    pub fn permit_animations(self) -> bool {
         match self {
             TransactionEffectsMode::Normal => true,
             TransactionEffectsMode::Setup => false,
@@ -245,12 +245,13 @@ impl DesktopSystem {
         window: ShellWindow,
         default_panel_size: SizePx,
         scene: &Scene,
+        movement_runtime: &mut MovementRuntime,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let (_, location) = scene.stage_identity_location();
 
-        let desktop_presenter = DesktopPresenter::new(location, scene);
+        let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
 
         let event_router = EventRouter::new();
 
@@ -353,8 +354,8 @@ impl DesktopSystem {
             update_camera = false;
             // Lock camera motion immediately, including already running camera animations.
             // Ergonomics: There should probably be a function for that in `Animated`.
-            let camera = *self.camera.value(frame);
-            self.camera.set_immediately(camera);
+            let camera = *self.camera.proceed(frame.animation_time());
+            self.camera.snap(camera);
         }
 
         // This should probably be a function call and does not need to be an effect anymore.
@@ -377,7 +378,7 @@ impl DesktopSystem {
             };
 
             // Sync the hover rect.
-            self.sync_hover_with_target(frame, hover_target.cloned().as_ref());
+            self.sync_hover_with_target(hover_target.cloned().as_ref());
         }
 
         // Sync the window state (title, cursor) from the focused view after all effects settle.
@@ -386,45 +387,12 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        // Architecture: Collecting instances per launcher is quite tedious here. What are the
-        // alternatives?
-        {
-            let launcher_instance_ids: Vec<_> = self
-                .aggregates
-                .launchers
-                .keys()
-                .copied()
-                .map(|launcher_id| {
-                    (
-                        launcher_id,
-                        self.aggregates.hierarchy.launcher_instances(launcher_id),
-                    )
-                })
-                .collect();
-
-            for (launcher_id, child_instances) in launcher_instance_ids {
-                self.aggregates
-                    .launchers
-                    .get_mut(&launcher_id)
-                    .expect("Launcher missing")
-                    .apply_animations(context, &mut self.aggregates.instances, &child_instances);
-            }
-        }
-
-        for project in self.aggregates.projects.values_mut() {
-            project.apply_animations(context);
-        }
-
-        self.desktop_presenter.apply_animations(context);
-    }
-
     pub fn is_present(&self, instance: &InstanceId) -> bool {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self, context: &impl AnimationContext) -> &PixelCamera {
-        self.camera.value(context)
+    pub fn camera(&mut self, instant: Instant) -> &PixelCamera {
+        self.camera.proceed(instant)
     }
 
     pub fn is_cursor_visible(&self) -> bool {
@@ -450,6 +418,14 @@ impl DesktopSystem {
         } else {
             warn!("Setting pacing on an unknown instance");
         }
+    }
+
+    pub fn animating_instances(&self) -> impl Iterator<Item = InstanceId> + '_ {
+        self.aggregates
+            .instances
+            .iter()
+            .filter(|(_, instance)| instance.pacing == RenderPacing::Smooth)
+            .map(|(id, _)| *id)
     }
 
     pub fn effective_pacing(&self) -> RenderPacing {

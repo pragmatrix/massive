@@ -3,9 +3,20 @@ use std::time::Duration;
 use crate::time::Instant;
 use crate::{BlendedAnimation, Interpolatable, Interpolation};
 
-pub trait AnimationContext {
-    fn current_cycle_time(&self) -> Instant;
+#[derive(Debug, Copy, Clone)]
+pub enum AnimationProgress {
+    Proceed(Instant),
+    /// Completes an animation without producing a movement completion event.
+    Snap,
+}
 
+impl From<Instant> for AnimationProgress {
+    fn from(instant: Instant) -> Self {
+        Self::Proceed(instant)
+    }
+}
+
+pub trait AnimationAllocator {
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant;
 }
 
@@ -36,7 +47,7 @@ impl<T: Send + Interpolatable> Animated<T> {
 
     pub fn animate_if_changed(
         &mut self,
-        context: &mut dyn AnimationContext,
+        context: &mut dyn AnimationAllocator,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
@@ -52,7 +63,7 @@ impl<T: Send + Interpolatable> Animated<T> {
 
     pub fn animate(
         &mut self,
-        context: &mut dyn AnimationContext,
+        context: &mut dyn AnimationAllocator,
         target_value: T,
         duration: Duration,
         interpolation: Interpolation,
@@ -65,7 +76,7 @@ impl<T: Send + Interpolatable> Animated<T> {
             .animate_to(value, instant, target_value, duration, interpolation);
     }
 
-    pub fn set_immediately(&mut self, value: T) {
+    pub fn snap(&mut self, value: T) {
         self.animation.end();
         self.value = value;
     }
@@ -84,14 +95,16 @@ impl<T: Send + Interpolatable> Animated<T> {
         self.animation.target().unwrap_or(&self.value)
     }
 
-    pub fn value(&mut self, context: &dyn AnimationContext) -> &T {
-        self.progress(context);
+    pub fn proceed(&mut self, progress: impl Into<AnimationProgress>) -> &T {
+        match progress.into() {
+            AnimationProgress::Proceed(instant) => self.proceed_animation(instant),
+            AnimationProgress::Snap => self.finish(),
+        }
         self.latest()
     }
 
-    fn progress(&mut self, context: &dyn AnimationContext) {
+    fn proceed_animation(&mut self, instant: Instant) {
         if self.animation.is_active() {
-            let instant = context.current_cycle_time();
             if let Some(new_value) = self.animation.proceed(instant) {
                 self.value = new_value;
             }

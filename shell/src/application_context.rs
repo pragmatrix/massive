@@ -134,7 +134,7 @@ impl ApplicationContext {
                         .upgrade_to_apply_animations_cycle();
                     let completion_events = self
                         .movement_runtime
-                        .apply_animations(&self.animation_coordinator);
+                        .apply_animations(self.animation_coordinator.animation_time());
                     application_events.push(ApplicationEvent::ApplyAnimations(presentation_id));
                     application_events.extend(
                         completion_events

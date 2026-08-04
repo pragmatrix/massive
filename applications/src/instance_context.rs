@@ -50,6 +50,10 @@ pub struct InstanceContext {
     /// instance changes (in order).
     changes: Arc<InstanceChangeCollector>,
 
+    /// This is here so that we don't submit empty instance submissions when the pacing did not
+    /// change.
+    last_submitted_pacing: RenderPacing,
+
     events: CoalescingReceiver<ApplicationMessage>,
 }
 
@@ -98,6 +102,7 @@ impl InstanceContext {
             animation_coordinator,
             movement_runtime: MovementRuntime::default(),
             changes: changes.into(),
+            last_submitted_pacing: RenderPacing::Fast,
             events: events.into(),
         }
     }
@@ -167,11 +172,14 @@ impl InstanceContext {
     }
 
     fn submit_with_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
-        // Empty changes need to end in a submission (we might have done some before, without ending
-        // the animation cycle)
-
         let changes = self.changes.take_all();
         let change_count = changes.len();
+        // Desktop needs empty submissions to observe pacing transitions, but repeated pacing has
+        // no effect.
+        if change_count == 0 && pacing == self.last_submitted_pacing {
+            return Ok(());
+        }
+
         trace!(
             "Submitting instance changes: instance={:?}, changes={change_count}, pacing={pacing:?}",
             self.id
@@ -188,6 +196,8 @@ impl InstanceContext {
                 self.id
             );
         }
+
+        self.last_submitted_pacing = pacing;
 
         Ok(())
     }

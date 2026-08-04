@@ -175,14 +175,14 @@ impl Logs {
                     content_height: 0.0.into(),
                     vertical_center: 0.0.into(),
                 },
-                move |layout, context| {
-                    let content_height = *layout.content_height.value(context);
+                move |layout, progress| {
+                    let content_height = *layout.content_height.proceed(progress);
                     content_transform.update_if_changed(Transform::from_xy(
                         -(content_width as f64) / 2.,
                         -content_height / 2.,
                     ));
 
-                    let vertical_center = *layout.vertical_center.value(context);
+                    let vertical_center = *layout.vertical_center.proceed(progress);
                     vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
                 },
             )
@@ -221,7 +221,7 @@ impl Logs {
                     fader.is_animating(),
                     "Internal error: animation state is not in sync with the context"
                 );
-                let fading = *fader.value(context);
+                let fading = *fader.proceed(context);
                 line.update_with(|visual| {
                     visual.shapes = visual
                         .shapes

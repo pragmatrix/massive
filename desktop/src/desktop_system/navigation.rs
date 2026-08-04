@@ -1,14 +1,13 @@
 use anyhow::Result;
-
 use log::error;
+
 use massive_geometry::{PixelCamera, Rect, RectPx};
 use massive_scene::{ToCamera, Transform};
 
-use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
+use super::change::{Changes, DesktopChange, set_focus};
+use super::topology::DesktopTopology;
+use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap};
 use crate::MatrixPositions;
-use crate::desktop_system::LauncherMap;
-use crate::desktop_system::change::{Changes, DesktopChange, set_focus};
-use crate::desktop_system::topology::DesktopTopology;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
 
 mod matrix_navigation;

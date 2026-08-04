@@ -1,12 +1,11 @@
 use anyhow::Result;
 use log::warn;
 
+use super::{Commands, DesktopSystem, DesktopTarget};
 use crate::event_router::EventTransitions;
 use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
 use crate::targeted_event::{TargetedEvent, convert_to_targeted_events};
-
-use super::{Commands, DesktopSystem, DesktopTarget};
 
 impl DesktopSystem {
     pub(super) fn forward_event_transitions(

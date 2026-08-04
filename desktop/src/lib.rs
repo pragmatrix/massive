@@ -2,6 +2,7 @@ mod aggregates;
 mod application_registry;
 pub(crate) mod desktop;
 mod desktop_environment;
+mod desktop_presenter;
 mod desktop_system;
 mod event_router;
 mod focus_path;

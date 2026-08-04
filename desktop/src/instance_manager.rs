@@ -137,12 +137,6 @@ impl InstanceManager {
             .with_context(|| format!("Failed to send event to instance {:?}", instance_id))
     }
 
-    pub fn broadcast_event(&self, event: ApplicationMessage) {
-        for instance in self.instances.values() {
-            let _ = instance.events_tx.send(event.clone());
-        }
-    }
-
     fn get_instance(&self, instance: InstanceId) -> Result<&RunningInstance> {
         self.instances
             .get(&instance)

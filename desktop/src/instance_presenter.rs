@@ -1,15 +1,19 @@
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Result, bail};
 
-use massive_animation::{Animated, AnimationContext, Interpolation};
+use winit::window::CursorIcon;
+
+use massive_animation::{
+    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
+};
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
+use massive_geometry::{Color, Rect, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
 use massive_scene::{At, Handle, Location, Object, Ref, StageIdentityLocation, Visual};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
-use winit::window::CursorIcon;
 
 #[derive(Debug, Clone)]
 pub struct InstanceRoot {
@@ -30,6 +34,10 @@ impl InstanceRoot {
     pub fn location(&self) -> Ref<Location> {
         self.location.to_ref()
     }
+
+    pub fn transform(&self) -> Handle<Transform> {
+        self.transform.clone()
+    }
 }
 
 pub const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
@@ -39,13 +47,12 @@ const INSTANCE_BACKGROUND_COLOR: Color = Color::rgb_u32(0x282828);
 pub struct InstancePresenter {
     state: InstancePresenterState,
     parameters: InstanceParameters,
-    /// The instance layout transform stores the panel center translation and yaw rotation.
-    /// Position-only consumers should read `layout_transform_animation.*.translate`.
-    pub layout_transform_animation: Animated<Transform>,
-    visibility_alpha: Animated<f32>,
+    movement: Movement<InstanceMovement>,
     /// Shared animated instance node for background and view.
     /// This avoids per-child world updates that can drift during animation.
     root: InstanceRoot,
+    /// Cached because hover placement needs the synchronous target while movement updates are queued.
+    target_transform: Transform,
     has_applied_layout: bool,
     pub pacing: RenderPacing,
     background: Option<InstanceBackground>,
@@ -71,7 +78,14 @@ enum InstancePresenterState {
 struct PrimaryViewPresenter {
     creation_info: ViewCreationInfo,
     window_state: ViewWindowState,
-    alpha: Animated<f32>,
+}
+
+#[derive(Debug)]
+struct InstanceMovement {
+    /// The instance layout transform stores the panel center translation and yaw rotation.
+    layout_transform: Animated<Transform>,
+    visibility_alpha: Animated<f32>,
+    view_alpha: Animated<f32>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -88,9 +102,18 @@ impl InstancePresenter {
         parameters: InstanceParameters,
         parent: Handle<Location>,
         scene: &Scene,
+        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         root.location.update_if_changed_with(|location| {
             location.parent = Some(parent.to_ref());
+        });
+
+        let has_initial_center_translation = initial_center_translation.is_some();
+        let initial_center_translation = initial_center_translation.unwrap_or_default();
+        root.transform
+            .update_if_changed(Transform::from_translation(initial_center_translation));
+        root.location.update_if_changed_with(|location| {
+            location.alpha = 0.0;
         });
 
         let background = show_background.then(|| {
@@ -104,16 +127,24 @@ impl InstancePresenter {
             }
         });
 
+        let transform = root.transform();
+        let location = root.location.clone();
+        let movement = movement_runtime
+            .movement(
+                InstanceMovement::new(initial_center_translation),
+                move |movement, context| {
+                    movement.apply_animations(context, &transform, &location);
+                },
+            )
+            .mount();
+
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
             parameters,
-            layout_transform_animation: Transform::from_translation(
-                initial_center_translation.unwrap_or_default(),
-            )
-            .into(),
-            visibility_alpha: 1.0.into(),
+            movement,
             root,
-            has_applied_layout: initial_center_translation.is_some(),
+            target_transform: Transform::from_translation(initial_center_translation),
+            has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
         }
@@ -127,11 +158,15 @@ impl InstancePresenter {
         &self.parameters
     }
 
-    pub fn present_view(
-        &mut self,
-        view_creation_info: &ViewCreationInfo,
-        context: &mut impl AnimationContext,
-    ) -> Result<()> {
+    pub fn latest_transform(&self) -> Transform {
+        *self.root.transform.value()
+    }
+
+    pub fn target_transform(&self) -> Transform {
+        self.target_transform
+    }
+
+    pub fn present_view(&mut self, view_creation_info: &ViewCreationInfo) -> Result<()> {
         if view_creation_info.role != ViewRole::Primary {
             bail!("Only primary views are supported yet");
         }
@@ -144,24 +179,27 @@ impl InstancePresenter {
         }
 
         // Blend in.
-        let mut alpha: Animated<f32> = 0.0.into();
-        {
-            self.root.location.update_with(|location| {
-                location.alpha = 0.0;
-            });
-            alpha.animate(
+
+        // Architecture: I don't think we should modify alpha here, may be nest another location
+        // below it?
+        self.root.location.update_with(|location| {
+            location.alpha = 0.0;
+        });
+        self.movement.modify(move |movement, context| {
+            // Same here, this looks weird.
+            movement.view_alpha.snap(0.0);
+            movement.view_alpha.animate(
                 context,
                 1.0,
                 STRUCTURAL_ANIMATION_DURATION,
                 Interpolation::CubicOut,
             );
-        }
+        });
 
         self.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
                 creation_info: view_creation_info.clone(),
                 window_state: ViewWindowState::default(),
-                alpha,
             },
         };
 
@@ -214,86 +252,36 @@ impl InstancePresenter {
         self.presented_view(view_id).map(|view| &view.window_state)
     }
 
-    pub fn set_layout(
-        &mut self,
-        context: &mut impl AnimationContext,
-        size: SizePx,
-        layout_transform: Transform,
-        visible: bool,
-        animate: bool,
-    ) {
-        let snap_layout = !self.has_applied_layout;
+    pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
+        let snap_layout = !self.has_applied_layout || !animate;
 
-        self.apply_layout(
-            context,
-            size,
-            layout_transform,
-            visible,
-            animate && !snap_layout,
-        );
+        self.apply_layout(layout, visible);
+        if snap_layout {
+            self.movement.snap();
+        }
         self.has_applied_layout = true;
     }
 
-    fn apply_layout(
-        &mut self,
-        context: &mut impl AnimationContext,
-        size: SizePx,
-        layout_transform: Transform,
-        visible: bool,
-        animate: bool,
-    ) {
+    fn apply_layout(&mut self, layout: SizedTransform, visible: bool) {
         let (target_visibility_alpha, layout_transform) = if visible {
-            (1.0, layout_transform)
+            (1.0, layout.transform)
         } else {
             // Keep panel x/y pose but pull hidden instances back to baseline depth.
-            (0.0, layout_transform.with_z(0.0))
+            (0.0, layout.transform.with_z(0.0))
         };
+        self.target_transform = layout_transform;
 
-        if animate {
-            self.visibility_alpha.animate_if_changed(
-                context,
-                target_visibility_alpha,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-            self.layout_transform_animation.animate_if_changed(
-                context,
-                layout_transform,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.visibility_alpha
-                .set_immediately(target_visibility_alpha);
-            self.layout_transform_animation
-                .set_immediately(layout_transform);
-        }
+        self.movement.modify(move |movement, context| {
+            movement.set_layout(context, layout_transform, target_visibility_alpha);
+        });
 
         if let Some(background) = &mut self.background {
-            background.local_rect = Rect::from_size((size.width as f64, size.height as f64));
+            background.local_rect = layout.rect();
             background.visual.update_if_changed_with(|visual| {
                 // Background geometry stays in instance space; views apply their own local offset.
                 visual.shapes = InstanceBackground::shapes(background.centered_rect());
             });
         }
-
-        // Apply transform/alpha animation updates for this frame.
-        self.apply_animations(context);
-    }
-
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        let layout_transform = self.layout_transform_animation.value(context);
-        self.root.transform.update_if_changed(*layout_transform);
-
-        let view_alpha = match &mut self.state {
-            InstancePresenterState::WaitingForPrimaryView => 1.0,
-            InstancePresenterState::Presenting { view } => *view.alpha.value(context),
-            InstancePresenterState::Disappearing => 0.0,
-        };
-        let alpha = view_alpha * *self.visibility_alpha.value(context);
-        self.root.location.update_if_changed_with(|location| {
-            location.alpha = alpha;
-        });
     }
 
     fn presented_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
@@ -318,6 +306,50 @@ impl InstancePresenter {
         }
 
         Ok(view)
+    }
+}
+
+impl InstanceMovement {
+    fn new(initial_center_translation: Vector3) -> Self {
+        Self {
+            layout_transform: Transform::from_translation(initial_center_translation).into(),
+            visibility_alpha: 1.0.into(),
+            view_alpha: 0.0.into(),
+        }
+    }
+
+    fn set_layout(
+        &mut self,
+        context: &mut dyn AnimationAllocator,
+        layout_transform: Transform,
+        visibility_alpha: f32,
+    ) {
+        self.visibility_alpha.animate_if_changed(
+            context,
+            visibility_alpha,
+            STRUCTURAL_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+        self.layout_transform.animate_if_changed(
+            context,
+            layout_transform,
+            STRUCTURAL_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+    }
+
+    fn apply_animations(
+        &mut self,
+        progress: AnimationProgress,
+        transform: &Handle<Transform>,
+        location: &Handle<Location>,
+    ) {
+        // Apply transform and alpha animation updates for this frame.
+        transform.update_if_changed(*self.layout_transform.proceed(progress));
+        location.update_if_changed_with(|location| {
+            location.alpha =
+                *self.view_alpha.proceed(progress) * *self.visibility_alpha.proceed(progress);
+        });
     }
 }
 

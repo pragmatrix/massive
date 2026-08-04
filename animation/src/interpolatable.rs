@@ -1,6 +1,8 @@
 use std::time::Instant;
 
-use massive_geometry::{CameraMode, PixelCamera, Point, Rect, Size, Transform, Vector3};
+use massive_geometry::{
+    CameraMode, PixelCamera, Point, Rect, Size, SizedTransform, Transform, Vector3,
+};
 
 /// For now we have to support `Clone`.
 ///
@@ -49,6 +51,15 @@ impl Interpolatable for Transform {
             rotate: from.rotate.slerp(to.rotate, t),
             scale: interpolate(&from.scale, &to.scale, t),
         }
+    }
+}
+
+impl Interpolatable for SizedTransform {
+    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
+        SizedTransform::new(
+            interpolate(&from.size, &to.size, t),
+            interpolate(&from.transform, &to.transform, t),
+        )
     }
 }
 

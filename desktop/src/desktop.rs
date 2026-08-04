@@ -120,7 +120,14 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(env, fonts.clone(), window, default_size, &scene)?;
+        let mut system = DesktopSystem::new(
+            env,
+            fonts.clone(),
+            window,
+            default_size,
+            &scene,
+            context.movement_runtime(),
+        )?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
@@ -178,12 +185,9 @@ impl Desktop {
                     DesktopEvent::ApplicationEvents(events?)
                 }
 
-                Ok((instance_id, instance_result)) = self.instance_manager.join_next() => {
+                instance = self.instance_manager.join_next() => {
+                    let (instance_id, instance_result) = instance?;
                     DesktopEvent::InstanceEnded(instance_id, instance_result)
-                }
-
-                else => {
-                    return Ok(());
                 }
             };
 
@@ -225,12 +229,14 @@ impl Desktop {
                             }
                             ApplicationEvent::ApplyAnimations(presentation_id) => {
                                 frame.upgrade_to_apply_animations_cycle();
-                                // Performance: Not every instance needs that, only the ones animating. The
-                                // presentation ID preserves the renderer clock that produced this tick.
-                                self.instance_manager.broadcast_event(
-                                    ApplicationMessage::ApplyAnimations(presentation_id),
-                                );
-                                self.system.apply_animations(&frame);
+                                let animating_instances =
+                                    self.system.animating_instances().collect::<Vec<_>>();
+                                for instance in animating_instances {
+                                    _ = self.instance_manager.send_event(
+                                        instance,
+                                        ApplicationMessage::ApplyAnimations(presentation_id),
+                                    );
+                                }
                             }
                             ApplicationEvent::Shutdown(_) => {
                                 // Robustness: Clarify if and when this happens.
@@ -296,7 +302,7 @@ fn submit_frame(
     frame: Frame,
     renderer: &mut AsyncWindowRenderer,
 ) -> Result<()> {
-    let camera = *system.camera(&frame);
+    let camera = *system.camera(frame.animation_time());
     let mut submission = frame.submission().render_submission().with_camera(camera);
     // If any instance runs on smooth pacing, we need to, too.
     if system.effective_pacing() == RenderPacing::Smooth {

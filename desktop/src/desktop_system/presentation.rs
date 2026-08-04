@@ -1,15 +1,15 @@
-use anyhow::{Result, bail};
+use anyhow::Result;
+use anyhow::bail;
 use log::warn;
 
-use massive_animation::AnimationContext;
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 use massive_geometry::{Point, Transform, Vector3};
 use massive_layout::{Placement, Size as LayoutSize};
 use massive_shell::Frame;
 
 use super::DesktopTarget;
-use crate::desktop_system::change::{Changes, DesktopChange, TopologyChange};
-use crate::desktop_system::command_dispatch::ChangeOutput;
+use super::change::{Changes, DesktopChange, TopologyChange};
+use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;
@@ -51,6 +51,7 @@ impl DesktopSystem {
             parameters,
             launcher_location,
             frame.scene(),
+            frame.movement_runtime(),
         );
 
         self.aggregates.instances.insert(instance, presenter)?;
@@ -61,7 +62,7 @@ impl DesktopSystem {
             .launchers
             .get_mut(&launcher)
             .expect("Launcher not found")
-            .fade_out(frame);
+            .fade_out();
 
         Ok(())
     }
@@ -74,7 +75,7 @@ impl DesktopSystem {
         let originating_presenter = self.aggregates.instances.get(&originator);
 
         let initial_center_translation =
-            originating_presenter.map(|op| op.layout_transform_animation.latest().translate);
+            originating_presenter.map(|presenter| presenter.latest_transform().translate);
 
         let nested = self.aggregates.hierarchy.get_nested(&launcher.into());
 
@@ -90,12 +91,7 @@ impl DesktopSystem {
         }
     }
 
-    pub fn hide_instance(
-        &mut self,
-        context: &mut impl AnimationContext,
-        launcher: LaunchProfileId,
-        instance: InstanceId,
-    ) -> Result<()> {
+    pub fn hide_instance(&mut self, launcher: LaunchProfileId, instance: InstanceId) -> Result<()> {
         self.aggregates.instances.remove(&instance)?;
 
         if !self
@@ -108,7 +104,7 @@ impl DesktopSystem {
                 .launchers
                 .get_mut(&launcher)
                 .expect("Launcher not found")
-                .fade_in(context);
+                .fade_in();
         }
 
         Ok(())
@@ -118,13 +114,12 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
-        context: &mut impl AnimationContext,
     ) -> Result<ChangeOutput> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&instance) else {
             bail!("Instance not found (present_view)");
         };
 
-        instance_presenter.present_view(view_creation_info, context)?;
+        instance_presenter.present_view(view_creation_info)?;
 
         // Add the view to the hierarchy as a separate topology change.
         let changes: Changes = DesktopChange::Topology(TopologyChange::Add {
@@ -154,30 +149,20 @@ impl DesktopSystem {
         Ok(ChangeOutput::changes(changes))
     }
 
-    pub(super) fn sync_hover_with_target(
-        &mut self,
-        context: &mut impl AnimationContext,
-        target: Option<&DesktopTarget>,
-    ) {
-        let Some(target) = target else {
-            self.desktop_presenter.set_hover_placement(context, None);
-            return;
-        };
-
+    pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
         let hover_placement = match target {
-            target @ (DesktopTarget::Instance(..) | DesktopTarget::View(..)) => self
+            Some(target @ (DesktopTarget::Instance(..) | DesktopTarget::View(..))) => self
                 .aggregates
                 .hierarchy
                 .instance_of_target(target)
                 .map(|instance_id| self.instance_hover_placement(instance_id)),
-            DesktopTarget::Launcher(launcher_id) => {
+            Some(DesktopTarget::Launcher(launcher_id)) => {
                 Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
             }
             _ => None,
         };
 
-        self.desktop_presenter
-            .set_hover_placement(context, hover_placement);
+        self.desktop_presenter.set_hover_placement(hover_placement);
     }
 
     fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
@@ -191,12 +176,12 @@ impl DesktopSystem {
         let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
 
-        // Keep hover aligned with animated instance motion by composing the current instance-local
-        // animated transform with the launcher's world transform.
+        // Keep hover aligned with animated instance motion by composing its target instance-local
+        // transform with the launcher's world transform.
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             layout_center(launcher_placement.rect.size),
-            *instance_presenter.layout_transform_animation.latest(),
+            instance_presenter.target_transform(),
             layout_center(placement.rect.size),
         );
 

@@ -1,13 +1,12 @@
-use std::{sync::Arc, time::Duration};
+use std::time::Duration;
 
-use massive_animation::{Animated, AnimationContext, Interpolation};
-use massive_geometry::{Color, Point, Rect, Size, SizePx, Transform};
-use massive_layout::{Placement, Rect as LayoutRect};
-use massive_renderer::text::FontSystem;
-use massive_scene::{
-    At, Handle, IntoVisual, Location, Object, StageIdentityLocation, ToLocationRelative, Visual,
+use massive_animation::{
+    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
-use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt, StrokeRect};
+use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
+use massive_renderer::text::FontSystem;
+use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Visual};
+use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::ProjectProperties;
@@ -18,129 +17,6 @@ const PROJECT_HEADER_BACKGROUND_ALPHA: f32 = 0.65;
 const PROJECT_HEADER_TEXT_COLOR: Color = Color::WHITE;
 const PROJECT_HEADER_TEXT_DECAL_ORDER: usize = 0;
 const PROJECT_HEADER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
-
-/// Presents project-level visuals and scene anchors.
-///
-/// Responsibilities:
-/// - Provides the shared parent location for launcher and instance presenters.
-/// - Presents the project's hover outline visual.
-#[derive(Debug)]
-pub struct DesktopPresenter {
-    pub location: Handle<Location>,
-
-    // Idea: Use a type that combines Alpha with another `Interpolatable` type.
-    // Robustness: Alpha should be a type.
-    hover_alpha: Animated<f32>,
-    hover_placement: Placement<Transform, 2>,
-    hover_scene_transform: Handle<Transform>,
-    hover_location: Handle<Location>,
-    // Idea: can't we just animate a visual / Handle<Visual>?
-    // Performance: This is a visual that _always_ lives inside the renderer, even though it does not contain a single shape when alpha = 0.0
-    hover_visual: Handle<Visual>,
-    hover_placement_cache: Option<Placement<Transform, 2>>,
-}
-
-impl DesktopPresenter {
-    const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
-
-    pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
-        let (hover_scene_transform, hover_location) = scene.stage_identity_location();
-
-        Self {
-            location: location.clone(),
-            hover_alpha: 0.0.into(),
-            hover_placement: Placement::new(Transform::IDENTITY, LayoutRect::EMPTY),
-            hover_scene_transform,
-            hover_location: hover_location.clone(),
-            hover_visual: create_hover_shapes(None)
-                .into_visual()
-                .at(hover_location)
-                .enter(scene),
-            hover_placement_cache: None,
-        }
-    }
-
-    const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
-
-    pub fn set_hover_placement(
-        &mut self,
-        context: &mut impl AnimationContext,
-        placement: Option<Placement<Transform, 2>>,
-    ) {
-        if self.hover_placement_cache == placement {
-            return;
-        }
-        self.hover_placement_cache = placement;
-
-        match placement {
-            Some(placement) => {
-                self.hover_alpha.animate_if_changed(
-                    context,
-                    1.0,
-                    Self::HOVER_ANIMATION_DURATION,
-                    Interpolation::CubicOut,
-                );
-
-                self.hover_placement = placement;
-
-                let alpha = *self.hover_alpha.value(context);
-                self.update_hover_placement_and_visual(placement, alpha);
-            }
-
-            None => {
-                self.hover_alpha.animate_if_changed(
-                    context,
-                    0.0,
-                    Self::HOVER_ANIMATION_DURATION,
-                    Interpolation::CubicOut,
-                );
-            }
-        }
-    }
-
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        let alpha = *self.hover_alpha.value(context);
-        self.update_hover_placement_and_visual(self.hover_placement, alpha);
-    }
-
-    fn update_hover_placement_and_visual(&self, placement: Placement<Transform, 2>, alpha: f32) {
-        let size = placement.rect.size;
-        let local_rect = Rect::from_size((size[0] as f64, size[1] as f64));
-        let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
-
-        // Position the hover visual in world space using the placement's center-based transform.
-        let local_center = local_rect.center();
-        let scene_transform = placement
-            .transform
-            .to_origin_space(Point::new(local_center.x, local_center.y));
-        self.hover_scene_transform
-            .update_if_changed(scene_transform);
-
-        // Ergonomics: What something like `apply_to_if_changed(&mut self.hover_visual)` or so?
-        //
-        // Performance: Can't be update just the shapes here with apply...
-        let visual = create_hover_shapes(rect_alpha)
-            .into_visual()
-            .at(&self.hover_location)
-            .with_decal_order(5);
-        self.hover_visual.update_if_changed(visual);
-    }
-}
-
-fn create_hover_shapes(rect_alpha: Option<(Rect, f32)>) -> Arc<[Shape]> {
-    rect_alpha
-        .map(|(r, a)| {
-            let stroke = DesktopPresenter::HOVER_STROKE;
-            StrokeRect {
-                rect: r.with_outset(stroke),
-                stroke: stroke.into(),
-                color: Color::rgb_u32(0xff0000).with_alpha(a),
-            }
-            .into()
-        })
-        .into_iter()
-        .collect()
-}
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
@@ -156,13 +32,20 @@ impl ProjectPresenter {
         parent_location: Handle<Location>,
         scene: &Scene,
         font_system: &mut FontSystem,
+        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
             .to_location_relative(&parent_location)
             .enter(scene);
         let name = properties.name.clone();
-        let header = ProjectHeaderPresenter::new(properties, location.clone(), scene, font_system);
+        let header = ProjectHeaderPresenter::new(
+            properties,
+            location.clone(),
+            scene,
+            font_system,
+            movement_runtime,
+        );
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
 
         Self {
@@ -177,25 +60,16 @@ impl ProjectPresenter {
         &self.name
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
-        let scene_transform =
-            layout_transform.to_origin_space_from_size(size.width as f64, size.height as f64);
+    pub fn set_layout(&mut self, layout: SizedTransform) {
+        let scene_transform = layout.to_origin_space();
         self.scene_transform.update_if_changed(scene_transform);
-    }
-
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        self.header.apply_animations(context);
     }
 }
 
 #[derive(Debug)]
 pub struct ProjectHeaderPresenter {
-    layout_transform: Transform,
-    animated_size: Animated<Size>,
     measured_size: SizePx,
-    scene_transform: Handle<Transform>,
-    background: Handle<Visual>,
-    name: Handle<Visual>,
+    movement: Movement<ProjectHeaderMovement>,
 }
 
 impl ProjectHeaderPresenter {
@@ -204,6 +78,7 @@ impl ProjectHeaderPresenter {
         parent_location: Handle<Location>,
         scene: &Scene,
         font_system: &mut FontSystem,
+        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let scene_transform = Transform::IDENTITY.enter(scene);
         let location = scene_transform
@@ -229,13 +104,26 @@ impl ProjectHeaderPresenter {
             .with_decal_order(PROJECT_HEADER_TEXT_DECAL_ORDER)
             .enter(scene);
 
+        let movement_scene_transform = scene_transform.clone();
+        let movement_background = background.clone();
+        let movement_name = name.clone();
+        let movement = movement_runtime
+            .movement(
+                ProjectHeaderMovement::default(),
+                move |movement, progress| {
+                    movement.apply_animations(
+                        progress,
+                        &movement_scene_transform,
+                        &movement_background,
+                        &movement_name,
+                    );
+                },
+            )
+            .mount();
+
         Self {
-            layout_transform: Transform::IDENTITY,
-            animated_size: Size::default().into(),
             measured_size,
-            scene_transform,
-            background,
-            name,
+            movement,
         }
     }
 
@@ -243,43 +131,57 @@ impl ProjectHeaderPresenter {
         self.measured_size
     }
 
-    pub fn set_layout(
-        &mut self,
-        context: &mut impl AnimationContext,
-        size: SizePx,
-        layout_transform: Transform,
-        animate: bool,
-    ) {
-        self.layout_transform = layout_transform;
-        let size = Size::new(size.width as f64, size.height as f64);
-
-        if animate {
-            self.animated_size.animate_if_changed(
-                context,
-                size,
-                PROJECT_HEADER_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.animated_size.set_immediately(size);
-            self.apply_animations(context);
+    pub fn set_layout(&self, layout: SizedTransform, animate: bool) {
+        self.movement.modify(move |movement, context| {
+            movement.set_layout(context, layout);
+        });
+        if !animate {
+            self.movement.snap();
         }
     }
+}
 
-    pub fn apply_animations(&mut self, context: &dyn AnimationContext) {
-        let size = self.animated_size.value(context);
-        let scene_transform = self
-            .layout_transform
-            .to_origin_space_from_size(size.width, size.height);
-        self.scene_transform.update_if_changed(scene_transform);
-        self.background.update_if_changed_with(|visual| {
+#[derive(Debug)]
+struct ProjectHeaderMovement {
+    layout: Animated<SizedTransform>,
+}
+
+impl Default for ProjectHeaderMovement {
+    fn default() -> Self {
+        Self {
+            layout: SizedTransform::default().into(),
+        }
+    }
+}
+
+impl ProjectHeaderMovement {
+    fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
+        self.layout.animate_if_changed(
+            context,
+            layout,
+            PROJECT_HEADER_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+    }
+
+    fn apply_animations(
+        &mut self,
+        progress: AnimationProgress,
+        scene_transform_handle: &Handle<Transform>,
+        background: &Handle<Visual>,
+        name: &Handle<Visual>,
+    ) {
+        let layout = *self.layout.proceed(progress);
+        let scene_transform = layout.to_origin_space();
+        scene_transform_handle.update_if_changed(scene_transform);
+        background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
-                size.to_rect(),
+                layout.rect(),
                 PROJECT_HEADER_BACKGROUND_COLOR.with_alpha(PROJECT_HEADER_BACKGROUND_ALPHA),
             )]
             .into()
         });
-        self.name.update_if_changed_with(|visual| {
+        name.update_if_changed_with(|visual| {
             visual.shapes = match &*visual.shapes {
                 [Shape::GlyphRun(gr)] => [gr
                     .clone()
@@ -298,7 +200,6 @@ fn background_shape(rect: Rect, color: Color) -> Shape {
 
 #[derive(Debug)]
 pub struct ProjectMatrixPresenter {
-    pub size: SizePx,
     scene_transform: Handle<Transform>,
     location: Handle<Location>,
 }
@@ -311,7 +212,6 @@ impl ProjectMatrixPresenter {
             .enter(scene);
 
         Self {
-            size: SizePx::default(),
             scene_transform,
             location,
         }
@@ -321,10 +221,8 @@ impl ProjectMatrixPresenter {
         self.location.clone()
     }
 
-    pub fn set_layout(&mut self, size: SizePx, layout_transform: Transform) {
-        self.size = size;
-        let scene_transform =
-            layout_transform.to_origin_space_from_size(size.width as f64, size.height as f64);
+    pub fn set_layout(&mut self, layout: SizedTransform) {
+        let scene_transform = layout.to_origin_space();
         self.scene_transform.update_if_changed(scene_transform);
     }
 }

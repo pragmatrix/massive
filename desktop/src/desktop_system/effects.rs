@@ -1,7 +1,9 @@
-use massive_util::CollectingSet;
 use std::collections::VecDeque;
 use std::{ops, vec};
+
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
+
+use massive_util::CollectingSet;
 
 use super::DesktopTarget;
 

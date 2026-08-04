@@ -5,9 +5,11 @@ use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_animation::{Animated, AnimationContext, Interpolation};
+use massive_animation::{
+    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
+};
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
-use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
+use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_renderer::text::FontSystem;
@@ -16,9 +18,7 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
 use super::visor_layout;
-use crate::Map;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
-use crate::instance_presenter::InstancePresenter;
 use crate::projects::LaunchProfileId;
 
 use super::configuration::{LaunchProfile, LauncherMode};
@@ -51,17 +51,10 @@ pub struct LauncherPresenter {
     profile: LaunchProfile,
     mode: LauncherMode,
 
-    layout_transform: Animated<Transform>,
-    scene_transform: Handle<Transform>,
+    movement: Movement<LauncherMovement>,
+
     location: Handle<Location>,
-
-    pub size: Animated<Size>,
-    background: Handle<Visual>,
-    // The text, either centered, or on top of the border.
-    name: Handle<Visual>,
-
-    // Alpha fading of name / background.
-    fader: Animated<f32>,
+    presents_instance: bool,
 
     /// The visor's focus anchor the visor centers on and that stays visible during collapse: the
     /// most recently focused instance while no mouse button was pressed. The visor centers on this
@@ -71,6 +64,13 @@ pub struct LauncherPresenter {
     /// We need our own EventManager, because the event's positions are relative to us and even if
     /// they weren't sharing the event history isn't really possible.
     event_manager: EventManager<ViewEvent>,
+}
+
+#[derive(Debug)]
+struct LauncherMovement {
+    layout: Animated<SizedTransform>,
+    // Alpha fading of name / background.
+    fader: Animated<f32>,
 }
 
 impl LauncherPresenter {
@@ -83,6 +83,7 @@ impl LauncherPresenter {
         size: Size,
         scene: &Scene,
         font_system: &mut FontSystem,
+        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
@@ -113,17 +114,27 @@ impl LauncherPresenter {
             .with_decal_order(0)
             .enter(scene);
 
+        let scene_transform = our_transform.clone();
+        let movement_background = background.clone();
+        let movement_name = name.clone();
+        let movement = movement_runtime
+            .movement(LauncherMovement::new(size), move |movement, context| {
+                movement.apply_animations(
+                    context,
+                    &scene_transform,
+                    &movement_background,
+                    &movement_name,
+                );
+            })
+            .mount();
+
         Self {
             id,
             profile,
             mode,
-            layout_transform: Transform::IDENTITY.into(),
-            scene_transform: our_transform,
+            movement,
             location: our_location,
-            size: size.into(),
-            background,
-            name,
-            fader: 1.0.into(),
+            presents_instance: false,
             focus_anchor_instance: None,
             event_manager: EventManager::default(),
         }
@@ -281,35 +292,15 @@ impl LauncherPresenter {
     }
 
     fn presents_instance(&self) -> bool {
-        // Robustness: Deriving this state from crossing into upper layer (state -> animation).
-        *self.fader.target() == 0.0
+        self.presents_instance
     }
 
-    pub fn set_layout(
-        &mut self,
-        context: &mut impl AnimationContext,
-        size: SizePx,
-        layout_transform: Transform,
-        animate: bool,
-    ) {
-        let size = Size::new(size.width as f64, size.height as f64);
-        if animate {
-            self.layout_transform.animate_if_changed(
-                context,
-                layout_transform,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-            self.size.animate_if_changed(
-                context,
-                size,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.layout_transform.set_immediately(layout_transform);
-            self.size.set_immediately(size);
-            self.apply_presenter_animations(context);
+    pub fn set_layout(&mut self, layout: SizedTransform, animate: bool) {
+        self.movement.modify(move |movement, context| {
+            movement.set_layout(context, layout);
+        });
+        if !animate {
+            self.movement.snap();
         }
     }
 
@@ -317,50 +308,67 @@ impl LauncherPresenter {
         self.location.clone()
     }
 
-    pub fn fade_out(&mut self, context: &mut impl AnimationContext) {
-        self.fader
-            .animate(context, 0.0, FADING_DURATION, Interpolation::CubicOut);
+    pub fn fade_out(&mut self) {
+        self.presents_instance = true;
+        self.movement.modify(|movement, context| {
+            movement
+                .fader
+                .animate(context, 0.0, FADING_DURATION, Interpolation::CubicOut);
+        });
     }
 
-    pub fn fade_in(&mut self, context: &mut impl AnimationContext) {
-        self.fader
-            .animate(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
+    pub fn fade_in(&mut self) {
+        self.presents_instance = false;
+        self.movement.modify(|movement, context| {
+            movement
+                .fader
+                .animate(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
+        });
+    }
+}
+
+impl LauncherMovement {
+    fn new(size: Size) -> Self {
+        Self {
+            layout: SizedTransform::new(size, Transform::IDENTITY).into(),
+            fader: 1.0.into(),
+        }
     }
 
-    pub fn apply_animations(
+    fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
+        self.layout.animate_if_changed(
+            context,
+            layout,
+            STRUCTURAL_ANIMATION_DURATION,
+            Interpolation::CubicOut,
+        );
+    }
+
+    fn apply_animations(
         &mut self,
-        context: &dyn AnimationContext,
-        instances: &mut Map<InstanceId, InstancePresenter>,
-        child_instances: &[InstanceId],
+        progress: AnimationProgress,
+        scene_transform_handle: &Handle<Transform>,
+        background: &Handle<Visual>,
+        name: &Handle<Visual>,
     ) {
-        self.apply_presenter_animations(context);
-        // I think this does not make sense, we can do this externally (going over all instances)
-        self.apply_child_instance_animations(context, instances, child_instances);
-    }
+        let layout = *self.layout.proceed(progress);
+        let scene_transform = layout.to_origin_space();
+        scene_transform_handle.update_if_changed(scene_transform);
 
-    fn apply_presenter_animations(&mut self, context: &dyn AnimationContext) {
-        let size = self.size.value(context);
-
-        let scene_transform = self
-            .layout_transform
-            .value(context)
-            .to_origin_space_from_size(size.width, size.height);
-        self.scene_transform.update_if_changed(scene_transform);
-
-        let alpha = self.fader.value(context);
+        let alpha = self.fader.proceed(progress);
 
         // Performance: How can we not call this if `self.size` and `self.fader` are both not
         // animating. `is_animating()` is perhaps not reliable.
-        self.background.update_if_changed_with(|visual| {
+        background.update_if_changed_with(|visual| {
             visual.shapes = [background_shape(
-                size.to_rect(),
+                layout.rect(),
                 BACKGROUND_COLOR.with_alpha(*alpha),
             )]
             .into()
         });
 
         // Ergonomics: Isn't there a better way to directly set new shapes?
-        self.name.update_if_changed_with(|visual| {
+        name.update_if_changed_with(|visual| {
             visual.shapes = match &*visual.shapes {
                 [Shape::GlyphRun(gr)] => [gr
                     .clone()
@@ -370,20 +378,6 @@ impl LauncherPresenter {
                 rest => rest.into(),
             }
         });
-    }
-
-    fn apply_child_instance_animations(
-        &mut self,
-        context: &dyn AnimationContext,
-        instances: &mut Map<InstanceId, InstancePresenter>,
-        child_instances: &[InstanceId],
-    ) {
-        for instance_id in child_instances {
-            instances
-                .get_mut(instance_id)
-                .expect("Instance missing")
-                .apply_animations(context);
-        }
     }
 }
 
