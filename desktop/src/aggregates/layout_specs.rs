@@ -49,6 +49,10 @@ impl<Key: fmt::Debug + Eq + hash::Hash, Value: Sized> Map<Key, Value> {
         self.map.get_mut(key)
     }
 
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&Key, &mut Value)> {
+        self.map.iter_mut()
+    }
+
     pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Value> {
         self.map.values_mut()
     }

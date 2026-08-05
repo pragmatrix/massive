@@ -1,5 +1,5 @@
 use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
-use massive_geometry::Vector3;
+use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
 use super::{KeyboardFocusReason, UserState};
@@ -41,6 +41,7 @@ pub enum DesktopChange {
     /// changes via `set_focus_change`).
     SetNavigationAffinity(Option<u32>),
     SetUserState(UserState),
+    Resize(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),

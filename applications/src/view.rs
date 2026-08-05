@@ -16,6 +16,7 @@ use crate::{InstanceChange, InstanceChangeCollector, Scene, ViewId};
 pub struct View {
     scene: Scene,
     id: ViewId,
+    transform: Handle<Transform>,
     location: Handle<Location>,
     change_collector: Arc<InstanceChangeCollector>,
     title: String,
@@ -55,6 +56,7 @@ impl View {
         Ok(Self {
             scene,
             id,
+            transform: local_transform,
             location,
             change_collector,
             title: String::new(),
@@ -74,6 +76,14 @@ impl View {
     /// A reference to the location that is used to position the view in the parent desktop space.
     pub fn location(&self) -> Ref<Location> {
         self.location.to_ref()
+    }
+
+    /// Updates the view's local origin for a desktop-assigned extent.
+    pub fn set_extent(&self, size: SizePx) {
+        let center_x = size.width / 2;
+        let center_y = size.height / 2;
+        self.transform
+            .update_if_changed(Transform::from_xy(-(center_x as f64), -(center_y as f64)));
     }
 
     #[allow(unused)]

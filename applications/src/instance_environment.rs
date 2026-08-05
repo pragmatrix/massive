@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
+use massive_geometry::SizePx;
 use massive_renderer::{FontManager, RenderPacing};
 use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
@@ -102,12 +103,24 @@ pub enum InstanceChange {
 pub enum DesktopRequest {
     AddProject,
     // `name` is for removing a specific project without selecting it first.
-    RemoveProject { name: Option<String> },
+    RemoveProject {
+        name: Option<String>,
+    },
     AddLauncher,
     // `name` is for removing a specific launcher without selecting it first.
-    RemoveLauncher { name: Option<String> },
-    MoveLauncher { direction: MoveDirection },
-    PushLauncher { direction: MoveDirection },
+    RemoveLauncher {
+        name: Option<String>,
+    },
+    MoveLauncher {
+        direction: MoveDirection,
+    },
+    PushLauncher {
+        direction: MoveDirection,
+    },
+    #[serde(skip_serializing, skip_deserializing)]
+    Resize {
+        size_px: SizePx,
+    },
     Undo,
     Redo,
 }

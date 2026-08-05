@@ -1,9 +1,10 @@
 use anyhow::{Context, Result};
 use log::{debug, warn};
+use serde_json::json;
 
 use massive_applications::{
     CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
-    ViewRole,
+    ViewEvent, ViewRole,
 };
 use massive_shell::{Frame, Scene};
 
@@ -321,7 +322,7 @@ impl DesktopSystem {
             DesktopChange::SpawnInstance {
                 instance,
                 root,
-                parameters,
+                mut parameters,
             } => {
                 // Probably pull the name of the application into SpawnInstance?
                 let application = self
@@ -330,6 +331,13 @@ impl DesktopSystem {
                     .get_named(&self.env.primary_application)
                     .context("Internal error, application not registered")?;
 
+                parameters.insert(
+                    "size_px".to_string(),
+                    json!([
+                        self.default_panel_size.width,
+                        self.default_panel_size.height
+                    ]),
+                );
                 instance_manager.spawn(
                     instance,
                     application,
@@ -372,6 +380,23 @@ impl DesktopSystem {
             }
             DesktopChange::SetUserState(user_state) => {
                 self.user_state = user_state;
+            }
+            DesktopChange::Resize(size_px) => {
+                self.default_panel_size = size_px;
+                for (instance, presenter) in self.aggregates.instances.iter_mut() {
+                    let Some(view) = presenter.primary_view_id() else {
+                        continue;
+                    };
+                    if let Err(error) = instance_manager
+                        .send_view_event((*instance, view), ViewEvent::Resized(size_px))
+                    {
+                        warn!("Failed to resize terminal instance {instance:?}: {error}");
+                    }
+                }
+                // Root measurement otherwise reuses descendant measurements made for the previous
+                // panel extent, leaving project and matrix slots at their old sizes.
+                self.layout_state.clear();
+                return Ok(ChangeOutput::measures(DesktopTarget::Desktop.into()));
             }
             DesktopChange::Topology(change) => {
                 let measure_set = self.apply_topology_change(change, instance_manager)?;
@@ -781,6 +806,9 @@ impl DesktopSystem {
                     }
                 }
             }
+            DesktopRequest::Resize { size_px } => Ok(ChangeOutput::changes(
+                DesktopChange::Resize(*size_px).into(),
+            )),
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),
         }

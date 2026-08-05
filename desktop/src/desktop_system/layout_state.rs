@@ -40,6 +40,10 @@ impl DesktopLayoutState {
         }
     }
 
+    pub fn clear(&mut self) {
+        self.entries.clear();
+    }
+
     pub fn measure_node(
         &mut self,
         target: &DesktopTarget,

@@ -252,6 +252,10 @@ impl InstancePresenter {
         self.presented_view(view_id).map(|view| &view.window_state)
     }
 
+    pub fn primary_view_id(&self) -> Option<ViewId> {
+        Some(self.state.view()?.creation_info.id)
+    }
+
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
         let snap_layout = !self.has_applied_layout || !animate;
 
