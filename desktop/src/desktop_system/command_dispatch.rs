@@ -807,7 +807,7 @@ impl DesktopSystem {
                 }
             }
             DesktopRequest::Resize { size_px } => Ok(ChangeOutput::changes(
-                DesktopChange::Resize(*size_px).into(),
+                DesktopChange::Resize((*size_px).into()).into(),
             )),
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),

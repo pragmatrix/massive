@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
-use massive_geometry::SizePx;
 use massive_renderer::{FontManager, RenderPacing};
 use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
@@ -117,9 +116,8 @@ pub enum DesktopRequest {
     PushLauncher {
         direction: MoveDirection,
     },
-    #[serde(skip_serializing, skip_deserializing)]
     Resize {
-        size_px: SizePx,
+        size_px: (u32, u32),
     },
     Undo,
     Redo,
