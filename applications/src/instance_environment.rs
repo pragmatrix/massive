@@ -102,23 +102,13 @@ pub enum InstanceChange {
 pub enum DesktopRequest {
     AddProject,
     // `name` is for removing a specific project without selecting it first.
-    RemoveProject {
-        name: Option<String>,
-    },
+    RemoveProject { name: Option<String> },
     AddLauncher,
     // `name` is for removing a specific launcher without selecting it first.
-    RemoveLauncher {
-        name: Option<String>,
-    },
-    MoveLauncher {
-        direction: MoveDirection,
-    },
-    PushLauncher {
-        direction: MoveDirection,
-    },
-    Resize {
-        size_px: (u32, u32),
-    },
+    RemoveLauncher { name: Option<String> },
+    MoveLauncher { direction: MoveDirection },
+    PushLauncher { direction: MoveDirection },
+    Resize { size_px: (u32, u32) },
     Undo,
     Redo,
 }
