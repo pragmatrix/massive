@@ -15,6 +15,7 @@ mod effects;
 mod event_forwarding;
 mod focus_input;
 mod focus_path_ext;
+mod fullscreen;
 mod hierarchy_focus;
 mod layout_algorithm;
 mod layout_effects;
@@ -111,9 +112,9 @@ pub struct UserState {
 }
 
 /// What is the user currently focusing on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
-#[repr(u8)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FocusDepth {
+    InstanceFullScreen(NativeFullScreen),
     #[default]
     Instance,
     Launcher,
@@ -122,13 +123,46 @@ pub enum FocusDepth {
     Desktop,
 }
 
+/// Tracks whether instance fullscreen owns the native window fullscreen state.
+///
+/// The state is carried with [`FocusDepth::InstanceFullScreen`] so leaving instance fullscreen
+/// can restore the view without accidentally exiting a native fullscreen session that predates it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NativeFullScreen {
+    /// Native fullscreen was already active when instance fullscreen was entered.
+    ///
+    /// Leaving instance fullscreen preserves native fullscreen.
+    Existing,
+    /// Instance fullscreen requested native fullscreen and waits for the shell transition.
+    ///
+    /// A native fullscreen notification promotes this state to [`Self::Entered`].
+    Requested,
+    /// The native fullscreen transition requested by instance fullscreen completed.
+    ///
+    /// Leaving instance fullscreen also exits native fullscreen.
+    Entered,
+}
+
 impl FocusDepth {
     pub fn zoom_in(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_sub(1)?)
+        match self {
+            Self::InstanceFullScreen(_) | Self::Instance => None,
+            Self::Launcher => Some(Self::Instance),
+            Self::Row => Some(Self::Launcher),
+            Self::Project => Some(Self::Row),
+            Self::Desktop => Some(Self::Project),
+        }
     }
 
     pub fn zoom_out(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_add(1)?)
+        match self {
+            Self::InstanceFullScreen(_) => Some(Self::Instance),
+            Self::Instance => Some(Self::Launcher),
+            Self::Launcher => Some(Self::Row),
+            Self::Row => Some(Self::Project),
+            Self::Project => Some(Self::Desktop),
+            Self::Desktop => None,
+        }
     }
 }
 
@@ -249,7 +283,7 @@ impl DesktopSystem {
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
-        let (_, location) = scene.stage_identity_location();
+        let (_, location) = scene.enter_identity_location();
 
         let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
 
@@ -296,6 +330,7 @@ impl DesktopSystem {
             .unwrap_or_else(|| self.live_effects_mode());
 
         let mut measures = MeasureSet::Empty;
+        let mut update_camera = false;
         let user_state_before = self.user_state.clone();
         let focus_before = self.event_router.keyboard_focus().cloned();
 
@@ -309,6 +344,7 @@ impl DesktopSystem {
                 changes.push_front(new_change);
             }
             measures += outcome.measures;
+            update_camera |= outcome.update_camera;
         }
 
         // A nested removal measures its surviving parent, but a later change in the same
@@ -321,7 +357,7 @@ impl DesktopSystem {
 
         // The camera follows the focused target, so a focus change recomputes it even when the
         // change moved no layout (pure navigation between siblings, or focusing a launcher).
-        let mut update_camera = self.event_router.keyboard_focus() != focus_before.as_ref();
+        update_camera |= self.event_router.keyboard_focus() != focus_before.as_ref();
         if self.user_state != user_state_before {
             update_camera = true;
         }
@@ -389,6 +425,13 @@ impl DesktopSystem {
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
         self.aggregates.instances.contains_key(instance)
+    }
+
+    pub fn native_full_screen_changed(&self) -> DesktopChange {
+        DesktopChange::FullScreen(change::FullScreenChange::NativeStateChanged {
+            is_fullscreen: self.window.is_fullscreen(),
+            size: self.window.inner_size(),
+        })
     }
 
     pub fn camera(&mut self, instant: Instant) -> &PixelCamera {

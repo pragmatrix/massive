@@ -198,6 +198,13 @@ impl Desktop {
                     for event in events {
                         match event {
                             ApplicationEvent::View(_, view_event) => {
+                                let mut event_changes = match &view_event {
+                                    ViewEvent::Resized(_) => {
+                                        Some(self.system.native_full_screen_changed().into())
+                                    }
+                                    _ => None,
+                                };
+
                                 if let Some(input_event) = self
                                     .event_manager
                                     .add_event(view_event.clone(), Instant::now())
@@ -205,7 +212,7 @@ impl Desktop {
                                     let keyboard_shortcut =
                                         self.system.match_desktop_keyboard_shortcut(&input_event);
 
-                                    let event_changes: Changes =
+                                    let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
                                             self.system
                                                 .plan(keyboard_cmd.into_command(), &self.scene)?
@@ -215,7 +222,13 @@ impl Desktop {
                                                 self.renderer.geometry(),
                                             )?
                                         };
+                                    match &mut event_changes {
+                                        Some(event_changes) => *event_changes += input_changes,
+                                        None => event_changes = Some(input_changes),
+                                    }
+                                }
 
+                                if let Some(event_changes) = event_changes {
                                     self.system.transact(
                                         event_changes,
                                         &mut frame,

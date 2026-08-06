@@ -132,6 +132,7 @@ pub(crate) enum ShellCommand {
         window: Arc<ShellWindowShared>,
         on_created: oneshot::Sender<Result<Surface<'static>>>,
     },
+    ToggleFullscreen,
     ApplicationEnded(Result<()>),
 }
 
@@ -240,6 +241,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
                     .send(r.map_err(|e| e.into()))
                     .expect("oneshot can send");
             }
+            ShellCommand::ToggleFullscreen => crate::platform::toggle_fullscreen(),
             ShellCommand::ApplicationEnded(r) => {
                 *self = Self::Ended {
                     application_result: r,

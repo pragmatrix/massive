@@ -78,6 +78,17 @@ impl ShellWindow {
         self.shared.window().set_cursor_visible(visible);
     }
 
+    pub fn is_fullscreen(&self) -> bool {
+        self.shared.is_fullscreen()
+    }
+
+    pub fn toggle_fullscreen(&self) -> Result<()> {
+        self.shared
+            .event_loop_proxy
+            .send_event(ShellCommand::ToggleFullscreen)
+            .map_err(|error| anyhow!(error.to_string()))
+    }
+
     // DI: Use SizeI to represent initial_size.
     pub fn renderer(&self) -> WindowRendererBuilder {
         WindowRendererBuilder::new(self.shared.clone())
@@ -138,7 +149,7 @@ impl ShellWindowShared {
         (w, h).into()
     }
 
-    pub(crate) fn is_fullscreen(&self) -> bool {
+    pub fn is_fullscreen(&self) -> bool {
         self.window().fullscreen().is_some()
     }
 

@@ -2,7 +2,7 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
-use super::{KeyboardFocusReason, UserState};
+use super::{KeyboardFocusReason, NativeFullScreen, UserState};
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -11,6 +11,13 @@ use crate::projects::{
 use crate::{DesktopTarget, RemoveSlotShiftingPolicy};
 
 pub type Changes = CollectingVec<DesktopChange>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullScreenAction {
+    SetInstanceFullScreen(InstanceId),
+    SetInstanceRegular(InstanceId),
+    ToggleNativeFullScreen,
+}
 
 #[derive(Debug)]
 pub enum DesktopChange {
@@ -41,10 +48,37 @@ pub enum DesktopChange {
     /// changes via `set_focus_change`).
     SetNavigationAffinity(Option<u32>),
     SetUserState(UserState),
+    FullScreen(FullScreenChange),
     Resize(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+}
+
+#[derive(Debug)]
+pub enum FullScreenChange {
+    Enter(NativeFullScreen),
+    Exit,
+    NativeStateChanged {
+        is_fullscreen: bool,
+        size: SizePx,
+    },
+    ApplyAction {
+        action: FullScreenAction,
+        size: SizePx,
+    },
+}
+
+impl From<FullScreenChange> for DesktopChange {
+    fn from(value: FullScreenChange) -> Self {
+        Self::FullScreen(value)
+    }
+}
+
+impl From<FullScreenChange> for Changes {
+    fn from(value: FullScreenChange) -> Self {
+        DesktopChange::from(value).into()
+    }
 }
 
 #[derive(Debug)]

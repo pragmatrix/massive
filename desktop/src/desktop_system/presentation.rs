@@ -2,7 +2,7 @@ use anyhow::Result;
 use anyhow::bail;
 use log::warn;
 
-use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
+use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent};
 use massive_geometry::{Point, Transform, Vector3};
 use massive_layout::{Placement, Size as LayoutSize};
 use massive_shell::Frame;
@@ -10,7 +10,7 @@ use massive_shell::Frame;
 use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, TopologyChange};
 use super::command_dispatch::ChangeOutput;
-use crate::instance_manager::ViewPath;
+use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;
 
@@ -23,6 +23,44 @@ pub struct OriginationDetails {
 }
 
 impl DesktopSystem {
+    pub(super) fn set_instance_full_screen(
+        &mut self,
+        instance: InstanceId,
+        size: massive_geometry::SizePx,
+        instance_manager: &InstanceManager,
+    ) -> Result<bool> {
+        let presenter = self
+            .aggregates
+            .instances
+            .get_mut(&instance)
+            .expect("Instance not found");
+        let Some(view) = presenter.set_full_screen(size) else {
+            return Ok(false);
+        };
+        instance_manager.send_view_event((instance, view), ViewEvent::Resized(size))?;
+        Ok(true)
+    }
+
+    pub(super) fn set_instance_regular(
+        &mut self,
+        instance: InstanceId,
+        instance_manager: &InstanceManager,
+    ) -> Result<bool> {
+        let presenter = self
+            .aggregates
+            .instances
+            .get_mut(&instance)
+            .expect("Instance not found");
+        let Some(view) = presenter.set_regular() else {
+            return Ok(false);
+        };
+        instance_manager.send_view_event(
+            (instance, view),
+            ViewEvent::Resized(presenter.presentation_size()),
+        )?;
+        Ok(true)
+    }
+
     pub(super) fn present_instance(
         &mut self,
         launcher: LaunchProfileId,
@@ -175,13 +213,14 @@ impl DesktopSystem {
             .expect("Instance not found");
         let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
         let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
+        placement.rect.size = instance_presenter.presentation_size().into();
 
         // Keep hover aligned with animated instance motion by composing its target instance-local
         // transform with the launcher's world transform.
         placement.transform = Transform::compose_with_anchor(
             launcher_placement.transform,
             layout_center(launcher_placement.rect.size),
-            instance_presenter.target_transform(),
+            instance_presenter.target_presentation_transform(),
             layout_center(placement.rect.size),
         );
 

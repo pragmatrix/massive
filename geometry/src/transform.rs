@@ -115,7 +115,7 @@ impl Transform {
     /// in local coordinates.
     pub fn to_origin_space(self, anchor: Point) -> Self {
         let anchor = Vector3::new(anchor.x, anchor.y, 0.0);
-        let origin_translation = self.translate + self.rotate * -anchor;
+        let origin_translation = self.translate + self.rotate * (-anchor * self.scale);
         Self::new(origin_translation, self.rotate, self.scale)
     }
 

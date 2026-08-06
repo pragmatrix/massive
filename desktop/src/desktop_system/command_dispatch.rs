@@ -6,15 +6,21 @@ use massive_applications::{
     CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
     ViewEvent, ViewRole,
 };
+use massive_geometry::SizePx;
 use massive_shell::{Frame, Scene};
 
 use super::change::set_focus;
-use super::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
+use super::change::{
+    Changes, DesktopChange, FullScreenAction, FullScreenChange, ProjectChange, TopologyChange,
+};
 use super::effects::MeasureSet;
+use super::fullscreen::{self, FullScreenDecision};
 use super::navigation::focus_depth_from_target;
 use super::{
-    DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason, ProjectCommand, UserState,
+    DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason, ProjectCommand,
+    UserState,
 };
+use crate::desktop_system::NativeFullScreen;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -29,6 +35,7 @@ pub struct ChangeOutput {
     /// Additional changes to schedule.
     pub changes: Changes,
     pub measures: MeasureSet,
+    pub update_camera: bool,
 }
 impl ChangeOutput {
     /// An outcome that produced the given measures.
@@ -42,6 +49,13 @@ impl ChangeOutput {
     pub fn changes(changes: Changes) -> Self {
         Self {
             changes,
+            ..Self::default()
+        }
+    }
+
+    fn update_camera() -> Self {
+        Self {
+            update_camera: true,
             ..Self::default()
         }
     }
@@ -132,12 +146,40 @@ impl DesktopSystem {
             }
             DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
             DesktopCommand::ZoomIn => {
+                if self.user_state.focus_depth == FocusDepth::Instance {
+                    let Some(instance_id) = self.focused_path().instance() else {
+                        return Ok(Changes::Empty);
+                    };
+                    let Some(instance) = self.aggregates.instances.get(&instance_id) else {
+                        return Ok(Changes::Empty);
+                    };
+                    if !instance.presents_primary_view() {
+                        return Ok(Changes::Empty);
+                    }
+
+                    let native_full_screen = {
+                        if self.window.is_fullscreen() {
+                            NativeFullScreen::Existing
+                        } else {
+                            NativeFullScreen::Requested
+                        }
+                    };
+                    return Ok(FullScreenChange::Enter(native_full_screen).into());
+                }
+
                 if let Some(focus_depth) = self.user_state.focus_depth.zoom_in() {
                     let user_state = UserState { focus_depth };
                     return Ok(DesktopChange::SetUserState(user_state).into());
                 }
             }
             DesktopCommand::ZoomOut => {
+                if matches!(
+                    self.user_state.focus_depth,
+                    FocusDepth::InstanceFullScreen(_)
+                ) {
+                    return Ok(FullScreenChange::Exit.into());
+                }
+
                 if let Some(focus_depth) = self.user_state.focus_depth.zoom_out() {
                     let user_state = UserState { focus_depth };
                     return Ok(DesktopChange::SetUserState(user_state).into());
@@ -151,6 +193,9 @@ impl DesktopSystem {
                     if current_level != keyboard_focus_level {
                         let mut new_user_state = self.user_state.clone();
                         new_user_state.focus_depth = keyboard_focus_level;
+                        if matches!(current_level, FocusDepth::InstanceFullScreen(_)) {
+                            return Ok(FullScreenChange::Exit.into());
+                        }
                         return Ok(DesktopChange::SetUserState(new_user_state).into());
                     }
                 }
@@ -372,7 +417,18 @@ impl DesktopSystem {
                 self.hide_instance(launcher, instance)?;
             }
             DesktopChange::SetFocus { target, reason } => {
+                let previous_instance = self.focused_path().instance();
                 self.focus(target.as_ref(), instance_manager, reason)?;
+                let focused_instance = self.focused_path().instance();
+                let changes = self.apply_full_screen_decision(
+                    fullscreen::focus_changed(
+                        self.user_state.focus_depth,
+                        previous_instance,
+                        focused_instance,
+                    ),
+                    self.window.inner_size(),
+                );
+                return Ok(ChangeOutput::changes(changes));
             }
             DesktopChange::SetNavigationAffinity(column_affinity) => {
                 self.navigation_control
@@ -380,6 +436,9 @@ impl DesktopSystem {
             }
             DesktopChange::SetUserState(user_state) => {
                 self.user_state = user_state;
+            }
+            DesktopChange::FullScreen(change) => {
+                return self.apply_full_screen_change(change, instance_manager);
             }
             DesktopChange::Resize(size_px) => {
                 self.default_panel_size = size_px;
@@ -419,6 +478,79 @@ impl DesktopSystem {
         }
 
         Ok(ChangeOutput::default())
+    }
+
+    fn apply_full_screen_change(
+        &mut self,
+        change: FullScreenChange,
+        instance_manager: &InstanceManager,
+    ) -> Result<ChangeOutput> {
+        match change {
+            FullScreenChange::Enter(native_full_screen) => {
+                let changes = self.apply_full_screen_decision(
+                    fullscreen::enter(native_full_screen, self.focused_path().instance()),
+                    self.window.inner_size(),
+                );
+                Ok(ChangeOutput::changes(changes))
+            }
+            FullScreenChange::Exit => {
+                let changes = self.apply_full_screen_decision(
+                    fullscreen::exit(self.user_state.focus_depth, self.focused_path().instance()),
+                    self.window.inner_size(),
+                );
+                Ok(ChangeOutput::changes(changes))
+            }
+            FullScreenChange::NativeStateChanged {
+                is_fullscreen,
+                size,
+            } => {
+                let changes = self.apply_full_screen_decision(
+                    fullscreen::native_fullscreen_changed(
+                        self.user_state.focus_depth,
+                        is_fullscreen,
+                        self.focused_path().instance(),
+                    ),
+                    size,
+                );
+                Ok(ChangeOutput::changes(changes))
+            }
+            FullScreenChange::ApplyAction { action, size } => match action {
+                FullScreenAction::SetInstanceFullScreen(instance) => {
+                    if self.set_instance_full_screen(instance, size, instance_manager)? {
+                        Ok(ChangeOutput::update_camera())
+                    } else {
+                        Ok(ChangeOutput::default())
+                    }
+                }
+                FullScreenAction::SetInstanceRegular(instance) => {
+                    if self.set_instance_regular(instance, instance_manager)? {
+                        Ok(ChangeOutput::update_camera())
+                    } else {
+                        Ok(ChangeOutput::default())
+                    }
+                }
+                FullScreenAction::ToggleNativeFullScreen => {
+                    self.window.toggle_fullscreen()?;
+                    Ok(ChangeOutput::default())
+                }
+            },
+        }
+    }
+
+    fn apply_full_screen_decision(
+        &mut self,
+        decision: FullScreenDecision,
+        size: SizePx,
+    ) -> Changes {
+        if let Some(focus_depth) = decision.focus_depth {
+            self.user_state.focus_depth = focus_depth;
+        }
+
+        let mut changes = Changes::Empty;
+        for action in decision.actions {
+            changes += DesktopChange::from(FullScreenChange::ApplyAction { action, size });
+        }
+        changes
     }
 
     pub fn apply_topology_change(
@@ -574,6 +706,7 @@ impl DesktopSystem {
         Ok(ChangeOutput {
             changes: follow_ups,
             measures,
+            update_camera: false,
         })
     }
 
@@ -806,9 +939,17 @@ impl DesktopSystem {
                     }
                 }
             }
-            DesktopRequest::Resize { size_px } => Ok(ChangeOutput::changes(
-                DesktopChange::Resize((*size_px).into()).into(),
-            )),
+            DesktopRequest::Resize { size_px } => {
+                let mut changes = Changes::Empty;
+                if matches!(
+                    self.user_state.focus_depth,
+                    FocusDepth::InstanceFullScreen(_)
+                ) {
+                    changes += DesktopChange::from(FullScreenChange::Exit);
+                }
+                changes += DesktopChange::Resize((*size_px).into());
+                Ok(ChangeOutput::changes(changes))
+            }
             DesktopRequest::Undo => todo!(),
             DesktopRequest::Redo => todo!(),
         }
