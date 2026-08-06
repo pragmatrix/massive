@@ -20,7 +20,6 @@ use super::{
     DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason, ProjectCommand,
     UserState,
 };
-use crate::desktop_system::NativeFullScreen;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -147,6 +146,9 @@ impl DesktopSystem {
             DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
             DesktopCommand::ZoomIn => {
                 if self.user_state.focus_depth == FocusDepth::Instance {
+                    if !self.window.is_fullscreen() {
+                        return Ok(Changes::Empty);
+                    }
                     let Some(instance_id) = self.focused_path().instance() else {
                         return Ok(Changes::Empty);
                     };
@@ -157,14 +159,7 @@ impl DesktopSystem {
                         return Ok(Changes::Empty);
                     }
 
-                    let native_full_screen = {
-                        if self.window.is_fullscreen() {
-                            NativeFullScreen::Existing
-                        } else {
-                            NativeFullScreen::Requested
-                        }
-                    };
-                    return Ok(FullScreenChange::Enter(native_full_screen).into());
+                    return Ok(FullScreenChange::Enter.into());
                 }
 
                 if let Some(focus_depth) = self.user_state.focus_depth.zoom_in() {
@@ -175,7 +170,7 @@ impl DesktopSystem {
             DesktopCommand::ZoomOut => {
                 if matches!(
                     self.user_state.focus_depth,
-                    FocusDepth::InstanceFullScreen(_)
+                    FocusDepth::InstanceFullScreen
                 ) {
                     return Ok(FullScreenChange::Exit.into());
                 }
@@ -193,7 +188,7 @@ impl DesktopSystem {
                     if current_level != keyboard_focus_level {
                         let mut new_user_state = self.user_state.clone();
                         new_user_state.focus_depth = keyboard_focus_level;
-                        if matches!(current_level, FocusDepth::InstanceFullScreen(_)) {
+                        if matches!(current_level, FocusDepth::InstanceFullScreen) {
                             return Ok(FullScreenChange::Exit.into());
                         }
                         return Ok(DesktopChange::SetUserState(new_user_state).into());
@@ -486,9 +481,9 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<ChangeOutput> {
         match change {
-            FullScreenChange::Enter(native_full_screen) => {
+            FullScreenChange::Enter => {
                 let changes = self.apply_full_screen_decision(
-                    fullscreen::enter(native_full_screen, self.focused_path().instance()),
+                    fullscreen::enter(self.focused_path().instance()),
                     self.window.inner_size(),
                 );
                 Ok(ChangeOutput::changes(changes))
@@ -528,10 +523,6 @@ impl DesktopSystem {
                     } else {
                         Ok(ChangeOutput::default())
                     }
-                }
-                FullScreenAction::ToggleNativeFullScreen => {
-                    self.window.toggle_fullscreen()?;
-                    Ok(ChangeOutput::default())
                 }
             },
         }
@@ -943,7 +934,7 @@ impl DesktopSystem {
                 let mut changes = Changes::Empty;
                 if matches!(
                     self.user_state.focus_depth,
-                    FocusDepth::InstanceFullScreen(_)
+                    FocusDepth::InstanceFullScreen
                 ) {
                     changes += DesktopChange::from(FullScreenChange::Exit);
                 }

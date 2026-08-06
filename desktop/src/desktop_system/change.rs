@@ -2,7 +2,7 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
-use super::{KeyboardFocusReason, NativeFullScreen, UserState};
+use super::{KeyboardFocusReason, UserState};
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -16,7 +16,6 @@ pub type Changes = CollectingVec<DesktopChange>;
 pub enum FullScreenAction {
     SetInstanceFullScreen(InstanceId),
     SetInstanceRegular(InstanceId),
-    ToggleNativeFullScreen,
 }
 
 #[derive(Debug)]
@@ -57,7 +56,7 @@ pub enum DesktopChange {
 
 #[derive(Debug)]
 pub enum FullScreenChange {
-    Enter(NativeFullScreen),
+    Enter,
     Exit,
     NativeStateChanged {
         is_fullscreen: bool,

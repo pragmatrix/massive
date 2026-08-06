@@ -1,7 +1,7 @@
 use massive_applications::InstanceId;
 
+use super::FocusDepth;
 use super::change::FullScreenAction;
-use super::{FocusDepth, NativeFullScreen};
 
 #[derive(Debug, Default)]
 pub(super) struct FullScreenDecision {
@@ -9,48 +9,27 @@ pub(super) struct FullScreenDecision {
     pub actions: Vec<FullScreenAction>,
 }
 
-pub(super) fn enter(
-    native_fullscreen: NativeFullScreen,
-    focused_instance: Option<InstanceId>,
-) -> FullScreenDecision {
-    let mut decision = FullScreenDecision {
-        focus_depth: Some(FocusDepth::InstanceFullScreen(native_fullscreen)),
-        actions: Vec::new(),
-    };
+pub(super) fn enter(focused_instance: Option<InstanceId>) -> FullScreenDecision {
+    let mut actions = Vec::new();
+    add_full_screen_action(&mut actions, focused_instance);
 
-    match native_fullscreen {
-        NativeFullScreen::Existing => {
-            if let Some(instance) = focused_instance {
-                decision
-                    .actions
-                    .push(FullScreenAction::SetInstanceFullScreen(instance));
-            }
-        }
-        NativeFullScreen::Requested => decision
-            .actions
-            .push(FullScreenAction::ToggleNativeFullScreen),
-        NativeFullScreen::Entered => {
-            panic!("Internal error: cannot enter fullscreen in an already-entered state")
-        }
+    FullScreenDecision {
+        focus_depth: Some(FocusDepth::InstanceFullScreen),
+        actions,
     }
-
-    decision
 }
 
 pub(super) fn exit(
     focus_depth: FocusDepth,
     focused_instance: Option<InstanceId>,
 ) -> FullScreenDecision {
-    let FocusDepth::InstanceFullScreen(native_fullscreen) = focus_depth else {
+    let FocusDepth::InstanceFullScreen = focus_depth else {
         panic!("Internal error: cannot exit fullscreen when it is inactive")
     };
 
     let mut actions = Vec::new();
     if let Some(instance) = focused_instance {
         actions.push(FullScreenAction::SetInstanceRegular(instance));
-    }
-    if native_fullscreen != NativeFullScreen::Existing {
-        actions.push(FullScreenAction::ToggleNativeFullScreen);
     }
 
     FullScreenDecision {
@@ -67,23 +46,14 @@ pub(super) fn native_fullscreen_changed(
     let mut decision = FullScreenDecision::default();
 
     match (focus_depth, is_native_fullscreen) {
-        (FocusDepth::InstanceFullScreen(NativeFullScreen::Requested), true) => {
-            decision.focus_depth = Some(FocusDepth::InstanceFullScreen(NativeFullScreen::Entered));
-            add_full_screen_action(&mut decision.actions, focused_instance);
+        (FocusDepth::InstanceFullScreen, true) => {
+            add_full_screen_action(&mut decision.actions, focused_instance)
         }
-        (
-            FocusDepth::InstanceFullScreen(NativeFullScreen::Existing | NativeFullScreen::Entered),
-            true,
-        ) => add_full_screen_action(&mut decision.actions, focused_instance),
-        (
-            FocusDepth::InstanceFullScreen(NativeFullScreen::Existing | NativeFullScreen::Entered),
-            false,
-        ) => {
+        (FocusDepth::InstanceFullScreen, false) => {
             decision.focus_depth = Some(FocusDepth::Instance);
             add_regular_action(&mut decision.actions, focused_instance);
         }
-        (FocusDepth::InstanceFullScreen(NativeFullScreen::Requested), false)
-        | (FocusDepth::Instance, _)
+        (FocusDepth::Instance, _)
         | (FocusDepth::Launcher, _)
         | (FocusDepth::Row, _)
         | (FocusDepth::Project, _)
@@ -99,10 +69,7 @@ pub(super) fn focus_changed(
     focused_instance: Option<InstanceId>,
 ) -> FullScreenDecision {
     if previous_instance == focused_instance
-        || !matches!(
-            focus_depth,
-            FocusDepth::InstanceFullScreen(NativeFullScreen::Existing | NativeFullScreen::Entered)
-        )
+        || !matches!(focus_depth, FocusDepth::InstanceFullScreen)
     {
         return FullScreenDecision::default();
     }

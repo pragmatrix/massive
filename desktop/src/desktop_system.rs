@@ -112,9 +112,10 @@ pub struct UserState {
 }
 
 /// What is the user currently focusing on.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
+#[repr(u8)]
 pub enum FocusDepth {
-    InstanceFullScreen(NativeFullScreen),
+    InstanceFullScreen,
     #[default]
     Instance,
     Launcher,
@@ -123,51 +124,18 @@ pub enum FocusDepth {
     Desktop,
 }
 
-/// Tracks whether instance fullscreen owns the native window fullscreen state.
-///
-/// The state is carried with [`FocusDepth::InstanceFullScreen`] so leaving instance fullscreen
-/// can restore the view without accidentally exiting a native fullscreen session that predates it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum NativeFullScreen {
-    /// Native fullscreen was already active when instance fullscreen was entered.
-    ///
-    /// Leaving instance fullscreen preserves native fullscreen.
-    Existing,
-    /// Instance fullscreen requested native fullscreen and waits for the shell transition.
-    ///
-    /// A native fullscreen notification promotes this state to [`Self::Entered`].
-    Requested,
-    /// The native fullscreen transition requested by instance fullscreen completed.
-    ///
-    /// Leaving instance fullscreen also exits native fullscreen.
-    Entered,
-}
-
 impl FocusDepth {
     pub fn zoom_in(self) -> Option<Self> {
-        match self {
-            Self::InstanceFullScreen(_) | Self::Instance => None,
-            Self::Launcher => Some(Self::Instance),
-            Self::Row => Some(Self::Launcher),
-            Self::Project => Some(Self::Row),
-            Self::Desktop => Some(Self::Project),
-        }
+        Self::from_repr((self as u8).checked_sub(1)?)
     }
 
     pub fn zoom_out(self) -> Option<Self> {
-        match self {
-            Self::InstanceFullScreen(_) => Some(Self::Instance),
-            Self::Instance => Some(Self::Launcher),
-            Self::Launcher => Some(Self::Row),
-            Self::Row => Some(Self::Project),
-            Self::Project => Some(Self::Desktop),
-            Self::Desktop => None,
-        }
+        Self::from_repr((self as u8).checked_add(1)?)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum KeyboardFocusReason {
+pub enum KeyboardFocusReason {
     InputTransition,
     StopInstanceReplacement,
     PresentInstance,

@@ -53,7 +53,7 @@ impl DesktopSystem {
         depth: FocusDepth,
     ) -> Option<PixelCamera> {
         match depth {
-            FocusDepth::InstanceFullScreen(_) => self
+            FocusDepth::InstanceFullScreen => self
                 .aggregates
                 .hierarchy
                 .instance_of_target(target)
