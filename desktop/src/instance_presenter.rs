@@ -114,6 +114,7 @@ pub struct ViewWindowState {
 }
 
 impl InstancePresenter {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
         regular_size: SizePx,
@@ -316,10 +317,6 @@ impl InstancePresenter {
             size.width as f64 * scale,
             size.height as f64 * scale,
         ))
-    }
-
-    pub fn target_presentation_transform(&self) -> Transform {
-        self.target_transform * *self.root.presentation_transform.value()
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {

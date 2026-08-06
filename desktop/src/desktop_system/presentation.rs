@@ -3,8 +3,7 @@ use anyhow::bail;
 use log::warn;
 
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent};
-use massive_geometry::{Point, Transform, Vector3};
-use massive_layout::{Placement, Size as LayoutSize};
+use massive_geometry::Vector3;
 use massive_shell::Frame;
 
 use super::DesktopTarget;
