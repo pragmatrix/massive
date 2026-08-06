@@ -84,6 +84,7 @@ impl DesktopSystem {
 
         let presenter = InstancePresenter::new(
             initial_center_translation,
+            self.default_panel_size,
             render_instance_background,
             root,
             parameters,

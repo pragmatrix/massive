@@ -116,6 +116,7 @@ pub struct ViewWindowState {
 impl InstancePresenter {
     pub fn new(
         initial_center_translation: Option<Vector3>,
+        regular_size: SizePx,
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
@@ -163,7 +164,7 @@ impl InstancePresenter {
             movement,
             root,
             target_transform: Transform::from_translation(initial_center_translation),
-            regular_size: SizePx::new(0, 0),
+            regular_size,
             has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
