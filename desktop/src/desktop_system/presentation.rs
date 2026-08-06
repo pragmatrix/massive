@@ -187,7 +187,7 @@ impl DesktopSystem {
         Ok(ChangeOutput::changes(changes))
     }
 
-    pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
+    pub(super) fn sync_hover_with_target(&self, target: Option<&DesktopTarget>) {
         let hover_placement = match target {
             Some(
                 target @ (DesktopTarget::Launcher(_)
