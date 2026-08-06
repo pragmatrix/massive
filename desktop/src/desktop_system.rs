@@ -48,13 +48,13 @@ use layout_state::DesktopLayoutState;
 pub(crate) use navigation::NavigationControl;
 
 use crate::desktop_presenter::DesktopPresenter;
-use crate::desktop_system::change::{Changes, DesktopChange};
-use crate::desktop_system::effects::{DesktopEffect, MeasureSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
+use change::{Changes, DesktopChange};
+use effects::{DesktopEffect, MeasureSet};
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -374,12 +374,10 @@ impl DesktopSystem {
 
         // Update the hover target.
         {
-            // Use keyboard focus for the hover if we are not focusing the thing directly.
-            let hover_target = if self.user_state.focus_depth != FocusDepth::default() {
-                self.event_router.keyboard_focus()
-            } else {
-                self.event_router.pointer_focus()
-            };
+            let hover_target = self
+                .event_router
+                .pointer_focus()
+                .or_else(|| self.event_router.keyboard_focus());
 
             // Sync the hover rect.
             self.sync_hover_with_target(hover_target.cloned().as_ref());
