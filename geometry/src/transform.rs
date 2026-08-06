@@ -114,7 +114,7 @@ impl Transform {
     /// The input transform translation is interpreted as the world-space position of `anchor`
     /// in local coordinates.
     pub fn to_origin_space(self, anchor: Point) -> Self {
-        let anchor = Vector3::new(anchor.x, anchor.y, 0.0);
+        let anchor = anchor.with_z(0.0);
         let origin_translation = self.translate + self.rotate * (-anchor * self.scale);
         Self::new(origin_translation, self.rotate, self.scale)
     }
@@ -124,33 +124,10 @@ impl Transform {
     /// The returned transform translation is the world-space position of `anchor`
     /// in local coordinates.
     pub fn to_anchor_space(self, anchor: Point) -> Self {
-        let anchor = Vector3::new(anchor.x, anchor.y, 0.0);
+        let anchor = anchor.with_z(0.0);
         let anchor_translation = self.translate + self.rotate * (anchor * self.scale);
         Self::new(anchor_translation, self.rotate, self.scale)
     }
-
-    /// Composes two anchor-based transforms by converting both to origin space,
-    /// multiplying, then converting back to the child anchor.
-    pub fn compose_with_anchor(
-        parent_layout: Self,
-        parent_anchor: Point,
-        child_layout: Self,
-        child_anchor: Point,
-    ) -> Self {
-        let parent_origin = parent_layout.to_origin_space(parent_anchor);
-        let child_origin = child_layout.to_origin_space(child_anchor);
-        let world_origin = parent_origin * child_origin;
-        world_origin.to_anchor_space(child_anchor)
-    }
-
-    // Commented, because I don't like it: Who knows in which scale we act.
-    // pub fn is_near_identity(&self) -> bool {
-    //     // Use approximate comparisons similar to glam's approach
-    //     const EPSILON: f64 = 1e-6;
-    //     self.translate.abs_diff_eq(Vector3::ZERO, EPSILON)
-    //         && self.rotate.is_near_identity()
-    //         && (self.scale - 1.0).abs() < EPSILON
-    // }
 }
 
 impl Mul for Transform {

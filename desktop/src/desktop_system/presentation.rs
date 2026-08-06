@@ -190,45 +190,14 @@ impl DesktopSystem {
 
     pub(super) fn sync_hover_with_target(&mut self, target: Option<&DesktopTarget>) {
         let hover_placement = match target {
-            Some(target @ (DesktopTarget::Instance(..) | DesktopTarget::View(..))) => self
-                .aggregates
-                .hierarchy
-                .instance_of_target(target)
-                .map(|instance_id| self.instance_hover_placement(instance_id)),
-            Some(DesktopTarget::Launcher(launcher_id)) => {
-                Some(self.placement(&DesktopTarget::Launcher(*launcher_id)))
-            }
+            Some(
+                target @ (DesktopTarget::Launcher(_)
+                | DesktopTarget::Instance(..)
+                | DesktopTarget::View(_)),
+            ) => Some(self.placement(target)),
             _ => None,
         };
 
         self.desktop_presenter.set_hover_placement(hover_placement);
     }
-
-    fn instance_hover_placement(&self, instance_id: InstanceId) -> Placement<Transform, 2> {
-        let mut placement = self.placement(&DesktopTarget::Instance(instance_id));
-
-        let instance_presenter = self
-            .aggregates
-            .instances
-            .get(&instance_id)
-            .expect("Instance not found");
-        let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance_id);
-        let launcher_placement = self.placement(&DesktopTarget::Launcher(launcher_id));
-        placement.rect.size = instance_presenter.presentation_size().into();
-
-        // Keep hover aligned with animated instance motion by composing its target instance-local
-        // transform with the launcher's world transform.
-        placement.transform = Transform::compose_with_anchor(
-            launcher_placement.transform,
-            layout_center(launcher_placement.rect.size),
-            instance_presenter.target_presentation_transform(),
-            layout_center(placement.rect.size),
-        );
-
-        placement
-    }
-}
-
-fn layout_center(size: LayoutSize<2>) -> Point {
-    Point::new(size[0] as f64 * 0.5, size[1] as f64 * 0.5)
 }
