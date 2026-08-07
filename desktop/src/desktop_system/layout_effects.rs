@@ -9,6 +9,7 @@ use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
+use crate::window_state::{WindowPresentationState, WindowState};
 
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
@@ -16,11 +17,12 @@ impl DesktopSystem {
         context: &mut dyn AnimationAllocator,
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
+        window_state: &WindowState,
     ) -> Result<()> {
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
-            let follow_up = self.handle_effect(context, effect, effects_mode)?;
+            let follow_up = self.handle_effect(context, effect, effects_mode, window_state)?;
             effects.enqueue_all(follow_up);
         }
 
@@ -32,6 +34,7 @@ impl DesktopSystem {
         context: &mut dyn AnimationAllocator,
         effect: DesktopEffect,
         effects_mode: TransactionEffectsMode,
+        window_state: &WindowState,
     ) -> Result<Effects> {
         match effect {
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
@@ -40,23 +43,26 @@ impl DesktopSystem {
                 Ok(self.apply_layout_effect(target, effects_mode))
             }
             DesktopEffect::UpdateCamera => {
-                self.update_camera_effect(context, effects_mode);
+                self.update_camera_effect(context, effects_mode, window_state);
                 Ok(Effects::None)
             }
         }
     }
 
-    pub(super) fn apply_focused_view_window_state(&self) -> Result<()> {
-        let state = self.focused_view_window_state()?.unwrap_or_default();
-        self.window
-            .set_title(&self.focused_window_title(state.title)?);
-        self.window.set_cursor(state.cursor);
+    pub fn window_presentation_state(&self) -> Result<WindowPresentationState> {
+        let view_window_state = self.focused_view_window_state()?.unwrap_or_default();
+        let title = self.window_title(view_window_state.title);
+        let cursor = view_window_state.cursor;
         // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
-        self.window.set_cursor_visible(self.is_cursor_visible());
-        Ok(())
+        let cursor_visible = self.event_router.pointer_focus().is_some();
+        Ok(WindowPresentationState {
+            title,
+            cursor_visible,
+            cursor,
+        })
     }
 
-    fn focused_window_title(&self, terminal_title: String) -> Result<String> {
+    fn window_title(&self, terminal_title: String) -> String {
         let focused = self.event_router.keyboard_focus();
         let launcher = focused
             .and_then(|target| self.aggregates.hierarchy.launcher_of_target(target))
@@ -86,7 +92,7 @@ impl DesktopSystem {
             title.push_str(" - ");
             title.push_str(name);
         }
-        Ok(title)
+        title
     }
 
     /// Measures one layout target in a bottom-up pass and schedules follow-up work.
@@ -202,6 +208,7 @@ impl DesktopSystem {
         &mut self,
         context: &mut dyn AnimationAllocator,
         effects_mode: TransactionEffectsMode,
+        window_state: &WindowState,
     ) {
         if !effects_mode.permit_camera_moves() {
             return;
@@ -213,8 +220,11 @@ impl DesktopSystem {
             return;
         };
 
-        let camera =
-            self.resolve_camera_for_target_or_ancestor(focused, self.user_state.focus_depth);
+        let camera = self.resolve_camera_for_target_or_ancestor(
+            focused,
+            self.user_state.focus_depth,
+            window_state,
+        );
 
         if effects_mode.permit_animations() {
             self.camera.animate_if_changed(

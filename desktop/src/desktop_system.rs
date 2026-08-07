@@ -24,7 +24,7 @@ mod navigation;
 mod presentation;
 mod topology;
 
-use anyhow::{Result, bail};
+use anyhow::Result;
 use derive_more::Debug;
 use log::warn;
 use massive_util::CollectingVec;
@@ -38,7 +38,7 @@ use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
 use massive_scene::{StageIdentityLocation, Transform};
-use massive_shell::{FontManager, Frame, Scene, ShellWindow};
+use massive_shell::{FontManager, Frame, Scene};
 
 pub use commands::{DesktopCommand, ProjectCommand};
 pub use effects::Effects;
@@ -52,6 +52,7 @@ use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
+use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 use change::{Changes, DesktopChange};
 use effects::{DesktopEffect, MeasureSet};
@@ -189,7 +190,6 @@ impl TransactionEffectsMode {
 pub struct DesktopSystem {
     env: DesktopEnvironment,
     fonts: FontManager,
-    window: ShellWindow,
 
     default_panel_size: SizePx,
 
@@ -244,7 +244,6 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         fonts: FontManager,
-        window: ShellWindow,
         default_panel_size: SizePx,
         scene: &Scene,
         movement_runtime: &mut MovementRuntime,
@@ -262,7 +261,6 @@ impl DesktopSystem {
         let system = Self {
             env,
             fonts,
-            window,
 
             default_panel_size,
 
@@ -289,6 +287,7 @@ impl DesktopSystem {
         frame: &mut Frame,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
+        window_state: &WindowState,
     ) -> Result<()> {
         let changes = changes.into();
         // For live transactions the gesture mode is derived from the current pointer-button state;
@@ -305,7 +304,7 @@ impl DesktopSystem {
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
 
         while let Some(change) = changes.pop_front() {
-            let outcome = self.apply_change(change, frame, instance_manager)?;
+            let outcome = self.apply_change(change, frame, instance_manager, window_state)?;
             // TODO: I think Changes should support a DoubleEndedIterator.
             let new_changes: Vec<_> = outcome.changes.into_iter().collect();
             for new_change in new_changes.into_iter().rev() {
@@ -370,7 +369,10 @@ impl DesktopSystem {
         // Commands emit their own targeted `Measure` effects for the subtrees they change, and a
         // focus change emits `UpdateCamera` directly (see the `focus_before` comparison above), so
         // no root measure is needed here.
-        self.run_effects_to_completion(frame, effects_mode, effects)?;
+
+        // WindowState is needed to resolve `inner_size` when the camera focuses on presenters that
+        // must fit into the window.
+        self.run_effects_to_completion(frame, effects_mode, effects, window_state)?;
 
         // Update the hover target.
         {
@@ -383,9 +385,6 @@ impl DesktopSystem {
             self.sync_hover_with_target(hover_target.cloned().as_ref());
         }
 
-        // Sync the window state (title, cursor) from the focused view after all effects settle.
-        self.apply_focused_view_window_state()?;
-
         Ok(())
     }
 
@@ -393,19 +392,8 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn native_full_screen_changed(&self) -> DesktopChange {
-        DesktopChange::FullScreen(change::FullScreenChange::NativeStateChanged {
-            is_fullscreen: self.window.is_fullscreen(),
-            size: self.window.inner_size(),
-        })
-    }
-
     pub fn camera(&mut self, instant: Instant) -> &PixelCamera {
         self.camera.proceed(instant)
-    }
-
-    pub fn is_cursor_visible(&self) -> bool {
-        self.event_router.pointer_focus().is_some()
     }
 
     pub fn any_buttons_pressed(&self) -> bool {
@@ -460,17 +448,14 @@ impl DesktopSystem {
             return Ok(None);
         };
         let Some(instance_presenter) = self.aggregates.instances.get(&instance) else {
-            bail!("Focused instance has no presenter");
+            panic!("Focused instance has no presenter");
         };
 
         let Some(view) = self.aggregates.view_of_instance(instance) else {
             return Ok(None);
         };
 
-        instance_presenter
-            .view_window_state(view)
-            .cloned()
-            .map(Some)
+        Ok(Some(instance_presenter.view_window_state(view)?.clone()))
     }
 
     /// Remove the target from the hierarchy. Specific target aggregates are left

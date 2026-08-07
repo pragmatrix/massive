@@ -262,6 +262,7 @@ impl InstancePresenter {
         Ok(())
     }
 
+    /// This fails if the view is not presented.
     pub fn view_window_state(&self, view_id: ViewId) -> Result<&ViewWindowState> {
         self.presented_view(view_id).map(|view| &view.window_state)
     }
@@ -363,7 +364,7 @@ impl InstancePresenter {
 
     fn presented_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
         let Some(view) = self.state.view() else {
-            bail!("A view needs to be updated, but instance presenter is not presenting a view.")
+            bail!("Instance presenter is not presenting a view.")
         };
 
         if view.creation_info.id != view_id {

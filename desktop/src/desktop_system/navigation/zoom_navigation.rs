@@ -3,6 +3,7 @@ use massive_scene::{ToCamera, Transform};
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
 use crate::projects::LaunchProfileId;
+use crate::window_state::WindowState;
 
 #[derive(Debug, Clone)]
 pub(super) struct OverviewBounds {
@@ -35,9 +36,10 @@ impl DesktopSystem {
         &self,
         target: &DesktopTarget,
         mut depth: FocusDepth,
+        window_state: &WindowState,
     ) -> PixelCamera {
         loop {
-            if let Some(camera) = self.resolve_camera_focus_and_depth(target, depth) {
+            if let Some(camera) = self.resolve_camera_focus_and_depth(target, depth, window_state) {
                 return camera;
             }
 
@@ -47,10 +49,11 @@ impl DesktopSystem {
         }
     }
 
-    pub(super) fn resolve_camera_focus_and_depth(
+    fn resolve_camera_focus_and_depth(
         &self,
         target: &DesktopTarget,
         depth: FocusDepth,
+        window_state: &WindowState,
     ) -> Option<PixelCamera> {
         match depth {
             FocusDepth::InstanceFullScreen => self
@@ -74,7 +77,7 @@ impl DesktopSystem {
                 .hierarchy
                 .instance_of_target(target)
                 .and_then(|_| self.camera_for_target(target)),
-            FocusDepth::Launcher => self.camera_for_launcher_focus(target),
+            FocusDepth::Launcher => self.camera_for_launcher_focus(target, window_state),
             FocusDepth::Row => self
                 .aggregates
                 .hierarchy
@@ -89,7 +92,11 @@ impl DesktopSystem {
         }
     }
 
-    fn camera_for_launcher_focus(&self, target: &DesktopTarget) -> Option<PixelCamera> {
+    fn camera_for_launcher_focus(
+        &self,
+        target: &DesktopTarget,
+        window_state: &WindowState,
+    ) -> Option<PixelCamera> {
         let launcher_id = self.aggregates.hierarchy.launcher_of_target(target)?;
         let launcher = DesktopTarget::Launcher(launcher_id);
 
@@ -100,13 +107,17 @@ impl DesktopSystem {
             .len()
             > 1
         {
-            self.camera_for_bounds(self.launcher_bounds(launcher_id))
+            self.camera_for_bounds(self.launcher_bounds(launcher_id), window_state)
         } else {
             self.camera_for_target(&launcher)
         }
     }
 
-    pub(super) fn camera_for_bounds(&self, bounds: OverviewBounds) -> Option<PixelCamera> {
+    fn camera_for_bounds(
+        &self,
+        bounds: OverviewBounds,
+        window_state: &WindowState,
+    ) -> Option<PixelCamera> {
         if bounds.rect.is_empty() {
             return None;
         }
@@ -114,7 +125,7 @@ impl DesktopSystem {
         let center = bounds.rect.center();
         let center: Transform = (center.x, center.y, 0.0).into();
         let camera = center.to_camera();
-        let surface_size = self.window.inner_size();
+        let surface_size = window_state.inner_size;
         let target_size = Self::fit_size_for_points(
             bounds.rect,
             center.translate,
@@ -125,7 +136,7 @@ impl DesktopSystem {
         Some(camera.with_size(target_size))
     }
 
-    pub(super) fn camera_for_rect(&self, rect: Rect) -> Option<PixelCamera> {
+    fn camera_for_rect(&self, rect: Rect) -> Option<PixelCamera> {
         if rect.is_empty() {
             return None;
         }

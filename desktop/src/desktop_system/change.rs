@@ -58,10 +58,7 @@ pub enum DesktopChange {
 pub enum FullScreenChange {
     Enter,
     Exit,
-    NativeStateChanged {
-        is_fullscreen: bool,
-        size: SizePx,
-    },
+    NativeStateChanged,
     ApplyAction {
         action: FullScreenAction,
         size: SizePx,

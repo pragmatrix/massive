@@ -26,6 +26,7 @@ use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
     ProjectPresenter, ProjectProperties,
 };
+use crate::window_state::WindowState;
 use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
 
 /// The outcome of applying a change: the measures it produced and any follow-up changes.
@@ -62,7 +63,12 @@ impl ChangeOutput {
 
 impl DesktopSystem {
     /// Plan the execution of a command.
-    pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
+    pub fn plan(
+        &self,
+        command: DesktopCommand,
+        scene: &Scene,
+        window_state: &WindowState,
+    ) -> Result<Changes> {
         match command {
             DesktopCommand::Project(project_command) => return self.plan_project(project_command),
             DesktopCommand::StartInstance {
@@ -146,7 +152,7 @@ impl DesktopSystem {
             DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
             DesktopCommand::ZoomIn => {
                 if self.user_state.focus_depth == FocusDepth::Instance {
-                    if !self.window.is_fullscreen() {
+                    if !window_state.is_fullscreen {
                         return Ok(Changes::Empty);
                     }
                     let Some(instance_id) = self.focused_path().instance() else {
@@ -168,10 +174,7 @@ impl DesktopSystem {
                 }
             }
             DesktopCommand::ZoomOut => {
-                if matches!(
-                    self.user_state.focus_depth,
-                    FocusDepth::InstanceFullScreen
-                ) {
+                if matches!(self.user_state.focus_depth, FocusDepth::InstanceFullScreen) {
                     return Ok(FullScreenChange::Exit.into());
                 }
 
@@ -357,6 +360,7 @@ impl DesktopSystem {
         change: DesktopChange,
         frame: &mut Frame,
         instance_manager: &mut InstanceManager,
+        window_state: &WindowState,
     ) -> Result<ChangeOutput> {
         match change {
             DesktopChange::SpawnInstance {
@@ -421,7 +425,7 @@ impl DesktopSystem {
                         previous_instance,
                         focused_instance,
                     ),
-                    self.window.inner_size(),
+                    window_state.inner_size,
                 );
                 return Ok(ChangeOutput::changes(changes));
             }
@@ -433,7 +437,7 @@ impl DesktopSystem {
                 self.user_state = user_state;
             }
             DesktopChange::FullScreen(change) => {
-                return self.apply_full_screen_change(change, instance_manager);
+                return self.apply_full_screen_change(change, instance_manager, window_state);
             }
             DesktopChange::Resize(size_px) => {
                 self.default_panel_size = size_px;
@@ -460,7 +464,7 @@ impl DesktopSystem {
                 let commands = self.forward_event_transitions(transitions, instance_manager)?;
                 let mut changes = Changes::default();
                 for command in commands {
-                    changes += self.plan(command, frame.scene())?;
+                    changes += self.plan(command, frame.scene(), window_state)?;
                 }
                 return Ok(ChangeOutput::changes(changes));
             }
@@ -479,33 +483,31 @@ impl DesktopSystem {
         &mut self,
         change: FullScreenChange,
         instance_manager: &InstanceManager,
+        window_state: &WindowState,
     ) -> Result<ChangeOutput> {
         match change {
             FullScreenChange::Enter => {
                 let changes = self.apply_full_screen_decision(
                     fullscreen::enter(self.focused_path().instance()),
-                    self.window.inner_size(),
+                    window_state.inner_size,
                 );
                 Ok(ChangeOutput::changes(changes))
             }
             FullScreenChange::Exit => {
                 let changes = self.apply_full_screen_decision(
                     fullscreen::exit(self.user_state.focus_depth, self.focused_path().instance()),
-                    self.window.inner_size(),
+                    window_state.inner_size,
                 );
                 Ok(ChangeOutput::changes(changes))
             }
-            FullScreenChange::NativeStateChanged {
-                is_fullscreen,
-                size,
-            } => {
+            FullScreenChange::NativeStateChanged => {
                 let changes = self.apply_full_screen_decision(
                     fullscreen::native_fullscreen_changed(
                         self.user_state.focus_depth,
-                        is_fullscreen,
+                        window_state.is_fullscreen,
                         self.focused_path().instance(),
                     ),
-                    size,
+                    window_state.inner_size,
                 );
                 Ok(ChangeOutput::changes(changes))
             }
@@ -932,10 +934,7 @@ impl DesktopSystem {
             }
             DesktopRequest::Resize { size_px } => {
                 let mut changes = Changes::Empty;
-                if matches!(
-                    self.user_state.focus_depth,
-                    FocusDepth::InstanceFullScreen
-                ) {
+                if matches!(self.user_state.focus_depth, FocusDepth::InstanceFullScreen) {
                     changes += DesktopChange::from(FullScreenChange::Exit);
                 }
                 changes += DesktopChange::Resize((*size_px).into());
