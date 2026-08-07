@@ -20,8 +20,8 @@ use crate::shell::ShellCommand;
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
-    /// We need to make Window "shareable", because the Renderer needs to lock it, so that it does
-    /// not close with a renderer running.
+    /// We need to make Window "shareable", because the Renderer needs to refer to it, so that it
+    /// does not close with a renderer running.
     shared: Arc<ShellWindowShared>,
 }
 
