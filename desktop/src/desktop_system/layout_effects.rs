@@ -220,11 +220,8 @@ impl DesktopSystem {
             return;
         };
 
-        let camera = self.resolve_camera_for_target_or_ancestor(
-            focused,
-            self.user_state.focus_depth,
-            window_state,
-        );
+        let camera =
+            self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth, window_state);
 
         if effects_mode.permit_animations() {
             self.camera.animate_if_changed(

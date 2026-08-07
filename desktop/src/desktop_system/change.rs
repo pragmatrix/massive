@@ -2,7 +2,8 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
-use super::{KeyboardFocusReason, UserState};
+use super::KeyboardFocusReason;
+use crate::desktop_system::FocusDepth;
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -45,13 +46,21 @@ pub enum DesktopChange {
     },
     /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
-    SetNavigationAffinity(Option<u32>),
-    SetUserState(UserState),
+    CommitNavigationAffinity(Option<u32>),
+    /// Commit the focus depth.
+    CommitFocusDepth(FocusDepth),
     FullScreen(FullScreenChange),
     Resize(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+}
+
+#[derive(Debug)]
+pub enum ZoomChange {
+    In,
+    Out,
+    Reset,
 }
 
 #[derive(Debug)]
@@ -111,7 +120,7 @@ pub enum ProjectChange {
 pub fn set_focus(target: Option<DesktopTarget>, reason: KeyboardFocusReason) -> Changes {
     let mut changes: Changes = DesktopChange::SetFocus { target, reason }.into();
     if reason.resets_navigation_affinity() {
-        changes += DesktopChange::SetNavigationAffinity(None);
+        changes += DesktopChange::CommitNavigationAffinity(None);
     }
     changes
 }

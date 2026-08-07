@@ -107,11 +107,6 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Commands = CollectingVec<DesktopCommand>;
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub struct UserState {
-    focus_depth: FocusDepth,
-}
-
 /// What is the user currently focusing on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
 #[repr(u8)]
@@ -195,7 +190,7 @@ pub struct DesktopSystem {
 
     event_router: EventRouter<DesktopTarget>,
     camera: Animated<PixelCamera>,
-    user_state: UserState,
+    focus_depth: FocusDepth,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
@@ -266,7 +261,7 @@ impl DesktopSystem {
 
             event_router,
             camera: PixelCamera::default().into(),
-            user_state: UserState::default(),
+            focus_depth: FocusDepth::default(),
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             deferred_camera_move: false,
@@ -298,7 +293,7 @@ impl DesktopSystem {
 
         let mut measures = MeasureSet::Empty;
         let mut update_camera = false;
-        let user_state_before = self.user_state.clone();
+        let focus_depth_before = self.focus_depth;
         let focus_before = self.event_router.keyboard_focus().cloned();
 
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
@@ -325,7 +320,7 @@ impl DesktopSystem {
         // The camera follows the focused target, so a focus change recomputes it even when the
         // change moved no layout (pure navigation between siblings, or focusing a launcher).
         update_camera |= self.event_router.keyboard_focus() != focus_before.as_ref();
-        if self.user_state != user_state_before {
+        if self.focus_depth != focus_depth_before {
             update_camera = true;
         }
 

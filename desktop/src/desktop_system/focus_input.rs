@@ -13,6 +13,7 @@ use super::change::{Changes, DesktopChange, set_focus};
 use super::navigation::focus_depth_from_target;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
 use crate::EventTransition;
+use crate::desktop_system::change::ZoomChange;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -238,11 +239,11 @@ impl DesktopSystem {
                 // Architecture: When we issue ResetZoom redundantly, we could capture the
                 // `Cmd+Enter` in situations in which it needs to be delivered to the
                 // `LauncherPresenter`. Therefore, we test upfront if the ResetZoom is needed.
-                let current_level = self.user_state.focus_depth;
+                let current_level = self.focus_depth;
                 let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
 
                 if current_level != keyboard_focus_level {
-                    return Some(DesktopKeyboardShortcut::ResetZoom);
+                    return Some(DesktopKeyboardShortcut::Zoom(ZoomChange::Reset));
                 }
             }
 
@@ -254,12 +255,14 @@ impl DesktopSystem {
                 _ => None,
             } {
                 if event.device_states().is_ctrl() {
-                    if direction == Direction::Up {
-                        return Some(DesktopKeyboardShortcut::ZoomIn);
-                    }
-
-                    if direction == Direction::Down {
-                        return Some(DesktopKeyboardShortcut::ZoomOut);
+                    match direction {
+                        Direction::Up => {
+                            return Some(DesktopKeyboardShortcut::Zoom(ZoomChange::In));
+                        }
+                        Direction::Down => {
+                            return Some(DesktopKeyboardShortcut::Zoom(ZoomChange::Out));
+                        }
+                        _ => {}
                     }
                 }
                 return Some(DesktopKeyboardShortcut::Navigate(direction));
@@ -294,9 +297,7 @@ pub enum DesktopKeyboardShortcut {
         parameters: InstanceParameters,
     },
     CloseInstance(InstanceId),
-    ZoomOut,
-    ZoomIn,
-    ResetZoom,
+    Zoom(ZoomChange),
     Navigate(Direction),
 }
 
@@ -314,9 +315,7 @@ impl DesktopKeyboardShortcut {
             },
             Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
             Self::Navigate(direction) => DesktopCommand::Navigate(direction),
-            Self::ZoomOut => DesktopCommand::ZoomOut,
-            Self::ZoomIn => DesktopCommand::ZoomIn,
-            Self::ResetZoom => DesktopCommand::ResetZoom,
+            Self::Zoom(change) => DesktopCommand::Zoom(change),
         }
     }
 }

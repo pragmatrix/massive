@@ -118,7 +118,7 @@ impl DesktopSystem {
         ) {
             let mut changes =
                 set_focus(Some(plan.candidate.clone()), KeyboardFocusReason::Navigate);
-            changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
+            changes += DesktopChange::CommitNavigationAffinity(plan.column_affinity);
             return Ok(changes);
         }
 
