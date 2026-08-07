@@ -224,13 +224,6 @@ impl InstancePresenter {
 
         self.apply_view_presentation();
 
-        if let Some(background) = &mut self.background {
-            background.visual.update_if_changed_with(|visual| {
-                visual.location = self.root.presentation_location.to_ref();
-                visual.shapes = InstanceBackground::shapes(background.centered_rect());
-            });
-        }
-
         Ok(())
     }
 
