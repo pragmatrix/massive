@@ -1,7 +1,10 @@
+use log::error;
+
 use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
 use massive_scene::{ToCamera, Transform};
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
+use crate::instance_presenter::ViewPresentation;
 use crate::projects::LaunchProfileId;
 use crate::window_state::WindowState;
 
@@ -56,27 +59,29 @@ impl DesktopSystem {
         window_state: &WindowState,
     ) -> Option<PixelCamera> {
         match depth {
-            // FocusDepth::InstanceFullScreen => self
-            //     .aggregates
-            //     .hierarchy
-            //     .instance_of_target(target)
-            //     .and_then(|instance_id| {
-            //         let size = self
-            //             .aggregates
-            //             .instances
-            //             .get(&instance_id)?
-            //             .full_screen_layout_size(&window_state)?;
-            //         let transform = self
-            //             .placement(&DesktopTarget::Instance(instance_id))
-            //             .transform;
-            //         let camera_transform: Transform = transform.translate.into();
-            //         Some(camera_transform.to_camera().with_size(size))
-            //     }),
             FocusDepth::InstanceFullScreen | FocusDepth::Instance => self
                 .aggregates
                 .hierarchy
                 .instance_of_target(target)
-                .and_then(|_| self.camera_for_target(target)),
+                .and_then(|instance_id| {
+                    let presenter = self.aggregates.instances.get(&instance_id)?;
+                    if presenter.view_presentation() != Some(ViewPresentation::FullScreen) {
+                        return self.camera_for_target(target);
+                    }
+
+                    if depth == FocusDepth::Instance {
+                        error!(
+                            "Instance {instance_id:?} is fullscreen at normal instance focus depth"
+                        );
+                    }
+
+                    let size = presenter.full_screen_layout_size(window_state.inner_size);
+                    let transform = self
+                        .placement(&DesktopTarget::Instance(instance_id))
+                        .transform;
+                    let camera_transform: Transform = transform.translate.into();
+                    Some(camera_transform.to_camera().with_size(size))
+                }),
             FocusDepth::Launcher => self.camera_for_launcher_focus(target, window_state),
             FocusDepth::Row => self
                 .aggregates

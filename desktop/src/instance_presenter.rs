@@ -306,17 +306,15 @@ impl InstancePresenter {
         Some(view_id)
     }
 
-    // pub fn full_screen_layout_size(&self, window_state: &WindowState) -> Option<Size> {
-    //     let ViewPresentation::FullScreen = self.state.view()?.presentation else {
-    //         return None;
-    //     };
+    pub fn full_screen_layout_size(&self, full_screen_size: SizePx) -> Size {
+        assert_eq!(self.view_presentation(), Some(ViewPresentation::FullScreen));
 
-    //     let scale = self.root.presentation_transform.value().scale;
-    //     Some(Size::new(
-    //         size.width as f64 * scale,
-    //         size.height as f64 * scale,
-    //     ))
-    // }
+        let scale = self.root.presentation_transform.value().scale;
+        Size::new(
+            full_screen_size.width as f64 * scale,
+            full_screen_size.height as f64 * scale,
+        )
+    }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
         let snap_layout = !self.has_applied_layout || !animate;
