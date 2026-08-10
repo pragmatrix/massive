@@ -5,9 +5,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use derive_more::Constructor;
 use log::{error, info};
-use massive_util::CollectingVec;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 use uuid::Uuid;
 
 use massive_applications::{
@@ -18,6 +16,7 @@ use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_scene::ChangeCollector;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, FontManager, Scene, ShellWindow};
+use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange, FullScreenChange};
@@ -95,7 +94,7 @@ impl Desktop {
             primary_instance,
             primary_application,
             CreationMode::New(InstanceParameters::new()),
-            primary_root.location(),
+            primary_root.view_parent(),
         )?;
 
         // First wait for the initial submission so the window can match the primary view.
@@ -158,7 +157,7 @@ impl Desktop {
 
         let mut changes = Changes::Empty;
         for command in commands {
-            changes += system.plan(command, &scene, &window_state)?;
+            changes += system.plan(command, &scene)?;
         }
 
         let mut frame = context.frame(&scene);
@@ -215,20 +214,22 @@ impl Desktop {
                     for event in events {
                         match event {
                             ApplicationEvent::View(_, view_event) => {
-                                let mut resize_triggered_changes =
-                                    if let ViewEvent::Resized(size_px) = &view_event {
-                                        // For some reason this does not match.
-                                        // `debug_assert_eq!(self.window.inner_size(), *size_px);`
-                                        let new_window_state =
-                                            WindowState::new(*size_px, self.window.is_fullscreen());
-                                        let event = (new_window_state.is_fullscreen
-                                            != self.window_state.is_fullscreen)
-                                            .then(|| FullScreenChange::NativeStateChanged.into());
-                                        self.window_state = new_window_state;
-                                        event
-                                    } else {
-                                        None
-                                    };
+                                let mut desktop_changes = Changes::default();
+
+                                if let ViewEvent::Resized(size_px) = &view_event {
+                                    // For some reason this does not match.
+                                    // `debug_assert_eq!(self.window.inner_size(), *size_px);`
+                                    let new_window_state =
+                                        WindowState::new(*size_px, self.window.is_fullscreen());
+                                    let event: Option<DesktopChange> = (new_window_state
+                                        .is_fullscreen
+                                        != self.window_state.is_fullscreen)
+                                        .then(|| FullScreenChange::NativeStateChanged.into());
+
+                                    self.window_state = new_window_state;
+
+                                    desktop_changes += event;
+                                }
 
                                 if let Some(input_event) = self
                                     .event_manager
@@ -239,32 +240,25 @@ impl Desktop {
 
                                     let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
-                                            self.system.plan(
-                                                keyboard_cmd.into_command(),
-                                                &self.scene,
-                                                &self.window_state,
-                                            )?
+                                            self.system
+                                                .plan(keyboard_cmd.into_command(), &self.scene)?
                                         } else {
                                             self.system.process_input_event(
                                                 &input_event,
                                                 self.renderer.geometry(),
                                             )?
                                         };
-                                    match &mut resize_triggered_changes {
-                                        Some(event_changes) => *event_changes += input_changes,
-                                        None => resize_triggered_changes = Some(input_changes),
-                                    }
+
+                                    desktop_changes += input_changes;
                                 }
 
-                                if let Some(event_changes) = resize_triggered_changes {
-                                    self.system.transact(
-                                        event_changes,
-                                        &mut frame,
-                                        &mut self.instance_manager,
-                                        None,
-                                        &self.window_state,
-                                    )?;
-                                }
+                                self.system.transact(
+                                    desktop_changes,
+                                    &mut frame,
+                                    &mut self.instance_manager,
+                                    None,
+                                    &self.window_state,
+                                )?;
 
                                 // This is completely weird here. We need a better solution for resize_redraw().
                                 self.renderer.resize_redraw(&view_event)?;
@@ -305,11 +299,9 @@ impl Desktop {
                     if self.system.is_present(&instance_id) {
                         // Did it end on its own? -> Act as if the user ended it.
                         // Robustness: This should probably handled differently.
-                        let changes = self.system.plan(
-                            DesktopCommand::StopInstance(instance_id),
-                            &self.scene,
-                            &self.window_state,
-                        )?;
+                        let changes = self
+                            .system
+                            .plan(DesktopCommand::StopInstance(instance_id), &self.scene)?;
                         self.system.transact(
                             changes,
                             &mut frame,
@@ -392,7 +384,7 @@ fn primary_project() -> PrimaryProject {
     let primary_project = ProjectId::new();
     let primary_launcher = LaunchProfileId::new();
 
-    commands += ProjectCommand::AddProject {
+    commands <<= ProjectCommand::AddProject {
         id: primary_project,
         properties: ProjectProperties {
             name: "Primary / Local".into(),
@@ -400,7 +392,7 @@ fn primary_project() -> PrimaryProject {
         after: None,
     };
 
-    commands += ProjectCommand::AddLauncher {
+    commands <<= ProjectCommand::AddLauncher {
         project: primary_project,
         id: primary_launcher,
         profile: LaunchProfile {

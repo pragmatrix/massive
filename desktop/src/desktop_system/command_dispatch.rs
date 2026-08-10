@@ -3,25 +3,21 @@ use log::{debug, warn};
 use serde_json::json;
 
 use massive_applications::{
-    CreationMode, DesktopRequest, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
+    ConfigurationRequest, CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
     ViewEvent, ViewRole,
 };
-use massive_geometry::SizePx;
 use massive_shell::{Frame, Scene};
 
 use super::change::set_focus;
-use super::change::{
-    Changes, DesktopChange, FullScreenAction, FullScreenChange, ProjectChange, TopologyChange,
-};
+use super::change::{Changes, DesktopChange, FullScreenChange, ProjectChange, TopologyChange};
 use super::effects::MeasureSet;
-use super::fullscreen::{self, FullScreenDecision};
 use super::navigation::focus_depth_from_target;
 use super::{
     DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason, ProjectCommand,
 };
-use crate::desktop_system::change::ZoomChange;
+use crate::desktop_system::change::Zoom;
 use crate::instance_manager::{InstanceManager, ViewPath};
-use crate::instance_presenter::InstanceRoot;
+use crate::instance_presenter::{InstanceRoot, ViewPresentation};
 use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
     ProjectPresenter, ProjectProperties,
@@ -63,12 +59,7 @@ impl ChangeOutput {
 
 impl DesktopSystem {
     /// Plan the execution of a command.
-    pub fn plan(
-        &self,
-        command: DesktopCommand,
-        scene: &Scene,
-        window_state: &WindowState,
-    ) -> Result<Changes> {
+    pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
         match command {
             DesktopCommand::Project(project_command) => return self.plan_project(project_command),
             DesktopCommand::StartInstance {
@@ -119,7 +110,7 @@ impl DesktopSystem {
                     Some(DesktopTarget::Instance(instance)),
                     KeyboardFocusReason::PresentInstance,
                 );
-                changes += DesktopChange::CommitFocusDepth(FocusDepth::default());
+                changes <<= DesktopChange::CommitFocusDepth(FocusDepth::default());
 
                 return Ok(changes);
             }
@@ -145,52 +136,60 @@ impl DesktopSystem {
                     DesktopChange::HideInstance { launcher, instance },
                     DesktopChange::ShutdownInstance(instance),
                 ];
-                changes += DesktopChange::CommitFocusDepth(FocusDepth::default());
+                changes <<= DesktopChange::CommitFocusDepth(FocusDepth::default());
 
                 return Ok(changes);
             }
             DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
-            DesktopCommand::Zoom(ZoomChange::In) => {
-                if self.focus_depth == FocusDepth::Instance {
-                    if !window_state.is_fullscreen {
-                        return Ok(Changes::Empty);
-                    }
-                    let Some(instance_id) = self.focused_path().instance() else {
-                        return Ok(Changes::Empty);
-                    };
-                    let Some(instance) = self.aggregates.instances.get(&instance_id) else {
-                        return Ok(Changes::Empty);
-                    };
-                    if !instance.presents_primary_view() {
-                        return Ok(Changes::Empty);
-                    }
-
-                    return Ok(FullScreenChange::Enter.into());
-                }
-
+            DesktopCommand::Zoom(Zoom::In) => {
                 if let Some(focus_depth) = self.focus_depth.zoom_in() {
-                    return Ok(DesktopChange::CommitFocusDepth(focus_depth).into());
+                    let mut changes = Changes::default();
+                    if focus_depth == FocusDepth::InstanceFullScreen
+                        && let Some(instance_id) = self.focused_path().instance()
+                        && self.aggregates.instances[&instance_id].view_presentation()
+                            == Some(ViewPresentation::Regular)
+                    {
+                        changes <<= FullScreenChange::Enter(instance_id);
+                    }
+                    changes <<= DesktopChange::CommitFocusDepth(focus_depth);
+                    return Ok(changes);
                 }
             }
-            DesktopCommand::Zoom(ZoomChange::Out) => {
-                if matches!(self.focus_depth, FocusDepth::InstanceFullScreen) {
-                    return Ok(FullScreenChange::Exit.into());
-                }
-
+            DesktopCommand::Zoom(Zoom::Out) => {
                 if let Some(focus_depth) = self.focus_depth.zoom_out() {
-                    return Ok(DesktopChange::CommitFocusDepth(focus_depth).into());
+                    let mut changes = Changes::default();
+                    if self.focus_depth == FocusDepth::InstanceFullScreen
+                        && let Some(instance_id) = self.focused_path().instance()
+                        && self.aggregates.instances[&instance_id].view_presentation()
+                            == Some(ViewPresentation::FullScreen)
+                    {
+                        changes <<= FullScreenChange::Exit(instance_id);
+                    }
+
+                    changes <<= DesktopChange::CommitFocusDepth(focus_depth);
+                    return Ok(changes);
                 }
             }
-            DesktopCommand::Zoom(ZoomChange::Reset) => {
+            DesktopCommand::Zoom(Zoom::DefaultForFocused) => {
                 if let Some(keyboard_focus) = self.event_router.keyboard_focus() {
                     let current_level = self.focus_depth;
-                    let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
+                    let focus_level = focus_depth_from_target(keyboard_focus);
 
-                    if current_level != keyboard_focus_level {
-                        if matches!(current_level, FocusDepth::InstanceFullScreen) {
-                            return Ok(FullScreenChange::Exit.into());
+                    let mut changes = Changes::default();
+
+                    if current_level != focus_level {
+                        // Do we need to switch out of fullscreen?
+                        if current_level == FocusDepth::InstanceFullScreen
+                            && let Some(instance_id) = self.focused_path().instance()
+                            && self.aggregates.instances[&instance_id].view_presentation()
+                                == Some(ViewPresentation::FullScreen)
+                        {
+                            changes <<= FullScreenChange::Exit(instance_id);
                         }
-                        return Ok(DesktopChange::CommitFocusDepth(FocusDepth::default()).into());
+
+                        changes <<= DesktopChange::CommitFocusDepth(focus_level);
+
+                        return Ok(changes);
                     }
                 }
             }
@@ -382,7 +381,7 @@ impl DesktopSystem {
                     instance,
                     application,
                     CreationMode::New(parameters),
-                    root.location(),
+                    root.view_parent(),
                 )?;
             }
             DesktopChange::ShutdownInstance(instance) => {
@@ -415,14 +414,35 @@ impl DesktopSystem {
                 let previous_instance = self.focused_path().instance();
                 self.focus(target.as_ref(), instance_manager, reason)?;
                 let focused_instance = self.focused_path().instance();
-                let changes = self.apply_full_screen_decision(
-                    fullscreen::focus_changed(
-                        self.focus_depth,
-                        previous_instance,
-                        focused_instance,
-                    ),
-                    window_state.inner_size,
-                );
+
+                // Architecture: I don't like this that SetFocus causes subsequent changes.
+                let mut changes = Changes::Empty;
+                if previous_instance != focused_instance {
+                    if let Some(previous_instance) = previous_instance {
+                        let desired_presentation_of_previously_focused =
+                            Self::preferred_view_presentation(
+                                previous_instance,
+                                self.focus_depth,
+                                focused_instance,
+                            );
+                        changes += self.sync_focus_event(
+                            previous_instance,
+                            desired_presentation_of_previously_focused,
+                        );
+                    }
+
+                    if let Some(focused_instance) = focused_instance {
+                        let desired_presentation_of_focused = Self::preferred_view_presentation(
+                            focused_instance,
+                            self.focus_depth,
+                            Some(focused_instance),
+                        );
+
+                        changes +=
+                            self.sync_focus_event(focused_instance, desired_presentation_of_focused)
+                    }
+                }
+
                 return Ok(ChangeOutput::changes(changes));
             }
             DesktopChange::CommitNavigationAffinity(column_affinity) => {
@@ -435,7 +455,7 @@ impl DesktopSystem {
             DesktopChange::FullScreen(change) => {
                 return self.apply_full_screen_change(change, instance_manager, window_state);
             }
-            DesktopChange::Resize(size_px) => {
+            DesktopChange::ResizeAll(size_px) => {
                 self.default_panel_size = size_px;
                 for (instance, presenter) in self.aggregates.instances.iter_mut() {
                     let Some(view) = presenter.primary_view_id() else {
@@ -460,7 +480,7 @@ impl DesktopSystem {
                 let commands = self.forward_event_transitions(transitions, instance_manager)?;
                 let mut changes = Changes::default();
                 for command in commands {
-                    changes += self.plan(command, frame.scene(), window_state)?;
+                    changes += self.plan(command, frame.scene())?;
                 }
                 return Ok(ChangeOutput::changes(changes));
             }
@@ -482,64 +502,43 @@ impl DesktopSystem {
         window_state: &WindowState,
     ) -> Result<ChangeOutput> {
         match change {
-            FullScreenChange::Enter => {
-                let changes = self.apply_full_screen_decision(
-                    fullscreen::enter(self.focused_path().instance()),
-                    window_state.inner_size,
-                );
-                Ok(ChangeOutput::changes(changes))
-            }
-            FullScreenChange::Exit => {
-                let changes = self.apply_full_screen_decision(
-                    fullscreen::exit(self.focus_depth, self.focused_path().instance()),
-                    window_state.inner_size,
-                );
-                Ok(ChangeOutput::changes(changes))
-            }
             FullScreenChange::NativeStateChanged => {
-                let changes = self.apply_full_screen_decision(
-                    fullscreen::native_fullscreen_changed(
-                        self.focus_depth,
-                        window_state.is_fullscreen,
-                        self.focused_path().instance(),
-                    ),
-                    window_state.inner_size,
-                );
-                Ok(ChangeOutput::changes(changes))
+                // Design: This decides about the fullow-up events, and is basically a planning
+                // step that should not be encoded as an "atomic" change.
+                let (expected_state, enter) = if window_state.is_fullscreen {
+                    (ViewPresentation::Regular, true)
+                } else {
+                    (ViewPresentation::FullScreen, false)
+                };
+
+                if self.focus_depth == FocusDepth::InstanceFullScreen
+                    && let Some(focused) = self.event_router.keyboard_focus()
+                    && let Some(instance) = self.aggregates.hierarchy.instance_of_target(focused)
+                    && self.aggregates.instances[&instance].view_presentation()
+                        == Some(expected_state)
+                {
+                    let change = if enter {
+                        FullScreenChange::Enter(instance)
+                    } else {
+                        FullScreenChange::Exit(instance)
+                    };
+
+                    return Ok(ChangeOutput::changes(
+                        [DesktopChange::FullScreen(change)].into(),
+                    ));
+                }
+                Ok(ChangeOutput::default())
             }
-            FullScreenChange::ApplyAction { action, size } => match action {
-                FullScreenAction::SetInstanceFullScreen(instance) => {
-                    if self.set_instance_full_screen(instance, size, instance_manager)? {
-                        Ok(ChangeOutput::update_camera())
-                    } else {
-                        Ok(ChangeOutput::default())
-                    }
-                }
-                FullScreenAction::SetInstanceRegular(instance) => {
-                    if self.set_instance_regular(instance, instance_manager)? {
-                        Ok(ChangeOutput::update_camera())
-                    } else {
-                        Ok(ChangeOutput::default())
-                    }
-                }
-            },
+            FullScreenChange::Enter(instance) => {
+                let curent_window_size = window_state.inner_size;
+                self.set_instance_full_screen(instance, curent_window_size, instance_manager)?;
+                Ok(ChangeOutput::update_camera())
+            }
+            FullScreenChange::Exit(instance) => {
+                self.set_instance_regular(instance, instance_manager)?;
+                Ok(ChangeOutput::update_camera())
+            }
         }
-    }
-
-    fn apply_full_screen_decision(
-        &mut self,
-        decision: FullScreenDecision,
-        size: SizePx,
-    ) -> Changes {
-        if let Some(focus_depth) = decision.focus_depth {
-            self.focus_depth = focus_depth;
-        }
-
-        let mut changes = Changes::Empty;
-        for action in decision.actions {
-            changes += DesktopChange::from(FullScreenChange::ApplyAction { action, size });
-        }
-        changes
     }
 
     pub fn apply_topology_change(
@@ -737,7 +736,9 @@ impl DesktopSystem {
                 self.apply_view_change(view_path, command)?;
                 Ok(ChangeOutput::default())
             }
-            InstanceChange::Desktop(request) => self.handle_desktop_request(instance, request),
+            InstanceChange::Configuration(request) => {
+                self.apply_configuration_request(instance, request)
+            }
             // This makes sure that all pending Scene Changes from the Instance have been collected
             // before we drop the last ref the instance has to its parent location (which in turn
             // may push other deletes to the Scene).
@@ -767,10 +768,10 @@ impl DesktopSystem {
         Ok(())
     }
 
-    fn handle_desktop_request(
+    fn apply_configuration_request(
         &self,
         instance: InstanceId,
-        request: DesktopRequest,
+        request: ConfigurationRequest,
     ) -> Result<ChangeOutput> {
         let current_project = self
             .aggregates
@@ -778,7 +779,7 @@ impl DesktopSystem {
             .project_of_target(&instance.into())
             .expect("Instance has no project");
         match &request {
-            DesktopRequest::AddProject => {
+            ConfigurationRequest::AddProject => {
                 let project = ProjectId::new();
                 let launcher = LaunchProfileId::new();
 
@@ -813,7 +814,7 @@ impl DesktopSystem {
 
                 Ok(ChangeOutput::changes(changes))
             }
-            DesktopRequest::RemoveProject { name } => {
+            ConfigurationRequest::RemoveProject { name } => {
                 let project = match name {
                     Some(name) => {
                         let Some(project) = self
@@ -842,7 +843,7 @@ impl DesktopSystem {
                     self.plan_project(ProjectCommand::RemoveProject(project))?,
                 ))
             }
-            DesktopRequest::AddLauncher => {
+            ConfigurationRequest::AddLauncher => {
                 let current_launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&current_launcher];
 
@@ -863,7 +864,7 @@ impl DesktopSystem {
 
                 Ok(ChangeOutput::changes(changes))
             }
-            DesktopRequest::RemoveLauncher { name } => {
+            ConfigurationRequest::RemoveLauncher { name } => {
                 let launcher = match name {
                     Some(name) => {
                         // ADR, stay on the project for now.
@@ -885,7 +886,7 @@ impl DesktopSystem {
                     self.plan_project(ProjectCommand::RemoveLauncher(launcher))?,
                 ))
             }
-            DesktopRequest::MoveLauncher { direction } => {
+            ConfigurationRequest::MoveLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&launcher];
                 let placement = MatrixPositions::moved_placement(current_placement, *direction);
@@ -914,7 +915,7 @@ impl DesktopSystem {
                 };
                 Ok(ChangeOutput::changes(changes))
             }
-            DesktopRequest::PushLauncher { direction } => {
+            ConfigurationRequest::PushLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
                 let current_placement = self.aggregates.matrix_positions[&launcher];
                 match self.launcher_shift_sequence(current_project, launcher, *direction) {
@@ -928,16 +929,25 @@ impl DesktopSystem {
                     }
                 }
             }
-            DesktopRequest::Resize { size_px } => {
+            ConfigurationRequest::Resize { size_px } => {
                 let mut changes = Changes::Empty;
-                if matches!(self.focus_depth, FocusDepth::InstanceFullScreen) {
-                    changes += DesktopChange::from(FullScreenChange::Exit);
+
+                // If we are in fullscreen, show the changes by resetting the zoom level, otherwise
+                // the user would see nothing.
+                //
+                // Architecture: May model this as a separate policy.
+                if let Some(focused_instance) = self.focused_path().instance()
+                    && self.aggregates.instances[&focused_instance].view_presentation()
+                        == Some(ViewPresentation::FullScreen)
+                {
+                    changes <<= DesktopChange::FullScreen(FullScreenChange::Exit(focused_instance));
                 }
-                changes += DesktopChange::Resize((*size_px).into());
+
+                changes <<= DesktopChange::ResizeAll((*size_px).into());
                 Ok(ChangeOutput::changes(changes))
             }
-            DesktopRequest::Undo => todo!(),
-            DesktopRequest::Redo => todo!(),
+            ConfigurationRequest::Undo => todo!(),
+            ConfigurationRequest::Redo => todo!(),
         }
     }
 

@@ -21,6 +21,8 @@ use massive_shell::Scene;
 pub struct InstanceRoot {
     layout_transform: Handle<Transform>,
     layout_location: Handle<Location>,
+
+    // The presentation transform: Effectively scales the view smaller in full-screen mode.
     presentation_transform: Handle<Transform>,
     presentation_location: Handle<Location>,
 }
@@ -41,7 +43,8 @@ impl InstanceRoot {
         }
     }
 
-    pub fn location(&self) -> Ref<Location> {
+    /// The view's parent location.
+    pub fn view_parent(&self) -> Ref<Location> {
         self.presentation_location.to_ref()
     }
 
@@ -93,10 +96,10 @@ struct PrimaryViewPresenter {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum ViewPresentation {
+pub enum ViewPresentation {
     #[default]
     Regular,
-    FullScreen(SizePx),
+    FullScreen,
 }
 
 #[derive(Debug)]
@@ -222,7 +225,7 @@ impl InstancePresenter {
             },
         };
 
-        self.apply_view_presentation();
+        self.apply_view_presentation(view_creation_info.size());
 
         Ok(())
     }
@@ -264,23 +267,31 @@ impl InstancePresenter {
 
     /// This fails if the view is not presented.
     pub fn view_window_state(&self, view_id: ViewId) -> Result<&ViewWindowState> {
-        self.presented_view(view_id).map(|view| &view.window_state)
+        self.presenting_view(view_id).map(|view| &view.window_state)
     }
 
     pub fn primary_view_id(&self) -> Option<ViewId> {
         Some(self.state.view()?.creation_info.id)
     }
 
-    pub fn set_full_screen(&mut self, size: SizePx) -> Option<ViewId> {
+    pub fn view_presentation(&self) -> Option<ViewPresentation> {
+        self.state.view().map(|v| v.presentation)
+    }
+
+    pub fn set_full_screen(&mut self, full_screen_size: SizePx) -> Option<ViewId> {
         let view = self.state.view_mut()?;
-        if view.presentation == ViewPresentation::FullScreen(size) {
+        if view.presentation == ViewPresentation::FullScreen {
             return None;
         }
 
-        view.presentation = ViewPresentation::FullScreen(size);
+        view.presentation = ViewPresentation::FullScreen;
         let view_id = view.creation_info.id;
-        self.apply_view_presentation();
+        self.apply_view_presentation(full_screen_size);
         Some(view_id)
+    }
+
+    pub fn regular_size(&self) -> SizePx {
+        self.regular_size
     }
 
     pub fn set_regular(&mut self) -> Option<ViewId> {
@@ -291,27 +302,21 @@ impl InstancePresenter {
 
         view.presentation = ViewPresentation::Regular;
         let view_id = view.creation_info.id;
-        self.apply_view_presentation();
+        self.apply_view_presentation(self.regular_size);
         Some(view_id)
     }
 
-    pub fn presentation_size(&self) -> SizePx {
-        match self.state.view().map(|view| view.presentation) {
-            Some(ViewPresentation::FullScreen(size)) => size,
-            Some(ViewPresentation::Regular) | None => self.regular_size,
-        }
-    }
+    // pub fn full_screen_layout_size(&self, window_state: &WindowState) -> Option<Size> {
+    //     let ViewPresentation::FullScreen = self.state.view()?.presentation else {
+    //         return None;
+    //     };
 
-    pub fn full_screen_layout_size(&self) -> Option<Size> {
-        let ViewPresentation::FullScreen(size) = self.state.view()?.presentation else {
-            return None;
-        };
-        let scale = self.root.presentation_transform.value().scale;
-        Some(Size::new(
-            size.width as f64 * scale,
-            size.height as f64 * scale,
-        ))
-    }
+    //     let scale = self.root.presentation_transform.value().scale;
+    //     Some(Size::new(
+    //         size.width as f64 * scale,
+    //         size.height as f64 * scale,
+    //     ))
+    // }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
         let snap_layout = !self.has_applied_layout || !animate;
@@ -337,24 +342,27 @@ impl InstancePresenter {
             movement.set_layout(context, layout_transform, target_visibility_alpha);
         });
 
-        self.apply_view_presentation();
+        self.apply_view_presentation(self.regular_size);
     }
 
-    fn apply_view_presentation(&mut self) {
-        let size = self.presentation_size();
+    fn apply_view_presentation(&mut self, view_size: SizePx) {
         let scale = match self.state.view().map(|view| view.presentation) {
-            Some(ViewPresentation::FullScreen(_)) if size.width > 0 && size.height > 0 => {
-                (self.regular_size.width as f64 / size.width as f64)
-                    .min(self.regular_size.height as f64 / size.height as f64)
+            Some(ViewPresentation::FullScreen) if view_size.width > 0 && view_size.height > 0 => {
+                (self.regular_size.width as f64 / view_size.width as f64)
+                    .min(self.regular_size.height as f64 / view_size.height as f64)
             }
-            Some(ViewPresentation::FullScreen(_)) | Some(ViewPresentation::Regular) | None => 1.0,
+            _ => {
+                assert_eq!(view_size, self.regular_size);
+                1.0
+            }
         };
         self.root
             .presentation_transform
             .update_if_changed(Transform::from_scale(scale));
 
         if let Some(background) = &mut self.background {
-            background.local_rect = Size::new(size.width as f64, size.height as f64).to_rect();
+            background.local_rect =
+                Size::new(view_size.width as f64, view_size.height as f64).to_rect();
             background.visual.update_if_changed_with(|visual| {
                 // Background geometry stays in instance space; views apply their own local offset.
                 visual.shapes = InstanceBackground::shapes(background.centered_rect());
@@ -362,7 +370,7 @@ impl InstancePresenter {
         }
     }
 
-    fn presented_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
+    fn presenting_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
         let Some(view) = self.state.view() else {
             bail!("Instance presenter is not presenting a view.")
         };

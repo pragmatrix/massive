@@ -14,8 +14,9 @@ use massive_util::CoalescingReceiver;
 
 use crate::view_builder::ViewBuilder;
 use crate::{
-    ApplicationEvent, ApplicationMessage, DesktopRequest, Frame, FrameSubmission, InstanceChange,
-    InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene, ViewExtent,
+    ApplicationEvent, ApplicationMessage, ConfigurationRequest, Frame, FrameSubmission,
+    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene,
+    ViewExtent,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,8 +164,8 @@ impl InstanceContext {
     }
 
     /// Design: This may interfere with animations and requires a final submit()!
-    pub fn collect_desktop_request(&mut self, request: DesktopRequest) {
-        self.changes.collect(InstanceChange::Desktop(request))
+    pub fn collect_desktop_request(&mut self, request: ConfigurationRequest) {
+        self.changes.collect(InstanceChange::Configuration(request))
     }
 
     pub fn submit(&mut self, submission: FrameSubmission<'_>) -> Result<()> {

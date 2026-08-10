@@ -13,20 +13,18 @@ use crate::{DesktopTarget, RemoveSlotShiftingPolicy};
 
 pub type Changes = CollectingVec<DesktopChange>;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FullScreenAction {
-    SetInstanceFullScreen(InstanceId),
-    SetInstanceRegular(InstanceId),
-}
-
 #[derive(Debug)]
 pub enum DesktopChange {
     Project(ProjectChange),
+    // Design: SpawnInstance seems to be completely able to run externally outside of the
+    // `DesktopSystem`. May introduce something like outside effects that run when transact returns?
     SpawnInstance {
         instance: InstanceId,
         root: InstanceRoot,
         parameters: InstanceParameters,
     },
+    // Design: This also could should be done as an external effect.
+    ShutdownInstance(InstanceId),
     PresentInstance {
         launcher: LaunchProfileId,
         initial_center_translation: Option<Vector3>,
@@ -34,7 +32,6 @@ pub enum DesktopChange {
         root: InstanceRoot,
         parameters: InstanceParameters,
     },
-    ShutdownInstance(InstanceId),
     HideInstance {
         launcher: LaunchProfileId,
         instance: InstanceId,
@@ -50,39 +47,30 @@ pub enum DesktopChange {
     /// Commit the focus depth.
     CommitFocusDepth(FocusDepth),
     FullScreen(FullScreenChange),
-    Resize(SizePx),
+    ResizeAll(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
 }
 
 #[derive(Debug)]
-pub enum ZoomChange {
+pub enum Zoom {
     In,
     Out,
-    Reset,
+    /// Focus on the currently keyboard focused object.
+    DefaultForFocused,
 }
 
 #[derive(Debug)]
 pub enum FullScreenChange {
-    Enter,
-    Exit,
     NativeStateChanged,
-    ApplyAction {
-        action: FullScreenAction,
-        size: SizePx,
-    },
+    Enter(InstanceId),
+    Exit(InstanceId),
 }
 
 impl From<FullScreenChange> for DesktopChange {
     fn from(value: FullScreenChange) -> Self {
         Self::FullScreen(value)
-    }
-}
-
-impl From<FullScreenChange> for Changes {
-    fn from(value: FullScreenChange) -> Self {
-        DesktopChange::from(value).into()
     }
 }
 
@@ -120,7 +108,7 @@ pub enum ProjectChange {
 pub fn set_focus(target: Option<DesktopTarget>, reason: KeyboardFocusReason) -> Changes {
     let mut changes: Changes = DesktopChange::SetFocus { target, reason }.into();
     if reason.resets_navigation_affinity() {
-        changes += DesktopChange::CommitNavigationAffinity(None);
+        changes <<= DesktopChange::CommitNavigationAffinity(None);
     }
     changes
 }

@@ -56,23 +56,23 @@ impl DesktopSystem {
         window_state: &WindowState,
     ) -> Option<PixelCamera> {
         match depth {
-            FocusDepth::InstanceFullScreen => self
-                .aggregates
-                .hierarchy
-                .instance_of_target(target)
-                .and_then(|instance_id| {
-                    let size = self
-                        .aggregates
-                        .instances
-                        .get(&instance_id)?
-                        .full_screen_layout_size()?;
-                    let transform = self
-                        .placement(&DesktopTarget::Instance(instance_id))
-                        .transform;
-                    let camera_transform: Transform = transform.translate.into();
-                    Some(camera_transform.to_camera().with_size(size))
-                }),
-            FocusDepth::Instance => self
+            // FocusDepth::InstanceFullScreen => self
+            //     .aggregates
+            //     .hierarchy
+            //     .instance_of_target(target)
+            //     .and_then(|instance_id| {
+            //         let size = self
+            //             .aggregates
+            //             .instances
+            //             .get(&instance_id)?
+            //             .full_screen_layout_size(&window_state)?;
+            //         let transform = self
+            //             .placement(&DesktopTarget::Instance(instance_id))
+            //             .transform;
+            //         let camera_transform: Transform = transform.translate.into();
+            //         Some(camera_transform.to_camera().with_size(size))
+            //     }),
+            FocusDepth::InstanceFullScreen | FocusDepth::Instance => self
                 .aggregates
                 .hierarchy
                 .instance_of_target(target)

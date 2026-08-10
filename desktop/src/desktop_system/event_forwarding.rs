@@ -32,6 +32,9 @@ impl DesktopSystem {
     }
 
     /// Forward event transitions to the appropriate handler based on the target type.
+    ///
+    /// Design: I think we need to split the events sent to the view and the events delivered
+    /// internally. This way, we can perhaps remove the access to the `InstanceManager` here.
     pub(super) fn forward_event(
         &mut self,
         TargetedEvent(target, event): TargetedEvent<DesktopTarget>,
@@ -39,11 +42,14 @@ impl DesktopSystem {
     ) -> Result<Commands> {
         // Route to the appropriate handler based on the last target in the path
         match target {
-            DesktopTarget::Desktop => {}
-            DesktopTarget::Project(..) => {}
-            DesktopTarget::ProjectHeader(..) => {}
-            DesktopTarget::ProjectMatrix(..) => {}
-            DesktopTarget::Instance(..) => {}
+            DesktopTarget::Launcher(launcher_id) => {
+                let launcher = self
+                    .aggregates
+                    .launchers
+                    .get_mut(&launcher_id)
+                    .expect("Launcher not found");
+                return launcher.process(event);
+            }
             DesktopTarget::View(view_id) => {
                 let path = self
                     .aggregates
@@ -65,15 +71,7 @@ impl DesktopSystem {
                     warn!("Sending view event {event:?} failed with {e}");
                 }
             }
-
-            DesktopTarget::Launcher(launcher_id) => {
-                let launcher = self
-                    .aggregates
-                    .launchers
-                    .get_mut(&launcher_id)
-                    .expect("Launcher not found");
-                return launcher.process(event);
-            }
+            _ => {}
         }
 
         Ok(Commands::Empty)

@@ -90,7 +90,7 @@ pub enum InstanceChange {
     /// Design: This should probably converted to a kind of custom boxed command / request
     /// (discriminated by type), so that the interface stays abstract over what outer shell is
     /// driving the instance.
-    Desktop(DesktopRequest),
+    Configuration(ConfigurationRequest),
 
     /// The instance ended. The `Ref<Location>` can just be dropped now as soon this event got
     /// received (and so may enqueue its deletion into the `ChangeCollector` after all other events
@@ -99,7 +99,7 @@ pub enum InstanceChange {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub enum DesktopRequest {
+pub enum ConfigurationRequest {
     AddProject,
     // `name` is for removing a specific project without selecting it first.
     RemoveProject { name: Option<String> },

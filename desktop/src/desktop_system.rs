@@ -108,6 +108,11 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 pub type Commands = CollectingVec<DesktopCommand>;
 
 /// What is the user currently focusing on.
+///
+/// As a general rule: The focus depth is always selectable by the user, but the implementation by
+/// the system is optional and depends on the currently focused target.
+///
+/// The system should show when the focus depth is changed, so that the user knows them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
 #[repr(u8)]
 pub enum FocusDepth {

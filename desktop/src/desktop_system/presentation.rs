@@ -3,7 +3,7 @@ use anyhow::bail;
 use log::warn;
 
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent};
-use massive_geometry::Vector3;
+use massive_geometry::{SizePx, Vector3};
 use massive_shell::Frame;
 
 use super::DesktopTarget;
@@ -25,7 +25,7 @@ impl DesktopSystem {
     pub(super) fn set_instance_full_screen(
         &mut self,
         instance: InstanceId,
-        size: massive_geometry::SizePx,
+        fullscreen_size: SizePx,
         instance_manager: &InstanceManager,
     ) -> Result<bool> {
         let presenter = self
@@ -33,10 +33,10 @@ impl DesktopSystem {
             .instances
             .get_mut(&instance)
             .expect("Instance not found");
-        let Some(view) = presenter.set_full_screen(size) else {
+        let Some(view) = presenter.set_full_screen(fullscreen_size) else {
             return Ok(false);
         };
-        instance_manager.send_view_event((instance, view), ViewEvent::Resized(size))?;
+        instance_manager.send_view_event((instance, view), ViewEvent::Resized(fullscreen_size))?;
         Ok(true)
     }
 
@@ -53,10 +53,9 @@ impl DesktopSystem {
         let Some(view) = presenter.set_regular() else {
             return Ok(false);
         };
-        instance_manager.send_view_event(
-            (instance, view),
-            ViewEvent::Resized(presenter.presentation_size()),
-        )?;
+        // Design: This can be retrieved from the local layout cache.
+        let size = presenter.regular_size();
+        instance_manager.send_view_event((instance, view), ViewEvent::Resized(size))?;
         Ok(true)
     }
 

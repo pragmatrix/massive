@@ -3,7 +3,7 @@ use derive_more::Debug;
 use massive_applications::{InstanceId, InstanceParameters};
 
 use super::Direction;
-use super::change::ZoomChange;
+use super::change::Zoom;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
@@ -27,7 +27,7 @@ pub enum DesktopCommand {
 
     Navigate(Direction),
 
-    Zoom(ZoomChange),
+    Zoom(Zoom),
 }
 
 #[derive(Debug)]

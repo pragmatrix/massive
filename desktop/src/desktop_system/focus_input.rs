@@ -13,7 +13,7 @@ use super::change::{Changes, DesktopChange, set_focus};
 use super::navigation::focus_depth_from_target;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
 use crate::EventTransition;
-use crate::desktop_system::change::ZoomChange;
+use crate::desktop_system::change::Zoom;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
@@ -46,7 +46,7 @@ impl DesktopSystem {
                         set_focus(Some(t.clone()), KeyboardFocusReason::InputTransition);
 
                     if let Some(event) = target.event {
-                        changes +=
+                        changes <<=
                             DesktopChange::ForwardEvents(EventTransition::Send(t, event).into())
                     }
                     changes
@@ -194,6 +194,7 @@ impl DesktopSystem {
             && key_event.state == ElementState::Pressed
             && event.device_states().is_command()
         {
+            // Design: Extract this part into (match `desktop_cmd_key`?)
             let focused_path = self.focused_path();
 
             // Simplify: Instance should probably return the launcher, too now.
@@ -243,7 +244,7 @@ impl DesktopSystem {
                 let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
 
                 if current_level != keyboard_focus_level {
-                    return Some(DesktopKeyboardShortcut::Zoom(ZoomChange::Reset));
+                    return Some(DesktopKeyboardShortcut::Zoom(Zoom::DefaultForFocused));
                 }
             }
 
@@ -257,10 +258,10 @@ impl DesktopSystem {
                 if event.device_states().is_ctrl() {
                     match direction {
                         Direction::Up => {
-                            return Some(DesktopKeyboardShortcut::Zoom(ZoomChange::In));
+                            return Some(DesktopKeyboardShortcut::Zoom(Zoom::In));
                         }
                         Direction::Down => {
-                            return Some(DesktopKeyboardShortcut::Zoom(ZoomChange::Out));
+                            return Some(DesktopKeyboardShortcut::Zoom(Zoom::Out));
                         }
                         _ => {}
                     }
@@ -297,7 +298,7 @@ pub enum DesktopKeyboardShortcut {
         parameters: InstanceParameters,
     },
     CloseInstance(InstanceId),
-    Zoom(ZoomChange),
+    Zoom(Zoom),
     Navigate(Direction),
 }
 
