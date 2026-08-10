@@ -79,15 +79,30 @@ impl Interpolatable for CameraMode {
 
         match (from, to) {
             (PixelPerfect, PixelPerfect) => PixelPerfect,
-            (PixelPerfect, Sized { target_size, .. }) => {
-                let blend = interpolate(&0.0, &1.0, t);
+            (
+                PixelPerfect,
+                Sized {
+                    target_size,
+                    blend: to_blend,
+                },
+            ) => {
+                // `to_blend` (not a hardcoded `1.0`) so re-blending an in-progress value (as
+                // `BlendedAnimation::proceed` does with `weight = 1.0`) preserves it instead of
+                // collapsing straight to the final state.
+                let blend = interpolate(&0.0, to_blend, t);
                 Sized {
                     target_size: *target_size,
                     blend,
                 }
             }
-            (Sized { target_size, .. }, PixelPerfect) => {
-                let blend = interpolate(&1.0, &0.0, t);
+            (
+                Sized {
+                    target_size,
+                    blend: from_blend,
+                },
+                PixelPerfect,
+            ) => {
+                let blend = interpolate(from_blend, &0.0, t);
                 if blend == 0.0 {
                     PixelPerfect
                 } else {
