@@ -296,10 +296,8 @@ impl DesktopSystem {
             .into()
             .unwrap_or_else(|| self.live_effects_mode());
 
-        let mut measures = MeasureSet::Empty;
+        let mut effects = Effects::None;
         let mut update_camera = false;
-        let focus_depth_before = self.focus_depth;
-        let focus_before = self.event_router.keyboard_focus().cloned();
 
         let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
 
@@ -310,24 +308,23 @@ impl DesktopSystem {
             for new_change in new_changes.into_iter().rev() {
                 changes.push_front(new_change);
             }
-            measures += outcome.measures;
+            effects += outcome.effects;
             update_camera |= outcome.update_camera;
         }
 
-        // A nested removal measures its surviving parent, but a later change in the same
-        // transaction may remove that parent as well. Only measure targets in the final topology.
-        let mut effects: Effects = measures
+        // A later change in the same transaction may remove a target scheduled by an earlier
+        // change. Only run target effects against the final topology.
+        let mut effects: Effects = effects
             .into_iter()
-            .filter(|target| self.aggregates.hierarchy.exists(target))
-            .map(DesktopEffect::Measure)
+            .filter(|effect| match effect {
+                DesktopEffect::Measure(target)
+                | DesktopEffect::Place(target)
+                | DesktopEffect::ApplyLayout(target) => self.aggregates.hierarchy.exists(target),
+                DesktopEffect::ApplyPresentation(instance) => {
+                    self.aggregates.instances.contains_key(instance)
+                }
+            })
             .collect();
-
-        // The camera follows the focused target, so a focus change recomputes it even when the
-        // change moved no layout (pure navigation between siblings, or focusing a launcher).
-        update_camera |= self.event_router.keyboard_focus() != focus_before.as_ref();
-        if self.focus_depth != focus_depth_before {
-            update_camera = true;
-        }
 
         // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
         // For example, focus layout effects.
@@ -361,18 +358,17 @@ impl DesktopSystem {
             self.camera.snap(camera);
         }
 
-        // This should probably be a function call and does not need to be an effect anymore.
-        if update_camera {
-            effects += DesktopEffect::UpdateCamera;
-        }
-
-        // Commands emit their own targeted `Measure` effects for the subtrees they change, and a
-        // focus change emits `UpdateCamera` directly (see the `focus_before` comparison above), so
-        // no root measure is needed here.
-
         // WindowState is needed to resolve `inner_size` when the camera focuses on presenters that
         // must fit into the window.
-        self.run_effects_to_completion(frame, effects_mode, effects, window_state)?;
+
+        // Architecture: The dependency to instance_manager was added when with the
+        // ApplyPresentation effect, which needs to send a resize request to the instance. This
+        // should not be done here in the effect engine.
+        self.run_effects_to_completion(effects_mode, effects, window_state, instance_manager)?;
+
+        if update_camera {
+            self.update_camera(frame, effects_mode, window_state);
+        }
 
         // Update the hover target.
         {

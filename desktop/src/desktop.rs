@@ -19,7 +19,7 @@ use massive_shell::{ApplicationContext, AsyncWindowRenderer, FontManager, Scene,
 use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
-use crate::desktop_system::change::{Changes, DesktopChange, FullScreenChange};
+use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::{
     Commands, DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
 };
@@ -219,16 +219,12 @@ impl Desktop {
                                 if let ViewEvent::Resized(size_px) = &view_event {
                                     // For some reason this does not match.
                                     // `debug_assert_eq!(self.window.inner_size(), *size_px);`
-                                    let new_window_state =
+                                    let window_state =
                                         WindowState::new(*size_px, self.window.is_fullscreen());
-                                    let event: Option<DesktopChange> = (new_window_state
-                                        .is_fullscreen
-                                        != self.window_state.is_fullscreen)
-                                        .then(|| FullScreenChange::NativeStateChanged.into());
-
-                                    self.window_state = new_window_state;
-
-                                    desktop_changes += event;
+                                    if window_state != self.window_state {
+                                        self.window_state = window_state;
+                                        desktop_changes <<= DesktopChange::WindowResized;
+                                    }
                                 }
 
                                 if let Some(input_event) = self

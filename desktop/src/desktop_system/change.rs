@@ -46,7 +46,7 @@ pub enum DesktopChange {
     CommitNavigationAffinity(Option<u32>),
     /// Commit the focus depth.
     CommitFocusDepth(FocusDepth),
-    FullScreen(FullScreenChange),
+    WindowResized,
     ResizeAll(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
@@ -59,19 +59,6 @@ pub enum Zoom {
     Out,
     /// Focus on the currently keyboard focused object.
     DefaultForFocused,
-}
-
-#[derive(Debug)]
-pub enum FullScreenChange {
-    NativeStateChanged,
-    Enter(InstanceId),
-    Exit(InstanceId),
-}
-
-impl From<FullScreenChange> for DesktopChange {
-    fn from(value: FullScreenChange) -> Self {
-        Self::FullScreen(value)
-    }
 }
 
 #[derive(Debug)]

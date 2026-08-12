@@ -2,14 +2,14 @@ use anyhow::Result;
 use anyhow::bail;
 use log::warn;
 
-use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo, ViewEvent};
-use massive_geometry::{SizePx, Vector3};
+use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
+use massive_geometry::Vector3;
 use massive_shell::Frame;
 
 use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, TopologyChange};
 use super::command_dispatch::ChangeOutput;
-use crate::instance_manager::{InstanceManager, ViewPath};
+use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
 use crate::projects::LaunchProfileId;
 
@@ -22,43 +22,6 @@ pub struct OriginationDetails {
 }
 
 impl DesktopSystem {
-    pub(super) fn set_instance_full_screen(
-        &mut self,
-        instance: InstanceId,
-        fullscreen_size: SizePx,
-        instance_manager: &InstanceManager,
-    ) -> Result<bool> {
-        let presenter = self
-            .aggregates
-            .instances
-            .get_mut(&instance)
-            .expect("Instance not found");
-        let Some(view) = presenter.set_full_screen(fullscreen_size) else {
-            return Ok(false);
-        };
-        instance_manager.send_view_event((instance, view), ViewEvent::Resized(fullscreen_size))?;
-        Ok(true)
-    }
-
-    pub(super) fn set_instance_regular(
-        &mut self,
-        instance: InstanceId,
-        instance_manager: &InstanceManager,
-    ) -> Result<bool> {
-        let presenter = self
-            .aggregates
-            .instances
-            .get_mut(&instance)
-            .expect("Instance not found");
-        let Some(view) = presenter.set_regular() else {
-            return Ok(false);
-        };
-        // Design: This can be retrieved from the local layout cache.
-        let size = presenter.regular_size();
-        instance_manager.send_view_event((instance, view), ViewEvent::Resized(size))?;
-        Ok(true)
-    }
-
     pub(super) fn present_instance(
         &mut self,
         launcher: LaunchProfileId,

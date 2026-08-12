@@ -5,7 +5,7 @@ use winit::window::CursorIcon;
 use massive_geometry::SizePx;
 use massive_shell::ShellWindow;
 
-#[derive(Debug, Copy, Clone, Constructor)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Constructor)]
 pub struct WindowState {
     pub inner_size: SizePx,
     pub is_fullscreen: bool,

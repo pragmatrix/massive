@@ -92,14 +92,39 @@ enum InstancePresenterState {
 struct PrimaryViewPresenter {
     creation_info: ViewCreationInfo,
     window_state: ViewWindowState,
-    presentation: ViewPresentation,
+    applied_presentation: InstancePresentation,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum ViewPresentation {
-    #[default]
-    Regular,
-    FullScreen,
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InstancePresentation {
+    view_size: SizePx,
+    scale: f64,
+}
+
+impl InstancePresentation {
+    pub fn regular(view_size: SizePx) -> Self {
+        Self {
+            view_size,
+            scale: 1.0,
+        }
+    }
+
+    pub fn full_screen(regular_size: SizePx, view_size: SizePx) -> Self {
+        let scale = if view_size.width > 0 && view_size.height > 0 {
+            (regular_size.width as f64 / view_size.width as f64)
+                .min(regular_size.height as f64 / view_size.height as f64)
+        } else {
+            1.0
+        };
+        Self { view_size, scale }
+    }
+
+    pub fn layout_size(self) -> Size {
+        Size::new(
+            self.view_size.width as f64 * self.scale,
+            self.view_size.height as f64 * self.scale,
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -217,15 +242,17 @@ impl InstancePresenter {
             );
         });
 
+        let presentation = InstancePresentation::regular(view_creation_info.size());
+
         self.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
                 creation_info: view_creation_info.clone(),
                 window_state: ViewWindowState::default(),
-                presentation: ViewPresentation::Regular,
+                applied_presentation: presentation,
             },
         };
 
-        self.apply_view_presentation(view_creation_info.size());
+        self.apply_presentation_transform(presentation);
 
         Ok(())
     }
@@ -274,46 +301,21 @@ impl InstancePresenter {
         Some(self.state.view()?.creation_info.id)
     }
 
-    pub fn view_presentation(&self) -> Option<ViewPresentation> {
-        self.state.view().map(|v| v.presentation)
-    }
-
-    pub fn set_full_screen(&mut self, full_screen_size: SizePx) -> Option<ViewId> {
-        let view = self.state.view_mut()?;
-        if view.presentation == ViewPresentation::FullScreen {
-            return None;
-        }
-
-        view.presentation = ViewPresentation::FullScreen;
-        let view_id = view.creation_info.id;
-        self.apply_view_presentation(full_screen_size);
-        Some(view_id)
-    }
-
     pub fn regular_size(&self) -> SizePx {
         self.regular_size
     }
 
-    pub fn set_regular(&mut self) -> Option<ViewId> {
+    pub fn apply_presentation(
+        &mut self,
+        presentation: InstancePresentation,
+    ) -> Option<(ViewId, SizePx)> {
         let view = self.state.view_mut()?;
-        if view.presentation == ViewPresentation::Regular {
-            return None;
-        }
+        let resize = (view.applied_presentation.view_size != presentation.view_size)
+            .then_some((view.creation_info.id, presentation.view_size));
+        view.applied_presentation = presentation;
 
-        view.presentation = ViewPresentation::Regular;
-        let view_id = view.creation_info.id;
-        self.apply_view_presentation(self.regular_size);
-        Some(view_id)
-    }
-
-    pub fn full_screen_layout_size(&self, full_screen_size: SizePx) -> Size {
-        assert_eq!(self.view_presentation(), Some(ViewPresentation::FullScreen));
-
-        let scale = self.root.presentation_transform.value().scale;
-        Size::new(
-            full_screen_size.width as f64 * scale,
-            full_screen_size.height as f64 * scale,
-        )
+        self.apply_presentation_transform(presentation);
+        resize
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
@@ -339,28 +341,19 @@ impl InstancePresenter {
         self.movement.modify(move |movement, context| {
             movement.set_layout(context, layout_transform, target_visibility_alpha);
         });
-
-        self.apply_view_presentation(self.regular_size);
     }
 
-    fn apply_view_presentation(&mut self, view_size: SizePx) {
-        let scale = match self.state.view().map(|view| view.presentation) {
-            Some(ViewPresentation::FullScreen) if view_size.width > 0 && view_size.height > 0 => {
-                (self.regular_size.width as f64 / view_size.width as f64)
-                    .min(self.regular_size.height as f64 / view_size.height as f64)
-            }
-            _ => {
-                assert_eq!(view_size, self.regular_size);
-                1.0
-            }
-        };
+    fn apply_presentation_transform(&mut self, presentation: InstancePresentation) {
         self.root
             .presentation_transform
-            .update_if_changed(Transform::from_scale(scale));
+            .update_if_changed(Transform::from_scale(presentation.scale));
 
         if let Some(background) = &mut self.background {
-            background.local_rect =
-                Size::new(view_size.width as f64, view_size.height as f64).to_rect();
+            background.local_rect = Size::new(
+                presentation.view_size.width as f64,
+                presentation.view_size.height as f64,
+            )
+            .to_rect();
             background.visual.update_if_changed_with(|visual| {
                 // Background geometry stays in instance space; views apply their own local offset.
                 visual.shapes = InstanceBackground::shapes(background.centered_rect());

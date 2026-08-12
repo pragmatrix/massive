@@ -1,47 +1,47 @@
-use massive_applications::InstanceId;
+use anyhow::Result;
+
+use massive_applications::{InstanceId, ViewEvent};
+use massive_geometry::SizePx;
 
 use crate::desktop_system::DesktopSystem;
-use crate::desktop_system::change::{DesktopChange, FullScreenChange};
-use crate::instance_presenter::ViewPresentation;
+use crate::instance_manager::InstanceManager;
+use crate::instance_presenter::InstancePresentation;
+use crate::window_state::WindowState;
 
 use super::FocusDepth;
 
 impl DesktopSystem {
-    pub fn preferred_view_presentation(
-        instance: InstanceId,
-        focus_depth: FocusDepth,
-        focused_instance: Option<InstanceId>,
-    ) -> ViewPresentation {
-        // If the instance is focused, it depends on the focus depth.
-        if focused_instance == Some(instance) {
-            if focus_depth == FocusDepth::InstanceFullScreen {
-                return ViewPresentation::FullScreen;
-            } else {
-                return ViewPresentation::Regular;
-            }
-        }
-
-        // Otherwise, it's always regular.
-        ViewPresentation::Regular
-    }
-
-    pub fn sync_focus_event(
+    pub fn resolve_instance_presentation(
         &self,
         instance: InstanceId,
-        desired: ViewPresentation,
-    ) -> Option<DesktopChange> {
-        let current = self.aggregates.instances[&instance].view_presentation()?;
-
-        if current != desired {
-            return Some(
-                match desired {
-                    ViewPresentation::Regular => FullScreenChange::Exit(instance),
-                    ViewPresentation::FullScreen => FullScreenChange::Enter(instance),
-                }
-                .into(),
-            );
+        window_size: SizePx,
+    ) -> InstancePresentation {
+        let regular_size = self.aggregates.instances[&instance].regular_size();
+        if self.focused_path().instance() == Some(instance)
+            && self.focus_depth == FocusDepth::InstanceFullScreen
+        {
+            InstancePresentation::full_screen(regular_size, window_size)
+        } else {
+            InstancePresentation::regular(regular_size)
         }
+    }
 
-        None
+    pub fn apply_instance_presentation(
+        &mut self,
+        instance: InstanceId,
+        window_state: &WindowState,
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
+        let presentation = self.resolve_instance_presentation(instance, window_state.inner_size);
+        if let Some((view, size)) = self
+            .aggregates
+            .instances
+            .get_mut(&instance)
+            .expect("Instance missing")
+            .apply_presentation(presentation)
+        {
+            instance_manager.send_view_event((instance, view), ViewEvent::Resized(size))?;
+        }
+        Ok(())
     }
 }
