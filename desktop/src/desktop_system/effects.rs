@@ -4,7 +4,6 @@ use std::{ops, vec};
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
 use massive_applications::InstanceId;
-use massive_util::CollectingSet;
 
 use super::DesktopTarget;
 
@@ -36,8 +35,6 @@ impl DesktopEffect {
     }
 }
 
-pub type MeasureSet = CollectingSet<DesktopTarget>;
-
 #[must_use]
 #[derive(Debug, Default, PartialEq)]
 pub struct Effects(Vec<DesktopEffect>);
@@ -45,12 +42,6 @@ pub struct Effects(Vec<DesktopEffect>);
 impl Effects {
     #[allow(non_upper_case_globals)]
     pub const None: Self = Self(Vec::new());
-}
-
-impl From<DesktopEffect> for Effects {
-    fn from(value: DesktopEffect) -> Self {
-        Self(vec![value])
-    }
 }
 
 impl<const LEN: usize> From<[DesktopEffect; LEN]> for Effects {
@@ -130,6 +121,8 @@ impl DesktopEffectScheduler {
         None
     }
 
+    /// Schedules an effect after existing work in its phase, moving an equivalent pending effect
+    /// to the end; phases already processed cannot receive new effects.
     fn enqueue(&mut self, effect: DesktopEffect) {
         let phase = effect.phase();
         if phase < self.current_phase {

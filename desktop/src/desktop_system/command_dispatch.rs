@@ -8,21 +8,21 @@ use massive_applications::{
 };
 use massive_shell::{Frame, Scene};
 
+use super::change::Zoom;
 use super::change::set_focus;
 use super::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
-use super::effects::{DesktopEffect, Effects, MeasureSet};
 use super::navigation::focus_depth_from_target;
 use super::{
-    DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason, ProjectCommand,
+    ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason,
+    ProjectCommand,
 };
-use crate::desktop_system::change::Zoom;
+use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
     ProjectPresenter, ProjectProperties,
 };
-use crate::window_state::WindowState;
 use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
 
 /// The outcome of applying a change: its effects and any follow-up changes.
@@ -30,33 +30,35 @@ use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
 pub struct ChangeOutput {
     /// Additional changes to schedule.
     pub changes: Changes,
-    pub effects: Effects,
-    pub update_camera: bool,
+    pub surface: ChangeSurface,
 }
 
 impl ChangeOutput {
-    fn effects(effects: impl Into<Effects>) -> Self {
-        Self {
-            effects: effects.into(),
-            ..Self::default()
-        }
-    }
-
     pub fn update_camera() -> Self {
         Self {
-            update_camera: true,
+            surface: ChangeSurface {
+                update_camera: true,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
 
-    fn measures(measures: impl Into<MeasureSet>) -> Self {
+    // Presentation is defined as the "content" visible of the target, not the size, not the
+    // placement.
+    //
+    // Right now, only instances support and updated presentation (fullscreen vs non-fullscreen
+    // `FocusDepth`).
+    pub fn presentation_affected(&mut self, target: DesktopTarget) {
+        self.surface.presentation_affected += target;
+    }
+
+    fn measures(measures: impl Into<TargetSet>) -> Self {
         Self {
-            effects: measures
-                .into()
-                .into_iter()
-                .map(DesktopEffect::Measure)
-                .collect(),
-            update_camera: true,
+            surface: ChangeSurface {
+                size_invalid: measures.into(),
+                ..Default::default()
+            },
             ..Self::default()
         }
     }
@@ -68,10 +70,9 @@ impl ChangeOutput {
         }
     }
 
-    fn combine(&mut self, other: Self) {
+    pub fn combine(&mut self, other: Self) {
         self.changes += other.changes;
-        self.effects += other.effects;
-        self.update_camera |= other.update_camera;
+        self.surface.combine(other.surface);
     }
 }
 
@@ -341,7 +342,6 @@ impl DesktopSystem {
         change: DesktopChange,
         frame: &mut Frame,
         instance_manager: &mut InstanceManager,
-        _window_state: &WindowState,
     ) -> Result<ChangeOutput> {
         match change {
             DesktopChange::SpawnInstance {
@@ -398,22 +398,18 @@ impl DesktopSystem {
             }
             DesktopChange::SetFocus { target, reason } => {
                 let previous_focus = self.event_router.keyboard_focus().cloned();
-                let previously_focused_instance = self.focused_path().instance();
                 self.focus(target.as_ref(), instance_manager, reason)?;
-                let focused_instance = self.focused_path().instance();
+                let current_focus = self.event_router.keyboard_focus().cloned();
 
-                let mut effects = Effects::None;
-                if previously_focused_instance != focused_instance {
-                    for instance in [previously_focused_instance, focused_instance]
-                        .into_iter()
-                        .flatten()
-                    {
-                        effects += DesktopEffect::ApplyPresentation(instance);
-                    }
+                let mut output = ChangeOutput::default();
+                if let Some(previous_focus) = &previous_focus {
+                    output.presentation_affected(previous_focus.clone());
                 }
-                let mut output = ChangeOutput::effects(effects);
-                output.update_camera =
-                    self.event_router.keyboard_focus() != previous_focus.as_ref();
+                if let Some(current_focus) = &current_focus {
+                    output.presentation_affected(current_focus.clone());
+                }
+                output.surface.update_camera |= previous_focus != current_focus;
+
                 return Ok(output);
             }
             DesktopChange::CommitNavigationAffinity(column_affinity) => {
@@ -423,20 +419,26 @@ impl DesktopSystem {
             DesktopChange::CommitFocusDepth(focus_depth) => {
                 if self.focus_depth != focus_depth {
                     self.focus_depth = focus_depth;
+
                     let mut output = ChangeOutput::update_camera();
-                    if let Some(instance) = self.focused_path().instance() {
-                        output.effects += DesktopEffect::ApplyPresentation(instance);
+                    if let Some(focused) = self.event_router.keyboard_focus() {
+                        output.presentation_affected(focused.clone());
                     }
                     return Ok(output);
                 }
             }
             DesktopChange::WindowResized => {
-                let mut output = ChangeOutput {
-                    update_camera: true,
-                    ..ChangeOutput::default()
-                };
-                if let Some(instance) = self.focused_path().instance() {
-                    output.effects += DesktopEffect::ApplyPresentation(instance);
+                let mut output = ChangeOutput::update_camera();
+                // A window resize only affects the presentation of instances if we are in
+                // [`FocusDepth::InstanceFullscreen`] and an instance is focused.
+                if self.focus_depth == FocusDepth::InstanceFullScreen
+                    && let Some(instance) = self.focused_path().instance()
+                {
+                    // Design: Somehow this is not a directly affected by a focus change. So there
+                    // is a discrepancy between "updating the presentation" and a target affected by
+                    // a focus change (somehow the target should probably decide about this if it's
+                    // "presentation" is affected?).
+                    output.presentation_affected(DesktopTarget::Instance(instance));
                 }
                 return Ok(output);
             }
@@ -458,18 +460,23 @@ impl DesktopSystem {
                 return Ok(ChangeOutput::measures(DesktopTarget::Desktop));
             }
             DesktopChange::Topology(change) => {
-                let previously_focused_instance = self.focused_path().instance();
+                let previous_focus = self.event_router.keyboard_focus().cloned();
+                // Design: That's somewhat unexpectec here, that `apply_topology_change` changes
+                // focus. Can we make this more obvious? We should combine the `instance_manager`
+                // side effects perhaps.
                 let measure_set = self.apply_topology_change(change, instance_manager)?;
-                let focused_instance = self.focused_path().instance();
+                let current_focus = self.event_router.keyboard_focus().cloned();
+
+                // DRY: This looks similar to SetFocus
                 let mut output = ChangeOutput::measures(measure_set);
-                if previously_focused_instance != focused_instance {
-                    for instance in [previously_focused_instance, focused_instance]
-                        .into_iter()
-                        .flatten()
-                    {
-                        output.effects += DesktopEffect::ApplyPresentation(instance);
-                    }
+                if let Some(ref previous_focus) = previous_focus {
+                    output.presentation_affected(previous_focus.clone());
                 }
+                if let Some(ref current_focus) = current_focus {
+                    output.presentation_affected(current_focus.clone());
+                }
+                output.surface.update_camera |= previous_focus != current_focus;
+
                 return Ok(output);
             }
             DesktopChange::ForwardEvents(transitions) => {
@@ -495,7 +502,7 @@ impl DesktopSystem {
         &mut self,
         change: TopologyChange,
         instance_manager: &InstanceManager,
-    ) -> Result<MeasureSet> {
+    ) -> Result<TargetSet> {
         match change {
             TopologyChange::Add { what, under, after } => {
                 if let Some(after) = after {
@@ -654,8 +661,8 @@ impl DesktopSystem {
             }
             InstanceChange::CreateView(creation_info) => {
                 let mut output = self.present_view(instance, &creation_info)?;
-                output.effects += DesktopEffect::ApplyPresentation(instance);
-                output.update_camera = true;
+                output.presentation_affected(DesktopTarget::Instance(instance));
+                output.surface.update_camera = true;
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the
@@ -884,7 +891,12 @@ impl DesktopSystem {
                 }
 
                 changes <<= DesktopChange::ResizeAll((*size_px).into());
-                Ok(ChangeOutput::changes(changes))
+
+                // The updating of the camera should later be derived from the placement of the
+                // focused target.
+                let mut output = ChangeOutput::changes(changes);
+                output.surface.update_camera = true;
+                Ok(output)
             }
             ConfigurationRequest::Undo => todo!(),
             ConfigurationRequest::Redo => todo!(),

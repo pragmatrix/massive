@@ -128,7 +128,7 @@ impl DesktopSystem {
             self.layout_state
                 .measure_node(&target, &self.aggregates.hierarchy, &algorithm);
 
-        let mut effects = Effects::from(DesktopEffect::Place(target));
+        let mut effects = [DesktopEffect::Place(target)].into();
         if outcome.size_changed
             && let Some(parent) = outcome.parent
         {
@@ -199,7 +199,9 @@ impl DesktopSystem {
         );
 
         match target {
-            DesktopTarget::Instance(instance) => DesktopEffect::ApplyPresentation(instance).into(),
+            DesktopTarget::Instance(instance) => {
+                [DesktopEffect::ApplyPresentation(instance)].into()
+            }
             _ => Effects::None,
         }
     }

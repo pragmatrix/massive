@@ -9,6 +9,7 @@
 //! and aggregates that are event driven.
 
 pub mod change;
+mod change_surface;
 mod command_dispatch;
 mod commands;
 mod effects;
@@ -48,6 +49,8 @@ use layout_state::DesktopLayoutState;
 pub(crate) use navigation::NavigationControl;
 
 use crate::desktop_presenter::DesktopPresenter;
+use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
+use crate::desktop_system::topology::DesktopTopology;
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
@@ -55,7 +58,7 @@ use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPres
 use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 use change::{Changes, DesktopChange};
-use effects::{DesktopEffect, MeasureSet};
+use effects::DesktopEffect;
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -296,54 +299,42 @@ impl DesktopSystem {
             .into()
             .unwrap_or_else(|| self.live_effects_mode());
 
-        let mut effects = Effects::None;
-        let mut update_camera = false;
+        // Run changes to completion and combine everything into a `ChangeSurface`.
 
-        let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
-
-        while let Some(change) = changes.pop_front() {
-            let outcome = self.apply_change(change, frame, instance_manager, window_state)?;
-            // TODO: I think Changes should support a DoubleEndedIterator.
-            let new_changes: Vec<_> = outcome.changes.into_iter().collect();
-            for new_change in new_changes.into_iter().rev() {
-                changes.push_front(new_change);
+        let mut change_surface = ChangeSurface::default();
+        {
+            let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
+            while let Some(change) = changes.pop_front() {
+                let output = self.apply_change(change, frame, instance_manager)?;
+                // TODO: I think Changes should support a DoubleEndedIterator.
+                for new_change in output
+                    .changes
+                    .into_iter()
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                {
+                    changes.push_front(new_change);
+                }
+                change_surface.combine(output.surface);
             }
-            effects += outcome.effects;
-            update_camera |= outcome.update_camera;
         }
 
-        // A later change in the same transaction may remove a target scheduled by an earlier
-        // change. Only run target effects against the final topology.
-        let mut effects: Effects = effects
-            .into_iter()
-            .filter(|effect| match effect {
-                DesktopEffect::Measure(target)
-                | DesktopEffect::Place(target)
-                | DesktopEffect::ApplyLayout(target) => self.aggregates.hierarchy.exists(target),
-                DesktopEffect::ApplyPresentation(instance) => {
-                    self.aggregates.instances.contains_key(instance)
-                }
-            })
-            .collect();
+        let mut update_camera = change_surface.update_camera;
+
+        // Collect deferred measures if the camera can be moved.
 
         // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
         // For example, focus layout effects.
+        //
+        // Design: may replace deferred_* with a ChangeSurface (a "deferred" ChangeSurface?).
         if effects_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
-            let focus_measures = mem::take(&mut self.deferred_focus_launcher_measures);
-            if !focus_measures.is_empty() {
-                // Moving focus out of a removed subtree queues its former launcher before the
-                // topology changes run. Do not measure that launcher after the transaction.
-                effects += focus_measures
-                    .into_iter()
-                    .filter(|launcher| {
-                        self.aggregates
-                            .hierarchy
-                            .exists(&DesktopTarget::Launcher(*launcher))
-                    })
-                    .map(|launcher| DesktopEffect::Measure(launcher.into()))
-                    .collect::<Effects>();
-            }
+            change_surface.size_invalid += mem::take(&mut self.deferred_focus_launcher_measures)
+                .into_iter()
+                .map(DesktopTarget::Launcher)
+                .collect::<TargetSet>();
+
             // Replay a camera move that was deferred while the camera was locked (e.g. a focus
             // change that happened while a mouse button was held).
             update_camera |= mem::take(&mut self.deferred_camera_move);
@@ -358,6 +349,15 @@ impl DesktopSystem {
             self.camera.snap(camera);
         }
 
+        // Only keep the `ChangeSurface` targets that match against the final topology.
+        //
+        // A later change in the same transaction may remove a target scheduled by an earlier
+        // change.
+        change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
+
+        // Convert the change surface to effects.
+        let effects = convert_change_surface_to_effects(change_surface, &self.aggregates.hierarchy);
+
         // WindowState is needed to resolve `inner_size` when the camera focuses on presenters that
         // must fit into the window.
 
@@ -366,6 +366,8 @@ impl DesktopSystem {
         // should not be done here in the effect engine.
         self.run_effects_to_completion(effects_mode, effects, window_state, instance_manager)?;
 
+        // If needed, we want to update the camera after all effects were run, because then we are
+        // sure that all placements are final.
         if update_camera {
             self.update_camera(frame, effects_mode, window_state);
         }
@@ -456,7 +458,7 @@ impl DesktopSystem {
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    fn remove_target(&mut self, target: &DesktopTarget) -> Result<MeasureSet> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<TargetSet> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
@@ -468,7 +470,7 @@ impl DesktopSystem {
             .expect("Internal error: remove_target called for root target");
 
         // Evict the removed subtree's cache entries. Not needed for recompute correctness (the
-        // parent re-measure below reads only the surviving children); this just prevents stale
+        // parent remeasure below reads only the surviving children); this just prevents stale
         // entries from leaking, since this is their only eviction path.
         self.layout_state
             .remove_subtree(target, &self.aggregates.hierarchy);
@@ -522,4 +524,30 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
     fn parent_of(&self, id: &DesktopTarget) -> Option<&DesktopTarget> {
         self.parent(id)
     }
+}
+
+fn convert_change_surface_to_effects(
+    surface: ChangeSurface,
+    topology: &DesktopTopology,
+) -> Effects {
+    let mut effects: Effects = surface
+        .size_invalid
+        .into_iter()
+        .map(DesktopEffect::Measure)
+        .collect();
+
+    // Get the instance (parents) that are affected by a focus change of the target.
+    //
+    // Deduplication happens later, so we can ignore this here.
+    let instances_affected_by_focus_change = surface
+        .presentation_affected
+        .into_iter()
+        .filter_map(|target| topology.instance_of_target(&target));
+
+    effects += instances_affected_by_focus_change
+        .into_iter()
+        .map(DesktopEffect::ApplyPresentation)
+        .collect::<Effects>();
+
+    effects
 }
