@@ -430,7 +430,7 @@ impl DesktopSystem {
             DesktopChange::WindowResized => {
                 let mut output = ChangeOutput::update_camera();
                 // A window resize only affects the presentation of instances if we are in
-                // [`FocusDepth::InstanceFullscreen`] and an instance is focused.
+                // [`FocusDepth::InstanceFullScreen`] and an instance is focused.
                 if self.focus_depth == FocusDepth::InstanceFullScreen
                     && let Some(instance) = self.focused_path().instance()
                 {
