@@ -164,7 +164,7 @@ impl InstanceContext {
     }
 
     /// Design: This may interfere with animations and requires a final submit()!
-    pub fn collect_desktop_request(&mut self, request: ConfigurationRequest) {
+    pub fn collect_configuration_request(&mut self, request: ConfigurationRequest) {
         self.changes.collect(InstanceChange::Configuration(request))
     }
 

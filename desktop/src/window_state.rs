@@ -22,7 +22,6 @@ impl WindowState {
 
 #[derive(Debug, Clone)]
 pub struct WindowPresentationState {
-    // It's fine that the cursor is not visible in the default state.
     pub title: String,
     pub cursor_visible: bool,
     pub cursor: CursorIcon,
@@ -32,6 +31,7 @@ impl Default for WindowPresentationState {
     fn default() -> Self {
         Self {
             title: "".into(),
+            // Usually, when the Window opens, the cursor is visible.
             cursor_visible: true,
             cursor: CursorIcon::default(),
         }

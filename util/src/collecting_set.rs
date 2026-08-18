@@ -56,7 +56,7 @@ impl<T: Eq + Hash> CollectingSet<T> {
         }
     }
 
-    pub fn retain(&mut self, predicate: impl Fn(&T) -> bool) {
+    pub fn retain(&mut self, mut predicate: impl FnMut(&T) -> bool) {
         match self {
             CollectingSet::Empty => {}
             CollectingSet::One(value) => {
