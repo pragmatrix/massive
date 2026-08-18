@@ -461,7 +461,7 @@ impl DesktopSystem {
             }
             DesktopChange::Topology(change) => {
                 let previous_focus = self.event_router.keyboard_focus().cloned();
-                // Design: That's somewhat unexpectec here, that `apply_topology_change` changes
+                // Design: That's somewhat unexpected here, that `apply_topology_change` changes
                 // focus. Can we make this more obvious? We should combine the `instance_manager`
                 // side effects perhaps.
                 let measure_set = self.apply_topology_change(change, instance_manager)?;
