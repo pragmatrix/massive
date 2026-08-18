@@ -86,7 +86,7 @@ impl ShellWindow {
         self.shared
             .event_loop_proxy
             .send_event(ShellCommand::ToggleFullscreen)
-            .map_err(|error| anyhow!(error.to_string()))
+            .map_err(|error| anyhow!("failed to send ToggleFullscreen: {error}"))
     }
 
     // DI: Use SizeI to represent initial_size.
