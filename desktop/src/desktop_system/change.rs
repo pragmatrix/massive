@@ -23,7 +23,7 @@ pub enum DesktopChange {
         root: InstanceRoot,
         parameters: InstanceParameters,
     },
-    // Design: This also could should be done as an external effect.
+    // Design: This could also be done as an external effect.
     ShutdownInstance(InstanceId),
     PresentInstance {
         launcher: LaunchProfileId,
