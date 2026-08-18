@@ -215,7 +215,7 @@ where
                     // Keep devices with pressed buttons from moving another device's focus.
                     && focused_device == device_id
                 {
-                    event_transitions += send(
+                    event_transitions <<= send(
                         focused,
                         ViewEvent::CursorMoved {
                             device_id: *focused_device,
@@ -264,7 +264,7 @@ where
                 if let Some((pointer_focus, pointer_device)) = &self.pointer_focus
                     && pointer_device == device_id
                 {
-                    event_transitions += send(pointer_focus, view_event.clone());
+                    event_transitions <<= send(pointer_focus, view_event.clone());
                 }
             }
 
@@ -274,7 +274,7 @@ where
             // Keyboard focus
             ViewEvent::KeyboardInput { event, .. } => {
                 if let Some(keyboard_focus) = &self.keyboard_focus {
-                    event_transitions += send(keyboard_focus, view_event.clone());
+                    event_transitions <<= send(keyboard_focus, view_event.clone());
                 }
 
                 // Unfocus the cursor when a key is newly pressed.
@@ -285,7 +285,7 @@ where
 
             ViewEvent::Ime(..) => {
                 if let Some(keyboard_focus) = &self.keyboard_focus {
-                    event_transitions += send(keyboard_focus, view_event.clone());
+                    event_transitions <<= send(keyboard_focus, view_event.clone());
                 }
             }
 
@@ -293,12 +293,12 @@ where
                 // Robustness: Not sure if this is the right call, we send modifiers changed to
                 // both, the keyboard focused _and_ if different from the keyboard focus, to the
                 if let Some(keyboard_focus) = &self.keyboard_focus {
-                    event_transitions += send(keyboard_focus, view_event.clone());
+                    event_transitions <<= send(keyboard_focus, view_event.clone());
                 }
                 if let Some((pointer_focus, _)) = &self.pointer_focus
                     && Some(pointer_focus) != self.keyboard_focus.as_ref()
                 {
-                    event_transitions += send(pointer_focus, view_event.clone());
+                    event_transitions <<= send(pointer_focus, view_event.clone());
                 }
             }
 
@@ -406,7 +406,7 @@ where
 
         // Idea: Can't this be completely event-sourced, isn't the current state just a reflection of
         // the events?
-        (*transitions) += EventTransition::ChangeKeyboardFocus {
+        (*transitions) <<= EventTransition::ChangeKeyboardFocus {
             from: self.keyboard_focus.clone(),
             to: new.clone(),
         };
@@ -433,7 +433,7 @@ where
                 }
 
                 // Emit the transition before replacing the focused target.
-                (*transitions) += EventTransition::ChangePointerFocus {
+                (*transitions) <<= EventTransition::ChangePointerFocus {
                     from: self.pointer_focus.clone(),
                     to: Some((new_target.clone(), new_device)),
                 };
@@ -446,7 +446,7 @@ where
                     return;
                 };
 
-                (*transitions) += EventTransition::ChangePointerFocus {
+                (*transitions) <<= EventTransition::ChangePointerFocus {
                     from: Some(focused),
                     to: None,
                 };

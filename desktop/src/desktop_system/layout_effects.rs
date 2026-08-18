@@ -8,19 +8,23 @@ use massive_layout::LayoutTopology;
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
+use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
+use crate::window_state::{WindowPresentationState, WindowState};
 
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
         &mut self,
-        context: &mut dyn AnimationAllocator,
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
+        window_state: &WindowState,
+        instance_manager: &InstanceManager,
     ) -> Result<()> {
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
-            let follow_up = self.handle_effect(context, effect, effects_mode)?;
+            let follow_up =
+                self.handle_effect(effect, effects_mode, window_state, instance_manager)?;
             effects.enqueue_all(follow_up);
         }
 
@@ -29,9 +33,10 @@ impl DesktopSystem {
 
     fn handle_effect(
         &mut self,
-        context: &mut dyn AnimationAllocator,
         effect: DesktopEffect,
         effects_mode: TransactionEffectsMode,
+        window_state: &WindowState,
+        instance_manager: &InstanceManager,
     ) -> Result<Effects> {
         match effect {
             DesktopEffect::Measure(target) => self.measure_layout_effect(target),
@@ -39,24 +44,27 @@ impl DesktopSystem {
             DesktopEffect::ApplyLayout(target) => {
                 Ok(self.apply_layout_effect(target, effects_mode))
             }
-            DesktopEffect::UpdateCamera => {
-                self.update_camera_effect(context, effects_mode);
+            DesktopEffect::ApplyPresentation(instance) => {
+                self.apply_instance_presentation(instance, window_state, instance_manager)?;
                 Ok(Effects::None)
             }
         }
     }
 
-    pub(super) fn apply_focused_view_window_state(&self) -> Result<()> {
-        let state = self.focused_view_window_state()?.unwrap_or_default();
-        self.window
-            .set_title(&self.focused_window_title(state.title)?);
-        self.window.set_cursor(state.cursor);
+    pub fn window_presentation_state(&self) -> Result<WindowPresentationState> {
+        let view_window_state = self.focused_view_window_state()?.unwrap_or_default();
+        let title = self.window_title(view_window_state.title);
+        let cursor = view_window_state.cursor;
         // Pointer-feedback state drives cursor visibility (hidden during keyboard navigation).
-        self.window.set_cursor_visible(self.is_cursor_visible());
-        Ok(())
+        let cursor_visible = self.event_router.pointer_focus().is_some();
+        Ok(WindowPresentationState {
+            title,
+            cursor_visible,
+            cursor,
+        })
     }
 
-    fn focused_window_title(&self, terminal_title: String) -> Result<String> {
+    fn window_title(&self, terminal_title: String) -> String {
         let focused = self.event_router.keyboard_focus();
         let launcher = focused
             .and_then(|target| self.aggregates.hierarchy.launcher_of_target(target))
@@ -86,7 +94,7 @@ impl DesktopSystem {
             title.push_str(" - ");
             title.push_str(name);
         }
-        Ok(title)
+        title
     }
 
     /// Measures one layout target in a bottom-up pass and schedules follow-up work.
@@ -120,7 +128,7 @@ impl DesktopSystem {
             self.layout_state
                 .measure_node(&target, &self.aggregates.hierarchy, &algorithm);
 
-        let mut effects = Effects::from(DesktopEffect::Place(target));
+        let mut effects = [DesktopEffect::Place(target)].into();
         if outcome.size_changed
             && let Some(parent) = outcome.parent
         {
@@ -172,13 +180,8 @@ impl DesktopSystem {
         Ok(effects)
     }
 
-    /// Applies one target's local placement to the renderer and refreshes camera and hover.
+    /// Applies one target's local placement to the renderer.
     ///
-    /// Camera and hover follow from the placement being applied, so they are scheduled here rather
-    /// than per `Place` pass: this runs only when a placement actually changed, and the scheduler
-    /// dedupes the payload-less `UpdateCamera` into a single `PostLayout` run per transaction. Pure
-    /// focus changes that move no layout are handled by `transact`, which observes the focus change
-    /// and emits `UpdateCamera` directly.
     fn apply_layout_effect(
         &mut self,
         target: DesktopTarget,
@@ -189,42 +192,17 @@ impl DesktopSystem {
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
         let layout = SizedTransform::from_pixels(size_px, placement.transform);
         self.apply_layout(
-            target,
+            target.clone(),
             layout,
             placement.visible,
             effects_mode.permit_animations(),
         );
 
-        Effects::from(DesktopEffect::UpdateCamera)
-    }
-
-    fn update_camera_effect(
-        &mut self,
-        context: &mut dyn AnimationAllocator,
-        effects_mode: TransactionEffectsMode,
-    ) {
-        if !effects_mode.permit_camera_moves() {
-            return;
-        }
-
-        let Some(focused) = self.event_router.keyboard_focus() else {
-            // Not sure what we do if nothing is focused yet.
-            error!("Updating camera without keyboard focus");
-            return;
-        };
-
-        let camera =
-            self.resolve_camera_for_target_or_ancestor(focused, self.user_state.focus_depth);
-
-        if effects_mode.permit_animations() {
-            self.camera.animate_if_changed(
-                context,
-                camera,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.camera.snap(camera);
+        match target {
+            DesktopTarget::Instance(instance) => {
+                [DesktopEffect::ApplyPresentation(instance)].into()
+            }
+            _ => Effects::None,
         }
     }
 
@@ -277,6 +255,36 @@ impl DesktopSystem {
             DesktopTarget::View(..) => {
                 // Robustness: Support resize here?
             }
+        }
+    }
+    pub(super) fn update_camera(
+        &mut self,
+        context: &mut dyn AnimationAllocator,
+        effects_mode: TransactionEffectsMode,
+        window_state: &WindowState,
+    ) {
+        if !effects_mode.permit_camera_moves() {
+            return;
+        }
+
+        let Some(focused) = self.event_router.keyboard_focus() else {
+            // Not sure what we do if nothing is focused yet.
+            error!("Updating camera without keyboard focus");
+            return;
+        };
+
+        let camera =
+            self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth, window_state);
+
+        if effects_mode.permit_animations() {
+            self.camera.animate_if_changed(
+                context,
+                camera,
+                STRUCTURAL_ANIMATION_DURATION,
+                Interpolation::CubicOut,
+            );
+        } else {
+            self.camera.snap(camera);
         }
     }
 }

@@ -13,6 +13,7 @@ mod instance_presenter;
 mod layout;
 mod projects;
 mod targeted_event;
+mod window_state;
 
 pub use aggregates::*;
 pub use application_registry::Application;

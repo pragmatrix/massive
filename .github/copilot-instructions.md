@@ -31,7 +31,7 @@ Update it whenever you learn something new about the project's patterns, convent
 ## Code Style
 - Prefer small, self-contained changes unless explicitly asked for broader refactors.
 - Match the surrounding code style.
-- Keep functions small, clear, and deterministic.
+- Keep functions clear, and deterministic.
 - Do not use early exits that duplicate a function call performed on the remaining path; consolidate the call when it improves readability.
 - Comment only to explain non-obvious reasoning or intent.
 - Prefer concise, ideally one-line comments for conceptual or semantic blocks inside functions.

@@ -116,9 +116,10 @@ impl DesktopSystem {
             focused,
             direction,
         ) {
+            // Architecture: Totally confusing that set_focus may also change the navigation affinity.
             let mut changes =
                 set_focus(Some(plan.candidate.clone()), KeyboardFocusReason::Navigate);
-            changes += DesktopChange::SetNavigationAffinity(plan.column_affinity);
+            changes <<= DesktopChange::CommitNavigationAffinity(plan.column_affinity);
             return Ok(changes);
         }
 

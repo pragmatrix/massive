@@ -47,6 +47,18 @@ pub(crate) fn initialize_platform_menu() {
     view_submenu.addItem(&fullscreen_item);
 }
 
+pub(crate) fn toggle_fullscreen() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        log::warn!("Cannot toggle macOS fullscreen outside the main thread");
+        return;
+    };
+
+    let app = NSApplication::sharedApplication(mtm);
+    unsafe {
+        app.sendAction_to_from(sel!(toggleFullScreen:), None, None);
+    }
+}
+
 fn ensure_view_submenu(main_menu: &NSMenu, mtm: MainThreadMarker) -> objc2::rc::Retained<NSMenu> {
     let view_title = ns_string!("View");
 

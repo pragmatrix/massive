@@ -20,8 +20,8 @@ use crate::shell::ShellCommand;
 
 #[derive(Debug, Clone)]
 pub struct ShellWindow {
-    /// We need to make Window "shareable", because the Renderer needs to lock it, so that it does
-    /// not close with a renderer running.
+    /// We need to make Window "shareable", because the Renderer needs to refer to it, so that it
+    /// does not close with a renderer running.
     shared: Arc<ShellWindowShared>,
 }
 
@@ -76,6 +76,17 @@ impl ShellWindow {
     // Note: This may schedule work on the main thread, so callers should avoid redundant updates.
     pub fn set_cursor_visible(&self, visible: bool) {
         self.shared.window().set_cursor_visible(visible);
+    }
+
+    pub fn is_fullscreen(&self) -> bool {
+        self.shared.is_fullscreen()
+    }
+
+    pub fn toggle_fullscreen(&self) -> Result<()> {
+        self.shared
+            .event_loop_proxy
+            .send_event(ShellCommand::ToggleFullscreen)
+            .map_err(|error| anyhow!("failed to send ToggleFullscreen: {error}"))
     }
 
     // DI: Use SizeI to represent initial_size.
@@ -138,7 +149,7 @@ impl ShellWindowShared {
         (w, h).into()
     }
 
-    pub(crate) fn is_fullscreen(&self) -> bool {
+    pub fn is_fullscreen(&self) -> bool {
         self.window().fullscreen().is_some()
     }
 

@@ -1,5 +1,5 @@
 use std::mem;
-use std::ops::{Add, AddAssign, ShlAssign};
+use std::ops::{Add, AddAssign, Shl, ShlAssign};
 use std::{slice, vec};
 
 /// A sequence that collects values in insertion order, keeping duplicates.
@@ -51,6 +51,20 @@ impl<T> CollectingVec<T> {
     }
 }
 
+// `<<` is used to add single elements.
+
+impl<E, T> Shl<E> for CollectingVec<T>
+where
+    T: From<E>,
+{
+    type Output = Self;
+
+    fn shl(mut self, rhs: E) -> Self::Output {
+        self <<= rhs;
+        self
+    }
+}
+
 impl<E, T> ShlAssign<E> for CollectingVec<T>
 where
     T: From<E>,
@@ -60,9 +74,14 @@ where
     }
 }
 
-impl<T> AddAssign<T> for CollectingVec<T> {
-    fn add_assign(&mut self, value: T) {
-        self.push(value);
+// `+` is used when we add "collections" on the right hand side. And `Option<T>` is treated as a
+// collection, too.
+
+impl<T> AddAssign<Option<T>> for CollectingVec<T> {
+    fn add_assign(&mut self, rhs: Option<T>) {
+        if let Some(rhs) = rhs {
+            self.push(rhs);
+        }
     }
 }
 
@@ -75,6 +94,24 @@ impl<T> AddAssign for CollectingVec<T> {
 impl<T, const LEN: usize> AddAssign<[T; LEN]> for CollectingVec<T> {
     fn add_assign(&mut self, values: [T; LEN]) {
         self.extend(values);
+    }
+}
+
+impl<T> Add for CollectingVec<T> {
+    type Output = Self;
+
+    fn add(mut self, other: Self) -> Self {
+        self += other;
+        self
+    }
+}
+
+impl<T, const LEN: usize> Add<[T; LEN]> for CollectingVec<T> {
+    type Output = Self;
+
+    fn add(mut self, values: [T; LEN]) -> Self {
+        self += values;
+        self
     }
 }
 
@@ -105,33 +142,6 @@ impl<T> Extend<T> for CollectingVec<T> {
                 *self = CollectingVec::Many(values);
             }
         }
-    }
-}
-
-impl<T> Add<T> for CollectingVec<T> {
-    type Output = Self;
-
-    fn add(mut self, value: T) -> Self {
-        self += value;
-        self
-    }
-}
-
-impl<T> Add for CollectingVec<T> {
-    type Output = Self;
-
-    fn add(mut self, other: Self) -> Self {
-        self += other;
-        self
-    }
-}
-
-impl<T, const LEN: usize> Add<[T; LEN]> for CollectingVec<T> {
-    type Output = Self;
-
-    fn add(mut self, values: [T; LEN]) -> Self {
-        self += values;
-        self
     }
 }
 
@@ -282,8 +292,8 @@ mod tests {
     #[test]
     fn add_assign_value_and_sequence() {
         let mut values = CollectingVec::Empty;
-        values += 1;
-        values += 2;
+        values <<= 1;
+        values <<= 2;
         values += CollectingVec::One(2);
         values += many([3, 4]);
         assert_eq!(collected(values), vec![1, 2, 2, 3, 4]);
@@ -291,7 +301,7 @@ mod tests {
 
     #[test]
     fn add_combines_without_mutating_operands() {
-        let combined = CollectingVec::One(1) + 2 + many([2, 3]);
+        let combined = (CollectingVec::One(1) << 2) + many([2, 3]);
         assert_eq!(collected(combined), vec![1, 2, 2, 3]);
     }
 

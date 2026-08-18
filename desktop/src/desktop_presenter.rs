@@ -30,7 +30,7 @@ impl DesktopPresenter {
         scene: &Scene,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
-        let (hover_scene_transform, hover_location) = scene.stage_identity_location();
+        let (hover_scene_transform, hover_location) = scene.enter_identity_location();
         let hover_visual = create_hover_shapes(None)
             .into_visual()
             .at(&hover_location)

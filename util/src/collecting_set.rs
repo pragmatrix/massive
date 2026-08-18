@@ -55,6 +55,31 @@ impl<T: Eq + Hash> CollectingSet<T> {
             }
         }
     }
+
+    pub fn retain(&mut self, mut predicate: impl FnMut(&T) -> bool) {
+        match self {
+            CollectingSet::Empty => {}
+            CollectingSet::One(value) => {
+                if !predicate(value) {
+                    *self = CollectingSet::Empty;
+                }
+            }
+            CollectingSet::Many(values) => {
+                values.retain(predicate);
+                match values.len() {
+                    0 => *self = CollectingSet::Empty,
+                    1 => {
+                        let value = values
+                            .drain()
+                            .next()
+                            .expect("a set with one value must yield that value");
+                        *self = CollectingSet::One(value);
+                    }
+                    _ => {}
+                }
+            }
+        }
+    }
 }
 
 impl<T: Eq + Hash> AddAssign<T> for CollectingSet<T> {
@@ -100,6 +125,16 @@ impl<T> Default for CollectingSet<T> {
 impl<T> From<T> for CollectingSet<T> {
     fn from(value: T) -> Self {
         CollectingSet::One(value)
+    }
+}
+
+impl<T: Eq + Hash> FromIterator<T> for CollectingSet<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut set = CollectingSet::Empty;
+        for value in iter {
+            set.insert(value);
+        }
+        set
     }
 }
 

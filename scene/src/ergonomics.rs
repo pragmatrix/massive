@@ -62,11 +62,11 @@ impl ToLocationRelative for Handle<Transform> {
 }
 
 pub trait StageIdentityLocation {
-    fn stage_identity_location(&self) -> (Handle<Transform>, Handle<Location>);
+    fn enter_identity_location(&self) -> (Handle<Transform>, Handle<Location>);
 }
 
 impl StageIdentityLocation for Scene {
-    fn stage_identity_location(&self) -> (Handle<Transform>, Handle<Location>) {
+    fn enter_identity_location(&self) -> (Handle<Transform>, Handle<Location>) {
         let transform = Transform::IDENTITY.enter(self);
         let location = transform.to_location().enter(self);
         (transform, location)

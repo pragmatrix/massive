@@ -3,9 +3,10 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
+use derive_more::Constructor;
 use log::{error, info};
-use massive_util::CollectingVec;
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use uuid::Uuid;
 
 use massive_applications::{
     ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceEnvironment, InstanceId,
@@ -14,9 +15,8 @@ use massive_applications::{
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_scene::ChangeCollector;
-use massive_shell::AsyncWindowRenderer;
-use massive_shell::{ApplicationContext, FontManager, Scene};
-use uuid::Uuid;
+use massive_shell::{ApplicationContext, AsyncWindowRenderer, FontManager, Scene, ShellWindow};
+use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange};
@@ -29,10 +29,16 @@ use crate::projects::{
     LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project,
     ProjectConfiguration, ProjectId, ProjectProperties, ProjectSet,
 };
+use crate::window_state::WindowPresentationState;
+use crate::window_state::WindowState;
 
 #[derive(Debug)]
 pub struct Desktop {
     scene: Scene,
+    window: ShellWindow,
+    window_state: WindowState,
+    window_presentation_state: WindowPresentationState,
+
     renderer: AsyncWindowRenderer,
     system: DesktopSystem,
 
@@ -88,7 +94,7 @@ impl Desktop {
             primary_instance,
             primary_application,
             CreationMode::New(InstanceParameters::new()),
-            primary_root.location(),
+            primary_root.view_parent(),
         )?;
 
         // First wait for the initial submission so the window can match the primary view.
@@ -123,7 +129,6 @@ impl Desktop {
         let mut system = DesktopSystem::new(
             env,
             fonts.clone(),
-            window,
             default_size,
             &scene,
             context.movement_runtime(),
@@ -148,6 +153,8 @@ impl Desktop {
         let commands =
             primary_project_commands + project_setup_commands + primary_instance_commands;
 
+        let window_state = WindowState::from_window(&window);
+
         let mut changes = Changes::Empty;
         for command in commands {
             changes += system.plan(command, &scene)?;
@@ -159,11 +166,20 @@ impl Desktop {
             &mut frame,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
+            &window_state,
         )?;
-        submit_frame(&mut system, frame, &mut renderer)?;
+        let mut presentation_state = WindowPresentationState::default();
+        {
+            let mut window_context =
+                WindowContext::new(&window, &mut presentation_state, &mut renderer);
+            finalize_frame(&mut system, frame, &mut window_context)?;
+        }
 
         let desktop = Self {
             scene,
+            window,
+            window_state,
+            window_presentation_state: presentation_state,
             renderer,
             system,
             event_manager,
@@ -198,6 +214,19 @@ impl Desktop {
                     for event in events {
                         match event {
                             ApplicationEvent::View(_, view_event) => {
+                                let mut desktop_changes = Changes::default();
+
+                                if let ViewEvent::Resized(size_px) = &view_event {
+                                    // For some reason this does not match.
+                                    // `debug_assert_eq!(self.window.inner_size(), *size_px);`
+                                    let window_state =
+                                        WindowState::new(*size_px, self.window.is_fullscreen());
+                                    if window_state != self.window_state {
+                                        self.window_state = window_state;
+                                        desktop_changes <<= DesktopChange::WindowResized;
+                                    }
+                                }
+
                                 if let Some(input_event) = self
                                     .event_manager
                                     .add_event(view_event.clone(), Instant::now())
@@ -205,7 +234,7 @@ impl Desktop {
                                     let keyboard_shortcut =
                                         self.system.match_desktop_keyboard_shortcut(&input_event);
 
-                                    let event_changes: Changes =
+                                    let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
                                             self.system
                                                 .plan(keyboard_cmd.into_command(), &self.scene)?
@@ -216,13 +245,16 @@ impl Desktop {
                                             )?
                                         };
 
-                                    self.system.transact(
-                                        event_changes,
-                                        &mut frame,
-                                        &mut self.instance_manager,
-                                        None,
-                                    )?;
+                                    desktop_changes += input_changes;
                                 }
+
+                                self.system.transact(
+                                    desktop_changes,
+                                    &mut frame,
+                                    &mut self.instance_manager,
+                                    None,
+                                    &self.window_state,
+                                )?;
 
                                 // This is completely weird here. We need a better solution for resize_redraw().
                                 self.renderer.resize_redraw(&view_event)?;
@@ -252,6 +284,7 @@ impl Desktop {
                     &mut frame,
                     &mut self.instance_manager,
                     None,
+                    &self.window_state,
                 )?,
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     info!(
@@ -270,6 +303,7 @@ impl Desktop {
                             &mut frame,
                             &mut self.instance_manager,
                             None,
+                            &self.window_state,
                         )?;
                     }
 
@@ -292,15 +326,25 @@ impl Desktop {
                 }
             }
 
-            submit_frame(&mut self.system, frame, &mut self.renderer)?;
+            {
+                let mut window_context = WindowContext::new(
+                    &self.window,
+                    &mut self.window_presentation_state,
+                    &mut self.renderer,
+                );
+                finalize_frame(&mut self.system, frame, &mut window_context)?;
+            }
         }
     }
 }
 
-fn submit_frame(
+/// Push everything out.
+///
+/// Update the camera, pacing, submit the frame, and update the window presentation.
+fn finalize_frame(
     system: &mut DesktopSystem,
     frame: Frame,
-    renderer: &mut AsyncWindowRenderer,
+    window: &mut WindowContext<'_>,
 ) -> Result<()> {
     let camera = *system.camera(frame.animation_time());
     let mut submission = frame.submission().render_submission().with_camera(camera);
@@ -308,7 +352,20 @@ fn submit_frame(
     if system.effective_pacing() == RenderPacing::Smooth {
         submission = submission.with_pacing(RenderPacing::Smooth);
     }
-    submission.submit_to(renderer)
+    submission.submit_to(window.renderer)?;
+
+    let window_presentation_state = system.window_presentation_state()?;
+    window
+        .presentation_state
+        .delta_sync(window_presentation_state, window.window);
+    Ok(())
+}
+
+#[derive(Debug, Constructor)]
+struct WindowContext<'a> {
+    window: &'a ShellWindow,
+    presentation_state: &'a mut WindowPresentationState,
+    renderer: &'a mut AsyncWindowRenderer,
 }
 
 #[derive(Debug)]
@@ -323,7 +380,7 @@ fn primary_project() -> PrimaryProject {
     let primary_project = ProjectId::new();
     let primary_launcher = LaunchProfileId::new();
 
-    commands += ProjectCommand::AddProject {
+    commands <<= ProjectCommand::AddProject {
         id: primary_project,
         properties: ProjectProperties {
             name: "Primary / Local".into(),
@@ -331,7 +388,7 @@ fn primary_project() -> PrimaryProject {
         after: None,
     };
 
-    commands += ProjectCommand::AddLauncher {
+    commands <<= ProjectCommand::AddLauncher {
         project: primary_project,
         id: primary_launcher,
         profile: LaunchProfile {

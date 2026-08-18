@@ -9,34 +9,47 @@ use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
-use massive_geometry::{Color, Rect, SizedTransform, Transform, Vector3};
+use massive_geometry::{Color, Rect, Size, SizePx, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
-use massive_scene::{At, Handle, Location, Object, Ref, StageIdentityLocation, Visual};
+use massive_scene::{
+    At, Handle, Location, Object, Ref, StageIdentityLocation, ToLocationRelative, Visual,
+};
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 
 #[derive(Debug, Clone)]
 pub struct InstanceRoot {
-    transform: Handle<Transform>,
-    location: Handle<Location>,
+    layout_transform: Handle<Transform>,
+    layout_location: Handle<Location>,
+
+    // The presentation transform: Effectively scales the view smaller in full-screen mode.
+    presentation_transform: Handle<Transform>,
+    presentation_location: Handle<Location>,
 }
 
 impl InstanceRoot {
     pub fn new(scene: &Scene) -> Self {
-        let (transform, location) = scene.stage_identity_location();
+        let (layout_transform, layout_location) = scene.enter_identity_location();
+        let presentation_transform = Transform::IDENTITY.enter(scene);
+        let presentation_location = presentation_transform
+            .to_location_relative(layout_location.to_ref())
+            .enter(scene);
 
         Self {
-            transform,
-            location,
+            layout_transform,
+            layout_location,
+            presentation_transform,
+            presentation_location,
         }
     }
 
-    pub fn location(&self) -> Ref<Location> {
-        self.location.to_ref()
+    /// The view's parent location.
+    pub fn view_parent(&self) -> Ref<Location> {
+        self.presentation_location.to_ref()
     }
 
-    pub fn transform(&self) -> Handle<Transform> {
-        self.transform.clone()
+    fn layout_transform(&self) -> Handle<Transform> {
+        self.layout_transform.clone()
     }
 }
 
@@ -53,6 +66,7 @@ pub struct InstancePresenter {
     root: InstanceRoot,
     /// Cached because hover placement needs the synchronous target while movement updates are queued.
     target_transform: Transform,
+    regular_size: SizePx,
     has_applied_layout: bool,
     pub pacing: RenderPacing,
     background: Option<InstanceBackground>,
@@ -78,6 +92,39 @@ enum InstancePresenterState {
 struct PrimaryViewPresenter {
     creation_info: ViewCreationInfo,
     window_state: ViewWindowState,
+    applied_presentation: InstancePresentation,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InstancePresentation {
+    view_size: SizePx,
+    scale: f64,
+}
+
+impl InstancePresentation {
+    pub fn regular(view_size: SizePx) -> Self {
+        Self {
+            view_size,
+            scale: 1.0,
+        }
+    }
+
+    pub fn full_screen(regular_size: SizePx, view_size: SizePx) -> Self {
+        let scale = if view_size.width > 0 && view_size.height > 0 {
+            (regular_size.width as f64 / view_size.width as f64)
+                .min(regular_size.height as f64 / view_size.height as f64)
+        } else {
+            1.0
+        };
+        Self { view_size, scale }
+    }
+
+    pub fn layout_size(self) -> Size {
+        Size::new(
+            self.view_size.width as f64 * self.scale,
+            self.view_size.height as f64 * self.scale,
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -95,8 +142,10 @@ pub struct ViewWindowState {
 }
 
 impl InstancePresenter {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
+        regular_size: SizePx,
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
@@ -104,21 +153,21 @@ impl InstancePresenter {
         scene: &Scene,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
-        root.location.update_if_changed_with(|location| {
+        root.layout_location.update_if_changed_with(|location| {
             location.parent = Some(parent.to_ref());
         });
 
         let has_initial_center_translation = initial_center_translation.is_some();
         let initial_center_translation = initial_center_translation.unwrap_or_default();
-        root.transform
+        root.layout_transform
             .update_if_changed(Transform::from_translation(initial_center_translation));
-        root.location.update_if_changed_with(|location| {
+        root.layout_location.update_if_changed_with(|location| {
             location.alpha = 0.0;
         });
 
         let background = show_background.then(|| {
             let visual = InstanceBackground::shapes(Rect::ZERO)
-                .at(&root.location)
+                .at(&root.presentation_location)
                 .enter(scene);
 
             InstanceBackground {
@@ -127,8 +176,8 @@ impl InstancePresenter {
             }
         });
 
-        let transform = root.transform();
-        let location = root.location.clone();
+        let transform = root.layout_transform();
+        let location = root.layout_location.clone();
         let movement = movement_runtime
             .movement(
                 InstanceMovement::new(initial_center_translation),
@@ -144,6 +193,7 @@ impl InstancePresenter {
             movement,
             root,
             target_transform: Transform::from_translation(initial_center_translation),
+            regular_size,
             has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
@@ -159,11 +209,7 @@ impl InstancePresenter {
     }
 
     pub fn latest_transform(&self) -> Transform {
-        *self.root.transform.value()
-    }
-
-    pub fn target_transform(&self) -> Transform {
-        self.target_transform
+        *self.root.layout_transform.value()
     }
 
     pub fn present_view(&mut self, view_creation_info: &ViewCreationInfo) -> Result<()> {
@@ -182,7 +228,7 @@ impl InstancePresenter {
 
         // Architecture: I don't think we should modify alpha here, may be nest another location
         // below it?
-        self.root.location.update_with(|location| {
+        self.root.layout_location.update_with(|location| {
             location.alpha = 0.0;
         });
         self.movement.modify(move |movement, context| {
@@ -196,19 +242,17 @@ impl InstancePresenter {
             );
         });
 
+        let presentation = InstancePresentation::regular(view_creation_info.size());
+
         self.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
                 creation_info: view_creation_info.clone(),
                 window_state: ViewWindowState::default(),
+                applied_presentation: presentation,
             },
         };
 
-        if let Some(background) = &mut self.background {
-            background.visual.update_if_changed_with(|visual| {
-                visual.location = self.root.location.to_ref();
-                visual.shapes = InstanceBackground::shapes(background.centered_rect());
-            });
-        }
+        self.apply_presentation_transform(presentation);
 
         Ok(())
     }
@@ -248,12 +292,30 @@ impl InstancePresenter {
         Ok(())
     }
 
+    /// This fails if the view is not presented.
     pub fn view_window_state(&self, view_id: ViewId) -> Result<&ViewWindowState> {
-        self.presented_view(view_id).map(|view| &view.window_state)
+        self.presenting_view(view_id).map(|view| &view.window_state)
     }
 
     pub fn primary_view_id(&self) -> Option<ViewId> {
         Some(self.state.view()?.creation_info.id)
+    }
+
+    pub fn regular_size(&self) -> SizePx {
+        self.regular_size
+    }
+
+    pub fn apply_presentation(
+        &mut self,
+        presentation: InstancePresentation,
+    ) -> Option<(ViewId, SizePx)> {
+        let view = self.state.view_mut()?;
+        let resize = (view.applied_presentation.view_size != presentation.view_size)
+            .then_some((view.creation_info.id, presentation.view_size));
+        view.applied_presentation = presentation;
+
+        self.apply_presentation_transform(presentation);
+        resize
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
@@ -274,13 +336,24 @@ impl InstancePresenter {
             (0.0, layout.transform.with_z(0.0))
         };
         self.target_transform = layout_transform;
+        self.regular_size = (layout.size.width as u32, layout.size.height as u32).into();
 
         self.movement.modify(move |movement, context| {
             movement.set_layout(context, layout_transform, target_visibility_alpha);
         });
+    }
+
+    fn apply_presentation_transform(&mut self, presentation: InstancePresentation) {
+        self.root
+            .presentation_transform
+            .update_if_changed(Transform::from_scale(presentation.scale));
 
         if let Some(background) = &mut self.background {
-            background.local_rect = layout.rect();
+            background.local_rect = Size::new(
+                presentation.view_size.width as f64,
+                presentation.view_size.height as f64,
+            )
+            .to_rect();
             background.visual.update_if_changed_with(|visual| {
                 // Background geometry stays in instance space; views apply their own local offset.
                 visual.shapes = InstanceBackground::shapes(background.centered_rect());
@@ -288,9 +361,9 @@ impl InstancePresenter {
         }
     }
 
-    fn presented_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
+    fn presenting_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
         let Some(view) = self.state.view() else {
-            bail!("A view needs to be updated, but instance presenter is not presenting a view.")
+            bail!("Instance presenter is not presenting a view.")
         };
 
         if view.creation_info.id != view_id {

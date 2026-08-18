@@ -2,7 +2,8 @@ use massive_applications::{InstanceId, InstanceParameters, InstanceSubmission};
 use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
-use super::{KeyboardFocusReason, UserState};
+use super::KeyboardFocusReason;
+use crate::desktop_system::FocusDepth;
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
@@ -15,11 +16,15 @@ pub type Changes = CollectingVec<DesktopChange>;
 #[derive(Debug)]
 pub enum DesktopChange {
     Project(ProjectChange),
+    // Design: SpawnInstance seems to be completely able to run externally outside of the
+    // `DesktopSystem`. May introduce something like outside effects that run when transact returns?
     SpawnInstance {
         instance: InstanceId,
         root: InstanceRoot,
         parameters: InstanceParameters,
     },
+    // Design: This could also be done as an external effect.
+    ShutdownInstance(InstanceId),
     PresentInstance {
         launcher: LaunchProfileId,
         initial_center_translation: Option<Vector3>,
@@ -27,7 +32,6 @@ pub enum DesktopChange {
         root: InstanceRoot,
         parameters: InstanceParameters,
     },
-    ShutdownInstance(InstanceId),
     HideInstance {
         launcher: LaunchProfileId,
         instance: InstanceId,
@@ -39,12 +43,22 @@ pub enum DesktopChange {
     },
     /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
-    SetNavigationAffinity(Option<u32>),
-    SetUserState(UserState),
-    Resize(SizePx),
+    CommitNavigationAffinity(Option<u32>),
+    /// Commit the focus depth.
+    CommitFocusDepth(FocusDepth),
+    WindowResized,
+    ResizeAll(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
+}
+
+#[derive(Debug)]
+pub enum Zoom {
+    In,
+    Out,
+    /// Focus on the currently keyboard focused object.
+    DefaultForFocused,
 }
 
 #[derive(Debug)]
@@ -81,7 +95,7 @@ pub enum ProjectChange {
 pub fn set_focus(target: Option<DesktopTarget>, reason: KeyboardFocusReason) -> Changes {
     let mut changes: Changes = DesktopChange::SetFocus { target, reason }.into();
     if reason.resets_navigation_affinity() {
-        changes += DesktopChange::SetNavigationAffinity(None);
+        changes <<= DesktopChange::CommitNavigationAffinity(None);
     }
     changes
 }
