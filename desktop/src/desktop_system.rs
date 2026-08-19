@@ -43,6 +43,7 @@ use massive_shell::{FontManager, Frame, Scene};
 
 pub use commands::{DesktopCommand, ProjectCommand};
 pub use effects::Effects;
+pub use fullscreen::fullscreen_scale;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;

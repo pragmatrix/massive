@@ -17,6 +17,8 @@ use massive_scene::{
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 
+use crate::desktop_system::fullscreen_scale;
+
 #[derive(Debug, Clone)]
 pub struct InstanceRoot {
     layout_transform: Handle<Transform>,
@@ -66,7 +68,6 @@ pub struct InstancePresenter {
     root: InstanceRoot,
     /// Cached because hover placement needs the synchronous target while movement updates are queued.
     target_transform: Transform,
-    regular_size: SizePx,
     has_applied_layout: bool,
     pub pacing: RenderPacing,
     background: Option<InstanceBackground>,
@@ -109,13 +110,8 @@ impl InstancePresentation {
         }
     }
 
-    pub fn full_screen(regular_size: SizePx, view_size: SizePx) -> Self {
-        let scale = if !view_size.is_empty() {
-            (regular_size.width as f64 / view_size.width as f64)
-                .min(regular_size.height as f64 / view_size.height as f64)
-        } else {
-            1.0
-        };
+    pub fn full_screen(panel_size: SizePx, view_size: SizePx) -> Self {
+        let scale = fullscreen_scale(panel_size, view_size);
         Self { view_size, scale }
     }
 
@@ -142,7 +138,6 @@ impl InstancePresenter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
-        regular_size: SizePx,
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
@@ -190,7 +185,6 @@ impl InstancePresenter {
             movement,
             root,
             target_transform: Transform::from_translation(initial_center_translation),
-            regular_size,
             has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
@@ -297,10 +291,6 @@ impl InstancePresenter {
         Some(self.state.view()?.creation_info.id)
     }
 
-    pub fn regular_size(&self) -> SizePx {
-        self.regular_size
-    }
-
     pub fn set_view_layout(
         &mut self,
         view_id: ViewId,
@@ -341,7 +331,6 @@ impl InstancePresenter {
             (0.0, layout.transform.with_z(0.0))
         };
         self.target_transform = layout_transform;
-        self.regular_size = (layout.size.width as u32, layout.size.height as u32).into();
 
         self.movement.modify(move |movement, context| {
             movement.set_layout(context, layout_transform, target_visibility_alpha);

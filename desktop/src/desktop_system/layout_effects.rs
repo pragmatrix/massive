@@ -260,14 +260,13 @@ impl DesktopSystem {
                     .set_layout(layout, animate);
             }
             DesktopTarget::View(view_id) => {
-                let Some(DesktopTarget::Instance(instance_id)) = self
+                let Some(instance_id) = self
                     .aggregates
                     .hierarchy
-                    .parent_of(&DesktopTarget::View(view_id))
+                    .instance_of_target(&target)
                 else {
                     return Ok(());
                 };
-                let instance_id = *instance_id;
                 if let Some(instance) = self.aggregates.instances.get_mut(&instance_id)
                     && let Some(resized) = instance.set_view_layout(view_id, layout, animate)?
                 {

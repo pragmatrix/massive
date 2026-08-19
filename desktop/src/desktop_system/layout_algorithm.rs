@@ -9,7 +9,7 @@ use massive_layout::{
     Thickness,
 };
 
-use super::{Aggregates, DesktopTarget, FocusDepth};
+use super::{Aggregates, DesktopTarget, FocusDepth, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
 use crate::projects::ProjectId;
 
@@ -99,25 +99,15 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             DesktopTarget::ProjectMatrix(project_id) => self
                 .measure_project_matrix(*project_id, &child_sizes)
                 .into(),
-            DesktopTarget::Instance(instance_id) => {
-                let size_px = self
-                    .aggregates
-                    .instances
-                    .get(instance_id)
-                    .map(|instance| instance.regular_size())
-                    .unwrap_or(self.default_panel_size);
-                let size: Size<2> = size_px.into();
+            DesktopTarget::Instance(_) => {
+                let size: Size<2> = self.default_panel_size.into();
                 size.into()
             }
             DesktopTarget::View(_) => {
                 let is_fullscreen = self
                     .aggregates
                     .hierarchy
-                    .parent(id)
-                    .and_then(|parent| match parent {
-                        DesktopTarget::Instance(inst) => Some(*inst),
-                        _ => None,
-                    })
+                    .instance_of_target(id)
                     .is_some_and(|inst| {
                         self.focused_instance == Some(inst)
                             && self.focus_depth == FocusDepth::InstanceFullScreen
@@ -292,14 +282,11 @@ impl DesktopLayoutAlgorithm<'_> {
             .map(|child| {
                 let view_size = child.size;
                 let (scale, placement_size) = if is_fullscreen {
-                    let scale = if !self.window_size.is_empty() {
-                        (parent_size[0] as f64 / self.window_size.width as f64)
-                            .min(parent_size[1] as f64 / self.window_size.height as f64)
-                    } else {
-                        1.0
-                    };
                     (
-                        scale,
+                        fullscreen_scale(
+                            SizePx::new(parent_size[0], parent_size[1]),
+                            self.window_size,
+                        ),
                         [self.window_size.width, self.window_size.height].into(),
                     )
                 } else {
@@ -365,15 +352,7 @@ impl DesktopLayoutAlgorithm<'_> {
                     LayoutAxis::HORIZONTAL.into()
                 }
             }
-            DesktopTarget::Instance(instance) => {
-                let size = self
-                    .aggregates
-                    .instances
-                    .get(instance)
-                    .map(|instance| instance.regular_size())
-                    .unwrap_or(self.default_panel_size);
-                size.into()
-            }
+            DesktopTarget::Instance(_) => self.default_panel_size.into(),
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }
     }

@@ -12,13 +12,21 @@ impl DesktopSystem {
         instance: InstanceId,
         window_size: SizePx,
     ) -> InstancePresentation {
-        let regular_size = self.aggregates.instances[&instance].regular_size();
         if self.focused_path().instance() == Some(instance)
             && self.focus_depth == FocusDepth::InstanceFullScreen
         {
-            InstancePresentation::full_screen(regular_size, window_size)
+            InstancePresentation::full_screen(self.default_panel_size, window_size)
         } else {
-            InstancePresentation::regular(regular_size)
+            InstancePresentation::regular(self.default_panel_size)
         }
+    }
+}
+
+pub fn fullscreen_scale(panel_size: SizePx, view_size: SizePx) -> f64 {
+    if !view_size.is_empty() {
+        (panel_size.width as f64 / view_size.width as f64)
+            .min(panel_size.height as f64 / view_size.height as f64)
+    } else {
+        1.0
     }
 }
