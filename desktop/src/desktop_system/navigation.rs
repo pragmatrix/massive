@@ -285,21 +285,15 @@ fn resolve_navigation_origin(
     match from {
         DesktopTarget::Launcher(launcher_id) => Some(NavigationOrigin::Launcher(*launcher_id)),
         DesktopTarget::Instance(instance_id) => {
-            let launcher = match hierarchy.parent(&DesktopTarget::Instance(*instance_id))? {
-                DesktopTarget::Launcher(launcher_id) => *launcher_id,
-                _ => return None,
-            };
+            let launcher = hierarchy.launcher_of_instance(*instance_id);
             let instances = hierarchy.launcher_instances(launcher);
             let index = instances
                 .iter()
                 .position(|instance| instance == instance_id)?;
             Some(NavigationOrigin::Child { launcher, index })
         }
-        DesktopTarget::View(view_id) => {
-            let instance = match hierarchy.parent(&DesktopTarget::View(*view_id))? {
-                DesktopTarget::Instance(instance_id) => *instance_id,
-                _ => return None,
-            };
+        DesktopTarget::View(_) => {
+            let instance = hierarchy.instance_of_target(from)?;
             resolve_navigation_origin(hierarchy, &DesktopTarget::Instance(instance))
         }
         _ => None,

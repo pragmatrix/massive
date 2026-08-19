@@ -19,11 +19,7 @@ impl OrderedHierarchy<DesktopTarget> {
             return Some(self.resolve_neighbor_focus_target(&neighbor));
         }
 
-        Some(
-            self.parent(&instance_target)
-                .expect("Internal error: instance has no parent")
-                .clone(),
-        )
+        Some(self.launcher_of_instance(instance).into())
     }
 
     pub(super) fn resolve_neighbor_for_stopping_instance(

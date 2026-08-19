@@ -200,10 +200,8 @@ impl DesktopSystem {
             // Simplify: Instance should probably return the launcher, too now.
             if !key_event.repeat
                 && let Some(instance) = focused_path.instance()
-                && let Some(DesktopTarget::Launcher(launcher)) =
-                    self.aggregates.hierarchy.parent(&instance.into())
             {
-                let launcher_id = *launcher;
+                let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance);
                 match &key_event.logical_key {
                     // Shift results in `T`.
                     Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => {

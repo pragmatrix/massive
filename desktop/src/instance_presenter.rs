@@ -17,6 +17,8 @@ use massive_scene::{
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 
+use crate::desktop_system::fullscreen_scale;
+
 #[derive(Debug, Clone)]
 pub struct InstanceRoot {
     layout_transform: Handle<Transform>,
@@ -66,7 +68,6 @@ pub struct InstancePresenter {
     root: InstanceRoot,
     /// Cached because hover placement needs the synchronous target while movement updates are queued.
     target_transform: Transform,
-    regular_size: SizePx,
     has_applied_layout: bool,
     pub pacing: RenderPacing,
     background: Option<InstanceBackground>,
@@ -92,7 +93,7 @@ enum InstancePresenterState {
 struct PrimaryViewPresenter {
     creation_info: ViewCreationInfo,
     window_state: ViewWindowState,
-    applied_presentation: InstancePresentation,
+    view_size: SizePx,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -109,21 +110,13 @@ impl InstancePresentation {
         }
     }
 
-    pub fn full_screen(regular_size: SizePx, view_size: SizePx) -> Self {
-        let scale = if view_size.width > 0 && view_size.height > 0 {
-            (regular_size.width as f64 / view_size.width as f64)
-                .min(regular_size.height as f64 / view_size.height as f64)
-        } else {
-            1.0
-        };
+    pub fn full_screen(panel_size: SizePx, view_size: SizePx) -> Self {
+        let scale = fullscreen_scale(panel_size, view_size);
         Self { view_size, scale }
     }
 
     pub fn layout_size(self) -> Size {
-        Size::new(
-            self.view_size.width as f64 * self.scale,
-            self.view_size.height as f64 * self.scale,
-        )
+        Size::from(self.view_size) * self.scale
     }
 }
 
@@ -145,7 +138,6 @@ impl InstancePresenter {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
-        regular_size: SizePx,
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
@@ -193,15 +185,10 @@ impl InstancePresenter {
             movement,
             root,
             target_transform: Transform::from_translation(initial_center_translation),
-            regular_size,
             has_applied_layout: has_initial_center_translation,
             pacing: RenderPacing::default(),
             background,
         }
-    }
-
-    pub fn presents_primary_view(&self) -> bool {
-        self.state.view().is_some()
     }
 
     pub fn parameters(&self) -> &InstanceParameters {
@@ -242,17 +229,20 @@ impl InstancePresenter {
             );
         });
 
-        let presentation = InstancePresentation::regular(view_creation_info.size());
+        let view_size = view_creation_info.size();
 
         self.state = InstancePresenterState::Presenting {
             view: PrimaryViewPresenter {
                 creation_info: view_creation_info.clone(),
                 window_state: ViewWindowState::default(),
-                applied_presentation: presentation,
+                view_size,
             },
         };
 
-        self.apply_presentation_transform(presentation);
+        if let Some(background) = &mut self.background {
+            let rect = Rect::from_size(view_size);
+            background.update_rect(rect);
+        }
 
         Ok(())
     }
@@ -301,21 +291,25 @@ impl InstancePresenter {
         Some(self.state.view()?.creation_info.id)
     }
 
-    pub fn regular_size(&self) -> SizePx {
-        self.regular_size
-    }
-
-    pub fn apply_presentation(
+    pub fn set_view_layout(
         &mut self,
-        presentation: InstancePresentation,
-    ) -> Option<(ViewId, SizePx)> {
-        let view = self.state.view_mut()?;
-        let resize = (view.applied_presentation.view_size != presentation.view_size)
-            .then_some((view.creation_info.id, presentation.view_size));
-        view.applied_presentation = presentation;
+        view_id: ViewId,
+        layout: SizedTransform,
+    ) -> Result<Option<SizePx>> {
+        let view = self.presented_view_mut(view_id)?;
+        let new_size = SizePx::new(layout.size.width as u32, layout.size.height as u32);
+        let resize = (view.view_size != new_size).then_some(new_size);
+        view.view_size = new_size;
 
-        self.apply_presentation_transform(presentation);
-        resize
+        self.root
+            .presentation_transform
+            .update_if_changed(Transform::from_scale(layout.transform.scale));
+
+        if let Some(background) = &mut self.background {
+            background.update_rect(layout.rect());
+        }
+
+        Ok(resize)
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform, visible: bool, animate: bool) {
@@ -336,29 +330,10 @@ impl InstancePresenter {
             (0.0, layout.transform.with_z(0.0))
         };
         self.target_transform = layout_transform;
-        self.regular_size = (layout.size.width as u32, layout.size.height as u32).into();
 
         self.movement.modify(move |movement, context| {
             movement.set_layout(context, layout_transform, target_visibility_alpha);
         });
-    }
-
-    fn apply_presentation_transform(&mut self, presentation: InstancePresentation) {
-        self.root
-            .presentation_transform
-            .update_if_changed(Transform::from_scale(presentation.scale));
-
-        if let Some(background) = &mut self.background {
-            background.local_rect = Size::new(
-                presentation.view_size.width as f64,
-                presentation.view_size.height as f64,
-            )
-            .to_rect();
-            background.visual.update_if_changed_with(|visual| {
-                // Background geometry stays in instance space; views apply their own local offset.
-                visual.shapes = InstanceBackground::shapes(background.centered_rect());
-            });
-        }
     }
 
     fn presenting_view(&self, view_id: ViewId) -> Result<&PrimaryViewPresenter> {
@@ -431,6 +406,13 @@ impl InstanceMovement {
 }
 
 impl InstanceBackground {
+    fn update_rect(&mut self, rect: Rect) {
+        self.local_rect = rect;
+        self.visual.update_if_changed_with(|visual| {
+            visual.shapes = Self::shapes(self.centered_rect());
+        });
+    }
+
     fn centered_rect(&self) -> Rect {
         self.local_rect - self.local_rect.center()
     }

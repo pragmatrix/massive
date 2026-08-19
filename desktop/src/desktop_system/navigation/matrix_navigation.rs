@@ -72,15 +72,8 @@ impl<'a> MatrixNavigation<'a> {
         self,
         launcher_id: LaunchProfileId,
     ) -> Option<(ProjectId, MatrixPlacement)> {
-        let project_id = match self
-            .hierarchy
-            .parent(&DesktopTarget::Launcher(launcher_id))?
-        {
-            DesktopTarget::ProjectMatrix(project_id) => *project_id,
-            _ => return None,
-        };
-
         let placement = *self.positions.get(&launcher_id)?;
+        let project_id = self.hierarchy.project_of_launcher(launcher_id);
         Some((project_id, placement))
     }
 

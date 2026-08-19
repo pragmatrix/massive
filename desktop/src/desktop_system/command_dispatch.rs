@@ -44,13 +44,12 @@ impl ChangeOutput {
         }
     }
 
-    // Presentation is defined as the "content" visible of the target, not the size, not the
-    // placement.
-    //
-    // Right now, only instances support and updated presentation (fullscreen vs non-fullscreen
-    // `FocusDepth`).
-    pub fn presentation_affected(&mut self, target: DesktopTarget) {
-        self.surface.presentation_affected += target;
+    pub fn measure(&mut self, target: DesktopTarget) {
+        self.surface.size_invalid += target;
+    }
+
+    pub fn focus_changed(&mut self, target: DesktopTarget) {
+        self.surface.size_invalid += target;
     }
 
     fn measures(measures: impl Into<TargetSet>) -> Self {
@@ -403,10 +402,10 @@ impl DesktopSystem {
 
                 let mut output = ChangeOutput::default();
                 if let Some(previous_focus) = &previous_focus {
-                    output.presentation_affected(previous_focus.clone());
+                    output.focus_changed(previous_focus.clone());
                 }
                 if let Some(current_focus) = &current_focus {
-                    output.presentation_affected(current_focus.clone());
+                    output.focus_changed(current_focus.clone());
                 }
                 output.surface.update_camera |= previous_focus != current_focus;
 
@@ -422,7 +421,7 @@ impl DesktopSystem {
 
                     let mut output = ChangeOutput::update_camera();
                     if let Some(focused) = self.event_router.keyboard_focus() {
-                        output.presentation_affected(focused.clone());
+                        output.focus_changed(focused.clone());
                     }
                     return Ok(output);
                 }
@@ -438,7 +437,7 @@ impl DesktopSystem {
                     // is a discrepancy between "updating the presentation" and a target affected by
                     // a focus change (somehow the target should probably decide about this if it's
                     // "presentation" is affected?).
-                    output.presentation_affected(DesktopTarget::Instance(instance));
+                    output.measure(DesktopTarget::Instance(instance));
                 }
                 return Ok(output);
             }
@@ -470,10 +469,10 @@ impl DesktopSystem {
                 // DRY: This looks similar to SetFocus
                 let mut output = ChangeOutput::measures(measure_set);
                 if let Some(ref previous_focus) = previous_focus {
-                    output.presentation_affected(previous_focus.clone());
+                    output.focus_changed(previous_focus.clone());
                 }
                 if let Some(ref current_focus) = current_focus {
-                    output.presentation_affected(current_focus.clone());
+                    output.focus_changed(current_focus.clone());
                 }
                 output.surface.update_camera |= previous_focus != current_focus;
 
@@ -661,7 +660,7 @@ impl DesktopSystem {
             }
             InstanceChange::CreateView(creation_info) => {
                 let mut output = self.present_view(instance, &creation_info)?;
-                output.presentation_affected(DesktopTarget::Instance(instance));
+                output.measure(DesktopTarget::Instance(instance));
                 output.surface.update_camera = true;
 
                 // If this instance is currently focused and the new view is primary, make it

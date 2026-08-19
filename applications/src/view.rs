@@ -5,7 +5,7 @@ use derive_more::{From, Into};
 use uuid::Uuid;
 use winit::window::CursorIcon;
 
-use massive_geometry::{BoxPx, SizePx};
+use massive_geometry::{BoxPx, Size, SizePx};
 use massive_scene::{Handle, Location, Object, Ref, ToLocationRelative, Transform};
 
 use crate::{InstanceChange, InstanceChangeCollector, Scene, ViewId};
@@ -40,11 +40,8 @@ impl View {
     ) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
-        let size: SizePx = extents.size().cast();
-        let center_x = size.width / 2;
-        let center_y = size.height / 2;
-        let local_transform =
-            Transform::from_xy(-(center_x as f64), -(center_y as f64)).enter(&scene);
+        let size: Size = SizePx::from(extents.size().cast()).into();
+        let local_transform = Transform::from(-size.center()).enter(&scene);
         let location = local_transform.to_location_relative(parent).enter(&scene);
 
         change_collector.collect(InstanceChange::CreateView(ViewCreationInfo {
@@ -80,10 +77,9 @@ impl View {
 
     /// Updates the view's local origin for a desktop-assigned extent.
     pub fn set_extent(&self, size: SizePx) {
-        let center_x = size.width / 2;
-        let center_y = size.height / 2;
+        let size: Size = size.into();
         self.transform
-            .update_if_changed(Transform::from_xy(-(center_x as f64), -(center_y as f64)));
+            .update_if_changed(Transform::from(-size.center()));
     }
 
     #[allow(unused)]

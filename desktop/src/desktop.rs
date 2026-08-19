@@ -166,7 +166,7 @@ impl Desktop {
             &mut frame,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
-            &window_state,
+            window_state.inner_size,
         )?;
         let mut presentation_state = WindowPresentationState::default();
         {
@@ -253,7 +253,7 @@ impl Desktop {
                                     &mut frame,
                                     &mut self.instance_manager,
                                     None,
-                                    &self.window_state,
+                                    self.window_state.inner_size,
                                 )?;
 
                                 // This is completely weird here. We need a better solution for resize_redraw().
@@ -284,7 +284,7 @@ impl Desktop {
                     &mut frame,
                     &mut self.instance_manager,
                     None,
-                    &self.window_state,
+                    self.window_state.inner_size,
                 )?,
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     info!(
@@ -303,7 +303,7 @@ impl Desktop {
                             &mut frame,
                             &mut self.instance_manager,
                             None,
-                            &self.window_state,
+                            self.window_state.inner_size,
                         )?;
                     }
 

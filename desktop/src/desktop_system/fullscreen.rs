@@ -1,12 +1,8 @@
-use anyhow::Result;
-
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::InstanceId;
 use massive_geometry::SizePx;
 
 use crate::desktop_system::DesktopSystem;
-use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresentation;
-use crate::window_state::WindowState;
 
 use super::FocusDepth;
 
@@ -16,32 +12,21 @@ impl DesktopSystem {
         instance: InstanceId,
         window_size: SizePx,
     ) -> InstancePresentation {
-        let regular_size = self.aggregates.instances[&instance].regular_size();
         if self.focused_path().instance() == Some(instance)
             && self.focus_depth == FocusDepth::InstanceFullScreen
         {
-            InstancePresentation::full_screen(regular_size, window_size)
+            InstancePresentation::full_screen(self.default_panel_size, window_size)
         } else {
-            InstancePresentation::regular(regular_size)
+            InstancePresentation::regular(self.default_panel_size)
         }
     }
+}
 
-    pub fn apply_instance_presentation(
-        &mut self,
-        instance: InstanceId,
-        window_state: &WindowState,
-        instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        let presentation = self.resolve_instance_presentation(instance, window_state.inner_size);
-        if let Some((view, size)) = self
-            .aggregates
-            .instances
-            .get_mut(&instance)
-            .expect("Instance missing")
-            .apply_presentation(presentation)
-        {
-            instance_manager.send_view_event((instance, view), ViewEvent::Resized(size))?;
-        }
-        Ok(())
+pub fn fullscreen_scale(panel_size: SizePx, view_size: SizePx) -> f64 {
+    if !view_size.is_empty() {
+        (panel_size.width as f64 / view_size.width as f64)
+            .min(panel_size.height as f64 / view_size.height as f64)
+    } else {
+        1.0
     }
 }

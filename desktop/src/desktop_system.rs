@@ -43,6 +43,7 @@ use massive_shell::{FontManager, Frame, Scene};
 
 pub use commands::{DesktopCommand, ProjectCommand};
 pub use effects::Effects;
+pub use fullscreen::fullscreen_scale;
 use layout_algorithm::DesktopLayoutAlgorithm;
 pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
@@ -50,12 +51,10 @@ pub(crate) use navigation::NavigationControl;
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
-use crate::desktop_system::topology::DesktopTopology;
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
-use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 use change::{Changes, DesktopChange};
 use effects::DesktopEffect;
@@ -290,7 +289,7 @@ impl DesktopSystem {
         frame: &mut Frame,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
-        window_state: &WindowState,
+        window_size: SizePx,
     ) -> Result<()> {
         let changes = changes.into();
         // For live transactions the gesture mode is derived from the current pointer-button state;
@@ -356,20 +355,16 @@ impl DesktopSystem {
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
         // Convert the change surface to effects.
-        let effects = convert_change_surface_to_effects(change_surface, &self.aggregates.hierarchy);
+        let effects = convert_change_surface_to_effects(change_surface);
 
-        // WindowState is needed to resolve `inner_size` when the camera focuses on presenters that
+        // Window size is needed to resolve layout and camera focus for presenters that
         // must fit into the window.
-
-        // Architecture: The dependency to instance_manager was added when with the
-        // ApplyPresentation effect, which needs to send a resize request to the instance. This
-        // should not be done here in the effect engine.
-        self.run_effects_to_completion(effects_mode, effects, window_state, instance_manager)?;
+        self.run_effects_to_completion(effects_mode, effects, window_size, instance_manager)?;
 
         // If needed, we want to update the camera after all effects were run, because then we are
         // sure that all placements are final.
         if update_camera {
-            self.update_camera(frame, effects_mode, window_state);
+            self.update_camera(frame, effects_mode, window_size);
         }
 
         // Update the hover target.
@@ -526,28 +521,10 @@ impl LayoutTopology<DesktopTarget> for OrderedHierarchy<DesktopTarget> {
     }
 }
 
-fn convert_change_surface_to_effects(
-    surface: ChangeSurface,
-    topology: &DesktopTopology,
-) -> Effects {
-    let mut effects: Effects = surface
+fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
+    surface
         .size_invalid
         .into_iter()
         .map(DesktopEffect::Measure)
-        .collect();
-
-    // Get the instance (parents) that are affected by a focus change of the target.
-    //
-    // Deduplication happens later, so we can ignore this here.
-    let instances_affected_by_focus_change = surface
-        .presentation_affected
-        .into_iter()
-        .filter_map(|target| topology.instance_of_target(&target));
-
-    effects += instances_affected_by_focus_change
-        .into_iter()
-        .map(DesktopEffect::ApplyPresentation)
-        .collect::<Effects>();
-
-    effects
+        .collect()
 }
