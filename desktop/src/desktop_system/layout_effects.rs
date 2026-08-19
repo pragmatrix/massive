@@ -260,10 +260,7 @@ impl DesktopSystem {
                     .set_layout(layout, animate);
             }
             DesktopTarget::View(view_id) => {
-                let Some(instance_id) = self
-                    .aggregates
-                    .hierarchy
-                    .instance_of_target(&target)
+                let Some(instance_id) = self.aggregates.hierarchy.instance_of_target(&target)
                 else {
                     return Ok(());
                 };
