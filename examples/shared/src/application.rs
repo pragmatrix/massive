@@ -1,5 +1,5 @@
 use massive_applications::ViewEvent;
-use massive_geometry::{Quaternion, SizePx, Transform, Vector3, VectorPx};
+use massive_geometry::{Quaternion, Size, SizePx, Transform, Vector3, VectorPx};
 
 use winit::event::{ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase};
 use winit::keyboard::{Key, NamedKey};
@@ -180,10 +180,7 @@ impl Application {
     }
 
     pub fn get_transform(&self, content_size: impl Into<SizePx>) -> Transform {
-        let content_size = content_size.into();
-
-        let x_center = -((content_size.width / 2) as f64);
-        let y_center = -((content_size.height / 2) as f64);
+        let content_size: Size = content_size.into().into();
 
         let angle_x = (self.rotation.x as f64 / 10.).to_radians();
         let angle_y = (-self.rotation.y as f64 / 10.).to_radians();
@@ -194,7 +191,7 @@ impl Application {
         let rotation = quat_y * quat_x;
 
         // Apply rotation to center offset, then add translation
-        let center_offset = Vector3::new(x_center, y_center, 0.0);
+        let center_offset: Vector3 = (-content_size.center()).into();
         let rotated_center = rotation * center_offset;
         let translation = Vector3::new(
             rotated_center.x + self.translation.x as f64,

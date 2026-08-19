@@ -292,13 +292,16 @@ impl DesktopLayoutAlgorithm<'_> {
             .map(|child| {
                 let view_size = child.size;
                 let (scale, placement_size) = if is_fullscreen {
-                    let scale = if self.window_size.width > 0 && self.window_size.height > 0 {
+                    let scale = if !self.window_size.is_empty() {
                         (parent_size[0] as f64 / self.window_size.width as f64)
                             .min(parent_size[1] as f64 / self.window_size.height as f64)
                     } else {
                         1.0
                     };
-                    (scale, [self.window_size.width, self.window_size.height].into())
+                    (
+                        scale,
+                        [self.window_size.width, self.window_size.height].into(),
+                    )
                 } else {
                     (1.0, view_size)
                 };
@@ -308,7 +311,10 @@ impl DesktopLayoutAlgorithm<'_> {
                     Quaternion::IDENTITY,
                     scale,
                 );
-                Placement::new(transform, LayoutRect::new(Offset::default(), placement_size))
+                Placement::new(
+                    transform,
+                    LayoutRect::new(Offset::default(), placement_size),
+                )
             })
             .collect()
     }

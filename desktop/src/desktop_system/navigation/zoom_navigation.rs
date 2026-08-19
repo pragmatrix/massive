@@ -222,17 +222,15 @@ impl DesktopSystem {
         surface_size: SizePx,
     ) -> bool {
         let surface_size: Size = surface_size.into();
-        if target_size.width <= 0.0 || target_size.height <= 0.0 {
+        if target_size.is_empty() {
             return false;
         }
 
-        let target_scale =
-            (surface_size.width / target_size.width).min(surface_size.height / target_size.height);
+        let target_scale = (surface_size / target_size).min_element();
         let camera_distance = 1.0 / (fovy * 0.5).to_radians().tan();
         let model_to_ndc_scale = 2.0 / surface_size.height;
         let z_scale = model_to_ndc_scale * target_scale;
-        let half_surface_width = surface_size.width * 0.5;
-        let half_surface_height = surface_size.height * 0.5;
+        let half_surface = surface_size * 0.5;
 
         for point in points {
             let dx = point.x - center.x;
@@ -245,7 +243,7 @@ impl DesktopSystem {
             let x = camera_distance * target_scale * dx / denominator;
             let y = camera_distance * target_scale * dy / denominator;
 
-            if x.abs() > half_surface_width || y.abs() > half_surface_height {
+            if x.abs() > half_surface.width || y.abs() > half_surface.height {
                 return false;
             }
         }

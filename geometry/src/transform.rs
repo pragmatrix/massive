@@ -163,6 +163,12 @@ impl From<Vector3> for Transform {
     }
 }
 
+impl From<Point> for Transform {
+    fn from(point: Point) -> Self {
+        Self::from_xy(point.x, point.y)
+    }
+}
+
 impl<U> From<euclid::Vector3D<f64, U>> for Transform {
     fn from(value: euclid::Vector3D<f64, U>) -> Self {
         value.to_vector3().into()

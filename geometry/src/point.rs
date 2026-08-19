@@ -95,3 +95,9 @@ impl From<Point> for (f64, f64) {
         (value.x, value.y)
     }
 }
+
+impl From<Point> for Vector3 {
+    fn from(value: Point) -> Self {
+        Vector3::new(value.x, value.y, 0.0)
+    }
+}

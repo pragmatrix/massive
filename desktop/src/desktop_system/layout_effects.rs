@@ -260,8 +260,10 @@ impl DesktopSystem {
                     .set_layout(layout, animate);
             }
             DesktopTarget::View(view_id) => {
-                let Some(DesktopTarget::Instance(instance_id)) =
-                    self.aggregates.hierarchy.parent_of(&DesktopTarget::View(view_id))
+                let Some(DesktopTarget::Instance(instance_id)) = self
+                    .aggregates
+                    .hierarchy
+                    .parent_of(&DesktopTarget::View(view_id))
                 else {
                     return Ok(());
                 };

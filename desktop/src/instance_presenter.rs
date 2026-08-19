@@ -110,7 +110,7 @@ impl InstancePresentation {
     }
 
     pub fn full_screen(regular_size: SizePx, view_size: SizePx) -> Self {
-        let scale = if view_size.width > 0 && view_size.height > 0 {
+        let scale = if !view_size.is_empty() {
             (regular_size.width as f64 / view_size.width as f64)
                 .min(regular_size.height as f64 / view_size.height as f64)
         } else {
