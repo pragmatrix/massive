@@ -60,8 +60,7 @@ impl DesktopSystem {
                 .hierarchy
                 .instance_of_target(target)
                 .map(|instance_id| {
-                    let presentation =
-                        self.resolve_instance_presentation(instance_id, window_size);
+                    let presentation = self.resolve_instance_presentation(instance_id, window_size);
                     let transform = self
                         .placement(&DesktopTarget::Instance(instance_id))
                         .transform;

@@ -146,11 +146,7 @@ impl DesktopSystem {
     /// This consumes measured child sizes from layout state, computes child placements, and
     /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
     /// placement changed; camera and hover synchronization follow from `ApplyLayout` itself.
-    fn place_layout_effect(
-        &mut self,
-        root: DesktopTarget,
-        window_size: SizePx,
-    ) -> Result<Effects> {
+    fn place_layout_effect(&mut self, root: DesktopTarget, window_size: SizePx) -> Result<Effects> {
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,
@@ -265,7 +261,7 @@ impl DesktopSystem {
                     return Ok(());
                 };
                 if let Some(instance) = self.aggregates.instances.get_mut(&instance_id)
-                    && let Some(resized) = instance.set_view_layout(view_id, layout, animate)?
+                    && let Some(resized) = instance.set_view_layout(view_id, layout)?
                 {
                     instance_manager
                         .send_view_event((instance_id, view_id), ViewEvent::Resized(resized))?;

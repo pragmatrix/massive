@@ -295,7 +295,6 @@ impl InstancePresenter {
         &mut self,
         view_id: ViewId,
         layout: SizedTransform,
-        _animate: bool,
     ) -> Result<Option<SizePx>> {
         let view = self.presented_view_mut(view_id)?;
         let new_size = SizePx::new(layout.size.width as u32, layout.size.height as u32);
