@@ -55,7 +55,6 @@ use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
-use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 use change::{Changes, DesktopChange};
 use effects::DesktopEffect;
@@ -290,7 +289,7 @@ impl DesktopSystem {
         frame: &mut Frame,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
-        window_state: &WindowState,
+        window_size: SizePx,
     ) -> Result<()> {
         let changes = changes.into();
         // For live transactions the gesture mode is derived from the current pointer-button state;
@@ -358,14 +357,14 @@ impl DesktopSystem {
         // Convert the change surface to effects.
         let effects = convert_change_surface_to_effects(change_surface);
 
-        // WindowState is needed to resolve `inner_size` when the camera focuses on presenters that
+        // Window size is needed to resolve layout and camera focus for presenters that
         // must fit into the window.
-        self.run_effects_to_completion(effects_mode, effects, window_state, instance_manager)?;
+        self.run_effects_to_completion(effects_mode, effects, window_size, instance_manager)?;
 
         // If needed, we want to update the camera after all effects were run, because then we are
         // sure that all placements are final.
         if update_camera {
-            self.update_camera(frame, effects_mode, window_state);
+            self.update_camera(frame, effects_mode, window_size);
         }
 
         // Update the hover target.

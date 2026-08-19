@@ -11,21 +11,21 @@ use super::layout_state::PlacementUpdate;
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
-use crate::window_state::{WindowPresentationState, WindowState};
+use crate::window_state::WindowPresentationState;
 
 impl DesktopSystem {
     pub(super) fn run_effects_to_completion(
         &mut self,
         effects_mode: TransactionEffectsMode,
         initial_effects: Effects,
-        window_state: &WindowState,
+        window_size: SizePx,
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         let mut effects = DesktopEffectScheduler::new(initial_effects);
 
         while let Some(effect) = effects.pop_next() {
             let follow_up =
-                self.handle_effect(effect, effects_mode, window_state, instance_manager)?;
+                self.handle_effect(effect, effects_mode, window_size, instance_manager)?;
             effects.enqueue_all(follow_up);
         }
 
@@ -36,12 +36,12 @@ impl DesktopSystem {
         &mut self,
         effect: DesktopEffect,
         effects_mode: TransactionEffectsMode,
-        window_state: &WindowState,
+        window_size: SizePx,
         instance_manager: &InstanceManager,
     ) -> Result<Effects> {
         match effect {
-            DesktopEffect::Measure(target) => self.measure_layout_effect(target, window_state),
-            DesktopEffect::Place(root) => self.place_layout_effect(root, window_state),
+            DesktopEffect::Measure(target) => self.measure_layout_effect(target, window_size),
+            DesktopEffect::Place(root) => self.place_layout_effect(root, window_size),
             DesktopEffect::ApplyLayout(target) => {
                 self.apply_layout_effect(target, effects_mode, instance_manager)
             }
@@ -104,7 +104,7 @@ impl DesktopSystem {
     fn measure_layout_effect(
         &mut self,
         target: DesktopTarget,
-        window_state: &WindowState,
+        window_size: SizePx,
     ) -> Result<Effects> {
         // If measurements of children are not available, push them as effects and return early.
         let missing_children = self
@@ -124,7 +124,7 @@ impl DesktopSystem {
             default_panel_size: self.default_panel_size,
             focused_instance,
             focus_depth: self.focus_depth,
-            window_size: window_state.inner_size,
+            window_size,
         };
 
         let outcome =
@@ -149,7 +149,7 @@ impl DesktopSystem {
     fn place_layout_effect(
         &mut self,
         root: DesktopTarget,
-        window_state: &WindowState,
+        window_size: SizePx,
     ) -> Result<Effects> {
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
@@ -157,7 +157,7 @@ impl DesktopSystem {
             default_panel_size: self.default_panel_size,
             focused_instance,
             focus_depth: self.focus_depth,
-            window_size: window_state.inner_size,
+            window_size,
         };
 
         let children = self.aggregates.hierarchy.children_of(&root);
@@ -278,7 +278,7 @@ impl DesktopSystem {
         &mut self,
         context: &mut dyn AnimationAllocator,
         effects_mode: TransactionEffectsMode,
-        window_state: &WindowState,
+        window_size: SizePx,
     ) {
         if !effects_mode.permit_camera_moves() {
             return;
@@ -291,7 +291,7 @@ impl DesktopSystem {
         };
 
         let camera =
-            self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth, window_state);
+            self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth, window_size);
 
         if effects_mode.permit_animations() {
             self.camera.animate_if_changed(
