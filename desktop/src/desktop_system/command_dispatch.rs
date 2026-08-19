@@ -48,6 +48,10 @@ impl ChangeOutput {
         self.surface.size_invalid += target;
     }
 
+    pub fn focus_changed(&mut self, target: DesktopTarget) {
+        self.surface.size_invalid += target;
+    }
+
     fn measures(measures: impl Into<TargetSet>) -> Self {
         Self {
             surface: ChangeSurface {
@@ -398,10 +402,10 @@ impl DesktopSystem {
 
                 let mut output = ChangeOutput::default();
                 if let Some(previous_focus) = &previous_focus {
-                    output.measure(previous_focus.clone());
+                    output.focus_changed(previous_focus.clone());
                 }
                 if let Some(current_focus) = &current_focus {
-                    output.measure(current_focus.clone());
+                    output.focus_changed(current_focus.clone());
                 }
                 output.surface.update_camera |= previous_focus != current_focus;
 
@@ -417,7 +421,7 @@ impl DesktopSystem {
 
                     let mut output = ChangeOutput::update_camera();
                     if let Some(focused) = self.event_router.keyboard_focus() {
-                        output.measure(focused.clone());
+                        output.focus_changed(focused.clone());
                     }
                     return Ok(output);
                 }
@@ -465,10 +469,10 @@ impl DesktopSystem {
                 // DRY: This looks similar to SetFocus
                 let mut output = ChangeOutput::measures(measure_set);
                 if let Some(ref previous_focus) = previous_focus {
-                    output.measure(previous_focus.clone());
+                    output.focus_changed(previous_focus.clone());
                 }
                 if let Some(ref current_focus) = current_focus {
-                    output.measure(current_focus.clone());
+                    output.focus_changed(current_focus.clone());
                 }
                 output.surface.update_camera |= previous_focus != current_focus;
 
