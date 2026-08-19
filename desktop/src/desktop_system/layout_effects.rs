@@ -2,6 +2,7 @@ use anyhow::Result;
 use log::error;
 
 use massive_animation::{AnimationAllocator, Interpolation};
+use massive_applications::ViewEvent;
 use massive_geometry::{SizePx, SizedTransform};
 use massive_layout::LayoutTopology;
 
@@ -39,14 +40,10 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<Effects> {
         match effect {
-            DesktopEffect::Measure(target) => self.measure_layout_effect(target),
-            DesktopEffect::Place(root) => self.place_layout_effect(root),
+            DesktopEffect::Measure(target) => self.measure_layout_effect(target, window_state),
+            DesktopEffect::Place(root) => self.place_layout_effect(root, window_state),
             DesktopEffect::ApplyLayout(target) => {
-                Ok(self.apply_layout_effect(target, effects_mode))
-            }
-            DesktopEffect::ApplyPresentation(instance) => {
-                self.apply_instance_presentation(instance, window_state, instance_manager)?;
-                Ok(Effects::None)
+                self.apply_layout_effect(target, effects_mode, instance_manager)
             }
         }
     }
@@ -104,7 +101,11 @@ impl DesktopSystem {
     ///
     /// Once all children are measured, this measures `target`, always schedules `Place(target)`,
     /// and re-enqueues `Measure(parent)` only when the measured size changed.
-    fn measure_layout_effect(&mut self, target: DesktopTarget) -> Result<Effects> {
+    fn measure_layout_effect(
+        &mut self,
+        target: DesktopTarget,
+        window_state: &WindowState,
+    ) -> Result<Effects> {
         // If measurements of children are not available, push them as effects and return early.
         let missing_children = self
             .layout_state
@@ -122,6 +123,8 @@ impl DesktopSystem {
             aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
             focused_instance,
+            focus_depth: self.focus_depth,
+            window_size: window_state.inner_size,
         };
 
         let outcome =
@@ -143,12 +146,18 @@ impl DesktopSystem {
     /// This consumes measured child sizes from layout state, computes child placements, and
     /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
     /// placement changed; camera and hover synchronization follow from `ApplyLayout` itself.
-    fn place_layout_effect(&mut self, root: DesktopTarget) -> Result<Effects> {
+    fn place_layout_effect(
+        &mut self,
+        root: DesktopTarget,
+        window_state: &WindowState,
+    ) -> Result<Effects> {
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
             aggregates: &self.aggregates,
             default_panel_size: self.default_panel_size,
             focused_instance,
+            focus_depth: self.focus_depth,
+            window_size: window_state.inner_size,
         };
 
         let children = self.aggregates.hierarchy.children_of(&root);
@@ -186,24 +195,21 @@ impl DesktopSystem {
         &mut self,
         target: DesktopTarget,
         effects_mode: TransactionEffectsMode,
-    ) -> Effects {
+        instance_manager: &InstanceManager,
+    ) -> Result<Effects> {
         let placement = self.layout_state.local_placement(&target);
         let layout_size = placement.rect.size;
         let size_px = SizePx::new(layout_size[0], layout_size[1]);
-        let layout = SizedTransform::from_pixels(size_px, placement.transform);
+        let layout = SizedTransform::new(size_px, placement.transform);
         self.apply_layout(
-            target.clone(),
+            target,
             layout,
             placement.visible,
             effects_mode.permit_animations(),
-        );
+            instance_manager,
+        )?;
 
-        match target {
-            DesktopTarget::Instance(instance) => {
-                [DesktopEffect::ApplyPresentation(instance)].into()
-            }
-            _ => Effects::None,
-        }
+        Ok(Effects::None)
     }
 
     fn apply_layout(
@@ -212,7 +218,8 @@ impl DesktopSystem {
         layout: SizedTransform,
         visible: bool,
         animate: bool,
-    ) {
+        instance_manager: &InstanceManager,
+    ) -> Result<()> {
         match target {
             DesktopTarget::Desktop => {}
             DesktopTarget::Instance(instance_id) => {
@@ -252,10 +259,22 @@ impl DesktopSystem {
                     .expect("Launcher missing")
                     .set_layout(layout, animate);
             }
-            DesktopTarget::View(..) => {
-                // Robustness: Support resize here?
+            DesktopTarget::View(view_id) => {
+                let Some(DesktopTarget::Instance(instance_id)) =
+                    self.aggregates.hierarchy.parent_of(&DesktopTarget::View(view_id))
+                else {
+                    return Ok(());
+                };
+                let instance_id = *instance_id;
+                if let Some(instance) = self.aggregates.instances.get_mut(&instance_id)
+                    && let Some(resized) = instance.set_view_layout(view_id, layout, animate)?
+                {
+                    instance_manager
+                        .send_view_event((instance_id, view_id), ViewEvent::Resized(resized))?;
+                }
             }
         }
+        Ok(())
     }
     pub(super) fn update_camera(
         &mut self,

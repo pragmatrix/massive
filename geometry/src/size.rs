@@ -1,6 +1,6 @@
 use std::ops;
 
-use crate::{Point, Rect};
+use crate::{Point, Rect, SizePx};
 
 #[derive(Copy, Clone, PartialEq, Debug, Default)]
 pub struct Size {
@@ -21,6 +21,12 @@ impl Size {
 impl From<(f64, f64)> for Size {
     fn from((width, height): (f64, f64)) -> Self {
         Size::new(width, height)
+    }
+}
+
+impl From<SizePx> for Size {
+    fn from(size: SizePx) -> Self {
+        Size::new(size.width as f64, size.height as f64)
     }
 }
 

@@ -3,8 +3,6 @@ use std::{ops, vec};
 
 use strum::{EnumCount, EnumIter, IntoEnumIterator};
 
-use massive_applications::InstanceId;
-
 use super::DesktopTarget;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -12,7 +10,6 @@ pub enum DesktopEffect {
     Measure(DesktopTarget),
     Place(DesktopTarget),
     ApplyLayout(DesktopTarget),
-    ApplyPresentation(InstanceId),
 }
 
 #[derive(
@@ -22,7 +19,6 @@ enum DesktopEffectPhase {
     #[default]
     Layout,
     PropagatePlacements,
-    Presentation,
 }
 
 impl DesktopEffect {
@@ -30,7 +26,6 @@ impl DesktopEffect {
         match self {
             Self::Measure(_) | Self::Place(_) => DesktopEffectPhase::Layout,
             Self::ApplyLayout(_) => DesktopEffectPhase::PropagatePlacements,
-            Self::ApplyPresentation(_) => DesktopEffectPhase::Presentation,
         }
     }
 }

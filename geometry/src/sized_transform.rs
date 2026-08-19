@@ -1,4 +1,4 @@
-use crate::{Rect, Size, SizePx, Transform};
+use crate::{Rect, Size, Transform};
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct SizedTransform {
@@ -7,12 +7,11 @@ pub struct SizedTransform {
 }
 
 impl SizedTransform {
-    pub const fn new(size: Size, transform: Transform) -> Self {
-        Self { size, transform }
-    }
-
-    pub fn from_pixels(size: SizePx, transform: Transform) -> Self {
-        Self::new(Size::new(size.width as f64, size.height as f64), transform)
+    pub fn new(size: impl Into<Size>, transform: Transform) -> Self {
+        Self {
+            size: size.into(),
+            transform,
+        }
     }
 
     pub fn rect(self) -> Rect {

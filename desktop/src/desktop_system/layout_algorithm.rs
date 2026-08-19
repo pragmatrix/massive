@@ -3,13 +3,13 @@ use std::cmp::max;
 use derive_more::From;
 
 use massive_applications::InstanceId;
-use massive_geometry::{RectPx, SizePx, Transform, Vector3};
+use massive_geometry::{Point, Quaternion, RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
     LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size,
     Thickness,
 };
 
-use super::{Aggregates, DesktopTarget};
+use super::{Aggregates, DesktopTarget, FocusDepth};
 use crate::layout::{ContainerBuilder, ToContainer};
 use crate::projects::ProjectId;
 
@@ -56,6 +56,8 @@ pub struct DesktopLayoutAlgorithm<'a> {
     pub aggregates: &'a Aggregates,
     pub default_panel_size: SizePx,
     pub focused_instance: Option<InstanceId>,
+    pub focus_depth: FocusDepth,
+    pub window_size: SizePx,
 }
 
 impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
@@ -73,6 +75,9 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             DesktopTarget::Launcher(_) => self.place_launcher_children(id, &child_sizes),
             DesktopTarget::ProjectMatrix(project_id) => {
                 self.place_project_matrix_children(*project_id, &child_sizes)
+            }
+            DesktopTarget::Instance(instance_id) => {
+                self.place_instance_children(*instance_id, parent_size, child_measurements)
             }
             _ => self.place_standard_children(id, parent_size, child_measurements),
         }
@@ -94,6 +99,37 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
             DesktopTarget::ProjectMatrix(project_id) => self
                 .measure_project_matrix(*project_id, &child_sizes)
                 .into(),
+            DesktopTarget::Instance(instance_id) => {
+                let size_px = self
+                    .aggregates
+                    .instances
+                    .get(instance_id)
+                    .map(|instance| instance.regular_size())
+                    .unwrap_or(self.default_panel_size);
+                let size: Size<2> = size_px.into();
+                size.into()
+            }
+            DesktopTarget::View(_) => {
+                let is_fullscreen = self
+                    .aggregates
+                    .hierarchy
+                    .parent(id)
+                    .and_then(|parent| match parent {
+                        DesktopTarget::Instance(inst) => Some(*inst),
+                        _ => None,
+                    })
+                    .is_some_and(|inst| {
+                        self.focused_instance == Some(inst)
+                            && self.focus_depth == FocusDepth::InstanceFullScreen
+                    });
+                let size_px = if is_fullscreen {
+                    self.window_size
+                } else {
+                    self.default_panel_size
+                };
+                let size: Size<2> = size_px.into();
+                size.into()
+            }
             _ => self.measure_via_layout_spec(id, &child_sizes).into(),
         }
     }
@@ -241,6 +277,42 @@ impl DesktopLayoutAlgorithm<'_> {
         )
     }
 
+    fn place_instance_children(
+        &self,
+        instance_id: InstanceId,
+        parent_size: Size<2>,
+        child_measurements: &[MeasuredLayout<2>],
+    ) -> Vec<Placement<Transform, 2>> {
+        let is_fullscreen = self.focused_instance == Some(instance_id)
+            && self.focus_depth == FocusDepth::InstanceFullScreen;
+        let center = Point::new(parent_size[0] as f64 * 0.5, parent_size[1] as f64 * 0.5);
+
+        child_measurements
+            .iter()
+            .map(|child| {
+                let view_size = child.size;
+                let (scale, placement_size) = if is_fullscreen {
+                    let scale = if self.window_size.width > 0 && self.window_size.height > 0 {
+                        (parent_size[0] as f64 / self.window_size.width as f64)
+                            .min(parent_size[1] as f64 / self.window_size.height as f64)
+                    } else {
+                        1.0
+                    };
+                    (scale, [self.window_size.width, self.window_size.height].into())
+                } else {
+                    (1.0, view_size)
+                };
+
+                let transform = Transform::new(
+                    Vector3::new(center.x, center.y, 0.0),
+                    Quaternion::IDENTITY,
+                    scale,
+                );
+                Placement::new(transform, LayoutRect::new(Offset::default(), placement_size))
+            })
+            .collect()
+    }
+
     fn place_standard_children(
         &self,
         id: &DesktopTarget,
@@ -288,12 +360,13 @@ impl DesktopLayoutAlgorithm<'_> {
                 }
             }
             DesktopTarget::Instance(instance) => {
-                let instance = &self.aggregates.instances[instance];
-                if !instance.presents_primary_view() {
-                    self.default_panel_size.into()
-                } else {
-                    LayoutAxis::HORIZONTAL.into()
-                }
+                let size = self
+                    .aggregates
+                    .instances
+                    .get(instance)
+                    .map(|instance| instance.regular_size())
+                    .unwrap_or(self.default_panel_size);
+                size.into()
             }
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }

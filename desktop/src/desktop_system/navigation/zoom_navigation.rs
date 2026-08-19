@@ -221,19 +221,18 @@ impl DesktopSystem {
         fovy: f64,
         surface_size: SizePx,
     ) -> bool {
-        let surface_width = surface_size.width as f64;
-        let surface_height = surface_size.height as f64;
+        let surface_size: Size = surface_size.into();
         if target_size.width <= 0.0 || target_size.height <= 0.0 {
             return false;
         }
 
         let target_scale =
-            (surface_width / target_size.width).min(surface_height / target_size.height);
+            (surface_size.width / target_size.width).min(surface_size.height / target_size.height);
         let camera_distance = 1.0 / (fovy * 0.5).to_radians().tan();
-        let model_to_ndc_scale = 2.0 / surface_height;
+        let model_to_ndc_scale = 2.0 / surface_size.height;
         let z_scale = model_to_ndc_scale * target_scale;
-        let half_surface_width = surface_width * 0.5;
-        let half_surface_height = surface_height * 0.5;
+        let half_surface_width = surface_size.width * 0.5;
+        let half_surface_height = surface_size.height * 0.5;
 
         for point in points {
             let dx = point.x - center.x;

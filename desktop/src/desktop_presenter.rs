@@ -104,7 +104,7 @@ impl HoverMovement {
             Some(placement) => {
                 let size = placement.rect.size;
                 let layout =
-                    SizedTransform::from_pixels(SizePx::new(size[0], size[1]), placement.transform);
+                    SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform);
                 self.alpha.animate_if_changed(
                     context,
                     1.0,

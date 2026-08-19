@@ -1,12 +1,8 @@
-use anyhow::Result;
-
-use massive_applications::{InstanceId, ViewEvent};
+use massive_applications::InstanceId;
 use massive_geometry::SizePx;
 
 use crate::desktop_system::DesktopSystem;
-use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstancePresentation;
-use crate::window_state::WindowState;
 
 use super::FocusDepth;
 
@@ -24,24 +20,5 @@ impl DesktopSystem {
         } else {
             InstancePresentation::regular(regular_size)
         }
-    }
-
-    pub fn apply_instance_presentation(
-        &mut self,
-        instance: InstanceId,
-        window_state: &WindowState,
-        instance_manager: &InstanceManager,
-    ) -> Result<()> {
-        let presentation = self.resolve_instance_presentation(instance, window_state.inner_size);
-        if let Some((view, size)) = self
-            .aggregates
-            .instances
-            .get_mut(&instance)
-            .expect("Instance missing")
-            .apply_presentation(presentation)
-        {
-            instance_manager.send_view_event((instance, view), ViewEvent::Resized(size))?;
-        }
-        Ok(())
     }
 }
