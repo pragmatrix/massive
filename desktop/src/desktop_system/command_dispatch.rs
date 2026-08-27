@@ -34,16 +34,6 @@ pub struct ChangeOutput {
 }
 
 impl ChangeOutput {
-    pub fn update_camera() -> Self {
-        Self {
-            surface: ChangeSurface {
-                update_camera: true,
-                ..Default::default()
-            },
-            ..Default::default()
-        }
-    }
-
     pub fn measure(&mut self, target: DesktopTarget) {
         self.surface.size_invalid += target;
     }
@@ -407,7 +397,6 @@ impl DesktopSystem {
                 if let Some(current_focus) = &current_focus {
                     output.focus_changed(current_focus.clone());
                 }
-                output.surface.update_camera |= previous_focus != current_focus;
 
                 return Ok(output);
             }
@@ -419,7 +408,7 @@ impl DesktopSystem {
                 if self.focus_depth != focus_depth {
                     self.focus_depth = focus_depth;
 
-                    let mut output = ChangeOutput::update_camera();
+                    let mut output = ChangeOutput::default();
                     if let Some(focused) = self.event_router.keyboard_focus() {
                         output.focus_changed(focused.clone());
                     }
@@ -427,7 +416,8 @@ impl DesktopSystem {
                 }
             }
             DesktopChange::WindowResized => {
-                let mut output = ChangeOutput::update_camera();
+                let mut output = ChangeOutput::default();
+                output.surface.window_size_changed = true;
                 // A window resize only affects the presentation of instances if we are in
                 // [`FocusDepth::InstanceFullScreen`] and an instance is focused.
                 if self.focus_depth == FocusDepth::InstanceFullScreen
@@ -474,7 +464,6 @@ impl DesktopSystem {
                 if let Some(ref current_focus) = current_focus {
                     output.focus_changed(current_focus.clone());
                 }
-                output.surface.update_camera |= previous_focus != current_focus;
 
                 return Ok(output);
             }
@@ -661,7 +650,6 @@ impl DesktopSystem {
             InstanceChange::CreateView(creation_info) => {
                 let mut output = self.present_view(instance, &creation_info)?;
                 output.measure(DesktopTarget::Instance(instance));
-                output.surface.update_camera = true;
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the
@@ -891,11 +879,7 @@ impl DesktopSystem {
 
                 changes <<= DesktopChange::ResizeAll((*size_px).into());
 
-                // The updating of the camera should later be derived from the placement of the
-                // focused target.
-                let mut output = ChangeOutput::changes(changes);
-                output.surface.update_camera = true;
-                Ok(output)
+                Ok(ChangeOutput::changes(changes))
             }
             ConfigurationRequest::Undo => todo!(),
             ConfigurationRequest::Redo => todo!(),

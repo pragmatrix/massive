@@ -34,6 +34,20 @@ impl<T: Eq + Hash> PartialEq for CollectingSet<T> {
 
 impl<T: Eq + Hash> Eq for CollectingSet<T> {}
 
+impl<T> CollectingSet<T> {
+    pub fn is_empty(&self) -> bool {
+        matches!(self, CollectingSet::Empty)
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            CollectingSet::Empty => 0,
+            CollectingSet::One(_) => 1,
+            CollectingSet::Many(values) => values.len(),
+        }
+    }
+}
+
 impl<T: Eq + Hash> CollectingSet<T> {
     pub fn insert(&mut self, value: T) {
         match self {
