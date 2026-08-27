@@ -57,7 +57,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - When internal APIs become infallible, propagate that contract through helper methods and traits, and remove Option-based branching unless absence is still a real domain state.
-- Avoid redundant work; only perform writes, recomputations, or updates when they are necessary for correctness.
+- Carry out computations as precisely as possible: only when needed, and at the narrowest branch where their result is consumed. Apply the same rule to writes and updates.
 - Prefer proper platform-native solutions over UI-level workarounds or quick fixes.
 - Keep one source of truth for mutable state, and prefer deriving computed values at read boundaries over maintaining mirrored caches.
 - Keep invariant checks and mode gating at one layer where practical.
