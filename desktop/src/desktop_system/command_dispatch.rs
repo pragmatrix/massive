@@ -38,8 +38,21 @@ impl ChangeOutput {
         self.surface.size_invalid += target;
     }
 
-    pub fn focus_changed(&mut self, target: DesktopTarget) {
-        self.surface.size_invalid += target;
+    pub fn focus_changed(
+        &mut self,
+        previous: Option<DesktopTarget>,
+        current: Option<DesktopTarget>,
+    ) {
+        if previous == current {
+            return;
+        }
+
+        if let Some(previous) = previous {
+            self.surface.size_invalid += previous;
+        }
+        if let Some(current) = current {
+            self.surface.size_invalid += current;
+        }
     }
 
     fn measures(measures: impl Into<TargetSet>) -> Self {
@@ -391,12 +404,7 @@ impl DesktopSystem {
                 let current_focus = self.event_router.keyboard_focus().cloned();
 
                 let mut output = ChangeOutput::default();
-                if let Some(previous_focus) = &previous_focus {
-                    output.focus_changed(previous_focus.clone());
-                }
-                if let Some(current_focus) = &current_focus {
-                    output.focus_changed(current_focus.clone());
-                }
+                output.focus_changed(previous_focus, current_focus);
 
                 return Ok(output);
             }
@@ -410,7 +418,7 @@ impl DesktopSystem {
 
                     let mut output = ChangeOutput::default();
                     if let Some(focused) = self.event_router.keyboard_focus() {
-                        output.focus_changed(focused.clone());
+                        output.measure(focused.clone());
                     }
                     return Ok(output);
                 }
@@ -456,14 +464,8 @@ impl DesktopSystem {
                 let measure_set = self.apply_topology_change(change, instance_manager)?;
                 let current_focus = self.event_router.keyboard_focus().cloned();
 
-                // DRY: This looks similar to SetFocus
                 let mut output = ChangeOutput::measures(measure_set);
-                if let Some(ref previous_focus) = previous_focus {
-                    output.focus_changed(previous_focus.clone());
-                }
-                if let Some(ref current_focus) = current_focus {
-                    output.focus_changed(current_focus.clone());
-                }
+                output.focus_changed(previous_focus, current_focus);
 
                 return Ok(output);
             }
