@@ -8,12 +8,14 @@ use std::ops::{Add, AddAssign};
 /// Storage stays compact: no allocation for zero or one value, a `HashSet`
 /// only once a second distinct value appears.
 ///
-/// When constructed via this type's APIs (`insert`, `Add`, `AddAssign`, etc.), the variant
-/// reflects the distinct element count (`Empty` = 0, `One` = 1, `Many` >= 2), which keeps the
-/// equality consistent with set semantics.
+/// When constructed via this type's APIs (`insert`, `Add`, `AddAssign`, etc.), storage reflects
+/// the distinct element count, which keeps equality consistent with set semantics.
 #[must_use]
 #[derive(Debug, Clone)]
-pub enum CollectingSet<T> {
+pub struct CollectingSet<T>(CollectingSetStorage<T>);
+
+#[derive(Debug, Clone)]
+enum CollectingSetStorage<T> {
     Empty,
     One(T),
     Many(HashSet<T>),
@@ -23,10 +25,10 @@ pub enum CollectingSet<T> {
 // derive would not require on the type parameter.
 impl<T: Eq + Hash> PartialEq for CollectingSet<T> {
     fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (CollectingSet::Empty, CollectingSet::Empty) => true,
-            (CollectingSet::One(a), CollectingSet::One(b)) => a == b,
-            (CollectingSet::Many(a), CollectingSet::Many(b)) => a == b,
+        match (&self.0, &other.0) {
+            (CollectingSetStorage::Empty, CollectingSetStorage::Empty) => true,
+            (CollectingSetStorage::One(a), CollectingSetStorage::One(b)) => a == b,
+            (CollectingSetStorage::Many(a), CollectingSetStorage::Many(b)) => a == b,
             _ => false,
         }
     }
@@ -36,58 +38,59 @@ impl<T: Eq + Hash> Eq for CollectingSet<T> {}
 
 impl<T> CollectingSet<T> {
     pub fn is_empty(&self) -> bool {
-        matches!(self, CollectingSet::Empty)
+        matches!(self.0, CollectingSetStorage::Empty)
     }
 
     pub fn len(&self) -> usize {
-        match self {
-            CollectingSet::Empty => 0,
-            CollectingSet::One(_) => 1,
-            CollectingSet::Many(values) => values.len(),
+        match &self.0 {
+            CollectingSetStorage::Empty => 0,
+            CollectingSetStorage::One(_) => 1,
+            CollectingSetStorage::Many(values) => values.len(),
         }
     }
 }
 
 impl<T: Eq + Hash> CollectingSet<T> {
     pub fn insert(&mut self, value: T) {
-        match self {
-            CollectingSet::Empty => *self = CollectingSet::One(value),
-            CollectingSet::One(existing) => {
+        match &mut self.0 {
+            CollectingSetStorage::Empty => self.0 = CollectingSetStorage::One(value),
+            CollectingSetStorage::One(existing) => {
                 if *existing != value {
-                    let CollectingSet::One(existing) = mem::replace(self, CollectingSet::Empty)
+                    let CollectingSetStorage::One(existing) =
+                        mem::replace(&mut self.0, CollectingSetStorage::Empty)
                     else {
                         unreachable!()
                     };
                     let mut set = HashSet::with_capacity(2);
                     set.insert(existing);
                     set.insert(value);
-                    *self = CollectingSet::Many(set);
+                    self.0 = CollectingSetStorage::Many(set);
                 }
             }
-            CollectingSet::Many(set) => {
+            CollectingSetStorage::Many(set) => {
                 set.insert(value);
             }
         }
     }
 
     pub fn retain(&mut self, mut predicate: impl FnMut(&T) -> bool) {
-        match self {
-            CollectingSet::Empty => {}
-            CollectingSet::One(value) => {
+        match &mut self.0 {
+            CollectingSetStorage::Empty => {}
+            CollectingSetStorage::One(value) => {
                 if !predicate(value) {
-                    *self = CollectingSet::Empty;
+                    self.0 = CollectingSetStorage::Empty;
                 }
             }
-            CollectingSet::Many(values) => {
+            CollectingSetStorage::Many(values) => {
                 values.retain(predicate);
                 match values.len() {
-                    0 => *self = CollectingSet::Empty,
+                    0 => self.0 = CollectingSetStorage::Empty,
                     1 => {
                         let value = values
                             .drain()
                             .next()
                             .expect("a set with one value must yield that value");
-                        *self = CollectingSet::One(value);
+                        self.0 = CollectingSetStorage::One(value);
                     }
                     _ => {}
                 }
@@ -132,19 +135,19 @@ impl<T: Eq + Hash> Add for CollectingSet<T> {
 #[allow(clippy::derivable_impls)]
 impl<T> Default for CollectingSet<T> {
     fn default() -> Self {
-        CollectingSet::Empty
+        Self(CollectingSetStorage::Empty)
     }
 }
 
 impl<T> From<T> for CollectingSet<T> {
     fn from(value: T) -> Self {
-        CollectingSet::One(value)
+        Self(CollectingSetStorage::One(value))
     }
 }
 
 impl<T: Eq + Hash> FromIterator<T> for CollectingSet<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let mut set = CollectingSet::Empty;
+        let mut set = CollectingSet::default();
         for value in iter {
             set.insert(value);
         }
@@ -157,10 +160,10 @@ impl<T> IntoIterator for CollectingSet<T> {
     type IntoIter = CollectingSetIntoIter<T>;
 
     fn into_iter(self) -> Self::IntoIter {
-        match self {
-            CollectingSet::Empty => CollectingSetIntoIter::Empty,
-            CollectingSet::One(value) => CollectingSetIntoIter::One(Some(value)),
-            CollectingSet::Many(set) => CollectingSetIntoIter::Many(set.into_iter()),
+        match self.0 {
+            CollectingSetStorage::Empty => CollectingSetIntoIter::Empty,
+            CollectingSetStorage::One(value) => CollectingSetIntoIter::One(Some(value)),
+            CollectingSetStorage::Many(set) => CollectingSetIntoIter::Many(set.into_iter()),
         }
     }
 }
@@ -188,12 +191,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn insert_transitions_through_variants() {
+    fn insert_tracks_distinct_element_count() {
         let mut set = CollectingSet::default();
-        assert_eq!(set, CollectingSet::Empty);
+        assert!(set.is_empty());
 
         set.insert(1);
-        assert_eq!(set, CollectingSet::One(1));
+        assert_eq!(set.len(), 1);
+        assert_eq!(set, CollectingSet::from(1));
 
         set.insert(2);
         assert_eq!(sorted(set), vec![1, 2]);
@@ -201,10 +205,10 @@ mod tests {
 
     #[test]
     fn insert_deduplicates() {
-        let mut set = CollectingSet::Empty;
+        let mut set = CollectingSet::default();
         set.insert(1);
         set.insert(1);
-        assert_eq!(set, CollectingSet::One(1));
+        assert_eq!(set, CollectingSet::from(1));
 
         set.insert(2);
         set.insert(2);
@@ -214,29 +218,29 @@ mod tests {
 
     #[test]
     fn add_assign_value_and_set() {
-        let mut set = CollectingSet::Empty;
+        let mut set = CollectingSet::default();
         set += 1;
         set += 2;
-        set += CollectingSet::One(2);
+        set += CollectingSet::from(2);
         set += many([3, 4]);
         assert_eq!(sorted(set), vec![1, 2, 3, 4]);
     }
 
     #[test]
     fn add_combines_without_mutating_operands() {
-        let combined = CollectingSet::One(1) + 2 + many([2, 3]);
+        let combined = CollectingSet::from(1) + 2 + many([2, 3]);
         assert_eq!(sorted(combined), vec![1, 2, 3]);
     }
 
     #[test]
     fn into_iter_yields_all_values_once() {
-        assert!(CollectingSet::<i32>::Empty.into_iter().next().is_none());
-        assert_eq!(sorted(CollectingSet::One(7)), vec![7]);
+        assert!(CollectingSet::<i32>::default().into_iter().next().is_none());
+        assert_eq!(sorted(CollectingSet::from(7)), vec![7]);
         assert_eq!(sorted(many([1, 2, 3])), vec![1, 2, 3]);
     }
 
     fn many<const N: usize>(values: [i32; N]) -> CollectingSet<i32> {
-        let mut set = CollectingSet::Empty;
+        let mut set = CollectingSet::default();
         for value in values {
             set.insert(value);
         }

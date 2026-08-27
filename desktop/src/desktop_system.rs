@@ -454,7 +454,7 @@ impl DesktopSystem {
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    fn remove_target(&mut self, target: &DesktopTarget) -> Result<TargetSet> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<DesktopTarget> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
@@ -476,7 +476,7 @@ impl DesktopSystem {
         // Mark the surviving parent, not the removed node:
         // - removed nodes are ignored by incremental recompute root collection,
         // - parent refresh updates cached children and recomputes sibling placement.
-        Ok(parent.into())
+        Ok(parent)
     }
 
     fn placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {

@@ -461,10 +461,10 @@ impl DesktopSystem {
                 // Design: That's somewhat unexpected here, that `apply_topology_change` changes
                 // focus. Can we make this more obvious? We should combine the `instance_manager`
                 // side effects perhaps.
-                let measure_set = self.apply_topology_change(change, instance_manager)?;
+                let measure_target = self.apply_topology_change(change, instance_manager)?;
                 let current_focus = self.event_router.keyboard_focus().cloned();
 
-                let mut output = ChangeOutput::measures(measure_set);
+                let mut output = ChangeOutput::measures(measure_target);
                 output.focus_changed(previous_focus, current_focus);
 
                 return Ok(output);
@@ -492,7 +492,7 @@ impl DesktopSystem {
         &mut self,
         change: TopologyChange,
         instance_manager: &InstanceManager,
-    ) -> Result<TargetSet> {
+    ) -> Result<DesktopTarget> {
         match change {
             TopologyChange::Add { what, under, after } => {
                 if let Some(after) = after {
@@ -501,11 +501,11 @@ impl DesktopSystem {
                 } else {
                     self.aggregates.hierarchy.add(under.clone(), what)?;
                 }
-                Ok(under.into())
+                Ok(under)
             }
             TopologyChange::AddNested { what, under } => {
                 self.aggregates.hierarchy.add_nested(under.clone(), what)?;
-                Ok(under.into())
+                Ok(under)
             }
             TopologyChange::Insert {
                 what,
@@ -515,7 +515,7 @@ impl DesktopSystem {
                 self.aggregates
                     .hierarchy
                     .insert_at(under.clone(), at_index, what)?;
-                Ok(under.into())
+                Ok(under)
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -523,7 +523,7 @@ impl DesktopSystem {
                 // router is not left pointing at a removed node.
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
                 self.refocus_to_parent_if_path_contains(&target, instance_manager)?;
-                Ok(self.remove_target(&target)?)
+                self.remove_target(&target)
             }
         }
     }
