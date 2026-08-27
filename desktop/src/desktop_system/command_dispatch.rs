@@ -34,22 +34,25 @@ pub struct ChangeOutput {
 }
 
 impl ChangeOutput {
-    pub fn update_camera() -> Self {
-        Self {
-            surface: ChangeSurface {
-                update_camera: true,
-                ..Default::default()
-            },
-            ..Default::default()
-        }
-    }
-
     pub fn measure(&mut self, target: DesktopTarget) {
         self.surface.size_invalid += target;
     }
 
-    pub fn focus_changed(&mut self, target: DesktopTarget) {
-        self.surface.size_invalid += target;
+    pub fn focus_changed(
+        &mut self,
+        previous: Option<DesktopTarget>,
+        current: Option<DesktopTarget>,
+    ) {
+        if previous == current {
+            return;
+        }
+
+        if let Some(previous) = previous {
+            self.surface.size_invalid += previous;
+        }
+        if let Some(current) = current {
+            self.surface.size_invalid += current;
+        }
     }
 
     fn measures(measures: impl Into<TargetSet>) -> Self {
@@ -401,13 +404,7 @@ impl DesktopSystem {
                 let current_focus = self.event_router.keyboard_focus().cloned();
 
                 let mut output = ChangeOutput::default();
-                if let Some(previous_focus) = &previous_focus {
-                    output.focus_changed(previous_focus.clone());
-                }
-                if let Some(current_focus) = &current_focus {
-                    output.focus_changed(current_focus.clone());
-                }
-                output.surface.update_camera |= previous_focus != current_focus;
+                output.focus_changed(previous_focus, current_focus);
 
                 return Ok(output);
             }
@@ -419,15 +416,16 @@ impl DesktopSystem {
                 if self.focus_depth != focus_depth {
                     self.focus_depth = focus_depth;
 
-                    let mut output = ChangeOutput::update_camera();
+                    let mut output = ChangeOutput::default();
                     if let Some(focused) = self.event_router.keyboard_focus() {
-                        output.focus_changed(focused.clone());
+                        output.measure(focused.clone());
                     }
                     return Ok(output);
                 }
             }
             DesktopChange::WindowResized => {
-                let mut output = ChangeOutput::update_camera();
+                let mut output = ChangeOutput::default();
+                output.surface.window_size_changed = true;
                 // A window resize only affects the presentation of instances if we are in
                 // [`FocusDepth::InstanceFullScreen`] and an instance is focused.
                 if self.focus_depth == FocusDepth::InstanceFullScreen
@@ -463,18 +461,11 @@ impl DesktopSystem {
                 // Design: That's somewhat unexpected here, that `apply_topology_change` changes
                 // focus. Can we make this more obvious? We should combine the `instance_manager`
                 // side effects perhaps.
-                let measure_set = self.apply_topology_change(change, instance_manager)?;
+                let measure_target = self.apply_topology_change(change, instance_manager)?;
                 let current_focus = self.event_router.keyboard_focus().cloned();
 
-                // DRY: This looks similar to SetFocus
-                let mut output = ChangeOutput::measures(measure_set);
-                if let Some(ref previous_focus) = previous_focus {
-                    output.focus_changed(previous_focus.clone());
-                }
-                if let Some(ref current_focus) = current_focus {
-                    output.focus_changed(current_focus.clone());
-                }
-                output.surface.update_camera |= previous_focus != current_focus;
+                let mut output = ChangeOutput::measures(measure_target);
+                output.focus_changed(previous_focus, current_focus);
 
                 return Ok(output);
             }
@@ -501,7 +492,7 @@ impl DesktopSystem {
         &mut self,
         change: TopologyChange,
         instance_manager: &InstanceManager,
-    ) -> Result<TargetSet> {
+    ) -> Result<DesktopTarget> {
         match change {
             TopologyChange::Add { what, under, after } => {
                 if let Some(after) = after {
@@ -510,11 +501,11 @@ impl DesktopSystem {
                 } else {
                     self.aggregates.hierarchy.add(under.clone(), what)?;
                 }
-                Ok(under.into())
+                Ok(under)
             }
             TopologyChange::AddNested { what, under } => {
                 self.aggregates.hierarchy.add_nested(under.clone(), what)?;
-                Ok(under.into())
+                Ok(under)
             }
             TopologyChange::Insert {
                 what,
@@ -524,7 +515,7 @@ impl DesktopSystem {
                 self.aggregates
                     .hierarchy
                     .insert_at(under.clone(), at_index, what)?;
-                Ok(under.into())
+                Ok(under)
             }
             TopologyChange::Remove(target) => {
                 // A removed subtree may still hold pointer and/or keyboard focus. Clear pointer
@@ -532,7 +523,7 @@ impl DesktopSystem {
                 // router is not left pointing at a removed node.
                 self.unfocus_pointer_if_path_contains(&target, instance_manager)?;
                 self.refocus_to_parent_if_path_contains(&target, instance_manager)?;
-                Ok(self.remove_target(&target)?)
+                self.remove_target(&target)
             }
         }
     }
@@ -661,7 +652,6 @@ impl DesktopSystem {
             InstanceChange::CreateView(creation_info) => {
                 let mut output = self.present_view(instance, &creation_info)?;
                 output.measure(DesktopTarget::Instance(instance));
-                output.surface.update_camera = true;
 
                 // If this instance is currently focused and the new view is primary, make it
                 // foreground so that the view is focused. Emitted as a follow-up change so the
@@ -891,11 +881,7 @@ impl DesktopSystem {
 
                 changes <<= DesktopChange::ResizeAll((*size_px).into());
 
-                // The updating of the camera should later be derived from the placement of the
-                // focused target.
-                let mut output = ChangeOutput::changes(changes);
-                output.surface.update_camera = true;
-                Ok(output)
+                Ok(ChangeOutput::changes(changes))
             }
             ConfigurationRequest::Undo => todo!(),
             ConfigurationRequest::Redo => todo!(),

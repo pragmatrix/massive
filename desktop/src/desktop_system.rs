@@ -319,8 +319,6 @@ impl DesktopSystem {
             }
         }
 
-        let mut update_camera = change_surface.update_camera;
-
         // Collect deferred measures if the camera can be moved.
 
         // Detail: If camera moves are not allowed we assume that large visual changes aren't, too.
@@ -333,7 +331,16 @@ impl DesktopSystem {
                 .into_iter()
                 .map(DesktopTarget::Launcher)
                 .collect::<TargetSet>();
+        }
 
+        // Only keep the `ChangeSurface` targets that match against the final topology.
+        //
+        // A later change in the same transaction may remove a target scheduled by an earlier
+        // change.
+        change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
+
+        let mut update_camera = change_surface.camera_invalid();
+        if effects_mode.permit_camera_moves() {
             // Replay a camera move that was deferred while the camera was locked (e.g. a focus
             // change that happened while a mouse button was held).
             update_camera |= mem::take(&mut self.deferred_camera_move);
@@ -347,12 +354,6 @@ impl DesktopSystem {
             let camera = *self.camera.proceed(frame.animation_time());
             self.camera.snap(camera);
         }
-
-        // Only keep the `ChangeSurface` targets that match against the final topology.
-        //
-        // A later change in the same transaction may remove a target scheduled by an earlier
-        // change.
-        change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
         // Convert the change surface to effects.
         let effects = convert_change_surface_to_effects(change_surface);
@@ -453,7 +454,7 @@ impl DesktopSystem {
 
     /// Remove the target from the hierarchy. Specific target aggregates are left
     /// untouched (they may be needed for fading out, etc.).
-    fn remove_target(&mut self, target: &DesktopTarget) -> Result<TargetSet> {
+    fn remove_target(&mut self, target: &DesktopTarget) -> Result<DesktopTarget> {
         // Check if all components that hold reference actually removed them.
         self.event_router.notify_removed(target)?;
 
@@ -475,7 +476,7 @@ impl DesktopSystem {
         // Mark the surviving parent, not the removed node:
         // - removed nodes are ignored by incremental recompute root collection,
         // - parent refresh updates cached children and recomputes sibling placement.
-        Ok(parent.into())
+        Ok(parent)
     }
 
     fn placement(&self, target: &DesktopTarget) -> Placement<Transform, 2> {
