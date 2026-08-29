@@ -1,16 +1,13 @@
 use anyhow::Result;
-use log::error;
 
-use massive_animation::{AnimationAllocator, Interpolation};
 use massive_applications::ViewEvent;
-use massive_geometry::{SizePx, SizedTransform};
+use massive_geometry::{PixelCamera, SizePx, SizedTransform};
 use massive_layout::LayoutTopology;
 
 use super::effects::{DesktopEffect, DesktopEffectScheduler, Effects};
 use super::layout_state::PlacementUpdate;
 use super::{DesktopLayoutAlgorithm, DesktopSystem, DesktopTarget, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
-use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
 use crate::window_state::WindowPresentationState;
 
 impl DesktopSystem {
@@ -270,34 +267,8 @@ impl DesktopSystem {
         }
         Ok(())
     }
-    pub(super) fn update_camera(
-        &mut self,
-        context: &mut dyn AnimationAllocator,
-        effects_mode: TransactionEffectsMode,
-        window_size: SizePx,
-    ) {
-        if !effects_mode.permit_camera_moves() {
-            return;
-        }
-
-        let Some(focused) = self.event_router.keyboard_focus() else {
-            // Not sure what we do if nothing is focused yet.
-            error!("Updating camera without keyboard focus");
-            return;
-        };
-
-        let camera =
-            self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth, window_size);
-
-        if effects_mode.permit_animations() {
-            self.camera.animate_if_changed(
-                context,
-                camera,
-                STRUCTURAL_ANIMATION_DURATION,
-                Interpolation::CubicOut,
-            );
-        } else {
-            self.camera.snap(camera);
-        }
+    pub(super) fn resolve_desired_camera(&self, window_size: SizePx) -> Option<PixelCamera> {
+        let focused = self.event_router.keyboard_focus()?;
+        Some(self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth, window_size))
     }
 }

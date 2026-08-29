@@ -8,6 +8,7 @@
 //! The goal here is to remove as much as possible from the specific instances into separate systems
 //! and aggregates that are event driven.
 
+mod camera_presentation;
 pub mod change;
 mod change_surface;
 mod command_dispatch;
@@ -33,7 +34,7 @@ use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::time::Instant;
 
-use massive_animation::{Animated, MovementRuntime};
+use massive_animation::MovementRuntime;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -56,6 +57,7 @@ use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
+use camera_presentation::{CameraPresentation, CameraPresentationMode};
 use change::{Changes, DesktopChange};
 use effects::DesktopEffect;
 
@@ -179,11 +181,11 @@ impl TransactionEffectsMode {
         }
     }
 
-    pub fn permit_camera_moves(self) -> bool {
+    fn camera_presentation_mode(self) -> CameraPresentationMode {
         match self {
-            TransactionEffectsMode::Normal => true,
-            TransactionEffectsMode::Setup => true,
-            TransactionEffectsMode::UserGestureActive => false,
+            TransactionEffectsMode::Normal => CameraPresentationMode::Animate,
+            TransactionEffectsMode::Setup => CameraPresentationMode::Snap,
+            TransactionEffectsMode::UserGestureActive => CameraPresentationMode::Freeze,
         }
     }
 }
@@ -196,14 +198,11 @@ pub struct DesktopSystem {
     default_panel_size: SizePx,
 
     event_router: EventRouter<DesktopTarget>,
-    camera: Animated<PixelCamera>,
+    camera: CameraPresentation,
     focus_depth: FocusDepth,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
-    /// Set when a camera move is requested while the camera is locked, so it replays once the
-    /// camera unlocks (for example when a pressed mouse button is released).
-    deferred_camera_move: bool,
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
@@ -267,11 +266,10 @@ impl DesktopSystem {
             default_panel_size,
 
             event_router,
-            camera: PixelCamera::default().into(),
+            camera: CameraPresentation::new(PixelCamera::default()),
             focus_depth: FocusDepth::default(),
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
-            deferred_camera_move: false,
             layout_state,
 
             desktop_presenter,
@@ -325,7 +323,8 @@ impl DesktopSystem {
         // For example, focus layout effects.
         //
         // Design: may replace deferred_* with a ChangeSurface (a "deferred" ChangeSurface?).
-        if effects_mode.permit_camera_moves() {
+        let camera_mode = effects_mode.camera_presentation_mode();
+        if camera_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
             change_surface.size_invalid += mem::take(&mut self.deferred_focus_launcher_measures)
                 .into_iter()
@@ -339,21 +338,7 @@ impl DesktopSystem {
         // change.
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
-        let mut update_camera = change_surface.camera_invalid();
-        if effects_mode.permit_camera_moves() {
-            // Replay a camera move that was deferred while the camera was locked (e.g. a focus
-            // change that happened while a mouse button was held).
-            update_camera |= mem::take(&mut self.deferred_camera_move);
-        } else {
-            // Camera is locked: remember a pending move so it applies once the camera unlocks (for
-            // example when the pressed mouse button is released).
-            self.deferred_camera_move |= update_camera;
-            update_camera = false;
-            // Lock camera motion immediately, including already running camera animations.
-            // Ergonomics: There should probably be a function for that in `Animated`.
-            let camera = *self.camera.proceed(frame.animation_time());
-            self.camera.snap(camera);
-        }
+        let update_camera = change_surface.camera_invalid();
 
         // Convert the change surface to effects.
         let effects = convert_change_surface_to_effects(change_surface);
@@ -362,11 +347,14 @@ impl DesktopSystem {
         // must fit into the window.
         self.run_effects_to_completion(effects_mode, effects, window_size, instance_manager)?;
 
-        // If needed, we want to update the camera after all effects were run, because then we are
-        // sure that all placements are final.
+        // Resolve camera intent after all effects were run, when all placements are final.
         if update_camera {
-            self.update_camera(frame, effects_mode, window_size);
+            let desired = self.resolve_desired_camera(window_size);
+            self.camera.set_desired(desired);
         }
+
+        let animation_time = frame.animation_time();
+        self.camera.synchronize(animation_time, frame, camera_mode);
 
         // Update the hover target.
         {
