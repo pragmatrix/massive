@@ -62,8 +62,10 @@ impl CameraPresentation {
                 }
             }
             CameraPresentationMode::Freeze => {
-                let presented = *self.presented.proceed(animation_time);
-                self.presented.snap(presented);
+                if self.presented.is_animating() {
+                    let presented = *self.presented.proceed(animation_time);
+                    self.presented.snap(presented);
+                }
             }
         }
     }
