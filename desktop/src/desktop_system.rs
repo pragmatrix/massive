@@ -15,6 +15,7 @@ mod command_dispatch;
 mod commands;
 mod effects;
 mod event_forwarding;
+mod focus_depth_indicator;
 mod focus_input;
 mod focus_path_ext;
 mod fullscreen;
@@ -26,13 +27,13 @@ mod navigation;
 mod presentation;
 mod topology;
 
-use anyhow::Result;
-use derive_more::Debug;
-use log::warn;
-use massive_util::CollectingVec;
 use std::collections::{HashSet, VecDeque};
 use std::mem;
 use std::time::Instant;
+
+use anyhow::Result;
+use derive_more::Debug;
+use log::warn;
 
 use massive_animation::MovementRuntime;
 use massive_applications::{InstanceId, ViewId};
@@ -41,14 +42,20 @@ use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
 use massive_scene::{StageIdentityLocation, Transform};
 use massive_shell::{FontManager, Frame, Scene};
+use massive_util::CollectingVec;
 
-pub use commands::{DesktopCommand, ProjectCommand};
-pub use effects::Effects;
-pub use fullscreen::fullscreen_scale;
+use camera_presentation::{CameraPresentation, CameraPresentationMode};
+use change::{Changes, DesktopChange};
+use effects::DesktopEffect;
+use focus_depth_indicator::FocusDepthIndicatorPresenter;
 use layout_algorithm::DesktopLayoutAlgorithm;
-pub use layout_algorithm::place_container_children;
 use layout_state::DesktopLayoutState;
-pub(crate) use navigation::NavigationControl;
+use navigation::NavigationControl;
+
+pub(crate) use commands::{DesktopCommand, ProjectCommand};
+pub(crate) use effects::Effects;
+pub(crate) use fullscreen::fullscreen_scale;
+pub(crate) use layout_algorithm::place_container_children;
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
@@ -57,9 +64,6 @@ use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
-use camera_presentation::{CameraPresentation, CameraPresentationMode};
-use change::{Changes, DesktopChange};
-use effects::DesktopEffect;
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -207,6 +211,7 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
+    pub focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
 }
@@ -254,6 +259,8 @@ impl DesktopSystem {
         let (_, location) = scene.enter_identity_location();
 
         let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
+        let focus_depth_indicator =
+            FocusDepthIndicatorPresenter::new(scene, &mut fonts.lock(), movement_runtime);
 
         let event_router = EventRouter::new();
 
@@ -272,6 +279,7 @@ impl DesktopSystem {
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
 
+            focus_depth_indicator,
             desktop_presenter,
             aggregates: Aggregates::new(OrderedHierarchy::default()),
         };
@@ -290,6 +298,7 @@ impl DesktopSystem {
         window_size: SizePx,
     ) -> Result<()> {
         let changes = changes.into();
+        let previous_focus_depth = self.focus_depth;
         // For live transactions the gesture mode is derived from the current pointer-button state;
         // callers only pass an explicit mode for setup.
         let effects_mode = effects_mode
@@ -355,6 +364,12 @@ impl DesktopSystem {
 
         let animation_time = frame.animation_time();
         self.camera.synchronize(animation_time, frame, camera_mode);
+
+        if effects_mode != TransactionEffectsMode::Setup && self.focus_depth != previous_focus_depth
+        {
+            self.focus_depth_indicator
+                .show(self.focus_depth, animation_time);
+        }
 
         // Update the hover target.
         {
