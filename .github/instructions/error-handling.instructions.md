@@ -9,3 +9,4 @@ applyTo: '**/*.rs'
 - Add context to errors with `.context()`/`.with_context()` including relevant details (file paths, operations); return errors rather than fallback values.
 - Don't do defensive programming; anything unexpected should lead to an error rather than being silently handled.
 - Don't discard errors by matching only successful `Result` values; propagate or explicitly handle every error path.
+- Avoid `unwrap`/`expect` in library code; propagate errors instead. In application code, use `expect` with a message only where a panic is genuinely unreachable.
