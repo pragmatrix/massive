@@ -5,7 +5,7 @@ use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
 use massive_geometry::{Color, Rect, Size};
-use massive_scene::{At, Object, ToLocation};
+use massive_scene::prelude::*;
 use massive_shapes::{
     BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
 };

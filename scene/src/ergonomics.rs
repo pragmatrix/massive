@@ -85,15 +85,9 @@ impl UnstagedLocation {
 }
 
 /// Creates an unstaged location whose transform starts as identity.
-pub trait IdentityLocation {
-    fn identity_location(&self) -> UnstagedLocation;
-}
-
-impl IdentityLocation for Scene {
-    fn identity_location(&self) -> UnstagedLocation {
-        UnstagedLocation {
-            parent: LocationSpace::World.into(),
-        }
+pub fn identity_location() -> UnstagedLocation {
+    UnstagedLocation {
+        parent: LocationSpace::World.into(),
     }
 }
 /// Converts a value into a [`VisualWithoutLocation`].

@@ -6,7 +6,7 @@ use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
 use massive_geometry::SizePx;
-use massive_scene::{At, Object, ToLocation};
+use massive_scene::prelude::*;
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 

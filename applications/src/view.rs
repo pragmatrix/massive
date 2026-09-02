@@ -6,7 +6,8 @@ use uuid::Uuid;
 use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, Size, SizePx};
-use massive_scene::{Handle, Location, Object, Ref, ToLocation, Transform};
+use massive_scene::Ref;
+use massive_scene::prelude::*;
 
 use crate::{InstanceChange, InstanceChangeCollector, Scene, ViewId};
 

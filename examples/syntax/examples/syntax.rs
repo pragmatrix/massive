@@ -11,7 +11,7 @@ use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
 use massive_geometry::Color;
-use massive_scene::{At, Object, ToLocation};
+use massive_scene::prelude::*;
 use massive_shapes::TextWeight;
 use massive_shell::{ApplicationContext, FontManager, shell};
 

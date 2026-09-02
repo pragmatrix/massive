@@ -40,7 +40,7 @@ use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
-use massive_scene::{IdentityLocation, Transform};
+use massive_scene::prelude::*;
 use massive_shell::{FontManager, Frame, Scene};
 use massive_util::CollectingVec;
 
@@ -256,7 +256,7 @@ impl DesktopSystem {
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
-        let (_, location) = scene.identity_location().enter(scene);
+        let (_, location) = identity_location().enter(scene);
 
         let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
         let focus_depth_indicator =

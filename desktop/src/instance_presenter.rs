@@ -11,7 +11,8 @@ use massive_animation::{
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, Size, SizePx, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
-use massive_scene::{At, Handle, IdentityLocation, Location, Object, Ref, Visual};
+use massive_scene::Ref;
+use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
 use massive_shell::Scene;
 
@@ -29,9 +30,8 @@ pub struct InstanceRoot {
 
 impl InstanceRoot {
     pub fn new(scene: &Scene) -> Self {
-        let (layout_transform, layout_location) = scene.identity_location().enter(scene);
-        let (presentation_transform, presentation_location) = scene
-            .identity_location()
+        let (layout_transform, layout_location) = identity_location().enter(scene);
+        let (presentation_transform, presentation_location) = identity_location()
             .relative_to(layout_location.to_ref())
             .enter(scene);
 

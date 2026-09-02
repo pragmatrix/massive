@@ -22,7 +22,7 @@ use winit::event::{ElementState, KeyEvent};
 use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
-use massive_scene::{At, Handle, Location, Object, ToLocation, Transform};
+use massive_scene::prelude::*;
 use massive_shapes::Shape;
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
@@ -163,9 +163,7 @@ impl Logs {
             .relative_to(&application_location)
             .enter(scene);
 
-        let vertical_center_transform = Transform::IDENTITY.enter(scene);
-        let location = vertical_center_transform
-            .to_location()
+        let (vertical_center_transform, location) = identity_location()
             .relative_to(&content_location)
             .enter(scene);
 
