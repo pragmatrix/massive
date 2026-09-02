@@ -211,7 +211,7 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
-    pub focus_depth_indicator: FocusDepthIndicatorPresenter,
+    focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
 }
