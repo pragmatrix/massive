@@ -43,7 +43,10 @@ impl View {
 
         let size: Size = SizePx::from(extents.size().cast()).into();
         let local_transform = Transform::from(-size.center()).enter(&scene);
-        let location = local_transform.to_location().relative_to(parent).enter(&scene);
+        let location = local_transform
+            .to_location()
+            .relative_to(parent)
+            .enter(&scene);
 
         change_collector.collect(InstanceChange::CreateView(ViewCreationInfo {
             id,

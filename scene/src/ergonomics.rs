@@ -8,9 +8,7 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Rect, Transform};
 use massive_shapes::Shape;
 
-use crate::{
-    Handle, Location, LocationParent, LocationSpace, Object, Ref, Scene, Visual,
-};
+use crate::{Handle, Location, LocationParent, LocationSpace, Object, Ref, Scene, Visual};
 
 // This should probably be moved to massive_geometry:
 

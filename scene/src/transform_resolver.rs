@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::{Location, LocationParent, LocationSpace, Ref, ResolvedLocation};
+use crate::{Location, LocationParent, Ref, ResolvedLocation};
 
 /// Resolve final transforms from a set of locations.
 #[derive(Debug, Default)]

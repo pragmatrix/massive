@@ -245,8 +245,7 @@ impl WindowRenderer {
         view_projections: &ViewProjections,
         texture: wgpu::SurfaceTexture,
     ) {
-        self.renderer
-            .render_and_present(view_projections, texture);
+        self.renderer.render_and_present(view_projections, texture);
 
         #[cfg(feature = "metrics")]
         if let Some(oldest_change) = self.oldest_change {

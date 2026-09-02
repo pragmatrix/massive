@@ -1,5 +1,7 @@
 use massive_geometry::Matrix4;
-use massive_scene::{Id, LocationParentId, LocationRenderObj, LocationSpace, ResolvedLocation, Transform};
+use massive_scene::{
+    Id, LocationParentId, LocationRenderObj, LocationSpace, ResolvedLocation, Transform,
+};
 
 use crate::{
     Transaction, Version,

@@ -18,9 +18,7 @@ use crate::{
     tools::{DEPTH_FORMAT, QuadIndexBuffer},
 };
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
-use massive_scene::{
-    ChangedIds, Id, LocationSpace, SceneChange, VisualRenderObj,
-};
+use massive_scene::{ChangedIds, Id, LocationSpace, SceneChange, VisualRenderObj};
 
 const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
