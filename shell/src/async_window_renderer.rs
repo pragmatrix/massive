@@ -34,14 +34,14 @@ impl AsyncWindowRenderer {
         geometry: RenderGeometry,
         application_messages: WeakUnboundedSender<ApplicationMessage>,
     ) -> Self {
-        let view_projection = geometry.view_projection();
+        let view_projections = geometry.view_projections();
 
         let (msg_sender, msg_receiver) = mpsc::channel();
 
         // The RenderThreadSubmission is our connection to the renderer. The render thread empties
         // the submission as soon as it's rendering a frame. This way we can extend the
         // submission locally if the renderer is not fast enough to pick them up.
-        let submission = Arc::new(Mutex::new(RenderThreadSubmission::new(view_projection)));
+        let submission = Arc::new(Mutex::new(RenderThreadSubmission::new(view_projections)));
         let renderer_submission = submission.clone();
 
         let thread_handle = thread::spawn(move || {
@@ -94,7 +94,7 @@ impl AsyncWindowRenderer {
         // Robustness: May defer the view projection update until the frame that is ensured to be
         // rendered after the Resize? This submission update could be picked up before the render
         // thread receives the Resize and the follow up redraw.
-        self.submission.lock().view_projection = self.geometry.view_projection();
+        self.submission.lock().view_projections = self.geometry.view_projections();
         self.post_msg(RendererMessage::Resize(surface_size))?;
 
         // We immediately issue a redraw after a resize. Usually, when a WindowEvent is used
@@ -145,7 +145,7 @@ impl RenderTarget for AsyncWindowRenderer {
         let submission = RenderThreadSubmission {
             changes: render_submission.changes,
             pacing: render_submission.pacing,
-            view_projection: self.geometry.view_projection(),
+            view_projections: self.geometry.view_projections(),
         };
 
         self.submission.lock().accumulate(submission);

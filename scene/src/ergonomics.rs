@@ -8,7 +8,9 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Rect, Transform};
 use massive_shapes::Shape;
 
-use crate::{Handle, Location, Object, Ref, Scene, Visual};
+use crate::{
+    Handle, Location, LocationSpace, Object, Ref, Scene, Visual,
+};
 
 // This should probably be moved to massive_geometry:
 
@@ -47,7 +49,17 @@ pub trait ToLocation {
 
 impl ToLocation for Handle<Transform> {
     fn to_location(&self) -> Location {
-        Location::new(None, self.clone())
+        Location::new(LocationSpace::World, self.clone())
+    }
+}
+
+pub trait ToLocationIn {
+    fn to_location_in(&self, space: LocationSpace) -> Location;
+}
+
+impl ToLocationIn for Handle<Transform> {
+    fn to_location_in(&self, space: LocationSpace) -> Location {
+        Location::new(space, self.clone())
     }
 }
 
@@ -67,9 +79,34 @@ pub trait StageIdentityLocation {
 
 impl StageIdentityLocation for Scene {
     fn enter_identity_location(&self) -> (Handle<Transform>, Handle<Location>) {
-        let transform = Transform::IDENTITY.enter(self);
-        let location = transform.to_location().enter(self);
+        LocationSpace::World.identity_location().enter(self)
+    }
+}
+
+/// An identity location root that is not staged yet. Enter it with a scene to stage the identity
+/// transform and its root location, returning both handles so the transform can be updated later.
+#[derive(Debug)]
+#[must_use = "the identity location is not staged until `.enter(scene)` is called"]
+pub struct UnstagedIdentityLocation {
+    space: LocationSpace,
+}
+
+impl UnstagedIdentityLocation {
+    pub fn enter(self, scene: &Scene) -> (Handle<Transform>, Handle<Location>) {
+        let transform = Transform::IDENTITY.enter(scene);
+        let location = transform.to_location_in(self.space).enter(scene);
         (transform, location)
+    }
+}
+
+/// Converts the implementing coordinate space into an unstaged identity location root.
+pub trait IdentityLocation {
+    fn identity_location(&self) -> UnstagedIdentityLocation;
+}
+
+impl IdentityLocation for LocationSpace {
+    fn identity_location(&self) -> UnstagedIdentityLocation {
+        UnstagedIdentityLocation { space: *self }
     }
 }
 
@@ -111,6 +148,7 @@ impl IntoVisual for Arc<[Shape]> {
 }
 
 #[derive(Debug)]
+#[must_use = "the visual is not placed until `.at(location)` is called"]
 pub struct VisualWithoutLocation {
     pub shapes: Arc<[Shape]>,
 }
@@ -122,6 +160,7 @@ impl VisualWithoutLocation {
         }
     }
 
+    #[must_use = "the visual is not placed until it is `.enter(scene)`ed"]
     pub fn at(self, location: impl Into<Ref<Location>>) -> Visual {
         Visual::new(location.into(), self.shapes)
     }
@@ -140,7 +179,6 @@ where
         self.into_visual().at(location)
     }
 }
-
 pub trait ToCamera {
     fn to_camera(&self) -> PixelCamera;
 }

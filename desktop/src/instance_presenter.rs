@@ -146,7 +146,7 @@ impl InstancePresenter {
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
-            location.parent = Some(parent.to_ref());
+            location.parent = parent.to_ref().into();
         });
 
         let has_initial_center_translation = initial_center_translation.is_some();

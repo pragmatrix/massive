@@ -5,6 +5,60 @@ use massive_shapes::{GlyphRun, Shape};
 
 use crate::{Change, Handle, Id, Object, Ref, SceneChange};
 
+/// The coordinate space root a location hierarchy starts in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocationSpace {
+    /// Pixel coordinates as expressed by the desktop model.
+    World,
+    /// Pixel coordinates relative to the camera, independent of the world camera transform.
+    Camera,
+}
+
+/// The coordinate space root a location hierarchy starts in, or the parent location a hierarchy
+/// continues from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LocationParent {
+    /// The location is the root of a hierarchy in the given coordinate space.
+    Root(LocationSpace),
+    /// The location is a child of another location and inherits its space.
+    Location(Ref<Location>),
+}
+
+impl From<LocationSpace> for LocationParent {
+    fn from(space: LocationSpace) -> Self {
+        Self::Root(space)
+    }
+}
+
+impl From<Ref<Location>> for LocationParent {
+    fn from(location: Ref<Location>) -> Self {
+        Self::Location(location)
+    }
+}
+
+/// The parent of a location as uploaded to the renderer: roots carry their space, children
+/// reference the parent location by id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocationParentId {
+    Root(LocationSpace),
+    Location(Id),
+}
+
+impl From<LocationSpace> for LocationParentId {
+    fn from(space: LocationSpace) -> Self {
+        Self::Root(space)
+    }
+}
+
+/// The final, resolved state of a location: composed transform, inherited alpha, and the space of
+/// its root.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedLocation {
+    pub transform: Transform,
+    pub alpha: f32,
+    pub space: LocationSpace,
+}
+
 /// A visual represents a set of shapes that have a common position / location in the space.
 ///
 /// Architecture: This has now the same size as [`VisualRenderObj`]. Why not just clone this one for
@@ -106,7 +160,7 @@ impl Object for Visual {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Location {
-    pub parent: Option<Ref<Location>>,
+    pub parent: LocationParent,
     pub transform: Ref<Transform>,
     pub alpha: f32,
 }
@@ -114,7 +168,7 @@ pub struct Location {
 impl From<Handle<Transform>> for Location {
     fn from(transform: Handle<Transform>) -> Self {
         Self {
-            parent: None,
+            parent: LocationSpace::World.into(),
             transform: transform.into(),
             alpha: 1.0,
         }
@@ -122,16 +176,21 @@ impl From<Handle<Transform>> for Location {
 }
 
 impl Location {
-    pub fn new(parent: Option<Ref<Location>>, transform: impl Into<Ref<Transform>>) -> Self {
+    pub fn new(parent: impl Into<LocationParent>, transform: impl Into<Ref<Transform>>) -> Self {
         Self {
-            parent,
+            parent: parent.into(),
             transform: transform.into(),
             alpha: 1.0,
         }
     }
 
+    /// A root location in the given coordinate space.
+    pub fn root(space: LocationSpace, transform: impl Into<Ref<Transform>>) -> Self {
+        Self::new(space, transform)
+    }
+
     pub fn relative_to(mut self, parent: impl Into<Ref<Location>>) -> Self {
-        self.parent = Some(parent.into());
+        self.parent = parent.into().into();
         self
     }
 
@@ -156,7 +215,10 @@ impl Object for Location {
     type Change = LocationRenderObj;
 
     fn to_change(&self) -> Self::Change {
-        let parent = self.parent.as_ref().map(|p| p.id());
+        let parent = match &self.parent {
+            LocationParent::Root(space) => LocationParentId::Root(*space),
+            LocationParent::Location(parent) => LocationParentId::Location(parent.id()),
+        };
         let transform = self.transform.id();
         LocationRenderObj {
             parent,
@@ -168,7 +230,7 @@ impl Object for Location {
 
 #[derive(Debug, Clone)]
 pub struct LocationRenderObj {
-    pub parent: Option<Id>,
+    pub parent: LocationParentId,
     pub transform: Id,
     pub alpha: f32,
 }
@@ -199,7 +261,7 @@ mod tests {
         let receiver = Arc::new(ChangeCollector::default());
         let scene = Scene::new(receiver);
         let transform = Transform::IDENTITY.enter(&scene);
-        let location = Location::new(None, transform);
+        let location = Location::root(LocationSpace::World, transform);
 
         assert_eq!(location.alpha, 1.0);
         assert_eq!(location.to_change().alpha, 1.0);
@@ -212,21 +274,21 @@ mod tests {
         let transform = Transform::IDENTITY.enter(&scene);
 
         assert_eq!(
-            Location::new(None, transform.clone())
+            Location::root(LocationSpace::World, transform.clone())
                 .with_alpha(2.0)
                 .to_change()
                 .alpha,
             1.0
         );
         assert_eq!(
-            Location::new(None, transform.clone())
+            Location::root(LocationSpace::World, transform.clone())
                 .with_alpha(-1.0)
                 .to_change()
                 .alpha,
             0.0
         );
         assert_eq!(
-            Location::new(None, transform)
+            Location::root(LocationSpace::World, transform)
                 .with_alpha(f32::NAN)
                 .to_change()
                 .alpha,

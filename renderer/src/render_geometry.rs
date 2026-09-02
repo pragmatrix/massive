@@ -9,8 +9,24 @@ use massive_geometry::{
     DepthRange, Matrix4, PerspectiveDivide, PixelCamera, Plane, Point, Ray, SizePx, Vector3,
     Vector4,
 };
+use massive_scene::LocationSpace;
 
 use crate::{Version, tools::Versioned};
+
+/// The per-space view projections used to render a frame.
+///
+/// Architecture: The projections are mathematically independent, but resolved as one versioned
+/// value: rendering selects per visual every frame, so both are needed together in the only hot
+/// path, and one version guarantees a frame's projections share the same camera and surface size.
+/// Per-space lazy caching would add invalidation machinery to save ~3 matrix ops per frame.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ViewProjections {
+    /// Project model (world) space to surface pixels, through the world camera.
+    pub world: Matrix4,
+    /// Project camera-space model coordinates to surface pixels, ignoring the world camera's
+    /// position and target-size mode, but keeping the same perspective (fovy).
+    pub camera: Matrix4,
+}
 
 #[derive(Debug)]
 pub struct RenderGeometry {
@@ -62,10 +78,20 @@ impl RenderGeometry {
 
     /// Compute the final view projection. From pixel (3D) coordinate system to the final surface pixels.
     pub fn view_projection(&self) -> Matrix4 {
+        self.view_projections().world
+    }
+
+    /// Compute the view projections for all coordinate spaces.
+    pub fn view_projections(&self) -> ViewProjections {
         let version = self.version;
         let mut derived = self.derived.borrow_mut();
-        let vp = derived.model_to_surface(version, &self.camera, self.surface_size);
-        *vp
+        *derived.view_projections.resolve(version, || {
+            let world = Self::model_to_surface(&self.camera, self.surface_size);
+            // Camera space shares the perspective but not the world camera's look-at and
+            // target-size mode: camera-space content is positioned relative to the camera.
+            let camera = Self::camera_space_projection(&self.camera, self.surface_size);
+            ViewProjections { world, camera }
+        })
     }
 
     /// A Matrix that translates from pixels (0,0)-(width,height) to screen space, which is -1.0 to
@@ -78,14 +104,44 @@ impl RenderGeometry {
         Matrix4::from_scale(Vector3::new(scale, -scale, scale))
     }
 
+    fn model_to_surface(camera: &PixelCamera, surface_size: SizePx) -> Matrix4 {
+        let model_to_camera_to_ndc_matrix =
+            RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix(surface_size);
+
+        let view_matrix = camera.ndc_camera_move();
+        let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);
+
+        perspective_matrix * view_matrix * model_to_camera_to_ndc_matrix
+    }
+
+    /// The projection for camera-space coordinates: same perspective and pixel-to-NDC mapping as
+    /// world space, but without the world camera's look-at and target-size mode.
+    fn camera_space_projection(camera: &PixelCamera, surface_size: SizePx) -> Matrix4 {
+        let view_matrix = camera.ndc_camera_move();
+        let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);
+        let model_to_ndc = RenderGeometry::model_to_ndc(surface_size);
+
+        perspective_matrix * view_matrix * model_to_ndc
+    }
+
     /// Un-projects a screen-space pixel position into model space at z==0 (the matrix describing a
     /// plane to hit).
     ///
     /// Returns the hit point in model-local coordinates or None if the ray is parallel or
     /// numerically unstable.
-    pub fn unproject_to_model_z0(&self, pos_px: Point, model: &Matrix4) -> Option<Vector3> {
+    pub fn unproject_to_model_z0(
+        &self,
+        pos_px: Point,
+        model: &Matrix4,
+        space: LocationSpace,
+    ) -> Option<Vector3> {
         let depth_range = self.ndc_depth_range();
-        let mvp = self.view_projection() * *model;
+        let projections = self.view_projections();
+        let projection = match space {
+            LocationSpace::World => projections.world,
+            LocationSpace::Camera => projections.camera,
+        };
+        let mvp = projection * *model;
         // Note: The determinant can be very small (e.g., 1e-10) due to the coordinate system
         // scaling, but the matrix is still invertible. We rely on downstream checks
         // (perspective_divide, Ray::from_points, intersect_plane) to handle degenerate cases.
@@ -120,32 +176,17 @@ impl RenderGeometry {
 
 #[derive(Debug, Default)]
 struct DerivedCache {
-    model_to_camera_to_ndc: Versioned<Matrix4>,
-    camera_projection: Versioned<Matrix4>,
-    view_projection: Versioned<Matrix4>,
+    view_projections: Versioned<ViewProjections>,
 }
 
-impl DerivedCache {
-    fn model_to_surface(
-        &mut self,
-        version: Version,
-        camera: &PixelCamera,
-        surface_size: SizePx,
-    ) -> &Matrix4 {
-        self.view_projection.resolve(version, || {
-            let model_to_camera_to_ndc_matrix =
-                self.model_to_camera_to_ndc.resolve(version, || {
-                    RenderGeometry::model_to_ndc(surface_size)
-                        * camera.model_camera_matrix(surface_size)
-                });
-
-            let camera_projection = self.camera_projection.resolve(version, || {
-                let view_matrix = camera.ndc_camera_move();
-                let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);
-                perspective_matrix * view_matrix
-            });
-
-            *camera_projection * *model_to_camera_to_ndc_matrix
-        })
+impl Default for Versioned<ViewProjections> {
+    fn default() -> Self {
+        Self::new(
+            ViewProjections {
+                world: Matrix4::IDENTITY,
+                camera: Matrix4::IDENTITY,
+            },
+            0,
+        )
     }
 }

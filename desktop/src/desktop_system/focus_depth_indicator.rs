@@ -4,9 +4,11 @@ use std::time::{Duration, Instant};
 use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Ease, Interpolation, Movement, MovementRuntime,
 };
-use massive_geometry::{Color, PixelCamera, Rect, SizePx, Transform, Vector3};
+use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_renderer::text::FontSystem;
-use massive_scene::{Handle, IntoVisual, Location, Object, StageIdentityLocation, Visual};
+use massive_scene::{
+    Handle, IdentityLocation, IntoVisual, Location, LocationSpace, Object, Visual,
+};
 use massive_shapes::{GlyphRun, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
@@ -35,7 +37,7 @@ pub struct FocusDepthIndicatorPresenter {
     movement: Movement<FocusDepthIndicatorMovement>,
     size: SizePx,
     active_until: Option<Instant>,
-    presentation: Option<(PixelCamera, SizePx)>,
+    presentation: Option<SizePx>,
 }
 
 impl FocusDepthIndicatorPresenter {
@@ -45,7 +47,10 @@ impl FocusDepthIndicatorPresenter {
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (badges, size) = FocusDepthIndicatorMovement::create_badges(font_system);
-        let (scene_transform, location) = scene.enter_identity_location();
+        // Camera space: the indicator is positioned relative to the camera, so no inverse
+        // camera translation is needed to keep it fixed on screen.
+        let (scene_transform, location) =
+            LocationSpace::Camera.identity_location().enter(scene);
         let visual = Arc::<[Shape]>::default()
             .into_visual()
             .at(&location)
@@ -74,7 +79,7 @@ impl FocusDepthIndicatorPresenter {
         });
     }
 
-    pub fn sync_layout(&mut self, camera: PixelCamera, window_size: SizePx, instant: Instant) {
+    pub fn sync_layout(&mut self, window_size: SizePx, instant: Instant) {
         if !self
             .active_until
             .is_some_and(|active_until| instant <= active_until)
@@ -82,20 +87,18 @@ impl FocusDepthIndicatorPresenter {
             self.active_until = None;
             return;
         }
-        if self.presentation == Some((camera, window_size)) {
+        if self.presentation == Some(window_size) {
             return;
         }
-        self.presentation = Some((camera, window_size));
+        self.presentation = Some(window_size);
 
         let (window_width, window_height) = window_size.into();
+        // Position the badge in the top-right corner of the camera's pixel plane.
         let camera_position = Transform::from_xy(
             window_width as f64 * 0.5 - self.size.width as f64 - MARGIN,
             -(window_height as f64) * 0.5 + MARGIN,
         );
-        let scene_transform = Transform::from_matrix4(
-            camera.model_camera_matrix(window_size).inverse() * camera_position.to_matrix4(),
-        );
-        self.scene_transform.update_if_changed(scene_transform);
+        self.scene_transform.update_if_changed(camera_position);
     }
 }
 
