@@ -347,6 +347,9 @@ impl DesktopSystem {
         // change.
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
+        let focus_depth_changed = self.focus_depth != previous_focus_depth;
+        let update_focus_depth_indicator =
+            focus_depth_changed || change_surface.window_size_changed;
         let update_camera = change_surface.camera_invalid();
 
         // Convert the change surface to effects.
@@ -365,10 +368,11 @@ impl DesktopSystem {
         let animation_time = frame.animation_time();
         self.camera.synchronize(animation_time, frame, camera_mode);
 
-        if effects_mode != TransactionEffectsMode::Setup && self.focus_depth != previous_focus_depth
-        {
-            self.focus_depth_indicator
-                .show(self.focus_depth, animation_time);
+        if update_focus_depth_indicator {
+            self.focus_depth_indicator.sync_layout(window_size);
+        }
+        if effects_mode != TransactionEffectsMode::Setup && focus_depth_changed {
+            self.focus_depth_indicator.show(self.focus_depth);
         }
 
         // Update the hover target.

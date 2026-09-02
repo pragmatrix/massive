@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Ease, Interpolation, Movement, MovementRuntime,
@@ -35,7 +35,6 @@ pub struct FocusDepthIndicatorPresenter {
     scene_transform: Handle<Transform>,
     movement: Movement<FocusDepthIndicatorMovement>,
     size: SizePx,
-    active_until: Option<Instant>,
     presentation: Option<SizePx>,
 }
 
@@ -67,26 +66,17 @@ impl FocusDepthIndicatorPresenter {
             scene_transform,
             movement,
             size,
-            active_until: None,
             presentation: None,
         }
     }
 
-    pub fn show(&mut self, focus_depth: FocusDepth, instant: Instant) {
-        self.active_until = Some(instant + INDICATOR_DURATION);
+    pub fn show(&mut self, focus_depth: FocusDepth) {
         self.movement.modify(move |movement, context| {
             movement.show(context, focus_depth);
         });
     }
 
-    pub fn sync_layout(&mut self, window_size: SizePx, instant: Instant) {
-        if !self
-            .active_until
-            .is_some_and(|active_until| instant <= active_until)
-        {
-            self.active_until = None;
-            return;
-        }
+    pub fn sync_layout(&mut self, window_size: SizePx) {
         if self.presentation == Some(window_size) {
             return;
         }

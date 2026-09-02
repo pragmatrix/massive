@@ -1,3 +1,36 @@
+//! Long-lived, type-erased animations that outlive a single frame.
+//!
+//! A [`Movement`] owns a value of type `T` and a closure that applies animation progress to it.
+//! It is mounted into a [`MovementRuntime`] and driven across many frames, unlike the
+//! frame-scoped animations created directly on a `Frame`.
+//!
+//! # Lifecycle
+//!
+//! - **Mount**: [`MovementRuntime::movement`] wraps a value and an apply closure, then
+//!   [`MovementBuilder::mount`] registers it and returns a [`Movement`] handle.
+//! - **Modify**: [`Movement::modify`] queues a closure that mutates the value and may start
+//!   animations. The closure receives an [`AnimationAllocator`] that records the movement's
+//!   `ending_time` (the latest end across all its animations).
+//! - **Animate**: [`MovementRuntime::apply_animations`] advances every movement with a pending
+//!   `ending_time` each cycle, until the first cycle at or past that time. It then clears the
+//!   `ending_time` and emits the movement's completion event, if any.
+//! - **Drop**: Dropping the [`Movement`] handle queues a `Drop` action that unregisters it.
+//!
+//! # Concurrency model
+//!
+//! Actions are queued into a shared inbox (via `Arc<Mutex<Vec<_>>>`) from any thread, then drained
+//! on the runtime's thread by [`MovementRuntime::run_actions`]. The runtime owns the movement
+//! values, so the apply closures and the value type `T` must be `Send + Sync`. The [`Movement`]
+//! handle is only an opaque identity; it never dereferences the value.
+//!
+//! # Completion events
+//!
+//! [`MovementBuilder::completion_event`] attaches a callback that produces a type-erased event
+//! when the movement's animations finish. The runtime returns these from
+//! [`MovementRuntime::apply_animations`]; the caller downcasts them to its own event type. This is
+//! how a movement signals that it has stopped, so callers do not need to track animation activity
+//! themselves.
+
 use std::any::Any;
 use std::cmp::max;
 use std::collections::HashMap;
@@ -43,6 +76,11 @@ impl MovementRuntime {
         }
     }
 
+    /// Start building a long-lived movement from a value and its apply closure.
+    ///
+    /// The apply closure is called with the current animation progress each cycle while the
+    /// movement is animating. Configure it with [`MovementBuilder::completion_event`] and register
+    /// it with [`MovementBuilder::mount`].
     pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
     where
         T: Any + Send + Sync,
@@ -76,6 +114,10 @@ impl MovementRuntime {
         reference
     }
 
+    /// Drain the action inbox and apply each queued action to its movement.
+    ///
+    /// Call this once per cycle, after animations have been applied, so that actions queued by
+    /// completion events take effect in the same cycle.
     pub fn run_actions(&mut self, context: &mut dyn AnimationAllocator) {
         mem::swap(&mut self.actions, &mut *self.action_inbox.lock());
 
@@ -104,6 +146,11 @@ impl MovementRuntime {
         }
     }
 
+    /// Advance all animating movements to the given instant.
+    ///
+    /// Returns the completion events of movements that reached their ending time this cycle. A
+    /// movement stops being advanced once its `ending_time` is reached, so callers can rely on the
+    /// completion event (rather than external activity tracking) to know when it has stopped.
     pub fn apply_animations(&mut self, instant: Instant) -> Vec<Box<dyn Any + Send>> {
         let mut events = Vec::new();
         for movement in self.movements.values_mut() {
@@ -135,6 +182,10 @@ pub struct MovementBuilder<'a, T, F> {
 }
 
 impl<T, F> MovementBuilder<'_, T, F> {
+    /// Attach a callback that produces an event when this movement's animations finish.
+    ///
+    /// The event is type-erased and returned from [`MovementRuntime::apply_animations`]; the
+    /// caller downcasts it to its own event type.
     pub fn completion_event<E, G>(mut self, mut completion_event: G) -> Self
     where
         E: Any + Send,
@@ -150,6 +201,7 @@ where
     T: Any + Send + Sync,
     F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
 {
+    /// Register the movement with the runtime and return its handle.
     pub fn mount(self) -> Movement<T> {
         self.runtime.mount(self.instance)
     }
@@ -172,6 +224,10 @@ impl<T> Movement<T> {
         }
     }
 
+    /// Queue a closure that mutates the movement's value and may start animations.
+    ///
+    /// The closure runs on the runtime's thread during the next [`MovementRuntime::run_actions`].
+    /// Animations started here are tracked against the movement's `ending_time`.
     pub fn modify(
         &self,
         modifier: impl FnOnce(&mut T, &mut dyn AnimationAllocator) + Send + Sync + 'static,
@@ -189,6 +245,7 @@ impl<T> Movement<T> {
         ));
     }
 
+    /// Queue a snap that completes the movement's animations without emitting a completion event.
     pub fn snap(&self) {
         self.actions_inbox
             .lock()
