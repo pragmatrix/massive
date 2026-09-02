@@ -12,8 +12,8 @@ use wgpu::{PresentMode, TextureFormat};
 use winit::window::WindowId;
 
 use massive_applications::ApplicationMessage;
-use massive_geometry::{Color, Matrix4, SizePx};
-use massive_renderer::{PresentationMode, RenderPacing, Renderer};
+use massive_geometry::{Color, SizePx};
+use massive_renderer::{PresentationMode, RenderPacing, Renderer, ViewProjections};
 use massive_scene::SceneChangeSet;
 use massive_scene::id_generator;
 use massive_util::message_filter;
@@ -175,7 +175,7 @@ impl WindowRenderer {
         // noticeably (for example in the logs example while smooth rendering).
         self.apply_scene_changes(submission.changes)?;
 
-        self.render_and_present(&submission.view_projection, texture);
+        self.render_and_present(&submission.view_projections, texture);
 
         // Update pacing now
 
@@ -242,11 +242,10 @@ impl WindowRenderer {
 
     fn render_and_present(
         &mut self,
-        view_projection_matrix: &Matrix4,
+        view_projections: &ViewProjections,
         texture: wgpu::SurfaceTexture,
     ) {
-        self.renderer
-            .render_and_present(view_projection_matrix, texture);
+        self.renderer.render_and_present(view_projections, texture);
 
         #[cfg(feature = "metrics")]
         if let Some(oldest_change) = self.oldest_change {
@@ -309,14 +308,14 @@ pub enum RendererMessage {
 pub struct RenderThreadSubmission {
     pub changes: SceneChangeSet,
     pub pacing: RenderPacing,
-    pub view_projection: Matrix4,
+    pub view_projections: ViewProjections,
 }
 
 impl RenderThreadSubmission {
-    pub fn new(view_projection: Matrix4) -> Self {
+    pub fn new(view_projections: ViewProjections) -> Self {
         Self {
             changes: SceneChangeSet::default(),
-            view_projection,
+            view_projections,
             pacing: RenderPacing::Fast,
         }
     }
@@ -325,14 +324,14 @@ impl RenderThreadSubmission {
         Self {
             changes: mem::take(&mut self.changes),
             pacing: self.pacing,
-            view_projection: self.view_projection,
+            view_projections: self.view_projections,
         }
     }
 
     pub fn accumulate(&mut self, next_submission: Self) {
         self.changes.accumulate(next_submission.changes);
         self.pacing = next_submission.pacing;
-        self.view_projection = next_submission.view_projection;
+        self.view_projections = next_submission.view_projections;
     }
 }
 

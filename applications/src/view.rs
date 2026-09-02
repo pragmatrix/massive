@@ -6,7 +6,8 @@ use uuid::Uuid;
 use winit::window::CursorIcon;
 
 use massive_geometry::{BoxPx, Size, SizePx};
-use massive_scene::{Handle, Location, Object, Ref, ToLocationRelative, Transform};
+use massive_scene::Ref;
+use massive_scene::prelude::*;
 
 use crate::{InstanceChange, InstanceChangeCollector, Scene, ViewId};
 
@@ -42,7 +43,10 @@ impl View {
 
         let size: Size = SizePx::from(extents.size().cast()).into();
         let local_transform = Transform::from(-size.center()).enter(&scene);
-        let location = local_transform.to_location_relative(parent).enter(&scene);
+        let location = local_transform
+            .to_location()
+            .relative_to(parent)
+            .enter(&scene);
 
         change_collector.collect(InstanceChange::CreateView(ViewCreationInfo {
             id,

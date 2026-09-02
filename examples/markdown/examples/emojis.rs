@@ -20,7 +20,7 @@ use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
 use massive_geometry::{SizePx, Vector3};
-use massive_scene::{At, Object, ToLocation};
+use massive_scene::prelude::*;
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 use shared::application::{Application, UpdateResponse};

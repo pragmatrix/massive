@@ -2,7 +2,7 @@ use anyhow::Result;
 use log::error;
 
 use massive_geometry::{PixelCamera, Rect, RectPx};
-use massive_scene::{ToCamera, Transform};
+use massive_scene::prelude::*;
 
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;

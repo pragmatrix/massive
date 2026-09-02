@@ -346,7 +346,8 @@ fn finalize_frame(
     frame: Frame,
     window: &mut WindowContext<'_>,
 ) -> Result<()> {
-    let camera = *system.camera(frame.animation_time());
+    let animation_time = frame.animation_time();
+    let camera = *system.camera(animation_time);
     let mut submission = frame.submission().render_submission().with_camera(camera);
     // If any instance runs on smooth pacing, we need to, too.
     if system.effective_pacing() == RenderPacing::Smooth {

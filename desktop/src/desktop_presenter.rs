@@ -5,7 +5,7 @@ use massive_animation::{
 };
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_layout::Placement;
-use massive_scene::{Handle, IntoVisual, Location, Object, StageIdentityLocation, Visual};
+use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
 use massive_shell::Scene;
 
@@ -30,7 +30,7 @@ impl DesktopPresenter {
         scene: &Scene,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
-        let (hover_scene_transform, hover_location) = scene.enter_identity_location();
+        let (hover_scene_transform, hover_location) = identity_location().enter(scene);
         let hover_visual = create_hover_shapes(None)
             .into_visual()
             .at(&hover_location)

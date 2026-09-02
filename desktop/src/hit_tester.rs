@@ -3,6 +3,7 @@ use massive_geometry::{
 };
 use massive_layout::Placement;
 use massive_renderer::RenderGeometry;
+use massive_scene::LocationSpace;
 
 use crate::projects::{LaunchProfileId, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
@@ -186,8 +187,13 @@ impl<'a> AggregateHitTester<'a> {
     }
 
     fn hit_test_surface(&self, screen_pos: Point, hit_surface: &SizedTransform) -> Option<Vector3> {
-        self.geometry
-            .unproject_to_model_z0(screen_pos, &hit_surface.transform.to_matrix4())
+        // Detail: All hit-tested targets currently live in world space. Derive the space from the
+        // resolved location when camera-space content becomes interactive.
+        self.geometry.unproject_to_model_z0(
+            screen_pos,
+            &hit_surface.transform.to_matrix4(),
+            LocationSpace::World,
+        )
     }
 
     /// Returns a transform whose model space is the target's local coordinate system.

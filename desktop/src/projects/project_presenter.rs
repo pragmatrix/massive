@@ -5,7 +5,7 @@ use massive_animation::{
 };
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_renderer::text::FontSystem;
-use massive_scene::{At, Handle, Location, Object, ToLocationRelative, Visual};
+use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
 
@@ -34,9 +34,8 @@ impl ProjectPresenter {
         font_system: &mut FontSystem,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
-        let scene_transform = Transform::IDENTITY.enter(scene);
-        let location = scene_transform
-            .to_location_relative(&parent_location)
+        let (scene_transform, location) = identity_location()
+            .relative_to(&parent_location)
             .enter(scene);
         let name = properties.name.clone();
         let header = ProjectHeaderPresenter::new(
@@ -80,9 +79,8 @@ impl ProjectHeaderPresenter {
         font_system: &mut FontSystem,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
-        let scene_transform = Transform::IDENTITY.enter(scene);
-        let location = scene_transform
-            .to_location_relative(&parent_location)
+        let (scene_transform, location) = identity_location()
+            .relative_to(&parent_location)
             .enter(scene);
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
@@ -206,9 +204,8 @@ pub struct ProjectMatrixPresenter {
 
 impl ProjectMatrixPresenter {
     pub fn new(parent_location: Handle<Location>, scene: &Scene) -> Self {
-        let scene_transform = Transform::IDENTITY.enter(scene);
-        let location = scene_transform
-            .to_location_relative(&parent_location)
+        let (scene_transform, location) = identity_location()
+            .relative_to(&parent_location)
             .enter(scene);
 
         Self {

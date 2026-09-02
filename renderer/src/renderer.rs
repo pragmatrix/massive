@@ -12,12 +12,13 @@ use crate::{
     config::RendererConfig,
     pods::{AsBytes, ClipRect, Immediates, ToPod},
     render_batches::RenderBatches,
+    render_geometry::ViewProjections,
     scene::{LocationTransforms, Scene},
     stats::MeasureSeries,
     tools::{DEPTH_FORMAT, QuadIndexBuffer},
 };
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
-use massive_scene::{ChangedIds, Id, SceneChange, VisualRenderObj};
+use massive_scene::{ChangedIds, Id, LocationSpace, SceneChange, VisualRenderObj};
 
 const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
@@ -112,7 +113,7 @@ pub struct PreparationContext<'a> {
 }
 
 pub struct RenderContext<'a> {
-    pub view_projection_matrix: Matrix4,
+    pub view_projections: ViewProjections,
     pub pass: wgpu::RenderPass<'a>,
 }
 
@@ -350,7 +351,7 @@ impl Renderer {
     #[tracing::instrument(skip_all)]
     pub fn render_and_present(
         &mut self,
-        view_projection_matrix: &Matrix4,
+        view_projections: &ViewProjections,
         surface_texture: SurfaceTexture,
     ) {
         let surface_view = surface_texture
@@ -409,7 +410,7 @@ impl Renderer {
                 // DI: There is a lot of view_projection stuff going on.
                 let render_context = &mut RenderContext {
                     pass: render_pass,
-                    view_projection_matrix: *view_projection_matrix,
+                    view_projections: *view_projections,
                 };
 
                 // Set the shared index buffer for all quad renderers.
@@ -488,7 +489,11 @@ impl Renderer {
             // Architecture: We may go multiple times over the same visual and compute the
             //   final matrix, because it renders to different pipelines. Perhaps we need a derived /
             //   lazy table here.
-            let matrix = context.view_projection_matrix * *locations.get_matrix(visual.location_id);
+            let projection = match locations.get_space(visual.location_id) {
+                LocationSpace::World => context.view_projections.world,
+                LocationSpace::Camera => context.view_projections.camera,
+            };
+            let matrix = projection * *locations.get_matrix(visual.location_id);
 
             let pass = &mut context.pass;
 

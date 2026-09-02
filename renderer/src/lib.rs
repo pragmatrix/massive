@@ -23,7 +23,7 @@ pub use color_buffer::*;
 pub use config::*;
 pub use font_manager::*;
 pub use render_device::*;
-pub use render_geometry::RenderGeometry;
+pub use render_geometry::{RenderGeometry, ViewProjections};
 pub use render_submission::*;
 pub use renderer::{PresentationMode, Renderer};
 pub use size_buffer::*;
