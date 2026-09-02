@@ -9,11 +9,12 @@ use massive_geometry::{PixelCamera, Point, PointPx, Rect, Transform};
 use massive_shapes::Shape;
 
 use crate::{
-    Handle, Location, LocationSpace, Object, Ref, Scene, Visual,
+    Handle, Location, LocationParent, LocationSpace, Object, Ref, Scene, Visual,
 };
 
 // This should probably be moved to massive_geometry:
 
+/// Converts a value into a [`Transform`].
 pub trait ToTransform {
     fn to_transform(&self) -> Transform;
 }
@@ -43,6 +44,7 @@ impl ToTransform for Transform {
     }
 }
 
+/// Converts a transform handle into a world-rooted [`Location`].
 pub trait ToLocation {
     fn to_location(&self) -> Location;
 }
@@ -53,63 +55,59 @@ impl ToLocation for Handle<Transform> {
     }
 }
 
-pub trait ToLocationIn {
-    fn to_location_in(&self, space: LocationSpace) -> Location;
-}
-
-impl ToLocationIn for Handle<Transform> {
-    fn to_location_in(&self, space: LocationSpace) -> Location {
-        Location::new(space, self.clone())
-    }
-}
-
-pub trait ToLocationRelative {
-    fn to_location_relative(&self, parent: impl Into<Ref<Location>>) -> Location;
-}
-
-impl ToLocationRelative for Handle<Transform> {
-    fn to_location_relative(&self, parent: impl Into<Ref<Location>>) -> Location {
-        self.to_location().relative_to(parent)
-    }
-}
-
-pub trait StageIdentityLocation {
-    fn enter_identity_location(&self) -> (Handle<Transform>, Handle<Location>);
-}
-
-impl StageIdentityLocation for Scene {
-    fn enter_identity_location(&self) -> (Handle<Transform>, Handle<Location>) {
-        LocationSpace::World.identity_location().enter(self)
-    }
-}
-
-/// An identity location root that is not staged yet. Enter it with a scene to stage the identity
-/// transform and its root location, returning both handles so the transform can be updated later.
+/// A location that is not staged yet. Enter it with a scene to stage a location with an
+/// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the identity location is not staged until `.enter(scene)` is called"]
-pub struct UnstagedIdentityLocation {
-    space: LocationSpace,
+#[must_use = "the location is not staged until `.enter(scene)` is called"]
+pub struct UnstagedLocation {
+    parent: LocationParent,
 }
 
-impl UnstagedIdentityLocation {
-    pub fn enter(self, scene: &Scene) -> (Handle<Transform>, Handle<Location>) {
+impl UnstagedLocation {
+    /// Root the location in the given coordinate space.
+    pub fn in_space(mut self, space: LocationSpace) -> Self {
+        self.parent = space.into();
+        self
+    }
+
+    /// Make the location a child of the given parent location.
+    pub fn relative_to(mut self, parent: impl Into<Ref<Location>>) -> Self {
+        self.parent = parent.into().into();
+        self
+    }
+
+    /// Stage a location with an initially-identity transform, returning both handles.
+    pub fn enter(self, scene: &Scene) -> StagedLocation {
         let transform = Transform::IDENTITY.enter(scene);
-        let location = transform.to_location_in(self.space).enter(scene);
-        (transform, location)
+        let location = Location::new(self.parent, transform.clone()).enter(scene);
+        StagedLocation {
+            transform,
+            location,
+        }
     }
 }
 
-/// Converts the implementing coordinate space into an unstaged identity location root.
+/// A location and its transform, staged on a scene. The transform starts as identity and can be
+/// updated through the returned handle.
+#[derive(Debug, Clone)]
+pub struct StagedLocation {
+    pub transform: Handle<Transform>,
+    pub location: Handle<Location>,
+}
+
+/// Creates an unstaged location whose transform starts as identity.
 pub trait IdentityLocation {
-    fn identity_location(&self) -> UnstagedIdentityLocation;
+    fn identity_location(&self) -> UnstagedLocation;
 }
 
-impl IdentityLocation for LocationSpace {
-    fn identity_location(&self) -> UnstagedIdentityLocation {
-        UnstagedIdentityLocation { space: *self }
+impl IdentityLocation for Scene {
+    fn identity_location(&self) -> UnstagedLocation {
+        UnstagedLocation {
+            parent: LocationSpace::World.into(),
+        }
     }
 }
-
+/// Converts a value into a [`VisualWithoutLocation`].
 pub trait IntoVisual {
     fn into_visual(self) -> VisualWithoutLocation;
 }
@@ -147,6 +145,7 @@ impl IntoVisual for Arc<[Shape]> {
     }
 }
 
+/// Shapes that are not yet placed at a location.
 #[derive(Debug)]
 #[must_use = "the visual is not placed until `.at(location)` is called"]
 pub struct VisualWithoutLocation {
@@ -166,8 +165,9 @@ impl VisualWithoutLocation {
     }
 }
 
-// Everything that can is positioned can be converted to a visual.
+/// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
+    #[must_use = "the visual is not staged until `.enter(scene)` is called"]
     fn at(self, location: impl Into<Ref<Location>>) -> Visual;
 }
 
@@ -179,6 +179,8 @@ where
         self.into_visual().at(location)
     }
 }
+
+/// Converts a value into a [`PixelCamera`].
 pub trait ToCamera {
     fn to_camera(&self) -> PixelCamera;
 }
