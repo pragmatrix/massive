@@ -7,8 +7,7 @@ use massive_animation::{
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_renderer::text::FontSystem;
 use massive_scene::{
-    Handle, IdentityLocation, IntoVisual, Location, LocationSpace, Object, StagedLocation,
-    Visual,
+    Handle, IdentityLocation, IntoVisual, Location, LocationSpace, Object, Visual,
 };
 use massive_shapes::{GlyphRun, IntoShape, Shape, Size as SizeExt};
 use massive_shell::Scene;
@@ -50,10 +49,7 @@ impl FocusDepthIndicatorPresenter {
         let (badges, size) = FocusDepthIndicatorMovement::create_badges(font_system);
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
-        let StagedLocation {
-            transform: scene_transform,
-            location,
-        } = scene
+        let (scene_transform, location) = scene
             .identity_location()
             .in_space(LocationSpace::Camera)
             .enter(scene);

@@ -77,22 +77,11 @@ impl UnstagedLocation {
     }
 
     /// Stage a location with an initially-identity transform, returning both handles.
-    pub fn enter(self, scene: &Scene) -> StagedLocation {
+    pub fn enter(self, scene: &Scene) -> (Handle<Transform>, Handle<Location>) {
         let transform = Transform::IDENTITY.enter(scene);
         let location = Location::new(self.parent, transform.clone()).enter(scene);
-        StagedLocation {
-            transform,
-            location,
-        }
+        (transform, location)
     }
-}
-
-/// A location and its transform, staged on a scene. The transform starts as identity and can be
-/// updated through the returned handle.
-#[derive(Debug, Clone)]
-pub struct StagedLocation {
-    pub transform: Handle<Transform>,
-    pub location: Handle<Location>,
 }
 
 /// Creates an unstaged location whose transform starts as identity.

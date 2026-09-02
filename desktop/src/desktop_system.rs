@@ -256,7 +256,7 @@ impl DesktopSystem {
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
-        let location = scene.identity_location().enter(scene).location;
+        let (_, location) = scene.identity_location().enter(scene);
 
         let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
         let focus_depth_indicator =
