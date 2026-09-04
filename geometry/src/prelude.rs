@@ -60,3 +60,18 @@ impl<U> SaturatingSub for Size2D<u32, U> {
         )
     }
 }
+
+/// Scales a size by a scalar factor on every component.
+pub trait ScaleBy<F> {
+    type Output;
+
+    fn scale_by(self, factor: F) -> Self::Output;
+}
+
+impl<U> ScaleBy<u32> for Size2D<u32, U> {
+    type Output = Size2D<u32, U>;
+
+    fn scale_by(self, factor: u32) -> Self::Output {
+        Self::Output::new(self.width * factor, self.height * factor)
+    }
+}
