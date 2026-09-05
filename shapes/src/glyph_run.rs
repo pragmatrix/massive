@@ -18,7 +18,6 @@ pub struct FontId {
     pub index: u32,
 }
 
-
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlyphRun {
     // Local translation.
