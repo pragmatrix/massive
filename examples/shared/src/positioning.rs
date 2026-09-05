@@ -12,10 +12,5 @@ pub fn to_glyph_run<'a>(
     translation: Vector3,
     parley_run: parley::GlyphRun<'a, GlyphBrush>,
 ) -> GlyphRun {
-    glyph_run_to_run(
-        parley_run,
-        Color::BLACK,
-        TextWeight::NORMAL,
-        translation,
-    )
+    glyph_run_to_run(parley_run, Color::BLACK, TextWeight::NORMAL, translation)
 }

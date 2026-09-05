@@ -1,8 +1,8 @@
 use std::{collections::HashSet, fmt};
 
 use anyhow::Result;
-use swash::scale::image::Content as SwashContent;
 use swash::scale::ScaleContext;
+use swash::scale::image::Content as SwashContent;
 use swash::zeno::Placement;
 use wgpu::Device;
 
@@ -209,11 +209,7 @@ impl TextLayerRenderer {
         }
     }
 
-    fn glyph_vertices(
-        run: &GlyphRun,
-        glyph: &RunGlyph,
-        placement: &Placement,
-    ) -> [Vector3; 4] {
+    fn glyph_vertices(run: &GlyphRun, glyph: &RunGlyph, placement: &Placement) -> [Vector3; 4] {
         let (lt, rb) = run.place_glyph(glyph, placement);
 
         // Convert the pixel rect to 3D Points.

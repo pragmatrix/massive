@@ -130,9 +130,12 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         let mut shaper = fonts.shaper();
         for text_area in text_areas {
             let line_height = text_area.buffer.metrics().line_height;
-            for glyph_run in
-                cosmic_buffer_to_glyph_runs(&mut shaper, text_area.buffer, text_area.left, text_area.top)
-            {
+            for glyph_run in cosmic_buffer_to_glyph_runs(
+                &mut shaper,
+                text_area.buffer,
+                text_area.left,
+                text_area.top,
+            ) {
                 let top = glyph_run.translation.y as f32;
                 glyph_runs.push(glyph_run);
 

@@ -2,11 +2,11 @@
 use std::{collections::HashMap, fmt};
 
 use anyhow::{Result, bail};
-use swash::scale::image::{Content as SwashContent, Image as SwashImage};
-use swash::zeno::Placement;
 pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;
+use swash::scale::image::{Content as SwashContent, Image as SwashImage};
+use swash::zeno::Placement;
 
 use massive_geometry::SizePx;
 use tracing::instrument;
