@@ -201,7 +201,14 @@ impl Logs {
         let mut shaper = self.fonts.shaper();
         let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
 
-        let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
+        let glyph_runs: Vec<Shape> = glyph_runs
+            .into_iter()
+            .map(|mut run| {
+                run.text_color.alpha = 0.0;
+                run.translation.z = -LogLine::FADE_TRANSLATION;
+                run.into()
+            })
+            .collect();
 
         let line = glyph_runs
             .at(&self.location)
@@ -358,6 +365,10 @@ fn shape_log_line(
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
+    let bytes = bytes
+        .strip_suffix(b"\r\n")
+        .or_else(|| bytes.strip_suffix(b"\n"))
+        .unwrap_or(bytes);
     // Optimization: Share Parser between runs.
     let mut parser = escape::parser::Parser::new();
     let parsed = parser.parse_as_vec(bytes);
