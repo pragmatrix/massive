@@ -1,16 +1,12 @@
-use cosmic_text::{self as text, fontdb};
-use swash::{
-    scale::{Render, ScaleContext, Source, StrikeWith},
-    zeno::Format,
-};
-use text::SwashContent;
+use parley::FontData;
+use swash::scale::image::Image as SwashImage;
+use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
+use swash::zeno::{Format, Placement};
 
 use massive_shapes::GlyphKey;
 
-use super::{
-    SwashRasterizationParam,
-    distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image},
-};
+use super::SwashRasterizationParam;
+use super::distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image};
 use crate::glyph::GlyphRasterizationParam;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -25,12 +21,12 @@ pub struct RasterizedGlyphKey {
 /// TODO: Using this for SDF and non-SDF glyphs may duplicate rasterization of the non-sdf
 /// [`SwashImage`]s that  are the basis for the SDF generation.
 pub fn rasterize_glyph_with_padding(
-    font_system: &mut text::FontSystem,
+    font: &FontData,
     context: &mut ScaleContext,
     key: &RasterizedGlyphKey,
-) -> Option<text::SwashImage> {
+) -> Option<SwashImage> {
     let param = key.param;
-    let without_padding = rasterize_glyph(font_system, context, key.glyph, param.swash)?;
+    let without_padding = rasterize_glyph(font, context, key.glyph, param.swash)?;
     if without_padding.content == SwashContent::Mask && param.prefer_sdf {
         // SDF rendering adds its own padding.
         return render_sdf(&without_padding);
@@ -40,33 +36,20 @@ pub fn rasterize_glyph_with_padding(
     Some(pad_image(&without_padding))
 }
 
+/// Rasterize a glyph using a swash scaler built from a [`FontData`].
 pub fn rasterize_glyph(
-    font_system: &mut text::FontSystem,
+    font: &FontData,
     context: &mut ScaleContext,
     glyph_key: GlyphKey,
     param: SwashRasterizationParam,
-) -> Option<text::SwashImage> {
-    // Copied from cosmic_text/swash.rs, because we might need finer control and don't need a cache.
-    // TODO: Find a way to prevent excessive locking of the font system here. Note that it needs to
-    // be mutable for font caching (can we implement our own)
+) -> Option<SwashImage> {
+    let font_ref = swash::FontRef::from_index(font.data.as_ref(), font.index as usize)?;
 
-    // Robustness: cosmic-text version 0.15 introduced a new weight parameters.
-
-    let font = match font_system.get_font(glyph_key.font_id, fontdb::Weight(glyph_key.weight.0)) {
-        Some(some) => some,
-        None => {
-            log::warn!("did not find font {:?}", glyph_key.font_id);
-            return None;
-        }
-    };
-
-    // Build the scaler
     let mut scaler = context
-        .builder(font.as_swash())
+        .builder(font_ref)
         .size(f32::from_bits(glyph_key.font_size_bits))
         .hint(param.hinted)
-        // Detail: the font ignores the font weight (for variable fonts), even though get_font()
-        // added the font_weight parameter in cosmic-text 0.15,
+        // Detail: apply the weight variation for variable fonts.
         .variations(&[("wght", glyph_key.weight.0 as f32)])
         .build();
 
@@ -85,7 +68,7 @@ pub fn rasterize_glyph(
     .render(&mut scaler, glyph_key.glyph_id)
 }
 
-pub fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
+pub fn render_sdf(image: &SwashImage) -> Option<SwashImage> {
     let width = image.placement.width as usize;
     let height = image.placement.height as usize;
 
@@ -108,8 +91,8 @@ pub fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
     };
 
     if sdf_ok {
-        return Some(text::SwashImage {
-            placement: text::Placement {
+        return Some(SwashImage {
+            placement: Placement {
                 left: image.placement.left - pad as i32,
                 top: image.placement.top + pad as i32,
                 width: image.placement.width + 2 * pad as u32,
@@ -124,7 +107,7 @@ pub fn render_sdf(image: &text::SwashImage) -> Option<text::SwashImage> {
 }
 
 /// Pad an image by one pixel.
-pub fn pad_image(image: &text::SwashImage) -> text::SwashImage {
+pub fn pad_image(image: &SwashImage) -> SwashImage {
     let pixel_size = match image.content {
         SwashContent::Mask => 1,
         SwashContent::SubpixelMask => 4,
@@ -138,8 +121,8 @@ pub fn pad_image(image: &text::SwashImage) -> text::SwashImage {
         pixel_size,
     );
 
-    text::SwashImage {
-        placement: text::Placement {
+    SwashImage {
+        placement: Placement {
             left: image.placement.left - 1,
             top: image.placement.top + 1,
             width: image.placement.width + 2,

@@ -103,9 +103,15 @@ impl Desktop {
         };
 
         let primary_instance = initial_instance;
-        let creation_info = initial_submission
-            .primary_view_creation_info()?
-            .context("Initial submission did not create a primary view")?;
+        let creation_info = match initial_submission.primary_view_creation_info()? {
+            Some(info) => info,
+            None => {
+                // The instance ended before creating a primary view; surface its error.
+                let (_, result) = instance_manager.join_next().await?;
+                result.context("Instance failed during startup")?;
+                bail!("Initial submission did not create a primary view");
+            }
+        };
 
         // Currently we can't target views directly, the focus system is targeting only instances
         // and their primary view.

@@ -15,11 +15,11 @@ anyhow = { workspace = true }
 approx = { workspace = true }
 bitflags = { workspace = true }
 bytemuck = { workspace = true }
-cosmic-text = { workspace = true }
 derive_more = { workspace = true }
 glam = { workspace = true }
 itertools = { workspace = true }
 log = { workspace = true }
+parley = { workspace = true }
 parking_lot.workspace = true
 static_assertions = { workspace = true }
 swash = { workspace = true }

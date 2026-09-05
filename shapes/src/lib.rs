@@ -1,13 +1,15 @@
+mod font_manager;
 mod glyph_run;
+mod parley_adapter;
 mod shape;
 mod text_shaper;
 
 use derive_more::{Deref, DerefMut};
+pub use font_manager::*;
 pub use glyph_run::*;
+pub use parley_adapter::*;
 pub use shape::*;
 pub use text_shaper::*;
-
-use cosmic_text::FontSystem;
 
 // Ergonomics
 
@@ -52,8 +54,8 @@ impl<'a> SizedTextShaper<'a> {
         }
     }
 
-    pub fn shape(self, font_system: &mut FontSystem) -> Option<GlyphRun> {
-        self.layouter.layout(font_system, self.font_size)
+    pub fn shape(self, shaper: &mut Shaper<'_>) -> Option<GlyphRun> {
+        self.layouter.layout(shaper, self.font_size)
     }
 }
 

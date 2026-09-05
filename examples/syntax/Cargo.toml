@@ -16,6 +16,5 @@ massive-scene = {workspace = true }
 massive-shapes = {workspace = true }
 
 winit = { workspace = true }
-cosmic-text = { workspace = true }
 
 syntect = { version = "5.2.0", default-features = false, features = ["default-fancy"] }

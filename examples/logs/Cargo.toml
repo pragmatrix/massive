@@ -19,7 +19,6 @@ massive-scene = { workspace = true }
 massive-animation = { workspace = true }
 
 anyhow = { workspace = true }
-cosmic-text = { workspace = true }
 log = { workspace = true }
 winit = { workspace = true }
 tokio = { workspace = true }

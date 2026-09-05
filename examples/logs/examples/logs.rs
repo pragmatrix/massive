@@ -14,7 +14,6 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::{EnvFilter, Layer};
 
-use cosmic_text::FontSystem;
 use termwiz::escape;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent};
@@ -23,7 +22,7 @@ use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::Shape;
+use massive_shapes::{Shape, Shaper};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
@@ -71,7 +70,7 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
 
     // Window
 
@@ -199,12 +198,17 @@ impl Logs {
     }
 
     fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
-        let (glyph_runs, height) = {
-            let mut font_system = self.fonts.lock();
-            shape_log_line(bytes, self.next_line_top, &mut font_system)
-        };
+        let mut shaper = self.fonts.shaper();
+        let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
 
-        let glyph_runs: Vec<Shape> = glyph_runs.into_iter().map(|run| run.into()).collect();
+        let glyph_runs: Vec<Shape> = glyph_runs
+            .into_iter()
+            .map(|mut run| {
+                run.text_color.alpha = 0.0;
+                run.translation.z = -LogLine::FADE_TRANSLATION;
+                run.into()
+            })
+            .collect();
 
         let line = glyph_runs
             .at(&self.location)
@@ -357,10 +361,14 @@ struct LayoutMovement {
 const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
+    shaper: &mut Shaper<'_>,
     bytes: &[u8],
     y: f64,
-    font_system: &mut FontSystem,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
+    let bytes = bytes
+        .strip_suffix(b"\r\n")
+        .or_else(|| bytes.strip_suffix(b"\n"))
+        .unwrap_or(bytes);
     // Optimization: Share Parser between runs.
     let mut parser = escape::parser::Parser::new();
     let parsed = parser.parse_as_vec(bytes);
@@ -376,7 +384,7 @@ fn shape_log_line(
     let font_size = 32.;
 
     let (runs, height) = attributed_text::shape_text(
-        font_system,
+        shaper,
         &text,
         &attributes,
         font_size,

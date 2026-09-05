@@ -1,8 +1,22 @@
-use cosmic_text::{Placement, fontdb};
 use glam::IVec2;
 use serde::{Deserialize, Serialize};
+use swash::zeno::Placement;
 
 use massive_geometry::{Bounds, Color, SizePx, Vector3};
+
+/// Opaque identifier for a font face.
+///
+/// A distinct per-font token that lets the atlas cache key on the concrete font without
+/// [`massive_shapes`](crate) depending on a font database. It packs Parley's `Blob` unique id
+/// (an atomic counter value) together with the face `index` within that file, so [`FontId`] can be
+/// derived directly from a shaped run's font with no registry lookup, and rasterization resolves it
+/// back to the font's data in O(1). The face index is required because a single font file (e.g. a
+/// `.ttc` collection or a variable font) may hold several faces that share one `Blob` id.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct FontId {
+    pub blob_id: u64,
+    pub index: u32,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct GlyphRun {
@@ -22,6 +36,12 @@ pub struct GlyphRun {
     pub text_weight: TextWeight,
     pub glyphs: Vec<RunGlyph>,
 }
+
+// TODO(parley): The `RunGlyph::pos` y-coordinates are normalized to a Y-Up convention at the
+// adapter boundary, because Parley lays out in Y-down. Everything downstream (renderer,
+// `GlyphRun::place_glyph`, scene hit-testing) assumes Y-up, so the flip happens here. Consider
+// modernizing the whole project to Y-down as a separate cleanup.
+//
 
 impl GlyphRun {
     pub fn new(
@@ -143,14 +163,14 @@ impl RunGlyph {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlyphKey {
-    pub font_id: fontdb::ID,
+    pub font_id: FontId,
     pub glyph_id: u16,
     pub font_size_bits: u32,
     pub weight: TextWeight,
 }
 
 impl GlyphKey {
-    pub fn new(font_id: fontdb::ID, glyph_id: u16, font_size: f32, weight: TextWeight) -> Self {
+    pub fn new(font_id: FontId, glyph_id: u16, font_size: f32, weight: TextWeight) -> Self {
         Self {
             font_id,
             glyph_id,

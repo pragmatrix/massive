@@ -11,6 +11,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 - Avoid shallow forwarding functions; expose a composed capability directly or combine related work into a meaningful operation.
 - Consolidate multiple exit points that return the same result when it improves readability.
 - Comment only to explain non-obvious reasoning or intent; prefer concise, ideally one-line comments for conceptual/semantic blocks. Document the reason behind unusual behavior (cache invalidation, lifecycle ordering) so future readers don't "fix" it.
+- Comments should focus on the most important stuff: the *why* (the reasoning behind a decision), not the *what* it replaces. Don't add outdated information or restate what a previous implementation did.
 - Preserve existing comments during refactors unless inaccurate; update them when their rationale changes.
 - Order functions high-level first, order their calls top-down by dependency (bottom-up in dependency order: a function calls only functions declared below it, so readers follow control flow upward toward the callee); order types by importance (public API first, private helpers last).
 - When splitting large modules, extract low-coupling impl blocks first and preserve external imports via local re-exports in the parent module.
