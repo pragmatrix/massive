@@ -38,9 +38,8 @@ pub fn cosmic_run_to_glyph_run(
     layout.break_all_lines(None);
     layout.align(parley::Alignment::Start, Default::default());
     let line = layout.get(0)?;
-    let parley_run = massive_shapes::line_runs(&line).next()?;
-    Some(massive_shapes::glyph_run_to_run(
-        parley_run,
+    Some(massive_shapes::line_to_run(
+        &line,
         Color::BLACK,
         TextWeight::NORMAL,
         translation,
@@ -59,4 +58,3 @@ pub fn cosmic_buffer_to_glyph_runs(
         .filter_map(|run| cosmic_run_to_glyph_run(shaper, &run, left, top))
         .collect()
 }
-
