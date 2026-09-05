@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use massive_geometry::{Color, Vector3};
-use massive_shapes::{FontResolver, GlyphBrush, GlyphRun, TextWeight, glyph_run_to_run};
+use massive_shapes::{GlyphBrush, GlyphRun, TextWeight, glyph_run_to_run};
 
 /// Convert a single Parley [`parley::GlyphRun`] into a [`massive_shapes::GlyphRun`].
 ///
@@ -11,11 +11,9 @@ use massive_shapes::{FontResolver, GlyphBrush, GlyphRun, TextWeight, glyph_run_t
 pub fn to_glyph_run<'a>(
     translation: Vector3,
     parley_run: parley::GlyphRun<'a, GlyphBrush>,
-    font_resolver: &FontResolver<'_>,
 ) -> GlyphRun {
     glyph_run_to_run(
         parley_run,
-        font_resolver,
         Color::BLACK,
         TextWeight::NORMAL,
         translation,

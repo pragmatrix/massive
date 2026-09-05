@@ -11,5 +11,6 @@ parley = { workspace = true }
 swash = { workspace = true }
 derive_more = { workspace = true }
 glam = { workspace = true }
+parking_lot.workspace = true
 serde = { workspace = true }
 smallbox.workspace = true
