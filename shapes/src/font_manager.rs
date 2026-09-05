@@ -156,6 +156,95 @@ impl FontManager {
             }
         }
         inner.fonts = fonts;
+
+        // Common-script symbols (e.g. `✘`, `✓`, `→`) inherit the surrounding script for fallback,
+        // which on macOS resolves to Helvetica — a font that lacks most of them. Append the system
+        // font with the best coverage of these symbols to the Latin fallback so they render instead
+        // of falling through to the `.notdef` dead glyph. This is a local workaround for the known
+        // upstream gap (parley #744, #695) until font selection becomes coverage-aware.
+        Self::append_symbol_fallback(&mut inner);
+    }
+
+    /// Append symbol-covering non-emoji fonts to the Latin fallback, best coverage first.
+    ///
+    /// Common-script symbols inherit the surrounding script (Latin by default) for fallback, but
+    /// the platform's Latin fallback often lacks them. We scan a broad set of symbol codepoints,
+    /// score every family by how many it covers, and append the covering families to the Latin
+    /// fallback in descending coverage order. Emoji fonts are excluded because they would be
+    /// selected for text-presentation symbols (upstream parley #744).
+    fn append_symbol_fallback(inner: &mut FontManagerInner) {
+        use parley::fontique::{FallbackKey, GenericFamily, Script};
+
+        // Common-script symbol blocks commonly used in terminals and UI text.
+        const SYMBOL_RANGES: &[(u32, u32)] = &[
+            (0x2000, 0x206F), // General Punctuation
+            (0x2190, 0x21FF), // Arrows
+            (0x2200, 0x22FF), // Mathematical Operators
+            (0x2300, 0x23FF), // Miscellaneous Technical
+            (0x2500, 0x257F), // Box Drawing
+            (0x2580, 0x259F), // Block Elements
+            (0x25A0, 0x25FF), // Geometric Shapes
+            (0x2600, 0x26FF), // Miscellaneous Symbols
+            (0x2700, 0x27BF), // Dingbats
+            (0x27C0, 0x27EF), // Miscellaneous Mathematical Symbols-A
+            (0x2980, 0x29FF), // Miscellaneous Mathematical Symbols-B
+            (0x2B00, 0x2BFF), // Miscellaneous Symbols and Arrows
+        ];
+
+        let latn = Script::from_bytes(*b"Latn");
+        let emoji_families: Vec<_> = inner
+            .font_context
+            .collection
+            .generic_families(GenericFamily::Emoji)
+            .collect();
+
+        // Score each family by how many symbol codepoints its default font covers.
+        let family_names: Vec<String> = inner
+            .font_context
+            .collection
+            .family_names()
+            .map(str::to_owned)
+            .collect();
+        let mut scored: Vec<(usize, parley::fontique::FamilyId)> = Vec::new();
+        for name in family_names {
+            let Some(family_id) = inner.font_context.collection.family_id(&name) else {
+                continue;
+            };
+            if emoji_families.contains(&family_id) {
+                continue;
+            }
+            let Some(family) = inner.font_context.collection.family(family_id) else {
+                continue;
+            };
+            let Some(font_info) = family.default_font() else {
+                continue;
+            };
+            let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
+                continue;
+            };
+            let Some(font_ref) =
+                swash::FontRef::from_index(blob.as_ref(), font_info.index() as usize)
+            else {
+                continue;
+            };
+            let charmap = font_ref.charmap();
+            let covered = SYMBOL_RANGES
+                .iter()
+                .flat_map(|&(start, end)| start..=end)
+                .filter(|&c| charmap.map(char::from_u32(c).unwrap_or('\0')) != 0)
+                .count();
+            if covered > 0 {
+                scored.push((covered, family_id));
+            }
+        }
+
+        // Append best-coverage families first so the first that covers a symbol wins.
+        scored.sort_by_key(|(covered, _)| std::cmp::Reverse(*covered));
+        let families = scored.into_iter().map(|(_, id)| id);
+        inner
+            .font_context
+            .collection
+            .append_fallbacks(FallbackKey::new(latn, None), families);
     }
 
     /// Resolve the [`parley::FontData`] for a [`FontId`].
