@@ -10,10 +10,10 @@ pub use parley::FontWeight;
 
 /// A font manager backed by Parley's [`FontContext`].
 ///
-/// Owns the Parley font database plus a registry of [`parley::FontData`] entries keyed by their
-/// `Blob` unique id (equivalently by [`FontId`]). A [`FontId`] is derived straight from a shaped
-/// run's font, so shaping needs no lookup; rasterization resolves a [`FontId`] back to concrete
-/// font data in O(1).
+/// Owns the Parley font database plus a registry of [`parley::FontData`] entries keyed by
+/// [`FontId`] (the `Blob` unique id plus the face index). A [`FontId`] is derived straight from a
+/// shaped run's font, so shaping needs no lookup; rasterization resolves a [`FontId`] back to
+/// concrete font data in O(1).
 #[derive(Clone)]
 pub struct FontManager(Arc<Mutex<FontManagerInner>>);
 
@@ -29,10 +29,11 @@ impl std::fmt::Debug for FontManager {
 struct FontManagerInner {
     font_context: FontContext,
     layout_context: parley::LayoutContext<GlyphBrush>,
-    /// Concrete fonts keyed by their `Blob` unique id (i.e. by [`FontId`]). Populated by
-    /// `rebuild_fonts` to include every font the collection may select (including system
-    /// fallbacks like emoji), so rasterization can resolve any glyph's `FontId` to font data.
-    fonts: HashMap<u64, parley::FontData>,
+    /// Concrete fonts keyed by [`FontId`]. Populated by `rebuild_fonts` to include every font the
+    /// collection may select (including system fallbacks like emoji), so rasterization can resolve
+    /// any glyph's `FontId` to font data. The key must include the face index because a single
+    /// file may hold several faces that share one `Blob` id.
+    fonts: HashMap<FontId, parley::FontData>,
 }
 
 /// A shaping session holding the manager's lock.
@@ -87,14 +88,14 @@ impl FontManager {
         let blob =
             parley::fontique::Blob::new(Arc::new(font_data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
         inner.font_context.collection.register_fonts(blob.clone(), None);
-        let id = FontId(blob.id());
-        inner.fonts.insert(id.0, parley::FontData::new(blob, 0));
+        let id = crate::font_id(&parley::FontData::new(blob.clone(), 0));
+        inner.fonts.insert(id, parley::FontData::new(blob, 0));
         vec![id]
     }
 
-    /// Rebuild the font registry from the whole collection, keyed by `Blob` unique id, so any
-    /// font Parley may select (including system fonts used for fallback, e.g. emoji) can be
-    /// resolved by [`FontId`] during rasterization.
+    /// Rebuild the font registry from the whole collection, keyed by [`FontId`], so any font
+    /// Parley may select (including system fonts used for fallback, e.g. emoji) can be resolved by
+    /// [`FontId`] during rasterization.
     fn rebuild_fonts(&self) {
         let mut inner = self.0.lock();
         let mut fonts = HashMap::new();
@@ -116,7 +117,8 @@ impl FontManager {
                 let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
                     continue;
                 };
-                fonts.insert(blob.id(), parley::FontData::new(blob, font_info.index()));
+                let id = crate::font_id(&parley::FontData::new(blob.clone(), font_info.index()));
+                fonts.insert(id, parley::FontData::new(blob, font_info.index()));
             }
         }
         inner.fonts = fonts;
@@ -124,7 +126,7 @@ impl FontManager {
 
     /// Resolve the [`parley::FontData`] for a [`FontId`].
     pub fn font_data(&self, id: FontId) -> Option<parley::FontData> {
-        self.0.lock().fonts.get(&id.0).cloned()
+        self.0.lock().fonts.get(&id).cloned()
     }
 
     /// Acquire a [`Shaper`], holding the manager's lock for the duration of the shaping session.
@@ -213,8 +215,8 @@ mod tests {
         let font_data = fonts.font_data(font_id);
         assert!(
             font_data.is_some(),
-            "emoji fallback font must resolve to a registered font, got FontId({})",
-            font_id.0
+            "emoji fallback font must resolve to a registered font, got FontId({:?})",
+            font_id
         );
     }
 }

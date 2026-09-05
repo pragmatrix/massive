@@ -17,12 +17,17 @@ use crate::{FontId, GlyphRun, GlyphKey, GlyphRunMetrics, RunGlyph, TextWeight};
 /// Default Parley brush type (RGBA bytes). Callers overwrite color via [`GlyphRun::with_color`].
 pub type GlyphBrush = [u8; 4];
 
-/// Derive the opaque [`FontId`] for a font from its Parley `Blob` unique id.
+/// Derive the opaque [`FontId`] for a font from its Parley `Blob` unique id and face index.
 ///
-/// The `Blob` id is a distinct atomic counter value, so this needs no registry lookup and matches
-/// the id the renderer's rasterization registry is keyed on.
+/// The `Blob` id is a distinct atomic counter value, but it identifies a whole font *file*. A file
+/// (e.g. a `.ttc` collection) may hold several faces, so the face `index` is included to keep each
+/// face a distinct [`FontId`]. This needs no registry lookup and matches the key the renderer's
+/// rasterization registry is keyed on.
 pub fn font_id(font: &parley::FontData) -> FontId {
-    FontId(font.data.id())
+    FontId {
+        blob_id: font.data.id(),
+        index: font.index,
+    }
 }
 
 /// Convert a single Parley [`ParleyGlyphRun`] into a [`GlyphRun`].

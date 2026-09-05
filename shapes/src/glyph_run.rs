@@ -4,14 +4,19 @@ use swash::zeno::Placement;
 
 use massive_geometry::{Bounds, Color, SizePx, Vector3};
 
-/// Opaque identifier for a font.
+/// Opaque identifier for a font face.
 ///
 /// A distinct per-font token that lets the atlas cache key on the concrete font without
-/// [`massive_shapes`](crate) depending on a font database. It wraps Parley's `Blob` unique id
-/// (an atomic counter value), so a [`FontId`] can be derived directly from a shaped run's font
-/// with no registry lookup, and rasterization can resolve it back to the font's data in O(1).
+/// [`massive_shapes`](crate) depending on a font database. It packs Parley's `Blob` unique id
+/// (an atomic counter value) together with the face `index` within that file, so [`FontId`] can be
+/// derived directly from a shaped run's font with no registry lookup, and rasterization resolves it
+/// back to the font's data in O(1). The face index is required because a single font file (e.g. a
+/// `.ttc` collection or a variable font) may hold several faces that share one `Blob` id.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FontId(pub u64);
+pub struct FontId {
+    pub blob_id: u64,
+    pub index: u32,
+}
 
 
 #[derive(Debug, Clone, PartialEq)]
