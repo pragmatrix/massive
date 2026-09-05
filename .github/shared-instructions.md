@@ -12,7 +12,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 - Consolidate multiple exit points that return the same result when it improves readability.
 - Comment only to explain non-obvious reasoning or intent; prefer concise, ideally one-line comments for conceptual/semantic blocks. Document the reason behind unusual behavior (cache invalidation, lifecycle ordering) so future readers don't "fix" it.
 - Preserve existing comments during refactors unless inaccurate; update them when their rationale changes.
-- Order functions high-level first, utilities last; order types by importance (public API first, private helpers last).
+- Order functions high-level first, order their calls top-down by dependency (bottom-up in dependency order: a function calls only functions declared below it, so readers follow control flow upward toward the callee); order types by importance (public API first, private helpers last).
 - When splitting large modules, extract low-coupling impl blocks first and preserve external imports via local re-exports in the parent module.
 
 ## Design Principles
@@ -66,10 +66,6 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 - When refactoring eventful flows, extract pure target/decision helpers first and keep side-effect dispatch ordering unchanged until tests lock transition semantics.
 - When adding hierarchical layout metadata, compose effective values across the full ancestor path at absolute-placement boundaries instead of relying only on the target-local value.
 - For runtime-driven presenter animation, keep mutable animation state in a dedicated movement value, retain its `Movement` handle and scene outputs on the presenter, and capture cloned scene handles in the movement callback.
-
-## Code Review
-- For any non-trivial change, run the `rust-code-review` skill at finalization — after the series of edits is complete and before declaring the work done — to catch bugs, regressions, and invariant violations.
-- Trivial, mechanical changes (renames, formatting, single-line fixes) do not require a review pass.
 
 ## Communication
 - Explanations should be concise and strictly relevant.
