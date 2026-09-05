@@ -65,11 +65,6 @@ impl FontManager {
         Self::from(font_context)
     }
 
-    /// Creates an empty font manager without system fonts.
-    pub fn empty_system() -> Self {
-        Self::bare()
-    }
-
     /// Creates a font manager with the environment's locale, platform families, fallbacks, and
     /// system fonts loaded.
     pub fn system() -> Self {
