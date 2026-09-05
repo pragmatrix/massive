@@ -1,10 +1,12 @@
 use std::ops::Range;
 
-use parley::{FontContext, LayoutContext, StyleProperty};
+use parley::StyleProperty;
 
 use massive_geometry::Color;
 
-use crate::{FontResolver, GlyphBrush, GlyphRun, TextWeight, glyph_run_to_run, line_runs};
+use crate::{
+    GlyphBrush, GlyphRun, Shaper, TextWeight, glyph_run_to_run, line_runs,
+};
 
 #[derive(Debug)]
 pub struct TextShaper<'a> {
@@ -70,13 +72,8 @@ impl<'a> TextShaper<'a> {
     // Feature: Why is there only one FontSize here? Parley now supports per-span font sizes via
     // `StyleProperty::FontSize`, but `TextShaper` doesn't expose them yet (uniform `font_size` only
     // for now; revisit to satisfy this TODO).
-    pub fn layout(
-        self,
-        font_context: &mut FontContext,
-        layout_context: &mut LayoutContext<GlyphBrush>,
-        font_resolver: &FontResolver<'_>,
-        font_size: f32,
-    ) -> Option<GlyphRun> {
+    pub fn layout(self, shaper: &mut Shaper<'_>, font_size: f32) -> Option<GlyphRun> {
+        let (font_context, layout_context) = shaper.contexts();
         let mut builder = layout_context.ranged_builder(font_context, self.text, 1.0, true);
         builder.push_default(StyleProperty::FontSize(font_size));
         builder.push_default(StyleProperty::FontFamily(self.default_attributes.family.clone()));
@@ -104,7 +101,6 @@ impl<'a> TextShaper<'a> {
 
         Some(glyph_run_to_run(
             run,
-            font_resolver,
             self.default_attributes.color,
             self.default_attributes.weight,
             Default::default(),

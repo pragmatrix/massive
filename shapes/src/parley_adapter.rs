@@ -1,14 +1,14 @@
 //! Adapter from Parley layout output to the `GlyphRun` data model.
 //!
-//! This is the single translation point between Parley and `massive-shapes`. The renderer side's
-//! `FontManager` owns the `FontContext` and resolves a [`FontId`] for each concrete font; shapes
-//! only knows how to turn a Parley [`Layout`] into [`GlyphRun`]s.
+//! This is the single translation point between Parley and `massive-shapes`. `massive-shapes`
+//! owns the [`crate::FontManager`] and derives a [`FontId`] for each concrete font from its
+//! `Blob` unique id; this module only knows how to turn a Parley [`Layout`] into [`GlyphRun`]s.
 //!
 //! Positions are normalized to the **Y-up** convention expected downstream (see the TODO on
 //! [`crate::GlyphRun`]): Parley lays out in Y-down, so glyph y offsets are shifted back to the
 //! run baseline here.
 
-use parley::{FontData, GlyphRun as ParleyGlyphRun, LayoutContext, PositionedLayoutItem, Run};
+use parley::{GlyphRun as ParleyGlyphRun, LayoutContext, PositionedLayoutItem, Run};
 
 use massive_geometry::{Color, Vector3};
 
@@ -17,9 +17,13 @@ use crate::{FontId, GlyphRun, GlyphKey, GlyphRunMetrics, RunGlyph, TextWeight};
 /// Default Parley brush type (RGBA bytes). Callers overwrite color via [`GlyphRun::with_color`].
 pub type GlyphBrush = [u8; 4];
 
-/// Resolves a Parley [`FontData`] to the opaque [`FontId`] carried by glyph keys and
-/// cached in the atlas.
-pub type FontResolver<'a> = dyn Fn(&FontData) -> FontId + 'a;
+/// Derive the opaque [`FontId`] for a font from its Parley `Blob` unique id.
+///
+/// The `Blob` id is a distinct atomic counter value, so this needs no registry lookup and matches
+/// the id the renderer's rasterization registry is keyed on.
+pub fn font_id(font: &parley::FontData) -> FontId {
+    FontId(font.data.id())
+}
 
 /// Convert a single Parley [`ParleyGlyphRun`] into a [`GlyphRun`].
 ///
@@ -27,7 +31,6 @@ pub type FontResolver<'a> = dyn Fn(&FontData) -> FontId + 'a;
 /// run does not carry its own values. Metrics and Y-up normalization happen here.
 pub fn glyph_run_to_run<'a>(
     parley_run: ParleyGlyphRun<'a, GlyphBrush>,
-    font_resolver: &FontResolver<'_>,
     text_color: Color,
     default_weight: TextWeight,
     translation: Vector3,
@@ -37,7 +40,7 @@ pub fn glyph_run_to_run<'a>(
 
     let weight = TextWeight(run.font_attrs().weight.value() as u16);
     let weight = if weight.0 == 0 { default_weight } else { weight };
-    let font_id = font_resolver(run.font());
+    let font_id = font_id(run.font());
     let font_size = run.font_size();
 
     let glyphs = parley_run
@@ -86,7 +89,7 @@ pub fn line_runs<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{FontId, TextWeight};
+    use crate::TextWeight;
     use massive_geometry::{Color, Vector3};
     use parley::FontContext;
 
@@ -104,8 +107,7 @@ mod tests {
             as std::sync::Arc<dyn std::convert::AsRef<[u8]> + Send + Sync>);
         let font_data = parley::FontData::new(blob.clone(), 0);
         font_context.collection.register_fonts(blob, None);
-        let font_id = FontId(0);
-        let resolver = |_data: &parley::FontData| font_id;
+        let font_id = font_id(&font_data);
 
         let mut layout_context = LayoutContext::new();
         let text = "HI";
@@ -122,7 +124,6 @@ mod tests {
         let parley_run = line_runs(&line).next().expect("has a run");
         let run = glyph_run_to_run(
             parley_run,
-            &resolver,
             Color::WHITE,
             TextWeight::NORMAL,
             Vector3::ZERO,

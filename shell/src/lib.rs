@@ -14,7 +14,9 @@ pub use shell_window::ShellWindow;
 pub use window_renderer::WindowRenderer;
 pub use window_renderer_builder::WindowRendererBuilder;
 
-pub use massive_renderer::{FontId, FontManager, FontWeight};
+pub use massive_renderer::{FontManager, Renderer};
+// FontManager, FontId, FontWeight now live in massive-shapes (owned alongside shaping contexts).
+pub use massive_shapes::{FontId, FontWeight};
 
 // Re-exports to make life easier for shell users.
 pub use anyhow::Result;

@@ -244,7 +244,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let line_height = 20.;
 
     let (glyph_runs, height) = attributed_text::shape_text(
-        &fonts,
+        &mut fonts.shaper(),
         text,
         &attributes,
         font_size,

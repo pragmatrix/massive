@@ -6,10 +6,12 @@ use massive_geometry::{Bounds, Color, SizePx, Vector3};
 
 /// Opaque identifier for a font.
 ///
-/// An index into a font registry owned by the renderer side, so the atlas cache can key on the
-/// concrete font without `massive-shapes` depending on Parley or a font database.
+/// A distinct per-font token that lets the atlas cache key on the concrete font without
+/// [`massive_shapes`](crate) depending on a font database. It wraps Parley's `Blob` unique id
+/// (an atomic counter value), so a [`FontId`] can be derived directly from a shaped run's font
+/// with no registry lookup, and rasterization can resolve it back to the font's data in O(1).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FontId(pub u32);
+pub struct FontId(pub u64);
 
 
 #[derive(Debug, Clone, PartialEq)]
