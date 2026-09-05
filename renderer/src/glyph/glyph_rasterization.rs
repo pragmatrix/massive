@@ -1,19 +1,12 @@
 use parley::FontData;
-use swash::{
-    scale::{
-        Render, ScaleContext, Source, StrikeWith,
-        image::Content as SwashContent,
-    },
-    zeno::{Format, Placement},
-};
 use swash::scale::image::Image as SwashImage;
+use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
+use swash::zeno::{Format, Placement};
 
 use massive_shapes::GlyphKey;
 
-use super::{
-    SwashRasterizationParam,
-    distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image},
-};
+use super::SwashRasterizationParam;
+use super::distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image};
 use crate::glyph::GlyphRasterizationParam;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
