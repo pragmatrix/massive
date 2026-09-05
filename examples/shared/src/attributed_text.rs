@@ -47,11 +47,19 @@ pub fn shape_text(
     let (fcx, lcx) = shaper.contexts();
     let mut builder = lcx.ranged_builder(fcx, text, 1.0, true);
     builder.push_default(StyleProperty::FontSize(font_size));
-    builder.push_default(StyleProperty::FontFamily(parley::FontFamily::named("monospace")));
+    builder.push_default(StyleProperty::FontFamily(
+        parley::fontique::GenericFamily::Monospace.into(),
+    ));
     builder.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line_height)));
     for ta in attributes {
         builder.push(
             StyleProperty::FontWeight(FontWeight::new(ta.weight.0 as f32)),
+            ta.range.clone(),
+        );
+        // Parley splits positioned runs by style (including the brush), so pushing the color as
+        // the brush per attribute lets each run carry its own color.
+        builder.push(
+            StyleProperty::Brush(color_to_brush(ta.color)),
             ta.range.clone(),
         );
     }
@@ -68,7 +76,7 @@ pub fn shape_text(
         let line_top = index as f64 * line_height as f64;
         let line_translation = translation + Vector3::new(0., line_top, 0.);
         for parley_run in line_runs(&line) {
-            let color = color_for_range(parley_run.run().text_range(), attributes);
+            let color = brush_to_color(parley_run.style().brush);
             let run = glyph_run_to_run(
                 parley_run,
                 Color::BLACK,
@@ -84,13 +92,24 @@ pub fn shape_text(
     (runs, height)
 }
 
-/// Look up the color of the attribute covering `range`.
-fn color_for_range(range: Range<usize>, attributes: &[TextAttribute]) -> Color {
-    attributes
-        .iter()
-        .find(|ta| ta.range.start <= range.start && range.end <= ta.range.end)
-        .map(|ta| ta.color)
-        .unwrap_or(Color::BLACK)
+/// Convert a [`Color`] to the RGBA byte brush Parley uses.
+fn color_to_brush(color: Color) -> GlyphBrush {
+    [
+        (color.red * 255.0) as u8,
+        (color.green * 255.0) as u8,
+        (color.blue * 255.0) as u8,
+        (color.alpha * 255.0) as u8,
+    ]
+}
+
+/// Convert a Parley RGBA byte brush back to a [`Color`].
+fn brush_to_color(brush: GlyphBrush) -> Color {
+    Color::new(
+        brush[0] as f32 / 255.0,
+        brush[1] as f32 / 255.0,
+        brush[2] as f32 / 255.0,
+        brush[3] as f32 / 255.0,
+    )
 }
 
 mod syntax {
