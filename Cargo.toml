@@ -53,8 +53,11 @@ approx = "0.5.1"
 bitflags = "2.9.1"
 bytemuck = { version = "1.13.1", features = ["derive"] }
 chrono = "0.4.38"
+# The core text path is Parley-based; cosmic-text remains only for the vendored `inlyne`
+# (examples/markdown) layout pipeline.
 cosmic-text = { version = "0.19.0", features = ["swash"] }
 derive_more = { version = "2.0.1", features = ["full"] }
+parley = "0.11"
 env_logger = "0.11.3"
 euclid = "0.22.11"
 flo_curves = "0.8.0"
@@ -71,7 +74,7 @@ serde_tuple = "1.1.2"
 smallbox = "0.8.8"
 static_assertions = "1.1.0"
 strum = { version = "0.28.0", features = ["derive"] }
-swash = "0.2.5"
+swash = "0.2.6"
 toml = "0.9.8"
 tracing = "0.1.40"
 tracing-chrome = "0.7.2"

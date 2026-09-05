@@ -9,7 +9,7 @@ winit = { workspace = true }
 glam = { workspace = true }
 serde = { workspace = true }
 serde_tuple = { workspace = true }
-cosmic-text = { workspace = true }
+parley = { workspace = true }
 itertools = { workspace = true }
 env_logger = { workspace = true }
 log = { workspace = true }

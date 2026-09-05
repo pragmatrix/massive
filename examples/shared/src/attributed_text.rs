@@ -3,12 +3,10 @@ use std::ops::Range;
 use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
-use cosmic_text::{Attrs, Buffer, Family, FontSystem, Metrics, Shaping, Weight, Wrap};
-
 use massive_geometry::{Color, Vector3};
-use massive_shapes::{GlyphRun, TextWeight};
-
-use crate::positioning;
+use massive_shapes::{GlyphBrush, GlyphRun, TextWeight, glyph_run_to_run, line_runs};
+use massive_shell::FontManager;
+use parley::{Alignment, FontWeight, LineHeight, StyleProperty};
 
 /// A serializable representation of highlighted code.
 #[derive(Debug, Serialize, Deserialize)]
@@ -24,8 +22,13 @@ pub struct TextAttribute {
     pub weight: TextWeight,
 }
 
+/// Shape `text` into [`GlyphRun`]s, honoring the given per-attribute weights/colors.
+///
+/// Layout is driven by Parley through the manager's shared font + layout contexts. Each line is
+/// translated down by `line_height`, matching the legacy cosmic-text behavior, and each returned
+/// run carries the color of the attribute covering its text span.
 pub fn shape_text(
-    font_system: &mut FontSystem,
+    fonts: &FontManager,
     text: &str,
     attributes: &[TextAttribute],
     font_size: f32,
@@ -40,51 +43,57 @@ pub fn shape_text(
         text.len(),
     );
 
-    // The text covers everything. If the attributes are appearing without adjusted metadata,
-    // something is wrong.
-    //
-    // Set it to an illegal out of bounds `usize::MAX` for now.
-    let base_attrs = Attrs::new().family(Family::Monospace).metadata(usize::MAX);
-    // Optimization: Why is Buffer used when there is no wrapping. BufferLine would
-    // probably be better.
-    let mut buffer = Buffer::new(font_system, Metrics::new(font_size, line_height));
-    buffer.set_size(None, None);
-    // buffer.set_text(font_system, text, attrs, Shaping::Advanced);
-    buffer.set_wrap(Wrap::None);
-    // Create associated metadata.
-    let text_attr_spans = attributes.iter().enumerate().map(|(attribute_index, ta)| {
-        (
-            text.get(ta.range.clone()).unwrap(),
-            base_attrs
-                .clone()
-                .metadata(attribute_index)
-                .weight(Weight(ta.weight.0)),
-        )
-    });
-    buffer.set_rich_text(text_attr_spans, &base_attrs, Shaping::Advanced, None);
-    buffer.shape_until_scroll(font_system, true);
-
-    let mut runs = Vec::new();
-    let mut height: f64 = 0.;
-
-    // Detail: For now we keep the redundancy of providing weight to the run and the individual
-    // glyphs (cosmic text 0.15 introduced this).
-    let attributes: Vec<_> = attributes.iter().map(|ta| (ta.color, ta.weight)).collect();
-
     let translation = translation.into().unwrap_or(Vector3::new(0., 0., 0.));
 
-    for run in buffer.layout_runs() {
-        // Lines are positioned on line_height.
-        let translation = translation + Vector3::new(0., run.line_top as f64, 0.);
-        for run in
-            positioning::to_attributed_glyph_runs(translation, &run, line_height, &attributes)
-        {
-            runs.push(run);
+    fonts.with_shape(|fcx, lcx, resolver| {
+        let mut builder = lcx.ranged_builder(fcx, text, 1.0, true);
+        builder.push_default(StyleProperty::FontSize(font_size));
+        builder.push_default(StyleProperty::FontFamily(parley::FontFamily::named("monospace")));
+        builder.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line_height)));
+        for ta in attributes {
+            builder.push(
+                StyleProperty::FontWeight(FontWeight::new(ta.weight.0 as f32)),
+                ta.range.clone(),
+            );
         }
-        height = height.max(run.line_top as f64 + line_height as f64);
-    }
 
-    (runs, height)
+        let mut layout: parley::Layout<GlyphBrush> = builder.build(text);
+        layout.break_all_lines(None);
+        layout.align(Alignment::Start, Default::default());
+
+        let mut runs = Vec::new();
+        let mut height: f64 = 0.;
+
+        // Lines are positioned on `line_height` (matching the legacy `run.line_top`).
+        for (index, line) in layout.lines().enumerate() {
+            let line_top = index as f64 * line_height as f64;
+            let line_translation = translation + Vector3::new(0., line_top, 0.);
+            for parley_run in line_runs(&line) {
+                let color = color_for_range(parley_run.run().text_range(), attributes);
+                let run = glyph_run_to_run(
+                    parley_run,
+                    resolver,
+                    Color::BLACK,
+                    TextWeight::NORMAL,
+                    line_translation,
+                )
+                .with_color(color);
+                runs.push(run);
+            }
+            height = height.max(line_top + line_height as f64);
+        }
+
+        (runs, height)
+    })
+}
+
+/// Look up the color of the attribute covering `range`.
+fn color_for_range(range: Range<usize>, attributes: &[TextAttribute]) -> Color {
+    attributes
+        .iter()
+        .find(|ta| ta.range.start <= range.start && range.end <= ta.range.end)
+        .map(|ta| ta.color)
+        .unwrap_or(Color::BLACK)
 }
 
 mod syntax {

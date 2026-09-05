@@ -5,11 +5,10 @@ use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Ease, Interpolation, Movement, MovementRuntime,
 };
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
-use massive_renderer::text::FontSystem;
 use massive_scene::LocationSpace;
 use massive_scene::prelude::*;
 use massive_shapes::{GlyphRun, IntoShape, Shape, Size as SizeExt};
-use massive_shell::Scene;
+use massive_shell::{FontManager, Scene};
 
 use super::FocusDepth;
 
@@ -41,10 +40,10 @@ pub struct FocusDepthIndicatorPresenter {
 impl FocusDepthIndicatorPresenter {
     pub fn new(
         scene: &Scene,
-        font_system: &mut FontSystem,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
-        let (badges, size) = FocusDepthIndicatorMovement::create_badges(font_system);
+        let (badges, size) = FocusDepthIndicatorMovement::create_badges(font_manager);
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
         let (scene_transform, location) = identity_location()
@@ -109,12 +108,15 @@ impl FocusDepthIndicatorMovement {
     }
 
     fn create_badges(
-        font_system: &mut FontSystem,
+        font_manager: &FontManager,
     ) -> ([FocusDepthBadge; FOCUS_DEPTH_LABELS.len()], SizePx) {
         let glyph_runs = FOCUS_DEPTH_LABELS.map(|(_, label)| {
-            label
-                .size(FONT_SIZE)
-                .shape(font_system)
+            font_manager
+                .with_shape(|fcx, lcx, resolver| {
+                    label
+                        .size(FONT_SIZE)
+                        .shape(fcx, lcx, resolver)
+                })
                 .expect("FocusDepth labels must produce glyphs")
         });
         let (horizontal_padding, vertical_padding) = PADDING;

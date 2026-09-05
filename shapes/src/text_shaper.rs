@@ -1,13 +1,10 @@
 use std::ops::Range;
 
-use cosmic_text::{
-    Attrs, AttrsList, BufferLine, Ellipsize, Family, FontSystem, Hinting, LayoutGlyph, LayoutLine,
-    LineEnding, Shaping, Weight, Wrap,
-};
+use parley::{FontContext, LayoutContext, StyleProperty};
 
 use massive_geometry::Color;
 
-use crate::{GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
+use crate::{FontResolver, GlyphBrush, GlyphRun, TextWeight, glyph_run_to_run, line_runs};
 
 #[derive(Debug)]
 pub struct TextShaper<'a> {
@@ -19,7 +16,7 @@ pub struct TextShaper<'a> {
 
 #[derive(Debug)]
 pub struct TextAttributes<'a> {
-    family: Family<'a>,
+    family: parley::FontFamily<'a>,
     weight: TextWeight,
     color: Color,
 }
@@ -27,7 +24,7 @@ pub struct TextAttributes<'a> {
 impl Default for TextAttributes<'_> {
     fn default() -> Self {
         Self {
-            family: Family::SansSerif,
+            family: parley::FontFamily::Source(std::borrow::Cow::Borrowed("sans-serif")),
             weight: TextWeight::default(),
             color: Color::BLACK,
         }
@@ -35,7 +32,7 @@ impl Default for TextAttributes<'_> {
 }
 
 impl<'a> TextAttributes<'a> {
-    pub fn with_family(mut self, family: Family<'a>) -> Self {
+    pub fn with_family(mut self, family: parley::FontFamily<'a>) -> Self {
         self.family = family;
         self
     }
@@ -48,13 +45,6 @@ impl<'a> TextAttributes<'a> {
     pub fn with_color(mut self, color: Color) -> Self {
         self.color = color;
         self
-    }
-
-    fn to_attrs(&self) -> Attrs<'a> {
-        // Performance: Don't add defaults.
-        Attrs::new()
-            .family(self.family)
-            .weight(Weight(self.weight.0))
     }
 }
 
@@ -77,95 +67,47 @@ impl<'a> TextShaper<'a> {
         self.range_attributes.push((range, attributes))
     }
 
-    // Feature: Why is there only one FontSize here? Check out parley.
-    pub fn layout(self, font_system: &mut FontSystem, font_size: f32) -> Option<GlyphRun> {
-        // Performance: BufferLine makes a copy of the text, is there a better way?
-        // Performance: Under the hood, HarfRust is used for text shaping, use it directly?
-        // Performance: Shaping maintains internal caches, which might benefit reusing them.
-        let mut attrs_list = AttrsList::new(&self.default_attributes.to_attrs());
-        for (range, attrs) in self.range_attributes {
-            attrs_list.add_span(range, &attrs.to_attrs());
+    // Feature: Why is there only one FontSize here? Parley now supports per-span font sizes via
+    // `StyleProperty::FontSize`, but `TextShaper` doesn't expose them yet (uniform `font_size` only
+    // for now; revisit to satisfy this TODO).
+    pub fn layout(
+        self,
+        font_context: &mut FontContext,
+        layout_context: &mut LayoutContext<GlyphBrush>,
+        font_resolver: &FontResolver<'_>,
+        font_size: f32,
+    ) -> Option<GlyphRun> {
+        let mut builder = layout_context.ranged_builder(font_context, self.text, 1.0, true);
+        builder.push_default(StyleProperty::FontSize(font_size));
+        builder.push_default(StyleProperty::FontFamily(self.default_attributes.family.clone()));
+        builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
+            self.default_attributes.weight.0 as f32,
+        )));
+        for (range, attrs) in &self.range_attributes {
+            builder.push(
+                StyleProperty::FontFamily(attrs.family.clone()),
+                range.clone(),
+            );
+            builder.push(
+                StyleProperty::FontWeight(parley::FontWeight::new(attrs.weight.0 as f32)),
+                range.clone(),
+            );
         }
+        let mut layout: parley::Layout<GlyphBrush> = builder.build(self.text);
+        layout.break_all_lines(None);
+        layout.align(parley::Alignment::Start, Default::default());
 
-        let mut buffer =
-            BufferLine::new(self.text, LineEnding::None, attrs_list, Shaping::Advanced);
-
-        // let shaped_glyphs = buffer
-        //     // Simplify: If the ShapeLine cache is always empty, we may be able to use
-        //     // ShapeLine::build directly, or even better cache it directly here? This will then
-        //     // reuse most allocations? ... but we could just re-use BufferLine, or....?
-        //     .shape(font_system, 0 /* tab size */)
-        //     .spans
-        //     .iter()
-        //     .flat_map(|span| &span.words)
-        //     .filter(|word| !word.blank)
-        //     .flat_map(|word| &word.glyphs);
-
-        let layouted_lines = buffer.layout(
-            font_system,
-            font_size,
-            None,
-            Wrap::None,
-            Ellipsize::None,
-            None,
-            0,
-            Hinting::Disabled,
-        );
-        if layouted_lines.is_empty() {
-            return None;
-        }
-
-        // Use the first line for metrics (for now).
+        // Use the first run of the first line for metrics (for now).
         // Feature: Support multi-line layout.
-        let metrics_line = &layouted_lines[0];
-        let metrics = metrics(metrics_line);
+        let line = layout.get(0)?;
+        let run = line_runs(&line).next()?;
 
-        let layouted_glyphs = layouted_lines.iter().flat_map(|l| &l.glyphs);
-
-        // Performance: Is there a better way to estimate the number of resulting glyphs?
-        let mut glyphs = Vec::with_capacity(self.text.len());
-        for glyph in layouted_glyphs {
-            // Optimization: Don't pass empty / blank glyphs.
-            glyphs.push(position_glyph(glyph));
-        }
-
-        Some(GlyphRun {
-            translation: Default::default(),
-            metrics,
-            text_color: self.default_attributes.color,
-            // This looks redundant here. Isn't this specified by each Glyph?
-            text_weight: self.default_attributes.weight,
-            glyphs,
-        })
+        Some(glyph_run_to_run(
+            run,
+            font_resolver,
+            self.default_attributes.color,
+            self.default_attributes.weight,
+            Default::default(),
+        ))
     }
-}
-
-fn metrics(line: &LayoutLine) -> GlyphRunMetrics {
-    // This assumes that we can derive the line height from the LayoutLine directly.
-    // Robustness: May need some more parameterization here.
-    let max_ascent = line.max_ascent;
-    let max_descent = line.max_descent;
-
-    GlyphRunMetrics {
-        max_ascent: max_ascent.ceil() as _,
-        max_descent: max_descent.ceil() as _,
-        width: line.w.ceil() as u32,
-    }
-}
-
-fn position_glyph(glyph: &LayoutGlyph) -> RunGlyph {
-    let pos = (glyph.x.round() as i32, glyph.y.round() as i32);
-
-    // Robustness: There is a function physical() in glyph which also returns a GlyphKey, perhaps
-    // use this here.
-
-    RunGlyph::new(
-        pos,
-        GlyphKey::new(
-            glyph.font_id,
-            glyph.glyph_id,
-            glyph.font_size,
-            TextWeight(glyph.font_weight.0),
-        ),
-    )
 }

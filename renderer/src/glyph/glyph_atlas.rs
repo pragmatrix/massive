@@ -2,7 +2,8 @@
 use std::{collections::HashMap, fmt};
 
 use anyhow::{Result, bail};
-use cosmic_text::{Placement, SwashContent, SwashImage};
+use swash::scale::image::{Content as SwashContent, Image as SwashImage};
+use swash::zeno::Placement;
 pub use etagere::Rectangle;
 use etagere::{Allocation, BucketedAtlasAllocator, Point};
 use euclid::size2;

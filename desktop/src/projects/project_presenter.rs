@@ -4,10 +4,9 @@ use massive_animation::{
     Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
 };
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
-use massive_renderer::text::FontSystem;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::Scene;
+use massive_shell::{FontManager, Scene};
 
 use super::ProjectProperties;
 
@@ -31,7 +30,7 @@ impl ProjectPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_system: &mut FontSystem,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()
@@ -42,7 +41,7 @@ impl ProjectPresenter {
             properties,
             location.clone(),
             scene,
-            font_system,
+            font_manager,
             movement_runtime,
         );
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
@@ -76,7 +75,7 @@ impl ProjectHeaderPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_system: &mut FontSystem,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()
@@ -84,10 +83,12 @@ impl ProjectHeaderPresenter {
             .enter(scene);
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
-        let header_run = properties
-            .name
-            .size(PROJECT_HEADER_FONT_SIZE)
-            .shape(font_system);
+        let header_run = font_manager.with_shape(|fcx, lcx, resolver| {
+            properties
+                .name
+                .size(PROJECT_HEADER_FONT_SIZE)
+                .shape(fcx, lcx, resolver)
+        });
         let measured_size = header_run
             .as_ref()
             .map_or(SizePx::default(), |run| run.metrics.size());
