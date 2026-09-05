@@ -260,7 +260,7 @@ impl DesktopSystem {
 
         let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
         let focus_depth_indicator =
-            FocusDepthIndicatorPresenter::new(scene, &mut fonts.lock(), movement_runtime);
+            FocusDepthIndicatorPresenter::new(scene, &fonts, movement_runtime);
 
         let event_router = EventRouter::new();
 

@@ -41,7 +41,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     //     // .with(chrome_layer)
     //     .init();
 
-    let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
 
     // Load code.
 
@@ -58,7 +58,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let line_height = 20.;
 
     let (glyph_runs, height) = attributed_text::shape_text(
-        &mut fonts.lock(),
+        &fonts,
         &code.text,
         &code.attributes,
         font_size,

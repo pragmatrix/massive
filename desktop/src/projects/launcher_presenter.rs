@@ -12,10 +12,9 @@ use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
 use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
-use massive_renderer::text::FontSystem;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::Scene;
+use massive_shell::{FontManager, Scene};
 
 use super::visor_layout;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
@@ -82,7 +81,7 @@ impl LauncherPresenter {
         profile: LaunchProfile,
         size: Size,
         scene: &Scene,
-        font_system: &mut FontSystem,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
@@ -95,19 +94,22 @@ impl LauncherPresenter {
 
         let background = background_shape.at(&our_location).enter(scene);
 
-        let name = profile
-            .name
-            // Idea: To not waste so much memory here for large fonts, may use a quality index that
-            // is automatically applied based on the font, small fonts high quality, large fonts,
-            // lower quality, the quality index starts with 1 and is the effective pixel resolution
-            // divisor: Quality 1: original size, quality 2: 1/4th the memory in use (horizontal
-            // size / 2, vertical size / 2)
-            //
-            // Idea: No, this should be fully automatic depending of how large the font is shown I
-            // guess. Make this independent of the font size, but dependent on what is visible (a
-            // background optimizer).
-            .size(32.0 * 8.0)
-            .shape(font_system)
+        let name = font_manager
+            .with_shape(|fcx, lcx, resolver| {
+                profile
+                    .name
+                    // Idea: To not waste so much memory here for large fonts, may use a quality index that
+                    // is automatically applied based on the font, small fonts high quality, large fonts,
+                    // lower quality, the quality index starts with 1 and is the effective pixel resolution
+                    // divisor: Quality 1: original size, quality 2: 1/4th the memory in use (horizontal
+                    // size / 2, vertical size / 2)
+                    //
+                    // Idea: No, this should be fully automatic depending of how large the font is shown I
+                    // guess. Make this independent of the font size, but dependent on what is visible (a
+                    // background optimizer).
+                    .size(32.0 * 8.0)
+                    .shape(fcx, lcx, resolver)
+            })
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(&our_location)
             .with_decal_order(0)

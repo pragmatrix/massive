@@ -16,7 +16,6 @@ massive-applications.workspace = true
 massive-util.workspace = true
 
 anyhow.workspace = true
-cosmic-text.workspace = true
 derive_more.workspace = true
 env_logger.workspace = true
 futures.workspace = true

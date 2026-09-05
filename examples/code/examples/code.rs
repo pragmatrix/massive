@@ -72,7 +72,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .unwrap()
         .join(Path::new("examples/code/examples"));
 
-    let fonts = FontManager::bare("en-US").with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
 
     let cargo_config = CargoConfig {
         // need to be able to look up examples.
@@ -244,7 +244,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let line_height = 20.;
 
     let (glyph_runs, height) = attributed_text::shape_text(
-        &mut fonts.lock(),
+        &fonts,
         text,
         &attributes,
         font_size,

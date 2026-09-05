@@ -29,8 +29,6 @@ pub use renderer::{PresentationMode, Renderer};
 pub use size_buffer::*;
 pub use transactions::*;
 
-pub use cosmic_text as text;
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum RenderPacing {
     #[default]
