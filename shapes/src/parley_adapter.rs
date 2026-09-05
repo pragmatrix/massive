@@ -12,7 +12,7 @@ use parley::{GlyphRun as ParleyGlyphRun, LayoutContext, PositionedLayoutItem, Ru
 
 use massive_geometry::{Color, Vector3};
 
-use crate::{FontId, GlyphRun, GlyphKey, GlyphRunMetrics, RunGlyph, TextWeight};
+use crate::{FontId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Default Parley brush type (RGBA bytes). Callers overwrite color via [`GlyphRun::with_color`].
 pub type GlyphBrush = [u8; 4];
@@ -44,7 +44,11 @@ pub fn glyph_run_to_run<'a>(
     let baseline = parley_run.baseline();
 
     let weight = TextWeight(run.font_attrs().weight.value() as u16);
-    let weight = if weight.0 == 0 { default_weight } else { weight };
+    let weight = if weight.0 == 0 {
+        default_weight
+    } else {
+        weight
+    };
     let font_id = font_id(run.font());
     let font_size = run.font_size();
 
@@ -54,7 +58,10 @@ pub fn glyph_run_to_run<'a>(
             // Parley `Glyph::y` is added to the baseline (Y-down). Shift back to a baseline-relative
             // Y-up coordinate to match the convention `GlyphRun::place_glyph` expects.
             let pos = (glyph.x.round() as i32, (glyph.y - baseline).round() as i32);
-            RunGlyph::new(pos, GlyphKey::new(font_id, glyph.id as u16, font_size, weight))
+            RunGlyph::new(
+                pos,
+                GlyphKey::new(font_id, glyph.id as u16, font_size, weight),
+            )
         })
         .collect();
 
@@ -63,6 +70,26 @@ pub fn glyph_run_to_run<'a>(
         glyph_run_metrics(run),
         text_color,
         weight,
+        glyphs,
+    )
+}
+
+/// Convert every font and style run in a line onto a common baseline.
+pub fn line_to_run(
+    line: &parley::Line<'_, GlyphBrush>,
+    text_color: Color,
+    default_weight: TextWeight,
+    translation: Vector3,
+) -> GlyphRun {
+    let metrics = line.metrics();
+    let glyphs = line_runs(line)
+        .flat_map(|run| glyph_run_to_run(run, text_color, default_weight, translation).glyphs)
+        .collect();
+    GlyphRun::new(
+        translation,
+        GlyphRunMetrics::from_float(metrics.ascent, metrics.descent, metrics.advance),
+        text_color,
+        default_weight,
         glyphs,
     )
 }
@@ -99,8 +126,9 @@ mod tests {
     use parley::FontContext;
 
     /// A bundled monospace font so the adapter test doesn't depend on system fonts.
-    const JETBRAINS_MONO: &[u8] =
-        include_bytes!("../../examples/shared/src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
+    const JETBRAINS_MONO: &[u8] = include_bytes!(
+        "../../examples/shared/src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+    );
 
     /// Shapes a known monospace ASCII string and asserts the produced glyph positions use the
     /// Y-up convention (y ≈ 0 relative to the baseline) and that x positions are monotonic, which
@@ -118,31 +146,33 @@ mod tests {
         let text = "HI";
         let mut builder = layout_context.ranged_builder(&mut font_context, text, 1.0, true);
         builder.push_default(parley::StyleProperty::FontSize(16.0));
-        builder.push_default(parley::StyleProperty::FontFamily(parley::FontFamily::named(
-            "JetBrains Mono",
-        )));
+        builder.push_default(parley::StyleProperty::FontFamily(
+            parley::FontFamily::named("JetBrains Mono"),
+        ));
         let mut layout: parley::Layout<GlyphBrush> = builder.build(text);
         layout.break_all_lines(None);
         layout.align(parley::Alignment::Start, Default::default());
 
         let line = layout.get(0).expect("single line");
         let parley_run = line_runs(&line).next().expect("has a run");
-        let run = glyph_run_to_run(
-            parley_run,
-            Color::WHITE,
-            TextWeight::NORMAL,
-            Vector3::ZERO,
-        );
+        let run = glyph_run_to_run(parley_run, Color::WHITE, TextWeight::NORMAL, Vector3::ZERO);
 
         assert_eq!(run.glyphs.len(), 2, "two glyphs for two ASCII chars");
         // Y-up: glyph y should be ~0 (baseline-relative), i.e. the same regardless of the run
         // baseline, not offset by the positive Y-down baseline.
         for glyph in &run.glyphs {
-            assert!(glyph.pos.1 == 0, "glyph y should be baseline-relative (Y-up), got {:?}", glyph.pos.1);
+            assert!(
+                glyph.pos.1 == 0,
+                "glyph y should be baseline-relative (Y-up), got {:?}",
+                glyph.pos.1
+            );
         }
         // X positions are increasing (monospace, one glyph per cell).
         let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.0).collect();
-        assert!(xs.windows(2).all(|w| w[1] > w[0]), "x positions must be increasing: {xs:?}");
+        assert!(
+            xs.windows(2).all(|w| w[1] > w[0]),
+            "x positions must be increasing: {xs:?}"
+        );
         // Every glyph resolves to the registered font id.
         for glyph in &run.glyphs {
             assert_eq!(glyph.key.font_id, font_id);

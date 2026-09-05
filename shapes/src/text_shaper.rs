@@ -4,9 +4,7 @@ use parley::StyleProperty;
 
 use massive_geometry::Color;
 
-use crate::{
-    GlyphBrush, GlyphRun, Shaper, TextWeight, glyph_run_to_run, line_runs,
-};
+use crate::{GlyphBrush, GlyphRun, Shaper, TextWeight, line_to_run};
 
 #[derive(Debug)]
 pub struct TextShaper<'a> {
@@ -76,7 +74,9 @@ impl<'a> TextShaper<'a> {
         let (font_context, layout_context) = shaper.contexts();
         let mut builder = layout_context.ranged_builder(font_context, self.text, 1.0, true);
         builder.push_default(StyleProperty::FontSize(font_size));
-        builder.push_default(StyleProperty::FontFamily(self.default_attributes.family.clone()));
+        builder.push_default(StyleProperty::FontFamily(
+            self.default_attributes.family.clone(),
+        ));
         builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
             self.default_attributes.weight.0 as f32,
         )));
@@ -94,13 +94,11 @@ impl<'a> TextShaper<'a> {
         layout.break_all_lines(None);
         layout.align(parley::Alignment::Start, Default::default());
 
-        // Use the first run of the first line for metrics (for now).
         // Feature: Support multi-line layout.
         let line = layout.get(0)?;
-        let run = line_runs(&line).next()?;
 
-        Some(glyph_run_to_run(
-            run,
+        Some(line_to_run(
+            &line,
             self.default_attributes.color,
             self.default_attributes.weight,
             Default::default(),
