@@ -1,8 +1,9 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use parley::FontContext;
 use parking_lot::{Mutex, MutexGuard};
+use parley::FontContext;
+use parley::fontique::{Collection, CollectionOptions, GenericFamily};
 
 use crate::{FontId, GlyphBrush};
 
@@ -54,8 +55,13 @@ impl Default for FontManager {
 impl FontManager {
     /// Create a completely bare font manager, no fallbacks, no fonts.
     pub fn bare() -> Self {
-        // Parley's `FontContext` doesn't load system fonts by default; `system()` loads them.
-        let font_context = FontContext::new();
+        let font_context = FontContext {
+            collection: Collection::new(CollectionOptions {
+                system_fonts: false,
+                ..Default::default()
+            }),
+            source_cache: Default::default(),
+        };
         Self::from(font_context)
     }
 
@@ -87,10 +93,38 @@ impl FontManager {
         // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
         let blob =
             parley::fontique::Blob::new(Arc::new(font_data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
-        inner.font_context.collection.register_fonts(blob.clone(), None);
-        let id = crate::font_id(&parley::FontData::new(blob.clone(), 0));
-        inner.fonts.insert(id, parley::FontData::new(blob, 0));
-        vec![id]
+        let families = inner
+            .font_context
+            .collection
+            .register_fonts(blob.clone(), None);
+        for generic in [
+            GenericFamily::SansSerif,
+            GenericFamily::Serif,
+            GenericFamily::Monospace,
+        ] {
+            if inner
+                .font_context
+                .collection
+                .generic_families(generic)
+                .next()
+                .is_none()
+            {
+                inner
+                    .font_context
+                    .collection
+                    .set_generic_families(generic, families.iter().map(|(family, _)| *family));
+            }
+        }
+        let mut ids = Vec::new();
+        for (_, faces) in families {
+            for face in faces {
+                let font = parley::FontData::new(blob.clone(), face.index());
+                let id = crate::font_id(&font);
+                inner.fonts.insert(id, font);
+                ids.push(id);
+            }
+        }
+        ids
     }
 
     /// Rebuild the font registry from the whole collection, keyed by [`FontId`], so any font
