@@ -365,10 +365,7 @@ fn shape_log_line(
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
-    let bytes = bytes
-        .strip_suffix(b"\r\n")
-        .or_else(|| bytes.strip_suffix(b"\n"))
-        .unwrap_or(bytes);
+    let bytes = bytes.trim_ascii_end();
     // Optimization: Share Parser between runs.
     let mut parser = escape::parser::Parser::new();
     let parsed = parser.parse_as_vec(bytes);
