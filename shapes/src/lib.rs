@@ -5,8 +5,8 @@ mod parley_adapter;
 mod shape;
 mod text_shaper;
 
-use derive_more::{Deref, DerefMut};
 pub use clip_box::*;
+use derive_more::{Deref, DerefMut};
 pub use font_manager::*;
 pub use glyph_run::*;
 pub use parley_adapter::*;

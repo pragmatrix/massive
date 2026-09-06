@@ -241,14 +241,12 @@ mod tests {
     /// other axis rather than being treated as fully clipped.
     #[test]
     fn crop_image_handles_sentinel_edges() {
-        let bytes = include_bytes!("../../../../src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
+        let bytes = include_bytes!(
+            "../../../../src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+        );
         let font_ref = FontRef::from_index(bytes, 0).unwrap();
         let mut context = ScaleContext::new();
-        let mut scaler = context
-            .builder(font_ref)
-            .size(13.0)
-            .hint(true)
-            .build();
+        let mut scaler = context.builder(font_ref).size(13.0).hint(true).build();
 
         let id = font_ref.charmap().map('a');
         let img = Render::new(&[Source::Outline])
