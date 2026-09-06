@@ -3,9 +3,11 @@ use std::ops::Range;
 use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
+use parley::fontique::GenericFamily;
+use parley::{Alignment, FontWeight, Layout, LineHeight, StyleProperty};
+
 use massive_geometry::{Color, Vector3};
 use massive_shapes::{GlyphBrush, GlyphRun, Shaper, TextWeight, glyph_run_to_run, line_runs};
-use parley::{Alignment, FontWeight, LineHeight, StyleProperty};
 
 /// A serializable representation of highlighted code.
 #[derive(Debug, Serialize, Deserialize)]
@@ -47,9 +49,7 @@ pub fn shape_text(
     let (fcx, lcx) = shaper.contexts();
     let mut builder = lcx.ranged_builder(fcx, text, 1.0, true);
     builder.push_default(StyleProperty::FontSize(font_size));
-    builder.push_default(StyleProperty::FontFamily(
-        parley::fontique::GenericFamily::Monospace.into(),
-    ));
+    builder.push_default(StyleProperty::FontFamily(GenericFamily::Monospace.into()));
     builder.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line_height)));
     for ta in attributes {
         builder.push(
@@ -64,7 +64,7 @@ pub fn shape_text(
         );
     }
 
-    let mut layout: parley::Layout<GlyphBrush> = builder.build(text);
+    let mut layout: Layout<GlyphBrush> = builder.build(text);
     layout.break_all_lines(None);
     layout.align(Alignment::Start, Default::default());
 

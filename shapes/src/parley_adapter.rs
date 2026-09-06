@@ -8,7 +8,9 @@
 //! [`crate::GlyphRun`]): Parley lays out in Y-down, so glyph y offsets are shifted back to the
 //! run baseline here.
 
-use parley::{GlyphRun as ParleyGlyphRun, LayoutContext, PositionedLayoutItem, Run};
+use parley::{
+    FontData, GlyphRun as ParleyGlyphRun, LayoutContext, Line, PositionedLayoutItem, Run,
+};
 
 use massive_geometry::{Color, Vector3};
 
@@ -23,7 +25,7 @@ pub type GlyphBrush = [u8; 4];
 /// (e.g. a `.ttc` collection) may hold several faces, so the face `index` is included to keep each
 /// face a distinct [`FontId`]. This needs no registry lookup and matches the key the renderer's
 /// rasterization registry is keyed on.
-pub fn font_id(font: &parley::FontData) -> FontId {
+pub fn font_id(font: &FontData) -> FontId {
     FontId {
         blob_id: font.data.id(),
         index: font.index,
@@ -76,7 +78,7 @@ pub fn glyph_run_to_run<'a>(
 
 /// Convert every font and style run in a line onto a common baseline.
 pub fn line_to_run(
-    line: &parley::Line<'_, GlyphBrush>,
+    line: &Line<'_, GlyphBrush>,
     text_color: Color,
     default_weight: TextWeight,
     translation: Vector3,
@@ -110,7 +112,7 @@ pub fn new_layout_context() -> LayoutContext<GlyphBrush> {
 
 /// Iterate the [`ParleyGlyphRun`]s in a line.
 pub fn line_runs<'a>(
-    line: &parley::Line<'a, GlyphBrush>,
+    line: &Line<'a, GlyphBrush>,
 ) -> impl Iterator<Item = ParleyGlyphRun<'a, GlyphBrush>> + 'a {
     line.items().filter_map(|item| match item {
         PositionedLayoutItem::GlyphRun(run) => Some(run),
@@ -120,10 +122,16 @@ pub fn line_runs<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::convert::AsRef;
+    use std::sync::Arc;
+
+    use parley::fontique::Blob;
+    use parley::{Alignment, FontContext, FontFamily, Layout, StyleProperty};
+
+    use massive_geometry::{Color, Vector3};
+
     use super::*;
     use crate::TextWeight;
-    use massive_geometry::{Color, Vector3};
-    use parley::FontContext;
 
     /// A bundled monospace font so the adapter test doesn't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
@@ -136,22 +144,21 @@ mod tests {
     #[test]
     fn glyph_run_positions_are_y_up_and_monotonic() {
         let mut font_context = FontContext::new();
-        let blob = parley::fontique::Blob::new(std::sync::Arc::new(JETBRAINS_MONO)
-            as std::sync::Arc<dyn std::convert::AsRef<[u8]> + Send + Sync>);
-        let font_data = parley::FontData::new(blob.clone(), 0);
+        let blob = Blob::new(Arc::new(JETBRAINS_MONO) as Arc<dyn AsRef<[u8]> + Send + Sync>);
+        let font_data = FontData::new(blob.clone(), 0);
         font_context.collection.register_fonts(blob, None);
         let font_id = font_id(&font_data);
 
         let mut layout_context = LayoutContext::new();
         let text = "HI";
         let mut builder = layout_context.ranged_builder(&mut font_context, text, 1.0, true);
-        builder.push_default(parley::StyleProperty::FontSize(16.0));
-        builder.push_default(parley::StyleProperty::FontFamily(
-            parley::FontFamily::named("JetBrains Mono"),
-        ));
-        let mut layout: parley::Layout<GlyphBrush> = builder.build(text);
+        builder.push_default(StyleProperty::FontSize(16.0));
+        builder.push_default(StyleProperty::FontFamily(FontFamily::named(
+            "JetBrains Mono",
+        )));
+        let mut layout: Layout<GlyphBrush> = builder.build(text);
         layout.break_all_lines(None);
-        layout.align(parley::Alignment::Start, Default::default());
+        layout.align(Alignment::Start, Default::default());
 
         let line = layout.get(0).expect("single line");
         let parley_run = line_runs(&line).next().expect("has a run");

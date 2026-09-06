@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use parley::StyleProperty;
+use parley::{Alignment, FontFamily, FontWeight, Layout, StyleProperty};
 
 use massive_geometry::Color;
 
@@ -16,7 +16,7 @@ pub struct TextShaper<'a> {
 
 #[derive(Debug)]
 pub struct TextAttributes<'a> {
-    family: parley::FontFamily<'a>,
+    family: FontFamily<'a>,
     weight: TextWeight,
     color: Color,
 }
@@ -24,7 +24,7 @@ pub struct TextAttributes<'a> {
 impl Default for TextAttributes<'_> {
     fn default() -> Self {
         Self {
-            family: parley::FontFamily::Source(std::borrow::Cow::Borrowed("sans-serif")),
+            family: FontFamily::Source(std::borrow::Cow::Borrowed("sans-serif")),
             weight: TextWeight::default(),
             color: Color::BLACK,
         }
@@ -32,7 +32,7 @@ impl Default for TextAttributes<'_> {
 }
 
 impl<'a> TextAttributes<'a> {
-    pub fn with_family(mut self, family: parley::FontFamily<'a>) -> Self {
+    pub fn with_family(mut self, family: FontFamily<'a>) -> Self {
         self.family = family;
         self
     }
@@ -77,7 +77,7 @@ impl<'a> TextShaper<'a> {
         builder.push_default(StyleProperty::FontFamily(
             self.default_attributes.family.clone(),
         ));
-        builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
+        builder.push_default(StyleProperty::FontWeight(FontWeight::new(
             self.default_attributes.weight.0 as f32,
         )));
         for (range, attrs) in &self.range_attributes {
@@ -86,13 +86,13 @@ impl<'a> TextShaper<'a> {
                 range.clone(),
             );
             builder.push(
-                StyleProperty::FontWeight(parley::FontWeight::new(attrs.weight.0 as f32)),
+                StyleProperty::FontWeight(FontWeight::new(attrs.weight.0 as f32)),
                 range.clone(),
             );
         }
-        let mut layout: parley::Layout<GlyphBrush> = builder.build(self.text);
+        let mut layout: Layout<GlyphBrush> = builder.build(self.text);
         layout.break_all_lines(None);
-        layout.align(parley::Alignment::Start, Default::default());
+        layout.align(Alignment::Start, Default::default());
 
         // Feature: Support multi-line layout.
         let line = layout.get(0)?;

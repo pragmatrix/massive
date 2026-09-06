@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, MutexGuard};
-use parley::FontContext;
-use parley::fontique::{Collection, CollectionOptions, GenericFamily};
+use parley::fontique::{Blob, Collection, CollectionOptions, FamilyId, GenericFamily};
+use parley::{FontContext, FontData, LayoutContext};
 
 use crate::{FontId, GlyphBrush};
 
@@ -29,12 +29,12 @@ impl std::fmt::Debug for FontManager {
 
 struct FontManagerInner {
     font_context: FontContext,
-    layout_context: parley::LayoutContext<GlyphBrush>,
+    layout_context: LayoutContext<GlyphBrush>,
     /// Concrete fonts keyed by [`FontId`]. Populated by `rebuild_fonts` to include every font the
     /// collection may select (including system fallbacks like emoji), so rasterization can resolve
     /// any glyph's `FontId` to font data. The key must include the face index because a single
     /// file may hold several faces that share one `Blob` id.
-    fonts: HashMap<FontId, parley::FontData>,
+    fonts: HashMap<FontId, FontData>,
 }
 
 /// A shaping session holding the manager's lock.
@@ -86,8 +86,7 @@ impl FontManager {
     pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FontId> {
         let mut inner = self.0.lock();
         // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
-        let blob =
-            parley::fontique::Blob::new(Arc::new(font_data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
+        let blob = Blob::new(Arc::new(font_data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
         let families = inner
             .font_context
             .collection
@@ -113,7 +112,7 @@ impl FontManager {
         let mut ids = Vec::new();
         for (_, faces) in families {
             for face in faces {
-                let font = parley::FontData::new(blob.clone(), face.index());
+                let font = FontData::new(blob.clone(), face.index());
                 let id = crate::font_id(&font);
                 inner.fonts.insert(id, font);
                 ids.push(id);
@@ -146,8 +145,8 @@ impl FontManager {
                 let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
                     continue;
                 };
-                let id = crate::font_id(&parley::FontData::new(blob.clone(), font_info.index()));
-                fonts.insert(id, parley::FontData::new(blob, font_info.index()));
+                let id = crate::font_id(&FontData::new(blob.clone(), font_info.index()));
+                fonts.insert(id, FontData::new(blob, font_info.index()));
             }
         }
         inner.fonts = fonts;
@@ -200,7 +199,7 @@ impl FontManager {
             .family_names()
             .map(str::to_owned)
             .collect();
-        let mut scored: Vec<(usize, parley::fontique::FamilyId)> = Vec::new();
+        let mut scored: Vec<(usize, FamilyId)> = Vec::new();
         for name in family_names {
             let Some(family_id) = inner.font_context.collection.family_id(&name) else {
                 continue;
@@ -242,8 +241,8 @@ impl FontManager {
             .append_fallbacks(FallbackKey::new(latn, None), families);
     }
 
-    /// Resolve the [`parley::FontData`] for a [`FontId`].
-    pub fn font_data(&self, id: FontId) -> Option<parley::FontData> {
+    /// Resolve the [`FontData`] for a [`FontId`].
+    pub fn font_data(&self, id: FontId) -> Option<FontData> {
         self.0.lock().fonts.get(&id).cloned()
     }
 
@@ -261,14 +260,14 @@ impl FontManagerInner {
     ///
     /// Returns the `&mut` pair so callers can build a layout against both without holding a
     /// closure. Both come from disjoint fields of the same inner, so the borrows are valid.
-    pub fn contexts(&mut self) -> (&mut FontContext, &mut parley::LayoutContext<GlyphBrush>) {
+    pub fn contexts(&mut self) -> (&mut FontContext, &mut LayoutContext<GlyphBrush>) {
         (&mut self.font_context, &mut self.layout_context)
     }
 }
 
 impl Shaper<'_> {
     /// Borrow the two Parley contexts for shaping.
-    pub fn contexts(&mut self) -> (&mut FontContext, &mut parley::LayoutContext<GlyphBrush>) {
+    pub fn contexts(&mut self) -> (&mut FontContext, &mut LayoutContext<GlyphBrush>) {
         self.inner.contexts()
     }
 }
@@ -277,7 +276,7 @@ impl From<FontContext> for FontManager {
     fn from(font_context: FontContext) -> Self {
         FontManager(Arc::new(Mutex::new(FontManagerInner {
             font_context,
-            layout_context: parley::LayoutContext::new(),
+            layout_context: LayoutContext::new(),
             fonts: HashMap::new(),
         })))
     }
@@ -286,7 +285,7 @@ impl From<FontContext> for FontManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parley::StyleProperty;
+    use parley::{Alignment, Layout, StyleProperty};
 
     /// A bundled monospace font so the test doesn't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
@@ -323,9 +322,9 @@ mod tests {
         let (fcx, lcx) = shaper.contexts();
         let mut builder = lcx.ranged_builder(fcx, "😀", 1.0, true);
         builder.push_default(StyleProperty::FontSize(16.0));
-        let mut layout: parley::Layout<GlyphBrush> = builder.build("😀");
+        let mut layout: Layout<GlyphBrush> = builder.build("😀");
         layout.break_all_lines(None);
-        layout.align(parley::Alignment::Start, Default::default());
+        layout.align(Alignment::Start, Default::default());
         let line = layout.get(0).expect("single line");
         let run = crate::line_runs(&line).next().expect("has a run");
         let font_id = crate::font_id(run.run().font());

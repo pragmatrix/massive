@@ -5,6 +5,8 @@
 //! layout pipeline; the final glyphs are converted to [`massive_shapes::GlyphRun`] through Parley
 //! so the renderer data path stays on the Parley-based text pipeline.
 
+use parley::{Alignment, Layout, StyleProperty};
+
 use massive_geometry::{Color, Vector3};
 use massive_shapes::{GlyphBrush, GlyphRun, Shaper, TextWeight};
 
@@ -33,10 +35,10 @@ pub fn cosmic_run_to_glyph_run(
 
     let (fcx, lcx) = shaper.contexts();
     let mut builder = lcx.ranged_builder(fcx, text, 1.0, true);
-    builder.push_default(parley::StyleProperty::FontSize(metrics));
-    let mut layout: parley::Layout<GlyphBrush> = builder.build(text);
+    builder.push_default(StyleProperty::FontSize(metrics));
+    let mut layout: Layout<GlyphBrush> = builder.build(text);
     layout.break_all_lines(None);
-    layout.align(parley::Alignment::Start, Default::default());
+    layout.align(Alignment::Start, Default::default());
     let line = layout.get(0)?;
     Some(massive_shapes::line_to_run(
         &line,
