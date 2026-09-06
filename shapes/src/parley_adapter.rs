@@ -8,9 +8,7 @@
 //! [`crate::GlyphRun`]): Parley lays out in Y-down, so glyph y offsets are shifted back to the
 //! run baseline here.
 
-use parley::{
-    FontData, GlyphRun as ParleyGlyphRun, LayoutContext, Line, PositionedLayoutItem, Run,
-};
+use parley::{GlyphRun as ParleyGlyphRun, LayoutContext, Line, PositionedLayoutItem, Run};
 
 use massive_geometry::{Color, Vector3};
 
@@ -18,19 +16,6 @@ use crate::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Default Parley brush type (RGBA bytes). Callers overwrite color via [`GlyphRun::with_color`].
 pub type GlyphBrush = [u8; 4];
-
-/// Derive the opaque [`FaceId`] for a font face from its Parley `Blob` unique id and face index.
-///
-/// The `Blob` id is a distinct atomic counter value, but it identifies a whole font *file*. A file
-/// (e.g. a `.ttc` collection) may hold several faces, so the face `index` is included to keep each
-/// face a distinct [`FaceId`]. This needs no registry lookup and matches the key the renderer's
-/// rasterization registry is keyed on.
-pub fn face_id(font: &FontData) -> FaceId {
-    FaceId {
-        blob_id: font.data.id(),
-        index: font.index,
-    }
-}
 
 /// Convert a single Parley [`ParleyGlyphRun`] into a [`GlyphRun`].
 ///
@@ -51,7 +36,7 @@ pub fn glyph_run_to_run<'a>(
     } else {
         weight
     };
-    let face_id = face_id(run.font());
+    let face_id = FaceId::of_font_data(run.font());
     let font_size = run.font_size();
 
     let glyphs = parley_run
@@ -145,9 +130,8 @@ mod tests {
     fn glyph_run_positions_are_y_up_and_monotonic() {
         let mut font_context = FontContext::new();
         let blob = Blob::new(Arc::new(JETBRAINS_MONO) as Arc<dyn AsRef<[u8]> + Send + Sync>);
-        let font_data = FontData::new(blob.clone(), 0);
-        font_context.collection.register_fonts(blob, None);
-        let face_id = face_id(&font_data);
+        font_context.collection.register_fonts(blob.clone(), None);
+        let face_id = FaceId::new(blob.id(), 0);
 
         let mut layout_context = LayoutContext::new();
         let text = "HI";

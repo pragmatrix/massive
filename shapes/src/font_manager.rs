@@ -115,13 +115,13 @@ impl FontManager {
             }
         }
         // A single font file (e.g. a `.ttc` collection) can hold several faces, each with its own
-        // index. [`crate::face_id`] keys on the file's blob id *and* the face index, so one file
-        // yields one [`FaceId`] per face — hence the nested loop and the multiple ids returned.
+        // index. [`FaceId`] keys on the file's blob id *and* the face index, so one file yields one
+        // [`FaceId`] per face — hence the nested loop and the multiple ids returned.
         let mut ids = Vec::new();
         for (_, faces) in families {
             for face in faces {
                 let font = FontData::new(blob.clone(), face.index());
-                let id = crate::face_id(&font);
+                let id = FaceId::of_font_data(&font);
                 inner.fonts.insert(id, font);
                 ids.push(id);
             }
@@ -153,8 +153,9 @@ impl FontManager {
                 let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
                     continue;
                 };
-                let id = crate::face_id(&FontData::new(blob.clone(), font_info.index()));
-                fonts.insert(id, FontData::new(blob, font_info.index()));
+                let font = FontData::new(blob, font_info.index());
+                let id = FaceId::of_font_data(&font);
+                fonts.insert(id, font);
             }
         }
         inner.fonts = fonts;
@@ -335,7 +336,7 @@ mod tests {
         layout.align(Alignment::Start, Default::default());
         let line = layout.get(0).expect("single line");
         let run = crate::line_runs(&line).next().expect("has a run");
-        let face_id = crate::face_id(run.run().font());
+        let face_id = FaceId::of_font_data(run.run().font());
         drop(shaper);
         let font_data = fonts.font_data(face_id);
         assert!(
