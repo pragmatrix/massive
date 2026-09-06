@@ -3,7 +3,7 @@ use parley::FontData;
 use serde::{Deserialize, Serialize};
 use swash::zeno::Placement;
 
-use massive_geometry::{Bounds, Color, SizePx, Vector3};
+use massive_geometry::{Bounds, Color, PointPx, SizePx, Vector3};
 
 use crate::ClipBoxPx;
 
@@ -106,8 +106,8 @@ impl GlyphRun {
         let max_ascent = self.metrics.max_ascent;
         let pos = glyph.pos;
 
-        let left = pos.0 + placement.left;
-        let top = pos.1 + (max_ascent as i32) - placement.top;
+        let left = pos.x + placement.left;
+        let top = pos.y + (max_ascent as i32) - placement.top;
         let right = left + placement.width as i32;
         let bottom = top + placement.height as i32;
 
@@ -174,24 +174,27 @@ impl TextWeight {
 pub struct RunGlyph {
     /// The position (left / top) relative to the start of the line in pixel.
     ///
-    /// x (.0) usually starts with zero (may probably be negative with negative left side bearings).
-    /// y is usually 0 meaning that the glyph "boxes" usually are having the same height.
+    /// x usually starts with zero (may be negative with negative left side bearings). y is
+    /// usually 0 meaning that the glyph "boxes" usually are having the same height.
     ///
     /// This is the left top position of the "advance box" (in typography terms). Cosmic text
     /// uses the term "hit box".
-    pub pos: (i32, i32),
+    pub pos: PointPx,
     pub key: GlyphKey,
 }
 
 impl RunGlyph {
-    pub fn new(pos: (i32, i32), key: GlyphKey) -> Self {
-        Self { pos, key }
+    pub fn new(pos: impl Into<PointPx>, key: GlyphKey) -> Self {
+        Self {
+            pos: pos.into(),
+            key,
+        }
     }
 
     // The bounds enclosing a pixel at the offset of the glyphs hitbox.
     pub fn pixel_bounds_at(&self, offset: (u32, u32)) -> Bounds {
-        let x = self.pos.0 + offset.0 as i32;
-        let y = self.pos.1 + offset.1 as i32;
+        let x = self.pos.x + offset.0 as i32;
+        let y = self.pos.y + offset.1 as i32;
 
         Bounds::new((x as f64, y as f64), ((x + 1) as f64, (y + 1) as f64))
     }

@@ -1,4 +1,4 @@
-use massive_geometry::PointPx;
+use massive_geometry::{PointPx, SizePx, VectorPx};
 
 /// The crop window in a glyph's local pixel space (origin = advance origin, Y-up).
 ///
@@ -25,6 +25,43 @@ impl ClipBoxPx {
         min: PointPx::new(i32::MIN, i32::MAX),
         max: PointPx::new(i32::MAX, i32::MIN),
     };
+
+    /// Move both edges by `offset`. Sentinels stay sentinel: a shifted sentinel edge means
+    /// overflow is still allowed on that side, so translation never manufactures a clip edge.
+    #[must_use]
+    pub fn translate(&self, offset: VectorPx) -> Self {
+        let shift = |p: PointPx| {
+            if p.x == i32::MIN || p.x == i32::MAX {
+                p
+            } else {
+                PointPx::new(
+                    p.x + offset.x,
+                    if p.y == i32::MIN || p.y == i32::MAX {
+                        p.y
+                    } else {
+                        p.y + offset.y
+                    },
+                )
+            }
+        };
+        Self {
+            min: shift(self.min),
+            max: shift(self.max),
+        }
+    }
+
+    /// Extend (only) the left edge to `x` when that is further left. Used for ink that draws
+    /// backward over a vacated cell; never narrows an existing window.
+    pub fn widen_left_to(&mut self, x: i32) {
+        if self.min.x != i32::MIN {
+            self.min.x = self.min.x.min(x);
+        }
+    }
+
+    /// Horizontal extent of the window, for finite edges.
+    pub fn span_px(&self) -> SizePx {
+        SizePx::new((self.max.x - self.min.x) as u32, 0)
+    }
 }
 
 // `euclid::Point2D` doesn't implement `Ord`, but `GlyphKey` (which embeds a `ClipBoxPx`)

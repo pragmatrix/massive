@@ -161,13 +161,13 @@ mod tests {
         // baseline, not offset by the positive Y-down baseline.
         for glyph in &run.glyphs {
             assert!(
-                glyph.pos.1 == 0,
+                glyph.pos.y == 0,
                 "glyph y should be baseline-relative (Y-up), got {:?}",
-                glyph.pos.1
+                glyph.pos.y
             );
         }
         // X positions are increasing (monospace, one glyph per cell).
-        let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.0).collect();
+        let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.x).collect();
         assert!(
             xs.windows(2).all(|w| w[1] > w[0]),
             "x positions must be increasing: {xs:?}"
