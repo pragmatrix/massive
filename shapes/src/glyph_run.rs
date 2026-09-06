@@ -3,7 +3,7 @@ use parley::FontData;
 use serde::{Deserialize, Serialize};
 use swash::zeno::Placement;
 
-use massive_geometry::{Bounds, Color, SizePx, Vector3};
+use massive_geometry::{Bounds, ClipBoxPx, Color, SizePx, Vector3};
 
 /// Opaque identifier for a font face.
 ///
@@ -201,15 +201,25 @@ pub struct GlyphKey {
     pub glyph_id: u16,
     pub font_size_bits: u32,
     pub weight: TextWeight,
+    /// The positioned crop window (min/max sentinel rect). Part of the rasterization identity:
+    /// a glyph cropped differently is a different bitmap.
+    pub clip_box: ClipBoxPx,
 }
 
 impl GlyphKey {
-    pub fn new(face_id: FaceId, glyph_id: u16, font_size: f32, weight: TextWeight) -> Self {
+    pub fn new(
+        face_id: FaceId,
+        glyph_id: u16,
+        font_size: f32,
+        weight: TextWeight,
+        clip_box: ClipBoxPx,
+    ) -> Self {
         Self {
             face_id,
             glyph_id,
             font_size_bits: font_size.to_bits(),
             weight,
+            clip_box,
         }
     }
 }

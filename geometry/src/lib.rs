@@ -80,6 +80,48 @@ pub type PointPx = euclid::Point2D<i32, PixelUnit>;
 pub type RectPx = euclid::Rect<i32, PixelUnit>;
 pub type BoxPx = euclid::Box2D<i32, PixelUnit>;
 
+/// The crop window in a glyph's local pixel space (origin = advance origin, Y-up).
+///
+/// A finite edge clips there; a sentinel edge (`i32::MIN`/`i32::MAX`) allows overflow on that
+/// side. This mirrors the existing `ClipRect::NONE` convention (`[f32::MIN, f32::MAX]`).
+///
+/// The origin is the advance origin — the top-left of the cell box, on the baseline. X
+/// increases right, Y increases upward, matching the glyph ink-box frame.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct ClipBoxPx {
+    /// Left / top edge. `i32::MIN` = overflow allowed on that side.
+    pub min: PointPx,
+    /// Right / bottom edge. `i32::MAX` = overflow allowed on that side.
+    pub max: PointPx,
+}
+
+impl ClipBoxPx {
+    /// A crop window with no clipping on any edge (full overflow).
+    pub const UNCLIPPED: Self = Self {
+        min: PointPx::new(i32::MIN, i32::MIN),
+        max: PointPx::new(i32::MAX, i32::MAX),
+    };
+}
+
+// `euclid::Point2D` doesn't implement `Ord`, but `GlyphKey` (which embeds a `ClipBoxPx`)
+// derives it, so order lexicographically by the two points.
+impl PartialOrd for ClipBoxPx {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for ClipBoxPx {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (self.min.x, self.min.y, self.max.x, self.max.y).cmp(&(
+            other.min.x,
+            other.min.y,
+            other.max.x,
+            other.max.y,
+        ))
+    }
+}
+
 pub trait ToPixels {
     type Target;
     fn to_pixels(&self) -> Self::Target;

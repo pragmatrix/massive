@@ -10,7 +10,7 @@
 
 use parley::{GlyphRun as ParleyGlyphRun, LayoutContext, Line, PositionedLayoutItem, Run};
 
-use massive_geometry::{Color, Vector3};
+use massive_geometry::{ClipBoxPx, Color, Vector3};
 
 use crate::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
@@ -47,7 +47,13 @@ pub fn glyph_run_to_run<'a>(
             let pos = (glyph.x.round() as i32, (glyph.y - baseline).round() as i32);
             RunGlyph::new(
                 pos,
-                GlyphKey::new(face_id, glyph.id as u16, font_size, weight),
+                GlyphKey::new(
+                    face_id,
+                    glyph.id as u16,
+                    font_size,
+                    weight,
+                    ClipBoxPx::UNCLIPPED,
+                ),
             )
         })
         .collect();

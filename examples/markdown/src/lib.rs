@@ -17,7 +17,7 @@ use cosmic_text::fontdb;
 use parley::FontData;
 use swash::FontRef;
 
-use massive_geometry::{Color, Vector3};
+use massive_geometry::{ClipBoxPx, Color, Vector3};
 use massive_shapes::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Bridges cosmic-text's font database to Parley's, so cosmic-text glyphs can be converted to
@@ -161,6 +161,7 @@ impl FontBridge {
                         glyph.glyph_id,
                         glyph.font_size,
                         TextWeight(glyph.font_weight.0),
+                        ClipBoxPx::UNCLIPPED,
                     ),
                 )
             })
