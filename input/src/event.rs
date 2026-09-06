@@ -120,7 +120,7 @@ impl<'history, E: InputEvent> Event<'history, E> {
             AggregationEvent::MouseInput { state, button, .. }
                 if button == mouse_button && state == ElementState::Pressed =>
             {
-                Some(self.pos().unwrap())
+                self.pos()
             }
             _ => None,
         }
@@ -132,7 +132,7 @@ impl<'history, E: InputEvent> Event<'history, E> {
             AggregationEvent::MouseInput { state, button, .. }
                 if button == mouse_button && state == ElementState::Released =>
             {
-                Some(self.pos().unwrap())
+                self.pos()
             }
             _ => None,
         }
