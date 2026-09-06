@@ -1,23 +1,24 @@
-use std::{collections::HashSet, fmt};
+use std::collections::HashSet;
+use std::fmt;
 
 use anyhow::Result;
-use cosmic_text::{self as text, SwashContent};
+
 use swash::scale::ScaleContext;
+use swash::scale::image::Content as SwashContent;
+use swash::zeno::Placement;
 use wgpu::Device;
 
 use massive_geometry::{Point, Vector3};
 use massive_shapes::{GlyphRun, RunGlyph};
 
-use crate::{
-    FontManager,
-    glyph::{
-        GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas,
-        glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
-    },
-    renderer::{PreparationContext, RenderBatch},
-    text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
-    tools::PipelineVariant,
-};
+use crate::FontManager;
+use crate::glyph::glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding};
+use crate::glyph::{GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas};
+
+use crate::renderer::{PreparationContext, RenderBatch};
+use crate::text_layer::atlas_renderer::AtlasRenderer;
+use crate::text_layer::{color_atlas, sdf_atlas};
+use crate::tools::PipelineVariant;
 
 pub struct TextLayerRenderer {
     // Optimization: This is used for `FontSystem::get_font()` only, which needs &mut. In the long
@@ -42,7 +43,7 @@ pub struct TextLayerRenderer {
 impl fmt::Debug for TextLayerRenderer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("TextLayerRenderer")
-            .field("font_system", &self.fonts)
+            .field("fonts", &self.fonts)
             // .field("scale_context", &self.scale_context)
             .field("empty_glyphs", &self.empty_glyphs)
             .field("sdf_renderer", &self.sdf_renderer)
@@ -143,7 +144,7 @@ impl TextLayerRenderer {
         context: &PreparationContext,
         fonts: &FontManager,
         glyph: &RunGlyph,
-    ) -> Result<Option<(glyph_atlas::Rectangle, text::Placement, AtlasKind)>> {
+    ) -> Result<Option<(glyph_atlas::Rectangle, Placement, AtlasKind)>> {
         let glyph_key = RasterizedGlyphKey {
             glyph: glyph.key,
             param: GlyphRasterizationParam {
@@ -167,15 +168,14 @@ impl TextLayerRenderer {
 
         // Not yet in an atlas and not empty. Now rasterize.
 
-        let image = {
-            // Architecture: We lock this for the least amount of time, because it might be shared with
-            // client application's layout processes (which usually take longer).
-            //
-            // A better solution would be to build our own Font cache, because it's only used for
-            // looking up the Arc<Font> for the glyph using get_font().
-            let mut font_system = fonts.lock();
-            rasterize_glyph_with_padding(&mut font_system, &mut self.scale_context, &glyph_key)
+        // Resolve the concrete font for this glyph's key.
+        let Some(font) = fonts.font_data(glyph_key.glyph.face_id) else {
+            log::warn!("did not find font {:?}", glyph_key.glyph.face_id);
+            self.empty_glyphs.insert(glyph_key);
+            return Ok(None);
         };
+
+        let image = rasterize_glyph_with_padding(&font, &mut self.scale_context, &glyph_key);
 
         let Some(image) = image else {
             self.empty_glyphs.insert(glyph_key);
@@ -209,11 +209,7 @@ impl TextLayerRenderer {
         }
     }
 
-    fn glyph_vertices(
-        run: &GlyphRun,
-        glyph: &RunGlyph,
-        placement: &text::Placement,
-    ) -> [Vector3; 4] {
+    fn glyph_vertices(run: &GlyphRun, glyph: &RunGlyph, placement: &Placement) -> [Vector3; 4] {
         let (lt, rb) = run.place_glyph(glyph, placement);
 
         // Convert the pixel rect to 3D Points.

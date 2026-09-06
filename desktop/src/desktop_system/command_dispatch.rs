@@ -542,7 +542,7 @@ impl DesktopSystem {
                         properties,
                         parent_location,
                         frame.scene(),
-                        &mut self.fonts.lock(),
+                        &self.fonts,
                         frame.movement_runtime(),
                     ),
                 )?;
@@ -575,7 +575,7 @@ impl DesktopSystem {
                     profile,
                     massive_geometry::Size::default(),
                     frame.scene(),
-                    &mut self.fonts.lock(),
+                    &self.fonts,
                     frame.movement_runtime(),
                 );
                 self.aggregates.launchers.insert(id, presenter)?;

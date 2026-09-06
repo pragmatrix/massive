@@ -15,7 +15,6 @@ massive-shell = { workspace = true }
 
 postcard = { workspace = true }
 anyhow = { workspace = true }
-cosmic-text = { workspace = true }
 winit = { workspace = true }
 chrono = { workspace = true }
 tokio = { workspace = true }

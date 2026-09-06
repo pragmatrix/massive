@@ -24,14 +24,16 @@ use inlyne::utils::Rect;
 use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
-use massive_geometry::{SizePx, Vector3};
+use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::GlyphRun;
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 
 use shared::application::{Application, UpdateResponse};
-use shared::{fonts, positioning};
+use shared::fonts;
+
+use markdown::FontBridge;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -60,16 +62,17 @@ async fn main() -> Result<()> {
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
-    let fonts = FontManager::bare("en-US").with_font(fonts::MONTSERRAT_REGULAR);
+    // Register the bundled font into both databases and build the fontdb::ID -> FaceId map.
+    let bridge = FontBridge::new(
+        FontManager::bare(),
+        fontdb::Database::new(),
+        Arc::from(fonts::MONTSERRAT_REGULAR),
+    );
 
     // Need an equivalent font_system for inlyne.
     let font_system = {
         // Don't load system fonts for now, this way we get the same result on wasm and local runs.
-        let mut font_db = fontdb::Database::new();
-        let montserrat = fonts::MONTSERRAT_REGULAR;
-        let source = fontdb::Source::Binary(Arc::new(montserrat));
-        font_db.load_font_source(source);
-        FontSystem::new_with_locale_and_db("en-US".into(), font_db)
+        FontSystem::new_with_locale_and_db("en-US".into(), bridge.font_db().clone())
     };
 
     let scale_factor = ctx.primary_monitor_scale_factor();
@@ -81,12 +84,21 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let mut renderer = window.renderer().with_text(fonts).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(bridge.font_manager().clone())
+        .build()
+        .await?;
 
     let markdown = include_str!("replicator.org.md");
 
-    let (glyph_runs, content_size) =
-        markdown_to_glyph_runs(scale_factor, physical_size, font_system.clone(), markdown)?;
+    let (glyph_runs, content_size) = markdown_to_glyph_runs(
+        &bridge,
+        scale_factor,
+        physical_size,
+        font_system.clone(),
+        markdown,
+    )?;
 
     let mut application = Application::default();
     let scene = ctx.new_scene();
@@ -134,6 +146,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 }
 
 fn markdown_to_glyph_runs(
+    bridge: &FontBridge,
     window_scale_factor: f64,
     content_size: PhysicalSize<u32>,
     font_system: Arc<Mutex<FontSystem>>,
@@ -212,11 +225,10 @@ fn markdown_to_glyph_runs(
         // Note: text_area.bounds are not set (for some reason?).
         for text_area in text_areas {
             let line_height = text_area.buffer.metrics().line_height;
-            for run in text_area.buffer.layout_runs() {
-                let top = text_area.top + run.line_top;
-                let translation = Vector3::new(text_area.left as _, top as _, 0.0);
-                let glyph_run = positioning::to_glyph_run(translation, &run, line_height);
-
+            for glyph_run in
+                bridge.cosmic_buffer_to_glyph_runs(text_area.buffer, text_area.left, text_area.top)
+            {
+                let top = glyph_run.translation.y as f32;
                 glyph_runs.push(glyph_run);
 
                 page_height = (top + line_height).ceil() as _;
