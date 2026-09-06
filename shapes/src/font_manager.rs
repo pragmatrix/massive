@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use parking_lot::{Mutex, MutexGuard};
-use parley::fontique::{Blob, Collection, CollectionOptions, FamilyId, GenericFamily};
+use parley::fontique::{Blob, Collection, CollectionOptions, FamilyId, GenericFamily, SourceCache};
 use parley::{FontContext, FontData, LayoutContext};
 
 use crate::{FaceId, GlyphBrush};
@@ -60,7 +60,7 @@ impl FontManager {
                 system_fonts: false,
                 ..Default::default()
             }),
-            source_cache: Default::default(),
+            source_cache: SourceCache::new_shared(),
         };
         Self::from(font_context)
     }
@@ -69,6 +69,13 @@ impl FontManager {
     /// system fonts loaded.
     pub fn system() -> Self {
         let mut font_context = FontContext::new();
+        // Parley creates an unshared source cache by default and prunes it on every layout
+        // builder creation. A pruned font file is re-loaded on demand with a NEW `Blob` id,
+        // which invalidates `FaceId`s derived from it (the renderer would see unknown faces).
+        // The shared cache stores only weak blob refs and is never pruned; the registry built
+        // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
+        // original blob and `Blob` ids stay stable for the manager's lifetime.
+        font_context.source_cache = SourceCache::new_shared();
         font_context.collection.load_system_fonts();
         let manager = Self::from(font_context);
         manager.rebuild_fonts();
@@ -130,12 +137,9 @@ impl FontManager {
     }
 
     /// Rebuild the font registry from the whole collection, keyed by [`FaceId`], so any font
-    /// Parley may select at startup (including system fallbacks like emoji) can be resolved by
-    /// [`FaceId`] during rasterization.
-    ///
-    /// This is only the initial population: fontique's source cache prunes font files that are
-    /// not used recently and re-loads them with a new `Blob` id, so [`FontManager::retain_font`]
-    /// registers fonts again as they are shaped.
+    /// Parley may select (including system fallbacks like emoji) can be resolved by [`FaceId`]
+    /// during rasterization. The strong `Blob` refs held here also keep the shared source
+    /// cache's weak refs alive, so pruned entries re-resolve to the original blobs.
     fn rebuild_fonts(&self) {
         let mut inner = self.0.lock();
         let mut fonts = HashMap::new();
@@ -259,20 +263,6 @@ impl FontManager {
         self.0.lock().fonts.get(&id).cloned()
     }
 
-    /// Retain a shaped run's [`FontData`] in the registry under its derived [`FaceId`].
-    ///
-    /// Fontique's source cache prunes font files that were not used recently and re-loads them
-    /// on demand; every load produces a new `Blob` id. A fallback font (e.g. emoji) shaped after
-    /// such a reload therefore carries a `FaceId` that did not exist when the registry was
-    /// built. Retaining at shaping time keeps rasterization resolution in sync with the font
-    /// data the shaping actually used.
-    pub fn retain_font(&self, font: &FontData) {
-        self.0
-            .lock()
-            .fonts
-            .insert(FaceId::of_font_data(font), font.clone());
-    }
-
     /// Acquire a [`Shaper`], holding the manager's lock for the duration of the shaping session.
     #[must_use]
     pub fn shaper(&self) -> Shaper<'_> {
@@ -296,12 +286,6 @@ impl Shaper<'_> {
     /// Borrow the two Parley contexts for shaping.
     pub fn contexts(&mut self) -> (&mut FontContext, &mut LayoutContext<GlyphBrush>) {
         self.inner.contexts()
-    }
-
-    /// Retain a shaped run's font in the registry (see [`FontManager::retain_font`]).
-    pub fn retain_font(&mut self, font: &FontData) {
-        let id = FaceId::of_font_data(font);
-        self.inner.fonts.insert(id, font.clone());
     }
 }
 
@@ -370,16 +354,29 @@ mod tests {
     }
 
     /// Parley prunes fontique's source cache on every layout builder creation (`max_age = 128`),
-    /// so a rarely used fallback font's blob is evicted and re-loaded with a NEW `Blob` id. A
-    /// `FaceId` derived after such a reload must resolve once the font is retained at shaping
-    /// time (see `FontManager::retain_font`).
+    /// so a rarely used fallback font's blob is evicted. With the shared source cache (see
+    /// `FontManager::system`), a pruned font must re-resolve to the SAME `Blob` id — and hence
+    /// the same [`FaceId`] — because the registry pins the original blob strongly.
     #[test]
-    fn retained_font_resolves_after_source_cache_prune() {
+    fn font_resolves_with_stable_face_id_after_source_cache_prune() {
         let fonts = FontManager::system();
         let mut shaper = fonts.shaper();
 
-        // Shape throwaway text to drive parley's source-cache pruning (it runs on every layout
-        // builder creation with a hardcoded max_age of 128), evicting blobs loaded earlier.
+        // Shape an emoji first and record the FaceId shaping derives for it.
+        let shape_emoji_face_id = |shaper: &mut Shaper<'_>| {
+            let (fcx, lcx) = shaper.contexts();
+            let mut builder = lcx.ranged_builder(fcx, "😀", 1.0, true);
+            builder.push_default(StyleProperty::FontSize(16.0));
+            let mut layout: Layout<GlyphBrush> = builder.build("😀");
+            layout.break_all_lines(None);
+            let line = layout.get(0).expect("emoji layout has a line");
+            let run = crate::line_runs(&line).next().expect("has a run");
+            FaceId::of_font_data(run.run().font())
+        };
+        let first_face_id = shape_emoji_face_id(&mut shaper);
+
+        // Drive parley's source-cache pruning (it runs on every layout builder creation with a
+        // hardcoded max_age of 128), evicting the blobs loaded before.
         for _ in 0..200 {
             let (fcx, lcx) = shaper.contexts();
             let mut builder = lcx.ranged_builder(fcx, "abc", 1.0, true);
@@ -389,23 +386,17 @@ mod tests {
             assert_eq!(layout.lines().count(), 1, "sanity: 'abc' shapes to a line");
         }
 
-        // Shape an emoji after the evictions and retain its font the way the terminal view does.
-        let (face_id, font) = {
-            let (fcx, lcx) = shaper.contexts();
-            let mut builder = lcx.ranged_builder(fcx, "😀", 1.0, true);
-            builder.push_default(StyleProperty::FontSize(16.0));
-            let mut layout: Layout<GlyphBrush> = builder.build("😀");
-            layout.break_all_lines(None);
-            let line = layout.get(0).expect("emoji layout has a line");
-            let run = crate::line_runs(&line).next().expect("has a run");
-            (FaceId::of_font_data(run.run().font()), run.run().font().clone())
-        };
-        shaper.retain_font(&font);
+        // Shape the emoji again: the shared cache must hand back the original blob.
+        let second_face_id = shape_emoji_face_id(&mut shaper);
         drop(shaper);
 
+        assert_eq!(
+            first_face_id, second_face_id,
+            "blob id must be stable across source cache pruning"
+        );
         assert!(
-            fonts.font_data(face_id).is_some(),
-            "retained font must resolve after source cache pruning, got FaceId({face_id:?})"
+            fonts.font_data(second_face_id).is_some(),
+            "font must resolve in the registry after pruning, got FaceId({second_face_id:?})"
         );
     }
 }

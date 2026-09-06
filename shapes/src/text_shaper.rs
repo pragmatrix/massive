@@ -5,7 +5,7 @@ use parley::{Alignment, FontFamily, FontWeight, Layout, StyleProperty};
 
 use massive_geometry::Color;
 
-use crate::{GlyphBrush, GlyphRun, Shaper, TextWeight, line_to_run, line_runs};
+use crate::{GlyphBrush, GlyphRun, Shaper, TextWeight, line_to_run};
 
 #[derive(Debug)]
 pub struct TextShaper<'a> {
@@ -94,15 +94,6 @@ impl<'a> TextShaper<'a> {
         let mut layout: Layout<GlyphBrush> = builder.build(self.text);
         layout.break_all_lines(None);
         layout.align(Alignment::Start, Default::default());
-
-        // Retain every shaped run's font in the registry: the source cache may have pruned and
-        // re-loaded the font with a new `Blob` id since startup, so its derived `FaceId` may not
-        // be registered yet (see `FontManager::retain_font`).
-        for line in layout.lines() {
-            for run in line_runs(&line) {
-                shaper.retain_font(run.run().font());
-            }
-        }
 
         // Feature: Support multi-line layout.
         let line = layout.get(0)?;
