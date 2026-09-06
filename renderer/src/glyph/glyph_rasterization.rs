@@ -4,8 +4,7 @@ use swash::scale::image::Image as SwashImage;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
 use swash::zeno::{Format, Placement};
 
-use massive_geometry::ClipBoxPx;
-use massive_shapes::GlyphKey;
+use massive_shapes::{ClipBoxPx, GlyphKey};
 
 use super::SwashRasterizationParam;
 use super::distance_field_gen::{DISTANCE_FIELD_PAD, generate_distance_field_from_image};
@@ -65,7 +64,7 @@ fn crop_image(image: SwashImage, clip_box: &ClipBoxPx) -> Option<SwashImage> {
 
     // Fast path: the crop window fully contains the ink box, so no cropping is needed. Return
     // the original image unchanged (no copy) — this is the common case (default multipliers,
-    // overflow off).
+    // overflow off). A sentinel edge means "no clip on that side" and always contains the ink.
     if clip_left <= ink_left
         && clip_right >= ink_right
         && clip_top >= ink_top
@@ -235,9 +234,13 @@ fn pad_image_data(image: &[u8], width: usize, height: usize, pixel_size: usize) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use massive_geometry::PointPx;
 
+    /// A sentinel edge (`i32::MIN`/`i32::MAX`) means "no clip on that side". `UNCLIPPED` must
+    /// return the image unchanged, and a clip box with overflow on one axis must still crop the
+    /// other axis rather than being treated as fully clipped.
     #[test]
-    fn print_glyph_placement_test() {
+    fn crop_image_handles_sentinel_edges() {
         let bytes = include_bytes!("../../../../src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
         let font_ref = FontRef::from_index(bytes, 0).unwrap();
         let mut context = ScaleContext::new();
@@ -247,59 +250,37 @@ mod tests {
             .hint(true)
             .build();
 
-        for ch in ['a', 'b', 'c', 'd', 'e', 'g', 'j', 'p', 'q', 'y', 'A', 'M', 'W', 'l', '1', '/', '-', '_', '|', '.'] {
-            let id = font_ref.charmap().map(ch);
-            let img = Render::new(&[Source::Outline])
-                .format(Format::Alpha)
-                .render(&mut scaler, id)
-                .unwrap();
-            println!("char '{}' id {} placement: left={}, top={}, width={}, height={}",
-                ch, id, img.placement.left, img.placement.top, img.placement.width, img.placement.height);
-        }
+        let id = font_ref.charmap().map('a');
+        let img = Render::new(&[Source::Outline])
+            .format(Format::Alpha)
+            .render(&mut scaler, id)
+            .unwrap();
+        let original = img.clone();
+
+        // No clipping on any edge: the image is returned unchanged.
+        let unclipped = crop_image(img.clone(), &ClipBoxPx::UNCLIPPED).unwrap();
+        assert_eq!(unclipped.placement.left, original.placement.left);
+        assert_eq!(unclipped.placement.top, original.placement.top);
+        assert_eq!(unclipped.placement.width, original.placement.width);
+        assert_eq!(unclipped.placement.height, original.placement.height);
+        assert_eq!(unclipped.data, original.data);
+
+        // Overflow on the vertical axis only: the horizontal edges still clip, so the result
+        // is narrower than the original but not empty. In Y-up, "no clip on top" is `min.y =
+        // i32::MAX` and "no clip on bottom" is `max.y = i32::MIN`.
+        let overflow_v = ClipBoxPx {
+            min: PointPx::new(0, i32::MAX),
+            max: PointPx::new(4, i32::MIN),
+        };
+        let cropped = crop_image(img.clone(), &overflow_v).unwrap();
+        assert!(cropped.placement.width < original.placement.width);
+        assert!(cropped.placement.width > 0);
+
+        // A fully-clipped glyph (empty crop) is treated as empty.
+        let empty = ClipBoxPx {
+            min: PointPx::new(100, 100),
+            max: PointPx::new(200, 50),
+        };
+        assert!(crop_image(img, &empty).is_none());
     }
 }
-
-    #[test]
-    fn print_terminal_font_metrics() {
-        use parley::FontData;
-        let bytes = include_bytes!("../../../../src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
-        let font_ref = FontRef::from_index(bytes, 0).unwrap();
-        let m = font_ref.metrics(&[]);
-        println!("ascent={}, descent={}, units_per_em={}", m.ascent, m.descent, m.units_per_em);
-        let font_size = 13.0;
-        let units_f = m.units_per_em as f32;
-        let s = font_size / units_f;
-        let asc = (m.ascent * s).trunc() as u32;
-        let dsc = (m.descent * s).trunc() as u32;
-        println!("asc_px={}, dsc_px={}, font_height={}", asc, dsc, asc + dsc);
-    }
-
-    #[test]
-    fn print_clip_and_crop() {
-        let bytes = include_bytes!("../../../../src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf");
-        let font_ref = FontRef::from_index(bytes, 0).unwrap();
-        let mut context = ScaleContext::new();
-        let mut scaler = context
-            .builder(font_ref)
-            .size(13.0)
-            .hint(true)
-            .build();
-
-        // With default line_height 1.0, cell_width 1.0, font_height 16, ascender 13:
-        // top = 13 + (16 - 16)/2 = 13, bottom = 13 - 16 = -3.
-        // min = (0, 13), max = (8, -3).
-        let clip_box = ClipBoxPx {
-            min: PointPx::new(0, 13),
-            max: PointPx::new(8, -3),
-        };
-
-        for ch in ['a', 'b', 'c', 'd', 'e', 'g', 'j', 'p', 'q', 'y', 'A', 'M', 'W', 'l', '1', '/', '-', '_', '|', '.'] {
-            let id = font_ref.charmap().map(ch);
-            let img = Render::new(&[Source::Outline])
-                .format(Format::Alpha)
-                .render(&mut scaler, id)
-                .unwrap();
-            let cropped = crop_image(img, &clip_box);
-            println!("char '{}' cropped is_some={}", ch, cropped.is_some());
-        }
-    }

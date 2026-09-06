@@ -10,7 +10,9 @@
 
 use parley::{GlyphRun as ParleyGlyphRun, LayoutContext, Line, PositionedLayoutItem, Run};
 
-use massive_geometry::{ClipBoxPx, Color, Vector3};
+use massive_geometry::{Color, Vector3};
+
+use crate::ClipBoxPx;
 
 use crate::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 

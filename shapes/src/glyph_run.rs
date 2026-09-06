@@ -3,7 +3,9 @@ use parley::FontData;
 use serde::{Deserialize, Serialize};
 use swash::zeno::Placement;
 
-use massive_geometry::{Bounds, ClipBoxPx, Color, SizePx, Vector3};
+use massive_geometry::{Bounds, Color, SizePx, Vector3};
+
+use crate::ClipBoxPx;
 
 /// Opaque identifier for a font face.
 ///
