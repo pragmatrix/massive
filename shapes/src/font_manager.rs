@@ -5,15 +5,15 @@ use parking_lot::{Mutex, MutexGuard};
 use parley::fontique::{Blob, Collection, CollectionOptions, FamilyId, GenericFamily};
 use parley::{FontContext, FontData, LayoutContext};
 
-use crate::{FontId, GlyphBrush};
+use crate::{FaceId, GlyphBrush};
 
 pub use parley::FontWeight;
 
 /// A font manager backed by Parley's [`FontContext`].
 ///
 /// Owns the Parley font database plus a registry of [`parley::FontData`] entries keyed by
-/// [`FontId`] (the `Blob` unique id plus the face index). A [`FontId`] is derived straight from a
-/// shaped run's font, so shaping needs no lookup; rasterization resolves a [`FontId`] back to
+/// [`FaceId`] (the `Blob` unique id plus the face index). A [`FaceId`] is derived straight from a
+/// shaped run's font, so shaping needs no lookup; rasterization resolves a [`FaceId`] back to
 /// concrete font data in O(1).
 #[derive(Clone)]
 pub struct FontManager(Arc<Mutex<FontManagerInner>>);
@@ -30,11 +30,11 @@ impl std::fmt::Debug for FontManager {
 struct FontManagerInner {
     font_context: FontContext,
     layout_context: LayoutContext<GlyphBrush>,
-    /// Concrete fonts keyed by [`FontId`]. Populated by `rebuild_fonts` to include every font the
+    /// Concrete fonts keyed by [`FaceId`]. Populated by `rebuild_fonts` to include every font the
     /// collection may select (including system fallbacks like emoji), so rasterization can resolve
-    /// any glyph's `FontId` to font data. The key must include the face index because a single
+    /// any glyph's `FaceId` to font data. The key must include the face index because a single
     /// file may hold several faces that share one `Blob` id.
-    fonts: HashMap<FontId, FontData>,
+    fonts: HashMap<FaceId, FontData>,
 }
 
 /// A shaping session holding the manager's lock.
@@ -83,7 +83,7 @@ impl FontManager {
 
     /// Adds the font and returns its font ids.
     /// Ergonomics: Rename to `add_font`?
-    pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FontId> {
+    pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
         let mut inner = self.0.lock();
         // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
         let blob = Blob::new(Arc::new(font_data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
@@ -91,6 +91,11 @@ impl FontManager {
             .font_context
             .collection
             .register_fonts(blob.clone(), None);
+        // Register the newly loaded families as the generic families (sans-serif, serif, monospace)
+        // so that text using a generic family name resolves to a font we actually have. Without
+        // this, Parley would fall back to a system font for generic-family text, which may not be
+        // in our registry and would fail to rasterize. Each generic is set only if it has no
+        // existing mapping, so the first loaded font wins and later loads don't override it.
         for generic in [
             GenericFamily::SansSerif,
             GenericFamily::Serif,
@@ -109,11 +114,14 @@ impl FontManager {
                     .set_generic_families(generic, families.iter().map(|(family, _)| *family));
             }
         }
+        // A single font file (e.g. a `.ttc` collection) can hold several faces, each with its own
+        // index. [`crate::face_id`] keys on the file's blob id *and* the face index, so one file
+        // yields one [`FaceId`] per face — hence the nested loop and the multiple ids returned.
         let mut ids = Vec::new();
         for (_, faces) in families {
             for face in faces {
                 let font = FontData::new(blob.clone(), face.index());
-                let id = crate::font_id(&font);
+                let id = crate::face_id(&font);
                 inner.fonts.insert(id, font);
                 ids.push(id);
             }
@@ -121,9 +129,9 @@ impl FontManager {
         ids
     }
 
-    /// Rebuild the font registry from the whole collection, keyed by [`FontId`], so any font
+    /// Rebuild the font registry from the whole collection, keyed by [`FaceId`], so any font
     /// Parley may select (including system fonts used for fallback, e.g. emoji) can be resolved by
-    /// [`FontId`] during rasterization.
+    /// [`FaceId`] during rasterization.
     fn rebuild_fonts(&self) {
         let mut inner = self.0.lock();
         let mut fonts = HashMap::new();
@@ -145,7 +153,7 @@ impl FontManager {
                 let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
                     continue;
                 };
-                let id = crate::font_id(&FontData::new(blob.clone(), font_info.index()));
+                let id = crate::face_id(&FontData::new(blob.clone(), font_info.index()));
                 fonts.insert(id, FontData::new(blob, font_info.index()));
             }
         }
@@ -241,8 +249,8 @@ impl FontManager {
             .append_fallbacks(FallbackKey::new(latn, None), families);
     }
 
-    /// Resolve the [`FontData`] for a [`FontId`].
-    pub fn font_data(&self, id: FontId) -> Option<FontData> {
+    /// Resolve the [`FontData`] for a [`FaceId`].
+    pub fn font_data(&self, id: FaceId) -> Option<FontData> {
         self.0.lock().fonts.get(&id).cloned()
     }
 
@@ -294,7 +302,7 @@ mod tests {
 
     /// After `load_font`, the registry must contain the loaded font AND any system fonts Parley
     /// may select for fallback (e.g. the default `sans-serif`, or an emoji font). Otherwise a
-    /// fallback run's `FontId` resolves to nothing and its glyphs get rasterized with the wrong
+    /// fallback run's `FaceId` resolves to nothing and its glyphs get rasterized with the wrong
     /// font.
     #[test]
     fn load_font_rebuilds_registry_with_system_fonts() {
@@ -312,7 +320,7 @@ mod tests {
         assert!(loaded, "loaded font must be in the registry");
     }
 
-    /// Shapes an emoji through the manager and asserts the fallback run's derived `FontId`
+    /// Shapes an emoji through the manager and asserts the fallback run's derived `FaceId`
     /// resolves to a real font. This locks the emoji/font-fallback fix: the registry must contain
     /// the emoji font so its glyphs are rasterized with the correct font.
     #[test]
@@ -327,13 +335,13 @@ mod tests {
         layout.align(Alignment::Start, Default::default());
         let line = layout.get(0).expect("single line");
         let run = crate::line_runs(&line).next().expect("has a run");
-        let font_id = crate::font_id(run.run().font());
+        let face_id = crate::face_id(run.run().font());
         drop(shaper);
-        let font_data = fonts.font_data(font_id);
+        let font_data = fonts.font_data(face_id);
         assert!(
             font_data.is_some(),
-            "emoji fallback font must resolve to a registered font, got FontId({:?})",
-            font_id
+            "emoji fallback font must resolve to a registered font, got FaceId({:?})",
+            face_id
         );
     }
 }

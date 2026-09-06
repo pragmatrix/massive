@@ -6,14 +6,14 @@ use massive_geometry::{Bounds, Color, SizePx, Vector3};
 
 /// Opaque identifier for a font face.
 ///
-/// A distinct per-font token that lets the atlas cache key on the concrete font without
+/// A distinct per-face token that lets the atlas cache key on the concrete font without
 /// [`massive_shapes`](crate) depending on a font database. It packs Parley's `Blob` unique id
-/// (an atomic counter value) together with the face `index` within that file, so [`FontId`] can be
+/// (an atomic counter value) together with the face `index` within that file, so [`FaceId`] can be
 /// derived directly from a shaped run's font with no registry lookup, and rasterization resolves it
 /// back to the font's data in O(1). The face index is required because a single font file (e.g. a
 /// `.ttc` collection or a variable font) may hold several faces that share one `Blob` id.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FontId {
+pub struct FaceId {
     pub blob_id: u64,
     pub index: u32,
 }
@@ -163,16 +163,16 @@ impl RunGlyph {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GlyphKey {
-    pub font_id: FontId,
+    pub face_id: FaceId,
     pub glyph_id: u16,
     pub font_size_bits: u32,
     pub weight: TextWeight,
 }
 
 impl GlyphKey {
-    pub fn new(font_id: FontId, glyph_id: u16, font_size: f32, weight: TextWeight) -> Self {
+    pub fn new(face_id: FaceId, glyph_id: u16, font_size: f32, weight: TextWeight) -> Self {
         Self {
-            font_id,
+            face_id,
             glyph_id,
             font_size_bits: font_size.to_bits(),
             weight,

@@ -1,6 +1,8 @@
-use std::{collections::HashSet, fmt};
+use std::collections::HashSet;
+use std::fmt;
 
 use anyhow::Result;
+
 use swash::scale::ScaleContext;
 use swash::scale::image::Content as SwashContent;
 use swash::zeno::Placement;
@@ -9,16 +11,14 @@ use wgpu::Device;
 use massive_geometry::{Point, Vector3};
 use massive_shapes::{GlyphRun, RunGlyph};
 
-use crate::{
-    FontManager,
-    glyph::{
-        GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas,
-        glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding},
-    },
-    renderer::{PreparationContext, RenderBatch},
-    text_layer::{atlas_renderer::AtlasRenderer, color_atlas, sdf_atlas},
-    tools::PipelineVariant,
-};
+use crate::FontManager;
+use crate::glyph::glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding};
+use crate::glyph::{GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas};
+
+use crate::renderer::{PreparationContext, RenderBatch};
+use crate::text_layer::atlas_renderer::AtlasRenderer;
+use crate::text_layer::{color_atlas, sdf_atlas};
+use crate::tools::PipelineVariant;
 
 pub struct TextLayerRenderer {
     // Optimization: This is used for `FontSystem::get_font()` only, which needs &mut. In the long
@@ -169,8 +169,8 @@ impl TextLayerRenderer {
         // Not yet in an atlas and not empty. Now rasterize.
 
         // Resolve the concrete font for this glyph's key.
-        let Some(font) = fonts.font_data(glyph_key.glyph.font_id) else {
-            log::warn!("did not find font {:?}", glyph_key.glyph.font_id);
+        let Some(font) = fonts.font_data(glyph_key.glyph.face_id) else {
+            log::warn!("did not find font {:?}", glyph_key.glyph.face_id);
             self.empty_glyphs.insert(glyph_key);
             return Ok(None);
         };

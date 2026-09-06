@@ -1,7 +1,7 @@
 //! Adapter from Parley layout output to the `GlyphRun` data model.
 //!
 //! This is the single translation point between Parley and `massive-shapes`. `massive-shapes`
-//! owns the [`crate::FontManager`] and derives a [`FontId`] for each concrete font from its
+//! owns the [`crate::FontManager`] and derives a [`FaceId`] for each concrete font face from its
 //! `Blob` unique id; this module only knows how to turn a Parley [`Layout`] into [`GlyphRun`]s.
 //!
 //! Positions are normalized to the **Y-up** convention expected downstream (see the TODO on
@@ -14,19 +14,19 @@ use parley::{
 
 use massive_geometry::{Color, Vector3};
 
-use crate::{FontId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
+use crate::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Default Parley brush type (RGBA bytes). Callers overwrite color via [`GlyphRun::with_color`].
 pub type GlyphBrush = [u8; 4];
 
-/// Derive the opaque [`FontId`] for a font from its Parley `Blob` unique id and face index.
+/// Derive the opaque [`FaceId`] for a font face from its Parley `Blob` unique id and face index.
 ///
 /// The `Blob` id is a distinct atomic counter value, but it identifies a whole font *file*. A file
 /// (e.g. a `.ttc` collection) may hold several faces, so the face `index` is included to keep each
-/// face a distinct [`FontId`]. This needs no registry lookup and matches the key the renderer's
+/// face a distinct [`FaceId`]. This needs no registry lookup and matches the key the renderer's
 /// rasterization registry is keyed on.
-pub fn font_id(font: &FontData) -> FontId {
-    FontId {
+pub fn face_id(font: &FontData) -> FaceId {
+    FaceId {
         blob_id: font.data.id(),
         index: font.index,
     }
@@ -51,7 +51,7 @@ pub fn glyph_run_to_run<'a>(
     } else {
         weight
     };
-    let font_id = font_id(run.font());
+    let face_id = face_id(run.font());
     let font_size = run.font_size();
 
     let glyphs = parley_run
@@ -62,7 +62,7 @@ pub fn glyph_run_to_run<'a>(
             let pos = (glyph.x.round() as i32, (glyph.y - baseline).round() as i32);
             RunGlyph::new(
                 pos,
-                GlyphKey::new(font_id, glyph.id as u16, font_size, weight),
+                GlyphKey::new(face_id, glyph.id as u16, font_size, weight),
             )
         })
         .collect();
@@ -147,7 +147,7 @@ mod tests {
         let blob = Blob::new(Arc::new(JETBRAINS_MONO) as Arc<dyn AsRef<[u8]> + Send + Sync>);
         let font_data = FontData::new(blob.clone(), 0);
         font_context.collection.register_fonts(blob, None);
-        let font_id = font_id(&font_data);
+        let face_id = face_id(&font_data);
 
         let mut layout_context = LayoutContext::new();
         let text = "HI";
@@ -180,9 +180,9 @@ mod tests {
             xs.windows(2).all(|w| w[1] > w[0]),
             "x positions must be increasing: {xs:?}"
         );
-        // Every glyph resolves to the registered font id.
+        // Every glyph resolves to the registered font face id.
         for glyph in &run.glyphs {
-            assert_eq!(glyph.key.font_id, font_id);
+            assert_eq!(glyph.key.face_id, face_id);
         }
     }
 }
