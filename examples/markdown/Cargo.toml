@@ -10,6 +10,7 @@ massive-geometry = { workspace = true }
 massive-shapes = { workspace = true }
 massive-shell = { workspace = true }
 parley = { workspace = true }
+swash = { workspace = true }
 
 [dev-dependencies]
 shared = { path = "../shared" }

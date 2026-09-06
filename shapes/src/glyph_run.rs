@@ -45,6 +45,11 @@ impl FaceId {
     pub fn of_font_data(font: &FontData) -> Self {
         Self::new(font.data.id(), font.index)
     }
+
+    /// The face index within the font file (0 for a single-face font).
+    pub fn index(&self) -> u32 {
+        self.index
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

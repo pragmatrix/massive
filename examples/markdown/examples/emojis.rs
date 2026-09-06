@@ -21,11 +21,11 @@ use inlyne::utils::markdown_to_html;
 use massive_applications::ApplicationEvent;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager};
 use shared::application::{Application, UpdateResponse};
 
-use markdown::cosmic_buffer_to_glyph_runs;
+use markdown::FontBridge;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -45,9 +45,13 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
-    let fonts = FontManager::system();
+    // Register the system fonts into both databases and build the fontdb::ID -> FaceId map.
+    let bridge = FontBridge::system();
     // Need an equivalent FontSystem for inlyne.
-    let font_system = Arc::new(Mutex::new(FontSystem::new()));
+    let font_system = Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(
+        "en-US".into(),
+        bridge.font_db().clone(),
+    )));
 
     let initial_size =
         LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
@@ -57,7 +61,11 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(bridge.font_manager().clone())
+        .build()
+        .await?;
 
     let hidpi_scale = window.scale_factor();
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
@@ -127,15 +135,11 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         };
 
         // Note: text_area.bounds are not set (for some reason?).
-        let mut shaper = fonts.shaper();
         for text_area in text_areas {
             let line_height = text_area.buffer.metrics().line_height;
-            for glyph_run in cosmic_buffer_to_glyph_runs(
-                &mut shaper,
-                text_area.buffer,
-                text_area.left,
-                text_area.top,
-            ) {
+            for glyph_run in
+                bridge.cosmic_buffer_to_glyph_runs(text_area.buffer, text_area.left, text_area.top)
+            {
                 let top = glyph_run.translation.y as f32;
                 glyph_runs.push(glyph_run);
 
