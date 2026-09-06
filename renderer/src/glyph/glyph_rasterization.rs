@@ -1,4 +1,5 @@
 use parley::FontData;
+use swash::FontRef;
 use swash::scale::image::Image as SwashImage;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
 use swash::zeno::{Format, Placement};
@@ -43,7 +44,7 @@ pub fn rasterize_glyph(
     glyph_key: GlyphKey,
     param: SwashRasterizationParam,
 ) -> Option<SwashImage> {
-    let font_ref = swash::FontRef::from_index(font.data.as_ref(), font.index as usize)?;
+    let font_ref = FontRef::from_index(font.data.as_ref(), font.index as usize)?;
 
     let mut scaler = context
         .builder(font_ref)

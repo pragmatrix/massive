@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::ops::Range;
 
 use parley::{Alignment, FontFamily, FontWeight, Layout, StyleProperty};
@@ -24,7 +25,7 @@ pub struct TextAttributes<'a> {
 impl Default for TextAttributes<'_> {
     fn default() -> Self {
         Self {
-            family: FontFamily::Source(std::borrow::Cow::Borrowed("sans-serif")),
+            family: FontFamily::Source(Cow::Borrowed("sans-serif")),
             weight: TextWeight::default(),
             color: Color::BLACK,
         }
