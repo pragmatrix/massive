@@ -1,5 +1,5 @@
 use massive_applications::InstanceId;
-use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
+use massive_geometry::{PixelCamera, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
@@ -99,34 +99,108 @@ impl DesktopSystem {
             return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
         }
 
+        // Orient toward the arc's asymmetric mass: the arc is re-centered on the focused panel, so
+        // an off-center focus fans the other panels to one side and their panel yaws average to a
+        // nonzero angle. Use that mean yaw (≈0 when focus is centered) to rotate the camera toward
+        // the bulk, keeping the fit centered on the union of all visors.
+        let transforms: Vec<Transform> = instances
+            .iter()
+            .map(|instance| {
+                self.placement(&DesktopTarget::Instance(*instance))
+                    .transform
+            })
+            .collect();
+        let mean_yaw = transforms
+            .iter()
+            // Panels are pure Y-rotations (`from_rotation_y`), so yaw is recoverable from the
+            // quaternion's y/w components without an euler-rotation dependency.
+            .map(|t| 2.0 * t.rotate.y.atan2(t.rotate.w))
+            .sum::<f64>()
+            / transforms.len() as f64;
+
         let bounds = self.fold_instance_bounds(instances);
-        self.camera_for_bounds(bounds, window_size)
+        self.camera_for_bounds(bounds, mean_yaw, window_size)
     }
 
     fn camera_for_bounds(
         &self,
         bounds: OverviewBounds,
+        mean_yaw: f64,
         window_size: SizePx,
     ) -> Option<PixelCamera> {
         if bounds.rect.is_empty() {
             return None;
         }
 
-        // Center the whole-set fit on the axis-aligned union center (identity rotation, z=0) so
-        // the overview hugs the actual visor extent instead of inheriting the focused panel's
-        // offset position/rotation.
+        // Center the whole-set fit on the axis-aligned union center, and rotate the camera by the
+        // panels' mean yaw so it looks toward the arc's bulk instead of staying glued to the flat
+        // launcher/desktop plane (z=0), which leaves asymmetric side space.
         let center = bounds.rect.center();
-        let look_at: Transform = (center.x, center.y, 0.0).into();
-        let camera = look_at.to_camera();
-        let target_size = Self::fit_size_for_points(
-            bounds.rect,
-            look_at,
-            &bounds.points,
-            camera.fovy,
-            window_size,
+        let look_at = Transform::new(
+            Vector3::new(center.x, center.y, 0.0),
+            Quaternion::from_rotation_y(mean_yaw),
+            1.0,
         );
-        let scale = Self::fit_scale(target_size, window_size);
+        let camera = look_at.to_camera();
+        let scale = Self::fit_scale_for_points(look_at, &bounds.points, camera.fovy, window_size);
         Some(camera.with_scale(scale))
+    }
+
+    /// Find the largest model scale whose projected panel silhouette fits the surface.
+    ///
+    /// Unlike `fit_size_for_points`, this frames the true projected footprint of the points in
+    /// camera space rather than an axis-aligned union rect, so yawed side panels don't leave empty
+    /// strips to the left/right. Larger scale zooms in (content bigger), so the largest fitting
+    /// scale is the tightest framing; a scale below 1.0 zooms out to fit a wide overview.
+    fn fit_scale_for_points(
+        look_at: Transform,
+        points: &[Vector3],
+        fovy: f64,
+        surface_size: SizePx,
+    ) -> f64 {
+        if points.is_empty() {
+            return 1.0;
+        }
+
+        let surface_size: Size = surface_size.into();
+        let camera_distance = 1.0 / (fovy * 0.5).to_radians().tan();
+        let model_to_ndc_scale = 2.0 / surface_size.height;
+        let half_surface = surface_size * 0.5;
+        let to_camera = look_at.inverse();
+
+        let fits = |model_scale: f64| {
+            let z_scale = model_to_ndc_scale * model_scale;
+            for point in points {
+                let camera_point = to_camera.transform_point(*point);
+                let denominator = camera_distance - z_scale * camera_point.z;
+                if denominator <= 0.0 {
+                    return false;
+                }
+                let x = camera_distance * model_scale * camera_point.x / denominator;
+                let y = camera_distance * model_scale * camera_point.y / denominator;
+                if x.abs() > half_surface.width || y.abs() > half_surface.height {
+                    return false;
+                }
+            }
+            true
+        };
+
+        // `fits` is monotone-decreasing in scale (bigger scale → bigger content). Find an upper
+        // bound that no longer fits, then bisect for the largest fitting scale.
+        let mut lo = 0.0;
+        let mut hi = 1.0;
+        while fits(hi) && hi < 1024.0 {
+            hi *= 2.0;
+        }
+        for _ in 0..48 {
+            let mid = (lo + hi) * 0.5;
+            if fits(mid) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
     }
 
     fn camera_for_rect(&self, rect: Rect, window_size: SizePx) -> Option<PixelCamera> {
@@ -184,79 +258,6 @@ impl DesktopSystem {
         let mut rect = Some(self.target_rect(&root));
         self.extend_rect_with_subtree(&root, &mut rect);
         self.with_desktop_width(rect.expect("Internal error: project bounds should always exist"))
-    }
-
-    fn fit_size_for_points(
-        rect: Rect,
-        look_at: Transform,
-        points: &[Vector3],
-        fovy: f64,
-        surface_size: SizePx,
-    ) -> Size {
-        if points.is_empty() {
-            return rect.size();
-        }
-
-        let base_size = rect.size();
-        let mut low = 1.0;
-        let mut high = 1.0;
-
-        while !Self::points_fit_in_surface(base_size * high, look_at, points, fovy, surface_size) {
-            high *= 2.0;
-            if high > 1024.0 {
-                return base_size * high;
-            }
-        }
-
-        for _ in 0..40 {
-            let mid = (low + high) * 0.5;
-            if Self::points_fit_in_surface(base_size * mid, look_at, points, fovy, surface_size) {
-                high = mid;
-            } else {
-                low = mid;
-            }
-        }
-
-        base_size * high
-    }
-
-    fn points_fit_in_surface(
-        target_size: Size,
-        look_at: Transform,
-        points: &[Vector3],
-        fovy: f64,
-        surface_size: SizePx,
-    ) -> bool {
-        let surface_size: Size = surface_size.into();
-        if target_size.is_empty() {
-            return false;
-        }
-
-        let target_scale = (surface_size / target_size).min_element();
-        let camera_distance = 1.0 / (fovy * 0.5).to_radians().tan();
-        let model_to_ndc_scale = 2.0 / surface_size.height;
-        let z_scale = model_to_ndc_scale * target_scale;
-        let half_surface = surface_size * 0.5;
-
-        // Transform points into camera space so a rotated look-at frames correctly.
-        let to_camera = look_at.inverse();
-
-        for point in points {
-            let camera_point = to_camera.transform_point(*point);
-            let denominator = camera_distance - z_scale * camera_point.z;
-            if denominator <= 0.0 {
-                return false;
-            }
-
-            let x = camera_distance * target_scale * camera_point.x / denominator;
-            let y = camera_distance * target_scale * camera_point.y / denominator;
-
-            if x.abs() > half_surface.width || y.abs() > half_surface.height {
-                return false;
-            }
-        }
-
-        true
     }
 
     fn with_desktop_width(&self, rect: Rect) -> Rect {
