@@ -210,13 +210,12 @@ impl TextLayerRenderer {
     }
 
     fn glyph_vertices(run: &GlyphRun, glyph: &RunGlyph, placement: &Placement) -> [Vector3; 4] {
-        let (lt, rb) = run.place_glyph(glyph, placement);
+        let b = run.place_glyph(glyph, placement);
 
-        // Convert the pixel rect to 3D Points.
-        let left = lt.x as f64;
-        let top = lt.y as f64;
-        let right = rb.x as f64;
-        let bottom = rb.y as f64;
+        // Pixel-space corners in lt → lb → rb → rt order; three of the four come from the
+        // box's min/max points.
+        let (left, top) = (b.min.x as f64, b.min.y as f64);
+        let (right, bottom) = (b.max.x as f64, b.max.y as f64);
 
         // OO: might use Point3 here.
         let points: [Point; 4] = [

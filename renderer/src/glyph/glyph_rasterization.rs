@@ -4,6 +4,7 @@ use swash::scale::image::Image as SwashImage;
 use swash::scale::{Render, ScaleContext, Source, StrikeWith, image::Content as SwashContent};
 use swash::zeno::{Format, Placement};
 
+use massive_geometry::{BoxPx, PointPx};
 use massive_shapes::{ClipBoxPx, GlyphKey};
 
 use super::SwashRasterizationParam;
@@ -43,62 +44,66 @@ pub fn rasterize_glyph_with_padding(
     Some(pad_image(&cropped))
 }
 
+/// The ink box of a rasterized image in its local pixel space: origin = advance origin,
+/// Y-up, so `min` = (left, bottom), `max` = (right, top). The swash `Placement` is Y-down
+/// (`left`/`top` are the ink box's top-left, size extends downward).
+fn placement_to_ink_box(placement: Placement) -> BoxPx {
+    let left = placement.left;
+    let top = placement.top;
+    let width = placement.width as i32;
+    let height = placement.height as i32;
+    BoxPx::new(
+        PointPx::new(left, top - height),
+        PointPx::new(left + width, top),
+    )
+}
+
+/// The inverse of [`placement_to_ink_box`]. The box must be non-empty with positive size.
+fn ink_box_to_placement(b: BoxPx) -> Placement {
+    let size = b.size().cast::<u32>();
+    Placement {
+        left: b.min.x,
+        top: b.max.y,
+        width: size.width,
+        height: size.height,
+    }
+}
+
 /// Crop a rasterized glyph image to the crop window (`ClipBoxPx`).
 ///
 /// The crop window is in the glyph's local pixel space (origin = advance origin, Y-up), the
 /// same frame as the swash `Placement`. Finite edges clip; sentinel edges allow overflow.
-/// Returns `None` if the crop is empty (the glyph is fully clipped).
+/// Returns `None` if the ink is empty or the crop is empty (the glyph is fully clipped).
 fn crop_image(image: SwashImage, clip_box: &ClipBoxPx) -> Option<SwashImage> {
-    let p = image.placement;
-    // Ink box in Y-up space.
-    let ink_left = p.left;
-    let ink_right = p.left + p.width as i32;
-    let ink_top = p.top;
-    let ink_bottom = p.top - p.height as i32;
+    let ink = placement_to_ink_box(image.placement);
 
-    // Clip box edges: `min` = (left, top), `max` = (right, bottom). Y-up so top > bottom.
-    let clip_left = clip_box.min.x;
-    let clip_right = clip_box.max.x;
-    let clip_top = clip_box.min.y;
-    let clip_bottom = clip_box.max.y;
-
-    // Fast path: the crop window fully contains the ink box, so no cropping is needed. Return
-    // the original image unchanged (no copy) — this is the common case (default multipliers,
-    // overflow off). A sentinel edge means "no clip on that side" and always contains the ink.
-    if clip_left <= ink_left
-        && clip_right >= ink_right
-        && clip_top >= ink_top
-        && clip_bottom <= ink_bottom
-    {
-        return Some(image);
-    }
-
-    // Intersection of the ink box with the clip box.
-    let crop_left = ink_left.max(clip_left);
-    let crop_right = ink_right.min(clip_right);
-    let crop_top = ink_top.min(clip_top);
-    let crop_bottom = ink_bottom.max(clip_bottom);
-
-    if crop_right <= crop_left || crop_top <= crop_bottom {
+    // A zero-size ink has no content bytes to crop or pad; treat it as empty.
+    if ink.is_empty() {
         return None;
     }
 
+    // Intersection of the ink box with the clip box; `None` = fully clipped.
+    let crop = ink.intersection(clip_box)?;
+
+    // Fast path: the crop window fully contains the ink box, so no cropping is needed. Return
+    // the original image unchanged (no copy) — this is the common case (default multipliers,
+    // overflow off).
+    if crop == ink {
+        return Some(image);
+    }
+
+    // Crop region in image coordinates (row 0 = top of image at Y = ink max.y).
     let pixel_size = match image.content {
         SwashContent::Mask => 1,
         SwashContent::SubpixelMask => 4,
         SwashContent::Color => 4,
     };
-
-    let src_width = p.width as usize;
-
-    // Crop region in image coordinates (row 0 = top of image at Y = ink_top).
-    let col_start = (crop_left - ink_left) as usize;
-    let col_end = (crop_right - ink_left) as usize;
-    let row_start = (ink_top - crop_top) as usize;
-    let row_end = (ink_top - crop_bottom) as usize;
-
-    let new_width = col_end - col_start;
-    let new_height = row_end - row_start;
+    let src_width = image.placement.width as usize;
+    let col_start = (crop.min.x - ink.min.x) as usize;
+    let row_start = (ink.max.y - crop.max.y) as usize;
+    let crop_size = crop.size().cast::<u32>();
+    let new_width = crop_size.width as usize;
+    let new_height = crop_size.height as usize;
 
     let mut data = vec![0u8; new_width * new_height * pixel_size];
     for row in 0..new_height {
@@ -110,12 +115,7 @@ fn crop_image(image: SwashImage, clip_box: &ClipBoxPx) -> Option<SwashImage> {
     }
 
     Some(SwashImage {
-        placement: Placement {
-            left: crop_left,
-            top: crop_top,
-            width: new_width as u32,
-            height: new_height as u32,
-        },
+        placement: ink_box_to_placement(crop),
         data,
         ..image
     })
@@ -177,12 +177,12 @@ pub fn render_sdf(image: &SwashImage) -> Option<SwashImage> {
 
     if sdf_ok {
         return Some(SwashImage {
-            placement: Placement {
-                left: image.placement.left - pad as i32,
-                top: image.placement.top + pad as i32,
-                width: image.placement.width + 2 * pad as u32,
-                height: image.placement.height + 2 * pad as u32,
-            },
+            // Padding expands the ink box symmetrically: SDF distance is measured from the
+            // ink edges, so the placement grows by `pad` on every side.
+            placement: ink_box_to_placement(
+                placement_to_ink_box(image.placement)
+                    .inflate(DISTANCE_FIELD_PAD as i32, DISTANCE_FIELD_PAD as i32),
+            ),
             data: distance_field,
             ..*image
         });
@@ -207,12 +207,8 @@ pub fn pad_image(image: &SwashImage) -> SwashImage {
     );
 
     SwashImage {
-        placement: Placement {
-            left: image.placement.left - 1,
-            top: image.placement.top + 1,
-            width: image.placement.width + 2,
-            height: image.placement.height + 2,
-        },
+        // Padding expands the ink box symmetrically by one pixel on every side (Y-up).
+        placement: ink_box_to_placement(placement_to_ink_box(image.placement).inflate(1, 1)),
         data: padded_data,
         ..*image
     }
@@ -264,21 +260,52 @@ mod tests {
         assert_eq!(unclipped.data, original.data);
 
         // Overflow on the vertical axis only: the horizontal edges still clip, so the result
-        // is narrower than the original but not empty. In Y-up, "no clip on top" is `min.y =
-        // i32::MAX` and "no clip on bottom" is `max.y = i32::MIN`.
-        let overflow_v = ClipBoxPx {
-            min: PointPx::new(0, i32::MAX),
-            max: PointPx::new(4, i32::MIN),
-        };
+        // is narrower than the original but not empty. Sentinels are per-axis and uniform in
+        // the newtype: `i32::MIN`/`i32::MAX` = "no clip" on that side (Y-up, so vertical
+        // overflow is min.y = MIN, max.y = MAX).
+        let overflow_v = ClipBoxPx::from(BoxPx::new(
+            PointPx::new(0, i32::MIN),
+            PointPx::new(4, i32::MAX),
+        ));
         let cropped = crop_image(img.clone(), &overflow_v).unwrap();
         assert!(cropped.placement.width < original.placement.width);
         assert!(cropped.placement.width > 0);
 
         // A fully-clipped glyph (empty crop) is treated as empty.
-        let empty = ClipBoxPx {
-            min: PointPx::new(100, 100),
-            max: PointPx::new(200, 50),
+        let empty = ClipBoxPx::from(BoxPx::new(PointPx::new(100, -200), PointPx::new(200, -100)));
+        assert!(crop_image(img.clone(), &empty).is_none());
+
+        // A zero-size ink box has no content bytes: it is empty regardless of the clip box.
+        let zero_ink = SwashImage {
+            placement: Placement {
+                left: 3,
+                top: 5,
+                width: 0,
+                height: 0,
+            },
+            ..img
         };
-        assert!(crop_image(img, &empty).is_none());
+        assert!(crop_image(zero_ink, &ClipBoxPx::UNCLIPPED).is_none());
+    }
+
+    /// Padding expands the ink box by one pixel on every side; the placement round-trip must
+    /// match the previous scalar arithmetic exactly (Y-down `top` grows by 1).
+    #[test]
+    fn pad_image_inflates_placement() {
+        let placement = Placement {
+            left: -3,
+            top: 9,
+            width: 7,
+            height: 4,
+        };
+        let padded = pad_image(&SwashImage {
+            placement,
+            data: vec![0; (placement.width * placement.height) as usize],
+            ..SwashImage::default()
+        });
+        assert_eq!(padded.placement.left, placement.left - 1);
+        assert_eq!(padded.placement.top, placement.top + 1);
+        assert_eq!(padded.placement.width, placement.width + 2);
+        assert_eq!(padded.placement.height, placement.height + 2);
     }
 }
