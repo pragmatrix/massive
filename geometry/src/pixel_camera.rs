@@ -21,22 +21,26 @@ pub struct PixelCamera {
 
 impl Default for PixelCamera {
     fn default() -> Self {
-        Self::look_at(Transform::IDENTITY, Self::camera_distance(Self::DEFAULT_FOVY), Self::DEFAULT_FOVY)
+        Self::look_at(
+            Transform::IDENTITY,
+            Self::camera_distance(Self::DEFAULT_FOVY),
+            Self::DEFAULT_FOVY,
+        )
     }
 }
 
 impl PixelCamera {
     pub const DEFAULT_FOVY: f64 = 45.0;
 
+    /// The pixel-perfect distance for this camera's field of view.
+    fn pixel_perfect_distance(&self) -> f64 {
+        Self::camera_distance(self.fovy)
+    }
+
     /// The pixel-perfect camera distance for a field of view: the distance at which model pixels
     /// map 1:1 onto the surface.
     pub fn camera_distance(fovy: f64) -> f64 {
         1.0 / (fovy / 2.0).to_radians().tan()
-    }
-
-    /// The pixel-perfect distance for this camera's field of view.
-    fn pixel_perfect_distance(&self) -> f64 {
-        Self::camera_distance(self.fovy)
     }
 
     /// Create a new camera from a transform, a resolved distance, and field of view.
