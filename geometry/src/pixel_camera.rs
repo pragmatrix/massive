@@ -73,4 +73,59 @@ impl PixelCamera {
         let scale = self.scale;
         Matrix4::from_scale(Vector3::new(scale, scale, scale))
     }
+
+    /// The largest camera scale whose projected model points fit within `surface_size`.
+    ///
+    /// Transforms each point into camera space (via `look_at.inverse()`) and solves for the size
+    /// scale at which the perspective projection still fits the surface. Unlike fitting an
+    /// axis-aligned union rect, this frames the true projected footprint, so yawed/rotated content
+    /// doesn't leave empty strips around its silhouette.
+    pub fn fit_scale_for_points(&self, points: &[Vector3], surface_size: SizePx) -> f64 {
+        if points.is_empty() {
+            return self.scale;
+        }
+
+        let (surface_width, surface_height) = surface_size.into();
+        let surface_width = surface_width as f64;
+        let surface_height = surface_height as f64;
+        let camera_distance = 1.0 / (self.fovy / 2.0).to_radians().tan();
+        let model_to_ndc_scale = 2.0 / surface_height;
+        let half_width = surface_width * 0.5;
+        let half_height = surface_height * 0.5;
+        let to_camera = self.look_at.inverse();
+
+        let fits = |model_scale: f64| {
+            let z_scale = model_to_ndc_scale * model_scale;
+            for point in points {
+                let camera_point = to_camera.transform_point(*point);
+                let denominator = camera_distance - z_scale * camera_point.z;
+                if denominator <= 0.0 {
+                    return false;
+                }
+                let x = camera_distance * model_scale * camera_point.x / denominator;
+                let y = camera_distance * model_scale * camera_point.y / denominator;
+                if x.abs() > half_width || y.abs() > half_height {
+                    return false;
+                }
+            }
+            true
+        };
+
+        // `fits` is monotone-decreasing in scale (bigger scale → bigger content). Find an upper
+        // bound that no longer fits, then bisect for the largest fitting scale.
+        let mut lo = 0.0;
+        let mut hi = self.scale;
+        while hi.abs() < 1024.0 && fits(hi) {
+            hi *= 2.0;
+        }
+        for _ in 0..48 {
+            let mid = (lo + hi) * 0.5;
+            if fits(mid) {
+                lo = mid;
+            } else {
+                hi = mid;
+            }
+        }
+        lo
+    }
 }

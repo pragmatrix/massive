@@ -1,5 +1,5 @@
 use massive_applications::InstanceId;
-use massive_geometry::{PixelCamera, Quaternion, Rect, RectPx, Size, SizePx, Vector3};
+use massive_geometry::{Centroid, PixelCamera, Quaternion, Rect, RectPx, SizePx, Vector3};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
@@ -128,79 +128,18 @@ impl DesktopSystem {
         mean_yaw: f64,
         window_size: SizePx,
     ) -> Option<PixelCamera> {
-        if bounds.rect.is_empty() {
+        if bounds.points.is_empty() {
             return None;
         }
 
-        // Center the whole-set fit on the axis-aligned union center, and rotate the camera by the
-        // panels' mean yaw so it looks toward the arc's bulk instead of staying glued to the flat
-        // launcher/desktop plane (z=0), which leaves asymmetric side space.
-        let center = bounds.rect.center();
-        let look_at = Transform::new(
-            Vector3::new(center.x, center.y, 0.0),
-            Quaternion::from_rotation_y(mean_yaw),
-            1.0,
-        );
+        // Point the camera at the 3D centroid of the visor corners (which carries the arc's z
+        // offset, not the flat z=0 plane), rotated by the panels' mean yaw so it looks toward the
+        // arc's bulk. The whole-set fit then measures projected extent around that center.
+        let centroid = bounds.points.centroid()?;
+        let look_at = Transform::new(centroid, Quaternion::from_rotation_y(mean_yaw), 1.0);
         let camera = look_at.to_camera();
-        let scale = Self::fit_scale_for_points(look_at, &bounds.points, camera.fovy, window_size);
+        let scale = camera.fit_scale_for_points(&bounds.points, window_size);
         Some(camera.with_scale(scale))
-    }
-
-    /// Find the largest model scale whose projected panel silhouette fits the surface.
-    ///
-    /// Unlike `fit_size_for_points`, this frames the true projected footprint of the points in
-    /// camera space rather than an axis-aligned union rect, so yawed side panels don't leave empty
-    /// strips to the left/right. Larger scale zooms in (content bigger), so the largest fitting
-    /// scale is the tightest framing; a scale below 1.0 zooms out to fit a wide overview.
-    fn fit_scale_for_points(
-        look_at: Transform,
-        points: &[Vector3],
-        fovy: f64,
-        surface_size: SizePx,
-    ) -> f64 {
-        if points.is_empty() {
-            return 1.0;
-        }
-
-        let surface_size: Size = surface_size.into();
-        let camera_distance = 1.0 / (fovy * 0.5).to_radians().tan();
-        let model_to_ndc_scale = 2.0 / surface_size.height;
-        let half_surface = surface_size * 0.5;
-        let to_camera = look_at.inverse();
-
-        let fits = |model_scale: f64| {
-            let z_scale = model_to_ndc_scale * model_scale;
-            for point in points {
-                let camera_point = to_camera.transform_point(*point);
-                let denominator = camera_distance - z_scale * camera_point.z;
-                if denominator <= 0.0 {
-                    return false;
-                }
-                let x = camera_distance * model_scale * camera_point.x / denominator;
-                let y = camera_distance * model_scale * camera_point.y / denominator;
-                if x.abs() > half_surface.width || y.abs() > half_surface.height {
-                    return false;
-                }
-            }
-            true
-        };
-
-        // `fits` is monotone-decreasing in scale (bigger scale → bigger content). Find an upper
-        // bound that no longer fits, then bisect for the largest fitting scale.
-        let mut lo = 0.0;
-        let mut hi = 1.0;
-        while fits(hi) && hi < 1024.0 {
-            hi *= 2.0;
-        }
-        for _ in 0..48 {
-            let mid = (lo + hi) * 0.5;
-            if fits(mid) {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
-        lo
     }
 
     fn camera_for_rect(&self, rect: Rect, window_size: SizePx) -> Option<PixelCamera> {
