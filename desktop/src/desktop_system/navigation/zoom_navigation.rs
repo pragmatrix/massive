@@ -65,8 +65,11 @@ impl DesktopSystem {
                     let transform = self
                         .placement(&DesktopTarget::Instance(instance_id))
                         .transform;
-                    let scale = Self::fit_scale(presentation.layout_size(), window_size);
-                    Self::camera_from_placement(transform).with_scale(scale)
+                    let distance = Self::fit_letterbox_distance(
+                        presentation.layout_size(),
+                        window_size,
+                    );
+                    Self::camera_from_placement(transform).with_distance(distance)
                 }),
             FocusDepth::Instance => self.camera_for_target(target, window_size),
             FocusDepth::Launcher => self.camera_for_launcher_focus(target, window_size),
@@ -138,8 +141,8 @@ impl DesktopSystem {
         let centroid = bounds.points.centroid()?;
         let look_at = Transform::new(centroid, Quaternion::from_rotation_y(mean_yaw), 1.0);
         let camera = look_at.to_camera();
-        let scale = camera.fit_scale_for_points(&bounds.points, window_size);
-        Some(camera.with_scale(scale))
+        let distance = camera.fit_distance_for_points(&bounds.points, window_size);
+        Some(camera.with_distance(distance))
     }
 
     fn camera_for_rect(&self, rect: Rect, window_size: SizePx) -> Option<PixelCamera> {
@@ -149,8 +152,8 @@ impl DesktopSystem {
 
         let center = rect.center();
         let center: Transform = (center.x, center.y, 0.0).into();
-        let scale = Self::fit_scale(rect.size(), window_size);
-        Some(center.to_camera().with_scale(scale))
+        let distance = Self::fit_letterbox_distance(rect.size(), window_size);
+        Some(center.to_camera().with_distance(distance))
     }
 
     // Frame only the visor instances, excluding the launcher's own background rect so the

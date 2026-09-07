@@ -65,7 +65,7 @@ impl Interpolatable for PixelCamera {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
         PixelCamera {
             look_at: interpolate(&from.look_at, &to.look_at, t),
-            scale: interpolate(&from.scale, &to.scale, t),
+            distance: interpolate(&from.distance, &to.distance, t),
             fovy: interpolate(&from.fovy, &to.fovy, t),
         }
     }

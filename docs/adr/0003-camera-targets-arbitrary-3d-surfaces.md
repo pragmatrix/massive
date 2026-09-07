@@ -1,5 +1,7 @@
 # Camera targets arbitrary 3D surfaces and point sets
 
+> Status: the "morph feel" and `scale` decisions here are superseded by [ADR 0004](0004-camera-zoom-lives-in-distance-not-scale.md), which replaces zoom-as-model-scale with a dolly distance. The 3D look-at / point-set-framing capability decided here stands.
+
 The camera is no longer axis-aligned. `PixelCamera::look_at` is now built from a placement's full `Transform` (translate + rotate, scale forced to 1.0) instead of just its translation, allowing the camera to re-orient toward any flat 3D surface and move in depth (`z`). To make the camera interpolable, the old window-agnostic `CameraMode::Sized { target_size, blend }` (which resolved scale per render as a function of surface size) was replaced by a single resolved `scale: f64` (`1.0` = pixel-perfect). Camera transitions interpolate `look_at` and `scale` as one shared-eased curve (dolly-and-pan), and framing transforms points into camera space before fitting — so the camera can frame an arbitrary 3D point set, not just the focal plane. This is a generic camera capability; the rotated-visor follow is one specific application of it, not the requirement it was built for.
 
 ## Considered options

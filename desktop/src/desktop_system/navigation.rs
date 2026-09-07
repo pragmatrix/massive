@@ -228,8 +228,8 @@ impl DesktopSystem {
                 // not center-based. Compute the center from the rectangle.
                 let center = rect.center();
                 let center: Transform = (center.x, center.y, 0.0).into();
-                let scale = Self::fit_scale(size, window_size);
-                Some(center.to_camera().with_scale(scale))
+                let distance = Self::fit_letterbox_distance(size, window_size);
+                Some(center.to_camera().with_distance(distance))
             }
             DesktopTarget::Project(_)
             | DesktopTarget::ProjectHeader(_)
@@ -251,18 +251,19 @@ impl DesktopSystem {
     }
 
     /// Build a camera that looks at the placement's full transform (translate + rotate),
-    /// with the look-at scale forced to 1.0 so zoom lives in the camera's fit scale.
+    /// at the pixel-perfect distance.
     pub(super) fn camera_from_placement(transform: Transform) -> PixelCamera {
         let look_at = Transform::new(transform.translate, transform.rotate, 1.0);
         look_at.to_camera()
     }
 
-    /// The letterboxing scale that fits `size` within the window.
-    pub(super) fn fit_scale(size: Size, window_size: SizePx) -> f64 {
+    /// The letterboxing camera distance that fits `size` within the window.
+    pub(super) fn fit_letterbox_distance(size: Size, window_size: SizePx) -> f64 {
         let (surface_width, surface_height) = window_size.into();
         let scale_x = surface_width as f64 / size.width;
         let scale_y = surface_height as f64 / size.height;
-        scale_x.min(scale_y)
+        let fit_scale = scale_x.min(scale_y).max(f64::MIN_POSITIVE);
+        PixelCamera::camera_distance(PixelCamera::DEFAULT_FOVY) / fit_scale
     }
 }
 

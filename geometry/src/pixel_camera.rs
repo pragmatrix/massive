@@ -12,47 +12,67 @@ use crate::{Matrix4, Projection, SizePx, Transform, Vector3};
 pub struct PixelCamera {
     /// The point the camera points at in model / pixel space.
     pub look_at: Transform,
-    /// The resolved scale factor: `1.0` is pixel-perfect, other values zoom the model.
-    pub scale: f64,
+    /// The distance from the camera's look-at point back along the view axis. `camera_distance()`
+    /// is the pixel-perfect distance (where model pixels map 1:1 onto the surface); larger values
+    /// dolly the camera back and shrink content. Zoom is a dolly in depth, not a model scale.
+    pub distance: f64,
     pub fovy: f64,
 }
 
 impl Default for PixelCamera {
     fn default() -> Self {
-        Self::look_at(Transform::IDENTITY, 1.0, Self::DEFAULT_FOVY)
+        Self::look_at(Transform::IDENTITY, Self::camera_distance(Self::DEFAULT_FOVY), Self::DEFAULT_FOVY)
     }
 }
 
 impl PixelCamera {
     pub const DEFAULT_FOVY: f64 = 45.0;
 
-    /// Create a new camera from a transform, a resolved scale, and field of view.
+    /// The pixel-perfect camera distance for a field of view: the distance at which model pixels
+    /// map 1:1 onto the surface.
+    pub fn camera_distance(fovy: f64) -> f64 {
+        1.0 / (fovy / 2.0).to_radians().tan()
+    }
+
+    /// The pixel-perfect distance for this camera's field of view.
+    fn pixel_perfect_distance(&self) -> f64 {
+        Self::camera_distance(self.fovy)
+    }
+
+    /// Create a new camera from a transform, a resolved distance, and field of view.
     ///
-    /// `scale == 1.0` is pixel-perfect; other values zoom the model.
-    pub fn look_at(look_at: Transform, scale: f64, fovy: f64) -> Self {
+    /// `distance == camera_distance(fovy)` is pixel-perfect; larger values dolly back and zoom out.
+    pub fn look_at(look_at: Transform, distance: f64, fovy: f64) -> Self {
         Self {
             look_at,
-            scale,
+            distance,
             fovy,
         }
     }
 
-    pub fn with_scale(mut self, scale: f64) -> Self {
-        self.scale = scale;
+    pub fn with_distance(mut self, distance: f64) -> Self {
+        self.distance = distance;
         self
     }
 
-    /// The matrix that moves and scales the model so that the camera target is at 0,0 and
-    /// the target size (if set) fits within the surface.
+    /// The matrix that moves the model so that the camera target is at 0,0. World-only: the
+    /// pixel-perfect distance and any dolly live in [`ndc_camera_move`], kept separate from
+    /// camera-space content (which is not dollied).
     pub fn model_camera_matrix(&self) -> Matrix4 {
-        self.target_scale_matrix() * self.look_at.inverse().to_matrix4()
+        self.look_at.inverse().to_matrix4()
     }
 
-    /// Move the model further back in NDC coordinate space, so that its pointed-to position is
-    /// visible.
+    /// Move the model back along the camera axis so that its pointed-to position is visible at the
+    /// camera's distance. World projection dollies by `distance` (which is `camera_distance` when
+    /// pixel-perfect); camera-space content uses [`pixel_perfect_ndc_camera_move`] to stay fixed.
     pub fn ndc_camera_move(&self) -> Matrix4 {
-        let camera_distance = 1.0 / (self.fovy / 2.0).to_radians().tan();
-        Matrix4::from_translation(-Vector3::new(0.0, 0.0, camera_distance))
+        Matrix4::from_translation(-Vector3::new(0.0, 0.0, self.distance))
+    }
+
+    /// The [`ndc_camera_move`] at the fixed pixel-perfect distance, used for camera-space content
+    /// that must remain on-screen regardless of world zoom.
+    pub fn pixel_perfect_ndc_camera_move(&self) -> Matrix4 {
+        Matrix4::from_translation(-Vector3::new(0.0, 0.0, self.pixel_perfect_distance()))
     }
 
     /// The matrix that projects NDC 3D coordinates to the final surface coordinates "2D".
@@ -68,64 +88,41 @@ impl PixelCamera {
         Projection::new(width as f64 / height as f64, z_range).perspective_matrix(self.fovy)
     }
 
-    /// The matrix that scales the model to fit the target size within the surface.
-    fn target_scale_matrix(&self) -> Matrix4 {
-        let scale = self.scale;
-        Matrix4::from_scale(Vector3::new(scale, scale, scale))
-    }
-
-    /// The largest camera scale whose projected model points fit within `surface_size`.
+    /// The camera distance that fits `points` within `surface_size`, computed directly.
     ///
-    /// Transforms each point into camera space (via `look_at.inverse()`) and solves for the size
-    /// scale at which the perspective projection still fits the surface. Unlike fitting an
-    /// axis-aligned union rect, this frames the true projected footprint, so yawed/rotated content
-    /// doesn't leave empty strips around its silhouette.
-    pub fn fit_scale_for_points(&self, points: &[Vector3], surface_size: SizePx) -> f64 {
+    /// Projects each point through the perspective divide at the pixel-perfect distance to find the
+    /// true NDC footprint (accounting for foreshortening of yawed content), then solves the closed
+    /// -form dolly distance that scales that footprint into the surface. No bisection solver.
+    pub fn fit_distance_for_points(&self, points: &[Vector3], surface_size: SizePx) -> f64 {
         if points.is_empty() {
-            return self.scale;
+            return self.pixel_perfect_distance();
         }
 
         let (surface_width, surface_height) = surface_size.into();
-        let surface_width = surface_width as f64;
-        let surface_height = surface_height as f64;
-        let camera_distance = 1.0 / (self.fovy / 2.0).to_radians().tan();
-        let model_to_ndc_scale = 2.0 / surface_height;
-        let half_width = surface_width * 0.5;
-        let half_height = surface_height * 0.5;
+        let half_width = surface_width as f64 * 0.5;
+        let half_height = surface_height as f64 * 0.5;
         let to_camera = self.look_at.inverse();
+        let camera_distance = self.pixel_perfect_distance();
 
-        let fits = |model_scale: f64| {
-            let z_scale = model_to_ndc_scale * model_scale;
-            for point in points {
-                let camera_point = to_camera.transform_point(*point);
-                let denominator = camera_distance - z_scale * camera_point.z;
-                if denominator <= 0.0 {
-                    return false;
-                }
-                let x = camera_distance * model_scale * camera_point.x / denominator;
-                let y = camera_distance * model_scale * camera_point.y / denominator;
-                if x.abs() > half_width || y.abs() > half_height {
-                    return false;
-                }
+        // Max NDC x/y footprint (|x|<=1, |y|<=1 is on-screen) after the perspective divide.
+        let mut max_ndc_x: f64 = 0.0;
+        let mut max_ndc_y: f64 = 0.0;
+        for point in points {
+            let camera_point = to_camera.transform_point(*point);
+            let denominator = camera_distance - camera_point.z;
+            if denominator <= 0.0 {
+                continue;
             }
-            true
-        };
+            let x = camera_distance * camera_point.x / denominator;
+            let y = camera_distance * camera_point.y / denominator;
+            max_ndc_x = max_ndc_x.max(x.abs());
+            max_ndc_y = max_ndc_y.max(y.abs());
+        }
 
-        // `fits` is monotone-decreasing in scale (bigger scale → bigger content). Find an upper
-        // bound that no longer fits, then bisect for the largest fitting scale.
-        let mut lo = 0.0;
-        let mut hi = self.scale;
-        while hi.abs() < 1024.0 && fits(hi) {
-            hi *= 2.0;
-        }
-        for _ in 0..48 {
-            let mid = (lo + hi) * 0.5;
-            if fits(mid) {
-                lo = mid;
-            } else {
-                hi = mid;
-            }
-        }
-        lo
+        // NDC half-extent is in units where the surface half-width/half-height are 1.0. The required
+        // on-screen fit scale is the reciprocal of the relative footprint; dolly is inversely
+        // proportional to that scale (`screen_scale = camera_distance / distance`).
+        let fit_scale = (half_width / max_ndc_x).min(half_height / max_ndc_y);
+        camera_distance / fit_scale
     }
 }

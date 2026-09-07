@@ -171,6 +171,10 @@ where
     T: ToTransform,
 {
     fn to_camera(&self) -> PixelCamera {
-        PixelCamera::look_at(self.to_transform(), 1.0, PixelCamera::DEFAULT_FOVY)
+        PixelCamera::look_at(
+            self.to_transform(),
+            PixelCamera::camera_distance(PixelCamera::DEFAULT_FOVY),
+            PixelCamera::DEFAULT_FOVY,
+        )
     }
 }
