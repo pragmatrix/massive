@@ -1,3 +1,4 @@
+use massive_applications::InstanceId;
 use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
 use massive_scene::prelude::*;
 
@@ -73,7 +74,9 @@ impl DesktopSystem {
                 .aggregates
                 .hierarchy
                 .launcher_of_target(target)
-                .and_then(|launcher| self.camera_for_rect(self.matrix_row_rect(launcher)?, window_size)),
+                .and_then(|launcher| {
+                    self.camera_for_rect(self.matrix_row_rect(launcher)?, window_size)
+                }),
             FocusDepth::Project => self
                 .aggregates
                 .hierarchy
@@ -89,58 +92,31 @@ impl DesktopSystem {
         window_size: SizePx,
     ) -> Option<PixelCamera> {
         let launcher_id = self.aggregates.hierarchy.launcher_of_target(target)?;
-        let launcher = DesktopTarget::Launcher(launcher_id);
 
-        if self
-            .aggregates
-            .hierarchy
-            .launcher_instances(launcher_id)
-            .len()
-            > 1
-        {
-            // The overview camera inherits the focused instance's orientation and depth so
-            // zooming out keeps that panel head-on while the others fan around it.
-            let focused_instance = self
-                .aggregates
-                .hierarchy
-                .instance_of_target(target)
-                .or_else(|| {
-                    self.aggregates
-                        .launchers
-                        .get(&launcher_id)
-                        .and_then(|launcher| launcher.focus_anchor_instance)
-                });
-            let anchor_transform = focused_instance
-                .map(|instance| self.placement(&DesktopTarget::Instance(instance)).transform);
-            self.camera_for_bounds(
-                self.launcher_bounds(launcher_id),
-                anchor_transform,
-                window_size,
-            )
-        } else {
-            self.camera_for_target(&launcher, window_size)
+        let instances = self.aggregates.hierarchy.launcher_instances(launcher_id);
+        if instances.is_empty() {
+            // A launcher with no visors has nothing to union — frame the launcher itself.
+            return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
         }
+
+        let bounds = self.fold_instance_bounds(instances);
+        self.camera_for_bounds(bounds, window_size)
     }
 
     fn camera_for_bounds(
         &self,
         bounds: OverviewBounds,
-        anchor_transform: Option<Transform>,
         window_size: SizePx,
     ) -> Option<PixelCamera> {
         if bounds.rect.is_empty() {
             return None;
         }
 
-        // Inherit the focused panel's rotation and depth; fall back to the bounds center
-        // (axis-aligned, z=0) when no anchor is available.
-        let look_at = match anchor_transform {
-            Some(transform) => Transform::new(transform.translate, transform.rotate, 1.0),
-            None => {
-                let center = bounds.rect.center();
-                (center.x, center.y, 0.0).into()
-            }
-        };
+        // Center the whole-set fit on the axis-aligned union center (identity rotation, z=0) so
+        // the overview hugs the actual visor extent instead of inheriting the focused panel's
+        // offset position/rotation.
+        let center = bounds.rect.center();
+        let look_at: Transform = (center.x, center.y, 0.0).into();
         let camera = look_at.to_camera();
         let target_size = Self::fit_size_for_points(
             bounds.rect,
@@ -164,11 +140,18 @@ impl DesktopSystem {
         Some(center.to_camera().with_scale(scale))
     }
 
-    pub(super) fn launcher_bounds(&self, launcher_id: LaunchProfileId) -> OverviewBounds {
-        let root = DesktopTarget::Launcher(launcher_id);
-        let mut bounds = Some(self.target_bounds(&root));
-        self.extend_bounds_with_subtree(&root, &mut bounds);
-        bounds.expect("Internal error: launcher bounds should always exist")
+    // Frame only the visor instances, excluding the launcher's own background rect so the
+    // overview doesn't span further left/right than the visible visors.
+    fn fold_instance_bounds(&self, instances: Vec<InstanceId>) -> OverviewBounds {
+        let mut bounds: Option<OverviewBounds> = None;
+        for instance in instances {
+            let instance_bounds = self.target_bounds(&DesktopTarget::Instance(instance));
+            bounds = Some(match bounds {
+                Some(existing) => existing.joined(instance_bounds),
+                None => instance_bounds,
+            });
+        }
+        bounds.expect("Internal error: a launcher with visors must yield bounds")
     }
 
     pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
@@ -302,22 +285,6 @@ impl DesktopSystem {
         let origin_transform = placement.transform.to_origin_space(local_center);
         let bounds = Self::transform_rect(local_rect, origin_transform);
         bounds.rect
-    }
-
-    fn extend_bounds_with_subtree(
-        &self,
-        root: &DesktopTarget,
-        bounds: &mut Option<OverviewBounds>,
-    ) {
-        for child in self.aggregates.hierarchy.get_nested(root) {
-            let child_bounds = self.target_bounds(child);
-            *bounds = Some(match bounds.take() {
-                Some(existing) => existing.joined(child_bounds),
-                None => child_bounds,
-            });
-
-            self.extend_bounds_with_subtree(child, bounds);
-        }
     }
 
     fn target_bounds(&self, target: &DesktopTarget) -> OverviewBounds {

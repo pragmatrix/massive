@@ -38,7 +38,7 @@ const CHILD_SPACING: i32 = 0;
 
 /// When false, the visor arc never rotates to the focused instance and never collapses: it stays
 /// centered on the leftmost instance while navigation still moves keyboard focus freely.
-pub const VISOR_ROTATION_ENABLED: bool = false;
+pub const VISOR_ROTATION_ENABLED: bool = true;
 
 #[derive(Debug, Clone, Copy)]
 struct VisorLayoutSummary {

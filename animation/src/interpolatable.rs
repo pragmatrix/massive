@@ -1,8 +1,6 @@
 use std::time::Instant;
 
-use massive_geometry::{
-    PixelCamera, Point, Rect, Size, SizedTransform, Transform, Vector3,
-};
+use massive_geometry::{PixelCamera, Point, Rect, Size, SizedTransform, Transform, Vector3};
 
 /// For now we have to support `Clone`.
 ///
