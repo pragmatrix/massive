@@ -12,6 +12,8 @@ use parley::{GlyphRun as ParleyGlyphRun, LayoutContext, Line, PositionedLayoutIt
 
 use massive_geometry::{Color, Vector3};
 
+use crate::ClipBoxPx;
+
 use crate::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Default Parley brush type (RGBA bytes). Callers overwrite color via [`GlyphRun::with_color`].
@@ -47,7 +49,13 @@ pub fn glyph_run_to_run<'a>(
             let pos = (glyph.x.round() as i32, (glyph.y - baseline).round() as i32);
             RunGlyph::new(
                 pos,
-                GlyphKey::new(face_id, glyph.id as u16, font_size, weight),
+                GlyphKey::new(
+                    face_id,
+                    glyph.id as u16,
+                    font_size,
+                    weight,
+                    ClipBoxPx::UNCLIPPED,
+                ),
             )
         })
         .collect();
@@ -120,7 +128,7 @@ mod tests {
 
     /// A bundled monospace font so the adapter test doesn't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
-        "../../examples/shared/src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+        "../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
     );
 
     /// Shapes a known monospace ASCII string and asserts the produced glyph positions use the
@@ -153,13 +161,13 @@ mod tests {
         // baseline, not offset by the positive Y-down baseline.
         for glyph in &run.glyphs {
             assert!(
-                glyph.pos.1 == 0,
+                glyph.pos.y == 0,
                 "glyph y should be baseline-relative (Y-up), got {:?}",
-                glyph.pos.1
+                glyph.pos.y
             );
         }
         // X positions are increasing (monospace, one glyph per cell).
-        let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.0).collect();
+        let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.x).collect();
         assert!(
             xs.windows(2).all(|w| w[1] > w[0]),
             "x positions must be increasing: {xs:?}"

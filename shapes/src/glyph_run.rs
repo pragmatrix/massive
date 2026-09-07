@@ -1,9 +1,10 @@
-use glam::IVec2;
 use parley::FontData;
 use serde::{Deserialize, Serialize};
 use swash::zeno::Placement;
 
-use massive_geometry::{Bounds, Color, SizePx, Vector3};
+use massive_geometry::{BoxPx, Color, PointPx, SizePx, Vector3};
+
+use crate::ClipBoxPx;
 
 /// Opaque identifier for a font face.
 ///
@@ -100,16 +101,19 @@ impl GlyphRun {
     }
 
     /// Translate a rasterized glyph's position to the coordinate system of the run.
-    pub fn place_glyph(&self, glyph: &RunGlyph, placement: &Placement) -> (IVec2, IVec2) {
-        let max_ascent = self.metrics.max_ascent;
+    ///
+    /// The swash `Placement` is in Y-down glyph space (origin = advance origin, `top` = ink
+    /// top above the baseline); the returned box is in run space, Y-down screen convention:
+    /// `min` = (left, top), `max` = (right, bottom), numerically ordered.
+    pub fn place_glyph(&self, glyph: &RunGlyph, placement: &Placement) -> BoxPx {
+        let max_ascent = self.metrics.max_ascent as i32;
         let pos = glyph.pos;
 
-        let left = pos.0 + placement.left;
-        let top = pos.1 + (max_ascent as i32) - placement.top;
-        let right = left + placement.width as i32;
-        let bottom = top + placement.height as i32;
+        let left = pos.x + placement.left;
+        let top = pos.y + max_ascent - placement.top;
+        let size = SizePx::new(placement.width, placement.height).cast::<i32>();
 
-        ((left, top).into(), (right, bottom).into())
+        BoxPx::from_origin_and_size(PointPx::new(left, top), size)
     }
 }
 
@@ -172,44 +176,96 @@ impl TextWeight {
 pub struct RunGlyph {
     /// The position (left / top) relative to the start of the line in pixel.
     ///
-    /// x (.0) usually starts with zero (may probably be negative with negative left side bearings).
-    /// y is usually 0 meaning that the glyph "boxes" usually are having the same height.
+    /// x usually starts with zero (may be negative with negative left side bearings). y is
+    /// usually 0 meaning that the glyph "boxes" usually are having the same height.
     ///
     /// This is the left top position of the "advance box" (in typography terms). Cosmic text
     /// uses the term "hit box".
-    pub pos: (i32, i32),
+    pub pos: PointPx,
     pub key: GlyphKey,
 }
 
 impl RunGlyph {
-    pub fn new(pos: (i32, i32), key: GlyphKey) -> Self {
-        Self { pos, key }
-    }
-
-    // The bounds enclosing a pixel at the offset of the glyphs hitbox.
-    pub fn pixel_bounds_at(&self, offset: (u32, u32)) -> Bounds {
-        let x = self.pos.0 + offset.0 as i32;
-        let y = self.pos.1 + offset.1 as i32;
-
-        Bounds::new((x as f64, y as f64), ((x + 1) as f64, (y + 1) as f64))
+    pub fn new(pos: impl Into<PointPx>, key: GlyphKey) -> Self {
+        Self {
+            pos: pos.into(),
+            key,
+        }
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// A glyph key identifying a rasterized glyph.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct GlyphKey {
     pub face_id: FaceId,
     pub glyph_id: u16,
     pub font_size_bits: u32,
     pub weight: TextWeight,
+    /// The positioned crop window (sentinel-bounded box). Part of the rasterization identity:
+    /// a glyph cropped differently is a different bitmap.
+    pub clip_box: ClipBoxPx,
 }
 
 impl GlyphKey {
-    pub fn new(face_id: FaceId, glyph_id: u16, font_size: f32, weight: TextWeight) -> Self {
+    pub fn new(
+        face_id: FaceId,
+        glyph_id: u16,
+        font_size: f32,
+        weight: TextWeight,
+        clip_box: ClipBoxPx,
+    ) -> Self {
         Self {
             face_id,
             glyph_id,
             font_size_bits: font_size.to_bits(),
             weight,
+            clip_box,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::ClipBoxPx;
+
+    /// Placement must land at `pos + (placement.left, max_ascent - placement.top)` with the
+    /// bitmap's size extending right/down. Guards the corner-vs-size distinction of
+    /// `Box2D::new` — passing a size as the max corner inverts every glyph after the first.
+    #[test]
+    fn place_glyph_maps_placement_to_run_space_box() {
+        let glyph = RunGlyph::new(
+            PointPx::new(35, 3),
+            GlyphKey::new(
+                FaceId::new(1, 0),
+                42,
+                13.0,
+                TextWeight::NORMAL,
+                ClipBoxPx::UNCLIPPED,
+            ),
+        );
+        let run = GlyphRun::new(
+            (0., 0., 0.),
+            GlyphRunMetrics {
+                max_ascent: 10,
+                max_descent: 4,
+                width: 100,
+            },
+            Color::BLACK,
+            TextWeight::NORMAL,
+            vec![glyph],
+        );
+
+        let placement = Placement {
+            left: -2,
+            top: 8,
+            width: 7,
+            height: 12,
+        };
+
+        let b = run.place_glyph(&run.glyphs[0], &placement);
+        assert_eq!(b.min, PointPx::new(33, 5));
+        assert_eq!(b.max, PointPx::new(40, 17));
     }
 }

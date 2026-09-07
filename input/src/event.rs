@@ -45,6 +45,12 @@ impl<'history, E: InputEvent> Event<'history, E> {
     /// Returns the physical coordinates if the event was caused by a pointer device and the device
     /// has reported a position yet.
     ///
+    /// A `MouseInput` event can be recorded in the history before the device has reported any
+    /// position (e.g. a button press arriving before any `CursorMoved`). The aggregator drops the
+    /// button state for such events (`PrerequisitesNotMet`), but the event itself is still pushed
+    /// into the history, so `pos()` legitimately returns `None` for it. Callers must propagate
+    /// `None` rather than unwrap.
+    ///
     // Robustness: I think we should make this require the device() to be passed, this is otherwise
     pub fn pos(&self) -> Option<Point> {
         self.device_states().pos(self.device()?)
@@ -115,12 +121,14 @@ impl<'history, E: InputEvent> Event<'history, E> {
             >= min_distance
     }
 
+    /// Returns the press point, or `None` if the device has no recorded position yet (see
+    /// [`Event::pos`]).
     pub fn detect_click(&self, mouse_button: MouseButton) -> Option<Point> {
         match self.to_aggregation_event()? {
             AggregationEvent::MouseInput { state, button, .. }
                 if button == mouse_button && state == ElementState::Pressed =>
             {
-                Some(self.pos().unwrap())
+                self.pos()
             }
             _ => None,
         }
@@ -132,7 +140,7 @@ impl<'history, E: InputEvent> Event<'history, E> {
             AggregationEvent::MouseInput { state, button, .. }
                 if button == mouse_button && state == ElementState::Released =>
             {
-                Some(self.pos().unwrap())
+                self.pos()
             }
             _ => None,
         }

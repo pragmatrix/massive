@@ -18,6 +18,7 @@ use parley::FontData;
 use swash::FontRef;
 
 use massive_geometry::{Color, Vector3};
+use massive_shapes::ClipBoxPx;
 use massive_shapes::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Bridges cosmic-text's font database to Parley's, so cosmic-text glyphs can be converted to
@@ -129,7 +130,7 @@ impl FontBridge {
     /// Convert a single cosmic-text [`cosmic_text::LayoutRun`] into a [`GlyphRun`].
     ///
     /// Uses cosmic-text's own glyph coordinates (line-relative x, baseline-relative y), matching
-    /// the [`GlyphRun`] contract the Parley adapter produces: `pos.1` is baseline-relative and the
+    /// the [`GlyphRun`] contract the Parley adapter produces: `pos.y` is baseline-relative and the
     /// renderer adds `max_ascent` to position the glyph box. The run is positioned at
     /// `(left, top + run.line_top)`.
     pub fn cosmic_run_to_glyph_run(
@@ -161,6 +162,7 @@ impl FontBridge {
                         glyph.glyph_id,
                         glyph.font_size,
                         TextWeight(glyph.font_weight.0),
+                        ClipBoxPx::UNCLIPPED,
                     ),
                 )
             })
@@ -211,7 +213,7 @@ mod tests {
 
     /// A bundled monospace font so the test doesn't depend on system fonts.
     const MONTSERRAT: &[u8] =
-        include_bytes!("../../shared/src/fonts/Montserrat/Montserrat-Regular.ttf");
+        include_bytes!("../../../assets/fonts/Montserrat/Montserrat-Regular.ttf");
 
     /// Shapes a known string through cosmic-text and asserts the bridge emits baseline-relative
     /// Y-up glyph positions (y ≈ 0) and monotonic x, locking the coordinate conversion.
@@ -237,12 +239,12 @@ mod tests {
         );
         for glyph in &run.glyphs {
             assert!(
-                glyph.pos.1 == 0,
+                glyph.pos.y == 0,
                 "glyph y should be baseline-relative (Y-up), got {:?}",
-                glyph.pos.1
+                glyph.pos.y
             );
         }
-        let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.0).collect();
+        let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.x).collect();
         assert!(
             xs.windows(2).all(|w| w[0] < w[1]),
             "glyph x should be monotonic, got {:?}",

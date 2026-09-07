@@ -47,6 +47,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required; preserve backwards compatibility unless instructed otherwise.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
+- Unit-test functions that carry logic across a representation change (scalar fields → domain types, loose values → structured types): the old shape's implicit semantics (parameter order, units, corner-vs-origin) don't transfer automatically, and the mistakes compile fine while corrupting downstream behavior.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
 - Represent state with the same lifetime and update boundary as one value, instead of parallel optional fields.
 - When presentation can be derived from authoritative interaction, layout, and environment state, apply it as an immutable value through an ordered effect instead of mirroring mode flags.
