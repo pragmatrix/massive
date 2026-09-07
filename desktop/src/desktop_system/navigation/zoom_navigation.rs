@@ -94,8 +94,8 @@ impl DesktopSystem {
         let launcher_id = self.aggregates.hierarchy.launcher_of_target(target)?;
 
         let instances = self.aggregates.hierarchy.launcher_instances(launcher_id);
-        if instances.is_empty() {
-            // A launcher with no visors has nothing to union — frame the launcher itself.
+        if instances.len() <= 1 {
+            // A launcher with zero or one visor has no arc to union — frame the launcher itself.
             return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
         }
 
