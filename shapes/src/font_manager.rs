@@ -306,7 +306,7 @@ mod tests {
 
     /// A bundled monospace font so the test doesn't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
-        "../../examples/shared/src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+        "../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
     );
 
     /// After `load_font`, the registry must contain the loaded font AND any system fonts Parley

@@ -213,7 +213,7 @@ mod tests {
 
     /// A bundled monospace font so the test doesn't depend on system fonts.
     const MONTSERRAT: &[u8] =
-        include_bytes!("../../shared/src/fonts/Montserrat/Montserrat-Regular.ttf");
+        include_bytes!("../../../assets/fonts/Montserrat/Montserrat-Regular.ttf");
 
     /// Shapes a known string through cosmic-text and asserts the bridge emits baseline-relative
     /// Y-up glyph positions (y ≈ 0) and monotonic x, locking the coordinate conversion.

@@ -128,7 +128,7 @@ mod tests {
 
     /// A bundled monospace font so the adapter test doesn't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
-        "../../examples/shared/src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+        "../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
     );
 
     /// Shapes a known monospace ASCII string and asserts the produced glyph positions use the

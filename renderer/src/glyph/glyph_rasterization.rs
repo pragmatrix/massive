@@ -242,7 +242,7 @@ mod tests {
     #[test]
     fn crop_image_handles_sentinel_edges() {
         let bytes = include_bytes!(
-            "../../../../src/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+            "../../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
         );
         let font_ref = FontRef::from_index(bytes, 0).unwrap();
         let mut context = ScaleContext::new();
