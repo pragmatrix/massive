@@ -106,7 +106,7 @@ impl RenderGeometry {
 
     fn model_to_surface(camera: &PixelCamera, surface_size: SizePx) -> Matrix4 {
         let model_to_camera_to_ndc_matrix =
-            RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix(surface_size);
+            RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix();
 
         let view_matrix = camera.ndc_camera_move();
         let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);

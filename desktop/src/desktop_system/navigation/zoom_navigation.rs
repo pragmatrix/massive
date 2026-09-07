@@ -64,24 +64,22 @@ impl DesktopSystem {
                     let transform = self
                         .placement(&DesktopTarget::Instance(instance_id))
                         .transform;
-                    let camera_transform: Transform = transform.translate.into();
-                    camera_transform
-                        .to_camera()
-                        .with_size(presentation.layout_size())
+                    let scale = Self::fit_scale(presentation.layout_size(), window_size);
+                    Self::camera_from_placement(transform).with_scale(scale)
                 }),
-            FocusDepth::Instance => self.camera_for_target(target),
+            FocusDepth::Instance => self.camera_for_target(target, window_size),
             FocusDepth::Launcher => self.camera_for_launcher_focus(target, window_size),
             FocusDepth::Row => self
                 .aggregates
                 .hierarchy
                 .launcher_of_target(target)
-                .and_then(|launcher| self.camera_for_rect(self.matrix_row_rect(launcher)?)),
+                .and_then(|launcher| self.camera_for_rect(self.matrix_row_rect(launcher)?, window_size)),
             FocusDepth::Project => self
                 .aggregates
                 .hierarchy
                 .project_of_target(target)
-                .and_then(|project| self.camera_for_rect(self.project_rect(project))),
-            FocusDepth::Desktop => self.camera_for_target(&DesktopTarget::Desktop),
+                .and_then(|project| self.camera_for_rect(self.project_rect(project), window_size)),
+            FocusDepth::Desktop => self.camera_for_target(&DesktopTarget::Desktop, window_size),
         }
     }
 
@@ -100,42 +98,70 @@ impl DesktopSystem {
             .len()
             > 1
         {
-            self.camera_for_bounds(self.launcher_bounds(launcher_id), window_size)
+            // The overview camera inherits the focused instance's orientation and depth so
+            // zooming out keeps that panel head-on while the others fan around it.
+            let focused_instance = self
+                .aggregates
+                .hierarchy
+                .instance_of_target(target)
+                .or_else(|| {
+                    self.aggregates
+                        .launchers
+                        .get(&launcher_id)
+                        .and_then(|launcher| launcher.focus_anchor_instance)
+                });
+            let anchor_transform = focused_instance
+                .map(|instance| self.placement(&DesktopTarget::Instance(instance)).transform);
+            self.camera_for_bounds(
+                self.launcher_bounds(launcher_id),
+                anchor_transform,
+                window_size,
+            )
         } else {
-            self.camera_for_target(&launcher)
+            self.camera_for_target(&launcher, window_size)
         }
     }
 
     fn camera_for_bounds(
         &self,
         bounds: OverviewBounds,
+        anchor_transform: Option<Transform>,
         window_size: SizePx,
     ) -> Option<PixelCamera> {
         if bounds.rect.is_empty() {
             return None;
         }
 
-        let center = bounds.rect.center();
-        let center: Transform = (center.x, center.y, 0.0).into();
-        let camera = center.to_camera();
+        // Inherit the focused panel's rotation and depth; fall back to the bounds center
+        // (axis-aligned, z=0) when no anchor is available.
+        let look_at = match anchor_transform {
+            Some(transform) => Transform::new(transform.translate, transform.rotate, 1.0),
+            None => {
+                let center = bounds.rect.center();
+                (center.x, center.y, 0.0).into()
+            }
+        };
+        let camera = look_at.to_camera();
         let target_size = Self::fit_size_for_points(
             bounds.rect,
-            center.translate,
+            look_at,
             &bounds.points,
             camera.fovy,
             window_size,
         );
-        Some(camera.with_size(target_size))
+        let scale = Self::fit_scale(target_size, window_size);
+        Some(camera.with_scale(scale))
     }
 
-    fn camera_for_rect(&self, rect: Rect) -> Option<PixelCamera> {
+    fn camera_for_rect(&self, rect: Rect, window_size: SizePx) -> Option<PixelCamera> {
         if rect.is_empty() {
             return None;
         }
 
         let center = rect.center();
         let center: Transform = (center.x, center.y, 0.0).into();
-        Some(center.to_camera().with_size(rect.size()))
+        let scale = Self::fit_scale(rect.size(), window_size);
+        Some(center.to_camera().with_scale(scale))
     }
 
     pub(super) fn launcher_bounds(&self, launcher_id: LaunchProfileId) -> OverviewBounds {
@@ -179,7 +205,7 @@ impl DesktopSystem {
 
     fn fit_size_for_points(
         rect: Rect,
-        center: Vector3,
+        look_at: Transform,
         points: &[Vector3],
         fovy: f64,
         surface_size: SizePx,
@@ -192,7 +218,7 @@ impl DesktopSystem {
         let mut low = 1.0;
         let mut high = 1.0;
 
-        while !Self::points_fit_in_surface(base_size * high, center, points, fovy, surface_size) {
+        while !Self::points_fit_in_surface(base_size * high, look_at, points, fovy, surface_size) {
             high *= 2.0;
             if high > 1024.0 {
                 return base_size * high;
@@ -201,7 +227,7 @@ impl DesktopSystem {
 
         for _ in 0..40 {
             let mid = (low + high) * 0.5;
-            if Self::points_fit_in_surface(base_size * mid, center, points, fovy, surface_size) {
+            if Self::points_fit_in_surface(base_size * mid, look_at, points, fovy, surface_size) {
                 high = mid;
             } else {
                 low = mid;
@@ -213,7 +239,7 @@ impl DesktopSystem {
 
     fn points_fit_in_surface(
         target_size: Size,
-        center: Vector3,
+        look_at: Transform,
         points: &[Vector3],
         fovy: f64,
         surface_size: SizePx,
@@ -229,16 +255,18 @@ impl DesktopSystem {
         let z_scale = model_to_ndc_scale * target_scale;
         let half_surface = surface_size * 0.5;
 
+        // Transform points into camera space so a rotated look-at frames correctly.
+        let to_camera = look_at.inverse();
+
         for point in points {
-            let dx = point.x - center.x;
-            let dy = point.y - center.y;
-            let denominator = camera_distance - z_scale * point.z;
+            let camera_point = to_camera.transform_point(*point);
+            let denominator = camera_distance - z_scale * camera_point.z;
             if denominator <= 0.0 {
                 return false;
             }
 
-            let x = camera_distance * target_scale * dx / denominator;
-            let y = camera_distance * target_scale * dy / denominator;
+            let x = camera_distance * target_scale * camera_point.x / denominator;
+            let y = camera_distance * target_scale * camera_point.y / denominator;
 
             if x.abs() > half_surface.width || y.abs() > half_surface.height {
                 return false;

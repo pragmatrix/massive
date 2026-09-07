@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use massive_geometry::{
-    CameraMode, PixelCamera, Point, Rect, Size, SizedTransform, Transform, Vector3,
+    PixelCamera, Point, Rect, Size, SizedTransform, Transform, Vector3,
 };
 
 /// For now we have to support `Clone`.
@@ -67,64 +67,8 @@ impl Interpolatable for PixelCamera {
     fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
         PixelCamera {
             look_at: interpolate(&from.look_at, &to.look_at, t),
-            mode: interpolate(&from.mode, &to.mode, t),
+            scale: interpolate(&from.scale, &to.scale, t),
             fovy: interpolate(&from.fovy, &to.fovy, t),
-        }
-    }
-}
-
-impl Interpolatable for CameraMode {
-    fn interpolate(from: &Self, to: &Self, t: f64) -> Self {
-        use CameraMode::*;
-
-        match (from, to) {
-            (PixelPerfect, PixelPerfect) => PixelPerfect,
-            (
-                PixelPerfect,
-                Sized {
-                    target_size,
-                    blend: to_blend,
-                },
-            ) => {
-                // `to_blend` (not a hardcoded `1.0`) so re-blending an in-progress value (as
-                // `BlendedAnimation::proceed` does with `weight = 1.0`) preserves it instead of
-                // collapsing straight to the final state.
-                let blend = interpolate(&0.0, to_blend, t);
-                Sized {
-                    target_size: *target_size,
-                    blend,
-                }
-            }
-            (
-                Sized {
-                    target_size,
-                    blend: from_blend,
-                },
-                PixelPerfect,
-            ) => {
-                let blend = interpolate(from_blend, &0.0, t);
-                if blend == 0.0 {
-                    PixelPerfect
-                } else {
-                    Sized {
-                        target_size: *target_size,
-                        blend,
-                    }
-                }
-            }
-            (
-                Sized {
-                    target_size: from_size,
-                    blend: from_blend,
-                },
-                Sized {
-                    target_size: to_size,
-                    blend: to_blend,
-                },
-            ) => Sized {
-                target_size: interpolate(from_size, to_size, t),
-                blend: interpolate(from_blend, to_blend, t),
-            },
         }
     }
 }
