@@ -248,15 +248,19 @@ impl DesktopLayoutAlgorithm<'_> {
         let child_instances = self.aggregates.hierarchy.launcher_instances(*launcher_id);
 
         // Performance: This don't need to be computed on non-visor launchers (but we might remove
-        // bands anyway)
-        let expanded = self
-            .focused_instance
-            .and_then(|focused| {
-                child_instances
-                    .iter()
-                    .position(|&instance| instance == focused)
-            })
-            .is_some();
+        // bands anyway). When visor rotation is disabled the visor never collapses, so all
+        // instances stay visible regardless of focus.
+        let expanded = if crate::projects::VISOR_ROTATION_ENABLED {
+            self.focused_instance
+                .and_then(|focused| {
+                    child_instances
+                        .iter()
+                        .position(|&instance| instance == focused)
+                })
+                .is_some()
+        } else {
+            true
+        };
 
         launcher.place_panel_children(
             Offset::default(),
