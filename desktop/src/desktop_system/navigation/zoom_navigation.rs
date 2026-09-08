@@ -129,17 +129,14 @@ impl DesktopSystem {
         mean_yaw: f64,
         window_size: SizePx,
     ) -> Option<PixelCamera> {
-        if bounds.points.is_empty() {
-            return None;
-        }
-
         // Point the camera at the 3D centroid of the visor corners (which carries the arc's z
         // offset, not the flat z=0 plane), rotated by the panels' mean yaw so it looks toward the
-        // arc's bulk. The whole-set fit then measures projected extent around that center.
+        // arc's bulk. The whole-set fit then measures projected extent around that center. An
+        // empty point set yields None, letting the depth resolver fall back to an ancestor.
         let centroid = bounds.points.centroid()?;
         let look_at = Transform::new(centroid, Quaternion::from_rotation_y(mean_yaw), 1.0);
         let camera = look_at.to_camera();
-        let distance = camera.fit_distance_for_points(&bounds.points, window_size);
+        let distance = camera.fit_distance_for_points(&bounds.points, window_size)?;
         Some(camera.with_distance(distance))
     }
 

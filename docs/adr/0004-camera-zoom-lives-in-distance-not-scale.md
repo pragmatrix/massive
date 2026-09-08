@@ -10,13 +10,13 @@ For flat content the projection of a world point is `screen ∝ (scale · (p −
 
 ## Fitting is direct, not a solver
 
-Fitting content into the surface is an exact closed form because the camera looks straight at the focal plane: the on-screen scale is `cam_dist / distance`, so the distance that letterboxes a target of size `size` into the window is `cam_dist / fit_scale`. `fit_distance_for_points` projects the bounding points through the perspective divide at the pixel-perfect distance and inverts the resulting footprint the same way — no bisection solver (the previous `fit_scale_for_points` iterated 48 passes).
+Fitting content into the surface is an exact closed form. For flat content the camera looks straight at the focal plane: the on-screen scale is `cam_dist / distance`, so the distance that letterboxes a target of size `size` into the window is `cam_dist / fit_scale`. `fit_distance_for_points` generalizes this to depth-spanning sets by solving the on-screen constraint per point: a point at camera-space `(px, py, pz)` projects to `cam_dist * (px, py) / (d - pz_ndc)` at distance `d`, with the pixel depth converted into the dolly's NDC z units (`pz_ndc = pz / half_height` — the NDC transform scales all axes by 2/height); the binding distance is `d >= pz_ndc + cam_dist * |p| / half`. Points in front of the focal plane (`pz > 0`, closer to the camera) project larger and bind the fit; points behind it shrink and never bind. An empty point set returns `None` so the caller decides the fallback. No bisection solver (the previous `fit_scale_for_points` iterated 48 passes).
 
 ## Considered alternatives
 
 - **Keep the model scale and just re-ease it.** Rejected: the two-channel product that causes the sway is inherent to scaling the model; re-easing alone cannot make the quotient monotonic.
 - **Pin the `look_at` anchor to the focused panel so the anchor stops moving.** Rejected: the monotonicity of the distance quotient holds regardless of anchor motion, so this buys nothing and would de-center the overview on the group.
-- **Depth-aware fit for depth-spanning sets (the 3D visor arc).** Deferred: `fit_distance_for_points` treats the set as lying on the focal plane, which is exact for flat content (bands) and approximate for the arc; a depth-span-aware variant is a follow-up.
+- **Depth-aware fit for depth-spanning sets (the 3D visor arc).** Initially deferred, now implemented in `fit_distance_for_points`: the per-point constraint with the pixel depth converted into the dolly's NDC z units (see "Fitting is direct, not a solver") is exact for the arc, not just flat content.
 
 ## Consequences
 

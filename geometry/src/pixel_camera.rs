@@ -92,14 +92,19 @@ impl PixelCamera {
         Projection::new(width as f64 / height as f64, z_range).perspective_matrix(self.fovy)
     }
 
-    /// The camera distance that fits `points` within `surface_size`, computed directly.
+    /// The camera distance that exactly frames `points` within `surface_size`, or `None` for an
+    /// empty point set (the caller decides the fallback).
     ///
-    /// Projects each point through the perspective divide at the pixel-perfect distance to find the
-    /// true NDC footprint (accounting for foreshortening of yawed content), then solves the closed
-    /// -form dolly distance that scales that footprint into the surface. No bisection solver.
-    pub fn fit_distance_for_points(&self, points: &[Vector3], surface_size: SizePx) -> f64 {
+    /// Solves the on-screen constraint per point: a point at camera-space `(px, py, pz)` projects to
+    /// `camera_distance * (px, py) / (d - pz_ndc)` at distance `d`, with the pixel depth converted
+    /// into the dolly's NDC z units (`pz_ndc = pz / half_height`), so the binding distance is
+    /// `d >= pz_ndc + camera_distance * |p| / half`. Points in front of the focal plane (`pz > 0`,
+    /// closer to the camera) project larger and bind the fit; points behind it shrink and never
+    /// bind. Exact for depth-spanning sets (the visor arc), not just flat content. No bisection
+    /// solver.
+    pub fn fit_distance_for_points(&self, points: &[Vector3], surface_size: SizePx) -> Option<f64> {
         if points.is_empty() {
-            return self.pixel_perfect_distance();
+            return None;
         }
 
         let (surface_width, surface_height) = surface_size.into();
@@ -108,25 +113,73 @@ impl PixelCamera {
         let to_camera = self.look_at.inverse();
         let camera_distance = self.pixel_perfect_distance();
 
-        // Max NDC x/y footprint (|x|<=1, |y|<=1 is on-screen) after the perspective divide.
-        let mut max_ndc_x: f64 = 0.0;
-        let mut max_ndc_y: f64 = 0.0;
+        // The minimum dolly distance that keeps every point on-screen. A point at camera-space
+        // (px, py, pz) projects to `camera_distance * (px, py) / (d - pz_ndc)` at distance `d`. The
+        // pixel depth enters in the dolly's NDC z units: the NDC transform scales all axes by
+        // 2/height, so `pz_ndc = pz / half_height` (adding raw pixel depth inflates the distance by
+        // ~half_height and dollies out absurdly far). Solving
+        // `|camera_distance * px / (d - pz_ndc)| <= half_width` for `d` gives
+        // `d >= pz_ndc + camera_distance * |px| / half_width`. Points in front of the focal plane
+        // (pz > 0, closer to the camera) project larger and bind the fit; points behind it shrink
+        // and never bind. Exact for depth-spanning sets (the visor arc), not just flat content.
+        let mut distance: f64 = 0.0;
         for point in points {
             let camera_point = to_camera.transform_point(*point);
-            let denominator = camera_distance - camera_point.z;
-            if denominator <= 0.0 {
-                continue;
-            }
-            let x = camera_distance * camera_point.x / denominator;
-            let y = camera_distance * camera_point.y / denominator;
-            max_ndc_x = max_ndc_x.max(x.abs());
-            max_ndc_y = max_ndc_y.max(y.abs());
+            let pz_ndc: f64 = camera_point.z / half_height;
+            let x: f64 = camera_point.x.abs() / half_width;
+            let y: f64 = camera_point.y.abs() / half_height;
+            distance = distance.max(pz_ndc + camera_distance * x.max(y));
         }
+        Some(distance)
+    }
+}
 
-        // NDC half-extent is in units where the surface half-width/half-height are 1.0. The required
-        // on-screen fit scale is the reciprocal of the relative footprint; dolly is inversely
-        // proportional to that scale (`screen_scale = camera_distance / distance`).
-        let fit_scale = (half_width / max_ndc_x).min(half_height / max_ndc_y);
-        camera_distance / fit_scale
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edge_point_at_the_focal_plane_binds_at_pixel_perfect() {
+        let camera = PixelCamera::default();
+        let surface = SizePx::new(1920, 1080);
+        let distance = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 0.0)], surface)
+            .expect("non-empty points yield a distance");
+        let pixel_perfect = PixelCamera::camera_distance(PixelCamera::DEFAULT_FOVY);
+        assert!((distance - pixel_perfect).abs() < 1e-9);
+    }
+
+    #[test]
+    fn points_in_front_of_the_focal_plane_bind_beyond_the_flat_fit() {
+        let camera = PixelCamera::default();
+        let surface = SizePx::new(1920, 1080);
+        let flat = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 0.0)], surface)
+            .expect("non-empty points yield a distance");
+        let near = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 108.0)], surface)
+            .expect("non-empty points yield a distance");
+        assert!(near > flat);
+    }
+
+    #[test]
+    fn points_behind_the_focal_plane_never_bind() {
+        let camera = PixelCamera::default();
+        let surface = SizePx::new(1920, 1080);
+        let flat = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 0.0)], surface)
+            .expect("non-empty points yield a distance");
+        let behind = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, -540.0)], surface)
+            .expect("non-empty points yield a distance");
+        assert!(behind < flat);
+    }
+
+    #[test]
+    fn empty_points_yield_none() {
+        let camera = PixelCamera::default();
+        assert!(camera
+            .fit_distance_for_points(&[], SizePx::new(1920, 1080))
+            .is_none());
     }
 }
