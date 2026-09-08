@@ -49,6 +49,21 @@ pub trait Contains<Other> {
     fn contains(&self, other: Other) -> bool;
 }
 
+/// The arithmetic mean of a set of 3D points. Returns `None` for an empty set.
+pub trait Centroid {
+    fn centroid(&self) -> Option<Vector3>;
+}
+
+impl Centroid for [Vector3] {
+    fn centroid(&self) -> Option<Vector3> {
+        if self.is_empty() {
+            return None;
+        }
+        let sum = self.iter().fold(Vector3::ZERO, |acc, p| acc + *p);
+        Some(sum / self.len() as f64)
+    }
+}
+
 // Performance: This should probably not Copy!
 pub type Matrix4 = glam::DMat4;
 pub type Vector3 = glam::DVec3;

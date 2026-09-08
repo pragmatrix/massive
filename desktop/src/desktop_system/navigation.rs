@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::error;
 
-use massive_geometry::{PixelCamera, Rect, RectPx};
+use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx};
 use massive_scene::prelude::*;
 
 use super::change::{Changes, DesktopChange, set_focus};
@@ -213,7 +213,11 @@ impl DesktopSystem {
             .clone()
     }
 
-    pub(super) fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
+    pub(super) fn camera_for_target(
+        &self,
+        focus: &DesktopTarget,
+        window_size: SizePx,
+    ) -> Option<PixelCamera> {
         match focus {
             DesktopTarget::Desktop => {
                 let placement = self.placement(&DesktopTarget::Desktop);
@@ -224,27 +228,42 @@ impl DesktopSystem {
                 // not center-based. Compute the center from the rectangle.
                 let center = rect.center();
                 let center: Transform = (center.x, center.y, 0.0).into();
-                Some(center.to_camera().with_size(size))
+                let distance = Self::fit_letterbox_distance(size, window_size);
+                Some(center.to_camera().with_distance(distance))
             }
             DesktopTarget::Project(_)
             | DesktopTarget::ProjectHeader(_)
             | DesktopTarget::ProjectMatrix(_)
             | DesktopTarget::Launcher(_) => {
                 let transform = self.placement(focus).transform;
-                let camera_transform: Transform = transform.translate.into();
-                Some(camera_transform.to_camera())
+                Some(Self::camera_from_placement(transform))
             }
             DesktopTarget::Instance(instance_id) => {
                 let transform = self
                     .placement(&DesktopTarget::Instance(*instance_id))
                     .transform;
-                let transform: Transform = transform.translate.into();
-                Some(transform.to_camera())
+                Some(Self::camera_from_placement(transform))
             }
             DesktopTarget::View(_) => {
-                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
+                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?, window_size)
             }
         }
+    }
+
+    /// Build a camera that looks at the placement's full transform (translate + rotate),
+    /// at the pixel-perfect distance.
+    pub(super) fn camera_from_placement(transform: Transform) -> PixelCamera {
+        let look_at = Transform::new(transform.translate, transform.rotate, 1.0);
+        look_at.to_camera()
+    }
+
+    /// The letterboxing camera distance that fits `size` within the window.
+    pub(super) fn fit_letterbox_distance(size: Size, window_size: SizePx) -> f64 {
+        let (surface_width, surface_height) = window_size.into();
+        let scale_x = surface_width as f64 / size.width;
+        let scale_y = surface_height as f64 / size.height;
+        let fit_scale = scale_x.min(scale_y).max(f64::MIN_POSITIVE);
+        PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY) / fit_scale
     }
 }
 

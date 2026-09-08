@@ -106,7 +106,7 @@ impl RenderGeometry {
 
     fn model_to_surface(camera: &PixelCamera, surface_size: SizePx) -> Matrix4 {
         let model_to_camera_to_ndc_matrix =
-            RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix(surface_size);
+            RenderGeometry::model_to_ndc(surface_size) * camera.model_camera_matrix();
 
         let view_matrix = camera.ndc_camera_move();
         let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);
@@ -115,9 +115,10 @@ impl RenderGeometry {
     }
 
     /// The projection for camera-space coordinates: same perspective and pixel-to-NDC mapping as
-    /// world space, but without the world camera's look-at and target-size mode.
+    /// world space, but without the world camera's look-at, and at the fixed pixel-perfect distance
+    /// so camera-space content (e.g. overlays) stays on-screen regardless of world zoom.
     fn camera_space_projection(camera: &PixelCamera, surface_size: SizePx) -> Matrix4 {
-        let view_matrix = camera.ndc_camera_move();
+        let view_matrix = camera.pixel_perfect_ndc_camera_move();
         let perspective_matrix = camera.perspective_matrix(CAMERA_CLIP_RANGE, surface_size);
         let model_to_ndc = RenderGeometry::model_to_ndc(surface_size);
 

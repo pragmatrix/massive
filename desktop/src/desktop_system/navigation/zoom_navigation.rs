@@ -1,8 +1,11 @@
-use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx, Vector3};
+use massive_applications::InstanceId;
+use massive_geometry::{
+    BoundaryRect, Centroid, PixelCamera, Quaternion, Rect, RectPx, SizePx, Vector3,
+};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
-use crate::projects::LaunchProfileId;
+use crate::projects::{LaunchProfileId, LauncherMode};
 
 #[derive(Debug, Clone)]
 pub(super) struct OverviewBounds {
@@ -64,24 +67,25 @@ impl DesktopSystem {
                     let transform = self
                         .placement(&DesktopTarget::Instance(instance_id))
                         .transform;
-                    let camera_transform: Transform = transform.translate.into();
-                    camera_transform
-                        .to_camera()
-                        .with_size(presentation.layout_size())
+                    let distance =
+                        Self::fit_letterbox_distance(presentation.layout_size(), window_size);
+                    Self::camera_from_placement(transform).with_distance(distance)
                 }),
-            FocusDepth::Instance => self.camera_for_target(target),
+            FocusDepth::Instance => self.camera_for_target(target, window_size),
             FocusDepth::Launcher => self.camera_for_launcher_focus(target, window_size),
             FocusDepth::Row => self
                 .aggregates
                 .hierarchy
                 .launcher_of_target(target)
-                .and_then(|launcher| self.camera_for_rect(self.matrix_row_rect(launcher)?)),
+                .and_then(|launcher| {
+                    self.camera_for_rect(self.matrix_row_rect(launcher)?, window_size)
+                }),
             FocusDepth::Project => self
                 .aggregates
                 .hierarchy
                 .project_of_target(target)
-                .and_then(|project| self.camera_for_rect(self.project_rect(project))),
-            FocusDepth::Desktop => self.camera_for_target(&DesktopTarget::Desktop),
+                .and_then(|project| self.camera_for_rect(self.project_rect(project), window_size)),
+            FocusDepth::Desktop => self.camera_for_target(&DesktopTarget::Desktop, window_size),
         }
     }
 
@@ -91,58 +95,98 @@ impl DesktopSystem {
         window_size: SizePx,
     ) -> Option<PixelCamera> {
         let launcher_id = self.aggregates.hierarchy.launcher_of_target(target)?;
-        let launcher = DesktopTarget::Launcher(launcher_id);
 
-        if self
-            .aggregates
-            .hierarchy
-            .launcher_instances(launcher_id)
-            .len()
-            > 1
-        {
-            self.camera_for_bounds(self.launcher_bounds(launcher_id), window_size)
-        } else {
-            self.camera_for_target(&launcher)
+        let instances = self.aggregates.hierarchy.launcher_instances(launcher_id);
+        if instances.len() <= 1 {
+            // A launcher with zero or one visor has no arc to union — frame the launcher itself.
+            return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
         }
+
+        match self
+            .aggregates
+            .launchers
+            .get(&launcher_id)
+            .map(|launcher| launcher.mode())
+        {
+            // Band panels are flat axis-aligned rects (no yaw, z = 0): the simple letterbox fit
+            // the rows and projects use.
+            Some(LauncherMode::Band) => {
+                self.camera_for_rect(self.fold_instance_rect(instances), window_size)
+            }
+            // The arc camera is visor-specific; a missing presenter falls through to it, the
+            // default mode.
+            Some(LauncherMode::Visor) | None => self.camera_for_visor_arc(instances, window_size),
+        }
+    }
+
+    // Orient toward the arc's asymmetric mass: the arc is re-centered on the focused panel, so
+    // an off-center focus fans the other panels to one side and their panel yaws average to a
+    // nonzero angle. Use that mean yaw (≈0 when focus is centered) to rotate the camera toward
+    // the bulk, keeping the fit centered on the union of all visors.
+    fn camera_for_visor_arc(
+        &self,
+        instances: Vec<InstanceId>,
+        window_size: SizePx,
+    ) -> Option<PixelCamera> {
+        let transforms: Vec<Transform> = instances
+            .iter()
+            .map(|instance| {
+                self.placement(&DesktopTarget::Instance(*instance))
+                    .transform
+            })
+            .collect();
+        let mean_yaw = transforms
+            .iter()
+            // Panels are pure Y-rotations (`from_rotation_y`), so yaw is recoverable from the
+            // quaternion's y/w components without an euler-rotation dependency.
+            .map(|t| 2.0 * t.rotate.y.atan2(t.rotate.w))
+            .sum::<f64>()
+            / transforms.len() as f64;
+
+        let bounds = self.fold_instance_bounds(instances);
+        self.camera_for_bounds(bounds, mean_yaw, window_size)
     }
 
     fn camera_for_bounds(
         &self,
         bounds: OverviewBounds,
+        mean_yaw: f64,
         window_size: SizePx,
     ) -> Option<PixelCamera> {
-        if bounds.rect.is_empty() {
-            return None;
-        }
-
-        let center = bounds.rect.center();
-        let center: Transform = (center.x, center.y, 0.0).into();
-        let camera = center.to_camera();
-        let target_size = Self::fit_size_for_points(
-            bounds.rect,
-            center.translate,
-            &bounds.points,
-            camera.fovy,
-            window_size,
-        );
-        Some(camera.with_size(target_size))
+        // Point the camera at the 3D centroid of the visor corners (which carries the arc's z
+        // offset, not the flat z=0 plane), rotated by the panels' mean yaw so it looks toward the
+        // arc's bulk. The whole-set fit then measures projected extent around that center. An
+        // empty point set yields None, letting the depth resolver fall back to an ancestor.
+        let centroid = bounds.points.centroid()?;
+        let look_at = Transform::new(centroid, Quaternion::from_rotation_y(mean_yaw), 1.0);
+        let camera = look_at.to_camera();
+        let distance = camera.fit_distance_for_points(&bounds.points, window_size)?;
+        Some(camera.with_distance(distance))
     }
 
-    fn camera_for_rect(&self, rect: Rect) -> Option<PixelCamera> {
+    fn camera_for_rect(&self, rect: Rect, window_size: SizePx) -> Option<PixelCamera> {
         if rect.is_empty() {
             return None;
         }
 
         let center = rect.center();
         let center: Transform = (center.x, center.y, 0.0).into();
-        Some(center.to_camera().with_size(rect.size()))
+        let distance = Self::fit_letterbox_distance(rect.size(), window_size);
+        Some(center.to_camera().with_distance(distance))
     }
 
-    pub(super) fn launcher_bounds(&self, launcher_id: LaunchProfileId) -> OverviewBounds {
-        let root = DesktopTarget::Launcher(launcher_id);
-        let mut bounds = Some(self.target_bounds(&root));
-        self.extend_bounds_with_subtree(&root, &mut bounds);
-        bounds.expect("Internal error: launcher bounds should always exist")
+    // Frame only the instance panels, excluding the launcher's own background rect so the
+    // overview doesn't span further left/right than the visible panels.
+    fn fold_instance_bounds(&self, instances: Vec<InstanceId>) -> OverviewBounds {
+        let mut bounds: Option<OverviewBounds> = None;
+        for instance in instances {
+            let instance_bounds = self.target_bounds(&DesktopTarget::Instance(instance));
+            bounds = Some(match bounds {
+                Some(existing) => existing.joined(instance_bounds),
+                None => instance_bounds,
+            });
+        }
+        bounds.expect("Internal error: a launcher with visors must yield bounds")
     }
 
     pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
@@ -177,77 +221,6 @@ impl DesktopSystem {
         self.with_desktop_width(rect.expect("Internal error: project bounds should always exist"))
     }
 
-    fn fit_size_for_points(
-        rect: Rect,
-        center: Vector3,
-        points: &[Vector3],
-        fovy: f64,
-        surface_size: SizePx,
-    ) -> Size {
-        if points.is_empty() {
-            return rect.size();
-        }
-
-        let base_size = rect.size();
-        let mut low = 1.0;
-        let mut high = 1.0;
-
-        while !Self::points_fit_in_surface(base_size * high, center, points, fovy, surface_size) {
-            high *= 2.0;
-            if high > 1024.0 {
-                return base_size * high;
-            }
-        }
-
-        for _ in 0..40 {
-            let mid = (low + high) * 0.5;
-            if Self::points_fit_in_surface(base_size * mid, center, points, fovy, surface_size) {
-                high = mid;
-            } else {
-                low = mid;
-            }
-        }
-
-        base_size * high
-    }
-
-    fn points_fit_in_surface(
-        target_size: Size,
-        center: Vector3,
-        points: &[Vector3],
-        fovy: f64,
-        surface_size: SizePx,
-    ) -> bool {
-        let surface_size: Size = surface_size.into();
-        if target_size.is_empty() {
-            return false;
-        }
-
-        let target_scale = (surface_size / target_size).min_element();
-        let camera_distance = 1.0 / (fovy * 0.5).to_radians().tan();
-        let model_to_ndc_scale = 2.0 / surface_size.height;
-        let z_scale = model_to_ndc_scale * target_scale;
-        let half_surface = surface_size * 0.5;
-
-        for point in points {
-            let dx = point.x - center.x;
-            let dy = point.y - center.y;
-            let denominator = camera_distance - z_scale * point.z;
-            if denominator <= 0.0 {
-                return false;
-            }
-
-            let x = camera_distance * target_scale * dx / denominator;
-            let y = camera_distance * target_scale * dy / denominator;
-
-            if x.abs() > half_surface.width || y.abs() > half_surface.height {
-                return false;
-            }
-        }
-
-        true
-    }
-
     fn with_desktop_width(&self, rect: Rect) -> Rect {
         let desktop_rect = self.target_rect(&DesktopTarget::Desktop);
         (desktop_rect.left, rect.top, desktop_rect.right, rect.bottom).into()
@@ -274,22 +247,6 @@ impl DesktopSystem {
         let origin_transform = placement.transform.to_origin_space(local_center);
         let bounds = Self::transform_rect(local_rect, origin_transform);
         bounds.rect
-    }
-
-    fn extend_bounds_with_subtree(
-        &self,
-        root: &DesktopTarget,
-        bounds: &mut Option<OverviewBounds>,
-    ) {
-        for child in self.aggregates.hierarchy.get_nested(root) {
-            let child_bounds = self.target_bounds(child);
-            *bounds = Some(match bounds.take() {
-                Some(existing) => existing.joined(child_bounds),
-                None => child_bounds,
-            });
-
-            self.extend_bounds_with_subtree(child, bounds);
-        }
     }
 
     fn target_bounds(&self, target: &DesktopTarget) -> OverviewBounds {
@@ -326,5 +283,15 @@ impl DesktopSystem {
             rect: (min_x, min_y, max_x, max_y).into(),
             points,
         }
+    }
+
+    // Band overview framing: axis-aligned flat panels only need the union of their rects — no
+    // transformed corner points or mean yaw.
+    fn fold_instance_rect(&self, instances: Vec<InstanceId>) -> Rect {
+        instances
+            .iter()
+            .map(|instance| self.target_rect(&DesktopTarget::Instance(*instance)))
+            .bounds()
+            .expect("Internal error: a launcher with instances must yield rects")
     }
 }

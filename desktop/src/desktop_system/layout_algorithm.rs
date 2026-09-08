@@ -248,7 +248,7 @@ impl DesktopLayoutAlgorithm<'_> {
         let child_instances = self.aggregates.hierarchy.launcher_instances(*launcher_id);
 
         // Performance: This don't need to be computed on non-visor launchers (but we might remove
-        // bands anyway)
+        // bands anyway). The visor only collapses when one of its instances holds keyboard focus.
         let expanded = self
             .focused_instance
             .and_then(|focused| {

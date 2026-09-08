@@ -1,14 +1,4 @@
-use crate::{Matrix4, Projection, Size, SizePx, Transform, Vector3};
-
-/// Camera sizing mode.
-#[derive(Debug, Clone, PartialEq, Copy)]
-pub enum CameraMode {
-    /// 1:1 pixel mapping (pixel-perfect).
-    PixelPerfect,
-    /// Fit target size within surface, with optional blend factor.
-    /// `blend: 0.0` = pixel-perfect, `1.0` = fully fitted to target_size
-    Sized { target_size: Size, blend: f64 },
-}
+use crate::{Matrix4, Projection, SizePx, Transform, Vector3};
 
 /// A pixel camera.
 ///
@@ -22,58 +12,73 @@ pub enum CameraMode {
 pub struct PixelCamera {
     /// The point the camera points at in model / pixel space.
     pub look_at: Transform,
-    /// The camera's sizing mode.
-    pub mode: CameraMode,
+    /// The distance from the camera's look-at point back along the view axis.
+    /// `pixel_perfect_distance()` is the pixel-perfect distance (where model pixels map 1:1 onto
+    /// the surface); larger values dolly the camera back and shrink content. Zoom is a dolly in
+    /// depth, not a model scale.
+    pub distance: f64,
     pub fovy: f64,
 }
 
 impl Default for PixelCamera {
     fn default() -> Self {
-        Self::look_at(Transform::IDENTITY, None, Self::DEFAULT_FOVY)
+        Self::look_at(
+            Transform::IDENTITY,
+            Self::pixel_perfect_distance(Self::DEFAULT_FOVY),
+            Self::DEFAULT_FOVY,
+        )
     }
 }
 
 impl PixelCamera {
     pub const DEFAULT_FOVY: f64 = 45.0;
 
-    /// Create a new camera from a transform, optional target size, and field of view.
+    /// The pixel-perfect camera distance for a field of view: the distance at which model pixels
+    /// map 1:1 onto the surface.
+    pub fn pixel_perfect_distance(fovy: f64) -> f64 {
+        1.0 / (fovy / 2.0).to_radians().tan()
+    }
+
+    /// Create a new camera from a transform, a resolved distance, and field of view.
     ///
-    /// When `target_size` is `None`, the camera uses 1:1 pixel mapping (pixel-perfect).
-    /// When `target_size` is `Some`, the camera fits the target size using letterboxing.
-    /// Intermediate blend values can only be created through interpolation.
-    pub fn look_at(look_at: Transform, target_size: Option<Size>, fovy: f64) -> Self {
+    /// `distance == pixel_perfect_distance(fovy)` is pixel-perfect; larger values dolly back and
+    /// zoom out.
+    pub fn look_at(look_at: Transform, distance: f64, fovy: f64) -> Self {
         Self {
             look_at,
-            mode: match target_size {
-                None => CameraMode::PixelPerfect,
-                Some(target_size) => CameraMode::Sized {
-                    target_size,
-                    blend: 1.0,
-                },
-            },
+            distance,
             fovy,
         }
     }
 
-    pub fn with_size(mut self, target_size: Size) -> Self {
-        self.mode = CameraMode::Sized {
-            target_size,
-            blend: 1.0,
-        };
+    pub fn with_distance(mut self, distance: f64) -> Self {
+        self.distance = distance;
         self
     }
 
-    /// The matrix that moves and scales the model so that the camera target is at 0,0 and
-    /// the target size (if set) fits within the surface.
-    pub fn model_camera_matrix(&self, surface_size: SizePx) -> Matrix4 {
-        self.target_scale_matrix(surface_size) * self.look_at.inverse().to_matrix4()
+    /// The matrix that moves the model so that the camera target is at 0,0. World-only: the
+    /// pixel-perfect distance and any dolly live in [`ndc_camera_move`], kept separate from
+    /// camera-space content (which is not dollied).
+    pub fn model_camera_matrix(&self) -> Matrix4 {
+        self.look_at.inverse().to_matrix4()
     }
 
-    /// Move the model further back in NDC coordinate space, so that its pointed-to position is
-    /// visible.
+    /// Move the model back along the camera axis so that its pointed-to position is visible at the
+    /// camera's distance. World projection dollies by `distance` (which is `pixel_perfect_distance`
+    /// when pixel-perfect); camera-space content uses [`pixel_perfect_ndc_camera_move`] to stay
+    /// fixed.
     pub fn ndc_camera_move(&self) -> Matrix4 {
-        let camera_distance = 1.0 / (self.fovy / 2.0).to_radians().tan();
-        Matrix4::from_translation(-Vector3::new(0.0, 0.0, camera_distance))
+        Matrix4::from_translation(-Vector3::new(0.0, 0.0, self.distance))
+    }
+
+    /// The [`ndc_camera_move`] at the fixed pixel-perfect distance, used for camera-space content
+    /// that must remain on-screen regardless of world zoom.
+    pub fn pixel_perfect_ndc_camera_move(&self) -> Matrix4 {
+        Matrix4::from_translation(-Vector3::new(
+            0.0,
+            0.0,
+            Self::pixel_perfect_distance(self.fovy),
+        ))
     }
 
     /// The matrix that projects NDC 3D coordinates to the final surface coordinates "2D".
@@ -89,29 +94,95 @@ impl PixelCamera {
         Projection::new(width as f64 / height as f64, z_range).perspective_matrix(self.fovy)
     }
 
-    /// The matrix that scales the model to fit the target size within the surface.
+    /// The camera distance that exactly frames `points` within `surface_size`, or `None` for an
+    /// empty point set (the caller decides the fallback).
     ///
-    /// Returns identity if no target size is set.
-    fn target_scale_matrix(&self, surface_size: SizePx) -> Matrix4 {
-        let scale = self.target_scale(surface_size);
-        Matrix4::from_scale(Vector3::new(scale, scale, scale))
+    /// Solves the on-screen constraint per point: a point at camera-space `(px, py, pz)` projects to
+    /// `pixel_perfect_distance * (px, py) / (d - pz_ndc)` at distance `d`, with the pixel depth
+    /// converted into the dolly's NDC z units (`pz_ndc = pz / half_height`), so the binding distance
+    /// is `d >= pz_ndc + pixel_perfect_distance * |p| / half`. Points in front of the focal plane
+    /// (`pz > 0`, closer to the camera) project larger and bind the fit; points behind it shrink
+    /// and never bind. Exact for depth-spanning sets (the visor arc), not just flat content. No
+    /// bisection solver.
+    pub fn fit_distance_for_points(&self, points: &[Vector3], surface_size: SizePx) -> Option<f64> {
+        if points.is_empty() {
+            return None;
+        }
+
+        let (surface_width, surface_height) = surface_size.into();
+        let half_width = surface_width as f64 * 0.5;
+        let half_height = surface_height as f64 * 0.5;
+        let to_camera = self.look_at.inverse();
+        let pixel_perfect_distance = Self::pixel_perfect_distance(self.fovy);
+
+        // The minimum dolly distance that keeps every point on-screen. A point at camera-space
+        // (px, py, pz) projects to `pixel_perfect_distance * px / (d - pz_ndc)` at distance `d`. The
+        // pixel depth enters in the dolly's NDC z units: the NDC transform scales all axes by
+        // 2/height, so `pz_ndc = pz / half_height` (adding raw pixel depth inflates the distance by
+        // ~half_height and dollies out absurdly far). Solving
+        // `|pixel_perfect_distance * px / (d - pz_ndc)| <= half_width` for `d` gives
+        // `d >= pz_ndc + pixel_perfect_distance * |px| / half_width`. Points in front of the focal
+        // plane (pz > 0, closer to the camera) project larger and bind the fit; points behind it
+        // shrink and never bind. Exact for depth-spanning sets (the visor arc), not just flat
+        // content.
+        let mut distance: f64 = 0.0;
+        for point in points {
+            let camera_point = to_camera.transform_point(*point);
+            let pz_ndc: f64 = camera_point.z / half_height;
+            let x: f64 = camera_point.x.abs() / half_width;
+            let y: f64 = camera_point.y.abs() / half_height;
+            distance = distance.max(pz_ndc + pixel_perfect_distance * x.max(y));
+        }
+        Some(distance)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn edge_point_at_the_focal_plane_binds_at_pixel_perfect() {
+        let camera = PixelCamera::default();
+        let surface = SizePx::new(1920, 1080);
+        let distance = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 0.0)], surface)
+            .expect("non-empty points yield a distance");
+        let pixel_perfect = PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY);
+        assert!((distance - pixel_perfect).abs() < 1e-9);
     }
 
-    /// Compute the scale factor, blending between pixel-perfect and target-size modes.
-    fn target_scale(&self, surface_size: SizePx) -> f64 {
-        match self.mode {
-            CameraMode::PixelPerfect => 1.0,
-            CameraMode::Sized { target_size, blend } => {
-                let (surface_width, surface_height) = surface_size.into();
-                let scale_x = surface_width as f64 / target_size.width;
-                let scale_y = surface_height as f64 / target_size.height;
+    #[test]
+    fn points_in_front_of_the_focal_plane_bind_beyond_the_flat_fit() {
+        let camera = PixelCamera::default();
+        let surface = SizePx::new(1920, 1080);
+        let flat = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 0.0)], surface)
+            .expect("non-empty points yield a distance");
+        let near = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 108.0)], surface)
+            .expect("non-empty points yield a distance");
+        assert!(near > flat);
+    }
 
-                // Use the smaller scale to ensure the entire target fits (letterboxing)
-                let target_based_scale = scale_x.min(scale_y);
+    #[test]
+    fn points_behind_the_focal_plane_never_bind() {
+        let camera = PixelCamera::default();
+        let surface = SizePx::new(1920, 1080);
+        let flat = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 0.0)], surface)
+            .expect("non-empty points yield a distance");
+        let behind = camera
+            .fit_distance_for_points(&[Vector3::new(960.0, 0.0, -540.0)], surface)
+            .expect("non-empty points yield a distance");
+        assert!(behind < flat);
+    }
 
-                // Blend between pixel-perfect (1.0) and sized (target_based_scale)
-                1.0 + (target_based_scale - 1.0) * blend
-            }
-        }
+    #[test]
+    fn empty_points_yield_none() {
+        let camera = PixelCamera::default();
+        assert!(camera
+            .fit_distance_for_points(&[], SizePx::new(1920, 1080))
+            .is_none());
     }
 }
