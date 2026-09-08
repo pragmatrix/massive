@@ -36,10 +36,6 @@ const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const COLLAPSED_NON_ANCHOR_Z_OFFSET: f64 = 1.0;
 const CHILD_SPACING: i32 = 0;
 
-/// When false, the visor arc never rotates to the focused instance and never collapses: it stays
-/// centered on the leftmost instance while navigation still moves keyboard focus freely.
-pub const VISOR_ROTATION_ENABLED: bool = true;
-
 #[derive(Debug, Clone, Copy)]
 struct VisorLayoutSummary {
     group_center_x: f64,
@@ -177,17 +173,14 @@ impl LauncherPresenter {
                 child_sizes,
             ),
             LauncherMode::Visor => {
-                let center_index = if VISOR_ROTATION_ENABLED {
-                    self.focus_anchor_instance
-                        .and_then(|anchor| {
-                            child_instances
-                                .iter()
-                                .position(|&instance| instance == anchor)
-                        })
-                        .unwrap_or_default()
-                } else {
-                    0
-                };
+                let center_index = self
+                    .focus_anchor_instance
+                    .and_then(|anchor| {
+                        child_instances
+                            .iter()
+                            .position(|&instance| instance == anchor)
+                    })
+                    .unwrap_or_default();
 
                 self.place_visor_panel_children(
                     local_offset,
@@ -251,7 +244,7 @@ impl LauncherPresenter {
     }
 
     pub fn should_relayout_on_keyboard_focus_change(&self, instance_count: usize) -> bool {
-        VISOR_ROTATION_ENABLED && matches!(self.mode, LauncherMode::Visor) && instance_count > 1
+        matches!(self.mode, LauncherMode::Visor) && instance_count > 1
     }
 
     pub fn mode(&self) -> LauncherMode {
