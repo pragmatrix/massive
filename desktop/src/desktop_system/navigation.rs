@@ -263,7 +263,7 @@ impl DesktopSystem {
         let scale_x = surface_width as f64 / size.width;
         let scale_y = surface_height as f64 / size.height;
         let fit_scale = scale_x.min(scale_y).max(f64::MIN_POSITIVE);
-        PixelCamera::camera_distance(PixelCamera::DEFAULT_FOVY) / fit_scale
+        PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY) / fit_scale
     }
 }
 

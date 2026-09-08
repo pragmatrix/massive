@@ -173,7 +173,7 @@ where
     fn to_camera(&self) -> PixelCamera {
         PixelCamera::look_at(
             self.to_transform(),
-            PixelCamera::camera_distance(PixelCamera::DEFAULT_FOVY),
+            PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY),
             PixelCamera::DEFAULT_FOVY,
         )
     }

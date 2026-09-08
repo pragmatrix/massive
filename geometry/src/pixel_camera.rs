@@ -12,9 +12,10 @@ use crate::{Matrix4, Projection, SizePx, Transform, Vector3};
 pub struct PixelCamera {
     /// The point the camera points at in model / pixel space.
     pub look_at: Transform,
-    /// The distance from the camera's look-at point back along the view axis. `camera_distance()`
-    /// is the pixel-perfect distance (where model pixels map 1:1 onto the surface); larger values
-    /// dolly the camera back and shrink content. Zoom is a dolly in depth, not a model scale.
+    /// The distance from the camera's look-at point back along the view axis.
+    /// `pixel_perfect_distance()` is the pixel-perfect distance (where model pixels map 1:1 onto
+    /// the surface); larger values dolly the camera back and shrink content. Zoom is a dolly in
+    /// depth, not a model scale.
     pub distance: f64,
     pub fovy: f64,
 }
@@ -23,7 +24,7 @@ impl Default for PixelCamera {
     fn default() -> Self {
         Self::look_at(
             Transform::IDENTITY,
-            Self::camera_distance(Self::DEFAULT_FOVY),
+            Self::pixel_perfect_distance(Self::DEFAULT_FOVY),
             Self::DEFAULT_FOVY,
         )
     }
@@ -32,20 +33,16 @@ impl Default for PixelCamera {
 impl PixelCamera {
     pub const DEFAULT_FOVY: f64 = 45.0;
 
-    /// The pixel-perfect distance for this camera's field of view.
-    fn pixel_perfect_distance(&self) -> f64 {
-        Self::camera_distance(self.fovy)
-    }
-
     /// The pixel-perfect camera distance for a field of view: the distance at which model pixels
     /// map 1:1 onto the surface.
-    pub fn camera_distance(fovy: f64) -> f64 {
+    pub fn pixel_perfect_distance(fovy: f64) -> f64 {
         1.0 / (fovy / 2.0).to_radians().tan()
     }
 
     /// Create a new camera from a transform, a resolved distance, and field of view.
     ///
-    /// `distance == camera_distance(fovy)` is pixel-perfect; larger values dolly back and zoom out.
+    /// `distance == pixel_perfect_distance(fovy)` is pixel-perfect; larger values dolly back and
+    /// zoom out.
     pub fn look_at(look_at: Transform, distance: f64, fovy: f64) -> Self {
         Self {
             look_at,
@@ -67,8 +64,9 @@ impl PixelCamera {
     }
 
     /// Move the model back along the camera axis so that its pointed-to position is visible at the
-    /// camera's distance. World projection dollies by `distance` (which is `camera_distance` when
-    /// pixel-perfect); camera-space content uses [`pixel_perfect_ndc_camera_move`] to stay fixed.
+    /// camera's distance. World projection dollies by `distance` (which is `pixel_perfect_distance`
+    /// when pixel-perfect); camera-space content uses [`pixel_perfect_ndc_camera_move`] to stay
+    /// fixed.
     pub fn ndc_camera_move(&self) -> Matrix4 {
         Matrix4::from_translation(-Vector3::new(0.0, 0.0, self.distance))
     }
@@ -76,7 +74,11 @@ impl PixelCamera {
     /// The [`ndc_camera_move`] at the fixed pixel-perfect distance, used for camera-space content
     /// that must remain on-screen regardless of world zoom.
     pub fn pixel_perfect_ndc_camera_move(&self) -> Matrix4 {
-        Matrix4::from_translation(-Vector3::new(0.0, 0.0, self.pixel_perfect_distance()))
+        Matrix4::from_translation(-Vector3::new(
+            0.0,
+            0.0,
+            Self::pixel_perfect_distance(self.fovy),
+        ))
     }
 
     /// The matrix that projects NDC 3D coordinates to the final surface coordinates "2D".
@@ -96,12 +98,12 @@ impl PixelCamera {
     /// empty point set (the caller decides the fallback).
     ///
     /// Solves the on-screen constraint per point: a point at camera-space `(px, py, pz)` projects to
-    /// `camera_distance * (px, py) / (d - pz_ndc)` at distance `d`, with the pixel depth converted
-    /// into the dolly's NDC z units (`pz_ndc = pz / half_height`), so the binding distance is
-    /// `d >= pz_ndc + camera_distance * |p| / half`. Points in front of the focal plane (`pz > 0`,
-    /// closer to the camera) project larger and bind the fit; points behind it shrink and never
-    /// bind. Exact for depth-spanning sets (the visor arc), not just flat content. No bisection
-    /// solver.
+    /// `pixel_perfect_distance * (px, py) / (d - pz_ndc)` at distance `d`, with the pixel depth
+    /// converted into the dolly's NDC z units (`pz_ndc = pz / half_height`), so the binding distance
+    /// is `d >= pz_ndc + pixel_perfect_distance * |p| / half`. Points in front of the focal plane
+    /// (`pz > 0`, closer to the camera) project larger and bind the fit; points behind it shrink
+    /// and never bind. Exact for depth-spanning sets (the visor arc), not just flat content. No
+    /// bisection solver.
     pub fn fit_distance_for_points(&self, points: &[Vector3], surface_size: SizePx) -> Option<f64> {
         if points.is_empty() {
             return None;
@@ -111,24 +113,25 @@ impl PixelCamera {
         let half_width = surface_width as f64 * 0.5;
         let half_height = surface_height as f64 * 0.5;
         let to_camera = self.look_at.inverse();
-        let camera_distance = self.pixel_perfect_distance();
+        let pixel_perfect_distance = Self::pixel_perfect_distance(self.fovy);
 
         // The minimum dolly distance that keeps every point on-screen. A point at camera-space
-        // (px, py, pz) projects to `camera_distance * (px, py) / (d - pz_ndc)` at distance `d`. The
+        // (px, py, pz) projects to `pixel_perfect_distance * px / (d - pz_ndc)` at distance `d`. The
         // pixel depth enters in the dolly's NDC z units: the NDC transform scales all axes by
         // 2/height, so `pz_ndc = pz / half_height` (adding raw pixel depth inflates the distance by
         // ~half_height and dollies out absurdly far). Solving
-        // `|camera_distance * px / (d - pz_ndc)| <= half_width` for `d` gives
-        // `d >= pz_ndc + camera_distance * |px| / half_width`. Points in front of the focal plane
-        // (pz > 0, closer to the camera) project larger and bind the fit; points behind it shrink
-        // and never bind. Exact for depth-spanning sets (the visor arc), not just flat content.
+        // `|pixel_perfect_distance * px / (d - pz_ndc)| <= half_width` for `d` gives
+        // `d >= pz_ndc + pixel_perfect_distance * |px| / half_width`. Points in front of the focal
+        // plane (pz > 0, closer to the camera) project larger and bind the fit; points behind it
+        // shrink and never bind. Exact for depth-spanning sets (the visor arc), not just flat
+        // content.
         let mut distance: f64 = 0.0;
         for point in points {
             let camera_point = to_camera.transform_point(*point);
             let pz_ndc: f64 = camera_point.z / half_height;
             let x: f64 = camera_point.x.abs() / half_width;
             let y: f64 = camera_point.y.abs() / half_height;
-            distance = distance.max(pz_ndc + camera_distance * x.max(y));
+            distance = distance.max(pz_ndc + pixel_perfect_distance * x.max(y));
         }
         Some(distance)
     }
@@ -145,7 +148,7 @@ mod tests {
         let distance = camera
             .fit_distance_for_points(&[Vector3::new(960.0, 0.0, 0.0)], surface)
             .expect("non-empty points yield a distance");
-        let pixel_perfect = PixelCamera::camera_distance(PixelCamera::DEFAULT_FOVY);
+        let pixel_perfect = PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY);
         assert!((distance - pixel_perfect).abs() < 1e-9);
     }
 

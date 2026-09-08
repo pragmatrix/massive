@@ -21,7 +21,7 @@ Fitting content into the surface is an exact closed form. For flat content the c
 ## Consequences
 
 - Zoomed transitions are monotonic: edges slide to their target without the "right then back" backtrack, in both flat-band and visor cases.
-- `scale: f64` is gone from `PixelCamera`; zooming live in `distance` (with the pixel-perfect distance `camera_distance(fovy)` as the identity zoom).
+- `scale: f64` is gone from `PixelCamera`; zooming live in `distance` (with the pixel-perfect distance `pixel_perfect_distance(fovy)` as the identity zoom).
 - Camera-space content stays pixel-fixed via `pixel_perfect_ndc_camera_move`, decoupled from world dolly.
 - The 3D look-at capability (ADR 0003) is preserved: `look_at` still carries translate + rotate, and the overview still frames the projected silhouette of the visor points.
 - Construction sites that used `fit_scale` (letterbox fit) now call `fit_letterbox_distance`; overview framing calls `fit_distance_for_points`.
