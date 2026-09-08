@@ -1,9 +1,11 @@
 use massive_applications::InstanceId;
-use massive_geometry::{Centroid, PixelCamera, Quaternion, Rect, RectPx, SizePx, Vector3};
+use massive_geometry::{
+    BoundaryRect, Centroid, PixelCamera, Quaternion, Rect, RectPx, SizePx, Vector3,
+};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
-use crate::projects::LaunchProfileId;
+use crate::projects::{LaunchProfileId, LauncherMode};
 
 #[derive(Debug, Clone)]
 pub(super) struct OverviewBounds {
@@ -100,10 +102,32 @@ impl DesktopSystem {
             return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
         }
 
-        // Orient toward the arc's asymmetric mass: the arc is re-centered on the focused panel, so
-        // an off-center focus fans the other panels to one side and their panel yaws average to a
-        // nonzero angle. Use that mean yaw (≈0 when focus is centered) to rotate the camera toward
-        // the bulk, keeping the fit centered on the union of all visors.
+        match self
+            .aggregates
+            .launchers
+            .get(&launcher_id)
+            .map(|launcher| launcher.mode())
+        {
+            // Band panels are flat axis-aligned rects (no yaw, z = 0): the simple letterbox fit
+            // the rows and projects use.
+            Some(LauncherMode::Band) => {
+                self.camera_for_rect(self.fold_instance_rect(instances), window_size)
+            }
+            // The arc camera is visor-specific; a missing presenter falls through to it, the
+            // default mode.
+            Some(LauncherMode::Visor) | None => self.camera_for_visor_arc(instances, window_size),
+        }
+    }
+
+    // Orient toward the arc's asymmetric mass: the arc is re-centered on the focused panel, so
+    // an off-center focus fans the other panels to one side and their panel yaws average to a
+    // nonzero angle. Use that mean yaw (≈0 when focus is centered) to rotate the camera toward
+    // the bulk, keeping the fit centered on the union of all visors.
+    fn camera_for_visor_arc(
+        &self,
+        instances: Vec<InstanceId>,
+        window_size: SizePx,
+    ) -> Option<PixelCamera> {
         let transforms: Vec<Transform> = instances
             .iter()
             .map(|instance| {
@@ -151,8 +175,8 @@ impl DesktopSystem {
         Some(center.to_camera().with_distance(distance))
     }
 
-    // Frame only the visor instances, excluding the launcher's own background rect so the
-    // overview doesn't span further left/right than the visible visors.
+    // Frame only the instance panels, excluding the launcher's own background rect so the
+    // overview doesn't span further left/right than the visible panels.
     fn fold_instance_bounds(&self, instances: Vec<InstanceId>) -> OverviewBounds {
         let mut bounds: Option<OverviewBounds> = None;
         for instance in instances {
@@ -259,5 +283,15 @@ impl DesktopSystem {
             rect: (min_x, min_y, max_x, max_y).into(),
             points,
         }
+    }
+
+    // Band overview framing: axis-aligned flat panels only need the union of their rects — no
+    // transformed corner points or mean yaw.
+    fn fold_instance_rect(&self, instances: Vec<InstanceId>) -> Rect {
+        instances
+            .iter()
+            .map(|instance| self.target_rect(&DesktopTarget::Instance(*instance)))
+            .bounds()
+            .expect("Internal error: a launcher with instances must yield rects")
     }
 }
