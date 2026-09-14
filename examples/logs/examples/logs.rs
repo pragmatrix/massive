@@ -84,6 +84,19 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let scene = ctx.new_scene();
     let mut logs = Logs::new(&scene, ctx.movement_runtime(), fonts);
 
+    // Initial lines informing the user how to interact with the example.
+    let mut frame = ctx.frame(&scene);
+    logs.add_line(
+        &mut frame,
+        b"Press a key in the window to generate more log output.",
+    );
+    logs.add_line(
+        &mut frame,
+        b"Mouse + Left click : translate, Cmd + Mouse + Left click : rotate.",
+    );
+    logs.update_layout()?;
+    frame.render_to(&mut renderer)?;
+
     // Application
 
     loop {
