@@ -117,8 +117,16 @@ impl CosmicTextEngine {
         let mut max_ascent = 0.0_f32;
         let mut max_descent = 0.0_f32;
         let mut width = 0.0_f32;
-        let mut glyphs: Vec<ShapedGlyph> = Vec::new();
-        let mut clusters: Vec<ShapedCluster> = Vec::with_capacity(request.text.len());
+        // Sized exactly before building (this engine emits one cluster per ShapeGlyph, so the
+        // count serves both arrays; the recount is cheap next to shaping itself).
+        let glyph_count: usize = shape_line
+            .spans
+            .iter()
+            .flat_map(|span| &span.words)
+            .map(|word| word.glyphs.len())
+            .sum();
+        let mut glyphs: Vec<ShapedGlyph> = Vec::with_capacity(glyph_count);
+        let mut clusters: Vec<ShapedCluster> = Vec::with_capacity(glyph_count);
 
         for span in &shape_line.spans {
             for word in &span.words {

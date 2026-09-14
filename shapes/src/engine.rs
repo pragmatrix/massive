@@ -315,7 +315,12 @@ pub fn shaped_run_to_glyph_run(
     default_weight: TextWeight,
     translation: massive_geometry::Vector3,
 ) -> GlyphRun {
-    let mut glyphs = Vec::new();
+    let mut glyphs = Vec::with_capacity(
+        clusters
+            .iter()
+            .map(|c| c.glyph_range.len() as usize)
+            .sum::<usize>(),
+    );
     for cluster in clusters {
         for glyph in run.cluster_glyphs(cluster) {
             glyphs.push(RunGlyph::new(

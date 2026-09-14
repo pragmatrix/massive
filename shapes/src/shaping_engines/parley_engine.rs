@@ -300,8 +300,24 @@ impl ShapingEngine for ParleyEngine {
         // Each shaped run carries its own font (fallback for emoji etc.), so `FaceId`/size/weight
         // are per run. Glyph y offsets are re-based onto the run baseline (Parley lays out
         // Y-down) so both engines share the `GlyphRun` convention. All clusters' glyphs append
-        // contiguously to one flat run-level array; clusters carry index ranges into it.
-        let mut glyphs: Vec<ShapedGlyph> = Vec::new();
+        // contiguously to one flat run-level array; clusters carry index ranges into it. The
+        // counting pre-pass sizes the array exactly; recounting shaped clusters is cheap next
+        // to shaping itself.
+        let glyph_count = line
+            .items()
+            .filter_map(|item| match item {
+                PositionedLayoutItem::GlyphRun(run) => Some(run),
+                PositionedLayoutItem::InlineBox(_) => None,
+            })
+            .map(|glyph_run| {
+                glyph_run
+                    .run()
+                    .clusters()
+                    .map(|cluster| cluster.glyphs().count())
+                    .sum::<usize>()
+            })
+            .sum::<usize>();
+        let mut glyphs: Vec<ShapedGlyph> = Vec::with_capacity(glyph_count);
         let clusters = line
             .items()
             .filter_map(|item| match item {
