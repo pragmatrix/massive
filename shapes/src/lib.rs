@@ -9,7 +9,7 @@ mod text_shaper;
 pub use clip_box::*;
 pub use engine::{
     FontBytes, FontData, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine, ShapingEngineKind,
-    ShapingRequest, TextAttributes, TextFamily, shaped_run_to_glyph_run,
+    ShapingRequest, TextAttributes, TextFamily, covering_metadata, shaped_run_to_glyph_run,
 };
 pub use font_manager::*;
 pub use glyph_run::*;

@@ -12,7 +12,7 @@ use parley::{
 
 use crate::engine::{
     FontBytes, FontData, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine, ShapingEngineKind,
-    ShapingRequest,
+    ShapingRequest, covering_metadata,
 };
 use crate::{FaceId, TextFamily, TextWeight};
 
@@ -318,6 +318,19 @@ impl ShapingEngine for ParleyEngine {
                     .map(|cluster| {
                         let shaped = ShapedCluster {
                             byte_range: cluster.text_range(),
+                            // First-byte-cover echo, engine-neutrally defined in
+                            // `engine::covering_metadata`; shaping untouched (straddling
+                            // clusters like base+mark compositions resolve to their first
+                            // byte's range, the typographically correct side).
+                            metadata: if request.metadata {
+                                covering_metadata(
+                                    &request.ranges,
+                                    request.default_attributes.metadata,
+                                    cluster.text_range().start,
+                                )
+                            } else {
+                                0
+                            },
                             // Parley's cluster glyphs are intra-cluster relative; the cluster
                             // origin accumulates the preceding clusters' advances on the line.
                             x: cluster_origin,

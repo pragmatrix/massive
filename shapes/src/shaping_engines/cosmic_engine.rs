@@ -98,7 +98,9 @@ impl CosmicTextEngine {
         request: &ShapingRequest<'_>,
         font_size: f32,
     ) -> Option<ShapedRun> {
-        // The shaping-only path: no line breaking, no metrics hinting.
+        // The shaping-only path: no line breaking, no metrics hinting. When the metadata
+        // mechanism is enabled, metadata flows through cosmic-text natively (Attrs::metadata
+        // is copied onto each ShapeGlyph), so no per-cluster lookup is needed here.
         let mut attrs_list = AttrsList::new(&attrs(&request.default_attributes));
         for (range, attributes) in &request.ranges {
             attrs_list.add_span(range.clone(), &attrs(attributes));
@@ -139,6 +141,11 @@ impl CosmicTextEngine {
                     clusters.push(ShapedCluster {
                         byte_range: glyph.start..glyph.end,
                         x: cluster_x,
+                        // Cosmic-text propagates Attrs metadata through shaping (composed
+                        // clusters like base+mark carry their first byte's span), so the echo
+                        // matches `covering_metadata` by construction (0 when disabled: the
+                        // spans are still built without metadata).
+                        metadata: if request.metadata { glyph.metadata } else { 0 },
                         glyphs: vec![ShapedGlyph {
                             glyph_id: glyph.glyph_id,
                             face_id,
@@ -224,7 +231,13 @@ impl CosmicTextEngine {
 /// caller shapes within that lifetime (`BufferLine::new` copies the text but the attr list keeps
 /// the family borrow until shaping finishes).
 fn attrs<'a>(attributes: &'a TextAttributes<'_>) -> Attrs<'a> {
-    let base = Attrs::new().weight(Weight(attributes.weight.0));
+    let base = Attrs::new()
+        .weight(Weight(attributes.weight.0))
+        // Carry the caller's attribute identity through shaping; cosmic-text copies this onto
+        // every ShapeGlyph. Always set (not conditioned on the request flag): the value is 0
+        // for all non-metadata requests, and reading it back is free. Shapes each span
+        // independently at these attrs, so a cluster never crosses an attribute boundary.
+        .metadata(attributes.metadata);
     match &attributes.family {
         TextFamily::Named(name) => base.family(cosmic_text::Family::Name(name.as_ref())),
         TextFamily::SansSerif => base.family(cosmic_text::Family::SansSerif),

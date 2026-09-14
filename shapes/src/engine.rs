@@ -64,6 +64,18 @@ pub struct TextAttributes<'a> {
     pub family: TextFamily<'a>,
     pub weight: TextWeight,
     pub color: Color,
+    /// Caller-defined identity for this attribute set, echoed onto shaped clusters when the
+    /// request enables the metadata mechanism (`ShapingRequest::with_metadata`); ignored
+    /// otherwise, and clusters then read `0`.
+    ///
+    /// An echoed value resolves to the request range whose attributes carry it, falling back
+    /// to the default attributes when no range matches — which is also what uncovered text
+    /// echoes, since it reads the defaults' own metadata (0 by [`Default`]). Identities across
+    /// one request's ranges must therefore be unique and distinct from the default attributes'
+    /// metadata, so every echo resolves to exactly one attribute set. A cluster composed
+    /// across two ranges (e.g. base + combining mark) echoes the range covering its first
+    /// byte; see [`ShapedCluster::metadata`].
+    pub metadata: usize,
 }
 
 impl Default for TextAttributes<'_> {
@@ -72,6 +84,7 @@ impl Default for TextAttributes<'_> {
             family: TextFamily::SansSerif,
             weight: TextWeight::default(),
             color: Color::BLACK,
+            metadata: 0,
         }
     }
 }
@@ -96,6 +109,11 @@ impl<'a> TextAttributes<'a> {
         self.color = color;
         self
     }
+
+    pub fn with_metadata(mut self, metadata: usize) -> Self {
+        self.metadata = metadata;
+        self
+    }
 }
 
 /// A shaping request: attributed text plus per-range attribute overrides.
@@ -107,6 +125,10 @@ pub struct ShapingRequest<'a> {
     pub text: &'a str,
     pub default_attributes: TextAttributes<'a>,
     pub ranges: Vec<(Range<usize>, TextAttributes<'a>)>,
+    /// Echo [`TextAttributes::metadata`] onto each [`ShapedCluster`]. Disabled by default:
+    /// engines then ignore metadata entirely and clusters read `0`. The disabled path matters
+    /// for Parley, where enabling adds per-cluster lookups and feature pushes.
+    pub metadata: bool,
 }
 
 impl<'a> ShapingRequest<'a> {
@@ -115,8 +137,31 @@ impl<'a> ShapingRequest<'a> {
             text,
             default_attributes,
             ranges: Vec::new(),
+            metadata: false,
         }
     }
+
+    /// Enable metadata echoing for this request.
+    pub fn with_metadata(mut self) -> Self {
+        self.metadata = true;
+        self
+    }
+}
+
+/// The metadata of the first range covering `byte`, or `default_metadata`.
+///
+/// Shaping engine helper: engines must not interpret metadata, only propagate it. Ranges are
+/// few (single digits per shaped line), so a linear scan is fine.
+pub fn covering_metadata(
+    ranges: &[(Range<usize>, TextAttributes<'_>)],
+    default_metadata: usize,
+    byte: usize,
+) -> usize {
+    ranges
+        .iter()
+        .find(|(range, _)| range.contains(&byte))
+        .map(|(_, attributes)| attributes.metadata)
+        .unwrap_or(default_metadata)
 }
 
 /// The compiled-in shaping engines, selectable at `FontManager` construction.
@@ -183,6 +228,15 @@ pub struct ShapedCluster {
     /// The cluster's origin on the shaped line, in pixels.
     pub x: f32,
     pub glyphs: Vec<ShapedGlyph>,
+    /// The caller metadata covering this cluster's first byte, echoing
+    /// [`TextAttributes::metadata`] (the default attributes' when no range covers it). Only
+    /// maintained while the request enables the mechanism; otherwise `0`.
+    ///
+    /// Shaping is untouched by the mechanism, so a cluster *may* cross attribute boundaries
+    /// (shaping compositions like base + combining mark); such a cluster resolves by its
+    /// first byte — the typographically correct side for composed glyphs. Engines define the
+    /// echo identically (see [`covering_metadata`] and the engine implementations).
+    pub metadata: usize,
 }
 
 /// The result of shaping one line: clusters plus line metrics in pixels.

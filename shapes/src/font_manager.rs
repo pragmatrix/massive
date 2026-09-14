@@ -215,4 +215,98 @@ mod tests {
             );
         }
     }
+
+    /// Attribute identity echoed through shaping: shapes text with two adjacent attributed
+    /// ranges carrying distinct metadata, with the mechanism enabled. Every cluster must echo
+    /// the metadata of the range covering its first byte — including composed clusters
+    /// straddling the boundary (base + combining mark shape into one cluster in both engines),
+    /// which resolve to their first byte's range.
+    ///
+    /// The per-engine mechanisms differ; both must honor the same contract:
+    /// - Parley resolves the cover per cluster (`engine::covering_metadata`).
+    /// - cosmic-text propagates `Attrs::metadata` through shaping natively.
+    #[test]
+    fn metadata_echoes_first_byte_cover() {
+        // (text, boundary byte offset — must fall on a grapheme edge, not inside a mark)
+        for (text, boundary) in [("a->ba", 2), ("afiba", 3), ("a=+=b", 2), ("e\u{0301}ab", 3)] {
+            for kind in all_engines() {
+                let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+
+                let mut request = ShapingRequest::new(
+                    text,
+                    TextAttributes::named_family("JetBrains Mono").with_metadata(7),
+                )
+                .with_metadata();
+                request.ranges = vec![
+                    (
+                        0..boundary,
+                        TextAttributes::named_family("JetBrains Mono").with_metadata(1),
+                    ),
+                    (
+                        boundary..text.len(),
+                        TextAttributes::named_family("JetBrains Mono").with_metadata(2),
+                    ),
+                ];
+
+                let run = {
+                    let mut shaper = fonts.shaper();
+                    shaper
+                        .shape(&request, 16.0)
+                        .expect("shaping must produce a run")
+                };
+
+                for cluster in &run.clusters {
+                    let expected = crate::engine::covering_metadata(
+                        &request.ranges,
+                        request.default_attributes.metadata,
+                        cluster.byte_range.start,
+                    );
+                    assert_eq!(
+                        cluster.metadata,
+                        expected,
+                        "{kind:?} text {text:?}: cluster {:?} must echo its first byte's \
+                         covering range (ranges {:?}, clusters {:?})",
+                        cluster.byte_range,
+                        request.ranges,
+                        run.clusters
+                            .iter()
+                            .map(|c| (c.byte_range.clone(), c.metadata))
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+    }
+
+    /// The metadata mechanism is opt-in: without `with_metadata`, engines ignore metadata
+    /// entirely and every shaped cluster reads `0` — even when ranges carry non-zero values.
+    #[test]
+    fn metadata_disabled_yields_zero_clusters() {
+        let text = "abcd";
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let mut request =
+                ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
+            request.ranges = vec![
+                (
+                    0..2,
+                    TextAttributes::named_family("JetBrains Mono").with_metadata(1),
+                ),
+                (
+                    2..4,
+                    TextAttributes::named_family("JetBrains Mono").with_metadata(2),
+                ),
+            ];
+            let run = {
+                let mut shaper = fonts.shaper();
+                shaper
+                    .shape(&request, 16.0)
+                    .expect("shaping must produce a run")
+            };
+            assert!(
+                run.clusters.iter().all(|c| c.metadata == 0),
+                "{kind:?}: disabled metadata mechanism must leave clusters at 0"
+            );
+        }
+    }
 }
