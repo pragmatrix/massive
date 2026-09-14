@@ -151,13 +151,9 @@ fn attribute_runs<'a>(
             None => run.width - first.x,
         };
         runs.push(shaped_run_to_glyph_run(
-            &ShapedRun {
-                clusters: remaining[..group_len].to_vec(),
-                max_ascent: run.max_ascent,
-                max_descent: run.max_descent,
-                width,
-                engine: run.shaping_engine,
-            },
+            run,
+            &remaining[..group_len],
+            width,
             attributes.color,
             attributes.weight,
             translation,

@@ -117,6 +117,7 @@ impl CosmicTextEngine {
         let mut max_ascent = 0.0_f32;
         let mut max_descent = 0.0_f32;
         let mut width = 0.0_f32;
+        let mut glyphs: Vec<ShapedGlyph> = Vec::new();
         let mut clusters: Vec<ShapedCluster> = Vec::with_capacity(request.text.len());
 
         for span in &shape_line.spans {
@@ -138,6 +139,19 @@ impl CosmicTextEngine {
                     max_descent = max_descent.max(font_size * glyph.descent);
                     width += glyph_px;
 
+                    // One ShapeGlyph per cluster, so each range is exactly one slot appended
+                    // contiguously to the run's flat glyph array.
+                    let glyph_range = glyphs.len() as u32..glyphs.len() as u32 + 1;
+                    glyphs.push(ShapedGlyph {
+                        glyph_id: glyph.glyph_id,
+                        face_id,
+                        font_size,
+                        weight: TextWeight(glyph.font_weight.0),
+                        // Intra-cluster: this engine emits one glyph per cluster, so the
+                        // glyph's own offset is 0 relative to the cluster origin.
+                        x: 0.0,
+                        y: y_px,
+                    });
                     clusters.push(ShapedCluster {
                         byte_range: glyph.start..glyph.end,
                         x: cluster_x,
@@ -146,22 +160,14 @@ impl CosmicTextEngine {
                         // matches `covering_metadata` by construction (0 when disabled: the
                         // spans are still built without metadata).
                         metadata: if request.metadata { glyph.metadata } else { 0 },
-                        glyphs: vec![ShapedGlyph {
-                            glyph_id: glyph.glyph_id,
-                            face_id,
-                            font_size,
-                            weight: TextWeight(glyph.font_weight.0),
-                            // Intra-cluster: this engine emits one glyph per cluster, so the
-                            // glyph's own offset is 0 relative to the cluster origin.
-                            x: 0.0,
-                            y: y_px,
-                        }],
+                        glyph_range,
                     });
                 }
             }
         }
 
         Some(ShapedRun {
+            glyphs,
             clusters,
             max_ascent,
             max_descent,

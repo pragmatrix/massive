@@ -145,6 +145,8 @@ impl Shaper<'_> {
         let weight = request.default_attributes.weight;
         Some(crate::engine::shaped_run_to_glyph_run(
             &run,
+            &run.clusters,
+            run.width,
             color,
             weight,
             Default::default(),
@@ -205,9 +207,8 @@ mod tests {
             };
             assert!(!run.clusters.is_empty(), "{kind:?}: clusters must exist");
             let all_resolve = run
-                .clusters
+                .glyphs
                 .iter()
-                .flat_map(|c| &c.glyphs)
                 .all(|g| fonts.font_data(g.face_id).is_some());
             assert!(
                 all_resolve,

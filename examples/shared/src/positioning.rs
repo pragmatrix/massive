@@ -13,6 +13,8 @@ use massive_shapes::{GlyphRun, ShapedRun, TextWeight, shaped_run_to_glyph_run};
 pub fn to_glyph_run(translation: Vector3, run: &ShapedRun) -> GlyphRun {
     shaped_run_to_glyph_run(
         run,
+        &run.clusters,
+        run.width,
         massive_geometry::Color::BLACK,
         TextWeight::NORMAL,
         translation,

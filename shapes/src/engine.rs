@@ -220,14 +220,21 @@ pub struct ShapedGlyph {
 
 /// A shaped cluster: glyphs sharing one source byte range.
 ///
-/// `x` is the cluster's origin on the shaped line (pixels); `ShapedGlyph::x` is relative to
-/// this origin, so a glyph's absolute line position is `cluster.x + glyph.x`.
+/// `x` is the cluster's origin on the shaped line (pixels); [`ShapedGlyph::x`] is relative to
+/// this origin, so a glyph's absolute line position is `cluster.x + glyph.x` — this holds
+/// regardless of the storage encoding below.
+///
+/// The cluster does not own its glyphs: `glyph_range` indexes into [`ShapedRun::glyphs`], the
+/// line's single flat glyph array (Parley's layout-run encoding). Resolve them through
+/// [`ShapedRun::cluster_glyphs`]; the range is constructed contiguously by the engines, so
+/// wild ranges surface as slice-index panics rather than silent aliasing.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedCluster {
     pub byte_range: Range<usize>,
     /// The cluster's origin on the shaped line, in pixels.
     pub x: f32,
-    pub glyphs: Vec<ShapedGlyph>,
+    /// Index range into [`ShapedRun::glyphs`] holding this cluster's glyphs, in order.
+    pub glyph_range: Range<u32>,
     /// The caller metadata covering this cluster's first byte, echoing
     /// [`TextAttributes::metadata`] (the default attributes' when no range covers it). Only
     /// maintained while the request enables the mechanism; otherwise `0`.
@@ -240,8 +247,16 @@ pub struct ShapedCluster {
 }
 
 /// The result of shaping one line: clusters plus line metrics in pixels.
+///
+/// Glyphs are stored in one flat array ([`ShapedRun::glyphs`]) instead of per-cluster `Vec`s:
+/// nearly every cluster shapes to a single glyph, so a per-cluster `Vec` spent one allocation
+/// (and its header) per cluster for nothing. Clusters reference their glyphs by index range
+/// (`ShapedCluster::glyph_range`); `benches/cluster_allocations.rs` measures the allocation
+/// effect.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ShapedRun {
+    /// All glyphs of this line's clusters, laid out flat in cluster order.
+    pub glyphs: Vec<ShapedGlyph>,
     pub clusters: Vec<ShapedCluster>,
     pub max_ascent: f32,
     pub max_descent: f32,
@@ -251,6 +266,17 @@ pub struct ShapedRun {
     /// so callers cannot attribute a run to the wrong engine; debug-checked at the render
     /// boundary against the resolving manager.
     pub engine: ShapingEngineKind,
+}
+
+impl ShapedRun {
+    /// The glyphs of `cluster`, resolved through this run's flat glyph array.
+    ///
+    /// Infallible for engine-constructed ranges (contiguous and in-bounds by construction);
+    /// a wild range panics on the slice index instead of silently aliasing other clusters'
+    /// glyphs.
+    pub fn cluster_glyphs(&self, cluster: &ShapedCluster) -> &[ShapedGlyph] {
+        &self.glyphs[cluster.glyph_range.start as usize..cluster.glyph_range.end as usize]
+    }
 }
 
 /// A capability-focused contract every shaping engine honors.
@@ -272,19 +298,26 @@ pub trait ShapingEngine: Send {
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
 }
 
-/// Assemble a [`GlyphRun`] from a shaped line.
+/// Assemble a [`GlyphRun`] from `clusters` of a shaped line.
 ///
 /// The run carries `text_color` / `default_weight`; positions are baseline-relative with
 /// positive y below the baseline, matching the downstream convention (see `GlyphRun`).
+///
+/// `clusters` is a view into [`ShapedRun::clusters`] — the whole line, or a contiguous slice
+/// of it (attribute segmentation) — and `width` is the advance spanned by that slice: the
+/// run's `width` for the whole line, or (for a slice) the next cluster's origin minus the
+/// slice's first (the run's `width` when the slice reaches the line's end).
 pub fn shaped_run_to_glyph_run(
     run: &ShapedRun,
+    clusters: &[ShapedCluster],
+    width: f32,
     text_color: Color,
     default_weight: TextWeight,
     translation: massive_geometry::Vector3,
 ) -> GlyphRun {
     let mut glyphs = Vec::new();
-    for cluster in &run.clusters {
-        for glyph in &cluster.glyphs {
+    for cluster in clusters {
+        for glyph in run.cluster_glyphs(cluster) {
             glyphs.push(RunGlyph::new(
                 ((cluster.x + glyph.x).round() as i32, glyph.y.round() as i32),
                 GlyphKey::new(
@@ -300,7 +333,7 @@ pub fn shaped_run_to_glyph_run(
 
     GlyphRun::new(
         translation,
-        GlyphRunMetrics::from_float(run.max_ascent, run.max_descent, run.width),
+        GlyphRunMetrics::from_float(run.max_ascent, run.max_descent, width),
         text_color,
         default_weight,
         run.engine,

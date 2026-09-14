@@ -299,7 +299,9 @@ impl ShapingEngine for ParleyEngine {
 
         // Each shaped run carries its own font (fallback for emoji etc.), so `FaceId`/size/weight
         // are per run. Glyph y offsets are re-based onto the run baseline (Parley lays out
-        // Y-down) so both engines share the `GlyphRun` convention.
+        // Y-down) so both engines share the `GlyphRun` convention. All clusters' glyphs append
+        // contiguously to one flat run-level array; clusters carry index ranges into it.
+        let mut glyphs: Vec<ShapedGlyph> = Vec::new();
         let clusters = line
             .items()
             .filter_map(|item| match item {
@@ -316,6 +318,17 @@ impl ShapingEngine for ParleyEngine {
                 let clusters: Vec<ShapedCluster> = run
                     .clusters()
                     .map(|cluster| {
+                        // Every cluster's glyphs append to the flat array, in cluster order:
+                        // the range is the slice just appended.
+                        let glyph_start = glyphs.len() as u32;
+                        glyphs.extend(cluster.glyphs().map(|glyph| ShapedGlyph {
+                            glyph_id: glyph.id as u16,
+                            face_id,
+                            font_size,
+                            weight,
+                            x: glyph.x,
+                            y: glyph.y,
+                        }));
                         let shaped = ShapedCluster {
                             byte_range: cluster.text_range(),
                             // First-byte-cover echo, engine-neutrally defined in
@@ -334,19 +347,7 @@ impl ShapingEngine for ParleyEngine {
                             // Parley's cluster glyphs are intra-cluster relative; the cluster
                             // origin accumulates the preceding clusters' advances on the line.
                             x: cluster_origin,
-                            // Parley's `Glyph::y` is already baseline-relative (positive below
-                            // the baseline); positioned glyphs only *add* the baseline on.
-                            glyphs: cluster
-                                .glyphs()
-                                .map(|glyph| ShapedGlyph {
-                                    glyph_id: glyph.id as u16,
-                                    face_id,
-                                    font_size,
-                                    weight,
-                                    x: glyph.x,
-                                    y: glyph.y,
-                                })
-                                .collect(),
+                            glyph_range: glyph_start..glyphs.len() as u32,
                         };
                         cluster_origin += cluster.advance();
                         shaped
@@ -358,6 +359,7 @@ impl ShapingEngine for ParleyEngine {
 
         let line_metrics = line.metrics();
         Some(ShapedRun {
+            glyphs,
             clusters,
             max_ascent: line_metrics.ascent,
             max_descent: line_metrics.descent,
