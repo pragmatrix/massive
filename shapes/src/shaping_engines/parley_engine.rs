@@ -297,81 +297,70 @@ impl ShapingEngine for ParleyEngine {
         // Feature: Support multi-line layout.
         let line = layout.get(0)?;
 
+        // Counting pre-pass sizes both arrays exactly; recounting shaped clusters is cheap next
+        // to shaping itself.
+        let (mut glyph_count, mut cluster_count) = (0, 0);
+        for item in line.items() {
+            let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+                continue;
+            };
+            for cluster in glyph_run.run().clusters() {
+                cluster_count += 1;
+                glyph_count += cluster.glyphs().count();
+            }
+        }
+
         // Each shaped run carries its own font (fallback for emoji etc.), so `FaceId`/size/weight
         // are per run. Glyph y offsets are re-based onto the run baseline (Parley lays out
         // Y-down) so both engines share the `GlyphRun` convention. All clusters' glyphs append
-        // contiguously to one flat run-level array; clusters carry index ranges into it. The
-        // counting pre-pass sizes the array exactly; recounting shaped clusters is cheap next
-        // to shaping itself.
-        let glyph_count = line
-            .items()
-            .filter_map(|item| match item {
-                PositionedLayoutItem::GlyphRun(run) => Some(run),
-                PositionedLayoutItem::InlineBox(_) => None,
-            })
-            .map(|glyph_run| {
-                glyph_run
-                    .run()
-                    .clusters()
-                    .map(|cluster| cluster.glyphs().count())
-                    .sum::<usize>()
-            })
-            .sum::<usize>();
+        // contiguously to one flat run-level array; clusters carry index ranges into it.
         let mut glyphs: Vec<ShapedGlyph> = Vec::with_capacity(glyph_count);
-        let clusters = line
-            .items()
-            .filter_map(|item| match item {
-                PositionedLayoutItem::GlyphRun(run) => Some(run),
-                PositionedLayoutItem::InlineBox(_) => None,
-            })
-            .flat_map(|glyph_run| {
-                let run_origin = glyph_run.offset();
-                let run = glyph_run.run();
-                let face_id = face_id_from_parley_data(run.font());
-                let font_size = run.font_size();
-                let weight = TextWeight(run.font_attrs().weight.value() as u16);
-                let mut cluster_origin = run_origin;
-                let clusters: Vec<ShapedCluster> = run
-                    .clusters()
-                    .map(|cluster| {
-                        // Every cluster's glyphs append to the flat array, in cluster order:
-                        // the range is the slice just appended.
-                        let glyph_start = glyphs.len() as u32;
-                        glyphs.extend(cluster.glyphs().map(|glyph| ShapedGlyph {
-                            glyph_id: glyph.id as u16,
-                            face_id,
-                            font_size,
-                            weight,
-                            x: glyph.x,
-                            y: glyph.y,
-                        }));
-                        let shaped = ShapedCluster {
-                            byte_range: cluster.text_range(),
-                            // First-byte-cover echo, engine-neutrally defined in
-                            // `engine::covering_metadata`; shaping untouched (straddling
-                            // clusters like base+mark compositions resolve to their first
-                            // byte's range, the typographically correct side).
-                            metadata: if request.metadata {
-                                covering_metadata(
-                                    &request.ranges,
-                                    request.default_attributes.metadata,
-                                    cluster.text_range().start,
-                                )
-                            } else {
-                                0
-                            },
-                            // Parley's cluster glyphs are intra-cluster relative; the cluster
-                            // origin accumulates the preceding clusters' advances on the line.
-                            x: cluster_origin,
-                            glyph_range: glyph_start..glyphs.len() as u32,
-                        };
-                        cluster_origin += cluster.advance();
-                        shaped
-                    })
-                    .collect();
-                clusters
-            })
-            .collect();
+        let mut clusters: Vec<ShapedCluster> = Vec::with_capacity(cluster_count);
+        for item in line.items() {
+            let glyph_run = match item {
+                PositionedLayoutItem::GlyphRun(glyph_run) => glyph_run,
+                PositionedLayoutItem::InlineBox(_) => continue,
+            };
+            let run = glyph_run.run();
+            let face_id = face_id_from_parley_data(run.font());
+            let font_size = run.font_size();
+            let weight = TextWeight(run.font_attrs().weight.value() as u16);
+            let mut cluster_origin = glyph_run.offset();
+            for cluster in run.clusters() {
+                // The cluster's glyphs append to the flat array, in cluster order: the range is
+                // the slice just appended.
+                let glyph_start = glyphs.len() as u32;
+                glyphs.extend(cluster.glyphs().map(|glyph| ShapedGlyph {
+                    glyph_id: glyph.id as u16,
+                    face_id,
+                    font_size,
+                    weight,
+                    x: glyph.x,
+                    y: glyph.y,
+                }));
+                clusters.push(ShapedCluster {
+                    byte_range: cluster.text_range(),
+                    // First-byte-cover echo, engine-neutrally defined in
+                    // `engine::covering_metadata`; shaping untouched (straddling
+                    // clusters like base+mark compositions resolve to their first
+                    // byte's range, the typographically correct side).
+                    metadata: if request.metadata {
+                        covering_metadata(
+                            &request.ranges,
+                            request.default_attributes.metadata,
+                            cluster.text_range().start,
+                        )
+                    } else {
+                        0
+                    },
+                    // Parley's cluster glyphs are intra-cluster relative; the cluster
+                    // origin accumulates the preceding clusters' advances on the line.
+                    x: cluster_origin,
+                    glyph_range: glyph_start..glyphs.len() as u32,
+                });
+                cluster_origin += cluster.advance();
+            }
+        }
 
         let line_metrics = line.metrics();
         Some(ShapedRun {
