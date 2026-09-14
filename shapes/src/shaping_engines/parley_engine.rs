@@ -2,7 +2,6 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
 
 use parley::fontique::{
     self, Blob, Collection, CollectionOptions, FamilyId, GenericFamily, SourceCache,
@@ -26,10 +25,11 @@ type GlyphBrush = [u8; 4];
 /// [`FaceId`] (the `Blob` unique id plus the face index). A [`FaceId`] is derived straight from
 /// a shaped run's font, so shaping needs no lookup; rasterization resolves a [`FaceId`] back to
 /// concrete font data in O(1).
-#[derive(Clone)]
-pub struct ParleyEngine(Arc<Mutex<ParleyEngineInner>>);
-
-struct ParleyEngineInner {
+///
+/// The engine holds no internal lock: instances are owned by [`crate::FontManager`], whose
+/// single outer mutex already serializes all access; locking again here would only add a
+/// second, uncontended layer.
+pub struct ParleyEngine {
     font_context: FontContext,
     layout_context: LayoutContext<GlyphBrush>,
     /// Concrete fonts keyed by [`FaceId`]. Populated by `rebuild_fonts` to include every font the
@@ -41,9 +41,8 @@ struct ParleyEngineInner {
 
 impl fmt::Debug for ParleyEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.lock().unwrap();
         f.debug_struct("ParleyEngine")
-            .field("font_count", &inner.fonts.len())
+            .field("font_count", &self.fonts.len())
             .finish_non_exhaustive()
     }
 }
@@ -73,42 +72,54 @@ impl ParleyEngine {
         // original blob and `Blob` ids stay stable for the engine's lifetime.
         font_context.source_cache = SourceCache::new_shared();
         font_context.collection.load_system_fonts();
-        let engine = Self::from_context(font_context);
+        let mut engine = Self::from_context(font_context);
         engine.rebuild_fonts();
         engine
     }
 
     fn from_context(font_context: FontContext) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(ParleyEngineInner {
+        Self {
             font_context,
             layout_context: LayoutContext::new(),
             fonts: HashMap::new(),
-        })))
+        }
     }
 
     /// Rebuild the font registry from the whole collection, keyed by [`FaceId`], so any font
     /// Parley may select (including system fallbacks like emoji) can be resolved by [`FaceId`]
     /// during rasterization. The strong `Blob` refs held here also keep the shared source
     /// cache's weak refs alive, so pruned entries re-resolve to the original blobs.
-    fn rebuild_fonts(&self) {
-        let mut inner = self.0.lock().unwrap();
+    fn rebuild_fonts(&mut self) {
+        let fonts = Self::collect_fonts(&mut self.font_context);
+        self.fonts = fonts;
+
+        // Common-script symbols (e.g. `✘`, `✓`, `→`) inherit the surrounding script for fallback,
+        // which on macOS resolves to Helvetica — a font that lacks most of them. Append the system
+        // font with the best coverage of these symbols to the Latin fallback so they render instead
+        // of falling through to the `.notdef` dead glyph. This is a local workaround for the known
+        // upstream gap (parley #744, #695) until font selection becomes coverage-aware.
+        Self::append_symbol_fallback(&mut self.font_context);
+    }
+
+    /// Collect the font registry from the collection: one [`FontData`] per (blob, face index),
+    /// so any font Parley may select resolves by [`FaceId`]. Split from `rebuild_fonts` so the
+    /// collection borrow ends before the registry is installed.
+    fn collect_fonts(font_context: &mut FontContext) -> HashMap<FaceId, FontData> {
         let mut fonts = HashMap::new();
-        // Collect family names first to release the collection borrow before querying each family.
-        let family_names: Vec<String> = inner
-            .font_context
+        let family_names: Vec<String> = font_context
             .collection
             .family_names()
             .map(str::to_owned)
             .collect();
         for name in family_names {
-            let Some(family_id) = inner.font_context.collection.family_id(&name) else {
+            let Some(family_id) = font_context.collection.family_id(&name) else {
                 continue;
             };
-            let Some(family) = inner.font_context.collection.family(family_id) else {
+            let Some(family) = font_context.collection.family(family_id) else {
                 continue;
             };
             for font_info in family.fonts() {
-                let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
+                let Some(blob) = font_context.source_cache.get(font_info.source()) else {
                     continue;
                 };
                 let parley_font = parley::FontData::new(blob, font_info.index());
@@ -120,14 +131,7 @@ impl ParleyEngine {
                 fonts.insert(id, font);
             }
         }
-        inner.fonts = fonts;
-
-        // Common-script symbols (e.g. `✘`, `✓`, `→`) inherit the surrounding script for fallback,
-        // which on macOS resolves to Helvetica — a font that lacks most of them. Append the system
-        // font with the best coverage of these symbols to the Latin fallback so they render instead
-        // of falling through to the `.notdef` dead glyph. This is a local workaround for the known
-        // upstream gap (parley #744, #695) until font selection becomes coverage-aware.
-        Self::append_symbol_fallback(&mut inner);
+        fonts
     }
 
     /// Append symbol-covering non-emoji fonts to the Latin fallback, best coverage first.
@@ -137,7 +141,7 @@ impl ParleyEngine {
     /// score every family by how many it covers, and append the covering families to the Latin
     /// fallback in descending coverage order. Emoji fonts are excluded because they would be
     /// selected for text-presentation symbols (upstream parley #744).
-    fn append_symbol_fallback(inner: &mut ParleyEngineInner) {
+    fn append_symbol_fallback(font_context: &mut FontContext) {
         use fontique::{FallbackKey, GenericFamily, Script};
 
         // Common-script symbol blocks commonly used in terminals and UI text.
@@ -157,34 +161,32 @@ impl ParleyEngine {
         ];
 
         let latn = Script::from_bytes(*b"Latn");
-        let emoji_families: Vec<_> = inner
-            .font_context
+        let emoji_families: Vec<_> = font_context
             .collection
             .generic_families(GenericFamily::Emoji)
             .collect();
 
         // Score each family by how many symbol codepoints its default font covers.
-        let family_names: Vec<String> = inner
-            .font_context
+        let family_names: Vec<String> = font_context
             .collection
             .family_names()
             .map(str::to_owned)
             .collect();
         let mut scored: Vec<(usize, FamilyId)> = Vec::new();
         for name in family_names {
-            let Some(family_id) = inner.font_context.collection.family_id(&name) else {
+            let Some(family_id) = font_context.collection.family_id(&name) else {
                 continue;
             };
             if emoji_families.contains(&family_id) {
                 continue;
             }
-            let Some(family) = inner.font_context.collection.family(family_id) else {
+            let Some(family) = font_context.collection.family(family_id) else {
                 continue;
             };
             let Some(font_info) = family.default_font() else {
                 continue;
             };
-            let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
+            let Some(blob) = font_context.source_cache.get(font_info.source()) else {
                 continue;
             };
             let Some(font_ref) =
@@ -206,8 +208,7 @@ impl ParleyEngine {
         // Append best-coverage families first so the first that covers a symbol wins.
         scored.sort_by_key(|(covered, _)| std::cmp::Reverse(*covered));
         let families = scored.into_iter().map(|(_, id)| id);
-        inner
-            .font_context
+        font_context
             .collection
             .append_fallbacks(FallbackKey::new(latn, None), families);
     }
@@ -219,10 +220,9 @@ impl ShapingEngine for ParleyEngine {
     }
 
     fn load_font(&mut self, data: FontBytes) -> Vec<FaceId> {
-        let mut inner = self.0.lock().unwrap();
         // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
         let blob: Blob<u8> = Blob::new(data);
-        let families = inner
+        let families = self
             .font_context
             .collection
             .register_fonts(blob.clone(), None);
@@ -236,15 +236,14 @@ impl ShapingEngine for ParleyEngine {
             GenericFamily::Serif,
             GenericFamily::Monospace,
         ] {
-            if inner
+            if self
                 .font_context
                 .collection
                 .generic_families(generic)
                 .next()
                 .is_none()
             {
-                inner
-                    .font_context
+                self.font_context
                     .collection
                     .set_generic_families(generic, families.iter().map(|(family, _)| *family));
             }
@@ -259,7 +258,7 @@ impl ShapingEngine for ParleyEngine {
                 let id = face_id_from_parley_data(&parley_font);
                 let (arc, _) = parley_font.data.into_raw_parts();
                 let font = FontData::new(arc, face.index());
-                inner.fonts.insert(id, font);
+                self.fonts.insert(id, font);
                 ids.push(id);
             }
         }
@@ -267,17 +266,15 @@ impl ShapingEngine for ParleyEngine {
     }
 
     fn font_data(&self, id: FaceId) -> Option<FontData> {
-        let inner = self.0.lock().unwrap();
-        inner.fonts.get(&id).cloned()
+        self.fonts.get(&id).cloned()
     }
 
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        let mut inner = self.0.lock().unwrap();
-        let ParleyEngineInner {
+        let Self {
             font_context,
             layout_context,
             ..
-        } = &mut *inner;
+        } = self;
 
         let mut builder = layout_context.ranged_builder(font_context, request.text, 1.0, true);
         builder.push_default(StyleProperty::FontSize(font_size));

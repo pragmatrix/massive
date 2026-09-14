@@ -6,7 +6,7 @@
 //! em-relative (cosmic-text divides by the font scale at shape time), so the engine multiplies
 //! by the requested `font_size` to get pixels.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use cosmic_text::{Attrs, AttrsList, BufferLine, FontSystem, LineEnding, Shaping, Weight};
 use fontdb::Source;
@@ -24,10 +24,11 @@ use crate::{FaceId, TextWeight};
 /// registry indexes; those index into both a `fontdb::ID` map (for shaping) and a font-data
 /// map (for rasterization through `FaceId`). Fallback faces the shaper selects without an
 /// explicit `load_font` call are interned lazily on first use.
-#[derive(Clone)]
-pub struct CosmicTextEngine(Arc<Mutex<CosmicTextEngineInner>>);
-
-struct CosmicTextEngineInner {
+///
+/// The engine holds no internal lock: instances are owned by [`crate::FontManager`], whose
+/// single outer mutex already serializes all access; locking again here would only add a
+/// second, uncontended layer.
+pub struct CosmicTextEngine {
     font_system: FontSystem,
     /// One entry per known face, in registration order. The registry index is the [`FaceId`]
     /// payload.
@@ -45,9 +46,8 @@ struct CosmicFace {
 
 impl std::fmt::Debug for CosmicTextEngine {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.lock().unwrap();
         f.debug_struct("CosmicTextEngine")
-            .field("font_count", &inner.faces.len())
+            .field("font_count", &self.faces.len())
             .finish_non_exhaustive()
     }
 }
@@ -55,18 +55,18 @@ impl std::fmt::Debug for CosmicTextEngine {
 impl CosmicTextEngine {
     /// Create a completely bare engine: no fallbacks, no fonts.
     pub fn bare() -> Self {
-        Self(Arc::new(Mutex::new(CosmicTextEngineInner {
+        Self {
             font_system: FontSystem::new_with_fonts(core::iter::empty()),
             faces: Vec::new(),
-        })))
+        }
     }
 
     /// Create an engine with the environment's locale, system fonts, and fallbacks loaded.
     pub fn system() -> Self {
-        Self(Arc::new(Mutex::new(CosmicTextEngineInner {
+        Self {
             font_system: FontSystem::new(),
             faces: Vec::new(),
-        })))
+        }
     }
 }
 
@@ -76,13 +76,11 @@ impl ShapingEngine for CosmicTextEngine {
     }
 
     fn load_font(&mut self, data: FontBytes) -> Vec<FaceId> {
-        let mut inner = self.0.lock().unwrap();
-        Self::register(&mut inner, data)
+        self.register(data)
     }
 
     fn font_data(&self, id: FaceId) -> Option<FontData> {
-        let inner = self.0.lock().unwrap();
-        let face = inner.faces.get(id.payload() as usize)?;
+        let face = self.faces.get(id.payload() as usize)?;
         Some(FontData {
             data: Arc::clone(&face.data),
             index: face.data_index,
@@ -90,14 +88,13 @@ impl ShapingEngine for CosmicTextEngine {
     }
 
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        let mut inner = self.0.lock().unwrap();
-        Self::shape_with_font_system(&mut inner, request, font_size)
+        self.shape_with_font_system(request, font_size)
     }
 }
 
 impl CosmicTextEngine {
     fn shape_with_font_system(
-        inner: &mut CosmicTextEngineInner,
+        &mut self,
         request: &ShapingRequest<'_>,
         font_size: f32,
     ) -> Option<ShapedRun> {
@@ -113,7 +110,7 @@ impl CosmicTextEngine {
             attrs_list,
             Shaping::Advanced,
         );
-        let shape_line = buffer.shape(&mut inner.font_system, 0);
+        let shape_line = buffer.shape(&mut self.font_system, 0);
 
         let mut max_ascent = 0.0_f32;
         let mut max_descent = 0.0_f32;
@@ -131,7 +128,7 @@ impl CosmicTextEngine {
                     let offset_px = font_size * glyph.x_offset;
                     let y_px = font_size * glyph.y_offset;
 
-                    let index = Self::intern(inner, glyph.font_id, glyph.font_weight)?;
+                    let index = self.intern(glyph.font_id, glyph.font_weight)?;
                     let face_id = Self::face_id(index);
 
                     let cluster_x = width + offset_px;
@@ -167,15 +164,15 @@ impl CosmicTextEngine {
     }
 
     /// Register a font file's faces into the database and the registry.
-    fn register(inner: &mut CosmicTextEngineInner, data: FontBytes) -> Vec<FaceId> {
+    fn register(&mut self, data: FontBytes) -> Vec<FaceId> {
         // fontdb holds its own shared reference to the bytes.
         let source = Source::Binary(Arc::clone(&data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
-        let ids = inner.font_system.db_mut().load_font_source(source);
+        let ids = self.font_system.db_mut().load_font_source(source);
         ids.into_iter()
             .map(|id| {
-                let face_info = inner.font_system.db().face(id).expect("just-loaded face");
-                let index = inner.faces.len();
-                inner.faces.push(CosmicFace {
+                let face_info = self.font_system.db().face(id).expect("just-loaded face");
+                let index = self.faces.len();
+                self.faces.push(CosmicFace {
                     id,
                     weight: face_info.weight,
                     data: Arc::clone(&data),
@@ -190,12 +187,8 @@ impl CosmicTextEngine {
     ///
     /// The face's bytes are read out of the database once and pinned in the registry, so
     /// rasterization resolves the same data later.
-    fn intern(
-        inner: &mut CosmicTextEngineInner,
-        id: fontdb::ID,
-        weight: fontdb::Weight,
-    ) -> Option<usize> {
-        if let Some(index) = inner
+    fn intern(&mut self, id: fontdb::ID, weight: fontdb::Weight) -> Option<usize> {
+        if let Some(index) = self
             .faces
             .iter()
             .position(|face| face.id == id && face.weight == weight)
@@ -204,14 +197,14 @@ impl CosmicTextEngine {
         }
         // Robustness: `SharedFile` sources would need mmap'd data we cannot hand out as an Arc;
         // system fontdb sources on Linux/WASM can be files. We only intern what we can read.
-        let (data, data_index) = inner
+        let (data, data_index) = self
             .font_system
             .db()
             .with_face_data(id, |bytes, face_index| {
                 (Arc::new(bytes.to_vec()) as FontBytes, face_index)
             })?;
-        let index = inner.faces.len();
-        inner.faces.push(CosmicFace {
+        let index = self.faces.len();
+        self.faces.push(CosmicFace {
             id,
             weight,
             data,

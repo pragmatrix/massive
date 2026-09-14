@@ -38,35 +38,10 @@ impl fmt::Debug for FontManager {
 }
 
 struct FontManagerInner {
-    engine: Engine,
-}
-
-/// The selected engine.
-pub(crate) enum Engine {
-    #[cfg(feature = "parley")]
-    Parley(ParleyEngine),
-    #[cfg(feature = "cosmic-text")]
-    CosmicText(CosmicTextEngine),
-}
-
-impl Engine {
-    fn name(&self) -> &'static str {
-        match self {
-            #[cfg(feature = "parley")]
-            Self::Parley(engine) => engine.name(),
-            #[cfg(feature = "cosmic-text")]
-            Self::CosmicText(engine) => engine.name(),
-        }
-    }
-
-    fn as_engine(&mut self) -> &mut dyn ShapingEngine {
-        match self {
-            #[cfg(feature = "parley")]
-            Self::Parley(engine) => engine,
-            #[cfg(feature = "cosmic-text")]
-            Self::CosmicText(engine) => engine,
-        }
-    }
+    /// Boxed: the engines carry large contexts (~1–2 kB: Parley's `FontContext` +
+    /// `LayoutContext`, cosmic-text's `FontSystem`); an extra indirection per call is
+    /// negligible next to shaping and keeps the manager handle small.
+    engine: Box<dyn ShapingEngine>,
 }
 
 /// A font manager owning one shaping engine.
@@ -85,11 +60,11 @@ pub struct FontManager {
 impl FontManager {
     /// Create a manager over the given engine kind, with system fonts loaded.
     pub fn system(kind: ShapingEngineKind) -> Self {
-        let engine = match kind {
+        let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Engine::Parley(ParleyEngine::system()),
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::system()),
             #[cfg(feature = "cosmic-text")]
-            ShapingEngineKind::CosmicText => Engine::CosmicText(CosmicTextEngine::system()),
+            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::system()),
         };
         Self {
             kind,
@@ -99,11 +74,11 @@ impl FontManager {
 
     /// A bare manager over the given engine kind: no fallbacks, no fonts.
     pub fn bare(kind: ShapingEngineKind) -> Self {
-        let engine = match kind {
+        let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Engine::Parley(ParleyEngine::bare()),
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::bare()),
             #[cfg(feature = "cosmic-text")]
-            ShapingEngineKind::CosmicText => Engine::CosmicText(CosmicTextEngine::bare()),
+            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::bare()),
         };
         Self {
             kind,
@@ -121,12 +96,12 @@ impl FontManager {
     pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
         let mut inner = self.inner.lock();
         let data: FontBytes = Arc::new(font_data);
-        inner.engine.as_engine().load_font(data)
+        inner.engine.load_font(data)
     }
 
     /// Resolve the concrete font data for a [`FaceId`] produced by this manager's engine.
     pub fn font_data(&self, id: FaceId) -> Option<FontData> {
-        self.inner.lock().engine.as_engine().font_data(id)
+        self.inner.lock().engine.font_data(id)
     }
 
     /// The engine this manager shapes with.
@@ -145,18 +120,14 @@ impl FontManager {
 
     /// Shape a single line through the manager's engine.
     pub fn shape(&self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        self.inner
-            .lock()
-            .engine
-            .as_engine()
-            .shape(request, font_size)
+        self.inner.lock().engine.shape(request, font_size)
     }
 }
 
 impl Shaper<'_> {
     /// Shape one attributed line at `font_size` through the selected engine.
     pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        self.inner.engine.as_engine().shape(request, font_size)
+        self.inner.engine.shape(request, font_size)
     }
 
     /// Resolve concrete font data through the engine of this session.
@@ -164,7 +135,7 @@ impl Shaper<'_> {
     /// Use this instead of [`FontManager::font_data`] while a shaper guard is held: the guard
     /// already owns the manager lock, so the manager method would self-deadlock.
     pub fn font_data(&mut self, id: FaceId) -> Option<FontData> {
-        self.inner.engine.as_engine().font_data(id)
+        self.inner.engine.font_data(id)
     }
 
     /// Shape and assemble a [`GlyphRun`] carrying the default attributes' color/weight.
