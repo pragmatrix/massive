@@ -204,18 +204,37 @@ impl ShapingEngineKind {
     }
 }
 
-/// One shaped glyph in the engine-neutral data model.
+/// The result of shaping one line: clusters plus line metrics in pixels.
 ///
-/// `x`/`y` are relative to the cluster origin ([`ShapedCluster::x`]) and the baseline
-/// respectively (positive y = below the baseline), matching the `GlyphRun` convention.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct ShapedGlyph {
-    pub glyph_id: u16,
-    pub face_id: FaceId,
-    pub font_size: f32,
-    pub weight: TextWeight,
-    pub x: f32,
-    pub y: f32,
+/// Glyphs are stored in one flat array ([`ShapedRun::glyphs`]) instead of per-cluster `Vec`s:
+/// nearly every cluster shapes to a single glyph, so a per-cluster `Vec` spent one allocation
+/// (and its header) per cluster for nothing. Clusters reference their glyphs by index range
+/// (`ShapedCluster::glyph_range`); `benches/cluster_allocations.rs` measures the allocation
+/// effect.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapedRun {
+    pub clusters: Vec<ShapedCluster>,
+    /// All glyphs of this line's clusters, laid out flat in cluster order.
+    pub glyphs: Vec<ShapedGlyph>,
+    pub max_ascent: f32,
+    pub max_descent: f32,
+    /// The total advance width of the line in pixels.
+    pub width: f32,
+    /// The engine that produced this run. Written by the engine itself inside its own `shape`,
+    /// so callers cannot attribute a run to the wrong engine; debug-checked at the render
+    /// boundary against the resolving manager.
+    pub engine: ShapingEngineKind,
+}
+
+impl ShapedRun {
+    /// The glyphs of `cluster`, resolved through this run's flat glyph array.
+    ///
+    /// Infallible for engine-constructed ranges (contiguous and in-bounds by construction);
+    /// a wild range panics on the slice index instead of silently aliasing other clusters'
+    /// glyphs.
+    pub fn cluster_glyphs(&self, cluster: &ShapedCluster) -> &[ShapedGlyph] {
+        &self.glyphs[cluster.glyph_range.start as usize..cluster.glyph_range.end as usize]
+    }
 }
 
 /// A shaped cluster: glyphs sharing one source byte range.
@@ -246,37 +265,18 @@ pub struct ShapedCluster {
     pub metadata: usize,
 }
 
-/// The result of shaping one line: clusters plus line metrics in pixels.
+/// One shaped glyph in the engine-neutral data model.
 ///
-/// Glyphs are stored in one flat array ([`ShapedRun::glyphs`]) instead of per-cluster `Vec`s:
-/// nearly every cluster shapes to a single glyph, so a per-cluster `Vec` spent one allocation
-/// (and its header) per cluster for nothing. Clusters reference their glyphs by index range
-/// (`ShapedCluster::glyph_range`); `benches/cluster_allocations.rs` measures the allocation
-/// effect.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ShapedRun {
-    /// All glyphs of this line's clusters, laid out flat in cluster order.
-    pub glyphs: Vec<ShapedGlyph>,
-    pub clusters: Vec<ShapedCluster>,
-    pub max_ascent: f32,
-    pub max_descent: f32,
-    /// The total advance width of the line in pixels.
-    pub width: f32,
-    /// The engine that produced this run. Written by the engine itself inside its own `shape`,
-    /// so callers cannot attribute a run to the wrong engine; debug-checked at the render
-    /// boundary against the resolving manager.
-    pub engine: ShapingEngineKind,
-}
-
-impl ShapedRun {
-    /// The glyphs of `cluster`, resolved through this run's flat glyph array.
-    ///
-    /// Infallible for engine-constructed ranges (contiguous and in-bounds by construction);
-    /// a wild range panics on the slice index instead of silently aliasing other clusters'
-    /// glyphs.
-    pub fn cluster_glyphs(&self, cluster: &ShapedCluster) -> &[ShapedGlyph] {
-        &self.glyphs[cluster.glyph_range.start as usize..cluster.glyph_range.end as usize]
-    }
+/// `x`/`y` are relative to the cluster origin ([`ShapedCluster::x`]) and the baseline
+/// respectively (positive y = below the baseline), matching the `GlyphRun` convention.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShapedGlyph {
+    pub glyph_id: u16,
+    pub face_id: FaceId,
+    pub font_size: f32,
+    pub weight: TextWeight,
+    pub x: f32,
+    pub y: f32,
 }
 
 /// A capability-focused contract every shaping engine honors.
