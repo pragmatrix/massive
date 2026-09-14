@@ -1,17 +1,26 @@
 mod clip_box;
+mod engine;
 mod font_manager;
 mod glyph_run;
-mod parley_adapter;
 mod shape;
+mod shaping_engines;
 mod text_shaper;
 
 pub use clip_box::*;
-use derive_more::{Deref, DerefMut};
+pub use engine::{
+    FontBytes, FontData, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine, ShapingEngineKind,
+    ShapingRequest, TextAttributes, TextFamily, shaped_run_to_glyph_run,
+};
 pub use font_manager::*;
 pub use glyph_run::*;
-pub use parley_adapter::*;
 pub use shape::*;
+pub use shaping_engines::{CosmicTextEngine, ParleyEngine};
 pub use text_shaper::*;
+
+#[cfg(all(not(feature = "parley"), not(feature = "cosmic-text")))]
+compile_error!(
+    "massive-shapes needs at least one shaping engine feature: `parley` or `cosmic-text`"
+);
 
 // Ergonomics
 
@@ -38,6 +47,8 @@ impl<'b> Layout<'b> for &'b str {
         TextShaper::new(self)
     }
 }
+
+use derive_more::{Deref, DerefMut};
 
 // Robustness: I am not so sure about the DerefMut, because some functions take self in TextLayouter.
 #[derive(Debug, Deref, DerefMut)]

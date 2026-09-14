@@ -1,0 +1,372 @@
+//! The Parley (fontique + harfrust) shaping engine.
+
+use std::collections::HashMap;
+use std::fmt;
+use std::sync::{Arc, Mutex};
+
+use parley::fontique::{
+    self, Blob, Collection, CollectionOptions, FamilyId, GenericFamily, SourceCache,
+};
+use parley::{
+    FontContext, FontFamily, FontFamilyName, LayoutContext, PositionedLayoutItem, StyleProperty,
+};
+
+use crate::engine::{
+    FontBytes, FontData, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine, ShapingEngineKind,
+    ShapingRequest,
+};
+use crate::{FaceId, TextFamily, TextWeight};
+
+/// Default Parley brush type (RGBA bytes). Callers overwrite color via `GlyphRun::with_color`.
+type GlyphBrush = [u8; 4];
+
+/// The Parley-backed [`ShapingEngine`].
+///
+/// Owns the Parley font database plus a registry of [`parley::FontData`] entries keyed by
+/// [`FaceId`] (the `Blob` unique id plus the face index). A [`FaceId`] is derived straight from
+/// a shaped run's font, so shaping needs no lookup; rasterization resolves a [`FaceId`] back to
+/// concrete font data in O(1).
+#[derive(Clone)]
+pub struct ParleyEngine(Arc<Mutex<ParleyEngineInner>>);
+
+struct ParleyEngineInner {
+    font_context: FontContext,
+    layout_context: LayoutContext<GlyphBrush>,
+    /// Concrete fonts keyed by [`FaceId`]. Populated by `rebuild_fonts` to include every font the
+    /// collection may select (including system fallbacks like emoji), so rasterization can resolve
+    /// any glyph's `FaceId` to font data. The key must include the face index because a single
+    /// file may hold several faces that share one `Blob` id.
+    fonts: HashMap<FaceId, FontData>,
+}
+
+impl fmt::Debug for ParleyEngine {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let inner = self.0.lock().unwrap();
+        f.debug_struct("ParleyEngine")
+            .field("font_count", &inner.fonts.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl ParleyEngine {
+    /// Create a completely bare engine: no fallbacks, no fonts.
+    pub fn bare() -> Self {
+        let font_context = FontContext {
+            collection: Collection::new(CollectionOptions {
+                system_fonts: false,
+                ..Default::default()
+            }),
+            source_cache: SourceCache::new_shared(),
+        };
+        Self::from_context(font_context)
+    }
+
+    /// Create an engine with the environment's locale, platform families, fallbacks, and system
+    /// fonts loaded.
+    pub fn system() -> Self {
+        let mut font_context = FontContext::new();
+        // Parley creates an unshared source cache by default and prunes it on every layout
+        // builder creation. A pruned font file is re-loaded on demand with a NEW `Blob` id,
+        // which invalidates `FaceId`s derived from it (the renderer would see unknown faces).
+        // The shared cache stores only weak blob refs and is never pruned; the registry built
+        // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
+        // original blob and `Blob` ids stay stable for the engine's lifetime.
+        font_context.source_cache = SourceCache::new_shared();
+        font_context.collection.load_system_fonts();
+        let engine = Self::from_context(font_context);
+        engine.rebuild_fonts();
+        engine
+    }
+
+    fn from_context(font_context: FontContext) -> Self {
+        Self(Arc::new(std::sync::Mutex::new(ParleyEngineInner {
+            font_context,
+            layout_context: LayoutContext::new(),
+            fonts: HashMap::new(),
+        })))
+    }
+
+    /// Rebuild the font registry from the whole collection, keyed by [`FaceId`], so any font
+    /// Parley may select (including system fallbacks like emoji) can be resolved by [`FaceId`]
+    /// during rasterization. The strong `Blob` refs held here also keep the shared source
+    /// cache's weak refs alive, so pruned entries re-resolve to the original blobs.
+    fn rebuild_fonts(&self) {
+        let mut inner = self.0.lock().unwrap();
+        let mut fonts = HashMap::new();
+        // Collect family names first to release the collection borrow before querying each family.
+        let family_names: Vec<String> = inner
+            .font_context
+            .collection
+            .family_names()
+            .map(str::to_owned)
+            .collect();
+        for name in family_names {
+            let Some(family_id) = inner.font_context.collection.family_id(&name) else {
+                continue;
+            };
+            let Some(family) = inner.font_context.collection.family(family_id) else {
+                continue;
+            };
+            for font_info in family.fonts() {
+                let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
+                    continue;
+                };
+                let parley_font = parley::FontData::new(blob, font_info.index());
+                let id = face_id_from_parley_data(&parley_font);
+                // The Blob keeps the font bytes alive; hand its backing Arc to the neutral
+                // registry so rasterization reads the same bytes without a copy.
+                let (arc, _) = parley_font.data.into_raw_parts();
+                let font = FontData::new(arc, font_info.index());
+                fonts.insert(id, font);
+            }
+        }
+        inner.fonts = fonts;
+
+        // Common-script symbols (e.g. `✘`, `✓`, `→`) inherit the surrounding script for fallback,
+        // which on macOS resolves to Helvetica — a font that lacks most of them. Append the system
+        // font with the best coverage of these symbols to the Latin fallback so they render instead
+        // of falling through to the `.notdef` dead glyph. This is a local workaround for the known
+        // upstream gap (parley #744, #695) until font selection becomes coverage-aware.
+        Self::append_symbol_fallback(&mut inner);
+    }
+
+    /// Append symbol-covering non-emoji fonts to the Latin fallback, best coverage first.
+    ///
+    /// Common-script symbols inherit the surrounding script (Latin by default) for fallback, but
+    /// the platform's Latin fallback often lacks them. We scan a broad set of symbol codepoints,
+    /// score every family by how many it covers, and append the covering families to the Latin
+    /// fallback in descending coverage order. Emoji fonts are excluded because they would be
+    /// selected for text-presentation symbols (upstream parley #744).
+    fn append_symbol_fallback(inner: &mut ParleyEngineInner) {
+        use fontique::{FallbackKey, GenericFamily, Script};
+
+        // Common-script symbol blocks commonly used in terminals and UI text.
+        const SYMBOL_RANGES: &[(u32, u32)] = &[
+            (0x2000, 0x206F), // General Punctuation
+            (0x2190, 0x21FF), // Arrows
+            (0x2200, 0x22FF), // Mathematical Operators
+            (0x2300, 0x23FF), // Miscellaneous Technical
+            (0x2500, 0x257F), // Box Drawing
+            (0x2580, 0x259F), // Block Elements
+            (0x25A0, 0x25FF), // Geometric Shapes
+            (0x2600, 0x26FF), // Miscellaneous Symbols
+            (0x2700, 0x27BF), // Dingbats
+            (0x27C0, 0x27EF), // Miscellaneous Mathematical Symbols-A
+            (0x2980, 0x29FF), // Miscellaneous Mathematical Symbols-B
+            (0x2B00, 0x2BFF), // Miscellaneous Symbols and Arrows
+        ];
+
+        let latn = Script::from_bytes(*b"Latn");
+        let emoji_families: Vec<_> = inner
+            .font_context
+            .collection
+            .generic_families(GenericFamily::Emoji)
+            .collect();
+
+        // Score each family by how many symbol codepoints its default font covers.
+        let family_names: Vec<String> = inner
+            .font_context
+            .collection
+            .family_names()
+            .map(str::to_owned)
+            .collect();
+        let mut scored: Vec<(usize, FamilyId)> = Vec::new();
+        for name in family_names {
+            let Some(family_id) = inner.font_context.collection.family_id(&name) else {
+                continue;
+            };
+            if emoji_families.contains(&family_id) {
+                continue;
+            }
+            let Some(family) = inner.font_context.collection.family(family_id) else {
+                continue;
+            };
+            let Some(font_info) = family.default_font() else {
+                continue;
+            };
+            let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
+                continue;
+            };
+            let Some(font_ref) =
+                swash::FontRef::from_index(blob.as_ref(), font_info.index() as usize)
+            else {
+                continue;
+            };
+            let charmap = font_ref.charmap();
+            let covered = SYMBOL_RANGES
+                .iter()
+                .flat_map(|&(start, end)| start..=end)
+                .filter(|&c| charmap.map(char::from_u32(c).unwrap_or('\0')) != 0)
+                .count();
+            if covered > 0 {
+                scored.push((covered, family_id));
+            }
+        }
+
+        // Append best-coverage families first so the first that covers a symbol wins.
+        scored.sort_by_key(|(covered, _)| std::cmp::Reverse(*covered));
+        let families = scored.into_iter().map(|(_, id)| id);
+        inner
+            .font_context
+            .collection
+            .append_fallbacks(FallbackKey::new(latn, None), families);
+    }
+}
+
+impl ShapingEngine for ParleyEngine {
+    fn name(&self) -> &'static str {
+        "parley"
+    }
+
+    fn load_font(&mut self, data: FontBytes) -> Vec<FaceId> {
+        let mut inner = self.0.lock().unwrap();
+        // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
+        let blob: Blob<u8> = Blob::new(data);
+        let families = inner
+            .font_context
+            .collection
+            .register_fonts(blob.clone(), None);
+        // Register the newly loaded families as the generic families (sans-serif, serif, monospace)
+        // so that text using a generic family name resolves to a font we actually have. Without
+        // this, Parley would fall back to a system font for generic-family text, which may not be
+        // in our registry and would fail to rasterize. Each generic is set only if it has no
+        // existing mapping, so the first loaded font wins and later loads don't override it.
+        for generic in [
+            GenericFamily::SansSerif,
+            GenericFamily::Serif,
+            GenericFamily::Monospace,
+        ] {
+            if inner
+                .font_context
+                .collection
+                .generic_families(generic)
+                .next()
+                .is_none()
+            {
+                inner
+                    .font_context
+                    .collection
+                    .set_generic_families(generic, families.iter().map(|(family, _)| *family));
+            }
+        }
+        // A single font file (e.g. a `.ttc` collection) can hold several faces, each with its own
+        // index. [`FaceId`] keys on the file's blob id *and* the face index, so one file yields one
+        // [`FaceId`] per face — hence the nested loop and the multiple ids returned.
+        let mut ids = Vec::new();
+        for (_, faces) in families {
+            for face in faces {
+                let parley_font = parley::FontData::new(blob.clone(), face.index());
+                let id = face_id_from_parley_data(&parley_font);
+                let (arc, _) = parley_font.data.into_raw_parts();
+                let font = FontData::new(arc, face.index());
+                inner.fonts.insert(id, font);
+                ids.push(id);
+            }
+        }
+        ids
+    }
+
+    fn font_data(&self, id: FaceId) -> Option<FontData> {
+        let inner = self.0.lock().unwrap();
+        inner.fonts.get(&id).cloned()
+    }
+
+    fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
+        let mut inner = self.0.lock().unwrap();
+        let ParleyEngineInner {
+            font_context,
+            layout_context,
+            ..
+        } = &mut *inner;
+
+        let mut builder = layout_context.ranged_builder(font_context, request.text, 1.0, true);
+        builder.push_default(StyleProperty::FontSize(font_size));
+        builder.push_default(StyleProperty::FontFamily(parley_family(
+            &request.default_attributes.family,
+        )));
+        builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
+            request.default_attributes.weight.0 as f32,
+        )));
+        for (range, attrs) in &request.ranges {
+            builder.push(
+                StyleProperty::FontWeight(parley::FontWeight::new(attrs.weight.0 as f32)),
+                range.clone(),
+            );
+        }
+        let mut layout: parley::Layout<GlyphBrush> = builder.build(request.text);
+        layout.break_all_lines(None);
+        layout.align(parley::Alignment::Start, Default::default());
+
+        // Feature: Support multi-line layout.
+        let line = layout.get(0)?;
+
+        // Each shaped run carries its own font (fallback for emoji etc.), so `FaceId`/size/weight
+        // are per run. Glyph y offsets are re-based onto the run baseline (Parley lays out
+        // Y-down) so both engines share the `GlyphRun` convention.
+        let clusters = line
+            .items()
+            .filter_map(|item| match item {
+                PositionedLayoutItem::GlyphRun(run) => Some(run),
+                PositionedLayoutItem::InlineBox(_) => None,
+            })
+            .flat_map(|glyph_run| {
+                let run_origin = glyph_run.offset();
+                let run = glyph_run.run();
+                let face_id = face_id_from_parley_data(run.font());
+                let font_size = run.font_size();
+                let weight = TextWeight(run.font_attrs().weight.value() as u16);
+                let mut cluster_origin = run_origin;
+                let clusters: Vec<ShapedCluster> = run
+                    .clusters()
+                    .map(|cluster| {
+                        let shaped = ShapedCluster {
+                            byte_range: cluster.text_range(),
+                            // Parley's cluster glyphs are intra-cluster relative; the cluster
+                            // origin accumulates the preceding clusters' advances on the line.
+                            x: cluster_origin,
+                            // Parley's `Glyph::y` is already baseline-relative (positive below
+                            // the baseline); positioned glyphs only *add* the baseline on.
+                            glyphs: cluster
+                                .glyphs()
+                                .map(|glyph| ShapedGlyph {
+                                    glyph_id: glyph.id as u16,
+                                    face_id,
+                                    font_size,
+                                    weight,
+                                    x: glyph.x,
+                                    y: glyph.y,
+                                })
+                                .collect(),
+                        };
+                        cluster_origin += cluster.advance();
+                        shaped
+                    })
+                    .collect();
+                clusters
+            })
+            .collect();
+
+        let line_metrics = line.metrics();
+        Some(ShapedRun {
+            clusters,
+            max_ascent: line_metrics.ascent,
+            max_descent: line_metrics.descent,
+            width: line_metrics.advance,
+            shaping_engine: ShapingEngineKind::Parley,
+        })
+    }
+}
+
+fn parley_family<'a>(family: &TextFamily<'a>) -> FontFamily<'a> {
+    match family {
+        TextFamily::Named(name) => FontFamily::Single(FontFamilyName::Named(name.clone())),
+        TextFamily::SansSerif => GenericFamily::SansSerif.into(),
+        TextFamily::Serif => GenericFamily::Serif.into(),
+        TextFamily::Monospace => GenericFamily::Monospace.into(),
+    }
+}
+
+/// Derive a [`FaceId`] from Parley font data: the `Blob` unique id packed with the face index.
+fn face_id_from_parley_data(font: &parley::FontData) -> FaceId {
+    FaceId::new((font.data.id() << 32) | font.index as u64)
+}

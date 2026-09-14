@@ -1,6 +1,6 @@
 # Massive Desktop Interaction Context
 
-This context defines the interaction and presentation language for desktop instance layout and visibility behavior. It exists to keep behavior terms consistent across layout, hit testing, and rendering discussions.
+This context defines the interaction and presentation language for desktop instance layout and visibility behavior. It exists to keep behavior terms consistent across layout, hit testing, text shaping, and rendering discussions.
 
 ## Language
 
@@ -71,3 +71,7 @@ _Avoid_: parked z, offscreen depth
 **Visibility-gated hit testing**:
 The rule that invisible placements are excluded from hit-testing immediately, independent of in-flight fade animation.
 _Avoid_: alpha-threshold hit test, delayed interaction disable
+
+**Shaping engine**:
+The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.
+_Avoid_: font system, shaper backend, text layout engine

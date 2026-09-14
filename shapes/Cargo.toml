@@ -3,12 +3,22 @@ name = "massive-shapes"
 version = "0.1.0"
 edition.workspace = true
 
+[features]
+# Both shaping engines compile in by default (ADR 0005); a build enabling neither fails
+# to compile (see lib.rs).
+default = ["parley", "cosmic-text"]
+parley = ["dep:parley"]
+cosmic-text = ["dep:cosmic-text"]
+
 [dependencies]
 massive-geometry = { workspace = true }
 # Needed for TextShaping and GlyphRun CacheKey
-parley = { workspace = true }
+parley = { workspace = true, optional = true }
 # Gorilla: This is needed for Weight.
 swash = { workspace = true }
+cosmic-text = { workspace = true, optional = true }
+# Same version cosmic-text uses (0.23); used for font registration and data access.
+fontdb = "0.23"
 derive_more = { workspace = true }
 glam = { workspace = true }
 parking_lot.workspace = true

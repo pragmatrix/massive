@@ -1,0 +1,255 @@
+//! Engine-neutral shaped-glyph data model and the shaping engine contract.
+//!
+//! This is the seam between [`crate::FontManager`] and the concrete shaping engines (Parley,
+//! cosmic-text): engines translate their own layout output into [`ShapedRun`]s of
+//! engine-neutral [`ShapedGlyph`]s, and the shared data model (`GlyphRun`, `GlyphKey`) stays
+//! engine-agnostic. Rasterization is engine-independent (swash) and resolves glyphs through
+//! [`ShapingEngine::font_data`].
+
+use std::borrow::Cow;
+use std::ops::Range;
+use std::sync::Arc;
+
+use massive_geometry::Color;
+
+use crate::{ClipBoxPx, FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
+
+/// Shared, reference-counted font file bytes.
+pub type FontBytes = Arc<dyn AsRef<[u8]> + Send + Sync>;
+
+/// Concrete font data: shared bytes plus the face index within the font file.
+///
+/// Field-compatible with fontique's `FontData` so swash rasterization can consume it directly.
+#[derive(Clone)]
+pub struct FontData {
+    pub data: FontBytes,
+    pub index: u32,
+}
+
+impl FontData {
+    pub fn new(data: FontBytes, index: u32) -> Self {
+        Self { data, index }
+    }
+}
+
+/// The font family text is shaped with.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum TextFamily<'a> {
+    /// A concrete family name (e.g. `"JetBrains Mono"`).
+    Named(Cow<'a, str>),
+    #[default]
+    /// The generic sans-serif family.
+    SansSerif,
+    /// The generic serif family.
+    Serif,
+    /// The generic monospace family.
+    Monospace,
+}
+
+impl<'a> From<&'a str> for TextFamily<'a> {
+    fn from(name: &'a str) -> Self {
+        Self::Named(Cow::Borrowed(name))
+    }
+}
+
+impl From<String> for TextFamily<'_> {
+    fn from(name: String) -> Self {
+        Self::Named(Cow::Owned(name))
+    }
+}
+
+/// The text attributes shaping honors.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TextAttributes<'a> {
+    pub family: TextFamily<'a>,
+    pub weight: TextWeight,
+    pub color: Color,
+}
+
+impl Default for TextAttributes<'_> {
+    fn default() -> Self {
+        Self {
+            family: TextFamily::SansSerif,
+            weight: TextWeight::default(),
+            color: Color::BLACK,
+        }
+    }
+}
+
+impl<'a> TextAttributes<'a> {
+    /// Attributes for a named family.
+    pub fn named_family(family: impl Into<TextFamily<'a>>) -> Self {
+        Self::default().with_family(family)
+    }
+
+    pub fn with_family(mut self, family: impl Into<TextFamily<'a>>) -> Self {
+        self.family = family.into();
+        self
+    }
+
+    pub fn with_weight(mut self, weight: TextWeight) -> Self {
+        self.weight = weight;
+        self
+    }
+
+    pub fn with_color(mut self, color: Color) -> Self {
+        self.color = color;
+        self
+    }
+}
+
+/// A shaping request: attributed text plus per-range attribute overrides.
+///
+/// Ranges are byte ranges into `text`. Attributes not overridden by a range fall back to
+/// `default_attributes`.
+#[derive(Debug)]
+pub struct ShapingRequest<'a> {
+    pub text: &'a str,
+    pub default_attributes: TextAttributes<'a>,
+    pub ranges: Vec<(Range<usize>, TextAttributes<'a>)>,
+}
+
+impl<'a> ShapingRequest<'a> {
+    pub fn new(text: &'a str, default_attributes: TextAttributes<'a>) -> Self {
+        Self {
+            text,
+            default_attributes,
+            ranges: Vec::new(),
+        }
+    }
+}
+
+/// The compiled-in shaping engines, selectable at `FontManager` construction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShapingEngineKind {
+    #[cfg(feature = "parley")]
+    Parley,
+    #[cfg(feature = "cosmic-text")]
+    CosmicText,
+}
+
+impl ShapingEngineKind {
+    /// All engines compiled into this build.
+    pub const fn available() -> &'static [Self] {
+        const ALL: &[ShapingEngineKind] = &[
+            #[cfg(feature = "cosmic-text")]
+            ShapingEngineKind::CosmicText,
+            #[cfg(feature = "parley")]
+            ShapingEngineKind::Parley,
+        ];
+        ALL
+    }
+
+    /// Parse a shaping engine name (`"cosmic-text"`, `"parley"`).
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "cosmic-text" if cfg!(feature = "cosmic-text") => Some(Self::CosmicText),
+            "parley" if cfg!(feature = "parley") => Some(Self::Parley),
+            _ => None,
+        }
+    }
+
+    pub const fn name(self) -> &'static str {
+        match self {
+            #[cfg(feature = "cosmic-text")]
+            Self::CosmicText => "cosmic-text",
+            #[cfg(feature = "parley")]
+            Self::Parley => "parley",
+        }
+    }
+}
+
+/// One shaped glyph in the engine-neutral data model.
+///
+/// `x`/`y` are relative to the cluster origin ([`ShapedCluster::x`]) and the baseline
+/// respectively (positive y = below the baseline), matching the `GlyphRun` convention.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ShapedGlyph {
+    pub glyph_id: u16,
+    pub face_id: FaceId,
+    pub font_size: f32,
+    pub weight: TextWeight,
+    pub x: f32,
+    pub y: f32,
+}
+
+/// A shaped cluster: glyphs sharing one source byte range.
+///
+/// `x` is the cluster's origin on the shaped line (pixels); `ShapedGlyph::x` is relative to
+/// this origin, so a glyph's absolute line position is `cluster.x + glyph.x`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapedCluster {
+    pub byte_range: Range<usize>,
+    /// The cluster's origin on the shaped line, in pixels.
+    pub x: f32,
+    pub glyphs: Vec<ShapedGlyph>,
+}
+
+/// The result of shaping one line: clusters plus line metrics in pixels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ShapedRun {
+    pub clusters: Vec<ShapedCluster>,
+    pub max_ascent: f32,
+    pub max_descent: f32,
+    /// The total advance width of the line in pixels.
+    pub width: f32,
+    /// The engine that produced this run. Written by the engine itself inside its own `shape`,
+    /// so callers cannot attribute a run to the wrong engine; debug-checked at the render
+    /// boundary against the resolving manager.
+    pub shaping_engine: ShapingEngineKind,
+}
+
+/// A capability-focused contract every shaping engine honors.
+///
+/// Engines own their font database and selection/fallback policy; they only promise to shape
+/// attributed text into the engine-neutral [`ShapedRun`] model and to resolve the [`FaceId`]s
+/// they produce back to concrete font data for rasterization.
+pub trait ShapingEngine: Send {
+    /// The engine identity (e.g. `"parley"`, `"cosmic-text"`).
+    fn name(&self) -> &'static str;
+
+    /// Register a font file (all faces of it) and return one [`FaceId`] per face.
+    fn load_font(&mut self, data: FontBytes) -> Vec<FaceId>;
+
+    /// Resolve a [`FaceId`] produced by this engine back to concrete font data.
+    fn font_data(&self, id: FaceId) -> Option<FontData>;
+
+    /// Shape a single line (the first line of `request.text`) at `font_size` pixels.
+    fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
+}
+
+/// Assemble a [`GlyphRun`] from a shaped line.
+///
+/// The run carries `text_color` / `default_weight`; positions are baseline-relative with
+/// positive y below the baseline, matching the downstream convention (see `GlyphRun`).
+pub fn shaped_run_to_glyph_run(
+    run: &ShapedRun,
+    text_color: Color,
+    default_weight: TextWeight,
+    translation: massive_geometry::Vector3,
+) -> GlyphRun {
+    let mut glyphs = Vec::new();
+    for cluster in &run.clusters {
+        for glyph in &cluster.glyphs {
+            glyphs.push(RunGlyph::new(
+                ((cluster.x + glyph.x).round() as i32, glyph.y.round() as i32),
+                GlyphKey::new(
+                    glyph.face_id,
+                    glyph.glyph_id,
+                    glyph.font_size,
+                    glyph.weight,
+                    ClipBoxPx::UNCLIPPED,
+                ),
+            ));
+        }
+    }
+
+    GlyphRun::new(
+        translation,
+        GlyphRunMetrics::from_float(run.max_ascent, run.max_descent, run.width),
+        text_color,
+        default_weight,
+        run.shaping_engine,
+        glyphs,
+    )
+}
