@@ -156,7 +156,7 @@ fn attribute_runs<'a>(
                 max_ascent: run.max_ascent,
                 max_descent: run.max_descent,
                 width,
-                shaping_engine: run.shaping_engine,
+                engine: run.shaping_engine,
             },
             attributes.color,
             attributes.weight,

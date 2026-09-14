@@ -362,7 +362,7 @@ impl ShapingEngine for ParleyEngine {
             max_ascent: line_metrics.ascent,
             max_descent: line_metrics.descent,
             width: line_metrics.advance,
-            shaping_engine: ShapingEngineKind::Parley,
+            engine: ShapingEngineKind::Parley,
         })
     }
 }

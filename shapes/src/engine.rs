@@ -250,7 +250,7 @@ pub struct ShapedRun {
     /// The engine that produced this run. Written by the engine itself inside its own `shape`,
     /// so callers cannot attribute a run to the wrong engine; debug-checked at the render
     /// boundary against the resolving manager.
-    pub shaping_engine: ShapingEngineKind,
+    pub engine: ShapingEngineKind,
 }
 
 /// A capability-focused contract every shaping engine honors.
@@ -303,7 +303,7 @@ pub fn shaped_run_to_glyph_run(
         GlyphRunMetrics::from_float(run.max_ascent, run.max_descent, run.width),
         text_color,
         default_weight,
-        run.shaping_engine,
+        run.engine,
         glyphs,
     )
 }

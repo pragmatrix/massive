@@ -166,7 +166,7 @@ impl CosmicTextEngine {
             max_ascent,
             max_descent,
             width,
-            shaping_engine: ShapingEngineKind::CosmicText,
+            engine: ShapingEngineKind::CosmicText,
         })
     }
 
