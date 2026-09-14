@@ -21,3 +21,4 @@ pub use desktop::Desktop;
 pub use desktop_environment::*;
 pub use desktop_system::DesktopTarget;
 pub use event_router::{EventRouter, EventTransition, HitTester};
+pub use massive_shapes::ShapingEngineKind;

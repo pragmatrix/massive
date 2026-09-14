@@ -26,7 +26,7 @@ use vfs::VfsPath;
 use massive_applications::ApplicationEvent;
 use massive_geometry::{Color, SizePx};
 use massive_scene::prelude::*;
-use massive_shapes::TextWeight;
+use massive_shapes::{ShapingEngineKind, TextWeight};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 
@@ -72,7 +72,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .unwrap()
         .join(Path::new("examples/code/examples"));
 
-    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts =
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
 
     let cargo_config = CargoConfig {
         // need to be able to look up examples.

@@ -97,8 +97,13 @@ impl TextLayerRenderer {
         let mut color_glyphs = Vec::new();
 
         let fonts = self.fonts.clone();
+        let manager_engine = fonts.engine_kind();
 
         for run in runs {
+            debug_assert_eq!(
+                run.shaping_engine, manager_engine,
+                "GlyphRun shaped by a different engine than this renderer's font manager"
+            );
             let translation = run.translation;
             for glyph in &run.glyphs {
                 let Some((rect, placement, kind)) = self.rasterized_glyph_atlas_rect(

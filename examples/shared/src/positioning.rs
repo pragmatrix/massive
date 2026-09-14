@@ -1,18 +1,20 @@
+//! Positioning helpers retained for example API compatibility.
+
 #![allow(dead_code)]
 
-use parley::GlyphRun as ParleyGlyphRun;
+use massive_geometry::Vector3;
 
-use massive_geometry::{Color, Vector3};
-use massive_shapes::{GlyphBrush, GlyphRun, TextWeight, glyph_run_to_run};
+use massive_shapes::{GlyphRun, ShapedRun, TextWeight, shaped_run_to_glyph_run};
 
-/// Convert a single Parley [`ParleyGlyphRun`] into a [`GlyphRun`].
+/// Assemble a [`GlyphRun`] from an engine-neutral shaped run.
 ///
-/// Delegates to the shared adapter (`massive_shapes::glyph_run_to_run`), which derives
-/// ascent/descent/width metrics from the run and normalizes glyph positions to the Y-up convention
-/// downstream expects.
-pub fn to_glyph_run<'a>(
-    translation: Vector3,
-    parley_run: ParleyGlyphRun<'a, GlyphBrush>,
-) -> GlyphRun {
-    glyph_run_to_run(parley_run, Color::BLACK, TextWeight::NORMAL, translation)
+/// Replaces the former Parley-specific adapter; shaping engines now produce [`ShapedRun`]s
+/// directly (see `massive_shapes::ShapingEngine`).
+pub fn to_glyph_run(translation: Vector3, run: &ShapedRun) -> GlyphRun {
+    shaped_run_to_glyph_run(
+        run,
+        massive_geometry::Color::BLACK,
+        TextWeight::NORMAL,
+        translation,
+    )
 }

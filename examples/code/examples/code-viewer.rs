@@ -7,6 +7,7 @@ use winit::dpi::LogicalSize;
 use massive_applications::ApplicationEvent;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
+use massive_shapes::ShapingEngineKind;
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 
@@ -41,7 +42,8 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     //     // .with(chrome_layer)
     //     .init();
 
-    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts =
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
 
     // Load code.
 

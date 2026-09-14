@@ -64,8 +64,9 @@ impl Desktop {
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
-        // Create the font manager - shared between desktop and instances
-        let fonts = FontManager::system();
+        // Create the font manager - shared between desktop and instances. The engine is chosen
+        // once here (ADR 0005); a FaceId only resolves through this manager.
+        let fonts = FontManager::system(env.shaping_engine);
 
         // Create scene early for presenter initialization
         let scene_changes = Arc::new(ChangeCollector::default());

@@ -1,13 +1,20 @@
+//! Multi-line attributed text shaping on the engine-neutral shaping contract.
+//!
+//! Each line is shaped separately and positioned on `line_height` steps, matching the legacy
+//! cosmic-text behavior; each returned [`GlyphRun`] carries the color of the attribute covering
+//! its text span.
+
 use std::ops::Range;
 
 use serde::{Deserialize, Serialize};
 use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 
-use parley::fontique::GenericFamily;
-use parley::{Alignment, FontWeight, Layout, LineHeight, StyleProperty};
-
 use massive_geometry::{Color, Vector3};
-use massive_shapes::{GlyphBrush, GlyphRun, Shaper, TextWeight, glyph_run_to_run, line_runs};
+
+use massive_shapes::{
+    GlyphRun, Shaper, ShapingRequest, TextAttributes, TextFamily, TextWeight,
+    shaped_run_to_glyph_run,
+};
 
 /// A serializable representation of highlighted code.
 #[derive(Debug, Serialize, Deserialize)]
@@ -23,11 +30,11 @@ pub struct TextAttribute {
     pub weight: TextWeight,
 }
 
-/// Shape `text` into [`GlyphRun`]s, honoring the given per-attribute weights/colors.
+/// Shape `text` into [`GlyphRun`]s, one per line, honoring per-attribute weights/colors.
 ///
-/// Layout is driven by Parley through the shared font + layout contexts behind the shape
-/// context. Each line is translated down by `line_height`, matching the legacy cosmic-text
-/// behavior, and each returned run carries the color of the attribute covering its text span.
+/// The text is split into lines (byte offsets stay aligned with the original text), each line's
+/// attribute ranges are re-based locally, and each shaped run is translated down by `line_height`
+/// per line index. The returned height covers all lines.
 pub fn shape_text(
     shaper: &mut Shaper<'_>,
     text: &str,
@@ -46,70 +53,47 @@ pub fn shape_text(
 
     let translation = translation.into().unwrap_or(Vector3::new(0., 0., 0.));
 
-    let (fcx, lcx) = shaper.contexts();
-    let mut builder = lcx.ranged_builder(fcx, text, 1.0, true);
-    builder.push_default(StyleProperty::FontSize(font_size));
-    builder.push_default(StyleProperty::FontFamily(GenericFamily::Monospace.into()));
-    builder.push_default(StyleProperty::LineHeight(LineHeight::Absolute(line_height)));
-    for ta in attributes {
-        builder.push(
-            StyleProperty::FontWeight(FontWeight::new(ta.weight.0 as f32)),
-            ta.range.clone(),
-        );
-        // Parley splits positioned runs by style (including the brush), so pushing the color as
-        // the brush per attribute lets each run carry its own color.
-        builder.push(
-            StyleProperty::Brush(color_to_brush(ta.color)),
-            ta.range.clone(),
-        );
-    }
-
-    let mut layout: Layout<GlyphBrush> = builder.build(text);
-    layout.break_all_lines(None);
-    layout.align(Alignment::Start, Default::default());
-
     let mut runs = Vec::new();
     let mut height: f64 = 0.;
 
-    // Lines are positioned on `line_height` (matching the legacy `run.line_top`).
-    for (index, line) in layout.lines().enumerate() {
+    for (index, (line_offset, line_text)) in syntax::split_lines(text).enumerate() {
+        let default_attributes = TextAttributes::default()
+            .with_family(TextFamily::Monospace)
+            .with_weight(TextWeight::NORMAL);
+        let mut request = ShapingRequest::new(line_text, default_attributes);
+        // Re-map the attribute ranges covering this line onto the line's local byte range.
+        for ta in attributes {
+            let start = ta.range.start.saturating_sub(line_offset);
+            let end = ta
+                .range
+                .end
+                .saturating_sub(line_offset)
+                .min(line_text.len());
+            if start >= end {
+                continue;
+            }
+            request.ranges.push((
+                start..end,
+                TextAttributes::default()
+                    .with_weight(ta.weight)
+                    .with_color(ta.color),
+            ));
+        }
+
         let line_top = index as f64 * line_height as f64;
         let line_translation = translation + Vector3::new(0., line_top, 0.);
-        for parley_run in line_runs(&line) {
-            let color = brush_to_color(parley_run.style().brush);
-            let run = glyph_run_to_run(
-                parley_run,
+        if let Some(run) = shaper.shape(&request, font_size) {
+            runs.push(shaped_run_to_glyph_run(
+                &run,
                 Color::BLACK,
                 TextWeight::NORMAL,
                 line_translation,
-            )
-            .with_color(color);
-            runs.push(run);
+            ));
         }
         height = height.max(line_top + line_height as f64);
     }
 
     (runs, height)
-}
-
-/// Convert a [`Color`] to the RGBA byte brush Parley uses.
-fn color_to_brush(color: Color) -> GlyphBrush {
-    [
-        (color.red * 255.0) as u8,
-        (color.green * 255.0) as u8,
-        (color.blue * 255.0) as u8,
-        (color.alpha * 255.0) as u8,
-    ]
-}
-
-/// Convert a Parley RGBA byte brush back to a [`Color`].
-fn brush_to_color(brush: GlyphBrush) -> Color {
-    Color::new(
-        brush[0] as f32 / 255.0,
-        brush[1] as f32 / 255.0,
-        brush[2] as f32 / 255.0,
-        brush[3] as f32 / 255.0,
-    )
 }
 
 mod syntax {
@@ -128,5 +112,34 @@ mod syntax {
         for i in range.windows(2) {
             assert!(i[0].end == i[1].start)
         }
+    }
+
+    /// Split `text` into lines as `(byte_offset, line)` keeping the trailing `\n` on its line so
+    /// per-attribute byte ranges re-base without remapping.
+    pub fn split_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
+        let mut rest = Some(text);
+        let mut offset = 0;
+        std::iter::from_fn(move || {
+            let current = rest?;
+            if current.is_empty() {
+                rest = None;
+                return None;
+            }
+            match current.find('\n') {
+                Some(pos) => {
+                    rest = Some(&current[pos + 1..]);
+                    let line = &current[..=pos];
+                    let start = offset;
+                    offset += line.len();
+                    Some((start, line))
+                }
+                None => {
+                    rest = None;
+                    let start = offset;
+                    offset += current.len();
+                    Some((start, current))
+                }
+            }
+        })
     }
 }

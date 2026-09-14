@@ -22,7 +22,7 @@ use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{Shape, Shaper};
+use massive_shapes::{Shape, Shaper, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
@@ -70,7 +70,8 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts =
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
 
     // Window
 
