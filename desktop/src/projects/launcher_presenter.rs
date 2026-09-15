@@ -81,7 +81,7 @@ impl LauncherPresenter {
         profile: LaunchProfile,
         size: Size,
         scene: &Scene,
-        font_manager: &FontManager,
+        font_manager: &mut FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`

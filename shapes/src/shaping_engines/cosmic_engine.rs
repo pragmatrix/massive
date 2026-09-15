@@ -6,14 +6,15 @@
 //! em-relative (cosmic-text divides by the font scale at shape time), so the engine multiplies
 //! by the requested `font_size` to get pixels.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use cosmic_text::{Attrs, AttrsList, BufferLine, FontSystem, LineEnding, Shaping, Weight};
 use fontdb::Source;
 
 use crate::engine::{
-    FontBytes, FontData, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine, ShapingEngineKind,
-    ShapingRequest, TextAttributes, TextFamily,
+    FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine,
+    ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily,
 };
 use crate::{FaceId, TextWeight};
 
@@ -31,10 +32,28 @@ use crate::{FaceId, TextWeight};
 pub struct CosmicTextEngine {
     font_system: FontSystem,
     /// One entry per known face, in registration order. The registry index is the [`FaceId`]
-    /// payload.
+    /// payload. The map is published as an immutable `Arc` snapshot after every mutation
+    /// (registration and lazy fallback interning); see [`ShapingEngine::font_registry`].
     faces: Vec<CosmicFace>,
+    /// The `faces` snapshot last published as an `Arc`. Rebuilt on every mutation:
+    /// interning is rare after the first use of a fallback face, so the O(n) clone is
+    /// acceptable; readers (the manager's published snapshot) stay clone-cheap.
+    /// Simplification note: the separate Vec could go if `faces` were itself an Arc, at
+    /// the cost of copy-on-write for intern lookups — kept simple for now.
+    published_faces: Arc<Vec<CosmicFace>>,
 }
 
+impl CosmicTextEngine {
+    /// Rebuild `published_faces` from `self.faces` after a mutation. Call sites:
+    /// `register` and `intern` — the only two growth points.
+    fn publish(&mut self) {
+        self.published_faces = Arc::new(self.faces.clone());
+    }
+}
+
+/// Snapshots published through [`ShapingEngine::font_registry`] must be shareable; the
+/// registry clone in `publish` needs face entries to be cloneable (they are shared bytes).
+#[derive(Clone)]
 struct CosmicFace {
     id: fontdb::ID,
     /// The weight the face was registered/selected with; part of the shaping lookup key.
@@ -53,11 +72,12 @@ impl std::fmt::Debug for CosmicTextEngine {
 }
 
 impl CosmicTextEngine {
-    /// Create a completely bare engine: no fallbacks, no fonts.
+    /// A bare engine over the given engine kind: no fallbacks, no fonts.
     pub fn bare() -> Self {
         Self {
             font_system: FontSystem::new_with_fonts(core::iter::empty()),
             faces: Vec::new(),
+            published_faces: Arc::new(Vec::new()),
         }
     }
 
@@ -66,6 +86,7 @@ impl CosmicTextEngine {
         Self {
             font_system: FontSystem::new(),
             faces: Vec::new(),
+            published_faces: Arc::new(Vec::new()),
         }
     }
 }
@@ -85,6 +106,24 @@ impl ShapingEngine for CosmicTextEngine {
             data: Arc::clone(&face.data),
             index: face.data_index,
         })
+    }
+
+    fn font_registry(&self) -> Arc<FontRegistry> {
+        Arc::new(FontRegistry::new(Arc::new(
+            self.published_faces
+                .iter()
+                .enumerate()
+                .map(|(index, face)| {
+                    (
+                        FaceId::new(index as u64),
+                        FontData {
+                            data: Arc::clone(&face.data),
+                            index: face.data_index,
+                        },
+                    )
+                })
+                .collect::<HashMap<_, _>>(),
+        )))
     }
 
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
@@ -137,7 +176,10 @@ impl CosmicTextEngine {
                     // ShapeGlyph units are em-relative; scale to pixels.
                     let glyph_px = font_size * glyph.x_advance;
                     let offset_px = font_size * glyph.x_offset;
-                    let y_px = font_size * glyph.y_offset;
+                    // cosmic-text copies harfbuzz's Y-up `y_offset` verbatim into
+                    // `ShapeGlyph`; negate into the shared Y-down convention (see
+                    // `ShapedGlyph::y`). Parley does the same conversion upstream.
+                    let y_px = -font_size * glyph.y_offset;
 
                     let index = self.intern(glyph.font_id, glyph.font_weight)?;
                     let face_id = Self::face_id(index);
@@ -163,6 +205,7 @@ impl CosmicTextEngine {
                     clusters.push(ShapedCluster {
                         byte_range: glyph.start..glyph.end,
                         x: cluster_x,
+                        advance: glyph_px,
                         // Cosmic-text propagates Attrs metadata through shaping (composed
                         // clusters like base+mark carry their first byte's span), so the echo
                         // matches `covering_metadata` by construction (0 when disabled: the
@@ -188,8 +231,9 @@ impl CosmicTextEngine {
     fn register(&mut self, data: FontBytes) -> Vec<FaceId> {
         // fontdb holds its own shared reference to the bytes.
         let source = Source::Binary(Arc::clone(&data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
-        let ids = self.font_system.db_mut().load_font_source(source);
-        ids.into_iter()
+        let db_ids = self.font_system.db_mut().load_font_source(source);
+        let ids: Vec<FaceId> = db_ids
+            .into_iter()
             .map(|id| {
                 let face_info = self.font_system.db().face(id).expect("just-loaded face");
                 let index = self.faces.len();
@@ -201,7 +245,9 @@ impl CosmicTextEngine {
                 });
                 Self::face_id(index)
             })
-            .collect()
+            .collect();
+        self.publish();
+        ids
     }
 
     /// Intern a shaper-selected (possibly fallback) `fontdb::ID` into the registry on first use.
@@ -216,8 +262,8 @@ impl CosmicTextEngine {
         {
             return Some(index);
         }
-        // Robustness: `SharedFile` sources would need mmap'd data we cannot hand out as an Arc;
-        // system fontdb sources on Linux/WASM can be files. We only intern what we can read.
+        // Robustness: `SharedFile` sources hand out their bytes as an Arc we can read here;
+        // only an unreadable `Source::File` (deleted/unreadable path) would return None.
         let (data, data_index) = self
             .font_system
             .db()
@@ -231,6 +277,7 @@ impl CosmicTextEngine {
             data,
             data_index,
         });
+        self.publish();
         Some(index)
     }
 
@@ -238,6 +285,9 @@ impl CosmicTextEngine {
         FaceId::new(index as u64)
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 /// Build cosmic-text attrs for one attributes value.
 ///

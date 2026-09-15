@@ -102,7 +102,10 @@ pub fn shape_text(
 /// is enabled by `shape_text`), so grouping by cluster metadata resolves the attribute per
 /// segment with no byte-range probing: the echoed value resolves to the range carrying that
 /// identity, falling back to the default attributes when none does (uncovered text echoes the
-/// defaults' own metadata). Clusters keep their line positions; only the run boundaries change.
+/// defaults' own metadata). Clusters keep their line positions and their visual `x`, only the
+/// run boundaries and widths change: each run's width is the sum of its clusters' advances,
+/// which is direction-independent under the engines' visual RTL placement (non-monotonic
+/// `x`).
 fn attribute_runs<'a>(
     run: &ShapedRun,
     ranges: &'a [(Range<usize>, TextAttributes<'a>)],
@@ -146,10 +149,11 @@ fn attribute_runs<'a>(
             .iter()
             .position(|c| c.metadata != first.metadata)
             .unwrap_or(remaining.len());
-        let width = match remaining.get(group_len) {
-            Some(next) => next.x - first.x,
-            None => run.width - first.x,
-        };
+        // The group's width is its total advance, not `next.x − first.x`: engines position
+        // RTL clusters visually, so `x` is not monotonic in cluster order and origin
+        // differences measure backwards (they also miss trailing whitespace/left-bearing
+        // when a group lands at the line's end). The advance is direction-independent.
+        let width = remaining[..group_len].iter().map(|c| c.advance).sum();
         runs.push(shaped_run_to_glyph_run(
             run,
             &remaining[..group_len],
@@ -198,14 +202,14 @@ mod syntax {
 mod tests {
     use super::*;
     use crate::fonts::JETBRAINS_MONO;
-    use massive_shapes::{FontManager, ShapingEngineKind};
+    use massive_shapes::{FaceId, FontManager, ShapedCluster, ShapedGlyph, ShapingEngineKind};
 
     /// Regression: `shape_text` used to stamp one hard-coded color on the whole line, so
     /// attributed ranges (terminal logs, syntax highlighting) rendered in a single color.
     /// Every attribute segment must reach its runs as their `text_color`/`text_weight`.
     #[test]
     fn shape_text_splits_runs_per_attribute() {
-        let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
+        let mut fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
         let mut shaper = fonts.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -234,7 +238,7 @@ mod tests {
     /// attributes and group into their own default-colored run.
     #[test]
     fn shape_text_default_run_between_ranges() {
-        let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
+        let mut fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
         let mut shaper = fonts.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
@@ -264,5 +268,95 @@ mod tests {
         assert_eq!(runs[1].text_weight, TextWeight::NORMAL);
         assert_eq!(runs[2].text_color, blue);
         assert_eq!(runs[2].text_weight, TextWeight::BOLD);
+    }
+
+    /// Regression: a group's width must be the total advance of its clusters, not
+    /// `next.x − first.x`.
+    ///
+    /// `attribute_runs` assumed walking `run.clusters` in order yields monotonically
+    /// increasing x. Parley's `Run::clusters()` iterates in *logical* order while clusters
+    /// carry their *visual* line positions: inside an RTL run the logically-earlier
+    /// cluster sits at the larger x, so differencing across a group boundary measures
+    /// backwards (`next.x − first.x < 0` → saturates to width 0) and the final group's
+    /// `run.width − first.x` measures from the group's visually-rightmost origin to the
+    /// line's end — neither is the group's advance. The group's cluster-advance sum is
+    /// direction-independent and stays correct under both encodings.
+    ///
+    /// The engine-level companion
+    /// (`font_manager::tests::rtl_runs_position_clusters_visually` in massive-shapes,
+    /// currently `#[ignore]`d) pins the visual RTL positioning that makes this encoding
+    /// real; both engines render RTL mirrored today (see its doc comment), and fixing
+    /// that will make engines' stored `x` non-monotonic in list order, at which point
+    /// this test's premise becomes real engine output rather than a synthetic
+    /// construction.
+    #[test]
+    fn attribute_runs_rtl_group_width_is_direction_independent() {
+        // "سلامa" shaped in an RTL paragraph: clusters stored in logical order (parley's
+        // native encoding) while x holds the visual origin. The RTL run occupies the line's
+        // right half (each cluster advancing 5px, right-to-left), the LTR island "ab" the
+        // left half (10px per cluster); the line advance is 40px.
+        let mut glyphs = Vec::new();
+        let mut clusters = Vec::new();
+        // (byte range, visual origin, metadata)
+        for (index, (byte_range, x, metadata)) in [
+            (0..2, 35.0, 1),  // س — logically first, visually rightmost
+            (2..4, 30.0, 1),  // ل
+            (4..6, 25.0, 1),  // ا
+            (6..8, 20.0, 1),  // م — visually leftmost of the RTL run
+            (8..9, 0.0, 0),   // a — the LTR island precedes it visually
+            (9..10, 10.0, 0), // b
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            glyphs.push(ShapedGlyph {
+                glyph_id: 1,
+                face_id: FaceId::new(0),
+                font_size: 16.0,
+                weight: TextWeight::NORMAL,
+                x: 0.0,
+                y: 0.0,
+            });
+            clusters.push(ShapedCluster {
+                byte_range,
+                x,
+                // RTL clusters advance backwards on the line; the attribute-covered
+                // run carries 4 such clusters, the trailing LTR one 2 clusters @ 10px.
+                advance: if metadata == 1 { 5.0 } else { 10.0 },
+                glyph_range: index as u32..index as u32 + 1,
+                metadata,
+            });
+        }
+        let run = ShapedRun {
+            clusters,
+            glyphs,
+            max_ascent: 14.0,
+            max_descent: 5.0,
+            width: 40.0,
+            engine: ShapingEngineKind::Parley,
+        };
+
+        let attributed = TextAttributes::default()
+            .with_color(Color::rgb(1.0, 0.0, 0.0))
+            .with_metadata(1);
+        let ranges = [(0..8, attributed)];
+        let default_attributes = TextAttributes::default();
+
+        let runs = attribute_runs(&run, &ranges, &default_attributes, Vector3::ZERO);
+
+        // One run per attribute segment, RTL group first (logical order).
+        assert_eq!(runs.len(), 2, "one run per attribute segment");
+        assert_eq!(runs[0].text_color, Color::rgb(1.0, 0.0, 0.0));
+        // Each group's width is its clusters' advance sum (4×5px RTL, 2×10px LTR) — not
+        // `next.x − first.x = 0 − 35 = −35` → 0 for the RTL group, nor
+        // `run.width − first.x = 40` for the trailing group.
+        assert_eq!(
+            runs[0].metrics.width, 20,
+            "RTL group width = its advance sum"
+        );
+        assert_eq!(
+            runs[1].metrics.width, 20,
+            "trailing group width = its advance sum, not run.width − first.x"
+        );
     }
 }

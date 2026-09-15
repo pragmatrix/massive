@@ -1,5 +1,6 @@
 mod clip_box;
 mod engine;
+mod face_metrics;
 mod font_manager;
 mod glyph_run;
 mod shape;
@@ -8,13 +9,18 @@ mod text_shaper;
 
 pub use clip_box::*;
 pub use engine::{
-    FontBytes, FontData, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine, ShapingEngineKind,
-    ShapingRequest, TextAttributes, TextFamily, covering_metadata, shaped_run_to_glyph_run,
+    FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine,
+    ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily, covering_metadata,
+    shaped_run_to_glyph_run,
 };
+pub use face_metrics::{FaceMetrics, FaceMetricsCache};
 pub use font_manager::*;
 pub use glyph_run::*;
 pub use shape::*;
-pub use shaping_engines::{CosmicTextEngine, ParleyEngine};
+#[cfg(feature = "cosmic-text")]
+pub use shaping_engines::CosmicTextEngine;
+#[cfg(feature = "parley")]
+pub use shaping_engines::ParleyEngine;
 pub use text_shaper::*;
 
 #[cfg(all(not(feature = "parley"), not(feature = "cosmic-text")))]

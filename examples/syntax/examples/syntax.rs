@@ -61,7 +61,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let fonts =
+    let mut fonts =
         FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
 
     let font_size = 32.;

@@ -2,6 +2,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
 use parley::fontique::{
     self, Blob, Collection, CollectionOptions, FamilyId, GenericFamily, SourceCache,
@@ -11,8 +12,8 @@ use parley::{
 };
 
 use crate::engine::{
-    FontBytes, FontData, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine, ShapingEngineKind,
-    ShapingRequest, covering_metadata,
+    FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine,
+    ShapingEngineKind, ShapingRequest, covering_metadata,
 };
 use crate::{FaceId, TextFamily, TextWeight};
 
@@ -36,6 +37,11 @@ pub struct ParleyEngine {
     /// collection may select (including system fallbacks like emoji), so rasterization can resolve
     /// any glyph's `FaceId` to font data. The key must include the face index because a single
     /// file may hold several faces that share one `Blob` id.
+    ///
+    /// Immutable snapshot: the map itself is replaced (new `Arc`) on every mutation, so the
+    /// manager can publish it lock-free (see [`ShapingEngine::font_registry`]). Static after
+    /// startup: only `rebuild_fonts` and `load_font` write here — shaping never interns faces,
+    /// so a published snapshot cannot go stale while instances shape.
     fonts: HashMap<FaceId, FontData>,
 }
 
@@ -269,6 +275,10 @@ impl ShapingEngine for ParleyEngine {
         self.fonts.get(&id).cloned()
     }
 
+    fn font_registry(&self) -> Arc<FontRegistry> {
+        Arc::new(FontRegistry::new(Arc::new(self.fonts.clone())))
+    }
+
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
         let Self {
             font_context,
@@ -285,6 +295,10 @@ impl ShapingEngine for ParleyEngine {
             request.default_attributes.weight.0 as f32,
         )));
         for (range, attrs) in &request.ranges {
+            builder.push(
+                StyleProperty::FontFamily(parley_family(&attrs.family)),
+                range.clone(),
+            );
             builder.push(
                 StyleProperty::FontWeight(parley::FontWeight::new(attrs.weight.0 as f32)),
                 range.clone(),
@@ -327,6 +341,14 @@ impl ShapingEngine for ParleyEngine {
             let weight = TextWeight(run.font_attrs().weight.value() as u16);
             let mut cluster_origin = glyph_run.offset();
             for cluster in run.clusters() {
+                // Zero-glyph clusters are a real Parley artifact (e.g. a lone ZWJ between
+                // letters) and would violate the "clusters are never empty" contract
+                // consumers rely on (`cluster_glyphs(cluster)[0]`); skip them.
+                if cluster.glyphs().count() == 0 {
+                    // The cluster still moves the line origin by its typographic advance.
+                    cluster_origin += cluster.advance();
+                    continue;
+                }
                 // The cluster's glyphs append to the flat array, in cluster order: the range is
                 // the slice just appended.
                 let glyph_start = glyphs.len() as u32;
@@ -356,6 +378,7 @@ impl ShapingEngine for ParleyEngine {
                     // Parley's cluster glyphs are intra-cluster relative; the cluster
                     // origin accumulates the preceding clusters' advances on the line.
                     x: cluster_origin,
+                    advance: cluster.advance(),
                     glyph_range: glyph_start..glyphs.len() as u32,
                 });
                 cluster_origin += cluster.advance();

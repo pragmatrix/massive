@@ -37,3 +37,48 @@ manager creation. `ShapingEngineKind::default_kind()` is gone. Defaults are a cl
 mt's built-in config pins `shaping_engine "parley"` (per the benchmark evidence above), and
 `DesktopEnvironment::new` requires the engine as a parameter so the shared font manager cannot
 be built without one.
+
+## Amendment: published font registry (2026-09-15)
+
+The renderer's rasterization path resolved glyph faces through short `FontManager::shaper()`
+sessions — acquiring the manager's one mutex per atlas miss, contending with instance threads
+shaping under the same lock, for a read of data that is effectively immutable after startup. The
+manager now *publishes* the registry instead: engines expose
+`ShapingEngine::font_registry() -> Arc<FontRegistry>` (an immutable `FaceId → FontData` map), and
+`FontManager::published(&self) -> Arc<FontRegistry>` hands the last-published snapshot to lock-free
+readers. `TextLayerRenderer` reads it once per batch; the render path no longer touches the
+manager mutex at all.
+
+Republishing happens at every registry-mutating point, always under the manager lock:
+`load_font`, and `Shaper` session end (`Drop`) — the cosmic engine lazily interns fallback faces
+during `shape()`, so a session may have grown the registry. Parley's registry is static after
+startup (shape never interns), so its snapshots never go stale mid-run.
+
+The `&mut self` gate on `FontManager` entry points is unchanged — `published()` is the one
+documented exemption (an `ArcSwap` load never touches the mutex, so it cannot deadlock against a
+live session), and `FaceMetricsCache` stays out of the snapshot (per-manager, session-resolved).
+
+Planned next — per-instance sessions. The renderer being lock-free removes only
+*renderer-vs-shaper* contention; instances still serialize on the manager mutex because the
+engines are inherently mutating during shaping (cosmic's `FontSystem` owns shaping caches and
+interns on first use; Parley's contexts are single-use scratch). The follow-up, sketched here for
+future work:
+
+1. **The manager stops owning shaping contexts.** It keeps only the shared, internally
+   synchronized font database (fontique `Collection` + `SourceCache::new_shared()`, which fontique
+   designed for concurrent sharing — or cosmic's `fontdb`), the published registry, and the
+   metrics cache.
+2. **Each instance owns an engine instance**: `(FontContext, LayoutContext)` for Parley (one
+   `FontContext` per thread sharing one collection; `LayoutContext` is per-shape scratch), or a
+   full `FontSystem` per instance for cosmic (~1–2 kB + per-instance cache growth; its internals
+   are not shareable by design).
+3. **Shaping runs lock-free in parallel.** The manager mutex then covers only registration
+   (`load_font` broadcast into every instance, or an `ArcSwap` registry refresh) and the metrics
+   cache — both rare/startup-dominated. The hot path has no shared lock.
+4. **The `&mut` gate survives per instance**: the engine instance gets the same compile-time
+   gate treatment the manager has now (session-style `&mut` on the instance's shaping state);
+   cross-instance contention disappears because there is nothing shared left in the hot path.
+
+Costs to weigh when picked up: per-instance memory (trivial for Parley, larger for cosmic),
+registration broadcast semantics, and `FaceId` stability if registries swap mid-run (key by
+content or refresh snapshots atomically during instance startup).

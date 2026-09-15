@@ -45,7 +45,7 @@ impl FontBridge {
         let mut font_db = fontdb::Database::new();
         font_db.load_system_fonts();
         // Cosmic-text matches inlyne's FontSystem, which does the measuring for these examples.
-        let font_manager = massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText);
+        let mut font_manager = massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText);
 
         // Register each system face into the engine and record the fontdb::ID -> FaceId pairing.
         // Deduplicate by (path, index) so a face shared across families is registered once.
@@ -81,7 +81,7 @@ impl FontBridge {
     /// A single font file may hold several faces (e.g. a `.ttc`); each is paired by face index so
     /// the map stays correct for collections.
     pub fn new(
-        font_manager: massive_shapes::FontManager,
+        mut font_manager: massive_shapes::FontManager,
         mut font_db: fontdb::Database,
         font_bytes: Arc<[u8]>,
     ) -> Self {
@@ -189,8 +189,9 @@ impl FontBridge {
         face_id: FaceId,
         font_size: f32,
     ) -> GlyphRunMetrics {
-        let (ascent, descent) = self
-            .font_manager
+        let mut font_manager = self.font_manager.clone();
+        let (ascent, descent) = font_manager
+            .shaper()
             .font_data(face_id)
             .and_then(|font| font_metrics(&font, font_size))
             .unwrap_or((0.0, 0.0));

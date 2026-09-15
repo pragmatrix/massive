@@ -30,7 +30,7 @@ impl ProjectPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_manager: &FontManager,
+        font_manager: &mut FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()
@@ -75,7 +75,7 @@ impl ProjectHeaderPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_manager: &FontManager,
+        font_manager: &mut FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()

@@ -7,6 +7,7 @@
 //! [`ShapingEngine::font_data`].
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
@@ -29,6 +30,28 @@ pub struct FontData {
 impl FontData {
     pub fn new(data: FontBytes, index: u32) -> Self {
         Self { data, index }
+    }
+}
+
+/// An immutable snapshot of an engine's [`FaceId`] → font-data registry, published as a
+/// shared `Arc` so lock-free readers (the renderer's rasterization path) resolve faces
+/// without touching the manager's mutex. Engines rebuild the snapshot after every registry
+/// mutation; see [`ShapingEngine::font_registry`].
+#[derive(Clone, Default)]
+pub struct FontRegistry {
+    fonts: Arc<HashMap<FaceId, FontData>>,
+}
+
+impl FontRegistry {
+    /// A snapshot from a registry entry map. Engines call this on publish; readers only
+    /// resolve through [`Self::font_data`].
+    pub fn new(fonts: Arc<HashMap<FaceId, FontData>>) -> Self {
+        Self { fonts }
+    }
+
+    /// Resolve [`FaceId`] to concrete font data for rasterization.
+    pub fn font_data(&self, id: FaceId) -> Option<FontData> {
+        self.fonts.get(&id).cloned()
     }
 }
 
@@ -188,8 +211,10 @@ impl ShapingEngineKind {
     /// Parse a shaping engine name (`"cosmic-text"`, `"parley"`).
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
-            "cosmic-text" if cfg!(feature = "cosmic-text") => Some(Self::CosmicText),
-            "parley" if cfg!(feature = "parley") => Some(Self::Parley),
+            #[cfg(feature = "cosmic-text")]
+            "cosmic-text" => Some(Self::CosmicText),
+            #[cfg(feature = "parley")]
+            "parley" => Some(Self::Parley),
             _ => None,
         }
     }
@@ -252,6 +277,12 @@ pub struct ShapedCluster {
     pub byte_range: Range<usize>,
     /// The cluster's origin on the shaped line, in pixels.
     pub x: f32,
+    /// The cluster's typographic advance in pixels — the distance its text moves the line
+    /// origin, independent of its visual placement. Engines position RTL clusters
+    /// *visually*, so `x` is not monotonic in cluster order; anything that needs a
+    /// slice's width (attribute segmentation, culling) must sum [`ShapedCluster::advance`]
+    /// instead of differencing origins.
+    pub advance: f32,
     /// Index range into [`ShapedRun::glyphs`] holding this cluster's glyphs, in order.
     pub glyph_range: Range<u32>,
     /// The caller metadata covering this cluster's first byte, echoing
@@ -294,6 +325,14 @@ pub trait ShapingEngine: Send {
     /// Resolve a [`FaceId`] produced by this engine back to concrete font data.
     fn font_data(&self, id: FaceId) -> Option<FontData>;
 
+    /// Publish the current [`FaceId`] → font-data registry as a shared snapshot.
+    ///
+    /// Called by the manager after every registry mutation (`load_font`, lazy fallback
+    /// interning) so readers — the renderer's rasterization path — resolve faces through
+    /// the returned `Arc` without ever taking the manager's mutex. Engines keep registry
+    /// ownership; the manager is only a publisher.
+    fn font_registry(&self) -> Arc<FontRegistry>;
+
     /// Shape a single line (the first line of `request.text`) at `font_size` pixels.
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
 }
@@ -305,8 +344,9 @@ pub trait ShapingEngine: Send {
 ///
 /// `clusters` is a view into [`ShapedRun::clusters`] — the whole line, or a contiguous slice
 /// of it (attribute segmentation) — and `width` is the advance spanned by that slice: the
-/// run's `width` for the whole line, or (for a slice) the next cluster's origin minus the
-/// slice's first (the run's `width` when the slice reaches the line's end).
+/// run's `width` for the whole line, or (for a slice) the sum of the slice's
+/// [`ShapedCluster::advance`]s. Engine-independent: engines position RTL clusters
+/// *visually*, so origin differences (`next.x − first.x`) are not direction-safe.
 pub fn shaped_run_to_glyph_run(
     run: &ShapedRun,
     clusters: &[ShapedCluster],

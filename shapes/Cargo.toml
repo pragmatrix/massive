@@ -12,6 +12,8 @@ cosmic-text = ["dep:cosmic-text"]
 
 [dependencies]
 massive-geometry = { workspace = true }
+# Lock-free published font registry for the render path (see FontManager).
+arc-swap.workspace = true
 # Needed for TextShaping and GlyphRun CacheKey
 parley = { workspace = true, optional = true }
 # Gorilla: This is needed for Weight.
