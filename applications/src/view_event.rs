@@ -20,6 +20,10 @@ pub enum ViewEvent {
     HoveredFileCancelled,
     /// Feature: This is probably related to a "level of detail" management.
     Focused(bool),
+    /// The window is completely hidden from view (minimized, covered, or in a background space).
+    /// macOS only: While the window is occluded, surface texture acquisition does not block and
+    /// frames cannot be presented.
+    Occluded(bool),
     KeyboardInput {
         device_id: DeviceId,
         event: event::KeyEvent,
@@ -111,6 +115,7 @@ impl ViewEvent {
                 position: (position.x, position.y).into(),
             }),
             WindowEvent::Focused(focused) => Some(Self::Focused(*focused)),
+            WindowEvent::Occluded(occluded) => Some(Self::Occluded(*occluded)),
             WindowEvent::Resized(size) => Some(Self::Resized((size.width, size.height).into())),
             WindowEvent::RedrawRequested => Some(Self::RedrawRequested),
 
@@ -127,7 +132,6 @@ impl ViewEvent {
             WindowEvent::Touch(..) => None,
             WindowEvent::ScaleFactorChanged { .. } => None,
             WindowEvent::ThemeChanged(..) => None,
-            WindowEvent::Occluded(..) => None,
         }
     }
 

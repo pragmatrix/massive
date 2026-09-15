@@ -304,6 +304,8 @@ where
 
             ViewEvent::HoveredFileCancelled | ViewEvent::CloseRequested => {}
 
+            ViewEvent::Occluded(_) => {}
+
             // Robustness: Figure out how to handle these.
             ViewEvent::RedrawRequested | ViewEvent::Resized(_) => {}
         }

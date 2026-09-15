@@ -28,6 +28,7 @@ pub struct WindowRenderer {
     renderer: Renderer,
     is_fullscreen: bool,
     current_pacing: RenderPacing,
+    surface_occluded: bool,
     #[cfg(feature = "metrics")]
     oldest_change: Option<Instant>,
 }
@@ -40,6 +41,7 @@ impl WindowRenderer {
             renderer,
             is_fullscreen,
             current_pacing: RenderPacing::Fast,
+            surface_occluded: false,
             #[cfg(feature = "metrics")]
             oldest_change: None,
         }
@@ -84,15 +86,17 @@ impl WindowRenderer {
             // in smooth rendering that we are never rendering.
             let vblank_driven = self.renderer.is_vblank_driven();
             if messages.is_empty() {
-                // blocking path.
-                if vblank_driven {
-                    // Smooth rendering. This may block.
-                    self.render_frame(&application_messages, &submission)?;
-                } else {
-                    // Fast mode. Wait until at least one event is there.
-                    if wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue {
-                        return Ok(());
-                    };
+                // Detail: The two paths have one thing in common: They block until there is
+                // something to do. In fast mode, we wait for the next event indefinitely. In
+                // smooth (vblank-driven) rendering, the frame pacing itself blocks at the
+                // swapchain gate. When the surface is occluded, texture acquisition does not
+                // block at all; we park indefinitely until the surface becomes presentable
+                // again (the `SetSurfaceOccluded(false)` message wakes us).
+                if vblank_driven && !self.surface_occluded {
+                    let _ = self.render_frame(&application_messages, &submission)?;
+                }
+                if wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue {
+                    return Ok(());
                 }
             }
 
@@ -115,7 +119,7 @@ impl WindowRenderer {
                 RendererMessage::Redraw => {
                     // In smooth mode, we ignore explicit redraw requests.
                     if !vblank_driven {
-                        self.render_frame(&application_messages, &submission)?;
+                        let _ = self.render_frame(&application_messages, &submission)?;
                     } else {
                         // Architecture: Well, what to do with all the Redraw requests in smooth
                         // rendering mode? Currently the problem is that we don't even know when to send
@@ -130,16 +134,21 @@ impl WindowRenderer {
                 RendererMessage::SetBackgroundColor(color) => {
                     self.set_background_color(color);
                 }
+                RendererMessage::SetSurfaceOccluded(occluded) => {
+                    self.surface_occluded = occluded;
+                }
             }
         }
     }
 
     // Detail: This always produces a new frame. Even if there are no changes.
+    // Detail: When the surface is occluded, no texture can be acquired and no frame is produced
+    // (`NoSurface`).
     fn render_frame(
         &mut self,
         apply_animations_to: &WeakUnboundedSender<ApplicationMessage>,
         submission: &Arc<Mutex<RenderThreadSubmission>>,
-    ) -> Result<()> {
+    ) -> Result<FrameOutcome> {
         // Detail: In VSync presentation mode, this blocks until the next VSync beginning
         // with the second frame after that. Therefore we apply scene changes afterwards.
         // This improves time of first change to render time considerably.
@@ -148,7 +157,7 @@ impl WindowRenderer {
             .get_current_texture()
             .context("get_current_texture")?
         else {
-            return Ok(());
+            return Ok(FrameOutcome::NoSurface);
         };
 
         // Detail: Presentation timestamps are only sent when the presentation is currently in
@@ -186,7 +195,7 @@ impl WindowRenderer {
         // before acquiring the surface texture?
         self.apply_submission_presentation_mode(submission.pacing);
 
-        Ok(())
+        Ok(FrameOutcome::Rendered)
     }
 
     fn resize(&mut self, new_size: SizePx) {
@@ -261,8 +270,6 @@ impl WindowRenderer {
 }
 
 /// Wait until events are available. Blocks if none available.
-///
-/// Blocks until at least one event is available.
 fn wait_for_events(
     msg_receiver: &mpsc::Receiver<RendererMessage>,
     events: &mut Vec<RendererMessage>,
@@ -271,8 +278,9 @@ fn wait_for_events(
         return FlowControl::Continue;
     }
 
-    let Ok(msg) = msg_receiver.recv() else {
-        return FlowControl::Disconnected;
+    let msg = match msg_receiver.recv() {
+        Ok(msg) => msg,
+        Err(_) => return FlowControl::Disconnected,
     };
 
     events.push(msg);
@@ -300,6 +308,9 @@ pub enum RendererMessage {
     Resize(SizePx),
     Redraw,
     SetBackgroundColor(Option<Color>),
+    /// macOS only: The window's occlusion state changed (`WindowEvent::Occluded`). While the
+    /// surface is occluded, frames cannot be presented and texture acquisition does not block.
+    SetSurfaceOccluded(bool),
     // Protocol: When adding a new RenderMessage, consider message_filter::keep_last_per_variant().
 }
 
@@ -340,4 +351,14 @@ impl RenderThreadSubmission {
 enum FlowControl {
     Continue,
     Disconnected,
+}
+
+/// Whether a frame was rendered, or skipped because no surface texture could be acquired.
+#[must_use]
+#[derive(Debug, PartialEq, Eq)]
+enum FrameOutcome {
+    /// A frame was acquired and presented.
+    Rendered,
+    /// Surface texture could not be acquired (occluded/timeout); no work was done.
+    NoSurface,
 }
