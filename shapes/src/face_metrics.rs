@@ -7,8 +7,8 @@
 //! parse in debug vs ~12 ns for an extracted-array read).
 //!
 //! [`FaceMetrics`] extracts the values that path needs — glyph left side bearings and
-//! units-per-em — into owned storage. Extraction happens **eagerly at face-mint time**
-//! (`load_font`, lazy fallback interning), under the manager lock that minting already
+//! units-per-em — into owned storage. Extraction happens **eagerly at face-registration time**
+//! (`load_font`, lazy fallback resolution), under the manager lock that registration already
 //! holds, and the result is published with the registry snapshot: readers resolve metrics
 //! lock-free through `FontManager::published`, exactly like the rasterizer resolves font
 //! data. Values are instance-independent because faces are content-identical.
@@ -30,7 +30,7 @@ pub struct FaceMetrics {
 
 impl FaceMetrics {
     /// Extract the metrics of a face from its font data — one linear pass over the
-    /// horizontal-metrics table, performed once per face at mint time (see module doc).
+    /// horizontal-metrics table, performed once per face at registration time (see module doc).
     pub fn extract(font_data: &FontData) -> Option<Self> {
         let font_ref =
             FontRef::from_index(font_data.data.as_ref().as_ref(), font_data.index as usize)?;
@@ -53,7 +53,7 @@ impl FaceMetrics {
     }
 }
 
-/// Extract metrics for every face of a registry-entry map (mint-time; see module doc).
+/// Extract metrics for every face of a registry-entry map (registration time; see module doc).
 pub(crate) fn extract_all(
     entries: &std::collections::HashMap<FaceId, FontData>,
 ) -> std::collections::HashMap<FaceId, FaceMetrics> {
@@ -90,7 +90,7 @@ mod tests {
             let glyph_id = shaped.glyphs[0].glyph_id;
 
             // Resolve font data through the session guard: the manager's mutex-protected
-            // registry is not lock-free-readable while the session may mint. Copy both
+            // registry is not lock-free-readable while the session may resolve faces. Copy both
             // values out before the assert so the guard borrow is not held across it.
             let font_data = shaper.font_data(face).expect("font data");
             drop(shaper);
@@ -99,7 +99,7 @@ mod tests {
             let cached = fonts
                 .published()
                 .metrics(face)
-                .expect("published metrics must carry every minted face")
+                .expect("published metrics must carry every known face")
                 .lsb(glyph_id);
 
             let fresh = swash::FontRef::from_index(

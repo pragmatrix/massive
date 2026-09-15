@@ -50,9 +50,9 @@ readers. `TextLayerRenderer` reads it once per batch; the render path no longer 
 manager mutex at all.
 
 Republishing happens at every registry-mutating point, always under the manager lock:
-`load_font`, and `Shaper` session end (`Drop`) — the cosmic engine lazily interns fallback faces
-during `shape()`, so a session may have grown the registry. Parley's registry is static after
-startup (shape never interns), so its snapshots never go stale mid-run.
+`load_font`, and `Shaper` session end (`Drop`) — the cosmic engine lazily resolves fallback
+faces during `shape()`, so a session may have grown the registry. Parley's registry is static
+after startup (shape never resolves faces), so its snapshots never go stale mid-run.
 
 The `&mut self` gate on `FontManager` entry points is unchanged — `published()` is the one
 documented exemption (an `ArcSwap` load never touches the mutex, so it cannot deadlock against a
@@ -66,5 +66,11 @@ designed and accepted in [ADR 0006 — per-instance shaping sessions](0006-per-i
 which supersedes the sketch that was here: sessions everywhere (one API, `shaper()` renamed
 to `session()`), per-task shaping contexts, a fontique *shared-mode collection* for parley
 (no broadcast needed — font loading is possible at any time), and an *epoch-pull* pattern
-for cosmic's per-instance `FontSystem`. The manager keeps minting `FaceId`s and publishing
+for cosmic's per-instance `FontSystem`. The manager keeps resolving fallback `FaceId`s and publishing
 the registry; metrics join the published snapshot.
+
+## Terminology (2026-09-15)
+
+Later ADRs and the glossary in [`CONTEXT.md`](../../CONTEXT.md) use **resolved face** for what
+this document calls *interned/minted* faces, and **registry sync** for what ADR 0006 called
+*epoch-pull*. Terms here predate that refinement; read the older wording as the newer one.

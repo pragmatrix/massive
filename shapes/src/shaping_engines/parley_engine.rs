@@ -40,7 +40,7 @@ pub struct ParleyEngine {
     ///
     /// Immutable snapshot: the map itself is replaced (new `Arc`) on every mutation, so the
     /// manager can publish it lock-free (see [`ShapingEngine::font_registry`]). Static after
-    /// startup: only `rebuild_fonts` and `load_font` write here — shaping never interns faces,
+    /// startup: only `rebuild_fonts` and `load_font` write here — shaping never resolves faces,
     /// so a published snapshot cannot go stale while instances shape.
     fonts: HashMap<FaceId, FontData>,
 }

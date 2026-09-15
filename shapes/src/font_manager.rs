@@ -1,8 +1,8 @@
 //! The font manager: one font-identity authority plus per-handle shaping sessions.
 //!
-//! [`FontManager`] owns the registry-minting machinery (ADR 0006): the manager mutex covers
-//! only font loading and lazy fallback interning — the only work that must be serialized,
-//! because it mints [`FaceId`]s and publishes the registry (with metrics). Shaping runs in
+//! [`FontManager`] owns the face-identity machinery (ADR 0006): the manager mutex covers
+//! only font loading and session-path face resolution — the only work that must be serialized,
+//! because it registers [`FaceId`]s and publishes the registry (with metrics). Shaping runs in
 //! sessions over per-handle scratch state: every detached [`FontManager`] handle (each
 //! instance task, the desktop, the renderer's manager) holds its own shape-ready scratch
 //! ([`EngineScratch`], created by its engine) and shapes without contending with other
@@ -11,11 +11,11 @@
 //! ## Engine neutrality
 //!
 //! After construction the manager names no engine type: engines create their scratch via
-//! [`ShapingEngine::new_scratch`], keep it epoch-synced via [`EngineScratch::sync`], and
+//! [`ShapingEngine::new_scratch`], keep it registry-synced via [`EngineScratch::sync`], and
 //! shape through [`EngineScratch::shape`]. Fonts loaded at any time are visible on the next
 //! session: parley's shared collection self-syncs (fontique version sync), cosmic re-pulls
-//! the published snapshot when its face count moved. The one engine touch point left here is
-//! the construction match in [`FontManager::system`] / [`FontManager::bare`].
+//! the published snapshot when its face count moved (registry sync). The one engine touch
+//! point left here is the construction match in [`FontManager::system`] / [`FontManager::bare`].
 //!
 //! ## Shaper exclusivity without borrow-gating
 //!
@@ -35,9 +35,9 @@
 //!
 //! `FaceId` → font-data plus per-face swash [`FaceMetrics`] are published as an immutable
 //! `Arc` snapshot ([`FontManager::published`]), read lock-free on the render and
-//! lock-free on the render and glyph-placement paths. Every mint — `load_font`, and
-//! fallback interning from inside a shaper — republishes under the manager lock at mint
-//! time, so a published snapshot never lags the minted world, and in-shaper resolution
+//! lock-free on the render and glyph-placement paths. Every registration — `load_font`, and
+//! face resolution from inside a shaper — republishes under the manager lock at registration
+//! time, so a published snapshot never lags the known face world, and in-session resolution
 //! ([`Shaper::font_data`]) is a plain lock-free map read.
 
 use std::fmt;
@@ -46,11 +46,11 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::engine::FrameShaper;
 use crate::engine::{
     EngineScratch, FontData, FontRegistry, ShapedRun, ShapingEngine, ShapingEngineKind,
     ShapingRequest,
 };
+use crate::face_metrics::FaceMetrics;
 #[cfg(feature = "cosmic-text")]
 use crate::shaping_engines::CosmicTextEngine;
 #[cfg(feature = "parley")]
@@ -64,17 +64,23 @@ use crate::{FaceId, GlyphRun};
 /// the manager handle and shapes through this handle's own scratch, lock-free
 /// against other handles' shapers.
 ///
-/// Faces a shaper mints (cosmic fallback interning) are published at mint time, under
-/// the manager lock — the published snapshot a concurrently submitted frame reads is
-/// always complete (see module doc).
+/// Faces a shaper resolves (fallback picks reaching the face authority) are published at
+/// registration time, under the manager lock — the published snapshot a concurrently
+/// submitted frame reads is always complete (see module doc).
 pub struct Shaper<'a> {
     /// The manager's engine kind, fixed at construction; read without a lock.
     kind: ShapingEngineKind,
-    /// This manager handle: the mint authority (single `FaceId` issuer) and publication
+    /// This manager handle: the face authority (single `FaceId` issuer) and publication
     /// owner.
     manager: &'a FontManager,
-    /// This handle's shape-ready scratch, epoch-synced at session open.
+    /// This handle's shape-ready scratch, registry-synced at session open.
     scratch: MutexGuard<'a, Box<dyn EngineScratch>>,
+    /// The registry snapshot for this session: faces and metrics for lock-free placement
+    /// resolution. Captured at session open and refreshed after each `shape` — faces
+    /// resolved *during* this session (republished to the manager's latest snapshot at
+    /// registration time) become visible here on the next read, so `metrics` never misses
+    /// a face this session itself shaped with (see [`Self::metrics`]).
+    registry: Arc<FontRegistry>,
 }
 
 impl fmt::Debug for FontManager {
@@ -85,9 +91,9 @@ impl fmt::Debug for FontManager {
     }
 }
 
-/// The font-identity machinery: the canonical engine instance, used for minting only.
+/// The font-identity machinery: the canonical engine instance, used as the face authority.
 ///
-/// The manager mutex covers only mint-time work (load, intern, publish) — shaping happens
+/// The manager mutex covers only registration work (load, resolve, publish) — shaping happens
 /// per handle, in [`Shaper`]s created from engine-built [`EngineScratch`] state.
 struct FontManagerInner {
     /// Boxed: the canonical engine carries large contexts (~1–2 kB: Parley's `FontContext`
@@ -104,11 +110,11 @@ struct FontManagerInner {
 /// logical owner. Deriving an independent handle is explicit — [`FontManager::detached`].
 pub struct FontManager {
     /// The engine kind selected at construction. Immutable for the manager's lifetime, so it
-    /// reads without the lock; only minting needs synchronized access.
+    /// reads without the lock; only registration needs synchronized access.
     kind: ShapingEngineKind,
     inner: Arc<Mutex<FontManagerInner>>,
     /// The last-published font registry snapshot (see [`Self::published`]): swapped under the
-    /// manager lock at every mint, read lock-free on the render path.
+    /// manager lock at every registration, read lock-free on the render path.
     published: Arc<ArcSwap<FontRegistry>>,
     /// This handle's shaping scratch state — fresh per `detached()` (see the method).
     scratch: Arc<Mutex<Box<dyn EngineScratch>>>,
@@ -116,7 +122,7 @@ pub struct FontManager {
 
 impl FontManager {
     /// Derive a handle whose shaping runs detached from this handle's state: the returned
-    /// manager shares only the minted font identity (the canonical engine behind the mutex
+    /// manager shares only the known face identity (the canonical engine behind the mutex
     /// and the published snapshot), while its scratch is fresh and exclusively owned by the
     /// new handle — the first session there seeds it independently and no session on either
     /// handle ever contends with or deadlocks the other (ADR 0006).
@@ -135,7 +141,7 @@ impl FontManager {
 
     fn with_engine(kind: ShapingEngineKind, engine: Box<dyn ShapingEngine>) -> Self {
         let published = Arc::new(ArcSwap::from(engine.font_registry()));
-        // The scratch is mint-time work too: built under the same world the canonical
+        // The scratch is registration-time work too: built under the same world the canonical
         // engine just published, then exclusively owned by this handle.
         let scratch = engine.new_scratch(&published.load_full());
         Self {
@@ -177,7 +183,7 @@ impl FontManager {
     /// Adds the font and returns its font ids.
     ///
     /// Together with [`Self::shaper`], this is the *entire* entry surface for engine
-    /// state. The manager mutex covers only this mint-time work — shapers shape per
+    /// state. The manager mutex covers only this registration work — shapers shape per
     /// handle, lock-free (ADR 0006).
     ///
     /// Takes `&self`: shaping never holds the manager mutex (ADR 0006), so loading during
@@ -185,7 +191,7 @@ impl FontManager {
     /// shaper's scratch lock, not here.
     ///
     /// Font loading is possible at any time: parley sees the font through the shared
-    /// collection; cosmic re-syncs on the next shaper's epoch check.
+    /// collection; cosmic re-syncs on the next shaper's registry check.
     pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
         let mut inner = self.inner.lock();
         let ids = inner.engine.load_font(Arc::new(font_data));
@@ -203,7 +209,7 @@ impl FontManager {
     ///
     /// The one gate exemption: readers take an `Arc` copy from the [`ArcSwap`] — no manager
     /// mutex is involved, so this cannot deadlock against a live session. Freshness: faces
-    /// are published at mint time, so the snapshot is always complete for every minted
+    /// are published at registration time, so the snapshot is always complete for every known
     /// `FaceId` (see module doc). Readers resolve font data *and* swash metrics through the
     /// same snapshot (the terminal's glyph grid anchoring reads metrics per cluster per
     /// frame without re-parsing swash tables).
@@ -225,7 +231,7 @@ impl FontManager {
     }
 
     /// Build a fresh engine-owned scratch for this handle (seeded from the published
-    /// world), locking the manager mutex for the mint-time construction.
+    /// world), locking the manager mutex for the registration-time construction.
     fn make_scratch(&self) -> Box<dyn EngineScratch> {
         self.inner.lock().engine.new_scratch(&self.published())
     }
@@ -245,34 +251,27 @@ impl FontManager {
                  scratch mutex is held); two live shapers on one handle are unsupported"
             )
         });
-        // Epoch sync at session open: the scratch seeds itself whenever the manager's
-        // minted world has moved (ADR 0006).
-        scratch.sync(&self.published.load_full());
+        // Registry sync at session open: the scratch syncs itself whenever the manager's
+        // known face world has moved (ADR 0006). The snapshot is captured *before* the sync,
+        // so the session's metrics view stays a consistent pre-open world; `shape` refreshes
+        // it from the manager's latest publication afterwards.
+        let registry = self.published.load_full();
+        scratch.sync(&registry);
         Shaper {
             kind: self.kind,
             manager: self,
             scratch,
-        }
-    }
-
-    /// Open a per-frame shaping context over this manager handle: the session plus the
-    /// frame's registry snapshot, read *before* the session opens (see [`FrameShaper`]).
-    #[must_use]
-    pub fn frame_shaper(&self) -> FrameShaper<'_> {
-        let registry = self.published();
-        FrameShaper {
-            session: self.shaper(),
             registry,
         }
     }
 
-    /// Mint a face from the session path: serialize the mint (and its publication) under
-    /// the manager mutex, via the canonical engine's face registry (single `FaceId`
-    /// authority, ADR 0006).
-    fn mint_face(&self, data: FontData) -> Option<FaceId> {
+    /// Resolve a face from the session path: serialize the registration (and its
+    /// publication) under the manager mutex, via the canonical engine's face registry
+    /// (single `FaceId` authority, ADR 0006).
+    fn resolve_face(&self, data: FontData) -> Option<FaceId> {
         let mut inner = self.inner.lock();
-        let id = inner.engine.mint_face(data)?;
-        // The mint mutated the registry: republish while the lock is held, so the face is
+        let id = inner.engine.resolve_face(data)?;
+        // The resolution mutated the registry: republish while the lock is held, so the face is
         // visible to lock-free readers (the render path) immediately (see module doc).
         self.published.store(inner.engine.font_registry());
         Some(id)
@@ -283,15 +282,15 @@ impl FontManager {
 ///
 /// The renderer resolves glyphs lock-free through the latest-published snapshot and checks
 /// runs' engine kind against the manager's (a debug assert). It never shapes — so it needs
-/// neither the mint authority nor a shaping scratch, which a full [`FontManager`] handle
+/// neither the face authority nor a shaping scratch, which a full [`FontManager`] handle
 /// would carry. Cheap to clone (two `Arc`s).
 #[derive(Clone)]
 pub struct FontRegistrySource {
     /// The manager's engine kind, immutable for the manager's lifetime; a run's
     /// `shaping_engine` is debug-checked against it.
     kind: ShapingEngineKind,
-    /// The manager's published snapshot, swapped at every mint — reads stay lock-free and
-    /// fresh at mint-time publication.
+    /// The manager's published snapshot, swapped at every registration — reads stay lock-free
+    /// and fresh at registration-time publication.
     published: Arc<ArcSwap<FontRegistry>>,
 }
 
@@ -318,20 +317,45 @@ impl FontRegistrySource {
 impl Shaper<'_> {
     /// Shape one attributed line at `font_size` through this handle's contexts.
     pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        // Unregistered fallback faces mint through the manager (ADR 0006): the canonical
-        // engine interns the resolved font data under its lock, publishes at mint time,
-        // and returns a globally valid `FaceId`.
+        // Unregistered fallback faces resolve through the manager (ADR 0006): the canonical
+        // engine registers the resolved font data under its lock, publishes at registration
+        // time, and returns a globally valid `FaceId`.
         let manager = self.manager;
-        self.scratch
-            .shape(request, font_size, &mut |data| manager.mint_face(data))
+        let run = self
+            .scratch
+            .shape(request, font_size, &mut |data| manager.resolve_face(data));
+        // Refresh the session snapshot: faces this shape just resolved (its own fallbacks,
+        // or another handle's since session open) are in the manager's publication by now,
+        // and the frame's metrics reads must find them (see `metrics`).
+        self.registry = manager.published.load_full();
+        run
     }
 
-    /// Resolve concrete font data through the manager's published snapshot.
+    /// Resolve concrete font data through the session's registry snapshot.
     ///
-    /// Resolution never re-enters an engine: the published snapshot carries every minted
-    /// face (mint-time publication, see module doc), so this is a lock-free map read.
+    /// Resolution never re-enters an engine: the snapshot carries every face known up to
+    /// this session's last `shape` (registration-time publication, see module doc), so
+    /// this is a lock-free map read. Kept as the fallback for readers between shapes;
+    /// `shape` refreshes the snapshot after every run.
     pub fn font_data(&self, id: FaceId) -> Option<FontData> {
-        self.manager.published().font_data(id)
+        self.registry
+            .font_data(id)
+            .or_else(|| self.manager.published().font_data(id))
+    }
+
+    /// The per-face metrics snapshot of this session: repeated per-cluster reads resolve
+    /// lock-free instead of re-parsing swash tables (ADR 0006).
+    ///
+    /// Faces this session resolved during its own `shape` are covered by the snapshot
+    /// refresh at the end of that shape — every face a returned run carries is published
+    /// before the caller reads metrics.
+    pub fn metrics(&self, id: FaceId) -> Option<&FaceMetrics> {
+        self.registry.metrics(id)
+    }
+
+    /// The registry snapshot captured at session open (see the field doc).
+    pub fn registry(&self) -> &FontRegistry {
+        &self.registry
     }
 
     /// Shape and assemble a [`GlyphRun`] carrying the default attributes' color/weight.

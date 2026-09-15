@@ -216,8 +216,8 @@ impl Logs {
     }
 
     fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
-        let mut session = self.fonts.shaper();
-        let (glyph_runs, height) = shape_log_line(&mut session, bytes, self.next_line_top);
+        let mut shaper = self.fonts.shaper();
+        let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
 
         let glyph_runs: Vec<Shape> = glyph_runs
             .into_iter()
@@ -379,7 +379,7 @@ struct LayoutMovement {
 const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
-    session: &mut Shaper<'_>,
+    shaper: &mut Shaper<'_>,
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
@@ -399,7 +399,7 @@ fn shape_log_line(
     let font_size = 32.;
 
     let (runs, height) = attributed_text::shape_text(
-        session,
+        shaper,
         &text,
         &attributes,
         font_size,

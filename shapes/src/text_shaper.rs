@@ -50,9 +50,9 @@ impl<'a> TextShaper<'a> {
     }
 
     /// Shape the first line of the text at `font_size` pixels.
-    pub fn layout(self, session: &mut Shaper<'_>, font_size: f32) -> Option<GlyphRun> {
+    pub fn layout(self, shaper: &mut Shaper<'_>, font_size: f32) -> Option<GlyphRun> {
         let mut request = ShapingRequest::new(self.text, self.default_attributes.clone());
         request.ranges = self.range_attributes;
-        session.glyph_run(&request, font_size)
+        shaper.glyph_run(&request, font_size)
     }
 }

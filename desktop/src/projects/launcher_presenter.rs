@@ -94,7 +94,7 @@ impl LauncherPresenter {
 
         let background = background_shape.at(&our_location).enter(scene);
 
-        let mut session = font_manager.shaper();
+        let mut shaper = font_manager.shaper();
         let name = profile
             .name
             // Idea: To not waste so much memory here for large fonts, may use a quality index that
@@ -107,7 +107,7 @@ impl LauncherPresenter {
             // guess. Make this independent of the font size, but dependent on what is visible (a
             // background optimizer).
             .size(32.0 * 8.0)
-            .shape(&mut session)
+            .shape(&mut shaper)
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(&our_location)
             .with_decal_order(0)

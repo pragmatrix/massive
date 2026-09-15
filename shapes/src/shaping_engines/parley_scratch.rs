@@ -24,7 +24,7 @@ impl EngineScratch for ParleyScratch {
         &mut self,
         request: &ShapingRequest<'_>,
         font_size: f32,
-        _mint_face: &mut dyn FnMut(FontData) -> Option<FaceId>,
+        _resolve_face: &mut dyn FnMut(FontData) -> Option<FaceId>,
     ) -> Option<ShapedRun> {
         let contexts = self.contexts.as_mut()?;
         parley_engine::shape_line(
