@@ -137,7 +137,7 @@ impl CosmicTextEngine {
         &mut self,
         request: &ShapingRequest<'_>,
         font_size: f32,
-        resolve: &dyn Fn(&mut Self, fontdb::ID, fontdb::Weight) -> Option<FaceId>,
+        resolve: &mut dyn FnMut(&mut Self, fontdb::ID, fontdb::Weight) -> Option<FaceId>,
     ) -> Option<ShapedRun> {
         self.shape_impl(request, font_size, resolve)
     }
@@ -164,7 +164,8 @@ impl std::fmt::Debug for CosmicTextEngine {
 }
 
 impl CosmicTextEngine {
-    /// A bare engine over the given engine kind: no fallbacks, no fonts.
+    /// A bare engine: no fallbacks, no fonts — the database starts empty (see
+    /// `registry_only_font_system`).
     pub fn bare() -> Self {
         Self {
             font_system: Self::registry_only_font_system(),
@@ -224,9 +225,16 @@ impl ShapingEngine for CosmicTextEngine {
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
         // Canonical-engine path (see `shape_with_resolver`): unregistered fallback faces
         // intern into this engine's own registry.
-        self.shape_with_resolver(request, font_size, &|engine, id, weight| {
+        self.shape_with_resolver(request, font_size, &mut |engine, id, weight| {
             engine.intern(id, weight).map(Self::face_id)
         })
+    }
+
+    /// Create this engine's per-handle scratch (ADR 0006): an *empty* seed — the scratch
+    /// pulls the published snapshot's faces on its first `sync`, building its own
+    /// registry-only `FontSystem` without rescanning system fonts.
+    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn crate::engine::EngineScratch> {
+        Box::new(super::cosmic_scratch::CosmicScratch::new())
     }
 
     fn mint_face(&mut self, data: FontData) -> Option<FaceId> {
@@ -237,7 +245,7 @@ impl ShapingEngine for CosmicTextEngine {
         // FaceId every time, and per-frame registry snapshots (read before the session
         // opened) would never carry it — every cluster's metrics lookup would miss and
         // the glyphs would never render. The same font data is always the same `FaceId`.
-        // The same font data is always the same `FaceId`. Fast path: the identical
+        // Fast path: the identical
         // allocation (a pulled registry face reshaped through the session db); fallback:
         // byte compare — db-resolved faces hand out a fresh copy per read, so ptr_eq
         // alone would miss byte-identical data.
@@ -264,7 +272,7 @@ impl CosmicTextEngine {
         &mut self,
         request: &ShapingRequest<'_>,
         font_size: f32,
-        resolve: &dyn Fn(&mut Self, fontdb::ID, fontdb::Weight) -> Option<FaceId>,
+        resolve: &mut dyn FnMut(&mut Self, fontdb::ID, fontdb::Weight) -> Option<FaceId>,
     ) -> Option<ShapedRun> {
         // The shaping-only path: no line breaking, no metrics hinting. When the metadata
         // mechanism is enabled, metadata flows through cosmic-text natively (Attrs::metadata

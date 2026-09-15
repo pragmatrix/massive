@@ -20,8 +20,8 @@ use crate::{ClipBoxPx, FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, Te
 /// Shared, reference-counted font file bytes.
 pub type FontBytes = Arc<dyn AsRef<[u8]> + Send + Sync>;
 
-/// A per-frame shaping context: one [`FontSession`] over a manager clone plus the frame's
-/// published registry snapshot.
+/// A per-frame shaping context: one [`Shaper`] plus the frame's published registry
+/// snapshot.
 ///
 /// Bundled because the two travel together and their borrows must agree: the session takes
 /// `&mut` of the manager handle (the `&mut` gate), so the snapshot has to be *cloned out*
@@ -421,14 +421,11 @@ pub trait ShapingEngine: Send {
     /// tests shape through it.
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
 
-    /// Per-session shaping contexts over this engine's shared world (parley), or `None`
-    /// when the engine is not parley (ADR 0006). Called once per manager-clone scratch
-    /// seeding, under the manager lock.
-    fn parley_session_contexts(
-        &self,
-    ) -> Option<crate::shaping_engines::parley_engine::ParleySessionContexts> {
-        None
-    }
+    /// Create this engine's per-handle shape-ready scratch (ADR 0006), seeded from the
+    /// `published` snapshot's world. Called by the manager on a handle's first session
+    /// open; the scratch then epoch-syncs itself on every open
+    /// ([`EngineScratch::sync`]) without touching the manager mutex.
+    fn new_scratch(&self, published: &FontRegistry) -> Box<dyn EngineScratch>;
 
     /// Mint a face from font data into the canonical registry, returning its [`FaceId`]
     /// (ADR 0006: the manager is the only issuer). Used by cosmic fallback interning;
@@ -438,6 +435,33 @@ pub trait ShapingEngine: Send {
         let _ = data;
         None
     }
+}
+
+/// Per-handle, engine-specific shaping state behind an engine-neutral contract (ADR 0006).
+///
+/// [`crate::FontManager`] holds `Box<dyn EngineScratch>` per handle and names no engine
+/// type after construction: each engine creates its own scratch via
+/// [`ShapingEngine::new_scratch`] (seeded from the published snapshot), keeps it epoch-synced
+/// in [`EngineScratch::sync`], and shapes through [`EngineScratch::shape`]. Fallback faces
+/// a scratch mints route through the `mint_face` callback — the manager stays the single
+/// [`FaceId`] issuer — and engines never see the manager type itself.
+pub trait EngineScratch: Send {
+    /// Bring the scratch in line with the `published` world (ADR 0006). A no-op for engines
+    /// whose state self-syncs (parley, via fontique's shared collection); an epoch-pull for
+    /// cosmic (a face-count mismatch re-syncs from the snapshot). Called at every session
+    /// open; the manager mutex is untouched.
+    fn sync(&mut self, published: &FontRegistry);
+
+    /// Shape one attributed line (the first line of `request.text`) at `font_size` pixels.
+    ///
+    /// `mint_face` interns an unregistered fallback face into the manager's canonical
+    /// registry (the single [`FaceId`] issuer); engines that never mint ignore it.
+    fn shape(
+        &mut self,
+        request: &ShapingRequest<'_>,
+        font_size: f32,
+        mint_face: &mut dyn FnMut(FontData) -> Option<FaceId>,
+    ) -> Option<ShapedRun>;
 }
 
 /// Assemble a [`GlyphRun`] from `clusters` of a shaped line.

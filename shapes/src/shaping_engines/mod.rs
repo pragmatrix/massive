@@ -6,8 +6,12 @@
 
 #[cfg(feature = "cosmic-text")]
 pub mod cosmic_engine;
+#[cfg(feature = "cosmic-text")]
+pub mod cosmic_scratch;
 #[cfg(feature = "parley")]
 pub mod parley_engine;
+#[cfg(feature = "parley")]
+pub mod parley_scratch;
 
 #[cfg(feature = "cosmic-text")]
 pub use cosmic_engine::CosmicTextEngine;

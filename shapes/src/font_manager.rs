@@ -4,20 +4,18 @@
 //! only font loading and lazy fallback interning — the only work that must be serialized,
 //! because it mints [`FaceId`]s and publishes the registry (with metrics). Shaping runs in
 //! sessions over per-handle scratch state: every detached [`FontManager`] handle (each
-//! instance task, the desktop, the renderer's manager) holds its own shape-ready engine
-//! contexts and shapes without contending with other handles (see [`FontManager::detached`]).
+//! instance task, the desktop, the renderer's manager) holds its own shape-ready scratch
+//! ([`EngineScratch`], created by its engine) and shapes without contending with other
+//! handles (see [`FontManager::detached`]).
 //!
-//! ## Two models of font-database sharing (ADR 0006)
+//! ## Engine neutrality
 //!
-//! - **Parley**: fontique's native shared collection
-//!   (`ParleyEngine::shared_collection`). Session contexts clone the shared collection, so
-//!   a font registered at any time is visible on the next layout builder creation —
-//!   fontique version-syncs internally, no coordination.
-//! - **Cosmic**: a per-handle [`CosmicTextEngine`] with *epoch-pull*. The published registry
-//!   is the epoch: a session's engine is seeded (or re-seeded) from the published snapshot
-//!   whenever the manager's minted world has gained faces — a loaded font, or fallback
-//!   faces interned by any other handle. No list of live instances exists; the pull
-//!   replaces broadcast.
+//! After construction the manager names no engine type: engines create their scratch via
+//! [`ShapingEngine::new_scratch`], keep it epoch-synced via [`EngineScratch::sync`], and
+//! shape through [`EngineScratch::shape`]. Fonts loaded at any time are visible on the next
+//! session: parley's shared collection self-syncs (fontique version sync), cosmic re-pulls
+//! the published snapshot when its face count moved. The one engine touch point left here is
+//! the construction match in [`FontManager::system`] / [`FontManager::bare`].
 //!
 //! ## Shaper exclusivity without borrow-gating
 //!
@@ -50,22 +48,23 @@ use parking_lot::{Mutex, MutexGuard};
 
 use crate::engine::FrameShaper;
 use crate::engine::{
-    FontData, FontRegistry, ShapedRun, ShapingEngine, ShapingEngineKind, ShapingRequest,
+    EngineScratch, FontData, FontRegistry, ShapedRun, ShapingEngine, ShapingEngineKind,
+    ShapingRequest,
 };
 #[cfg(feature = "cosmic-text")]
-use crate::shaping_engines::cosmic_engine::CosmicTextEngine;
+use crate::shaping_engines::CosmicTextEngine;
 #[cfg(feature = "parley")]
-use crate::shaping_engines::parley_engine::{self, ParleySessionContexts};
+use crate::shaping_engines::ParleyEngine;
 use crate::{FaceId, GlyphRun};
 
-/// A shaping session over one [`FontManager`] handle.
+/// A shaper over one [`FontManager`] handle.
 ///
-/// Created by [`FontManager::session`] — the *only* shaping entry point; instance,
-/// application, and desktop code all use it the same way (ADR 0006). The session borrows
-/// the manager handle and shapes through this handle's own scratch contexts, lock-free
-/// against other handles' sessions.
+/// Created by [`FontManager::shaper`] — the *only* shaping entry point; instance,
+/// application, and desktop code all use it the same way (ADR 0006). The shaper borrows
+/// the manager handle and shapes through this handle's own scratch, lock-free
+/// against other handles' shapers.
 ///
-/// Faces this session mints (cosmic fallback interning) are published at mint time, under
+/// Faces a shaper mints (cosmic fallback interning) are published at mint time, under
 /// the manager lock — the published snapshot a concurrently submitted frame reads is
 /// always complete (see module doc).
 pub struct Shaper<'a> {
@@ -74,71 +73,8 @@ pub struct Shaper<'a> {
     /// This manager handle: the mint authority (single `FaceId` issuer) and publication
     /// owner.
     manager: &'a FontManager,
-    /// This handle's shape-ready scratch state, epoch-synced at session open.
-    scratch: MutexGuard<'a, FontScratch>,
-}
-
-/// Per-handle shaping state (ADR 0006): engine contexts this manager handle shapes with.
-///
-/// Held behind its own mutex — not the manager's, which is mint-time-only. In the shipped
-/// topologies each instance task and the desktop own their handle exclusively, so the lock
-/// is uncontended; it exists because a session holds the guard across many `shape` calls
-/// while the handle stays reachable in shared structures — a second session on one handle
-/// must never meet the live one (see `FontManager::session`). Two sessions on two handles
-/// never meet; the manager mutex is untouched by shaping.
-struct FontScratch {
-    #[cfg(feature = "parley")]
-    parley: Option<ParleySessionContexts>,
-    #[cfg(feature = "cosmic-text")]
-    cosmic: Option<CosmicTextEngine>,
-    /// Face count of the manager world at the last sync — the cosmic epoch token
-    /// (a mismatch means faces were minted since and the handle re-seeds).
-    #[cfg(feature = "cosmic-text")]
-    synced_faces: usize,
-}
-
-impl FontScratch {
-    fn new(_kind: ShapingEngineKind) -> Self {
-        Self {
-            #[cfg(feature = "parley")]
-            parley: None,
-            #[cfg(feature = "cosmic-text")]
-            cosmic: None,
-            #[cfg(feature = "cosmic-text")]
-            synced_faces: 0,
-        }
-    }
-
-    /// Bring the scratch in line with the manager's published world (ADR 0006): parley
-    /// seeds its contexts once from the canonical engine (the shared collection needs no
-    /// re-sync — fontique version sync makes later registrations visible); cosmic
-    /// seeds/re-seeds its engine from the published snapshot whenever the face count moved.
-    fn sync(&mut self, kind: ShapingEngineKind, manager: &FontManager, published: &FontRegistry) {
-        match kind {
-            #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => {
-                if self.parley.is_none() {
-                    self.parley = manager.inner.lock().engine.parley_session_contexts();
-                }
-            }
-            #[cfg(feature = "cosmic-text")]
-            ShapingEngineKind::CosmicText => {
-                let face_count = published.face_count();
-                if self.synced_faces != face_count {
-                    // Epoch-pull: bring this handle's engine onto the published snapshot.
-                    // The engine is built once and updated incrementally (`pull`) — a full
-                    // rebuild would rescan all system fonts per epoch move.
-                    let Some(engine) = self.cosmic.as_mut() else {
-                        self.cosmic = Some(CosmicTextEngine::seed_from_registry(published));
-                        self.synced_faces = face_count;
-                        return;
-                    };
-                    engine.pull(published);
-                    self.synced_faces = face_count;
-                }
-            }
-        }
-    }
+    /// This handle's shape-ready scratch, epoch-synced at session open.
+    scratch: MutexGuard<'a, Box<dyn EngineScratch>>,
 }
 
 impl fmt::Debug for FontManager {
@@ -152,7 +88,7 @@ impl fmt::Debug for FontManager {
 /// The font-identity machinery: the canonical engine instance, used for minting only.
 ///
 /// The manager mutex covers only mint-time work (load, intern, publish) — shaping happens
-/// per handle, in [`FontSession`]s over [`FontScratch`] state.
+/// per handle, in [`Shaper`]s created from engine-built [`EngineScratch`] state.
 struct FontManagerInner {
     /// Boxed: the canonical engine carries large contexts (~1–2 kB: Parley's `FontContext`
     /// + `LayoutContext`, cosmic-text's `FontSystem`).
@@ -175,7 +111,7 @@ pub struct FontManager {
     /// manager lock at every mint, read lock-free on the render path.
     published: Arc<ArcSwap<FontRegistry>>,
     /// This handle's shaping scratch state — fresh per `detached()` (see the method).
-    scratch: Arc<Mutex<FontScratch>>,
+    scratch: Arc<Mutex<Box<dyn EngineScratch>>>,
 }
 
 impl FontManager {
@@ -193,17 +129,20 @@ impl FontManager {
             kind: self.kind,
             inner: Arc::clone(&self.inner),
             published: Arc::clone(&self.published),
-            scratch: Arc::new(Mutex::new(FontScratch::new(self.kind))),
+            scratch: Arc::new(Mutex::new(self.make_scratch())),
         }
     }
 
     fn with_engine(kind: ShapingEngineKind, engine: Box<dyn ShapingEngine>) -> Self {
         let published = Arc::new(ArcSwap::from(engine.font_registry()));
+        // The scratch is mint-time work too: built under the same world the canonical
+        // engine just published, then exclusively owned by this handle.
+        let scratch = engine.new_scratch(&published.load_full());
         Self {
             kind,
             inner: Arc::new(Mutex::new(FontManagerInner { engine })),
             published,
-            scratch: Arc::new(Mutex::new(FontScratch::new(kind))),
+            scratch: Arc::new(Mutex::new(scratch)),
         }
     }
 
@@ -211,7 +150,7 @@ impl FontManager {
     pub fn system(kind: ShapingEngineKind) -> Self {
         let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Box::new(parley_engine::ParleyEngine::system()),
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::system()),
             #[cfg(feature = "cosmic-text")]
             ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::system()),
         };
@@ -222,7 +161,7 @@ impl FontManager {
     pub fn bare(kind: ShapingEngineKind) -> Self {
         let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Box::new(parley_engine::ParleyEngine::bare()),
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::bare()),
             #[cfg(feature = "cosmic-text")]
             ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::bare()),
         };
@@ -237,16 +176,16 @@ impl FontManager {
 
     /// Adds the font and returns its font ids.
     ///
-    /// Together with [`Self::session`], this is the *entire* entry surface for engine
-    /// state. The manager mutex covers only this mint-time work — sessions shape per
+    /// Together with [`Self::shaper`], this is the *entire* entry surface for engine
+    /// state. The manager mutex covers only this mint-time work — shapers shape per
     /// handle, lock-free (ADR 0006).
     ///
     /// Takes `&self`: shaping never holds the manager mutex (ADR 0006), so loading during
-    /// an open session cannot deadlock — the runtime exclusivity guarantee lives on the
-    /// session's scratch lock, not here.
+    /// an open shaper cannot deadlock — the runtime exclusivity guarantee lives on the
+    /// shaper's scratch lock, not here.
     ///
-    /// Font loading is possible at any time: parley sessions see the font through the
-    /// shared collection; cosmic sessions re-seed on their next epoch check.
+    /// Font loading is possible at any time: parley sees the font through the shared
+    /// collection; cosmic re-syncs on the next shaper's epoch check.
     pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
         let mut inner = self.inner.lock();
         let ids = inner.engine.load_font(Arc::new(font_data));
@@ -272,24 +211,33 @@ impl FontManager {
         self.published.load_full()
     }
 
-    /// Acquire a [`FontSession`] over this manager handle's shaping state.
+    /// Build a fresh engine-owned scratch for this handle (seeded from the published
+    /// world), locking the manager mutex for the mint-time construction.
+    fn make_scratch(&self) -> Box<dyn EngineScratch> {
+        self.inner
+            .lock()
+            .engine
+            .new_scratch(&self.published())
+    }
+
+    /// Acquire a [`Shaper`] over this manager handle's shaping state.
     ///
     /// Takes `&self`: exclusivity is runtime-enforced instead of compile-time (ADR 0006) —
     /// a shaper exclusively holds its handle's scratch mutex, `shaper()` acquires it with
-    /// `try_lock`, and a second session on the *same handle* panics loudly at the misuse
-    /// point rather than deadlocking on the non-reentrant mutex. Sessions on *different
+    /// `try_lock`, and a second shaper on the *same handle* panics loudly at the misuse
+    /// point rather than deadlocking on the non-reentrant mutex. Shapers on *different
     /// handles* shape in parallel.
     #[must_use]
     pub fn shaper(&self) -> Shaper<'_> {
         let mut scratch = self.scratch.try_lock().unwrap_or_else(|| {
             panic!(
-                "FontManager session reentrancy: this handle already has a session open (its \
-                 scratch mutex is held); two live sessions on one handle are unsupported"
+                "FontManager shaper reentrancy: this handle already has a shaper open (its \
+                 scratch mutex is held); two live shapers on one handle are unsupported"
             )
         });
-        // Epoch sync at session open: seed this handle's contexts on first use and, for
-        // cosmic, re-seed whenever the manager's minted world has moved (ADR 0006).
-        scratch.sync(self.kind, self, &self.published.load_full());
+        // Epoch sync at session open: the scratch seeds itself whenever the manager's
+        // minted world has moved (ADR 0006).
+        scratch.sync(&self.published.load_full());
         Shaper {
             kind: self.kind,
             manager: self,
@@ -324,33 +272,12 @@ impl FontManager {
 impl Shaper<'_> {
     /// Shape one attributed line at `font_size` through this handle's contexts.
     pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        match self.kind {
-            #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => {
-                let contexts = self.scratch.parley.as_mut()?;
-                parley_engine::shape_line(
-                    &mut contexts.font_context,
-                    &mut contexts.layout_context,
-                    request,
-                    font_size,
-                )
-            }
-            #[cfg(feature = "cosmic-text")]
-            ShapingEngineKind::CosmicText => {
-                let manager = self.manager;
-                let engine = self.scratch.cosmic.as_mut()?;
-                // Unregistered fallback faces mint through the manager (ADR 0006): the
-                // canonical engine interns the resolved font data under its lock, publishes
-                // at mint time, and returns a globally valid `FaceId`. The session's engine
-                // stays untouched — its next epoch check re-seeds from the snapshot that now
-                // carries the face.
-                engine.shape_with_resolver(request, font_size, &|seed, id, weight| {
-                    let data = seed.face_data(id)?;
-                    let _ = weight;
-                    manager.mint_face(data)
-                })
-            }
-        }
+        // Unregistered fallback faces mint through the manager (ADR 0006): the canonical
+        // engine interns the resolved font data under its lock, publishes at mint time,
+        // and returns a globally valid `FaceId`.
+        let manager = self.manager;
+        self.scratch
+            .shape(request, font_size, &mut |data| manager.mint_face(data))
     }
 
     /// Resolve concrete font data through the manager's published snapshot.
@@ -376,7 +303,7 @@ impl Shaper<'_> {
         ))
     }
 
-    /// The engine this session shapes with.
+    /// The engine this shaper shapes with.
     pub fn engine_kind(&self) -> ShapingEngineKind {
         self.kind
     }

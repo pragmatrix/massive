@@ -36,7 +36,7 @@ is exactly the owner boundary ADR names.
 
 ### The manager stops owning shaping contexts
 
-`FontManagerInner` keeps only the font-identity machinery; the engines' per-shape scratch moves out to per-task owners:
+`FontManagerInner` keeps only the font-identity machinery; the engines' per-shape scratch moves out to per-task owners. The scratch itself is engine neutral: `ShapingEngine::new_scratch` creates a handle's scratch, and an `EngineScratch` trait (`sync`, `shape`) drives it — the manager names no engine type after construction, and the per-engine seeding/sync strategies (parley's shared-collection clone, cosmic's epoch-pull) live entirely in each engine's scratch implementation (`parley_scratch.rs`, `cosmic_scratch.rs`).
 
 - **Registry mint**: the manager remains the *only* `FaceId` issuer (registration, lazy fallback interning). A `FaceId` is only meaningful within the manager that minted it — ADR 0005's consequence, now load-bearing across instances.
 - **Published registry**: unchanged (`Arc<ArcSwap<FontRegistry>>`, the one `&mut`-gate exemption). Shapers republish on drop exactly as today.

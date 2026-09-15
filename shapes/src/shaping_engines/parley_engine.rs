@@ -308,18 +308,20 @@ impl ShapingEngine for ParleyEngine {
         shape_line(font_context, layout_context, request, font_size)
     }
 
-    /// Per-session shaping contexts over this engine's shared collection (ADR 0006): a
+    /// Per-handle shaping scratch over this engine's shared collection (ADR 0006): a
     /// clone of the collection plus a fresh `LayoutContext`. A shared-mode collection
     /// clone shares the internally synchronized state, so later registrations (fonts
-    /// loaded at any time) are visible to the session via fontique's version sync.
-    fn parley_session_contexts(&self) -> Option<super::parley_engine::ParleySessionContexts> {
-        Some(ParleySessionContexts {
-            font_context: FontContext {
-                collection: self.font_context.collection.clone(),
-                source_cache: self.font_context.source_cache.clone(),
+    /// loaded at any time) are visible to the scratch via fontique's version sync.
+    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn crate::engine::EngineScratch> {
+        Box::new(super::parley_scratch::ParleyScratch::new(
+            ParleySessionContexts {
+                font_context: FontContext {
+                    collection: self.font_context.collection.clone(),
+                    source_cache: self.font_context.source_cache.clone(),
+                },
+                layout_context: LayoutContext::new(),
             },
-            layout_context: LayoutContext::new(),
-        })
+        ))
     }
 }
 
