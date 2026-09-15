@@ -81,7 +81,7 @@ impl LauncherPresenter {
         profile: LaunchProfile,
         size: Size,
         scene: &Scene,
-        font_manager: &mut FontManager,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
@@ -94,7 +94,7 @@ impl LauncherPresenter {
 
         let background = background_shape.at(&our_location).enter(scene);
 
-        let mut shaper = font_manager.shaper();
+        let mut session = font_manager.session();
         let name = profile
             .name
             // Idea: To not waste so much memory here for large fonts, may use a quality index that
@@ -107,7 +107,7 @@ impl LauncherPresenter {
             // guess. Make this independent of the font size, but dependent on what is visible (a
             // background optimizer).
             .size(32.0 * 8.0)
-            .shape(&mut shaper)
+            .shape(&mut session)
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(&our_location)
             .with_decal_order(0)

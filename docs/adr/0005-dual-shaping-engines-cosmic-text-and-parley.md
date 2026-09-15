@@ -61,24 +61,10 @@ live session), and `FaceMetricsCache` stays out of the snapshot (per-manager, se
 Planned next — per-instance sessions. The renderer being lock-free removes only
 *renderer-vs-shaper* contention; instances still serialize on the manager mutex because the
 engines are inherently mutating during shaping (cosmic's `FontSystem` owns shaping caches and
-interns on first use; Parley's contexts are single-use scratch). The follow-up, sketched here for
-future work:
-
-1. **The manager stops owning shaping contexts.** It keeps only the shared, internally
-   synchronized font database (fontique `Collection` + `SourceCache::new_shared()`, which fontique
-   designed for concurrent sharing — or cosmic's `fontdb`), the published registry, and the
-   metrics cache.
-2. **Each instance owns an engine instance**: `(FontContext, LayoutContext)` for Parley (one
-   `FontContext` per thread sharing one collection; `LayoutContext` is per-shape scratch), or a
-   full `FontSystem` per instance for cosmic (~1–2 kB + per-instance cache growth; its internals
-   are not shareable by design).
-3. **Shaping runs lock-free in parallel.** The manager mutex then covers only registration
-   (`load_font` broadcast into every instance, or an `ArcSwap` registry refresh) and the metrics
-   cache — both rare/startup-dominated. The hot path has no shared lock.
-4. **The `&mut` gate survives per instance**: the engine instance gets the same compile-time
-   gate treatment the manager has now (session-style `&mut` on the instance's shaping state);
-   cross-instance contention disappears because there is nothing shared left in the hot path.
-
-Costs to weigh when picked up: per-instance memory (trivial for Parley, larger for cosmic),
-registration broadcast semantics, and `FaceId` stability if registries swap mid-run (key by
-content or refresh snapshots atomically during instance startup).
+interns on first use; Parley's contexts are single-use scratch). This follow-up has been
+designed and accepted in [ADR 0006 — per-instance shaping sessions](0006-per-instance-shaping-sessions.md),
+which supersedes the sketch that was here: sessions everywhere (one API, `shaper()` renamed
+to `session()`), per-task shaping contexts, a fontique *shared-mode collection* for parley
+(no broadcast needed — font loading is possible at any time), and an *epoch-pull* pattern
+for cosmic's per-instance `FontSystem`. The manager keeps minting `FaceId`s and publishing
+the registry; metrics join the published snapshot.

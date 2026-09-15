@@ -22,7 +22,7 @@ use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{Shape, Shaper, ShapingEngineKind};
+use massive_shapes::{FontSession, Shape, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
@@ -70,7 +70,7 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    let mut fonts =
+    let fonts =
         FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
 
     // Window
@@ -79,7 +79,11 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let window = ctx.new_window((size.width, size.height)).await?;
     let view_id = window.view_id();
 
-    let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(fonts.detached())
+        .build()
+        .await?;
 
     let scene = ctx.new_scene();
     let mut logs = Logs::new(&scene, ctx.movement_runtime(), fonts);
@@ -212,8 +216,8 @@ impl Logs {
     }
 
     fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
-        let mut shaper = self.fonts.shaper();
-        let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
+        let mut session = self.fonts.session();
+        let (glyph_runs, height) = shape_log_line(&mut session, bytes, self.next_line_top);
 
         let glyph_runs: Vec<Shape> = glyph_runs
             .into_iter()
@@ -375,7 +379,7 @@ struct LayoutMovement {
 const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
-    shaper: &mut Shaper<'_>,
+    session: &mut FontSession<'_>,
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {
@@ -395,7 +399,7 @@ fn shape_log_line(
     let font_size = 32.;
 
     let (runs, height) = attributed_text::shape_text(
-        shaper,
+        session,
         &text,
         &attributes,
         font_size,

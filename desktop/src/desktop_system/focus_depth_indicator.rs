@@ -40,7 +40,7 @@ pub struct FocusDepthIndicatorPresenter {
 impl FocusDepthIndicatorPresenter {
     pub fn new(
         scene: &Scene,
-        font_manager: &mut FontManager,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (badges, size) = FocusDepthIndicatorMovement::create_badges(font_manager);
@@ -108,13 +108,13 @@ impl FocusDepthIndicatorMovement {
     }
 
     fn create_badges(
-        font_manager: &mut FontManager,
+        font_manager: &FontManager,
     ) -> ([FocusDepthBadge; FOCUS_DEPTH_LABELS.len()], SizePx) {
-        let mut shaper = font_manager.shaper();
+        let mut session = font_manager.session();
         let glyph_runs = FOCUS_DEPTH_LABELS.map(|(_, label)| {
             label
                 .size(FONT_SIZE)
-                .shape(&mut shaper)
+                .shape(&mut session)
                 .expect("FocusDepth labels must produce glyphs")
         });
         let (horizontal_padding, vertical_padding) = PADDING;

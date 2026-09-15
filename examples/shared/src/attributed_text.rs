@@ -12,7 +12,7 @@ use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use massive_geometry::{Color, Vector3};
 
 use massive_shapes::{
-    GlyphRun, ShapedRun, Shaper, ShapingRequest, TextAttributes, TextFamily, TextWeight,
+    FontSession, GlyphRun, ShapedRun, ShapingRequest, TextAttributes, TextFamily, TextWeight,
     shaped_run_to_glyph_run,
 };
 
@@ -37,7 +37,7 @@ pub struct TextAttribute {
 /// attribute ranges are re-based locally, and each shaped run is translated down by `line_height`
 /// per line index. The returned height covers all lines.
 pub fn shape_text(
-    shaper: &mut Shaper<'_>,
+    session: &mut FontSession<'_>,
     text: &str,
     attributes: &[TextAttribute],
     font_size: f32,
@@ -81,7 +81,7 @@ pub fn shape_text(
 
         let line_top = index as f64 * line_height as f64;
         let line_translation = translation + Vector3::new(0., line_top, 0.);
-        if let Some(run) = shaper.shape(&request, font_size) {
+        if let Some(run) = session.shape(&request, font_size) {
             runs.extend(attribute_runs(
                 &run,
                 &request.ranges,
@@ -209,8 +209,8 @@ mod tests {
     /// Every attribute segment must reach its runs as their `text_color`/`text_weight`.
     #[test]
     fn shape_text_splits_runs_per_attribute() {
-        let mut fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
-        let mut shaper = fonts.shaper();
+        let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
+        let mut session = fonts.session();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let attributes = vec![
@@ -225,7 +225,7 @@ mod tests {
                 weight: TextWeight::BOLD,
             },
         ];
-        let (runs, _) = shape_text(&mut shaper, "abcd", &attributes, 32., 40., None);
+        let (runs, _) = shape_text(&mut session, "abcd", &attributes, 32., 40., None);
 
         assert_eq!(runs.len(), 2, "one run per attribute segment");
         assert_eq!(runs[0].text_color, red);
@@ -238,8 +238,8 @@ mod tests {
     /// attributes and group into their own default-colored run.
     #[test]
     fn shape_text_default_run_between_ranges() {
-        let mut fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
-        let mut shaper = fonts.shaper();
+        let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
+        let mut session = fonts.session();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let blue = Color::rgb(0.0, 0.0, 1.0);
@@ -255,7 +255,7 @@ mod tests {
                 weight: TextWeight::BOLD,
             },
         ];
-        let (runs, _) = shape_text(&mut shaper, "abcd", &attributes, 32., 40., None);
+        let (runs, _) = shape_text(&mut session, "abcd", &attributes, 32., 40., None);
 
         // One run per attribute segment, and the gap carries the defaults.
         assert_eq!(runs.len(), 3, "red | default gap | blue");

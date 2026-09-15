@@ -30,7 +30,7 @@ impl ProjectPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_manager: &mut FontManager,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()
@@ -75,7 +75,7 @@ impl ProjectHeaderPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_manager: &mut FontManager,
+        font_manager: &FontManager,
         movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()
@@ -83,11 +83,11 @@ impl ProjectHeaderPresenter {
             .enter(scene);
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
-        let mut shaper = font_manager.shaper();
+        let mut session = font_manager.session();
         let header_run = properties
             .name
             .size(PROJECT_HEADER_FONT_SIZE)
-            .shape(&mut shaper);
+            .shape(&mut session);
         let measured_size = header_run
             .as_ref()
             .map_or(SizePx::default(), |run| run.metrics.size());

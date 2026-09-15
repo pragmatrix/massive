@@ -249,7 +249,7 @@ impl Aggregates {
 impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
-        mut fonts: FontManager,
+        fonts: FontManager,
         default_panel_size: SizePx,
         scene: &Scene,
         movement_runtime: &mut MovementRuntime,
@@ -260,7 +260,7 @@ impl DesktopSystem {
 
         let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
         let focus_depth_indicator =
-            FocusDepthIndicatorPresenter::new(scene, &mut fonts, movement_runtime);
+            FocusDepthIndicatorPresenter::new(scene, &fonts, movement_runtime);
 
         let event_router = EventRouter::new();
 

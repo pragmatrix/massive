@@ -87,7 +87,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut renderer = window
         .renderer()
-        .with_text(bridge.font_manager().clone())
+        .with_text(bridge.font_manager().detached())
         .build()
         .await?;
 

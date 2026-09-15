@@ -10,7 +10,21 @@ use massive_util::ChangeSet;
 
 use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId, ViewRole};
 
-#[derive(Debug, Clone)]
+impl Clone for InstanceEnvironment {
+    fn clone(&self) -> Self {
+        Self {
+            submission_sender: self.submission_sender.clone(),
+            primary_monitor_scale_factor: self.primary_monitor_scale_factor,
+            font_manager: self.font_manager.detached(),
+            parameters: self.parameters.clone(),
+        }
+    }
+}
+
+/// Manual `Clone`: every clone is handed to a newly spawned instance, which must shape
+/// independently of every other instance — hence the detached font handle (ADR 0006)
+/// rather than a shared one, which a derive would have handed out.
+#[derive(Debug)]
 pub struct InstanceEnvironment {
     pub(crate) submission_sender: UnboundedSender<(InstanceId, InstanceSubmission)>,
     // Robustness: This might change on runtime.
