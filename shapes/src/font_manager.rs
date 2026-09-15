@@ -662,7 +662,7 @@ mod tests {
 
             // Compare the `B` cluster's face and geometry: with the override honored, the
             // range shapes with the same face and origin as the all-Amiri run.
-            fn cluster_for<'a, K: std::fmt::Debug>(
+            fn cluster_for<'a, K: fmt::Debug>(
                 kind: &K,
                 run: &'a ShapedRun,
                 byte: usize,

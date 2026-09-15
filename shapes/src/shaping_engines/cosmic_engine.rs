@@ -5,17 +5,24 @@
 //! shaped glyphs into the engine-neutral model. `ShapeGlyph` advances/offsets/ascent are
 //! em-relative (cosmic-text divides by the font scale at shape time), so the engine multiplies
 //! by the requested `font_size` to get pixels.
+//!
+//! Default locale: cosmic-text derives its locale from the environment (`FontSystem::new`);
+//! engines seeded from a prepared `fontdb` clone (`seed_font_system`, `bare()`) must construct
+//! the `FontSystem` explicitly, so they mirror cosmic-text's std default `"en-US"` instead of
+//! re-reading the private `FontSystem::get_locale` (private as of cosmic-text 0.19).
 
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 
 use cosmic_text::{Attrs, AttrsList, BufferLine, FontSystem, LineEnding, Shaping, Weight};
 use fontdb::Source;
 
 use crate::engine::{
-    FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine,
-    ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily,
+    EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
+    ShapingEngine, ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily,
 };
+use crate::shaping_engines::cosmic_scratch::CosmicScratch;
 use crate::{FaceId, TextWeight};
 
 /// The cosmic-text-backed [`ShapingEngine`].
@@ -85,7 +92,7 @@ impl CosmicTextEngine {
     /// Seed constructor over a clone of the candidate pool (pure in-memory copy — never
     /// rescans); the locale mirrors cosmic-text's std default.
     fn seed_font_system(candidate_pool: &Arc<fontdb::Database>) -> FontSystem {
-        // `FontSystem::get_locale` is private cosmi 0.19; mirror its std default here.
+        // Mirrors cosmic-text's std default (see the module doc for why it is re-declared).
         let locale = "en-US".to_string();
         FontSystem::new_with_locale_and_db(locale, (**candidate_pool).clone())
     }
@@ -156,8 +163,8 @@ struct CosmicFace {
     data_index: u32,
 }
 
-impl std::fmt::Debug for CosmicTextEngine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for CosmicTextEngine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("CosmicTextEngine")
             .field("font_count", &self.faces.len())
             .finish_non_exhaustive()
@@ -251,10 +258,8 @@ impl ShapingEngine for CosmicTextEngine {
     /// in-memory copy, so the full system catalog is never scanned more than once per
     /// manager family — see `system()`; empty for `bare()`, keeping those shapers
     /// registry-only).
-    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn crate::engine::EngineScratch> {
-        Box::new(super::cosmic_scratch::CosmicScratch::new(Arc::clone(
-            self.candidate_pool(),
-        )))
+    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn EngineScratch> {
+        Box::new(CosmicScratch::new(Arc::clone(self.candidate_pool())))
     }
 
     fn resolve_face(&mut self, data: FontData) -> Option<FaceId> {
@@ -276,10 +281,10 @@ impl ShapingEngine for CosmicTextEngine {
         }) {
             return Some(Self::face_id(index));
         }
-        // The id here is registration-order sequential; the caller's data must already be globally
-        // unambiguous — see `face_data` read in the session resolver.
-        let registered = self.register(data.data)[0];
-        Some(registered)
+        let data_index = data.index;
+        self.register(data.data)
+            .into_iter()
+            .find(|id| self.faces[id.payload() as usize].data_index == data_index)
     }
 }
 

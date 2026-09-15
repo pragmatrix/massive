@@ -11,7 +11,7 @@ use crate::shaping_engines::parley_engine::{self, ParleySessionContexts};
 /// is a no-op afterwards — the shared-mode collection self-syncs (fontique's version
 /// counter), so fonts loaded at any time are visible to the next layout without re-seeding.
 pub struct ParleyScratch {
-    contexts: Option<ParleySessionContexts>,
+    contexts: ParleySessionContexts,
 }
 
 impl EngineScratch for ParleyScratch {
@@ -26,7 +26,7 @@ impl EngineScratch for ParleyScratch {
         font_size: f32,
         _resolve_face: &mut dyn FnMut(FontData) -> Option<FaceId>,
     ) -> Option<ShapedRun> {
-        let contexts = self.contexts.as_mut()?;
+        let contexts = &mut self.contexts;
         parley_engine::shape_line(
             &mut contexts.font_context,
             &mut contexts.layout_context,
@@ -39,8 +39,6 @@ impl EngineScratch for ParleyScratch {
 impl ParleyScratch {
     /// A scratch over freshly cloned session contexts (the engine's shared world).
     pub(crate) fn new(contexts: ParleySessionContexts) -> Self {
-        Self {
-            contexts: Some(contexts),
-        }
+        Self { contexts }
     }
 }

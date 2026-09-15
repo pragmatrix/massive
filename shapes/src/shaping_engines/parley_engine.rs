@@ -12,9 +12,10 @@ use parley::{
 };
 
 use crate::engine::{
-    FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine,
-    ShapingEngineKind, ShapingRequest, covering_metadata,
+    EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
+    ShapingEngine, ShapingEngineKind, ShapingRequest, covering_metadata,
 };
+use crate::shaping_engines::parley_scratch::ParleyScratch;
 use crate::{FaceId, TextFamily, TextWeight};
 
 /// Default Parley brush type (RGBA bytes). Callers overwrite color via `GlyphRun::with_color`.
@@ -46,7 +47,7 @@ pub struct ParleyEngine {
 }
 
 impl fmt::Debug for ParleyEngine {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ParleyEngine")
             .field("font_count", &self.fonts.len())
             .finish_non_exhaustive()
@@ -312,16 +313,14 @@ impl ShapingEngine for ParleyEngine {
     /// clone of the collection plus a fresh `LayoutContext`. A shared-mode collection
     /// clone shares the internally synchronized state, so later registrations (fonts
     /// loaded at any time) are visible to the scratch via fontique's version sync.
-    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn crate::engine::EngineScratch> {
-        Box::new(super::parley_scratch::ParleyScratch::new(
-            ParleySessionContexts {
-                font_context: FontContext {
-                    collection: self.font_context.collection.clone(),
-                    source_cache: self.font_context.source_cache.clone(),
-                },
-                layout_context: LayoutContext::new(),
+    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn EngineScratch> {
+        Box::new(ParleyScratch::new(ParleySessionContexts {
+            font_context: FontContext {
+                collection: self.font_context.collection.clone(),
+                source_cache: self.font_context.source_cache.clone(),
             },
-        ))
+            layout_context: LayoutContext::new(),
+        }))
     }
 }
 
