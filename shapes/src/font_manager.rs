@@ -839,17 +839,9 @@ mod tests {
     /// indicators — shaped against a monospace fixture that covers none of them, forcing
     /// `.notdef` / fallback paths on every engine.
     ///
-    /// CONFIRMED, ignored until resolved (like the RTL probe): Parley really does emit
-    /// the zero-glyph cluster — with the Jetbrains Mono fixture, `"a\u{200D}b"` shapes to
-    /// a cluster covering bytes 1..4 (the lone ZWJ) with an empty `glyph_range`, so
-    /// `cluster_glyphs(cluster)[0]` in `view.rs` panics on that input. The engine contract
-    /// must gain "clusters are never empty" (engines skip zero-glyph clusters) or consumers
-    /// must guard `is_empty`.
-    ///
-    /// Run manually: `cargo test -p massive-shapes --lib
-    /// clusters_never_have_empty_glyph_ranges -- --include-ignored --nocapture`.
+    /// Parley skips zero-glyph clusters, including a lone ZWJ in `"a\u{200D}b"`, preserving
+    /// the engine contract that lets consumers safely resolve a cluster's first glyph.
     #[test]
-    #[ignore = "confirmed bug: Parley emits zero-glyph clusters (lone ZWJ); see doc comment"]
     fn clusters_never_have_empty_glyph_ranges() {
         let cases = [
             "\u{0301}",   // lone combining acute, no base
