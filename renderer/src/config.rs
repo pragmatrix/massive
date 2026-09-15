@@ -8,7 +8,7 @@ use massive_geometry::Color;
 use massive_shapes::Shape;
 
 use crate::{
-    FontManager,
+    FontRegistrySource,
     renderer::{PreparationContext, RenderBatch},
     shape_renderer::{self, ShapeRenderer},
     text_layer::TextLayerRenderer,
@@ -38,7 +38,7 @@ impl RendererConfig {
 
     pub fn with_default_batch_producers(
         device: &wgpu::Device,
-        fonts: FontManager,
+        fonts: FontRegistrySource,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
         let mut config = Self::new(surface_format);

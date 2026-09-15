@@ -3,34 +3,34 @@
 //! These examples use the vendored `inlyne` crate for layout/positioning (which needs its own
 //! cosmic-text `FontSystem` for measuring). Cosmic-text remains a dependency here only for that
 //! layout pipeline; the final glyphs are converted to [`massive_shapes::GlyphRun`] so the renderer
-//! data path stays on the Parley-based text pipeline.
+//! data path stays on the engine-neutral text pipeline (ADR 0005).
 //!
 //! [`FontBridge`] converts cosmic-text's own glyph coordinates into [`GlyphRun`]s, mapping each
-//! cosmic-text `fontdb::ID` to the Parley [`FaceId`] for the same face. This avoids re-shaping the
-//! text through Parley (which could diverge from cosmic-text's layout) and keeps the renderer's
-//! rasterization path on Parley's font registry.
+//! cosmic-text `fontdb::ID` to the [`FaceId`] of the same face in the manager's engine. This
+//! avoids re-shaping the text (which could diverge from cosmic-text's layout) and keeps the
+//! renderer's rasterization path on the engine's font registry.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cosmic_text::fontdb;
-use parley::FontData;
 use swash::FontRef;
 
 use massive_geometry::{Color, Vector3};
 use massive_shapes::ClipBoxPx;
-use massive_shapes::{FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
+use massive_shapes::ShapingEngineKind;
+use massive_shapes::{FaceId, FontData, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
-/// Bridges cosmic-text's font database to Parley's, so cosmic-text glyphs can be converted to
-/// [`GlyphRun`]s that rasterize through Parley.
+/// Bridges cosmic-text's font database to the shaping engine behind a [`massive_shapes::FontManager`],
+/// so cosmic-text glyphs can be converted to [`GlyphRun`]s that rasterize through that engine.
 ///
-/// Owns the Parley [`FontManager`] and the cosmic-text `fontdb::Database`, plus a map from each
-/// `fontdb::ID` to the Parley [`FaceId`] for the same face. The map is built at construction time
+/// Owns the manager and the cosmic-text `fontdb::Database`, plus a map from each
+/// `fontdb::ID` to the engine [`FaceId`] for the same face. The map is built at construction time
 /// by registering the same font bytes into both databases and pairing faces by index.
 pub struct FontBridge {
     font_manager: massive_shapes::FontManager,
     font_db: fontdb::Database,
-    /// Maps a cosmic-text `fontdb::ID` to the Parley [`FaceId`] for the same face.
+    /// Maps a cosmic-text `fontdb::ID` to the engine [`FaceId`] for the same face.
     face_ids: HashMap<fontdb::ID, FaceId>,
 }
 
@@ -38,15 +38,16 @@ impl FontBridge {
     /// Build a bridge over the system fonts, registering every system face into both databases.
     ///
     /// Enumerates the system fonts from a fresh `fontdb::Database`, registers each face's bytes
-    /// into a bare Parley [`FontManager`], and pairs each `fontdb::ID` with the Parley [`FaceId`]
+    /// into a bare engine manager, and pairs each `fontdb::ID` with the engine [`FaceId`]
     /// for the same face. This keeps the two databases in sync so any font cosmic-text selects
-    /// (including emoji fallbacks) resolves to a Parley [`FaceId`] for rasterization.
+    /// (including emoji fallbacks) resolves to a [`FaceId`] for rasterization.
     pub fn system() -> Self {
         let mut font_db = fontdb::Database::new();
         font_db.load_system_fonts();
-        let font_manager = massive_shapes::FontManager::bare();
+        // Cosmic-text matches inlyne's FontSystem, which does the measuring for these examples.
+        let font_manager = massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText);
 
-        // Register each system face into Parley and record the fontdb::ID -> FaceId pairing.
+        // Register each system face into the engine and record the fontdb::ID -> FaceId pairing.
         // Deduplicate by (path, index) so a face shared across families is registered once.
         let mut face_ids = HashMap::new();
         let mut seen = HashSet::new();
@@ -61,8 +62,9 @@ impl FontBridge {
             let Ok(bytes) = std::fs::read(&path) else {
                 continue;
             };
-            let parley_ids = font_manager.load_font(bytes);
-            if let Some(face_id) = parley_ids.iter().find(|id| id.index() == index).copied() {
+            let engine_ids = font_manager.load_font(bytes);
+            // load_font returns one id per face in file order; pick the face at `index`.
+            if let Some(face_id) = engine_ids.get(index as usize).copied() {
                 face_ids.insert(face.id, face_id);
             }
         }
@@ -83,7 +85,7 @@ impl FontBridge {
         mut font_db: fontdb::Database,
         font_bytes: Arc<[u8]>,
     ) -> Self {
-        let parley_ids = font_manager.load_font(font_bytes.clone());
+        let engine_ids = font_manager.load_font(font_bytes.clone());
         // fontdb's `Source::Binary` needs a trait-object Arc; clone the bytes into a `Vec` so the
         // two databases each hold their own reference to the same data.
         let fontdb_source = fontdb::Source::Binary(
@@ -93,7 +95,7 @@ impl FontBridge {
         let mut face_ids = HashMap::new();
         for fontdb_id in fontdb_ids {
             let index = font_db.face(fontdb_id).map(|f| f.index).unwrap_or(0);
-            if let Some(face_id) = parley_ids.iter().find(|id| id.index() == index).copied() {
+            if let Some(face_id) = engine_ids.get(index as usize).copied() {
                 face_ids.insert(fontdb_id, face_id);
             }
         }
@@ -104,7 +106,7 @@ impl FontBridge {
         }
     }
 
-    /// The Parley font manager, for the renderer's rasterization path.
+    /// The font manager, for the renderer's rasterization path.
     pub fn font_manager(&self) -> &massive_shapes::FontManager {
         &self.font_manager
     }
@@ -175,6 +177,7 @@ impl FontBridge {
             metrics,
             Color::BLACK,
             weight,
+            self.font_manager.engine_kind(),
             glyphs,
         ))
     }
@@ -188,6 +191,7 @@ impl FontBridge {
     ) -> GlyphRunMetrics {
         let (ascent, descent) = self
             .font_manager
+            .published()
             .font_data(face_id)
             .and_then(|font| font_metrics(&font, font_size))
             .unwrap_or((0.0, 0.0));
@@ -197,7 +201,7 @@ impl FontBridge {
 
 /// Pixel ascent/descent of a font at `font_size`, from its swash metrics.
 fn font_metrics(font: &FontData, font_size: f32) -> Option<(f32, f32)> {
-    let font_ref = FontRef::from_index(font.data.as_ref(), font.index as usize)?;
+    let font_ref = FontRef::from_index(font.data.as_ref().as_ref(), font.index as usize)?;
     let metrics = font_ref.metrics(&[]);
     let units = metrics.units_per_em as f32;
     Some((
@@ -220,7 +224,7 @@ mod tests {
     #[test]
     fn cosmic_run_positions_are_baseline_relative_and_monotonic() {
         let bridge = FontBridge::new(
-            massive_shapes::FontManager::bare(),
+            massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText),
             fontdb::Database::new(),
             Arc::from(MONTSERRAT),
         );

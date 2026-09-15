@@ -9,9 +9,8 @@ use swash::zeno::Placement;
 use wgpu::Device;
 
 use massive_geometry::{Point, Vector3};
-use massive_shapes::{GlyphRun, RunGlyph};
+use massive_shapes::{FontRegistry, FontRegistrySource, GlyphRun, RunGlyph};
 
-use crate::FontManager;
 use crate::glyph::glyph_rasterization::{RasterizedGlyphKey, rasterize_glyph_with_padding};
 use crate::glyph::{GlyphRasterizationParam, SwashRasterizationParam, glyph_atlas};
 
@@ -21,11 +20,10 @@ use crate::text_layer::{color_atlas, sdf_atlas};
 use crate::tools::PipelineVariant;
 
 pub struct TextLayerRenderer {
-    // Optimization: This is used for `FontSystem::get_font()` only, which needs &mut. In the long
-    // run, completely put the character renderer off-thread and run the rasterizers completely
-    // parallel (tokio is probably fine, too). This is needed as soon we need asynchronous
-    // optimization of rendered resolutions to match the pixel density.
-    fonts: FontManager,
+    // The published-registry snapshot source: render-only (ADR 0006). Rasterization
+    // resolves faces lock-free through the latest-published snapshot and never shapes, so
+    // this carries no mint authority and no shaping scratch.
+    fonts: FontRegistrySource,
     // Font cache and scratch buffers for the rasterizer.
     //
     // TODO: May make the Rasterizer a thing and put it in there alongside with its functions. This
@@ -60,7 +58,11 @@ enum AtlasKind {
 }
 
 impl TextLayerRenderer {
-    pub fn new(device: &Device, fonts: FontManager, target_format: wgpu::TextureFormat) -> Self {
+    pub fn new(
+        device: &Device,
+        fonts: FontRegistrySource,
+        target_format: wgpu::TextureFormat,
+    ) -> Self {
         Self {
             scale_context: ScaleContext::default(),
             fonts,
@@ -96,13 +98,20 @@ impl TextLayerRenderer {
         let mut sdf_glyphs = Vec::new();
         let mut color_glyphs = Vec::new();
 
-        let fonts = self.fonts.clone();
+        let manager_engine = self.fonts.engine_kind();
+        // Lock-free: the rasterization path resolves faces through the published registry
+        // snapshot, never through a shaper session — rendering never contends with shaping.
+        let registry = self.fonts.registry();
 
         for run in runs {
+            debug_assert_eq!(
+                run.shaping_engine, manager_engine,
+                "GlyphRun shaped by a different engine than this renderer's font manager"
+            );
             let translation = run.translation;
             for glyph in &run.glyphs {
                 let Some((rect, placement, kind)) = self.rasterized_glyph_atlas_rect(
-                    context, &fonts, // run.text_weight,
+                    context, &registry, // run.text_weight,
                     glyph,
                 )?
                 else {
@@ -142,7 +151,7 @@ impl TextLayerRenderer {
     fn rasterized_glyph_atlas_rect(
         &mut self,
         context: &PreparationContext,
-        fonts: &FontManager,
+        registry: &FontRegistry,
         glyph: &RunGlyph,
     ) -> Result<Option<(glyph_atlas::Rectangle, Placement, AtlasKind)>> {
         let glyph_key = RasterizedGlyphKey {
@@ -168,8 +177,11 @@ impl TextLayerRenderer {
 
         // Not yet in an atlas and not empty. Now rasterize.
 
-        // Resolve the concrete font for this glyph's key.
-        let Some(font) = fonts.font_data(glyph_key.glyph.face_id) else {
+        // Resolve the concrete font for this glyph's key from the lock-free registry snapshot.
+        // A miss means the face was neither loaded nor interned when the snapshot was taken:
+        // snapshots are refreshed at every registry mutation (load_font, session drop), so
+        // this is a real bug, not a transient state.
+        let Some(font) = registry.font_data(glyph_key.glyph.face_id) else {
             log::warn!("did not find font {:?}", glyph_key.glyph.face_id);
             self.empty_glyphs.insert(glyph_key);
             return Ok(None);

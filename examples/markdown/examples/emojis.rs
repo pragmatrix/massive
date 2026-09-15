@@ -63,7 +63,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut renderer = window
         .renderer()
-        .with_text(bridge.font_manager().clone())
+        .with_text(bridge.font_manager().registry_source())
         .build()
         .await?;
 

@@ -1,6 +1,6 @@
 # Massive Desktop Interaction Context
 
-This context defines the interaction and presentation language for desktop instance layout and visibility behavior. It exists to keep behavior terms consistent across layout, hit testing, and rendering discussions.
+This context defines the interaction and presentation language for desktop instance layout and visibility behavior. It exists to keep behavior terms consistent across layout, hit testing, text shaping, and rendering discussions.
 
 ## Language
 
@@ -71,3 +71,36 @@ _Avoid_: parked z, offscreen depth
 **Visibility-gated hit testing**:
 The rule that invisible placements are excluded from hit-testing immediately, independent of in-flight fade animation.
 _Avoid_: alpha-threshold hit test, delayed interaction disable
+
+**Shaping engine**:
+The selectable implementation that shapes attributed text into glyph runs for rendering. Either `Parley` (default) or `CosmicText`, both behind one shaping contract producing the same neutral glyph data.
+_Avoid_: font system, shaper backend, text layout engine
+
+## Font identity language
+
+**Loaded face**:
+A font face registered because the application explicitly passed its bytes to `FontManager::load_font`. The client-directed way a face enters the identity world.
+_Avoid_: registered face
+
+**Resolved face**:
+A font face the shaper selected while shaping (typically as a fallback for a codepoint the requested family lacks) that was not loaded beforehand. It is registered on first use through the face authority and published immediately.
+_Avoid_: minted face, minted font, interned face, interning (collides with string interning), lazy intern, adopted face
+
+**Face authority**:
+The single issuer of `FaceId`s — the canonical shaping engine behind the `FontManager` mutex. All loaded and resolved faces enter the identity world through it.
+_Avoid_: mint authority
+
+**Candidate pool**:
+Faces available to the shaper for implicit selection (system fonts when the manager is created with `system()`) that are not in the identity world. A candidate pool face exists only for selection; it joins the published world only once actually resolved.
+_Avoid_: system font db, fallback fonts (as a synonym for the pool)
+
+**Published registry**:
+The immutable snapshot mapping every known `FaceId` (loaded and resolved faces) to font data and metrics, read lock-free by the renderer and by session resolution.
+_Avoid_: font registry (ambiguous with the candidate pool), minted registry
+
+**Registry sync**:
+The per-session-open step where a scratch compares the published registry's face count against its last-seen count and loads faces it has not seen yet. Keeps per-handle shapers aligned with the identity world without locking.
+_Avoid_: epoch sync, epoch-pull, seed
+
+**Session**:
+One acquisition of a handle's exclusive shaper: registry snapshot + scratch, opened by `FontManager::shaper` and dropped before the frame's output is submitted.

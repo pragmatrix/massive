@@ -49,13 +49,18 @@ massive-shell = { path = "shell" }
 massive-util = { path = "util" }
 
 anyhow = "1.0.71"
+# Lock-free publish: FontManager's font registry is swapped atomically on load_font and read
+# via Arc copies on the render path, so rasterization never takes the manager's mutex.
+arc-swap = "1.9.2"
 approx = "0.5.1"
 bitflags = "2.9.1"
 bytemuck = { version = "1.13.1", features = ["derive"] }
 chrono = "0.4.38"
 # The core text path is Parley-based; cosmic-text remains only for the vendored `inlyne`
 # (examples/markdown) layout pipeline.
-cosmic-text = { version = "0.19.0", features = ["swash"] }
+# shape-run-cache caches whole shaped runs keyed by (text, attrs, spans): shapes re-run
+# identical text across frames, so without it harfbuzz re-runs per frame.
+cosmic-text = { version = "0.19.0", features = ["swash", "shape-run-cache"] }
 derive_more = { version = "2.0.1", features = ["full"] }
 parley = "0.11"
 env_logger = "0.11.3"

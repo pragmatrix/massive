@@ -1,85 +1,177 @@
-use std::collections::HashMap;
+//! The font manager: one font-identity authority plus per-handle shaping sessions.
+//!
+//! [`FontManager`] owns the face-identity machinery (ADR 0006): the manager mutex covers
+//! only font loading and session-path face resolution — the only work that must be serialized,
+//! because it registers [`FaceId`]s and publishes the registry (with metrics). Shaping runs in
+//! sessions over per-handle scratch state: every detached [`FontManager`] handle (each
+//! instance task, the desktop, the renderer's manager) holds its own shape-ready scratch
+//! ([`EngineScratch`], created by its engine) and shapes without contending with other
+//! handles (see [`FontManager::detached`]).
+//!
+//! ## Engine neutrality
+//!
+//! After construction the manager names no engine type: engines create their scratch via
+//! [`ShapingEngine::new_scratch`], keep it registry-synced via [`EngineScratch::sync`], and
+//! shape through [`EngineScratch::shape`]. Fonts loaded at any time are visible on the next
+//! session: parley's shared collection self-syncs (fontique version sync), cosmic re-pulls
+//! the published snapshot when its face count moved (registry sync). The one engine touch
+//! point left here is the construction match in [`FontManager::system`] / [`FontManager::bare`].
+//!
+//! ## Shaper exclusivity without borrow-gating
+//!
+//! Both entry points ([`FontManager::load_font`], [`FontManager::shaper`]) take `&self`:
+//! shaping never touches the manager mutex, so no compile-time borrow gate is needed.
+//! Exclusivity is enforced at runtime instead: a shaper exclusively holds
+//! its handle's scratch mutex, and `shaper()` acquires it with `try_lock`, so two shapers
+//! on one handle panic loudly at the misuse point instead of deadlocking. Shapers on
+//! different handles shape in parallel — that is the point (ADR 0006); the manager mutex is
+//! untouched by shaping.
+//!
+//! A shaper must not outlive the frame cycle it shaped for: `update_lines`-style call
+//! sites hold one shaper per frame and drop it before anything the frame produced is
+//! submitted — the ordering the renderer's freshness contract rests on.
+//!
+//! ## The published registry (with metrics)
+//!
+//! `FaceId` → font-data plus per-face swash [`FaceMetrics`] are published as an immutable
+//! `Arc` snapshot ([`FontManager::published`]), read lock-free on the render and
+//! lock-free on the render and glyph-placement paths. Every registration — `load_font`, and
+//! face resolution from inside a shaper — republishes under the manager lock at registration
+//! time, so a published snapshot never lags the known face world, and in-session resolution
+//! ([`Shaper::font_data`]) is a plain lock-free map read.
+
+use std::fmt;
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use parking_lot::{Mutex, MutexGuard};
-use parley::fontique::{Blob, Collection, CollectionOptions, FamilyId, GenericFamily, SourceCache};
-use parley::{FontContext, FontData, LayoutContext};
 
-use crate::{FaceId, GlyphBrush};
+use crate::engine::{
+    EngineScratch, FontData, FontRegistry, ShapedRun, ShapingEngine, ShapingEngineKind,
+    ShapingRequest,
+};
+use crate::face_metrics::FaceMetrics;
+#[cfg(feature = "cosmic-text")]
+use crate::shaping_engines::CosmicTextEngine;
+#[cfg(feature = "parley")]
+use crate::shaping_engines::ParleyEngine;
+use crate::{FaceId, GlyphRun};
 
-pub use parley::FontWeight;
-
-/// A font manager backed by Parley's [`FontContext`].
+/// A shaper over one [`FontManager`] handle.
 ///
-/// Owns the Parley font database plus a registry of [`parley::FontData`] entries keyed by
-/// [`FaceId`] (the `Blob` unique id plus the face index). A [`FaceId`] is derived straight from a
-/// shaped run's font, so shaping needs no lookup; rasterization resolves a [`FaceId`] back to
-/// concrete font data in O(1).
-#[derive(Clone)]
-pub struct FontManager(Arc<Mutex<FontManagerInner>>);
+/// Created by [`FontManager::shaper`] — the *only* shaping entry point; instance,
+/// application, and desktop code all use it the same way (ADR 0006). The shaper borrows
+/// the manager handle and shapes through this handle's own scratch, lock-free
+/// against other handles' shapers.
+///
+/// Faces a shaper resolves (fallback picks reaching the face authority) are published at
+/// registration time, under the manager lock — the published snapshot a concurrently
+/// submitted frame reads is always complete (see module doc).
+pub struct Shaper<'a> {
+    /// The manager's engine kind, fixed at construction; read without a lock.
+    kind: ShapingEngineKind,
+    /// This manager handle: the face authority (single `FaceId` issuer) and publication
+    /// owner.
+    manager: &'a FontManager,
+    /// This handle's shape-ready scratch, registry-synced at session open.
+    scratch: MutexGuard<'a, Box<dyn EngineScratch>>,
+    /// The registry snapshot for this session: faces and metrics for lock-free placement
+    /// resolution. Captured at session open and refreshed after each `shape` — faces
+    /// resolved *during* this session (republished to the manager's latest snapshot at
+    /// registration time) become visible here on the next read, so `metrics` never misses
+    /// a face this session itself shaped with (see [`Self::metrics`]).
+    registry: Arc<FontRegistry>,
+}
 
-impl std::fmt::Debug for FontManager {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let inner = self.0.lock();
+impl fmt::Debug for FontManager {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("FontManager")
-            .field("font_count", &inner.fonts.len())
+            .field("engine", &self.kind)
             .finish_non_exhaustive()
     }
 }
 
-struct FontManagerInner {
-    font_context: FontContext,
-    layout_context: LayoutContext<GlyphBrush>,
-    /// Concrete fonts keyed by [`FaceId`]. Populated by `rebuild_fonts` to include every font the
-    /// collection may select (including system fallbacks like emoji), so rasterization can resolve
-    /// any glyph's `FaceId` to font data. The key must include the face index because a single
-    /// file may hold several faces that share one `Blob` id.
-    fonts: HashMap<FaceId, FontData>,
-}
-
-/// A shaping session holding the manager's lock.
+/// The font-identity machinery: the canonical engine instance, used as the face authority.
 ///
-/// Created by [`FontManager::shaper`]; the guard it carries keeps the shared
-/// [`FontContext`] and [`LayoutContext`] locked for as long as the context is alive, so multiple
-/// shapes can run against the same scratch contexts with a single lock acquisition.
-pub struct Shaper<'a> {
-    inner: MutexGuard<'a, FontManagerInner>,
+/// The manager mutex covers only registration work (load, resolve, publish) — shaping happens
+/// per handle, in [`Shaper`]s created from engine-built [`EngineScratch`] state.
+struct FontManagerInner {
+    /// Boxed: the canonical engine carries large contexts (~1–2 kB: Parley's `FontContext`
+    /// + `LayoutContext`, cosmic-text's `FontSystem`).
+    ///
+    /// An extra indirection per call is negligible next to shaping and keeps the manager
+    /// handle small.
+    engine: Box<dyn ShapingEngine>,
 }
 
-impl Default for FontManager {
-    fn default() -> Self {
-        Self::system()
-    }
+/// A font manager owning one canonical shaping engine.
+///
+/// Handles do not implement `Clone`: a handle's scratch is exclusively attached to one
+/// logical owner. Deriving an independent handle is explicit — [`FontManager::detached`].
+pub struct FontManager {
+    /// The engine kind selected at construction. Immutable for the manager's lifetime, so it
+    /// reads without the lock; only registration needs synchronized access.
+    kind: ShapingEngineKind,
+    inner: Arc<Mutex<FontManagerInner>>,
+    /// The last-published font registry snapshot (see [`Self::published`]): swapped under the
+    /// manager lock at every registration, read lock-free on the render path.
+    published: Arc<ArcSwap<FontRegistry>>,
+    /// This handle's shaping scratch state — fresh per `detached()` (see the method).
+    scratch: Arc<Mutex<Box<dyn EngineScratch>>>,
 }
 
 impl FontManager {
-    /// Create a completely bare font manager, no fallbacks, no fonts.
-    pub fn bare() -> Self {
-        let font_context = FontContext {
-            collection: Collection::new(CollectionOptions {
-                system_fonts: false,
-                ..Default::default()
-            }),
-            source_cache: SourceCache::new_shared(),
-        };
-        Self::from(font_context)
+    /// Derive a handle whose shaping runs detached from this handle's state: the returned
+    /// manager shares only the known face identity (the canonical engine behind the mutex
+    /// and the published snapshot), while its scratch is fresh and exclusively owned by the
+    /// new handle — the first session there seeds it independently and no session on either
+    /// handle ever contends with or deadlocks the other (ADR 0006).
+    ///
+    /// `Clone` is deliberately not implemented: cloning *is* this split, and it should be
+    /// visible — the returned handle belongs to a new logical owner (an instance task, a
+    /// renderer) whose shaping must not alias this handle's scratch.
+    pub fn detached(&self) -> Self {
+        Self {
+            kind: self.kind,
+            inner: Arc::clone(&self.inner),
+            published: Arc::clone(&self.published),
+            scratch: Arc::new(Mutex::new(self.make_scratch())),
+        }
     }
 
-    /// Creates a font manager with the environment's locale, platform families, fallbacks, and
-    /// system fonts loaded.
-    pub fn system() -> Self {
-        let mut font_context = FontContext::new();
-        // Parley creates an unshared source cache by default and prunes it on every layout
-        // builder creation. A pruned font file is re-loaded on demand with a NEW `Blob` id,
-        // which invalidates `FaceId`s derived from it (the renderer would see unknown faces).
-        // The shared cache stores only weak blob refs and is never pruned; the registry built
-        // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
-        // original blob and `Blob` ids stay stable for the manager's lifetime.
-        font_context.source_cache = SourceCache::new_shared();
-        font_context.collection.load_system_fonts();
-        let manager = Self::from(font_context);
-        manager.rebuild_fonts();
-        manager
+    fn with_engine(kind: ShapingEngineKind, engine: Box<dyn ShapingEngine>) -> Self {
+        let published = Arc::new(ArcSwap::from(engine.font_registry()));
+        // The scratch is registration-time work too: built under the same world the canonical
+        // engine just published, then exclusively owned by this handle.
+        let scratch = engine.new_scratch(&published.load_full());
+        Self {
+            kind,
+            inner: Arc::new(Mutex::new(FontManagerInner { engine })),
+            published,
+            scratch: Arc::new(Mutex::new(scratch)),
+        }
+    }
+
+    /// Create a manager over the given engine kind, with system fonts loaded.
+    pub fn system(kind: ShapingEngineKind) -> Self {
+        let engine: Box<dyn ShapingEngine> = match kind {
+            #[cfg(feature = "parley")]
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::system()),
+            #[cfg(feature = "cosmic-text")]
+            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::system()),
+        };
+        Self::with_engine(kind, engine)
+    }
+
+    /// A bare manager over the given engine kind: no fallbacks, no fonts.
+    pub fn bare(kind: ShapingEngineKind) -> Self {
+        let engine: Box<dyn ShapingEngine> = match kind {
+            #[cfg(feature = "parley")]
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::bare()),
+            #[cfg(feature = "cosmic-text")]
+            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::bare()),
+        };
+        Self::with_engine(kind, engine)
     }
 
     /// Adds the font and returns Self
@@ -89,314 +181,700 @@ impl FontManager {
     }
 
     /// Adds the font and returns its font ids.
-    /// Ergonomics: Rename to `add_font`?
+    ///
+    /// Together with [`Self::shaper`], this is the *entire* entry surface for engine
+    /// state. The manager mutex covers only this registration work — shapers shape per
+    /// handle, lock-free (ADR 0006).
+    ///
+    /// Takes `&self`: shaping never holds the manager mutex (ADR 0006), so loading during
+    /// an open shaper cannot deadlock — the runtime exclusivity guarantee lives on the
+    /// shaper's scratch lock, not here.
+    ///
+    /// Font loading is possible at any time: parley sees the font through the shared
+    /// collection; cosmic re-syncs on the next shaper's registry check.
     pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
-        let mut inner = self.0.lock();
-        // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
-        let blob = Blob::new(Arc::new(font_data) as Arc<dyn AsRef<[u8]> + Send + Sync>);
-        let families = inner
-            .font_context
-            .collection
-            .register_fonts(blob.clone(), None);
-        // Register the newly loaded families as the generic families (sans-serif, serif, monospace)
-        // so that text using a generic family name resolves to a font we actually have. Without
-        // this, Parley would fall back to a system font for generic-family text, which may not be
-        // in our registry and would fail to rasterize. Each generic is set only if it has no
-        // existing mapping, so the first loaded font wins and later loads don't override it.
-        for generic in [
-            GenericFamily::SansSerif,
-            GenericFamily::Serif,
-            GenericFamily::Monospace,
-        ] {
-            if inner
-                .font_context
-                .collection
-                .generic_families(generic)
-                .next()
-                .is_none()
-            {
-                inner
-                    .font_context
-                    .collection
-                    .set_generic_families(generic, families.iter().map(|(family, _)| *family));
-            }
-        }
-        // A single font file (e.g. a `.ttc` collection) can hold several faces, each with its own
-        // index. [`FaceId`] keys on the file's blob id *and* the face index, so one file yields one
-        // [`FaceId`] per face — hence the nested loop and the multiple ids returned.
-        let mut ids = Vec::new();
-        for (_, faces) in families {
-            for face in faces {
-                let font = FontData::new(blob.clone(), face.index());
-                let id = FaceId::of_font_data(&font);
-                inner.fonts.insert(id, font);
-                ids.push(id);
-            }
-        }
+        let mut inner = self.inner.lock();
+        let ids = inner.engine.load_font(Arc::new(font_data));
+        // The registry just mutated: republish while the lock is still held (see module doc).
+        self.published.store(inner.engine.font_registry());
         ids
     }
 
-    /// Rebuild the font registry from the whole collection, keyed by [`FaceId`], so any font
-    /// Parley may select (including system fallbacks like emoji) can be resolved by [`FaceId`]
-    /// during rasterization. The strong `Blob` refs held here also keep the shared source
-    /// cache's weak refs alive, so pruned entries re-resolve to the original blobs.
-    fn rebuild_fonts(&self) {
-        let mut inner = self.0.lock();
-        let mut fonts = HashMap::new();
-        // Collect family names first to release the collection borrow before querying each family.
-        let family_names: Vec<String> = inner
-            .font_context
-            .collection
-            .family_names()
-            .map(str::to_owned)
-            .collect();
-        for name in family_names {
-            let Some(family_id) = inner.font_context.collection.family_id(&name) else {
-                continue;
-            };
-            let Some(family) = inner.font_context.collection.family(family_id) else {
-                continue;
-            };
-            for font_info in family.fonts() {
-                let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
-                    continue;
-                };
-                let font = FontData::new(blob, font_info.index());
-                let id = FaceId::of_font_data(&font);
-                fonts.insert(id, font);
-            }
-        }
-        inner.fonts = fonts;
-
-        // Common-script symbols (e.g. `✘`, `✓`, `→`) inherit the surrounding script for fallback,
-        // which on macOS resolves to Helvetica — a font that lacks most of them. Append the system
-        // font with the best coverage of these symbols to the Latin fallback so they render instead
-        // of falling through to the `.notdef` dead glyph. This is a local workaround for the known
-        // upstream gap (parley #744, #695) until font selection becomes coverage-aware.
-        Self::append_symbol_fallback(&mut inner);
+    /// The engine this manager shapes with.
+    pub fn engine_kind(&self) -> ShapingEngineKind {
+        self.kind
     }
 
-    /// Append symbol-covering non-emoji fonts to the Latin fallback, best coverage first.
+    /// The last-published registry snapshot, lock-free.
     ///
-    /// Common-script symbols inherit the surrounding script (Latin by default) for fallback, but
-    /// the platform's Latin fallback often lacks them. We scan a broad set of symbol codepoints,
-    /// score every family by how many it covers, and append the covering families to the Latin
-    /// fallback in descending coverage order. Emoji fonts are excluded because they would be
-    /// selected for text-presentation symbols (upstream parley #744).
-    fn append_symbol_fallback(inner: &mut FontManagerInner) {
-        use parley::fontique::{FallbackKey, GenericFamily, Script};
+    /// The one gate exemption: readers take an `Arc` copy from the [`ArcSwap`] — no manager
+    /// mutex is involved, so this cannot deadlock against a live session. Freshness: faces
+    /// are published at registration time, so the snapshot is always complete for every known
+    /// `FaceId` (see module doc). Readers resolve font data *and* swash metrics through the
+    /// same snapshot (the terminal's glyph grid anchoring reads metrics per cluster per
+    /// frame without re-parsing swash tables).
+    pub fn published(&self) -> Arc<FontRegistry> {
+        self.published.load_full()
+    }
 
-        // Common-script symbol blocks commonly used in terminals and UI text.
-        const SYMBOL_RANGES: &[(u32, u32)] = &[
-            (0x2000, 0x206F), // General Punctuation
-            (0x2190, 0x21FF), // Arrows
-            (0x2200, 0x22FF), // Mathematical Operators
-            (0x2300, 0x23FF), // Miscellaneous Technical
-            (0x2500, 0x257F), // Box Drawing
-            (0x2580, 0x259F), // Block Elements
-            (0x25A0, 0x25FF), // Geometric Shapes
-            (0x2600, 0x26FF), // Miscellaneous Symbols
-            (0x2700, 0x27BF), // Dingbats
-            (0x27C0, 0x27EF), // Miscellaneous Mathematical Symbols-A
-            (0x2980, 0x29FF), // Miscellaneous Mathematical Symbols-B
-            (0x2B00, 0x2BFF), // Miscellaneous Symbols and Arrows
-        ];
-
-        let latn = Script::from_bytes(*b"Latn");
-        let emoji_families: Vec<_> = inner
-            .font_context
-            .collection
-            .generic_families(GenericFamily::Emoji)
-            .collect();
-
-        // Score each family by how many symbol codepoints its default font covers.
-        let family_names: Vec<String> = inner
-            .font_context
-            .collection
-            .family_names()
-            .map(str::to_owned)
-            .collect();
-        let mut scored: Vec<(usize, FamilyId)> = Vec::new();
-        for name in family_names {
-            let Some(family_id) = inner.font_context.collection.family_id(&name) else {
-                continue;
-            };
-            if emoji_families.contains(&family_id) {
-                continue;
-            }
-            let Some(family) = inner.font_context.collection.family(family_id) else {
-                continue;
-            };
-            let Some(font_info) = family.default_font() else {
-                continue;
-            };
-            let Some(blob) = inner.font_context.source_cache.get(font_info.source()) else {
-                continue;
-            };
-            let Some(font_ref) =
-                swash::FontRef::from_index(blob.as_ref(), font_info.index() as usize)
-            else {
-                continue;
-            };
-            let charmap = font_ref.charmap();
-            let covered = SYMBOL_RANGES
-                .iter()
-                .flat_map(|&(start, end)| start..=end)
-                .filter(|&c| charmap.map(char::from_u32(c).unwrap_or('\0')) != 0)
-                .count();
-            if covered > 0 {
-                scored.push((covered, family_id));
-            }
+    /// A render-only view of this manager: the engine kind plus the published-registry
+    /// snapshot source, nothing else (ADR 0006).
+    ///
+    /// The renderer reads font data and metrics lock-free through the published snapshot
+    /// and never shapes, so it takes this handle — a `Clone` of two `Arc`s — instead of a
+    /// full manager handle, which would allocate a shaping scratch it never uses.
+    pub fn registry_source(&self) -> FontRegistrySource {
+        FontRegistrySource {
+            kind: self.kind,
+            published: Arc::clone(&self.published),
         }
-
-        // Append best-coverage families first so the first that covers a symbol wins.
-        scored.sort_by_key(|(covered, _)| std::cmp::Reverse(*covered));
-        let families = scored.into_iter().map(|(_, id)| id);
-        inner
-            .font_context
-            .collection
-            .append_fallbacks(FallbackKey::new(latn, None), families);
     }
 
-    /// Resolve the [`FontData`] for a [`FaceId`].
-    pub fn font_data(&self, id: FaceId) -> Option<FontData> {
-        self.0.lock().fonts.get(&id).cloned()
+    /// Build a fresh engine-owned scratch for this handle (seeded from the published
+    /// world), locking the manager mutex for the registration-time construction.
+    fn make_scratch(&self) -> Box<dyn EngineScratch> {
+        self.inner.lock().engine.new_scratch(&self.published())
     }
 
-    /// Acquire a [`Shaper`], holding the manager's lock for the duration of the shaping session.
+    /// Acquire a [`Shaper`] over this manager handle's shaping state.
+    ///
+    /// Takes `&self`: exclusivity is runtime-enforced instead of compile-time (ADR 0006) —
+    /// a shaper exclusively holds its handle's scratch mutex, `shaper()` acquires it with
+    /// `try_lock`, and a second shaper on the *same handle* panics loudly at the misuse
+    /// point rather than deadlocking on the non-reentrant mutex. Shapers on *different
+    /// handles* shape in parallel.
     #[must_use]
     pub fn shaper(&self) -> Shaper<'_> {
+        let mut scratch = self.scratch.try_lock().unwrap_or_else(|| {
+            panic!(
+                "FontManager shaper reentrancy: this handle already has a shaper open (its \
+                 scratch mutex is held); two live shapers on one handle are unsupported"
+            )
+        });
+        // Registry sync at session open: the scratch syncs itself whenever the manager's
+        // known face world has moved (ADR 0006). The snapshot is captured *before* the sync,
+        // so the session's metrics view stays a consistent pre-open world; `shape` refreshes
+        // it from the manager's latest publication afterwards.
+        let registry = self.published.load_full();
+        scratch.sync(&registry);
         Shaper {
-            inner: self.0.lock(),
+            kind: self.kind,
+            manager: self,
+            scratch,
+            registry,
         }
+    }
+
+    /// Resolve a face from the session path: serialize the registration (and its
+    /// publication) under the manager mutex, via the canonical engine's face registry
+    /// (single `FaceId` authority, ADR 0006).
+    fn resolve_face(&self, data: FontData) -> Option<FaceId> {
+        let mut inner = self.inner.lock();
+        let id = inner.engine.resolve_face(data)?;
+        // The resolution mutated the registry: republish while the lock is held, so the face is
+        // visible to lock-free readers (the render path) immediately (see module doc).
+        self.published.store(inner.engine.font_registry());
+        Some(id)
     }
 }
 
-impl FontManagerInner {
-    /// Borrow the two Parley contexts for shaping.
-    ///
-    /// Returns the `&mut` pair so callers can build a layout against both without holding a
-    /// closure. Both come from disjoint fields of the same inner, so the borrows are valid.
-    pub fn contexts(&mut self) -> (&mut FontContext, &mut LayoutContext<GlyphBrush>) {
-        (&mut self.font_context, &mut self.layout_context)
+/// A render-only handle into a [`FontManager`]'s published registry (ADR 0006).
+///
+/// The renderer resolves glyphs lock-free through the latest-published snapshot and checks
+/// runs' engine kind against the manager's (a debug assert). It never shapes — so it needs
+/// neither the face authority nor a shaping scratch, which a full [`FontManager`] handle
+/// would carry. Cheap to clone (two `Arc`s).
+#[derive(Clone)]
+pub struct FontRegistrySource {
+    /// The manager's engine kind, immutable for the manager's lifetime; a run's
+    /// `shaping_engine` is debug-checked against it.
+    kind: ShapingEngineKind,
+    /// The manager's published snapshot, swapped at every registration — reads stay lock-free
+    /// and fresh at registration-time publication.
+    published: Arc<ArcSwap<FontRegistry>>,
+}
+
+impl fmt::Debug for FontRegistrySource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FontRegistrySource")
+            .field("engine", &self.kind)
+            .finish_non_exhaustive()
+    }
+}
+
+impl FontRegistrySource {
+    /// The engine kind of the manager this source observes.
+    pub fn engine_kind(&self) -> ShapingEngineKind {
+        self.kind
+    }
+
+    /// The last-published registry snapshot, lock-free (see [`FontManager::published`]).
+    pub fn registry(&self) -> Arc<FontRegistry> {
+        self.published.load_full()
     }
 }
 
 impl Shaper<'_> {
-    /// Borrow the two Parley contexts for shaping.
-    pub fn contexts(&mut self) -> (&mut FontContext, &mut LayoutContext<GlyphBrush>) {
-        self.inner.contexts()
+    /// Shape one attributed line at `font_size` through this handle's contexts.
+    pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
+        // Unregistered fallback faces resolve through the manager (ADR 0006): the canonical
+        // engine registers the resolved font data under its lock, publishes at registration
+        // time, and returns a globally valid `FaceId`.
+        let manager = self.manager;
+        let run = self
+            .scratch
+            .shape(request, font_size, &mut |data| manager.resolve_face(data));
+        // Refresh the session snapshot: faces this shape just resolved (its own fallbacks,
+        // or another handle's since session open) are in the manager's publication by now,
+        // and the frame's metrics reads must find them (see `metrics`).
+        self.registry = manager.published.load_full();
+        run
     }
-}
 
-impl From<FontContext> for FontManager {
-    fn from(font_context: FontContext) -> Self {
-        FontManager(Arc::new(Mutex::new(FontManagerInner {
-            font_context,
-            layout_context: LayoutContext::new(),
-            fonts: HashMap::new(),
-        })))
+    /// Resolve concrete font data through the session's registry snapshot.
+    ///
+    /// Resolution never re-enters an engine: the snapshot carries every face known up to
+    /// this session's last `shape` (registration-time publication, see module doc), so
+    /// this is a lock-free map read. Kept as the fallback for readers between shapes;
+    /// `shape` refreshes the snapshot after every run.
+    pub fn font_data(&self, id: FaceId) -> Option<FontData> {
+        self.registry
+            .font_data(id)
+            .or_else(|| self.manager.published().font_data(id))
+    }
+
+    /// The per-face metrics snapshot of this session: repeated per-cluster reads resolve
+    /// lock-free instead of re-parsing swash tables (ADR 0006).
+    ///
+    /// Faces this session resolved during its own `shape` are covered by the snapshot
+    /// refresh at the end of that shape — every face a returned run carries is published
+    /// before the caller reads metrics.
+    pub fn metrics(&self, id: FaceId) -> Option<&FaceMetrics> {
+        self.registry.metrics(id)
+    }
+
+    /// The registry snapshot captured at session open (see the field doc).
+    pub fn registry(&self) -> &FontRegistry {
+        &self.registry
+    }
+
+    /// Shape and assemble a [`GlyphRun`] carrying the default attributes' color/weight.
+    pub fn glyph_run(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<GlyphRun> {
+        let run = self.shape(request, font_size)?;
+        let color = request.default_attributes.color;
+        let weight = request.default_attributes.weight;
+        Some(crate::engine::shaped_run_to_glyph_run(
+            &run,
+            &run.clusters,
+            run.width,
+            color,
+            weight,
+            Default::default(),
+        ))
+    }
+
+    /// The engine this shaper shapes with.
+    pub fn engine_kind(&self) -> ShapingEngineKind {
+        self.kind
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use parley::{Alignment, Layout, StyleProperty};
+    use crate::engine::{ShapedCluster, TextAttributes};
 
-    /// A bundled monospace font so the test doesn't depend on system fonts.
+    /// A bundled monospace font so the tests don't depend on system fonts.
     const JETBRAINS_MONO: &[u8] = include_bytes!(
         "../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
     );
 
-    /// After `load_font`, the registry must contain the loaded font AND any system fonts Parley
-    /// may select for fallback (e.g. the default `sans-serif`, or an emoji font). Otherwise a
-    /// fallback run's `FaceId` resolves to nothing and its glyphs get rasterized with the wrong
-    /// font.
-    #[test]
-    fn load_font_rebuilds_registry_with_system_fonts() {
-        let fonts = FontManager::bare().with_font(JETBRAINS_MONO);
-        let count = fonts.0.lock().fonts.len();
-        // At minimum the loaded font is present; on a system with fonts, fallbacks are too.
-        assert!(count >= 1, "registry should contain the loaded font");
-        // The loaded font must resolve to a real id.
-        let loaded = fonts
-            .0
-            .lock()
-            .fonts
-            .values()
-            .any(|d| d.data.len() == JETBRAINS_MONO.len());
-        assert!(loaded, "loaded font must be in the registry");
+    /// A bundled font that exercises nonzero vertical glyph offsets, which the other
+    /// bundled fixtures (monospace, Montserrat) lack entirely. See the sign test below
+    /// for the fixture rationale. OFL 1.1, licensed alongside the font file.
+    const TAKRI: &[u8] =
+        include_bytes!("../../assets/fonts/NotoSansTakri/NotoSansTakri-Regular.ttf");
+
+    /// A bundled Arabic+Latin font so the bidi/RTL tests don't depend on the system
+    /// font database (Arabic coverage is optional on many systems, and system fallback
+    /// picks vary per platform). OFL 1.1, licensed alongside the font file.
+    const AMIRI: &[u8] = include_bytes!("../../assets/fonts/Amiri/Amiri-Regular.ttf");
+
+    fn all_engines() -> Vec<ShapingEngineKind> {
+        ShapingEngineKind::available().to_vec()
     }
 
-    /// Shapes an emoji through the manager and asserts the fallback run's derived `FaceId`
-    /// resolves to a real font. This locks the emoji/font-fallback fix: the registry must contain
-    /// the emoji font so its glyphs are rasterized with the correct font.
+    /// Vertical glyph offsets must share one sign convention across engines: positive y =
+    /// below the baseline (see `ShapedGlyph::y`). HarfBuzz reports Y-up offsets; Parley
+    /// already negates them into Y-down, cosmic-text's `ShapeGlyph` copies them verbatim
+    /// (Y-up), so the cosmic engine must negate when translating.
+    ///
+    /// Fixture: Noto Sans Takri (bundled, OFL 1.1) — the Takri sequence
+    /// [U+1168A][U+116B6][U+116A9] shapes through a ccmp chain ligature whose
+    /// post-base form receives a nonzero YPlacement through mark attachment, so the
+    /// shaped run really exercises a vertical offset (the monospace fixture carries
+    /// none at all, which would make the test meaningless).
     #[test]
-    fn emoji_fallback_resolves_to_real_font() {
-        let fonts = FontManager::system();
-        let mut shaper = fonts.shaper();
-        let (fcx, lcx) = shaper.contexts();
-        let mut builder = lcx.ranged_builder(fcx, "😀", 1.0, true);
-        builder.push_default(StyleProperty::FontSize(16.0));
-        let mut layout: Layout<GlyphBrush> = builder.build("😀");
-        layout.break_all_lines(None);
-        layout.align(Alignment::Start, Default::default());
-        let line = layout.get(0).expect("single line");
-        let run = crate::line_runs(&line).next().expect("has a run");
-        let face_id = FaceId::of_font_data(run.run().font());
-        drop(shaper);
-        let font_data = fonts.font_data(face_id);
-        assert!(
-            font_data.is_some(),
-            "emoji fallback font must resolve to a registered font, got FaceId({face_id:?})"
-        );
-    }
-
-    /// Parley prunes fontique's source cache on every layout builder creation (`max_age = 128`),
-    /// so a rarely used fallback font's blob is evicted. With the shared source cache (see
-    /// `FontManager::system`), a pruned font must re-resolve to the SAME `Blob` id — and hence
-    /// the same [`FaceId`] — because the registry pins the original blob strongly.
-    #[test]
-    fn font_resolves_with_stable_face_id_after_source_cache_prune() {
-        let fonts = FontManager::system();
-        let mut shaper = fonts.shaper();
-
-        // Shape an emoji first and record the FaceId shaping derives for it.
-        let shape_emoji_face_id = |shaper: &mut Shaper<'_>| {
-            let (fcx, lcx) = shaper.contexts();
-            let mut builder = lcx.ranged_builder(fcx, "😀", 1.0, true);
-            builder.push_default(StyleProperty::FontSize(16.0));
-            let mut layout: Layout<GlyphBrush> = builder.build("😀");
-            layout.break_all_lines(None);
-            let line = layout.get(0).expect("emoji layout has a line");
-            let run = crate::line_runs(&line).next().expect("has a run");
-            FaceId::of_font_data(run.run().font())
-        };
-        let first_face_id = shape_emoji_face_id(&mut shaper);
-
-        // Drive parley's source-cache pruning (it runs on every layout builder creation with a
-        // hardcoded max_age of 128), evicting the blobs loaded before.
-        for _ in 0..200 {
-            let (fcx, lcx) = shaper.contexts();
-            let mut builder = lcx.ranged_builder(fcx, "abc", 1.0, true);
-            builder.push_default(StyleProperty::FontSize(16.0));
-            let mut layout: Layout<GlyphBrush> = builder.build("abc");
-            layout.break_all_lines(None);
-            assert_eq!(layout.lines().count(), 1, "sanity: 'abc' shapes to a line");
+    fn shaped_y_offsets_share_sign_convention() {
+        let text = "\u{1168A}\u{116B6}\u{116A9}";
+        let mut by_kind = Vec::new();
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind).with_font(TAKRI);
+            let request =
+                ShapingRequest::new(text, TextAttributes::named_family("Noto Sans Takri"));
+            let run = {
+                let mut shaper = fonts.shaper();
+                shaper
+                    .shape(&request, 16.0)
+                    .expect("shaping must produce a run")
+            };
+            let ys: Vec<_> = run.glyphs.iter().map(|g| g.y).collect();
+            assert!(
+                ys.iter().any(|&y| y != 0.0),
+                "{kind:?} text {text:?}: the fixture must exercise a nonzero vertical \
+                 offset to be a meaningful sign test (glyph ys: {ys:?})"
+            );
+            by_kind.push((kind, ys));
         }
+        // The engine-neutral model must agree, whatever the underlying libraries report.
+        // The offset path differs per engine (Parley scales in the font pipeline, cosmic-text
+        // scales em-relative afterwards), so allow a small float tolerance here — but nothing
+        // near the sign range (±3 px).
+        for (kind, ys) in &by_kind[1..] {
+            for (i, (a, b)) in by_kind[0].1.iter().zip(ys.iter()).enumerate() {
+                assert!(
+                    (a - b).abs() < 0.01,
+                    "{:?} vs {:?} text {text:?}: ShapedGlyph.y[{i}] diverges ({a} vs {b}); \
+                     sign must match across engines",
+                    by_kind[0].0,
+                    kind
+                );
+            }
+        }
+    }
 
-        // Shape the emoji again: the shared cache must hand back the original blob.
-        let second_face_id = shape_emoji_face_id(&mut shaper);
-        drop(shaper);
+    /// Regression: the cosmic engine must not collapse `max_descent` to 0 — its
+    /// accumulator starts at `0.0` and takes `max(font_size * ShapeGlyph.descent)`.
+    /// Verified premise: cosmic-text's `ShapeGlyph.descent` is `metrics.descent/upem`
+    /// with swash reading `descent = -descender` (positive for typical fonts), so the
+    /// max sees a positive value — a lowercase line with real descenders shapes to a
+    /// positive run descent. Parity check included: both engines shape the same
+    /// fixture from the same font, so engine-divergence (not just collapse) fails.
+    #[test]
+    fn shaped_run_has_positive_max_descent_on_both_engines() {
+        let descenders = "jyg";
+        let mut by_kind = Vec::new();
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let request =
+                ShapingRequest::new(descenders, TextAttributes::named_family("JetBrains Mono"));
+            let run = {
+                let mut shaper = fonts.shaper();
+                shaper
+                    .shape(&request, 16.0)
+                    .expect("shaping must produce a run")
+            };
+            assert!(
+                run.max_descent > 0.0,
+                "{kind:?}: run.max_descent collapsed to {descenders:?}"
+            );
+            by_kind.push((kind, run.max_descent));
+        }
+        let (_, first) = by_kind[0];
+        for (kind, descent) in &by_kind[1..] {
+            assert_eq!(
+                (descent * 1000.0).round() as i32,
+                (first * 1000.0).round() as i32,
+                "{kind:?} diverges from {:?} on max_descent ({descent} vs {first})",
+                by_kind[0].0
+            );
+        }
+    }
 
-        assert_eq!(
-            first_face_id, second_face_id,
-            "blob id must be stable across source cache pruning"
-        );
-        assert!(
-            fonts.font_data(second_face_id).is_some(),
-            "font must resolve in the registry after pruning, got FaceId({second_face_id:?})"
-        );
+    /// TEMP diagnostic: dump cluster origins for RTL text to verify the
+    /// attribute_runs width bug's premise (non-monotonic ShapedCluster.x).
+    #[test]
+    #[ignore = "diagnostic probe"]
+    fn probe_rtl_dump() {
+        for text in ["abسلام", "سلامabسلام", "سلام"] {
+            for kind in all_engines() {
+                let fonts = FontManager::bare(kind).with_font(AMIRI);
+                let mut request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"))
+                    .with_metadata();
+                // Attribute every Arabic segment (defaults cover the LTR islands).
+                let salam = "سلام";
+                let mut ranges = Vec::new();
+                let mut from = 0;
+                while let Some(at) = text[from..].find(salam) {
+                    let start = from + at;
+                    ranges.push((
+                        start..start + salam.len(),
+                        TextAttributes::default().with_metadata(1),
+                    ));
+                    from = start + salam.len();
+                }
+                request.ranges = ranges;
+                let run = {
+                    let mut shaper = fonts.shaper();
+                    shaper
+                        .shape(&request, 16.0)
+                        .expect("shaping must produce a run")
+                };
+                println!(
+                    "[rtl] {kind:?} {text:?} width={} ascent/descent={}/{}",
+                    run.width, run.max_ascent, run.max_descent
+                );
+                for c in &run.clusters {
+                    println!("  bytes={:?} x={} meta={}", c.byte_range, c.x, c.metadata);
+                }
+            }
+        }
+    }
+
+    /// Regression: RTL text must be positioned *visually* — the logically-earlier cluster
+    /// sits at the larger x (Arabic renders right-to-left).
+    ///
+    /// Both engines currently violate this (diagnostics: the ignored `probe_rtl_dump`
+    /// dumps real origins per engine), so RTL renders mirrored on screen:
+    ///
+    /// - Parley mirrors RTL *runs* everywhere: `parley_engine::shape` accumulates
+    ///   `cluster_origin` in logical order (`cluster_origin += cluster.advance()`,
+    ///   direction-blind), so even an RTL run embedded in an LTR paragraph ("abسلام")
+    ///   places its logically-first cluster at the run's left edge.
+    /// - cosmic-text is correct for an embedded RTL run (its `shape()` emits that word's
+    ///   glyphs in visual order), but for an RTL *line* (paragraph direction RTL, e.g.
+    ///   pure "سلام") `cosmic-text`'s `shape()` hands glyphs back in *logical* order
+    ///   (`shape.rs` reverses harfrust's visual order for `line_rtl`), deferring the
+    ///   RTL positioning to cosmic-text's own layout phase — which this engine bypasses.
+    ///   The naive left-to-right accumulation then mirrors the whole line.
+    ///
+    /// Upstream confirmation:
+    /// - cosmic-text #113 "BIDI Layout is 'random'"
+    ///   (https://github.com/pop-os/cosmic-text/issues/113, open): a consumer with exactly
+    ///   this engine's usage (`BufferLine::shape` without the layout phase) reports
+    ///   Arabic "either reversed or not" per line direction; CryZe pins it to
+    ///   `shape.rs`'s `// Reverse glyphs in RTL lines` (the same `line_rtl:`
+    ///   `word.glyphs.reverse()` we probed above) and to the always-positive
+    ///   `x_advance`s of logical-order glyphs. Maintainer hojjatabdollahi confirms
+    ///   visual positioning lives only in `ShapeLine::layout()`: "The whole point of
+    ///   cosmic-text is that it does that for you" — bypassing layout for BiDi is
+    ///   unsupported, and moving the reversal into layout is acknowledged as future work.
+    /// - cosmic-text #190 "Hebrew words (RTL) are not rendered correctly on main"
+    ///   (https://github.com/pop-os/cosmic-text/issues/190, fixed by #191): a regression
+    ///   that broke the shape→layout ordering contract and rendered Hebrew mirrored —
+    ///   the same failure mode this test pins.
+    /// - parley: `Run::clusters()` iterates in logical order while parley renders
+    ///   visually (see `Run::visual_clusters()`/`logical_to_visual` in parley's run.rs;
+    ///   cf. linebender/parley #298, a cursor-navigation bug over the same ordering
+    ///   contract). No open parley issue reports rendered mirroring — parley's own
+    ///   renderers consume direction-aware geometry, so only engines accumulating
+    ///   advances in logical order hit it.
+    ///
+    /// Note for the fix: once engines place RTL clusters visually, their stored
+    /// `ShapedCluster.x` is no longer monotonic in list order — consumers must not derive
+    /// widths from origin differences (`next.x − first.x`); group widths are the sum of
+    /// the group's cluster advances (`attribute_runs` already does — the width bug's
+    /// regression test
+    /// `attribute_runs_rtl_group_width_is_direction_independent` in
+    /// `examples/shared/src/attributed_text.rs` is green).
+    ///
+    /// Ignored until the engines' RTL positioning is fixed (pre-existing, separate
+    /// work item); run it manually with `cargo test -p massive-shapes --lib
+    /// rtl_runs_position_clusters_visually -- --include-ignored --nocapture`.
+    #[test]
+    #[ignore = "pre-existing bug: both engines mirror RTL (see doc comment + probe_rtl_dump)"]
+    fn rtl_runs_position_clusters_visually() {
+        // The outer Arabic letters always shape into independent clusters (the middle
+        // lam-alef may ligate). (text, Arabic byte starts): pure RTL paragraph vs RTL
+        // run in an LTR paragraph — both against the bundled Amiri fixture, so the test
+        // is hermetic (no system font database).
+        let cases = [("سلام", vec![0, 2, 4, 6]), ("abسلام", vec![2, 4, 6, 8])];
+        for (text, byte_starts) in cases {
+            for kind in all_engines() {
+                let fonts = FontManager::bare(kind).with_font(AMIRI);
+                let request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
+                let run = {
+                    let mut shaper = fonts.shaper();
+                    shaper
+                        .shape(&request, 16.0)
+                        .expect("shaping must produce a run")
+                };
+                // Clusters keyed by first byte (logical position): the storage order
+                // differs per engine (parley: logical, cosmic: visual).
+                let mut by_byte: Vec<(usize, f32)> = run
+                    .clusters
+                    .iter()
+                    .filter(|c| c.byte_range.start >= byte_starts[0])
+                    .map(|c| (c.byte_range.start, c.x))
+                    .collect();
+                by_byte.sort_unstable_by_key(|(byte, _)| *byte);
+                assert!(
+                    by_byte.len() >= byte_starts.len() - 1,
+                    "{kind:?} {text:?}: the Arabic letters must shape into multiple \
+                     clusters (got {by_byte:?})",
+                );
+                assert!(
+                    by_byte.windows(2).all(|w| w[0].1 > w[1].1),
+                    "{kind:?} {text:?}: RTL clusters must sit right-to-left in logical \
+                     order — Arabic renders mirrored (byte_start/x: {by_byte:?})",
+                );
+            }
+        }
+    }
+
+    /// Per-range family overrides must shape the range with the overridden family on every
+    /// engine. Parity probe: load two distinct fonts, shape `AB` with JetBrains Mono as
+    /// the default family and `B` overridden to Amiri, then shape `B`'s text with Amiri as
+    /// the *default* family; the overridden cluster must resolve to the same face as the
+    /// explicit-default run. cosmic-text honors the override (`attrs_list.add_span`), but
+    /// the Parley engine pushes only `StyleProperty::FontWeight` per range
+    /// (`parley_engine::shape`), silently dropping `TextAttributes::family` — there `B`
+    /// shapes with the *default* family's face instead.
+    ///
+    /// Two fonts are required: with a single loaded font, family fallback collapses both
+    /// runs onto the same face and the probe is vacuous.
+    #[test]
+    fn range_family_override_shapes_like_explicit_default_family() {
+        let text = "AB";
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind)
+                .with_font(JETBRAINS_MONO)
+                .with_font(AMIRI);
+            // Overridden range: JetBrains Mono default, `B` (byte 1..2) forced to Amiri.
+            let mut overridden =
+                ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
+            overridden.ranges = vec![(1..2, TextAttributes::default().with_family("Amiri"))];
+            // Reference: same text, Amiri as the family everywhere.
+            let reference = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
+
+            let run_overridden = {
+                let mut shaper = fonts.shaper();
+                shaper
+                    .shape(&overridden, 16.0)
+                    .expect("shaping must produce a run")
+            };
+            let run_reference = {
+                let mut shaper = fonts.shaper();
+                shaper
+                    .shape(&reference, 16.0)
+                    .expect("shaping must produce a run")
+            };
+
+            // Compare the `B` cluster's face and geometry: with the override honored, the
+            // range shapes with the same face and origin as the all-Amiri run.
+            fn cluster_for<'a, K: fmt::Debug>(
+                kind: &K,
+                run: &'a ShapedRun,
+                byte: usize,
+            ) -> &'a ShapedCluster {
+                run.clusters
+                    .iter()
+                    .find(|c| c.byte_range.contains(&byte))
+                    .unwrap_or_else(|| panic!("{kind:?}: no cluster covers byte {byte}"))
+            }
+            fn glyph_face(run: &ShapedRun, cluster: &ShapedCluster) -> FaceId {
+                run.cluster_glyphs(cluster)[0].face_id
+            }
+            let b_overridden = cluster_for(&kind, &run_overridden, 1);
+            let b_reference = cluster_for(&kind, &run_reference, 1);
+            assert_eq!(
+                glyph_face(&run_overridden, b_overridden),
+                glyph_face(&run_reference, b_reference),
+                "{kind:?}: range family override ignored — `B` shaped with a different face \
+                 than the explicit-default-family run (family attributes silently dropped?)"
+            );
+            // The cluster's own advance is family-dependent (Amiri `B` vs fallback `B`
+            // metrics) and independent of the preceding text — unlike the origin, which
+            // legitimately shifts when the default-family `A` shapes differently.
+            assert_eq!(
+                b_overridden.advance, b_reference.advance,
+                "{kind:?}: range family override ignored — `B` advances differently than \
+                 in the explicit-default-family run"
+            );
+        }
+    }
+
+    /// After `load_font`, the manager must register the loaded font, whatever engine is behind
+    /// it, so the returned ids are meaningful.
+    #[test]
+    fn load_font_registers_all_engine_faces() {
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            assert_eq!(fonts.engine_kind(), kind);
+            let id = fonts.load_font(JETBRAINS_MONO)[0];
+            assert!(
+                fonts.shaper().font_data(id).is_some(),
+                "{kind:?}: the loaded font must resolve to font data"
+            );
+        }
+    }
+
+    /// Shaping through the engine contract must produce glyphs whose `FaceId`s resolve via
+    /// `font_data`, for every compiled-in engine. This is the fallback-safety invariant from the
+    /// pre-engine registry design, restated engine-neutrally.
+    #[test]
+    fn shaped_faces_resolve_to_font_data() {
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let request =
+                ShapingRequest::new("a->b", TextAttributes::named_family("JetBrains Mono"));
+            let run = {
+                let mut shaper = fonts.shaper();
+                shaper
+                    .shape(&request, 16.0)
+                    .expect("shaping must produce a run")
+            };
+            assert!(!run.clusters.is_empty(), "{kind:?}: clusters must exist");
+            let all_resolve = run
+                .glyphs
+                .iter()
+                .all(|g| fonts.shaper().font_data(g.face_id).is_some());
+            assert!(
+                all_resolve,
+                "{kind:?}: every shaped glyph's FaceId must resolve to font data"
+            );
+        }
+    }
+
+    /// Attribute identity echoed through shaping: shapes text with two adjacent attributed
+    /// ranges carrying distinct metadata, with the mechanism enabled. Every cluster must echo
+    /// the metadata of the range covering its first byte — including composed clusters
+    /// straddling the boundary (base + combining mark shape into one cluster in both engines),
+    /// which resolve to their first byte's range.
+    ///
+    /// The per-engine mechanisms differ; both must honor the same contract:
+    /// - Parley resolves the cover per cluster (`engine::covering_metadata`).
+    /// - cosmic-text propagates `Attrs::metadata` through shaping natively.
+    #[test]
+    fn metadata_echoes_first_byte_cover() {
+        // (text, boundary byte offset — must fall on a grapheme edge, not inside a mark)
+        for (text, boundary) in [("a->ba", 2), ("afiba", 3), ("a=+=b", 2), ("e\u{0301}ab", 3)] {
+            for kind in all_engines() {
+                let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+
+                let mut request = ShapingRequest::new(
+                    text,
+                    TextAttributes::named_family("JetBrains Mono").with_metadata(7),
+                )
+                .with_metadata();
+                request.ranges = vec![
+                    (
+                        0..boundary,
+                        TextAttributes::named_family("JetBrains Mono").with_metadata(1),
+                    ),
+                    (
+                        boundary..text.len(),
+                        TextAttributes::named_family("JetBrains Mono").with_metadata(2),
+                    ),
+                ];
+
+                let run = {
+                    let mut shaper = fonts.shaper();
+                    shaper
+                        .shape(&request, 16.0)
+                        .expect("shaping must produce a run")
+                };
+
+                for cluster in &run.clusters {
+                    let expected = crate::engine::covering_metadata(
+                        &request.ranges,
+                        request.default_attributes.metadata,
+                        cluster.byte_range.start,
+                    );
+                    assert_eq!(
+                        cluster.metadata,
+                        expected,
+                        "{kind:?} text {text:?}: cluster {:?} must echo its first byte's \
+                         covering range (ranges {:?}, clusters {:?})",
+                        cluster.byte_range,
+                        request.ranges,
+                        run.clusters
+                            .iter()
+                            .map(|c| (c.byte_range.clone(), c.metadata))
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+        }
+    }
+
+    /// The metadata mechanism is opt-in: without `with_metadata`, engines ignore metadata
+    /// entirely and every shaped cluster reads `0` — even when ranges carry non-zero values.
+    #[test]
+    fn metadata_disabled_yields_zero_clusters() {
+        let text = "abcd";
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let mut request =
+                ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
+            request.ranges = vec![
+                (
+                    0..2,
+                    TextAttributes::named_family("JetBrains Mono").with_metadata(1),
+                ),
+                (
+                    2..4,
+                    TextAttributes::named_family("JetBrains Mono").with_metadata(2),
+                ),
+            ];
+            let run = {
+                let mut shaper = fonts.shaper();
+                shaper
+                    .shape(&request, 16.0)
+                    .expect("shaping must produce a run")
+            };
+            assert!(
+                run.clusters.iter().all(|c| c.metadata == 0),
+                "{kind:?}: disabled metadata mechanism must leave clusters at 0"
+            );
+        }
+    }
+
+    /// No engine may emit a cluster with an *empty* `glyph_range`: consumers resolve the
+    /// cluster's face through its first glyph (`cluster_glyphs(cluster)[0]`, e.g.
+    /// `src/terminal/view.rs`), which panics on an empty slice.
+    ///
+    /// Probe battery: sequences that could plausibly shape to zero glyphs — stray combining
+    /// marks and joiners without a base, zero-width characters, and lone tag/regional
+    /// indicators — shaped against a monospace fixture that covers none of them, forcing
+    /// `.notdef` / fallback paths on every engine.
+    ///
+    /// Parley skips zero-glyph clusters, including a lone ZWJ in `"a\u{200D}b"`, preserving
+    /// the engine contract that lets consumers safely resolve a cluster's first glyph.
+    #[test]
+    fn clusters_never_have_empty_glyph_ranges() {
+        let cases = [
+            "\u{0301}",   // lone combining acute, no base
+            "a\u{200D}b", // ZWJ between letters
+            "\u{200D}",   // lone ZWJ
+            "\u{200B}",   // zero-width space
+            "\u{FEFF}",   // zero-width no-break space
+            "a\u{FE0F}b", // variation selector-16 without an emoji base
+            "\u{FE0F}",   // lone variation selector
+            "\u{1F1E6}",  // lone regional indicator
+        ];
+        for text in cases {
+            for kind in all_engines() {
+                let fonts = FontManager::bare(kind)
+                    .with_font(JETBRAINS_MONO)
+                    .with_font(TAKRI);
+                let request =
+                    ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
+                let run = {
+                    let mut shaper = fonts.shaper();
+                    shaper
+                        .shape(&request, 16.0)
+                        .expect("shaping must produce a run")
+                };
+                for cluster in &run.clusters {
+                    assert!(
+                        !cluster.glyph_range.is_empty(),
+                        "{kind:?} text {text:?}: cluster {:?} has zero glyphs — \
+                         `cluster_glyphs(cluster)[0]` consumers would panic",
+                        cluster.byte_range,
+                    );
+                }
+            }
+        }
     }
 }

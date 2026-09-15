@@ -27,6 +27,7 @@ use massive_applications::ApplicationEvent;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::GlyphRun;
+use massive_shapes::ShapingEngineKind;
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 
@@ -64,7 +65,7 @@ async fn main() -> Result<()> {
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // Register the bundled font into both databases and build the fontdb::ID -> FaceId map.
     let bridge = FontBridge::new(
-        FontManager::bare(),
+        FontManager::bare(ShapingEngineKind::CosmicText),
         fontdb::Database::new(),
         Arc::from(fonts::MONTSERRAT_REGULAR),
     );
@@ -86,7 +87,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut renderer = window
         .renderer()
-        .with_text(bridge.font_manager().clone())
+        .with_text(bridge.font_manager().registry_source())
         .build()
         .await?;
 

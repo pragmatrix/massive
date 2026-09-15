@@ -12,7 +12,7 @@ use winit::dpi::LogicalSize;
 use massive_applications::ApplicationEvent;
 use massive_geometry::Color;
 use massive_scene::prelude::*;
-use massive_shapes::TextWeight;
+use massive_shapes::{ShapingEngineKind, TextWeight};
 use massive_shell::{ApplicationContext, FontManager, shell};
 
 use shared::{
@@ -61,7 +61,8 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts =
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
 
     let font_size = 32.;
     let line_height = 40.;
@@ -84,7 +85,11 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     let view_id = window.view_id();
 
     let scene = ctx.new_scene();
-    let mut renderer = window.renderer().with_text(fonts).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(fonts.registry_source())
+        .build()
+        .await?;
 
     // Application
 

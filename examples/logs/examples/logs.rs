@@ -22,7 +22,7 @@ use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{Shape, Shaper};
+use massive_shapes::{Shape, Shaper, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
@@ -70,7 +70,8 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    let fonts = FontManager::bare().with_font(shared::fonts::JETBRAINS_MONO);
+    let fonts =
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
 
     // Window
 
@@ -78,10 +79,27 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let window = ctx.new_window((size.width, size.height)).await?;
     let view_id = window.view_id();
 
-    let mut renderer = window.renderer().with_text(fonts.clone()).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(fonts.registry_source())
+        .build()
+        .await?;
 
     let scene = ctx.new_scene();
     let mut logs = Logs::new(&scene, ctx.movement_runtime(), fonts);
+
+    // Initial lines informing the user how to interact with the example.
+    let mut frame = ctx.frame(&scene);
+    logs.add_line(
+        &mut frame,
+        b"Press a key in the window to generate more log output.",
+    );
+    logs.add_line(
+        &mut frame,
+        b"Mouse + Left click : translate, Cmd + Mouse + Left click : rotate.",
+    );
+    logs.update_layout()?;
+    frame.render_to(&mut renderer)?;
 
     // Application
 

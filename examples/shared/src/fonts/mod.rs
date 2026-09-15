@@ -9,3 +9,8 @@ pub static JETBRAINS_MONO: &[u8] = include_bytes!(
 
 pub static MONTSERRAT_REGULAR: &[u8] =
     include_bytes!("../../../../assets/fonts/Montserrat/Montserrat-Regular.ttf");
+
+/// Amiri (OFL): an Arabic+Latin serif font bundled so bidi/RTL tests don't depend on the
+/// system font database (Arabic is optional on many systems and the fallback pick varies).
+pub static AMIRI_REGULAR: &[u8] =
+    include_bytes!("../../../../assets/fonts/Amiri/Amiri-Regular.ttf");

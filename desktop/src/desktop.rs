@@ -64,8 +64,10 @@ impl Desktop {
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
-        // Create the font manager - shared between desktop and instances
-        let fonts = FontManager::system();
+        // Create the font manager - shared between desktop and instances. The engine is chosen
+        // once here (ADR 0005); a FaceId only resolves through this manager. Instances,
+        // the renderer and the desktop system each get a detached handle (ADR 0006).
+        let fonts = FontManager::system(env.shaping_engine);
 
         // Create scene early for presenter initialization
         let scene_changes = Arc::new(ChangeCollector::default());
@@ -75,7 +77,7 @@ impl Desktop {
         let environment = InstanceEnvironment::new(
             submissions_tx,
             context.primary_monitor_scale_factor(),
-            fonts.clone(),
+            fonts.detached(),
         );
 
         let mut instance_manager = InstanceManager::new(environment);
@@ -121,7 +123,9 @@ impl Desktop {
         let mut renderer = window
             .renderer()
             .with_shapes()
-            .with_text(fonts.clone())
+            // The renderer resolves glyphs through the published snapshot and never
+            // shapes — a registry source, not a full handle (ADR 0006).
+            .with_text(fonts.registry_source())
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;
@@ -134,7 +138,7 @@ impl Desktop {
         // does not exist yet.
         let mut system = DesktopSystem::new(
             env,
-            fonts.clone(),
+            fonts.detached(),
             default_size,
             &scene,
             context.movement_runtime(),

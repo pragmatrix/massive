@@ -1,55 +1,35 @@
-use parley::FontData;
 use serde::{Deserialize, Serialize};
 use swash::zeno::Placement;
 
 use massive_geometry::{BoxPx, Color, PointPx, SizePx, Vector3};
 
 use crate::ClipBoxPx;
+use crate::engine::ShapingEngineKind;
 
-/// Opaque identifier for a font face.
+/// Opaque identifier for a font face within one engine instance.
 ///
-/// A distinct per-face token that lets the atlas cache key on the concrete font without
-/// [`massive_shapes`](crate) depending on a font database. It packs Parley's `Blob` unique id
-/// (an atomic counter value) together with the face `index` within that file, so [`FaceId`] can be
-/// derived directly from a shaped run's font with no registry lookup, and rasterization resolves it
-/// back to the font's data in O(1). The face index is required because a single font file (e.g. a
-/// `.ttc` collection or a variable font) may hold several faces that share one `Blob` id.
+/// A `FaceId` is produced by a shaping engine (see [`crate::ShapingEngine`]) and is only
+/// meaningful within the [`crate::FontManager`] (engine instance) that created it; it is not
+/// interpreted by anything else. Each engine defines its own id space: the Parley engine uses
+/// the fontique `Blob` unique id packed with the face index within that file, the cosmic-text
+/// engine uses a sequential face number over its own font database. One engine is active per
+/// process, so the spaces never meet; a foreign id degrades to a graceful `font_data` miss
+/// (the renderer logs and skips the glyph).
 ///
-/// Both fields are `u32`: the face index is spec-bounded (a `.ttc` `numFonts` is a `uint32`), and
-/// the `Blob` id is a process-lifetime counter that stays well within `u32` in practice. The
-/// `u64`-to-`u32` narrowing of the blob id happens in [`FaceId::new`], which fails loudly rather
-/// than silently truncating into a wrong-font rasterization.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FaceId {
-    blob_id: u32,
-    index: u32,
-}
+/// Rasterization resolves a `FaceId` through the engine/manager that produced it back to
+/// concrete font data ([`crate::engine::ShapingEngine::font_data`]).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct FaceId(u64);
 
 impl FaceId {
-    /// Build a [`FaceId`] from Parley's `Blob` unique id and face index.
-    ///
-    /// The blob id is a `u64` atomic counter; it is narrowed to `u32` here, asserting the value
-    /// fits so an overflow fails loudly instead of silently rasterizing the wrong face.
-    pub fn new(blob_id: u64, index: u32) -> Self {
-        assert!(blob_id <= u32::MAX as u64, "blob id {blob_id} exceeds u32");
-        Self {
-            blob_id: blob_id as u32,
-            index,
-        }
+    /// Build a `FaceId` from an engine-specific payload value.
+    pub const fn new(payload: u64) -> Self {
+        Self(payload)
     }
 
-    /// Derive a [`FaceId`] from a Parley [`FontData`].
-    ///
-    /// The `Blob` id identifies a whole font *file*; the face `index` keeps each face in a
-    /// collection (e.g. a `.ttc`) a distinct [`FaceId`]. This needs no registry lookup and matches
-    /// the key the renderer's rasterization registry is keyed on.
-    pub fn of_font_data(font: &FontData) -> Self {
-        Self::new(font.data.id(), font.index)
-    }
-
-    /// The face index within the font file (0 for a single-face font).
-    pub fn index(&self) -> u32 {
-        self.index
+    /// The engine-local payload value (e.g. the cosmic-text registry index).
+    pub const fn payload(self) -> u64 {
+        self.0
     }
 }
 
@@ -69,6 +49,9 @@ pub struct GlyphRun {
     // Robustness: As of cosmic-text version 0.15, this is now included in cache-key of every glyph.
     // we may need to remove it from there and use our own "CacheKey" like struct.
     pub text_weight: TextWeight,
+    /// The engine that shaped this run's glyphs. Stamped by the engine itself on its
+    /// [`ShapedRun`] output and propagated here; debug-checked at the render boundary.
+    pub shaping_engine: ShapingEngineKind,
     pub glyphs: Vec<RunGlyph>,
 }
 
@@ -84,6 +67,7 @@ impl GlyphRun {
         metrics: GlyphRunMetrics,
         text_color: Color,
         text_weight: TextWeight,
+        shaping_engine: ShapingEngineKind,
         glyphs: Vec<RunGlyph>,
     ) -> Self {
         Self {
@@ -91,6 +75,7 @@ impl GlyphRun {
             metrics,
             text_color,
             text_weight,
+            shaping_engine,
             glyphs,
         }
     }
@@ -238,7 +223,7 @@ mod tests {
         let glyph = RunGlyph::new(
             PointPx::new(35, 3),
             GlyphKey::new(
-                FaceId::new(1, 0),
+                FaceId::new(0),
                 42,
                 13.0,
                 TextWeight::NORMAL,
@@ -254,6 +239,7 @@ mod tests {
             },
             Color::BLACK,
             TextWeight::NORMAL,
+            ShapingEngineKind::Parley,
             vec![glyph],
         );
 
