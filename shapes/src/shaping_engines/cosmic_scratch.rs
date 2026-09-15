@@ -1,8 +1,8 @@
 //! The cosmic-text per-handle shaping scratch (ADR 0006).
 
+use crate::FaceId;
 use crate::engine::{EngineScratch, FontData, FontRegistry, ShapedRun, ShapingRequest};
 use crate::shaping_engines::cosmic_engine::CosmicTextEngine;
-use crate::FaceId;
 
 /// Cosmic-text shaping state for one manager handle: a shape-ready clone of the manager's
 /// minted world (the *epoch-pull*, ADR 0006), seeded from the published snapshot.

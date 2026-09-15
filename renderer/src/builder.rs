@@ -1,7 +1,7 @@
 use massive_geometry::{Color, SizePx};
 
 use crate::{
-    FontManager, RenderDevice, Renderer, RendererConfig,
+    FontRegistrySource, RenderDevice, Renderer, RendererConfig,
     shape_renderer::{self, ShapeRenderer},
     text_layer::TextLayerRenderer,
 };
@@ -45,7 +45,7 @@ impl RendererBuilder {
         self
     }
 
-    pub fn with_text(mut self, fonts: FontManager) -> Self {
+    pub fn with_text(mut self, fonts: FontRegistrySource) -> Self {
         self.config.add_batch_producer(
             TextLayerRenderer::new(&self.device.device, fonts, self.device.surface_format),
             2,

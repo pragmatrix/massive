@@ -81,7 +81,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let mut renderer = window
         .renderer()
-        .with_text(fonts.detached())
+        .with_text(fonts.registry_source())
         .build()
         .await?;
 

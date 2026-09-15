@@ -34,7 +34,7 @@
 //! ## The published registry (with metrics)
 //!
 //! `FaceId` → font-data plus per-face swash [`FaceMetrics`] are published as an immutable
-//! `Arc` snapshot ([`FontManager::published`] / [`FontManager::published_metrics`]), read
+//! `Arc` snapshot ([`FontManager::published`]), read lock-free on the render and
 //! lock-free on the render and glyph-placement paths. Every mint — `load_font`, and
 //! fallback interning from inside a shaper — republishes under the manager lock at mint
 //! time, so a published snapshot never lags the minted world, and in-shaper resolution
@@ -211,13 +211,23 @@ impl FontManager {
         self.published.load_full()
     }
 
+    /// A render-only view of this manager: the engine kind plus the published-registry
+    /// snapshot source, nothing else (ADR 0006).
+    ///
+    /// The renderer reads font data and metrics lock-free through the published snapshot
+    /// and never shapes, so it takes this handle — a `Clone` of two `Arc`s — instead of a
+    /// full manager handle, which would allocate a shaping scratch it never uses.
+    pub fn registry_source(&self) -> FontRegistrySource {
+        FontRegistrySource {
+            kind: self.kind,
+            published: Arc::clone(&self.published),
+        }
+    }
+
     /// Build a fresh engine-owned scratch for this handle (seeded from the published
     /// world), locking the manager mutex for the mint-time construction.
     fn make_scratch(&self) -> Box<dyn EngineScratch> {
-        self.inner
-            .lock()
-            .engine
-            .new_scratch(&self.published())
+        self.inner.lock().engine.new_scratch(&self.published())
     }
 
     /// Acquire a [`Shaper`] over this manager handle's shaping state.
@@ -266,6 +276,42 @@ impl FontManager {
         // visible to lock-free readers (the render path) immediately (see module doc).
         self.published.store(inner.engine.font_registry());
         Some(id)
+    }
+}
+
+/// A render-only handle into a [`FontManager`]'s published registry (ADR 0006).
+///
+/// The renderer resolves glyphs lock-free through the latest-published snapshot and checks
+/// runs' engine kind against the manager's (a debug assert). It never shapes — so it needs
+/// neither the mint authority nor a shaping scratch, which a full [`FontManager`] handle
+/// would carry. Cheap to clone (two `Arc`s).
+#[derive(Clone)]
+pub struct FontRegistrySource {
+    /// The manager's engine kind, immutable for the manager's lifetime; a run's
+    /// `shaping_engine` is debug-checked against it.
+    kind: ShapingEngineKind,
+    /// The manager's published snapshot, swapped at every mint — reads stay lock-free and
+    /// fresh at mint-time publication.
+    published: Arc<ArcSwap<FontRegistry>>,
+}
+
+impl fmt::Debug for FontRegistrySource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FontRegistrySource")
+            .field("engine", &self.kind)
+            .finish_non_exhaustive()
+    }
+}
+
+impl FontRegistrySource {
+    /// The engine kind of the manager this source observes.
+    pub fn engine_kind(&self) -> ShapingEngineKind {
+        self.kind
+    }
+
+    /// The last-published registry snapshot, lock-free (see [`FontManager::published`]).
+    pub fn registry(&self) -> Arc<FontRegistry> {
+        self.published.load_full()
     }
 }
 

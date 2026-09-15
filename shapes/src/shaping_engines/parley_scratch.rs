@@ -1,7 +1,7 @@
 //! Parley's per-handle shaping scratch (ADR 0006).
 
-use crate::engine::{EngineScratch, FontData, FontRegistry, ShapedRun, ShapingRequest};
 use crate::FaceId;
+use crate::engine::{EngineScratch, FontData, FontRegistry, ShapedRun, ShapingRequest};
 use crate::shaping_engines::parley_engine::{self, ParleySessionContexts};
 
 /// Parley shaping state for one manager handle: session contexts over the engine's shared

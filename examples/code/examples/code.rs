@@ -266,7 +266,11 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let scene = ctx.new_scene();
 
-    let mut renderer = window.renderer().with_text(fonts).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(fonts.registry_source())
+        .build()
+        .await?;
 
     let transform = application.get_transform(content_size).enter(&scene);
     let location = transform.to_location().enter(&scene);

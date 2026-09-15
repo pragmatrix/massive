@@ -85,7 +85,11 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     let view_id = window.view_id();
 
     let scene = ctx.new_scene();
-    let mut renderer = window.renderer().with_text(fonts).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(fonts.registry_source())
+        .build()
+        .await?;
 
     // Application
 

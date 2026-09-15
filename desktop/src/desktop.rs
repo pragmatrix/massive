@@ -123,7 +123,9 @@ impl Desktop {
         let mut renderer = window
             .renderer()
             .with_shapes()
-            .with_text(fonts.detached())
+            // The renderer resolves glyphs through the published snapshot and never
+            // shapes — a registry source, not a full handle (ADR 0006).
+            .with_text(fonts.registry_source())
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;

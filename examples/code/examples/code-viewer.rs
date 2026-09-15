@@ -81,7 +81,11 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // spellcheck: ignore
     // let physical_size = initial_size.to_physical(window.scale_factor());
     let scene = ctx.new_scene();
-    let mut renderer = window.renderer().with_text(fonts).build().await?;
+    let mut renderer = window
+        .renderer()
+        .with_text(fonts.registry_source())
+        .build()
+        .await?;
 
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();

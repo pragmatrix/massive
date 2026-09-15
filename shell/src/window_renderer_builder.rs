@@ -4,7 +4,7 @@ use anyhow::Result;
 use log::debug;
 
 use massive_geometry::{Color, PixelCamera, SizePx};
-use massive_renderer::{FontManager, RenderDevice, RenderGeometry, RendererBuilder};
+use massive_renderer::{FontRegistrySource, RenderDevice, RenderGeometry, RendererBuilder};
 
 use crate::shell_window::ShellWindowShared;
 use crate::{AsyncWindowRenderer, WindowRenderer};
@@ -18,7 +18,7 @@ pub struct WindowRendererBuilder {
     camera: PixelCamera,
     background_color: Option<Color>,
     shapes: bool,
-    text: Option<FontManager>,
+    text: Option<FontRegistrySource>,
     measurements: bool,
 }
 
@@ -68,7 +68,7 @@ impl WindowRendererBuilder {
     /// Enables text / font rendering support.
     ///
     /// By default, no font / GlyphRun support is available.
-    pub fn with_text(mut self, fonts: FontManager) -> Self {
+    pub fn with_text(mut self, fonts: FontRegistrySource) -> Self {
         self.text = Some(fonts);
         self
     }
