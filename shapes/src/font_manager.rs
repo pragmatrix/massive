@@ -19,12 +19,11 @@
 //!   faces interned by any other handle. No list of live instances exists; the pull
 //!   replaces broadcast.
 //!
-//! ## Session exclusivity without `&mut`
+//! ## Session exclusivity without borrow-gating
 //!
-//! Both entry points ([`FontManager::load_font`], [`FontManager::session`]) take `&self`.
-//! The pre-0006 reason for `&mut` gating everything — a session holding the manager's one
-//! mutex, where any other entry would re-enter it and deadlock — is gone: shaping never
-//! touches the manager mutex. Exclusivity is enforced at runtime instead: a session holds
+//! Both entry points ([`FontManager::load_font`], [`FontManager::session`]) take `&self`:
+//! shaping never touches the manager mutex, so no compile-time borrow gate is needed.
+//! Exclusivity is enforced at runtime instead: a session holds
 //! its handle's scratch mutex, and `session()` acquires it with `try_lock`, so two sessions
 //! on one handle panic loudly at the misuse point instead of deadlocking. Sessions on
 //! different handles shape in parallel — that is the point (ADR 0006); the manager mutex is
@@ -242,9 +241,9 @@ impl FontManager {
     /// state. The manager mutex covers only this mint-time work — sessions shape per
     /// handle, lock-free (ADR 0006).
     ///
-    /// Takes `&self`: mutex reentrancy (the pre-0006 reason for `&mut gating everything`)
-    /// is gone — shaping never holds the manager lock, so loading during an open session
-    /// is safe by construction.
+    /// Takes `&self`: shaping never holds the manager mutex (ADR 0006), so loading during
+    /// an open session cannot deadlock — the runtime exclusivity guarantee lives on the
+    /// session's scratch lock, not here.
     ///
     /// Font loading is possible at any time: parley sessions see the font through the
     /// shared collection; cosmic sessions re-seed on their next epoch check.
@@ -275,11 +274,11 @@ impl FontManager {
 
     /// Acquire a [`FontSession`] over this manager handle's shaping state.
     ///
-    /// Takes `&self`: exclusivity needs no borrow-gate. The session locks this handle's
-    /// scratch with `try_lock`, so a second session on the *same handle* panics loudly at
-    /// the misuse point instead of deadlocking — the runtime substitute for the former
-    /// `&mut` gate (which only ever protected against exactly this aliasing; see the
-    /// module doc). Sessions on *different handles* shape in parallel (ADR 0006).
+    /// Takes `&self`: exclusivity is runtime-enforced instead of compile-time (ADR 0006) —
+    /// a session exclusively holds its handle's scratch mutex, `session()` acquires it with
+    /// `try_lock`, and a second session on the *same handle* panics loudly at the misuse
+    /// point rather than deadlocking on the non-reentrant mutex. Sessions on *different
+    /// handles* shape in parallel.
     #[must_use]
     pub fn session(&self) -> FontSession<'_> {
         let mut scratch = self.scratch.try_lock().unwrap_or_else(|| {

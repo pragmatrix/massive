@@ -404,9 +404,9 @@ impl CosmicTextEngine {
 
     /// Intern a shaper-selected (possibly fallback) `fontdb::ID` into this engine's registry
     /// on first use. The face's bytes are read out of the database once and pinned so
-    /// rasterization resolves the same data later; the pre-ADR-0006 behavior this restores
-    /// (canonical-engine resolution; per-clone sessions resolve through the manager
-    /// instead). Its `None` on unreadable face data aborts the run — regression-covered in
+    /// rasterization resolves the same data later. Faces the *canonical* engine resolves
+    /// land here; per-session engines route through the manager mint instead (ADR 0006).
+    /// Its `None` on unreadable face data aborts the run — regression-covered in
     /// `tests.rs` (`cosmic_engine_shapes_through_shared_file_faces`).
     pub(crate) fn intern(&mut self, id: fontdb::ID, weight: fontdb::Weight) -> Option<usize> {
         let Some(index) = self.lookup(id, weight) else {

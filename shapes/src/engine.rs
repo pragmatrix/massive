@@ -59,8 +59,7 @@ impl FontData {
 ///
 /// The snapshot also carries swash [`FaceMetrics`] per face, extracted eagerly at
 /// face-mint time (ADR 0006): glyph-placement consumers read metrics through the same
-/// lock-free snapshot instead of parsing swash tables per cluster per frame, and the
-/// old session-lazy `FaceMetricsCache` is gone.
+/// lock-free snapshot instead of parsing swash tables per cluster per frame.
 ///
 /// Font data and metrics live behind one shared inner `Arc`: they are always built from
 /// the same entries in one mint, updated together, and read together — so the face sets
