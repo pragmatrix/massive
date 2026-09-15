@@ -14,7 +14,7 @@ use std::sync::Arc;
 use massive_geometry::Color;
 
 use crate::face_metrics::FaceMetrics;
-use crate::font_manager::FontSession;
+use crate::font_manager::Shaper;
 use crate::{ClipBoxPx, FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Shared, reference-counted font file bytes.
@@ -29,7 +29,7 @@ pub type FontBytes = Arc<dyn AsRef<[u8]> + Send + Sync>;
 /// into that ordering manually (and mt's `cluster_to_run` over the clippy argument limit).
 pub struct FrameShaper<'a> {
     /// The session; borrows the manager clone exclusively for the bundle's lifetime.
-    pub session: FontSession<'a>,
+    pub session: Shaper<'a>,
     /// The manager's published registry snapshot, read before the session opened. Faces
     /// minted by *this* frame's fallbacks may be absent — mint-time publication covers the
     /// concurrent-submission contract, but the snapshot is only guaranteed to carry faces

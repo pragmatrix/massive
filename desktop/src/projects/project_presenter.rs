@@ -83,7 +83,7 @@ impl ProjectHeaderPresenter {
             .enter(scene);
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
-        let mut session = font_manager.session();
+        let mut session = font_manager.shaper();
         let header_run = properties
             .name
             .size(PROJECT_HEADER_FONT_SIZE)

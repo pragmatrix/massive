@@ -22,7 +22,7 @@ use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{FontSession, Shape, ShapingEngineKind};
+use massive_shapes::{Shape, Shaper, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
@@ -216,7 +216,7 @@ impl Logs {
     }
 
     fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
-        let mut session = self.fonts.session();
+        let mut session = self.fonts.shaper();
         let (glyph_runs, height) = shape_log_line(&mut session, bytes, self.next_line_top);
 
         let glyph_runs: Vec<Shape> = glyph_runs
@@ -379,7 +379,7 @@ struct LayoutMovement {
 const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
-    session: &mut FontSession<'_>,
+    session: &mut Shaper<'_>,
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {

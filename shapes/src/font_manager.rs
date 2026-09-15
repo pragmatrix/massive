@@ -19,18 +19,18 @@
 //!   faces interned by any other handle. No list of live instances exists; the pull
 //!   replaces broadcast.
 //!
-//! ## Session exclusivity without borrow-gating
+//! ## Shaper exclusivity without borrow-gating
 //!
-//! Both entry points ([`FontManager::load_font`], [`FontManager::session`]) take `&self`:
+//! Both entry points ([`FontManager::load_font`], [`FontManager::shaper`]) take `&self`:
 //! shaping never touches the manager mutex, so no compile-time borrow gate is needed.
-//! Exclusivity is enforced at runtime instead: a session holds
-//! its handle's scratch mutex, and `session()` acquires it with `try_lock`, so two sessions
-//! on one handle panic loudly at the misuse point instead of deadlocking. Sessions on
+//! Exclusivity is enforced at runtime instead: a shaper exclusively holds
+//! its handle's scratch mutex, and `shaper()` acquires it with `try_lock`, so two shapers
+//! on one handle panic loudly at the misuse point instead of deadlocking. Shapers on
 //! different handles shape in parallel — that is the point (ADR 0006); the manager mutex is
 //! untouched by shaping.
 //!
-//! A session must not outlive the frame cycle it shaped for: `update_lines`-style call
-//! sites hold one session per frame and drop it before anything the frame produced is
+//! A shaper must not outlive the frame cycle it shaped for: `update_lines`-style call
+//! sites hold one shaper per frame and drop it before anything the frame produced is
 //! submitted — the ordering the renderer's freshness contract rests on.
 //!
 //! ## The published registry (with metrics)
@@ -38,9 +38,9 @@
 //! `FaceId` → font-data plus per-face swash [`FaceMetrics`] are published as an immutable
 //! `Arc` snapshot ([`FontManager::published`] / [`FontManager::published_metrics`]), read
 //! lock-free on the render and glyph-placement paths. Every mint — `load_font`, and
-//! fallback interning from inside a session — republishes under the manager lock at mint
-//! time, so a published snapshot never lags the minted world, and in-session resolution
-//! ([`FontSession::font_data`]) is a plain lock-free map read.
+//! fallback interning from inside a shaper — republishes under the manager lock at mint
+//! time, so a published snapshot never lags the minted world, and in-shaper resolution
+//! ([`Shaper::font_data`]) is a plain lock-free map read.
 
 use std::fmt;
 use std::sync::Arc;
@@ -68,7 +68,7 @@ use crate::{FaceId, GlyphRun};
 /// Faces this session mints (cosmic fallback interning) are published at mint time, under
 /// the manager lock — the published snapshot a concurrently submitted frame reads is
 /// always complete (see module doc).
-pub struct FontSession<'a> {
+pub struct Shaper<'a> {
     /// The manager's engine kind, fixed at construction; read without a lock.
     kind: ShapingEngineKind,
     /// This manager handle: the mint authority (single `FaceId` issuer) and publication
@@ -275,12 +275,12 @@ impl FontManager {
     /// Acquire a [`FontSession`] over this manager handle's shaping state.
     ///
     /// Takes `&self`: exclusivity is runtime-enforced instead of compile-time (ADR 0006) —
-    /// a session exclusively holds its handle's scratch mutex, `session()` acquires it with
+    /// a shaper exclusively holds its handle's scratch mutex, `shaper()` acquires it with
     /// `try_lock`, and a second session on the *same handle* panics loudly at the misuse
     /// point rather than deadlocking on the non-reentrant mutex. Sessions on *different
     /// handles* shape in parallel.
     #[must_use]
-    pub fn session(&self) -> FontSession<'_> {
+    pub fn shaper(&self) -> Shaper<'_> {
         let mut scratch = self.scratch.try_lock().unwrap_or_else(|| {
             panic!(
                 "FontManager session reentrancy: this handle already has a session open (its \
@@ -290,7 +290,7 @@ impl FontManager {
         // Epoch sync at session open: seed this handle's contexts on first use and, for
         // cosmic, re-seed whenever the manager's minted world has moved (ADR 0006).
         scratch.sync(self.kind, self, &self.published.load_full());
-        FontSession {
+        Shaper {
             kind: self.kind,
             manager: self,
             scratch,
@@ -303,7 +303,7 @@ impl FontManager {
     pub fn frame_shaper(&self) -> FrameShaper<'_> {
         let registry = self.published();
         FrameShaper {
-            session: self.session(),
+            session: self.shaper(),
             registry,
         }
     }
@@ -321,7 +321,7 @@ impl FontManager {
     }
 }
 
-impl FontSession<'_> {
+impl Shaper<'_> {
     /// Shape one attributed line at `font_size` through this handle's contexts.
     pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
         match self.kind {
@@ -426,7 +426,7 @@ mod tests {
             let request =
                 ShapingRequest::new(text, TextAttributes::named_family("Noto Sans Takri"));
             let run = {
-                let mut shaper = fonts.session();
+                let mut shaper = fonts.shaper();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
@@ -472,7 +472,7 @@ mod tests {
             let request =
                 ShapingRequest::new(descenders, TextAttributes::named_family("JetBrains Mono"));
             let run = {
-                let mut shaper = fonts.session();
+                let mut shaper = fonts.shaper();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
@@ -518,7 +518,7 @@ mod tests {
                 }
                 request.ranges = ranges;
                 let run = {
-                    let mut shaper = fonts.session();
+                    let mut shaper = fonts.shaper();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
@@ -597,7 +597,7 @@ mod tests {
                 let fonts = FontManager::bare(kind).with_font(AMIRI);
                 let request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
                 let run = {
-                    let mut shaper = fonts.session();
+                    let mut shaper = fonts.shaper();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
@@ -651,13 +651,13 @@ mod tests {
             let reference = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
 
             let run_overridden = {
-                let mut shaper = fonts.session();
+                let mut shaper = fonts.shaper();
                 shaper
                     .shape(&overridden, 16.0)
                     .expect("shaping must produce a run")
             };
             let run_reference = {
-                let mut shaper = fonts.session();
+                let mut shaper = fonts.shaper();
                 shaper
                     .shape(&reference, 16.0)
                     .expect("shaping must produce a run")
@@ -706,7 +706,7 @@ mod tests {
             assert_eq!(fonts.engine_kind(), kind);
             let id = fonts.load_font(JETBRAINS_MONO)[0];
             assert!(
-                fonts.session().font_data(id).is_some(),
+                fonts.shaper().font_data(id).is_some(),
                 "{kind:?}: the loaded font must resolve to font data"
             );
         }
@@ -722,7 +722,7 @@ mod tests {
             let request =
                 ShapingRequest::new("a->b", TextAttributes::named_family("JetBrains Mono"));
             let run = {
-                let mut shaper = fonts.session();
+                let mut shaper = fonts.shaper();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
@@ -731,7 +731,7 @@ mod tests {
             let all_resolve = run
                 .glyphs
                 .iter()
-                .all(|g| fonts.session().font_data(g.face_id).is_some());
+                .all(|g| fonts.shaper().font_data(g.face_id).is_some());
             assert!(
                 all_resolve,
                 "{kind:?}: every shaped glyph's FaceId must resolve to font data"
@@ -772,7 +772,7 @@ mod tests {
                 ];
 
                 let run = {
-                    let mut shaper = fonts.session();
+                    let mut shaper = fonts.shaper();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
@@ -821,7 +821,7 @@ mod tests {
                 ),
             ];
             let run = {
-                let mut shaper = fonts.session();
+                let mut shaper = fonts.shaper();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
@@ -872,7 +872,7 @@ mod tests {
                 let request =
                     ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
                 let run = {
-                    let mut shaper = fonts.session();
+                    let mut shaper = fonts.shaper();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")

@@ -60,7 +60,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let line_height = 20.;
 
     let (glyph_runs, height) = attributed_text::shape_text(
-        &mut fonts.session(),
+        &mut fonts.shaper(),
         &code.text,
         &code.attributes,
         font_size,

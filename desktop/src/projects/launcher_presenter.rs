@@ -94,7 +94,7 @@ impl LauncherPresenter {
 
         let background = background_shape.at(&our_location).enter(scene);
 
-        let mut session = font_manager.session();
+        let mut session = font_manager.shaper();
         let name = profile
             .name
             // Idea: To not waste so much memory here for large fonts, may use a quality index that

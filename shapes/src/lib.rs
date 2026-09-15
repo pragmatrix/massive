@@ -73,7 +73,7 @@ impl<'a> SizedTextShaper<'a> {
         }
     }
 
-    pub fn shape(self, session: &mut FontSession<'_>) -> Option<GlyphRun> {
+    pub fn shape(self, session: &mut Shaper<'_>) -> Option<GlyphRun> {
         self.layouter.layout(session, self.font_size)
     }
 }

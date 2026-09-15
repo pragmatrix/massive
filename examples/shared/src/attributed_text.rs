@@ -12,7 +12,7 @@ use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use massive_geometry::{Color, Vector3};
 
 use massive_shapes::{
-    FontSession, GlyphRun, ShapedRun, ShapingRequest, TextAttributes, TextFamily, TextWeight,
+    GlyphRun, ShapedRun, Shaper, ShapingRequest, TextAttributes, TextFamily, TextWeight,
     shaped_run_to_glyph_run,
 };
 
@@ -37,7 +37,7 @@ pub struct TextAttribute {
 /// attribute ranges are re-based locally, and each shaped run is translated down by `line_height`
 /// per line index. The returned height covers all lines.
 pub fn shape_text(
-    session: &mut FontSession<'_>,
+    session: &mut Shaper<'_>,
     text: &str,
     attributes: &[TextAttribute],
     font_size: f32,
@@ -210,7 +210,7 @@ mod tests {
     #[test]
     fn shape_text_splits_runs_per_attribute() {
         let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
-        let mut session = fonts.session();
+        let mut session = fonts.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let attributes = vec![
@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn shape_text_default_run_between_ranges() {
         let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
-        let mut session = fonts.session();
+        let mut session = fonts.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let blue = Color::rgb(0.0, 0.0, 1.0);
