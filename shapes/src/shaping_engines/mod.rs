@@ -5,9 +5,9 @@
 //! [`crate::ShapingEngineKind`].
 
 #[cfg(feature = "cosmic-text")]
-mod cosmic_engine;
+pub mod cosmic_engine;
 #[cfg(feature = "parley")]
-mod parley_engine;
+pub mod parley_engine;
 
 #[cfg(feature = "cosmic-text")]
 pub use cosmic_engine::CosmicTextEngine;

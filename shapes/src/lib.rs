@@ -9,11 +9,11 @@ mod text_shaper;
 
 pub use clip_box::*;
 pub use engine::{
-    FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun, ShapingEngine,
-    ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily, covering_metadata,
-    shaped_run_to_glyph_run,
+    FontBytes, FontData, FontRegistry, FrameShaper, ShapedCluster, ShapedGlyph, ShapedRun,
+    ShapingEngine, ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily,
+    covering_metadata, shaped_run_to_glyph_run,
 };
-pub use face_metrics::{FaceMetrics, FaceMetricsCache};
+pub use face_metrics::FaceMetrics;
 pub use font_manager::*;
 pub use glyph_run::*;
 pub use shape::*;
@@ -73,8 +73,8 @@ impl<'a> SizedTextShaper<'a> {
         }
     }
 
-    pub fn shape(self, shaper: &mut Shaper<'_>) -> Option<GlyphRun> {
-        self.layouter.layout(shaper, self.font_size)
+    pub fn shape(self, session: &mut FontSession<'_>) -> Option<GlyphRun> {
+        self.layouter.layout(session, self.font_size)
     }
 }
 

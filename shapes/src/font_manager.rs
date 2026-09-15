@@ -1,31 +1,47 @@
-//! The font manager: owns one shaping engine and exposes the stable shaping API.
+//! The font manager: one font-identity authority plus per-handle shaping sessions.
 //!
-//! [`FontManager`] owns one shaping engine (selected at construction, ADR 0005: no default
-//! engine, a [`FaceId`] is only meaningful for the engine instance that produced it). Its entry
-//! surface is deliberately tiny — `load_font` and [`shaper`](FontManager::shaper) — which is
-//! what keeps the mutex gate auditable.
+//! [`FontManager`] owns the registry-minting machinery (ADR 0006): the manager mutex covers
+//! only font loading and lazy fallback interning — the only work that must be serialized,
+//! because it mints [`FaceId`]s and publishes the registry (with metrics). Shaping runs in
+//! sessions over per-handle scratch state: every detached [`FontManager`] handle (each
+//! instance task, the desktop, the renderer's manager) holds its own shape-ready engine
+//! contexts and shapes without contending with other handles (see [`FontManager::detached`]).
 //!
-//! ## The `&mut` gate
+//! ## Two models of font-database sharing (ADR 0006)
 //!
-//! Engine state sits behind an `Arc<Mutex<…>>`, but both entry points deliberately take
-//! `&mut self`: a [`Shaper`] guard borrows the manager as mutable for its whole session, so the
-//! borrow checker guarantees no other engine access — the self-deadlock that used to hang a
-//! test — can even be written while a session is open. Font resolution is session-only
-//! ([`Shaper::font_data`]); the manager exposes no per-call path that could race or re-lock
-//! against a live session.
+//! - **Parley**: fontique's native shared collection
+//!   (`ParleyEngine::shared_collection`). Session contexts clone the shared collection, so
+//!   a font registered at any time is visible on the next layout builder creation —
+//!   fontique version-syncs internally, no coordination.
+//! - **Cosmic**: a per-handle [`CosmicTextEngine`] with *epoch-pull*. The published registry
+//!   is the epoch: a session's engine is seeded (or re-seeded) from the published snapshot
+//!   whenever the manager's minted world has gained faces — a loaded font, or fallback
+//!   faces interned by any other handle. No list of live instances exists; the pull
+//!   replaces broadcast.
 //!
-//! Cross-thread sharing (instance tasks, renderer) is real, so the manager stays `Clone` over
-//! the `Arc`; a *deliberate* clone-then-lock is then review-visible code, not a preventable
-//! accident.
+//! ## Session exclusivity without `&mut`
 //!
-//! ## The published registry
+//! Both entry points ([`FontManager::load_font`], [`FontManager::session`]) take `&self`.
+//! The pre-0006 reason for `&mut` gating everything — a session holding the manager's one
+//! mutex, where any other entry would re-enter it and deadlock — is gone: shaping never
+//! touches the manager mutex. Exclusivity is enforced at runtime instead: a session holds
+//! its handle's scratch mutex, and `session()` acquires it with `try_lock`, so two sessions
+//! on one handle panic loudly at the misuse point instead of deadlocking. Sessions on
+//! different handles shape in parallel — that is the point (ADR 0006); the manager mutex is
+//! untouched by shaping.
 //!
-//! The engine's [`FaceId`] → font-data registry is additionally *published* as an immutable
-//! `Arc` snapshot ([`FontManager::published`]), read lock-free on the render path
-//! (rasterization). Republishing happens at the mutation points — `load_font` and session
-//! end (the cosmic engine lazily interns fallback faces while shaping) — both occur under
-//! the manager lock, so a published snapshot never lags a session's mutations. Note: the
-//! gate exempts only this read; snapshot readers still never touch the mutex.
+//! A session must not outlive the frame cycle it shaped for: `update_lines`-style call
+//! sites hold one session per frame and drop it before anything the frame produced is
+//! submitted — the ordering the renderer's freshness contract rests on.
+//!
+//! ## The published registry (with metrics)
+//!
+//! `FaceId` → font-data plus per-face swash [`FaceMetrics`] are published as an immutable
+//! `Arc` snapshot ([`FontManager::published`] / [`FontManager::published_metrics`]), read
+//! lock-free on the render and glyph-placement paths. Every mint — `load_font`, and
+//! fallback interning from inside a session — republishes under the manager lock at mint
+//! time, so a published snapshot never lags the minted world, and in-session resolution
+//! ([`FontSession::font_data`]) is a plain lock-free map read.
 
 use std::fmt;
 use std::sync::Arc;
@@ -33,35 +49,96 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use parking_lot::{Mutex, MutexGuard};
 
+use crate::engine::FrameShaper;
 use crate::engine::{
     FontData, FontRegistry, ShapedRun, ShapingEngine, ShapingEngineKind, ShapingRequest,
 };
-#[cfg(feature = "parley")]
-use crate::face_metrics::FaceMetricsCache;
 #[cfg(feature = "cosmic-text")]
-use crate::shaping_engines::CosmicTextEngine;
-use crate::shaping_engines::ParleyEngine;
+use crate::shaping_engines::cosmic_engine::CosmicTextEngine;
+#[cfg(feature = "parley")]
+use crate::shaping_engines::parley_engine::{self, ParleySessionContexts};
 use crate::{FaceId, GlyphRun};
 
-/// A shaping session holding the manager's lock.
+/// A shaping session over one [`FontManager`] handle.
 ///
-/// Created by [`FontManager::shaper`]; the guard it carries keeps the selected engine locked for
-/// as long as the guard is alive, so multiple shapes can run against the same engine with a
-/// single lock acquisition.
-pub struct Shaper<'a> {
+/// Created by [`FontManager::session`] — the *only* shaping entry point; instance,
+/// application, and desktop code all use it the same way (ADR 0006). The session borrows
+/// the manager handle and shapes through this handle's own scratch contexts, lock-free
+/// against other handles' sessions.
+///
+/// Faces this session mints (cosmic fallback interning) are published at mint time, under
+/// the manager lock — the published snapshot a concurrently submitted frame reads is
+/// always complete (see module doc).
+pub struct FontSession<'a> {
     /// The manager's engine kind, fixed at construction; read without a lock.
     kind: ShapingEngineKind,
-    inner: MutexGuard<'a, FontManagerInner>,
-    /// Set when the session may have mutated the engine registry (lazy fallback interning);
-    /// dropping the guard republishes the registry snapshot through this back-pointer.
-    published: &'a ArcSwap<FontRegistry>,
+    /// This manager handle: the mint authority (single `FaceId` issuer) and publication
+    /// owner.
+    manager: &'a FontManager,
+    /// This handle's shape-ready scratch state, epoch-synced at session open.
+    scratch: MutexGuard<'a, FontScratch>,
 }
 
-impl Drop for Shaper<'_> {
-    fn drop(&mut self) {
-        // Republish while the lock is still held: any registry mutation this session made
-        // (cosmic fallback interning) becomes visible to lock-free readers only here.
-        self.published.store(self.inner.engine.font_registry());
+/// Per-handle shaping state (ADR 0006): engine contexts this manager handle shapes with.
+///
+/// Held behind its own mutex — not the manager's, which is mint-time-only. In the shipped
+/// topologies each instance task and the desktop own their handle exclusively, so the lock
+/// is uncontended; it exists because a session holds the guard across many `shape` calls
+/// while the handle stays reachable in shared structures — a second session on one handle
+/// must never meet the live one (see `FontManager::session`). Two sessions on two handles
+/// never meet; the manager mutex is untouched by shaping.
+struct FontScratch {
+    #[cfg(feature = "parley")]
+    parley: Option<ParleySessionContexts>,
+    #[cfg(feature = "cosmic-text")]
+    cosmic: Option<CosmicTextEngine>,
+    /// Face count of the manager world at the last sync — the cosmic epoch token
+    /// (a mismatch means faces were minted since and the handle re-seeds).
+    #[cfg(feature = "cosmic-text")]
+    synced_faces: usize,
+}
+
+impl FontScratch {
+    fn new(_kind: ShapingEngineKind) -> Self {
+        Self {
+            #[cfg(feature = "parley")]
+            parley: None,
+            #[cfg(feature = "cosmic-text")]
+            cosmic: None,
+            #[cfg(feature = "cosmic-text")]
+            synced_faces: 0,
+        }
+    }
+
+    /// Bring the scratch in line with the manager's published world (ADR 0006): parley
+    /// seeds its contexts once from the canonical engine (the shared collection needs no
+    /// re-sync — fontique version sync makes later registrations visible); cosmic
+    /// seeds/re-seeds its engine from the published snapshot whenever the face count moved.
+    fn sync(&mut self, kind: ShapingEngineKind, manager: &FontManager, published: &FontRegistry) {
+        match kind {
+            #[cfg(feature = "parley")]
+            ShapingEngineKind::Parley => {
+                if self.parley.is_none() {
+                    self.parley = manager.inner.lock().engine.parley_session_contexts();
+                }
+            }
+            #[cfg(feature = "cosmic-text")]
+            ShapingEngineKind::CosmicText => {
+                let face_count = published.face_count();
+                if self.synced_faces != face_count {
+                    // Epoch-pull: bring this handle's engine onto the published snapshot.
+                    // The engine is built once and updated incrementally (`pull`) — a full
+                    // rebuild would rescan all system fonts per epoch move.
+                    let Some(engine) = self.cosmic.as_mut() else {
+                        self.cosmic = Some(CosmicTextEngine::seed_from_registry(published));
+                        self.synced_faces = face_count;
+                        return;
+                    };
+                    engine.pull(published);
+                    self.synced_faces = face_count;
+                }
+            }
+        }
     }
 }
 
@@ -73,43 +150,61 @@ impl fmt::Debug for FontManager {
     }
 }
 
+/// The font-identity machinery: the canonical engine instance, used for minting only.
+///
+/// The manager mutex covers only mint-time work (load, intern, publish) — shaping happens
+/// per handle, in [`FontSession`]s over [`FontScratch`] state.
 struct FontManagerInner {
-    /// Boxed: the engines carry large contexts (~1–2 kB: Parley's `FontContext` +
-    /// `LayoutContext`, cosmic-text's `FontSystem`); an extra indirection per call is
-    /// negligible next to shaping and keeps the manager handle small.
+    /// Boxed: the canonical engine carries large contexts (~1–2 kB: Parley's `FontContext`
+    /// + `LayoutContext`, cosmic-text's `FontSystem`).
+    ///
+    /// An extra indirection per call is negligible next to shaping and keeps the manager
+    /// handle small.
     engine: Box<dyn ShapingEngine>,
-    /// Per-face swash metrics extracted to owned storage, filled on demand via
-    /// [`Shaper::face_metrics`] (see `face_metrics`). Lives here so entries share the same
-    /// synchronized state the engine's face registry lives under.
-    face_metrics: FaceMetricsCache,
 }
 
-/// A font manager owning one shaping engine.
+/// A font manager owning one canonical shaping engine.
 ///
-/// The public API mirrors the pre-engine surface so consumers keep compiling; `shaper()` yields a
-/// [`Shaper`] guard through which text is shaped via [`crate::TextShaper`] (the engine-neutral
-/// builder).
-#[derive(Clone)]
+/// Handles do not implement `Clone`: a handle's scratch is exclusively attached to one
+/// logical owner. Deriving an independent handle is explicit — [`FontManager::detached`].
 pub struct FontManager {
     /// The engine kind selected at construction. Immutable for the manager's lifetime, so it
-    /// reads without the lock; only the engine instance needs synchronized access.
+    /// reads without the lock; only minting needs synchronized access.
     kind: ShapingEngineKind,
     inner: Arc<Mutex<FontManagerInner>>,
     /// The last-published font registry snapshot (see [`Self::published`]): swapped under the
-    /// manager lock at every registry-mutating point, read lock-free on the render path.
+    /// manager lock at every mint, read lock-free on the render path.
     published: Arc<ArcSwap<FontRegistry>>,
+    /// This handle's shaping scratch state — fresh per `detached()` (see the method).
+    scratch: Arc<Mutex<FontScratch>>,
 }
 
 impl FontManager {
+    /// Derive a handle whose shaping runs detached from this handle's state: the returned
+    /// manager shares only the minted font identity (the canonical engine behind the mutex
+    /// and the published snapshot), while its scratch is fresh and exclusively owned by the
+    /// new handle — the first session there seeds it independently and no session on either
+    /// handle ever contends with or deadlocks the other (ADR 0006).
+    ///
+    /// `Clone` is deliberately not implemented: cloning *is* this split, and it should be
+    /// visible — the returned handle belongs to a new logical owner (an instance task, a
+    /// renderer) whose shaping must not alias this handle's scratch.
+    pub fn detached(&self) -> Self {
+        Self {
+            kind: self.kind,
+            inner: Arc::clone(&self.inner),
+            published: Arc::clone(&self.published),
+            scratch: Arc::new(Mutex::new(FontScratch::new(self.kind))),
+        }
+    }
+
     fn with_engine(kind: ShapingEngineKind, engine: Box<dyn ShapingEngine>) -> Self {
         let published = Arc::new(ArcSwap::from(engine.font_registry()));
         Self {
             kind,
-            inner: Arc::new(Mutex::new(FontManagerInner {
-                engine,
-                face_metrics: FaceMetricsCache::default(),
-            })),
+            inner: Arc::new(Mutex::new(FontManagerInner { engine })),
             published,
+            scratch: Arc::new(Mutex::new(FontScratch::new(kind))),
         }
     }
 
@@ -117,7 +212,7 @@ impl FontManager {
     pub fn system(kind: ShapingEngineKind) -> Self {
         let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Box::new(ParleyEngine::system()),
+            ShapingEngineKind::Parley => Box::new(parley_engine::ParleyEngine::system()),
             #[cfg(feature = "cosmic-text")]
             ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::system()),
         };
@@ -128,7 +223,7 @@ impl FontManager {
     pub fn bare(kind: ShapingEngineKind) -> Self {
         let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Box::new(ParleyEngine::bare()),
+            ShapingEngineKind::Parley => Box::new(parley_engine::ParleyEngine::bare()),
             #[cfg(feature = "cosmic-text")]
             ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::bare()),
         };
@@ -136,22 +231,24 @@ impl FontManager {
     }
 
     /// Adds the font and returns Self
-    pub fn with_font(mut self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Self {
+    pub fn with_font(self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Self {
         self.load_font(font_data);
         self
     }
 
     /// Adds the font and returns its font ids.
     ///
-    /// Together with [`Self::shaper`], this is the *entire* entry surface for engine state,
-    /// so the mutex gate is checkable at a glance: both take `&mut self` — deliberately
-    /// artificial (the state is behind an `Arc<Mutex<…>>`) — and a [`Shaper`] guard borrows
-    /// the manager as mutable, freezing both while the session is open. Wrong interleavings
-    /// are compile errors, not hangs.
-    pub fn load_font(
-        &mut self,
-        font_data: impl AsRef<[u8]> + Sync + Send + 'static,
-    ) -> Vec<FaceId> {
+    /// Together with [`Self::session`], this is the *entire* entry surface for engine
+    /// state. The manager mutex covers only this mint-time work — sessions shape per
+    /// handle, lock-free (ADR 0006).
+    ///
+    /// Takes `&self`: mutex reentrancy (the pre-0006 reason for `&mut gating everything`)
+    /// is gone — shaping never holds the manager lock, so loading during an open session
+    /// is safe by construction.
+    ///
+    /// Font loading is possible at any time: parley sessions see the font through the
+    /// shared collection; cosmic sessions re-seed on their next epoch check.
+    pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
         let mut inner = self.inner.lock();
         let ids = inner.engine.load_font(Arc::new(font_data));
         // The registry just mutated: republish while the lock is still held (see module doc).
@@ -167,50 +264,102 @@ impl FontManager {
     /// The last-published registry snapshot, lock-free.
     ///
     /// The one gate exemption: readers take an `Arc` copy from the [`ArcSwap`] — no manager
-    /// mutex is involved, so this cannot deadlock against a live shaper session. Freshness
-    /// is guaranteed for everything published before the *current* session ends; mutations
-    /// inside a live session become visible when it drops (see [`Shaper`]).
+    /// mutex is involved, so this cannot deadlock against a live session. Freshness: faces
+    /// are published at mint time, so the snapshot is always complete for every minted
+    /// `FaceId` (see module doc). Readers resolve font data *and* swash metrics through the
+    /// same snapshot (the terminal's glyph grid anchoring reads metrics per cluster per
+    /// frame without re-parsing swash tables).
     pub fn published(&self) -> Arc<FontRegistry> {
         self.published.load_full()
     }
 
-    /// Acquire a [`Shaper`], holding the manager's lock for the duration of the shaping session.
+    /// Acquire a [`FontSession`] over this manager handle's shaping state.
     ///
-    /// The returned guard borrows the manager as mutable, which is what freezes all other
-    /// manager access while the session is open (see the module doc).
+    /// Takes `&self`: exclusivity needs no borrow-gate. The session locks this handle's
+    /// scratch with `try_lock`, so a second session on the *same handle* panics loudly at
+    /// the misuse point instead of deadlocking — the runtime substitute for the former
+    /// `&mut` gate (which only ever protected against exactly this aliasing; see the
+    /// module doc). Sessions on *different handles* shape in parallel (ADR 0006).
     #[must_use]
-    pub fn shaper(&mut self) -> Shaper<'_> {
-        Shaper {
+    pub fn session(&self) -> FontSession<'_> {
+        let mut scratch = self.scratch.try_lock().unwrap_or_else(|| {
+            panic!(
+                "FontManager session reentrancy: this handle already has a session open (its \
+                 scratch mutex is held); two live sessions on one handle are unsupported"
+            )
+        });
+        // Epoch sync at session open: seed this handle's contexts on first use and, for
+        // cosmic, re-seed whenever the manager's minted world has moved (ADR 0006).
+        scratch.sync(self.kind, self, &self.published.load_full());
+        FontSession {
             kind: self.kind,
-            inner: self.inner.lock(),
-            published: &self.published,
+            manager: self,
+            scratch,
         }
+    }
+
+    /// Open a per-frame shaping context over this manager handle: the session plus the
+    /// frame's registry snapshot, read *before* the session opens (see [`FrameShaper`]).
+    #[must_use]
+    pub fn frame_shaper(&self) -> FrameShaper<'_> {
+        let registry = self.published();
+        FrameShaper {
+            session: self.session(),
+            registry,
+        }
+    }
+
+    /// Mint a face from the session path: serialize the mint (and its publication) under
+    /// the manager mutex, via the canonical engine's face registry (single `FaceId`
+    /// authority, ADR 0006).
+    fn mint_face(&self, data: FontData) -> Option<FaceId> {
+        let mut inner = self.inner.lock();
+        let id = inner.engine.mint_face(data)?;
+        // The mint mutated the registry: republish while the lock is held, so the face is
+        // visible to lock-free readers (the render path) immediately (see module doc).
+        self.published.store(inner.engine.font_registry());
+        Some(id)
     }
 }
 
-impl Shaper<'_> {
-    /// Shape one attributed line at `font_size` through the selected engine.
+impl FontSession<'_> {
+    /// Shape one attributed line at `font_size` through this handle's contexts.
     pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        self.inner.engine.shape(request, font_size)
+        match self.kind {
+            #[cfg(feature = "parley")]
+            ShapingEngineKind::Parley => {
+                let contexts = self.scratch.parley.as_mut()?;
+                parley_engine::shape_line(
+                    &mut contexts.font_context,
+                    &mut contexts.layout_context,
+                    request,
+                    font_size,
+                )
+            }
+            #[cfg(feature = "cosmic-text")]
+            ShapingEngineKind::CosmicText => {
+                let manager = self.manager;
+                let engine = self.scratch.cosmic.as_mut()?;
+                // Unregistered fallback faces mint through the manager (ADR 0006): the
+                // canonical engine interns the resolved font data under its lock, publishes
+                // at mint time, and returns a globally valid `FaceId`. The session's engine
+                // stays untouched — its next epoch check re-seeds from the snapshot that now
+                // carries the face.
+                engine.shape_with_resolver(request, font_size, &|seed, id, weight| {
+                    let data = seed.face_data(id)?;
+                    let _ = weight;
+                    manager.mint_face(data)
+                })
+            }
+        }
     }
 
-    /// Resolve concrete font data through the engine of this session.
+    /// Resolve concrete font data through the manager's published snapshot.
     ///
-    /// The session path is the *only* path: the manager exposes no per-call resolution, so
-    /// font identity is always resolved under the same lock acquisition the shapes ran in.
-    pub fn font_data(&mut self, id: FaceId) -> Option<FontData> {
-        self.inner.engine.font_data(id)
-    }
-
-    /// The cached swash metrics of the face `id` was produced by, extracted on first use.
-    ///
-    /// Glyph placement consumers (cluster grid anchoring, ink checks) read this instead of
-    /// constructing a `FontRef` and parsing the metric tables per cluster per frame. Resolution
-    /// follows [`Self::font_data`]'s lock discipline: callers holding a shaper guard resolve
-    /// through this, never through the manager.
-    pub fn face_metrics(&mut self, id: FaceId) -> Option<&crate::FaceMetrics> {
-        let font_data = self.inner.engine.font_data(id)?;
-        self.inner.face_metrics.entry(id, font_data)
+    /// Resolution never re-enters an engine: the published snapshot carries every minted
+    /// face (mint-time publication, see module doc), so this is a lock-free map read.
+    pub fn font_data(&self, id: FaceId) -> Option<FontData> {
+        self.manager.published().font_data(id)
     }
 
     /// Shape and assemble a [`GlyphRun`] carrying the default attributes' color/weight.
@@ -228,7 +377,7 @@ impl Shaper<'_> {
         ))
     }
 
-    /// The engine this shaper shapes with.
+    /// The engine this session shapes with.
     pub fn engine_kind(&self) -> ShapingEngineKind {
         self.kind
     }
@@ -274,11 +423,11 @@ mod tests {
         let text = "\u{1168A}\u{116B6}\u{116A9}";
         let mut by_kind = Vec::new();
         for kind in all_engines() {
-            let mut fonts = FontManager::bare(kind).with_font(TAKRI);
+            let fonts = FontManager::bare(kind).with_font(TAKRI);
             let request =
                 ShapingRequest::new(text, TextAttributes::named_family("Noto Sans Takri"));
             let run = {
-                let mut shaper = fonts.shaper();
+                let mut shaper = fonts.session();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
@@ -292,10 +441,9 @@ mod tests {
             by_kind.push((kind, ys));
         }
         // The engine-neutral model must agree, whatever the underlying libraries report.
-        // The engine-neutral model must agree on sign AND magnitude, whatever the
-        // underlying libraries report. The offset path differs per engine (Parley scales
-        // in the font pipeline, cosmic-text scales em-relative afterwards), so allow a
-        // small float tolerance here — but nothing near the sign range (±3 px).
+        // The offset path differs per engine (Parley scales in the font pipeline, cosmic-text
+        // scales em-relative afterwards), so allow a small float tolerance here — but nothing
+        // near the sign range (±3 px).
         for (kind, ys) in &by_kind[1..] {
             for (i, (a, b)) in by_kind[0].1.iter().zip(ys.iter()).enumerate() {
                 assert!(
@@ -321,11 +469,11 @@ mod tests {
         let descenders = "jyg";
         let mut by_kind = Vec::new();
         for kind in all_engines() {
-            let mut fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
             let request =
                 ShapingRequest::new(descenders, TextAttributes::named_family("JetBrains Mono"));
             let run = {
-                let mut shaper = fonts.shaper();
+                let mut shaper = fonts.session();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
@@ -354,7 +502,7 @@ mod tests {
     fn probe_rtl_dump() {
         for text in ["abسلام", "سلامabسلام", "سلام"] {
             for kind in all_engines() {
-                let mut fonts = FontManager::bare(kind).with_font(AMIRI);
+                let fonts = FontManager::bare(kind).with_font(AMIRI);
                 let mut request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"))
                     .with_metadata();
                 // Attribute every Arabic segment (defaults cover the LTR islands).
@@ -371,7 +519,7 @@ mod tests {
                 }
                 request.ranges = ranges;
                 let run = {
-                    let mut shaper = fonts.shaper();
+                    let mut shaper = fonts.session();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
@@ -447,10 +595,10 @@ mod tests {
         let cases = [("سلام", vec![0, 2, 4, 6]), ("abسلام", vec![2, 4, 6, 8])];
         for (text, byte_starts) in cases {
             for kind in all_engines() {
-                let mut fonts = FontManager::bare(kind).with_font(AMIRI);
+                let fonts = FontManager::bare(kind).with_font(AMIRI);
                 let request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
                 let run = {
-                    let mut shaper = fonts.shaper();
+                    let mut shaper = fonts.session();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
@@ -493,7 +641,7 @@ mod tests {
     fn range_family_override_shapes_like_explicit_default_family() {
         let text = "AB";
         for kind in all_engines() {
-            let mut fonts = FontManager::bare(kind)
+            let fonts = FontManager::bare(kind)
                 .with_font(JETBRAINS_MONO)
                 .with_font(AMIRI);
             // Overridden range: JetBrains Mono default, `B` (byte 1..2) forced to Amiri.
@@ -504,13 +652,13 @@ mod tests {
             let reference = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
 
             let run_overridden = {
-                let mut shaper = fonts.shaper();
+                let mut shaper = fonts.session();
                 shaper
                     .shape(&overridden, 16.0)
                     .expect("shaping must produce a run")
             };
             let run_reference = {
-                let mut shaper = fonts.shaper();
+                let mut shaper = fonts.session();
                 shaper
                     .shape(&reference, 16.0)
                     .expect("shaping must produce a run")
@@ -555,11 +703,11 @@ mod tests {
     #[test]
     fn load_font_registers_all_engine_faces() {
         for kind in all_engines() {
-            let mut fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
             assert_eq!(fonts.engine_kind(), kind);
             let id = fonts.load_font(JETBRAINS_MONO)[0];
             assert!(
-                fonts.shaper().font_data(id).is_some(),
+                fonts.session().font_data(id).is_some(),
                 "{kind:?}: the loaded font must resolve to font data"
             );
         }
@@ -571,20 +719,20 @@ mod tests {
     #[test]
     fn shaped_faces_resolve_to_font_data() {
         for kind in all_engines() {
-            let mut fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
             let request =
                 ShapingRequest::new("a->b", TextAttributes::named_family("JetBrains Mono"));
             let run = {
-                let mut shaper = fonts.shaper();
+                let mut shaper = fonts.session();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
             };
             assert!(!run.clusters.is_empty(), "{kind:?}: clusters must exist");
-            let all_resolve = run.glyphs.iter().all(|g| {
-                let mut shaper = fonts.shaper();
-                shaper.font_data(g.face_id).is_some()
-            });
+            let all_resolve = run
+                .glyphs
+                .iter()
+                .all(|g| fonts.session().font_data(g.face_id).is_some());
             assert!(
                 all_resolve,
                 "{kind:?}: every shaped glyph's FaceId must resolve to font data"
@@ -606,7 +754,7 @@ mod tests {
         // (text, boundary byte offset — must fall on a grapheme edge, not inside a mark)
         for (text, boundary) in [("a->ba", 2), ("afiba", 3), ("a=+=b", 2), ("e\u{0301}ab", 3)] {
             for kind in all_engines() {
-                let mut fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+                let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
 
                 let mut request = ShapingRequest::new(
                     text,
@@ -625,7 +773,7 @@ mod tests {
                 ];
 
                 let run = {
-                    let mut shaper = fonts.shaper();
+                    let mut shaper = fonts.session();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
@@ -660,7 +808,7 @@ mod tests {
     fn metadata_disabled_yields_zero_clusters() {
         let text = "abcd";
         for kind in all_engines() {
-            let mut fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
             let mut request =
                 ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
             request.ranges = vec![
@@ -674,7 +822,7 @@ mod tests {
                 ),
             ];
             let run = {
-                let mut shaper = fonts.shaper();
+                let mut shaper = fonts.session();
                 shaper
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
@@ -719,13 +867,13 @@ mod tests {
         ];
         for text in cases {
             for kind in all_engines() {
-                let mut fonts = FontManager::bare(kind)
+                let fonts = FontManager::bare(kind)
                     .with_font(JETBRAINS_MONO)
                     .with_font(TAKRI);
                 let request =
                     ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
                 let run = {
-                    let mut shaper = fonts.shaper();
+                    let mut shaper = fonts.session();
                     shaper
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")

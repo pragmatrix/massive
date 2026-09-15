@@ -54,10 +54,22 @@ impl fmt::Debug for ParleyEngine {
 }
 
 impl ParleyEngine {
+    /// A collection in fontique's **shared mode** (ADR 0006): all clones share state behind
+    /// an internal mutex with a version counter, so a font registered at any time becomes
+    /// visible to every clone on its next read (`query` syncs lazily on version mismatch).
+    /// Sharing is what lets per-task shaping contexts (see `parley_session_contexts`) work
+    /// over the manager's one collection without replica/broadcast machinery.
+    pub fn shared_collection(options: CollectionOptions) -> Collection {
+        Collection::new(CollectionOptions {
+            shared: true,
+            ..options
+        })
+    }
+
     /// Create a completely bare engine: no fallbacks, no fonts.
     pub fn bare() -> Self {
         let font_context = FontContext {
-            collection: Collection::new(CollectionOptions {
+            collection: Self::shared_collection(CollectionOptions {
                 system_fonts: false,
                 ..Default::default()
             }),
@@ -77,6 +89,10 @@ impl ParleyEngine {
         // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
         // original blob and `Blob` ids stay stable for the engine's lifetime.
         font_context.source_cache = SourceCache::new_shared();
+        font_context.collection = Self::shared_collection(CollectionOptions {
+            system_fonts: true,
+            ..Default::default()
+        });
         font_context.collection.load_system_fonts();
         let mut engine = Self::from_context(font_context);
         engine.rebuild_fonts();
@@ -276,125 +292,161 @@ impl ShapingEngine for ParleyEngine {
     }
 
     fn font_registry(&self) -> Arc<FontRegistry> {
-        Arc::new(FontRegistry::new(Arc::new(self.fonts.clone())))
+        let metrics = crate::face_metrics::extract_all(&self.fonts);
+        Arc::new(FontRegistry::from_owned(self.fonts.clone(), metrics))
     }
 
+    /// Shape one line through per-session contexts (ADR 0006): the same pipeline the
+    /// canonical `shape` runs, parameterized so per-clone scratch state can shape over
+    /// its own contexts.
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
         let Self {
             font_context,
             layout_context,
             ..
         } = self;
+        shape_line(font_context, layout_context, request, font_size)
+    }
 
-        let mut builder = layout_context.ranged_builder(font_context, request.text, 1.0, true);
-        builder.push_default(StyleProperty::FontSize(font_size));
-        builder.push_default(StyleProperty::FontFamily(parley_family(
-            &request.default_attributes.family,
-        )));
-        builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
-            request.default_attributes.weight.0 as f32,
-        )));
-        for (range, attrs) in &request.ranges {
-            builder.push(
-                StyleProperty::FontFamily(parley_family(&attrs.family)),
-                range.clone(),
-            );
-            builder.push(
-                StyleProperty::FontWeight(parley::FontWeight::new(attrs.weight.0 as f32)),
-                range.clone(),
-            );
-        }
-        let mut layout: parley::Layout<GlyphBrush> = builder.build(request.text);
-        layout.break_all_lines(None);
-        layout.align(parley::Alignment::Start, Default::default());
-
-        // Feature: Support multi-line layout.
-        let line = layout.get(0)?;
-
-        // Counting pre-pass sizes both arrays exactly; recounting shaped clusters is cheap next
-        // to shaping itself.
-        let (mut glyph_count, mut cluster_count) = (0, 0);
-        for item in line.items() {
-            let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
-                continue;
-            };
-            for cluster in glyph_run.run().clusters() {
-                cluster_count += 1;
-                glyph_count += cluster.glyphs().count();
-            }
-        }
-
-        // Each shaped run carries its own font (fallback for emoji etc.), so `FaceId`/size/weight
-        // are per run. Glyph y offsets are re-based onto the run baseline (Parley lays out
-        // Y-down) so both engines share the `GlyphRun` convention. All clusters' glyphs append
-        // contiguously to one flat run-level array; clusters carry index ranges into it.
-        let mut glyphs: Vec<ShapedGlyph> = Vec::with_capacity(glyph_count);
-        let mut clusters: Vec<ShapedCluster> = Vec::with_capacity(cluster_count);
-        for item in line.items() {
-            let glyph_run = match item {
-                PositionedLayoutItem::GlyphRun(glyph_run) => glyph_run,
-                PositionedLayoutItem::InlineBox(_) => continue,
-            };
-            let run = glyph_run.run();
-            let face_id = face_id_from_parley_data(run.font());
-            let font_size = run.font_size();
-            let weight = TextWeight(run.font_attrs().weight.value() as u16);
-            let mut cluster_origin = glyph_run.offset();
-            for cluster in run.clusters() {
-                // Zero-glyph clusters are a real Parley artifact (e.g. a lone ZWJ between
-                // letters) and would violate the "clusters are never empty" contract
-                // consumers rely on (`cluster_glyphs(cluster)[0]`); skip them.
-                if cluster.glyphs().count() == 0 {
-                    // The cluster still moves the line origin by its typographic advance.
-                    cluster_origin += cluster.advance();
-                    continue;
-                }
-                // The cluster's glyphs append to the flat array, in cluster order: the range is
-                // the slice just appended.
-                let glyph_start = glyphs.len() as u32;
-                glyphs.extend(cluster.glyphs().map(|glyph| ShapedGlyph {
-                    glyph_id: glyph.id as u16,
-                    face_id,
-                    font_size,
-                    weight,
-                    x: glyph.x,
-                    y: glyph.y,
-                }));
-                clusters.push(ShapedCluster {
-                    byte_range: cluster.text_range(),
-                    // First-byte-cover echo, engine-neutrally defined in
-                    // `engine::covering_metadata`; shaping untouched (straddling
-                    // clusters like base+mark compositions resolve to their first
-                    // byte's range, the typographically correct side).
-                    metadata: if request.metadata {
-                        covering_metadata(
-                            &request.ranges,
-                            request.default_attributes.metadata,
-                            cluster.text_range().start,
-                        )
-                    } else {
-                        0
-                    },
-                    // Parley's cluster glyphs are intra-cluster relative; the cluster
-                    // origin accumulates the preceding clusters' advances on the line.
-                    x: cluster_origin,
-                    advance: cluster.advance(),
-                    glyph_range: glyph_start..glyphs.len() as u32,
-                });
-                cluster_origin += cluster.advance();
-            }
-        }
-
-        let line_metrics = line.metrics();
-        Some(ShapedRun {
-            glyphs,
-            clusters,
-            max_ascent: line_metrics.ascent,
-            max_descent: line_metrics.descent,
-            width: line_metrics.advance,
-            engine: ShapingEngineKind::Parley,
+    /// Per-session shaping contexts over this engine's shared collection (ADR 0006): a
+    /// clone of the collection plus a fresh `LayoutContext`. A shared-mode collection
+    /// clone shares the internally synchronized state, so later registrations (fonts
+    /// loaded at any time) are visible to the session via fontique's version sync.
+    fn parley_session_contexts(&self) -> Option<super::parley_engine::ParleySessionContexts> {
+        Some(ParleySessionContexts {
+            font_context: FontContext {
+                collection: self.font_context.collection.clone(),
+                source_cache: self.font_context.source_cache.clone(),
+            },
+            layout_context: LayoutContext::new(),
         })
     }
+}
+
+/// Per-session shaping contexts over the engine's shared collection (ADR 0006).
+///
+/// A clone of the canonical engine's font collection plus a fresh `LayoutContext`; the
+/// collection is in fontique shared mode, so registrations after the clone stay visible.
+pub struct ParleySessionContexts {
+    pub(crate) font_context: FontContext,
+    pub(crate) layout_context: LayoutContext<GlyphBrush>,
+}
+
+/// Shape one attributed line through the given session contexts.
+pub(crate) fn shape_line(
+    font_context: &mut FontContext,
+    layout_context: &mut LayoutContext<GlyphBrush>,
+    request: &ShapingRequest<'_>,
+    font_size: f32,
+) -> Option<ShapedRun> {
+    let mut builder = layout_context.ranged_builder(font_context, request.text, 1.0, true);
+    builder.push_default(StyleProperty::FontSize(font_size));
+    builder.push_default(StyleProperty::FontFamily(parley_family(
+        &request.default_attributes.family,
+    )));
+    builder.push_default(StyleProperty::FontWeight(parley::FontWeight::new(
+        request.default_attributes.weight.0 as f32,
+    )));
+    for (range, attrs) in &request.ranges {
+        builder.push(
+            StyleProperty::FontFamily(parley_family(&attrs.family)),
+            range.clone(),
+        );
+        builder.push(
+            StyleProperty::FontWeight(parley::FontWeight::new(attrs.weight.0 as f32)),
+            range.clone(),
+        );
+    }
+    let mut layout: parley::Layout<GlyphBrush> = builder.build(request.text);
+    layout.break_all_lines(None);
+    layout.align(parley::Alignment::Start, Default::default());
+
+    // Feature: Support multi-line layout.
+    let line = layout.get(0)?;
+
+    // Counting pre-pass sizes both arrays exactly; recounting shaped clusters is cheap next
+    // to shaping itself.
+    let (mut glyph_count, mut cluster_count) = (0, 0);
+    for item in line.items() {
+        let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+            continue;
+        };
+        for cluster in glyph_run.run().clusters() {
+            cluster_count += 1;
+            glyph_count += cluster.glyphs().count();
+        }
+    }
+
+    // Each shaped run carries its own font (fallback for emoji etc.), so `FaceId`/size/weight
+    // are per run. Glyph y offsets are re-based onto the run baseline (Parley lays out
+    // Y-down) so both engines share the `GlyphRun` convention. All clusters' glyphs append
+    // contiguously to one flat run-level array; clusters carry index ranges into it.
+    let mut glyphs: Vec<ShapedGlyph> = Vec::with_capacity(glyph_count);
+    let mut clusters: Vec<ShapedCluster> = Vec::with_capacity(cluster_count);
+    for item in line.items() {
+        let glyph_run = match item {
+            PositionedLayoutItem::GlyphRun(glyph_run) => glyph_run,
+            PositionedLayoutItem::InlineBox(_) => continue,
+        };
+        let run = glyph_run.run();
+        let face_id = face_id_from_parley_data(run.font());
+        let font_size = run.font_size();
+        let weight = TextWeight(run.font_attrs().weight.value() as u16);
+        let mut cluster_origin = glyph_run.offset();
+        for cluster in run.clusters() {
+            // Zero-glyph clusters are a real Parley artifact (e.g. a lone ZWJ between
+            // letters) and would violate the "clusters are never empty" contract
+            // consumers rely on (`cluster_glyphs(cluster)[0]`); skip them.
+            if cluster.glyphs().count() == 0 {
+                // The cluster still moves the line origin by its typographic advance.
+                cluster_origin += cluster.advance();
+                continue;
+            }
+            // The cluster's glyphs append to the flat array, in cluster order: the range is
+            // the slice just appended.
+            let glyph_start = glyphs.len() as u32;
+            glyphs.extend(cluster.glyphs().map(|glyph| ShapedGlyph {
+                glyph_id: glyph.id as u16,
+                face_id,
+                font_size,
+                weight,
+                x: glyph.x,
+                y: glyph.y,
+            }));
+            clusters.push(ShapedCluster {
+                byte_range: cluster.text_range(),
+                // First-byte-cover echo, engine-neutrally defined in
+                // `engine::covering_metadata`; shaping untouched (straddling
+                // clusters like base+mark compositions resolve to their first
+                // byte's range, the typographically correct side).
+                metadata: if request.metadata {
+                    covering_metadata(
+                        &request.ranges,
+                        request.default_attributes.metadata,
+                        cluster.text_range().start,
+                    )
+                } else {
+                    0
+                },
+                // Parley's cluster glyphs are intra-cluster relative; the cluster
+                // origin accumulates the preceding clusters' advances on the line.
+                x: cluster_origin,
+                advance: cluster.advance(),
+                glyph_range: glyph_start..glyphs.len() as u32,
+            });
+            cluster_origin += cluster.advance();
+        }
+    }
+
+    let line_metrics = line.metrics();
+    Some(ShapedRun {
+        glyphs,
+        clusters,
+        max_ascent: line_metrics.ascent,
+        max_descent: line_metrics.descent,
+        width: line_metrics.advance,
+        engine: ShapingEngineKind::Parley,
+    })
 }
 
 fn parley_family<'a>(family: &TextFamily<'a>) -> FontFamily<'a> {

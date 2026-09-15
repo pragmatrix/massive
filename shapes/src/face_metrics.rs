@@ -1,30 +1,26 @@
-//! Per-face swash metrics, extracted to owned storage and cached on the font manager.
+//! Per-face swash metrics, published alongside the font registry (ADR 0006).
 //!
 //! Consumers that place shaped glyphs on a grid (the terminal's `cluster_to_run`) read font
 //! metrics for every cluster of every frame: a swash `FontRef` construction plus the
 //! `glyph_metrics`/`metrics` table parses. swash parses those tables unconditionally, so
-//! without a cache the same work repeats per cluster per frame (measured ~7 µs per parse in
-//! debug vs ~12 ns cached).
+//! without pre-extraction the same work repeats per cluster per frame (measured ~7 µs per
+//! parse in debug vs ~12 ns for an extracted-array read).
 //!
 //! [`FaceMetrics`] extracts the values that path needs — glyph left side bearings and
-//! units-per-em — into owned storage, once per [`FaceId`]. swash's `GlyphMetrics` borrows the
-//! font bytes, so caching the handle itself would pin lifetimes through the manager;
-//! extraction is one linear pass over the horizontal-metrics table, negligible next to
-//! per-frame re-parses. Fallback faces (emoji etc.) each pay their pass once on first use,
-//! exactly like the glyph atlas.
-//!
-//! The cache lives inside [`crate::FontManager`]'s synchronized state (see
-//! [`Shaper::face_metrics`]), so entries are consistent with the fonts the manager's lock
-//! protects: an id only ever resolves against the engine that produced it, and the cache
-//! cannot outlive the manager instance it belongs to.
+//! units-per-em — into owned storage. Extraction happens **eagerly at face-mint time**
+//! (`load_font`, lazy fallback interning), under the manager lock that minting already
+//! holds, and the result is published with the registry snapshot: readers resolve metrics
+//! lock-free through `FontManager::published`, exactly like the rasterizer resolves font
+//! data. Values are instance-independent because faces are content-identical.
 
-use std::collections::HashMap;
+use swash::FontRef;
 
 use crate::FaceId;
 use crate::engine::FontData;
 
 /// The per-face values the glyph placement path reads: left side bearing per glyph id
 /// (font units) and the face's units per em.
+#[derive(Clone)]
 pub struct FaceMetrics {
     units_per_em: f32,
     /// Left side bearing by glyph id, in font units. Extracted once from the face's
@@ -33,6 +29,19 @@ pub struct FaceMetrics {
 }
 
 impl FaceMetrics {
+    /// Extract the metrics of a face from its font data — one linear pass over the
+    /// horizontal-metrics table, performed once per face at mint time (see module doc).
+    pub fn extract(font_data: &FontData) -> Option<Self> {
+        let font_ref =
+            FontRef::from_index(font_data.data.as_ref().as_ref(), font_data.index as usize)?;
+        let glyph_metrics = font_ref.glyph_metrics(&[]);
+        let lsb: Vec<f32> = (0..glyph_metrics.glyph_count())
+            .map(|glyph_id| glyph_metrics.lsb(glyph_id))
+            .collect();
+        let units_per_em = font_ref.metrics(&[]).units_per_em as f32;
+        Some(Self { units_per_em, lsb })
+    }
+
     pub fn units_per_em(&self) -> f32 {
         self.units_per_em
     }
@@ -44,36 +53,14 @@ impl FaceMetrics {
     }
 }
 
-/// Cached [`FaceMetrics`] keyed by [`FaceId`]. Owned by [`crate::FontManagerInner`] and
-/// accessed through the shaper guard, so no additional synchronization is needed.
-#[derive(Default)]
-pub struct FaceMetricsCache {
-    entries: HashMap<FaceId, FaceMetrics>,
-}
-
-impl FaceMetricsCache {
-    /// Extract-and-memoize the metrics of the face `font_data` belongs to.
-    ///
-    /// `font_data` comes from the caller's engine resolution (an `Arc` clone, no bytes
-    /// copied). The table pass happens once per face. Called only from the manager's
-    /// synchronized state, so the visibility stays module-private.
-    pub(crate) fn entry(&mut self, id: FaceId, font_data: FontData) -> Option<&FaceMetrics> {
-        if !self.entries.contains_key(&id) {
-            let font_ref = swash::FontRef::from_index(
-                font_data.data.as_ref().as_ref(),
-                font_data.index as usize,
-            )?;
-            let glyph_metrics = font_ref.glyph_metrics(&[]);
-            let lsb: Vec<f32> = (0..glyph_metrics.glyph_count())
-                .map(|glyph_id| glyph_metrics.lsb(glyph_id))
-                .collect();
-            let units_per_em = font_ref.metrics(&[]).units_per_em as f32;
-            self.entries
-                .entry(id)
-                .or_insert(FaceMetrics { units_per_em, lsb });
-        }
-        self.entries.get(&id)
-    }
+/// Extract metrics for every face of a registry-entry map (mint-time; see module doc).
+pub(crate) fn extract_all(
+    entries: &std::collections::HashMap<FaceId, FontData>,
+) -> std::collections::HashMap<FaceId, FaceMetrics> {
+    entries
+        .iter()
+        .filter_map(|(id, data)| Some((*id, FaceMetrics::extract(data)?)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -85,15 +72,15 @@ mod tests {
         "../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
     );
 
-    /// The cached lsb matches a fresh swash parse for the glyph shaping produces: the
-    /// extraction must reproduce swash's semantics (font units, same convention. And the
-    /// memoized entry is stable across repeated resolution.
+    /// The published-metrics lsb matches a fresh swash parse for the glyph shaping
+    /// produces: the extraction must reproduce swash's semantics (font units, same
+    /// convention).
     #[test]
-    fn cached_lsb_matches_fresh_swash_parse() {
+    fn published_lsb_matches_fresh_swash_parse() {
         for kind in ShapingEngineKind::available() {
-            let mut fonts = FontManager::bare(*kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(*kind).with_font(JETBRAINS_MONO);
             let face = fonts.load_font(JETBRAINS_MONO)[0];
-            let mut shaper = fonts.shaper();
+            let mut shaper = fonts.session();
             let shaped = shaper
                 .shape(
                     &ShapingRequest::new("a", TextAttributes::named_family("JetBrains Mono")),
@@ -102,15 +89,18 @@ mod tests {
                 .expect("shape");
             let glyph_id = shaped.glyphs[0].glyph_id;
 
-            // Resolve font data through the shaper guard: the manager's mutex is already
-            // held, so `FontManager::font_data` here would self-deadlock. Copy both values
-            // out before the assert so the guard borrow is not held across the comparison.
+            // Resolve font data through the session guard: the manager's mutex-protected
+            // registry is not lock-free-readable while the session may mint. Copy both
+            // values out before the assert so the guard borrow is not held across it.
             let font_data = shaper.font_data(face).expect("font data");
-            let cached = shaper
-                .face_metrics(face)
-                .expect("face metrics")
-                .lsb(glyph_id);
             drop(shaper);
+
+            // Read the published snapshot after the session republished it.
+            let cached = fonts
+                .published()
+                .metrics(face)
+                .expect("published metrics must carry every minted face")
+                .lsb(glyph_id);
 
             let fresh = swash::FontRef::from_index(
                 font_data.data.as_ref().as_ref(),
@@ -120,14 +110,6 @@ mod tests {
             .glyph_metrics(&[])
             .lsb(glyph_id);
             assert_eq!(cached, fresh, "engine {kind:?}");
-
-            // Repeated resolution reads the memoized entry with the same values.
-            let mut shaper = fonts.shaper();
-            let again = shaper
-                .face_metrics(face)
-                .expect("face metrics")
-                .lsb(glyph_id);
-            assert_eq!(again, fresh);
         }
     }
 }

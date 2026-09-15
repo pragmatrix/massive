@@ -13,10 +13,29 @@ use std::sync::Arc;
 
 use massive_geometry::Color;
 
+use crate::face_metrics::FaceMetrics;
+use crate::font_manager::FontSession;
 use crate::{ClipBoxPx, FaceId, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
 
 /// Shared, reference-counted font file bytes.
 pub type FontBytes = Arc<dyn AsRef<[u8]> + Send + Sync>;
+
+/// A per-frame shaping context: one [`FontSession`] over a manager clone plus the frame's
+/// published registry snapshot.
+///
+/// Bundled because the two travel together and their borrows must agree: the session takes
+/// `&mut` of the manager handle (the `&mut` gate), so the snapshot has to be *cloned out*
+/// before the session opens — holding them as separate parameters forced every call site
+/// into that ordering manually (and mt's `cluster_to_run` over the clippy argument limit).
+pub struct FrameShaper<'a> {
+    /// The session; borrows the manager clone exclusively for the bundle's lifetime.
+    pub session: FontSession<'a>,
+    /// The manager's published registry snapshot, read before the session opened. Faces
+    /// minted by *this* frame's fallbacks may be absent — mint-time publication covers the
+    /// concurrent-submission contract, but the snapshot is only guaranteed to carry faces
+    /// minted up to session open.
+    pub registry: Arc<FontRegistry>,
+}
 
 /// Concrete font data: shared bytes plus the face index within the font file.
 ///
@@ -37,21 +56,83 @@ impl FontData {
 /// shared `Arc` so lock-free readers (the renderer's rasterization path) resolve faces
 /// without touching the manager's mutex. Engines rebuild the snapshot after every registry
 /// mutation; see [`ShapingEngine::font_registry`].
+///
+/// The snapshot also carries swash [`FaceMetrics`] per face, extracted eagerly at
+/// face-mint time (ADR 0006): glyph-placement consumers read metrics through the same
+/// lock-free snapshot instead of parsing swash tables per cluster per frame, and the
+/// old session-lazy `FaceMetricsCache` is gone.
+///
+/// Font data and metrics live behind one shared inner `Arc`: they are always built from
+/// the same entries in one mint, updated together, and read together — so the face sets
+/// cannot drift apart, and a reader holding one map implicitly pins the other. (The
+/// alternative — two sibling `Arc` maps — made a cheaper `metrics_arc()`-style read
+/// possible, but that read runs once per frame, not per cluster, and the split kept the
+/// "same face set" invariant as an unchecked manual obligation.)
 #[derive(Clone, Default)]
 pub struct FontRegistry {
-    fonts: Arc<HashMap<FaceId, FontData>>,
+    inner: Arc<RegistryMap>,
+}
+
+/// The registry's owned maps — held behind [`FontRegistry`]'s one shared `Arc`.
+#[derive(Clone, Default)]
+struct RegistryMap {
+    fonts: HashMap<FaceId, FontData>,
+    metrics: HashMap<FaceId, FaceMetrics>,
 }
 
 impl FontRegistry {
-    /// A snapshot from a registry entry map. Engines call this on publish; readers only
-    /// resolve through [`Self::font_data`].
-    pub fn new(fonts: Arc<HashMap<FaceId, FontData>>) -> Self {
-        Self { fonts }
+    /// A snapshot from minted registry entries (font data + extracted metrics).
+    /// Engines call this on publish; readers resolve through [`Self::font_data`] /
+    /// [`Self::metrics`].
+    pub fn new(
+        fonts: Arc<HashMap<FaceId, FontData>>,
+        metrics: Arc<HashMap<FaceId, FaceMetrics>>,
+    ) -> Self {
+        // Extract from the shared Arcs into the owned combined map: the inner `Arc` is
+        // born here once, and later snapshots replace it whole.
+        Self::from_owned((*fonts).clone(), (*metrics).clone())
+    }
+
+    /// Assemble a snapshot from owned maps (the engines' publish path).
+    pub(crate) fn from_owned(
+        fonts: HashMap<FaceId, FontData>,
+        metrics: HashMap<FaceId, FaceMetrics>,
+    ) -> Self {
+        Self {
+            inner: Arc::new(RegistryMap { fonts, metrics }),
+        }
     }
 
     /// Resolve [`FaceId`] to concrete font data for rasterization.
     pub fn font_data(&self, id: FaceId) -> Option<FontData> {
-        self.fonts.get(&id).cloned()
+        self.inner.fonts.get(&id).cloned()
+    }
+
+    /// The face's published swash metrics, extracted at mint time.
+    pub fn metrics(&self, id: FaceId) -> Option<&FaceMetrics> {
+        self.inner.metrics.get(&id)
+    }
+
+    /// The number of faces in this snapshot — the cosmic epoch-pull token (ADR 0006).
+    pub fn face_count(&self) -> usize {
+        self.inner.fonts.len()
+    }
+
+    /// Every `(FaceId, FontData)` of the snapshot, ordered by face payload.
+    ///
+    /// Ordering matters only where payload adjacency is meaningful (the cosmic registry's
+    /// indexes are sequential); sorting keeps per-clone seed replay deterministic across
+    /// `HashMap` iteration orders.
+    pub fn entries(&self) -> Vec<(FaceId, FontData)> {
+        let mut entries: Vec<_> = self
+            .inner
+            .fonts
+            .iter()
+            .map(|(id, data)| (*id, data.clone()))
+            .collect();
+        entries.sort_unstable_by_key(|(id, _)| std::cmp::Reverse(id.payload()));
+        entries.reverse();
+        entries
     }
 }
 
@@ -334,7 +415,30 @@ pub trait ShapingEngine: Send {
     fn font_registry(&self) -> Arc<FontRegistry>;
 
     /// Shape a single line (the first line of `request.text`) at `font_size` pixels.
+    ///
+    /// Mint-time method only — the canonical engine inside [`crate::FontManager`] never
+    /// shapes per frame (ADR 0006: per-clone scratch contexts shape; the canonical engine
+    /// loads fonts and, for cosmic, seeds them). Kept on the trait because the manager's
+    /// tests shape through it.
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
+
+    /// Per-session shaping contexts over this engine's shared world (parley), or `None`
+    /// when the engine is not parley (ADR 0006). Called once per manager-clone scratch
+    /// seeding, under the manager lock.
+    fn parley_session_contexts(
+        &self,
+    ) -> Option<crate::shaping_engines::parley_engine::ParleySessionContexts> {
+        None
+    }
+
+    /// Mint a face from font data into the canonical registry, returning its [`FaceId`]
+    /// (ADR 0006: the manager is the only issuer). Used by cosmic fallback interning;
+    /// parley never needs it (its `FaceId`s derive from blob ids over the shared
+    /// collection, static after every registration).
+    fn mint_face(&mut self, data: FontData) -> Option<FaceId> {
+        let _ = data;
+        None
+    }
 }
 
 /// Assemble a [`GlyphRun`] from `clusters` of a shaped line.

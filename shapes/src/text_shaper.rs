@@ -5,7 +5,7 @@ use std::ops::Range;
 use massive_geometry::Color;
 
 use crate::engine::{ShapingRequest, TextAttributes, TextFamily};
-use crate::{GlyphRun, Shaper, TextWeight};
+use crate::{FontSession, GlyphRun, TextWeight};
 
 /// A text shaper builder: attributed text that resolves to a [`GlyphRun`].
 #[derive(Debug)]
@@ -50,9 +50,9 @@ impl<'a> TextShaper<'a> {
     }
 
     /// Shape the first line of the text at `font_size` pixels.
-    pub fn layout(self, shaper: &mut Shaper<'_>, font_size: f32) -> Option<GlyphRun> {
+    pub fn layout(self, session: &mut FontSession<'_>, font_size: f32) -> Option<GlyphRun> {
         let mut request = ShapingRequest::new(self.text, self.default_attributes.clone());
         request.ranges = self.range_attributes;
-        shaper.glyph_run(&request, font_size)
+        session.glyph_run(&request, font_size)
     }
 }
