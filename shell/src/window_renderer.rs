@@ -86,16 +86,31 @@ impl WindowRenderer {
             // in smooth rendering that we are never rendering.
             let vblank_driven = self.renderer.is_vblank_driven();
             if messages.is_empty() {
-                // Detail: The two paths have one thing in common: They block until there is
-                // something to do. In fast mode, we wait for the next event indefinitely. In
-                // smooth (vblank-driven) rendering, the frame pacing itself blocks at the
-                // swapchain gate. When the surface is occluded, texture acquisition does not
-                // block at all; we park indefinitely until the surface becomes presentable
-                // again (the `SetSurfaceOccluded(false)` message wakes us).
-                if vblank_driven && !self.surface_occluded {
-                    let _ = self.render_frame(&application_messages, &submission)?;
-                }
-                if wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue {
+                // Detail: In all states we block until there is something to do before processing
+                // any message; the match below decides the work and whether to block on events.
+                // Matched on the two flags:
+                // - occluded: rendering is impossible (acquire fails with Occluded), but pending
+                //   scene changes are applied so the submission buffer drains continuously and
+                //   the next present shows fresh content. Cheap: only runs when the application
+                //   produced changes; otherwise park. Any new submission message wakes us.
+                // - vblank-driven (Smooth pacing or fullscreen): render a frame. It must not
+                //   additionally block on events when the pacing just flipped to Smooth (the
+                //   `ApplyAnimations` handshake is only sent by the next frame, which sees the
+                //   updated pacing); the re-entered render_frame blocks at the next VSync.
+                //   Otherwise park on events.
+                // - fast pacing: nothing to render, park on events.
+                let wait = match (self.surface_occluded, vblank_driven) {
+                    (true, _) => {
+                        self.apply_submission_while_occluded(&submission)?;
+                        true
+                    }
+                    (false, true) => {
+                        let _ = self.render_frame(&application_messages, &submission)?;
+                        self.current_pacing != RenderPacing::Smooth
+                    }
+                    (false, false) => true,
+                };
+                if wait && wait_for_events(&msg_receiver, &mut messages) != FlowControl::Continue {
                     return Ok(());
                 }
             }
@@ -230,6 +245,24 @@ impl WindowRenderer {
         };
 
         PresentationMode::new(present_mode, maximum_frame_latency)
+    }
+
+    /// Drain and apply the pending submission while occluded (no frame is produced).
+    /// Does nothing when the application produced no changes since the last take.
+    fn apply_submission_while_occluded(
+        &mut self,
+        submission: &Arc<Mutex<RenderThreadSubmission>>,
+    ) -> Result<()> {
+        let submission = submission.lock().take();
+        if submission.changes.is_empty() {
+            return Ok(());
+        }
+        self.apply_scene_changes(submission.changes)?;
+        // Detail: Keep the pacing state current even though no frame is rendered; otherwise the
+        // first frame after un-occlusion would still run with the stale pacing and send the
+        // `ApplyAnimations` handshake one frame late.
+        self.apply_submission_presentation_mode(submission.pacing);
+        Ok(())
     }
 
     fn apply_scene_changes(&mut self, changes: SceneChangeSet) -> Result<()> {
