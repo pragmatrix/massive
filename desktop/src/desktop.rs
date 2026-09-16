@@ -206,6 +206,7 @@ impl Desktop {
     }
 
     pub async fn run(&mut self) -> Result<()> {
+        // A close request hands active rendering over to the bounded drain below.
         self.run_active().await?;
         self.run_shutdown().await
     }

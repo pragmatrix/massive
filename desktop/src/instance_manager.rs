@@ -4,6 +4,7 @@ use std::panic::AssertUnwindSafe;
 use anyhow::{Context, anyhow};
 use derive_more::{Debug, From, Into};
 use futures::FutureExt;
+use log::warn;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
@@ -86,8 +87,10 @@ impl InstanceManager {
     }
 
     pub fn request_shutdown_all(&self) -> Result<()> {
-        for instance in self.instances.keys() {
-            self.request_shutdown(*instance)?;
+        for instance_id in self.instances.keys().copied() {
+            if let Err(error) = self.request_shutdown(instance_id) {
+                warn!("Instance {instance_id:?} ended before shutdown: {error}");
+            }
         }
         Ok(())
     }

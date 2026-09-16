@@ -318,8 +318,7 @@ where
 
             ViewEvent::HoveredFileCancelled => {}
 
-            // Close is a window-lifecycle event. The desktop broadcasts it to every live instance
-            // instead of routing it through focus.
+            // Desktop handles close before input routing; it is not focus-targeted.
             ViewEvent::CloseRequested => {}
 
             ViewEvent::Occluded(_) => {}
