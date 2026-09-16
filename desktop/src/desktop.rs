@@ -6,6 +6,7 @@ use anyhow::{Context, Result, bail};
 use derive_more::Constructor;
 use log::{error, info};
 use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
+use tokio::time::{Duration, Instant as TokioInstant, sleep_until};
 use uuid::Uuid;
 
 use massive_applications::{
@@ -31,6 +32,8 @@ use crate::projects::{
 };
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
+
+const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug)]
 pub struct Desktop {
@@ -79,8 +82,8 @@ impl Desktop {
             context.primary_monitor_scale_factor(),
             fonts.detached(),
         );
-
         let mut instance_manager = InstanceManager::new(environment);
+
         // We need to use ViewEvent early on, because the `EventRouter` isn't able to convert events.
         let event_manager = EventManager::<ViewEvent>::default();
 
@@ -179,11 +182,13 @@ impl Desktop {
             window_state.inner_size,
         )?;
         let mut presentation_state = WindowPresentationState::default();
-        {
-            let mut window_context =
-                WindowContext::new(&window, &mut presentation_state, &mut renderer);
-            finalize_frame(&mut system, frame, &mut window_context)?;
-        }
+        finalize_desktop_frame(
+            &mut system,
+            frame,
+            &window,
+            &mut presentation_state,
+            &mut renderer,
+        )?;
 
         let desktop = Self {
             scene,
@@ -201,7 +206,13 @@ impl Desktop {
     }
 
     pub async fn run(&mut self) -> Result<()> {
-        loop {
+        // A close request hands active rendering over to the bounded drain below.
+        self.run_active().await?;
+        self.run_shutdown().await
+    }
+
+    async fn run_active(&mut self) -> Result<()> {
+        while !self.instance_manager.is_empty() {
             let event = tokio::select! {
                 Some((instance_id, submission)) = self.instance_submissions.recv() => {
                     DesktopEvent::InstanceSubmission(instance_id, submission)
@@ -223,6 +234,9 @@ impl Desktop {
                 DesktopEvent::ApplicationEvents(events) => {
                     for event in events {
                         match event {
+                            ApplicationEvent::View(_, ViewEvent::CloseRequested) => {
+                                return Ok(());
+                            }
                             ApplicationEvent::View(_, view_event) => {
                                 let mut desktop_changes = Changes::default();
 
@@ -297,65 +311,141 @@ impl Desktop {
                     self.window_state.inner_size,
                 )?,
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
-                    info!(
-                        "Instance ended (submissions pending: {}): {instance_id:?}",
-                        self.instance_submissions.len()
-                    );
-
-                    if self.system.is_present(&instance_id) {
-                        // Did it end on its own? -> Act as if the user ended it.
-                        // Robustness: This should probably handled differently.
-                        let changes = self
-                            .system
-                            .plan(DesktopCommand::StopInstance(instance_id), &self.scene)?;
-                        self.system.transact(
-                            changes,
-                            &mut frame,
-                            &mut self.instance_manager,
-                            None,
-                            self.window_state.inner_size,
-                        )?;
-                    }
-
-                    // Feature: Display the error to the user?
-
-                    if let Err(e) = instance_result {
-                        log::warn!("Instance returned error: {e}");
-                    }
-
-                    // If all instances have finished, exit
-                    if self.instance_manager.is_empty() {
-                        let queued_submissions = self.instance_submissions.len();
-                        if queued_submissions > 0 {
-                            error!(
-                                "Desktop exiting with queued instance submissions after all instances finished: queued_submissions={queued_submissions}"
-                            );
-                        }
-                        return Ok(());
-                    }
+                    handle_instance_ended(
+                        &mut self.system,
+                        &self.scene,
+                        &mut self.instance_manager,
+                        &mut self.instance_submissions,
+                        (instance_id, instance_result),
+                        &mut frame,
+                        self.window_state.inner_size,
+                    )?;
                 }
             }
 
-            {
-                let mut window_context = WindowContext::new(
-                    &self.window,
-                    &mut self.window_presentation_state,
-                    &mut self.renderer,
-                );
-                finalize_frame(&mut self.system, frame, &mut window_context)?;
-            }
+            finalize_desktop_frame(
+                &mut self.system,
+                frame,
+                &self.window,
+                &mut self.window_presentation_state,
+                &mut self.renderer,
+            )?;
         }
+        Ok(())
     }
+
+    async fn run_shutdown(&mut self) -> Result<()> {
+        let instance_count = self.instance_manager.len();
+        if instance_count == 0 {
+            return Ok(());
+        }
+
+        self.instance_manager.request_shutdown_all()?;
+        let shutdown_deadline = TokioInstant::now() + SHUTDOWN_TIMEOUT;
+        info!("Graceful shutdown started for {instance_count} instances");
+
+        while !self.instance_manager.is_empty() {
+            let event = tokio::select! {
+                _ = sleep_until(shutdown_deadline) => {
+                    let unfinished = self.instance_manager.instance_ids().collect::<Vec<_>>();
+                    error!("Shutdown deadline expired: unfinished instances {unfinished:?}");
+                    bail!("Shutdown deadline expired");
+                }
+                Some((instance_id, submission)) = self.instance_submissions.recv() => {
+                    DesktopEvent::InstanceSubmission(instance_id, submission)
+                }
+                instance = self.instance_manager.join_next() => {
+                    let (instance_id, instance_result) = instance?;
+                    DesktopEvent::InstanceEnded(instance_id, instance_result)
+                }
+            };
+
+            let mut frame = self.context.frame(&self.scene);
+            match event {
+                DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
+                    DesktopChange::IntegrateInstanceSubmission(instance, submission),
+                    &mut frame,
+                    &mut self.instance_manager,
+                    None,
+                    self.window_state.inner_size,
+                )?,
+                DesktopEvent::InstanceEnded(instance_id, instance_result) => {
+                    handle_instance_ended(
+                        &mut self.system,
+                        &self.scene,
+                        &mut self.instance_manager,
+                        &mut self.instance_submissions,
+                        (instance_id, instance_result),
+                        &mut frame,
+                        self.window_state.inner_size,
+                    )?;
+                }
+                DesktopEvent::ApplicationEvents(_) => unreachable!(),
+            }
+
+            finalize_desktop_frame(
+                &mut self.system,
+                frame,
+                &self.window,
+                &mut self.window_presentation_state,
+                &mut self.renderer,
+            )?;
+        }
+        Ok(())
+    }
+}
+
+fn handle_instance_ended(
+    system: &mut DesktopSystem,
+    scene: &Scene,
+    instance_manager: &mut InstanceManager,
+    instance_submissions: &mut UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
+    frame: &mut Frame,
+    window_size: massive_geometry::SizePx,
+) -> Result<()> {
+    info!(
+        "Instance ended (submissions pending: {}): {instance_id:?}",
+        instance_submissions.len()
+    );
+
+    if system.is_present(&instance_id) {
+        // Did it end on its own? -> Act as if the user ended it.
+        // Robustness: This should probably handled differently.
+        let changes = system.plan(DesktopCommand::StopInstance(instance_id), scene)?;
+        system.transact(changes, frame, instance_manager, None, window_size)?;
+    }
+
+    // Feature: Display the error to the user?
+    if let Err(e) = instance_result {
+        log::warn!("Instance returned error: {e}");
+    }
+
+    // Drain final submissions into this frame before deciding that the desktop is finished.
+    while let Ok((instance, submission)) = instance_submissions.try_recv() {
+        system.transact(
+            DesktopChange::IntegrateInstanceSubmission(instance, submission),
+            frame,
+            instance_manager,
+            None,
+            window_size,
+        )?;
+    }
+
+    Ok(())
 }
 
 /// Push everything out.
 ///
 /// Update the camera, pacing, submit the frame, and update the window presentation.
-fn finalize_frame(
+fn finalize_desktop_frame(
     system: &mut DesktopSystem,
     frame: Frame,
-    window: &mut WindowContext<'_>,
+    window: &ShellWindow,
+    presentation_state: &mut WindowPresentationState,
+    renderer: &mut AsyncWindowRenderer,
 ) -> Result<()> {
+    let window_context = WindowContext::new(window, presentation_state, renderer);
     let animation_time = frame.animation_time();
     let camera = *system.camera(animation_time);
     let mut submission = frame.submission().render_submission().with_camera(camera);
@@ -363,12 +453,12 @@ fn finalize_frame(
     if system.effective_pacing() == RenderPacing::Smooth {
         submission = submission.with_pacing(RenderPacing::Smooth);
     }
-    submission.submit_to(window.renderer)?;
+    submission.submit_to(window_context.renderer)?;
 
     let window_presentation_state = system.window_presentation_state()?;
-    window
+    window_context
         .presentation_state
-        .delta_sync(window_presentation_state, window.window);
+        .delta_sync(window_presentation_state, window_context.window);
     Ok(())
 }
 

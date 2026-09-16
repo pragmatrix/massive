@@ -316,7 +316,10 @@ where
                 }
             }
 
-            ViewEvent::HoveredFileCancelled | ViewEvent::CloseRequested => {}
+            ViewEvent::HoveredFileCancelled => {}
+
+            // Desktop handles close before input routing; it is not focus-targeted.
+            ViewEvent::CloseRequested => {}
 
             ViewEvent::Occluded(_) => {}
 
