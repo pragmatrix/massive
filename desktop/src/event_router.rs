@@ -238,16 +238,27 @@ where
                 //
                 // To get around this, the system must make sure that the camera does not move while
                 // a button is pressed.
-                if let Some((pointer_focus, pointer_device)) = &self.pointer_focus
-                    && pointer_device == device_id
-                {
-                    focus_outcome = Some(ProcessOutcome::Focus(Some(NavigationTarget {
-                        target: pointer_focus.clone(),
-                        event: Some(view_event.clone()),
-                    })));
-                } else if self.pointer_focus.is_none() && self.keyboard_focus.is_some() {
-                    focus_outcome = Some(ProcessOutcome::Focus(None));
+                //
+                // If the pointer focus was cleared (e.g. by keyboard use), hit-test that position
+                // so the click under the mouse counts.
+                if self.pointer_focus.is_none() {
+                    self.hit_test_and_set_pointer_focus(
+                        hit_tester,
+                        *device_id,
+                        &mut event_transitions,
+                    )?;
                 }
+
+                let pressed_target = self
+                    .pointer_focus
+                    .as_ref()
+                    .filter(|&(_, pointer_device)| *pointer_device == *device_id)
+                    .map(|(target, _)| NavigationTarget {
+                        target: target.clone(),
+                        event: Some(view_event.clone()),
+                    });
+
+                focus_outcome = Some(ProcessOutcome::Focus(pressed_target));
             }
 
             // Forward to the current pointer focus.
@@ -257,8 +268,11 @@ where
             ViewEvent::MouseInput { device_id, .. } | ViewEvent::MouseWheel { device_id, .. } => {
                 // If pointer focus is not set, re-set it if the hit tester says so.
                 if self.pointer_focus.is_none() {
-                    event_transitions +=
-                        self.hit_test_and_set_pointer_focus(hit_tester, *device_id)?;
+                    self.hit_test_and_set_pointer_focus(
+                        hit_tester,
+                        *device_id,
+                        &mut event_transitions,
+                    )?;
                 }
 
                 if let Some((pointer_focus, pointer_device)) = &self.pointer_focus
@@ -328,7 +342,8 @@ where
         &mut self,
         hit_tester: &dyn HitTester<T>,
         device_id: DeviceId,
-    ) -> Result<EventTransitions<T>> {
+        transitions: &mut EventTransitions<T>,
+    ) -> Result<()> {
         let target = {
             // This is somehow a shortcut. We just check for the latest Device's position change.
             // Robustness: Support multiple pointers.
@@ -342,7 +357,7 @@ where
             } else {
                 warn!("Resetting pointer focus: No most recent position was found");
                 if self.pointer_focus.is_none() {
-                    return Ok(Default::default());
+                    return Ok(());
                 }
                 bail!(
                     "Internal error: Pointer focus was set, but no most recent position was found"
@@ -350,10 +365,8 @@ where
             }
         };
 
-        // We don't need a focus change tracking here.
-        let mut transitions = EventTransitions::default();
-        self.set_pointer_focus(target.map(|target| (target, device_id)), &mut transitions);
-        Ok(transitions)
+        self.set_pointer_focus(target.map(|target| (target, device_id)), transitions);
+        Ok(())
     }
 
     pub fn unfocus_pointer(&mut self) -> Result<EventTransitions<T>> {
