@@ -84,6 +84,9 @@ impl AsyncWindowRenderer {
                 // tested sleep / minimizing, etc.
                 self.post_msg(RendererMessage::Redraw)
             }
+            ResizeRedrawMode::Occluded(occluded) => {
+                self.post_msg(RendererMessage::SetSurfaceOccluded(occluded))
+            }
             ResizeRedrawMode::None => Ok(()),
         }
     }
@@ -168,6 +171,8 @@ pub struct ResizeRedrawRequest {
 pub enum ResizeRedrawMode {
     Resize(SizePx),
     Redraw,
+    /// The window surface became occluded (or presentable again). macOS only.
+    Occluded(bool),
     #[default]
     None,
 }
@@ -177,6 +182,7 @@ impl From<&ViewEvent> for ResizeRedrawRequest {
         let mode = match view_event {
             ViewEvent::Resized(size) => ResizeRedrawMode::Resize(*size),
             ViewEvent::RedrawRequested => ResizeRedrawMode::Redraw,
+            ViewEvent::Occluded(occluded) => ResizeRedrawMode::Occluded(*occluded),
             _ => ResizeRedrawMode::None,
         };
 
