@@ -73,3 +73,51 @@ impl CosmicScratch {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+    use crate::engine::{FontBytes, TextAttributes};
+
+    const JETBRAINS_MONO: &[u8] = include_bytes!(
+        "../../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+    );
+    const TAKRI: &[u8] =
+        include_bytes!("../../../assets/fonts/NotoSansTakri/NotoSansTakri-Regular.ttf");
+
+    #[test]
+    fn fallback_resolution_is_cached_within_a_scratch() {
+        let candidate_bytes: FontBytes = Arc::new(JETBRAINS_MONO.to_vec());
+        let mut candidate_db = fontdb::Database::new();
+        candidate_db.load_font_source(fontdb::Source::Binary(Arc::clone(&candidate_bytes)));
+
+        let registry_bytes: FontBytes = Arc::new(TAKRI.to_vec());
+        let registry = FontRegistry::from_owned(
+            HashMap::from([(
+                FaceId::new(0),
+                FontData::new(Arc::clone(&registry_bytes), 0),
+            )]),
+            HashMap::new(),
+        );
+        let mut scratch = CosmicScratch::new(Arc::new(candidate_db));
+        scratch.sync(&registry);
+
+        let request = ShapingRequest::new("abc", TextAttributes::named_family("JetBrains Mono"));
+        let mut resolutions = 0;
+        let mut resolve = |_data: FontData| {
+            resolutions += 1;
+            Some(FaceId::new(0))
+        };
+
+        scratch
+            .shape(&request, 16.0, &mut resolve)
+            .expect("candidate-pool font must shape");
+        scratch
+            .shape(&request, 16.0, &mut resolve)
+            .expect("cached candidate-pool font must shape");
+
+        assert_eq!(resolutions, 1);
+    }
+}
