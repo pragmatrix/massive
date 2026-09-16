@@ -40,6 +40,18 @@ _Avoid_: profile, slot, tile
 A single running application session owned by a launcher. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
 _Avoid_: session, tab, process
 
+**Close request**:
+A window-lifecycle signal that asks the application to end. It is delivered to every live instance regardless of keyboard focus because closing the application is not a focus-targeted interaction.
+_Avoid_: close click, focused close event
+
+**Graceful shutdown**:
+The bounded application lifecycle from a close request through instance termination, final submission processing, renderer teardown, and native-window release.
+_Avoid_: window close, process exit
+
+**Shutdown deadline**:
+The single monotonic deadline that bounds graceful shutdown. Once it expires, the desktop ends immediately and the shell terminates the process without waiting for unfinished instances or submissions.
+_Avoid_: per-instance timeout, forced-shutdown state
+
 **Placement visibility**:
 A semantic flag on placement that states whether an instance should be interactable and visually present in the current layout state.
 _Avoid_: hidden by alpha, render-only visibility

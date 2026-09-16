@@ -85,6 +85,13 @@ impl InstanceManager {
         Ok(())
     }
 
+    pub fn request_shutdown_all(&self) -> Result<()> {
+        for instance in self.instances.keys() {
+            self.request_shutdown(*instance)?;
+        }
+        Ok(())
+    }
+
     /// Begin the shutdown of an instance by sending [`ApplicationMessage::Shutdown`]. Returns immediately
     /// after sending the event
     pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
@@ -121,6 +128,10 @@ impl InstanceManager {
 
     pub fn is_empty(&self) -> bool {
         self.instances.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.instances.len()
     }
 
     pub fn send_view_event(&self, path: impl Into<ViewPath>, event: ViewEvent) -> Result<()> {
