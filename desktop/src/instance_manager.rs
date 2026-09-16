@@ -137,6 +137,10 @@ impl InstanceManager {
         self.instances.len()
     }
 
+    pub fn instance_ids(&self) -> impl Iterator<Item = InstanceId> + '_ {
+        self.instances.keys().copied()
+    }
+
     pub fn send_view_event(&self, path: impl Into<ViewPath>, event: ViewEvent) -> Result<()> {
         let (instance, view) = path.into().into();
         self.send_event(instance, ApplicationMessage::View(view, event))

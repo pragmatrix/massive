@@ -347,7 +347,8 @@ impl Desktop {
         while !self.instance_manager.is_empty() {
             let event = tokio::select! {
                 _ = sleep_until(shutdown_deadline) => {
-                    error!("Shutdown deadline expired");
+                    let unfinished = self.instance_manager.instance_ids().collect::<Vec<_>>();
+                    error!("Shutdown deadline expired: unfinished instances {unfinished:?}");
                     bail!("Shutdown deadline expired");
                 }
                 Some((instance_id, submission)) = self.instance_submissions.recv() => {
@@ -420,8 +421,7 @@ fn handle_instance_ended(
         log::warn!("Instance returned error: {e}");
     }
 
-    // An instance can queue its final submission just before its join notification is
-    // observed. Drain those submissions before deciding that the desktop is finished.
+    // Drain final submissions into this frame before deciding that the desktop is finished.
     while let Ok((instance, submission)) = instance_submissions.try_recv() {
         system.transact(
             DesktopChange::IntegrateInstanceSubmission(instance, submission),
