@@ -78,3 +78,8 @@ Native and wasm32 checks are required in phase 1. Each migration phase should ru
 ## Evidence
 
 The design was compile-verified against Tokio 1.48, `parking_lot` 0.12.5 with `arc_lock`, parley 0.11.1, and fontique 0.11.1. The checks established that task-local values are isolated across spawned tasks, nested scopes shadow and restore values, references cannot escape `LocalKey::with`, owned `ArcMutexGuard` values can support mutable access, and the relevant shaping contexts are `Send + Sync`. They also confirmed that a shared font collection without its generic-family mapping can shape to an empty layout without returning an error.
+
+
+## Final Tasks (added by the author), to be removed after realized.
+
+- Remove Scene cloning.
