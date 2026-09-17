@@ -23,7 +23,7 @@ use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{Shape, Shaper, ShapingEngineKind};
+use massive_shapes::{FontRegistrySource, Shape, Shaper, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
@@ -70,24 +70,29 @@ impl io::Write for Sender {
     }
 }
 
-async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
+async fn logs(receiver: UnboundedReceiver<Vec<u8>>, ctx: ApplicationContext) -> Result<()> {
     let fonts =
         FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+    let font_registry = fonts.registry_source();
 
+    with_shaper_context(fonts, logs_with_shaper(receiver, ctx, font_registry)).await
+}
+
+async fn logs_with_shaper(
+    mut receiver: UnboundedReceiver<Vec<u8>>,
+    mut ctx: ApplicationContext,
+    font_registry: FontRegistrySource,
+) -> Result<()> {
     // Window
 
     let size = LogicalSize::new(1280., 800.).to_physical(ctx.primary_monitor_scale_factor());
     let window = ctx.new_window((size.width, size.height)).await?;
     let view_id = window.view_id();
 
-    let mut renderer = window
-        .renderer()
-        .with_text(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text(font_registry).build().await?;
 
     let scene = ctx.new_scene();
-    let mut logs = Logs::new(&scene, fonts);
+    let mut logs = Logs::new(&scene);
 
     // Initial lines informing the user how to interact with the example.
     let mut frame = ctx.frame(&scene);
@@ -154,8 +159,6 @@ enum LogEvent {
 }
 
 struct Logs {
-    fonts: FontManager,
-
     application: Application,
 
     application_transform: Handle<Transform>,
@@ -167,7 +170,7 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(scene: &Scene, fonts: FontManager) -> Self {
+    fn new(scene: &Scene) -> Self {
         let content_width = 1280;
         let application = Application::default();
 
@@ -204,7 +207,6 @@ impl Logs {
         .mount();
 
         Self {
-            fonts,
             application,
             application_transform,
             layout,
@@ -216,8 +218,10 @@ impl Logs {
     }
 
     fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
-        let mut shaper = self.fonts.shaper();
-        let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
+        let (glyph_runs, height) = with_shaper(|font_manager| {
+            let mut shaper = font_manager.shaper();
+            shape_log_line(&mut shaper, bytes, self.next_line_top)
+        });
 
         let glyph_runs: Vec<Shape> = glyph_runs
             .into_iter()

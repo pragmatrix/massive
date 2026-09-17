@@ -7,6 +7,7 @@ use std::future::Future;
 use massive_animation::{
     AnimationCoordinator, AnimationProgress, Movement, MovementInstance, MovementRuntime,
 };
+use massive_renderer::FontManager;
 use massive_scene::{Handle, Object, Scene, SceneChange};
 use tokio::task_local;
 
@@ -14,6 +15,7 @@ task_local! {
     static SCENE: Scene;
     static ANIMATION: RefCell<AnimationCoordinator>;
     static MOVEMENT: RefCell<MovementRuntime>;
+    static SHAPER: RefCell<FontManager>;
 }
 
 /// The contexts installed together for one UI task.
@@ -47,6 +49,21 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
                 .await
         })
         .await
+}
+
+/// Run a future with a detached font manager installed as the task's shaping scratch.
+pub async fn with_shaper_context<F: Future>(font_manager: FontManager, future: F) -> F::Output {
+    SHAPER.scope(RefCell::new(font_manager), future).await
+}
+
+/// Mutably access the current task's shaping scratch synchronously.
+pub fn with_shaper<R>(f: impl FnOnce(&mut FontManager) -> R) -> R {
+    SHAPER.with(|shaper| {
+        let mut shaper = shaper
+            .try_borrow_mut()
+            .unwrap_or_else(|_| panic!("task_context::with_shaper() was re-entered"));
+        f(&mut shaper)
+    })
 }
 
 /// Enter a scene object into the current task's scene change collector.
