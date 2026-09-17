@@ -12,6 +12,7 @@ use massive_renderer::{FontManager, RenderPacing};
 use massive_scene::{HandleChangeReceiver, Location, Ref, SceneChange};
 use massive_util::CoalescingReceiver;
 
+use crate::task_context::{self, TaskContext};
 use crate::view_builder::ViewBuilder;
 use crate::{
     ApplicationEvent, ApplicationMessage, ConfigurationRequest, Frame, FrameSubmission,
@@ -42,10 +43,12 @@ pub struct InstanceContext {
     environment: InstanceEnvironment,
     view_parent: Ref<Location>,
 
-    /// We currently use one Scene per Context, so that everything is ordered properly. This also
-    /// contains the AnimationCoordinator, which we need one only per instance anyway.
-    animation_coordinator: AnimationCoordinator,
-    movement_runtime: MovementRuntime,
+    /// One task context owns the scene and mutable animation state for this instance.
+    ///
+    /// This is optional because ownership is moved into the instance task exactly once. The
+    /// empty state prevents taking the same context a second time.
+    task_context: Option<TaskContext>,
+    scene: Scene,
 
     /// The current changes of this instance. This includes all Scene changes interleaved with the
     /// instance changes (in order).
@@ -64,7 +67,7 @@ impl Drop for InstanceContext {
         // If the instance ends, we _must_ submit all pending changes.
         self.changes
             .collect(InstanceChange::End(self.view_parent.clone()));
-        let pacing = if self.animation_coordinator.end_cycle() {
+        let pacing = if task_context::with_animation(|animation| animation.end_cycle()) {
             RenderPacing::Smooth
         } else {
             RenderPacing::Fast
@@ -95,14 +98,22 @@ impl InstanceContext {
         // Transforms that are not available anymore).
         let changes = InstanceChangeCollector::default();
 
+        let changes: Arc<InstanceChangeCollector> = changes.into();
+        let scene = Scene::new(changes.clone());
+        let task_context = TaskContext::new(
+            scene.clone_scene(),
+            animation_coordinator,
+            MovementRuntime::default(),
+        );
+
         Self {
             id,
             creation_mode,
             environment,
             view_parent,
-            animation_coordinator,
-            movement_runtime: MovementRuntime::default(),
-            changes: changes.into(),
+            task_context: Some(task_context),
+            scene,
+            changes,
             last_submitted_pacing: RenderPacing::Fast,
             events: events.into(),
         }
@@ -131,23 +142,22 @@ impl InstanceContext {
         &self.environment.font_manager
     }
 
+    pub fn take_task_context(&mut self) -> TaskContext {
+        self.task_context
+            .take()
+            .expect("Instance task context was already taken")
+    }
+
     /// ADR: We share _one_ single scene in all views now, so that we can keep the updates that we
     /// send to desktop coordinated. Also, changes can't be submitted independently, all updates
     /// from all views need to be submitted at once.
     pub fn new_scene(&self) -> Scene {
-        Scene::new(self.changes.clone())
+        self.scene.clone_scene()
     }
 
     /// Bundle a scene with this instance's animation clock for one update cycle.
-    pub fn frame<'scene, 'context>(
-        &'context mut self,
-        scene: &'scene Scene,
-    ) -> Frame<'scene, 'context> {
-        Frame::new(
-            scene,
-            &mut self.animation_coordinator,
-            &mut self.movement_runtime,
-        )
+    pub fn frame<'scene>(&mut self, scene: &'scene Scene) -> Frame<'scene> {
+        Frame::new(scene)
     }
 
     pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent<std::convert::Infallible>> {

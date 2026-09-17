@@ -53,15 +53,15 @@ impl ToLocation for Handle<Transform> {
     }
 }
 
-/// A location that is not staged yet. Enter it with a scene to stage a location with an
+/// A location that has not entered a scene yet. Enter it with a scene to create a location with an
 /// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the location is not staged until `.enter(scene)` is called"]
-pub struct UnstagedLocation {
+#[must_use = "the location is not entered until `.enter(scene)` is called"]
+pub struct UnenteredLocation {
     parent: LocationParent,
 }
 
-impl UnstagedLocation {
+impl UnenteredLocation {
     /// Root the location in the given coordinate space.
     pub fn in_space(mut self, space: LocationSpace) -> Self {
         self.parent = space.into();
@@ -74,7 +74,7 @@ impl UnstagedLocation {
         self
     }
 
-    /// Stage a location with an initially-identity transform, returning both handles.
+    /// Enter a location with an initially-identity transform, returning both handles.
     pub fn enter(self, scene: &Scene) -> (Handle<Transform>, Handle<Location>) {
         let transform = Transform::IDENTITY.enter(scene);
         let location = Location::new(self.parent, transform.clone()).enter(scene);
@@ -82,9 +82,9 @@ impl UnstagedLocation {
     }
 }
 
-/// Creates an unstaged location whose transform starts as identity.
-pub fn identity_location() -> UnstagedLocation {
-    UnstagedLocation {
+/// Creates an unentered location whose transform starts as identity.
+pub fn identity_location() -> UnenteredLocation {
+    UnenteredLocation {
         parent: LocationSpace::World.into(),
     }
 }
@@ -148,7 +148,7 @@ impl VisualWithoutLocation {
 
 /// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
-    #[must_use = "the visual is not staged until `.enter(scene)` is called"]
+    #[must_use = "the visual is not entered until `.enter(scene)` is called"]
     fn at(self, location: impl Into<Ref<Location>>) -> Visual;
 }
 

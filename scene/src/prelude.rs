@@ -5,7 +5,7 @@
 //! is imported explicitly (usually from `massive_shell`).
 
 pub use crate::ergonomics::{
-    At, IntoVisual, ToCamera, ToLocation, ToTransform, UnstagedLocation, VisualWithoutLocation,
+    At, IntoVisual, ToCamera, ToLocation, ToTransform, UnenteredLocation, VisualWithoutLocation,
     identity_location,
 };
 pub use crate::{Handle, Location, Object, Transform, Visual};

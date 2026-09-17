@@ -4,7 +4,6 @@
 //! application), while [`Scene`]s are created per view. Bundling a borrow of both here keeps the
 //! clock a single-owner value: no shared ownership and no interior mutability are needed.
 
-use std::any::Any;
 use std::panic::Location;
 use std::time::{Duration, Instant};
 
@@ -12,18 +11,16 @@ use anyhow::Result;
 use derive_more::Deref;
 use log::error;
 
-use massive_animation::{
-    AnimationAllocator, AnimationCoordinator, AnimationProgress, MovementBuilder, MovementRuntime,
-};
+use massive_animation::AnimationAllocator;
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::Scene;
 
+use crate::task_context;
+
 #[derive(Debug, Deref)]
-pub struct Frame<'scene, 'context> {
+pub struct Frame<'scene> {
     #[deref]
     scene: &'scene Scene,
-    animation: &'context mut AnimationCoordinator,
-    movement: &'context mut MovementRuntime,
     submitted: bool,
     created_at: &'static Location<'static>,
 }
@@ -44,36 +41,30 @@ impl FrameSubmission<'_> {
     }
 }
 
-impl AnimationAllocator for Frame<'_, '_> {
+impl AnimationAllocator for Frame<'_> {
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
-        self.animation.allocate_animation_time(duration)
+        task_context::with_animation(|animation| animation.allocate_animation_time(duration))
     }
 }
 
-impl<'scene, 'context> Frame<'scene, 'context> {
+impl<'scene> Frame<'scene> {
     #[track_caller]
-    pub fn new(
-        scene: &'scene Scene,
-        animation: &'context mut AnimationCoordinator,
-        movement: &'context mut MovementRuntime,
-    ) -> Self {
-        animation.begin_cycle();
+    pub fn new(scene: &'scene Scene) -> Self {
+        task_context::with_animation(|animation| animation.begin_cycle());
 
         Self {
             scene,
-            animation,
-            movement,
             submitted: false,
             created_at: Location::caller(),
         }
     }
 
     pub fn upgrade_to_apply_animations_cycle(&mut self) {
-        self.animation.upgrade_to_apply_animations_cycle();
+        task_context::with_animation(|animation| animation.upgrade_to_apply_animations_cycle());
     }
 
     pub fn animation_time(&self) -> Instant {
-        self.animation.animation_time()
+        task_context::with_animation(|animation| animation.animation_time())
     }
 
     /// The scene, borrowed for the frame's full lifetime.
@@ -82,18 +73,6 @@ impl<'scene, 'context> Frame<'scene, 'context> {
     /// frame.
     pub fn scene(&self) -> &'scene Scene {
         self.scene
-    }
-
-    pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
-    where
-        T: Any + Send + Sync,
-        F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
-    {
-        self.movement.movement(value, apply_animations)
-    }
-
-    pub fn movement_runtime(&mut self) -> &mut MovementRuntime {
-        self.movement
     }
 
     // Render all the current scene changes.
@@ -116,9 +95,11 @@ impl<'scene, 'context> Frame<'scene, 'context> {
 
         // Completion events arrive during apply-animation cycles and may queue successor actions.
         // Drain them now so they do not wait for unrelated input.
-        self.movement.run_actions(self.animation);
+        task_context::with_animation_and_movement(|animation, movement| {
+            movement.run_actions(animation);
+        });
 
-        if self.animation.end_cycle() {
+        if task_context::with_animation(|animation| animation.end_cycle()) {
             RenderPacing::Smooth
         } else {
             RenderPacing::Fast
@@ -126,7 +107,7 @@ impl<'scene, 'context> Frame<'scene, 'context> {
     }
 }
 
-impl Drop for Frame<'_, '_> {
+impl Drop for Frame<'_> {
     fn drop(&mut self) {
         if !self.submitted {
             error!(

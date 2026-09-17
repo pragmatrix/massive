@@ -1,8 +1,7 @@
 use std::time::Duration;
 
-use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
-};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
@@ -31,19 +30,12 @@ impl ProjectPresenter {
         parent_location: Handle<Location>,
         scene: &Scene,
         font_manager: &FontManager,
-        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()
             .relative_to(&parent_location)
             .enter(scene);
         let name = properties.name.clone();
-        let header = ProjectHeaderPresenter::new(
-            properties,
-            location.clone(),
-            scene,
-            font_manager,
-            movement_runtime,
-        );
+        let header = ProjectHeaderPresenter::new(properties, location.clone(), scene, font_manager);
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
 
         Self {
@@ -76,7 +68,6 @@ impl ProjectHeaderPresenter {
         parent_location: Handle<Location>,
         scene: &Scene,
         font_manager: &FontManager,
-        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         let (scene_transform, location) = identity_location()
             .relative_to(&parent_location)
@@ -105,19 +96,18 @@ impl ProjectHeaderPresenter {
         let movement_scene_transform = scene_transform.clone();
         let movement_background = background.clone();
         let movement_name = name.clone();
-        let movement = movement_runtime
-            .movement(
-                ProjectHeaderMovement::default(),
-                move |movement, progress| {
-                    movement.apply_animations(
-                        progress,
-                        &movement_scene_transform,
-                        &movement_background,
-                        &movement_name,
-                    );
-                },
-            )
-            .mount();
+        let movement = movement(
+            ProjectHeaderMovement::default(),
+            move |movement, progress| {
+                movement.apply_animations(
+                    progress,
+                    &movement_scene_transform,
+                    &movement_background,
+                    &movement_name,
+                );
+            },
+        )
+        .mount();
 
         Self {
             measured_size,

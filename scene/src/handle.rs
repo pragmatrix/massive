@@ -4,9 +4,9 @@ use parking_lot::{Mutex, MutexGuard};
 
 use crate::{Change, HandleChangeReceiver, Id, Scene, SceneChange};
 
-/// A handle is a mutable representation of an object staged on a scene.
+/// A handle is a mutable representation of an object entered into a scene.
 ///
-/// Although all scenes share a common id space, a handle can only be staged on one scene.
+/// Although all scenes share a common id space, a handle can only be entered into one scene.
 #[derive(Debug)]
 pub struct Handle<T: Object>
 where
@@ -107,7 +107,7 @@ where
     }
 }
 
-/// A read-only handle to an object staged on a scene.
+/// A read-only handle to an object entered into a scene.
 #[derive(Debug)]
 pub struct Ref<T: Object>
 where
@@ -215,7 +215,7 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
-    /// This is effectively the connection to the scene it was staged in.
+    /// This is effectively the connection to the scene it was entered into.
     change_collector: Arc<dyn HandleChangeReceiver>,
     // Optimization: Some values might be too large to be duplicated between the application and the
     // renderer.
@@ -302,6 +302,6 @@ where
     where
         Self: 'static,
     {
-        scene.stage(self)
+        scene.enter(self)
     }
 }

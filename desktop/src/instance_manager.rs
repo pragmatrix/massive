@@ -8,6 +8,7 @@ use log::warn;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
+use massive_applications::task_context;
 use massive_applications::{
     ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment, InstanceId, ViewEvent,
     ViewId,
@@ -65,9 +66,15 @@ impl InstanceManager {
             events_rx,
         );
 
+        let mut instance_context = instance_context;
+        let task_context = instance_context.take_task_context();
         let instance_future = (application.run)(instance_context);
         self.join_set.spawn(async move {
-            let result = AssertUnwindSafe(instance_future).catch_unwind().await;
+            let result = task_context::with_context(
+                task_context,
+                AssertUnwindSafe(instance_future).catch_unwind(),
+            )
+            .await;
             let result = match result {
                 Ok(r) => r,
                 Err(e) => Err(anyhow!("Instance panicked : {e:?}")),
