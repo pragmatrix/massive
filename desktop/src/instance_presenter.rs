@@ -5,9 +5,8 @@ use anyhow::{Result, bail};
 
 use winit::window::CursorIcon;
 
-use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
-};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, Size, SizePx, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
@@ -141,7 +140,6 @@ impl InstancePresenter {
         parameters: InstanceParameters,
         parent: Handle<Location>,
         scene: &Scene,
-        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
@@ -168,14 +166,13 @@ impl InstancePresenter {
 
         let transform = root.layout_transform();
         let location = root.layout_location.clone();
-        let movement = movement_runtime
-            .movement(
-                InstanceMovement::new(initial_center_translation),
-                move |movement, context| {
-                    movement.apply_animations(context, &transform, &location);
-                },
-            )
-            .mount();
+        let movement = movement(
+            InstanceMovement::new(initial_center_translation),
+            move |movement, context| {
+                movement.apply_animations(context, &transform, &location);
+            },
+        )
+        .mount();
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,

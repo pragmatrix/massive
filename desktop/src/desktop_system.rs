@@ -35,7 +35,6 @@ use anyhow::Result;
 use derive_more::Debug;
 use log::warn;
 
-use massive_animation::MovementRuntime;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
@@ -252,15 +251,13 @@ impl DesktopSystem {
         fonts: FontManager,
         default_panel_size: SizePx,
         scene: &Scene,
-        movement_runtime: &mut MovementRuntime,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let (_, location) = identity_location().enter(scene);
 
-        let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
-        let focus_depth_indicator =
-            FocusDepthIndicatorPresenter::new(scene, &fonts, movement_runtime);
+        let desktop_presenter = DesktopPresenter::new(location, scene);
+        let focus_depth_indicator = FocusDepthIndicatorPresenter::new(scene, &fonts);
 
         let event_router = EventRouter::new();
 

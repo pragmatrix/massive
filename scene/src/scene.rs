@@ -9,7 +9,7 @@ use crate::{Change, Handle, HandleChangeReceiver, Object, SceneChange, SceneChan
 /// It is used primarily for instantiating new `Handle<T>` objects.
 #[derive(Debug)]
 pub struct Scene {
-    // This tracks all changes from staging, changing the values in the handles, and dropping
+    // This tracks all changes from entering, changing the values in the handles, and dropping
     // them.
     //
     // Shared because handles need to push changes when dropped.
@@ -21,8 +21,15 @@ impl Scene {
         Self { change_receiver }
     }
 
-    /// Put an object on the stage.
-    pub fn stage<T: Object + 'static>(&self, value: T) -> Handle<T>
+    /// Create another scene handle that submits changes to the same collector.
+    pub fn clone_scene(&self) -> Self {
+        Self {
+            change_receiver: self.change_receiver.clone(),
+        }
+    }
+
+    /// Enter an object into this scene.
+    pub fn enter<T: Object + 'static>(&self, value: T) -> Handle<T>
     where
         SceneChange: From<Change<T::Change>>,
     {

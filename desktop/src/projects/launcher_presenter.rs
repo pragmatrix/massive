@@ -5,9 +5,8 @@ use uuid::Uuid;
 use winit::event::MouseButton;
 use winit::keyboard::{Key, NamedKey};
 
-use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
-};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
 use massive_geometry::{Color, Quaternion, Rect, RectPx, Size, SizePx, SizedTransform, Vector3};
 use massive_input::EventManager;
@@ -82,7 +81,6 @@ impl LauncherPresenter {
         size: Size,
         scene: &Scene,
         font_manager: &FontManager,
-        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
@@ -116,16 +114,15 @@ impl LauncherPresenter {
         let scene_transform = our_transform.clone();
         let movement_background = background.clone();
         let movement_name = name.clone();
-        let movement = movement_runtime
-            .movement(LauncherMovement::new(size), move |movement, context| {
-                movement.apply_animations(
-                    context,
-                    &scene_transform,
-                    &movement_background,
-                    &movement_name,
-                );
-            })
-            .mount();
+        let movement = movement(LauncherMovement::new(size), move |movement, context| {
+            movement.apply_animations(
+                context,
+                &scene_transform,
+                &movement_background,
+                &movement_name,
+            );
+        })
+        .mount();
 
         Self {
             id,

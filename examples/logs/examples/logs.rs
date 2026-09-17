@@ -18,7 +18,8 @@ use termwiz::escape;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent};
 
-use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
+use massive_animation::{Animated, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
@@ -86,7 +87,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         .await?;
 
     let scene = ctx.new_scene();
-    let mut logs = Logs::new(&scene, ctx.movement_runtime(), fonts);
+    let mut logs = Logs::new(&scene, fonts);
 
     // Initial lines informing the user how to interact with the example.
     let mut frame = ctx.frame(&scene);
@@ -166,7 +167,7 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(scene: &Scene, movement: &mut MovementRuntime, fonts: FontManager) -> Self {
+    fn new(scene: &Scene, fonts: FontManager) -> Self {
         let content_width = 1280;
         let application = Application::default();
 
@@ -184,24 +185,23 @@ impl Logs {
             .relative_to(&content_location)
             .enter(scene);
 
-        let layout = movement
-            .movement(
-                LayoutMovement {
-                    content_height: 0.0.into(),
-                    vertical_center: 0.0.into(),
-                },
-                move |layout, progress| {
-                    let content_height = *layout.content_height.proceed(progress);
-                    content_transform.update_if_changed(Transform::from_xy(
-                        -(content_width as f64) / 2.,
-                        -content_height / 2.,
-                    ));
+        let layout = movement(
+            LayoutMovement {
+                content_height: 0.0.into(),
+                vertical_center: 0.0.into(),
+            },
+            move |layout, progress| {
+                let content_height = *layout.content_height.proceed(progress);
+                content_transform.update_if_changed(Transform::from_xy(
+                    -(content_width as f64) / 2.,
+                    -content_height / 2.,
+                ));
 
-                    let vertical_center = *layout.vertical_center.proceed(progress);
-                    vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
-                },
-            )
-            .mount();
+                let vertical_center = *layout.vertical_center.proceed(progress);
+                vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
+            },
+        )
+        .mount();
 
         Self {
             fonts,
@@ -235,32 +235,30 @@ impl Logs {
 
         let line_id = self.next_line_id;
         let fader: Animated<_> = 0.0.into();
-        let fader = frame
-            .movement(fader, move |fader, context| {
-                assert!(
-                    fader.is_animating(),
-                    "Internal error: animation state is not in sync with the context"
-                );
-                let fading = *fader.proceed(context);
-                line.update_with(|visual| {
-                    visual.shapes = visual
-                        .shapes
-                        .iter()
-                        .cloned()
-                        .map(|mut shape| {
-                            if let Shape::GlyphRun(ref mut glyph_run) = shape {
-                                glyph_run.text_color.alpha = fading as f32;
-                                glyph_run.translation.z =
-                                    (1.0 - fading) * -LogLine::FADE_TRANSLATION;
-                            }
-                            shape
-                        })
-                        .collect::<Vec<_>>()
-                        .into()
-                });
-            })
-            .completion_event(move || LogEvent::FadeCompleted(line_id))
-            .mount();
+        let fader = movement(fader, move |fader, context| {
+            assert!(
+                fader.is_animating(),
+                "Internal error: animation state is not in sync with the context"
+            );
+            let fading = *fader.proceed(context);
+            line.update_with(|visual| {
+                visual.shapes = visual
+                    .shapes
+                    .iter()
+                    .cloned()
+                    .map(|mut shape| {
+                        if let Shape::GlyphRun(ref mut glyph_run) = shape {
+                            glyph_run.text_color.alpha = fading as f32;
+                            glyph_run.translation.z = (1.0 - fading) * -LogLine::FADE_TRANSLATION;
+                        }
+                        shape
+                    })
+                    .collect::<Vec<_>>()
+                    .into();
+            });
+        })
+        .completion_event(move || LogEvent::FadeCompleted(line_id))
+        .mount();
         fader.modify(|fader, context| {
             fader.animate(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
         });

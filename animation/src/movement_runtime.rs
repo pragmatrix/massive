@@ -6,8 +6,8 @@
 //!
 //! # Lifecycle
 //!
-//! - **Mount**: [`MovementRuntime::movement`] wraps a value and an apply closure, then
-//!   [`MovementBuilder::mount`] registers it and returns a [`Movement`] handle.
+//! - **Mount**: [`MovementInstance`] stores a value, apply closure, and optional completion event;
+//!   [`MovementRuntime::mount`] registers it and returns a [`Movement`] handle.
 //! - **Modify**: [`Movement::modify`] queues a closure that mutates the value and may start
 //!   animations. The closure receives an [`AnimationAllocator`] that records the movement's
 //!   `ending_time` (the latest end across all its animations).
@@ -25,8 +25,8 @@
 //!
 //! # Completion events
 //!
-//! [`MovementBuilder::completion_event`] attaches a callback that produces a type-erased event
-//! when the movement's animations finish. The runtime returns these from
+//! A movement's completion callback produces a type-erased event when its animations finish. The
+//! runtime returns these from
 //! [`MovementRuntime::apply_animations`]; the caller downcasts them to its own event type. This is
 //! how a movement signals that it has stopped, so callers do not need to track animation activity
 //! themselves.
@@ -76,27 +76,8 @@ impl MovementRuntime {
         }
     }
 
-    /// Start building a long-lived movement from a value and its apply closure.
-    ///
-    /// The apply closure is called with the current animation progress each cycle while the
-    /// movement is animating. Configure it with [`MovementBuilder::completion_event`] and register
-    /// it with [`MovementBuilder::mount`].
-    pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
-    where
-        T: Any + Send + Sync,
-        F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
-    {
-        MovementBuilder {
-            runtime: self,
-            instance: MovementInstance {
-                value,
-                apply_animations,
-                completion_event: None,
-            },
-        }
-    }
-
-    fn mount<T, F>(&mut self, instance: MovementInstance<T, F>) -> Movement<T>
+    /// Mount a fully configured movement instance and return its handle.
+    pub fn mount<T, F>(&mut self, instance: MovementInstance<T, F>) -> Movement<T>
     where
         T: Any + Send + Sync,
         F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
@@ -172,38 +153,6 @@ impl MovementRuntime {
         }
 
         events
-    }
-}
-
-#[must_use]
-pub struct MovementBuilder<'a, T, F> {
-    runtime: &'a mut MovementRuntime,
-    instance: MovementInstance<T, F>,
-}
-
-impl<T, F> MovementBuilder<'_, T, F> {
-    /// Attach a callback that produces an event when this movement's animations finish.
-    ///
-    /// The event is type-erased and returned from [`MovementRuntime::apply_animations`]; the
-    /// caller downcasts it to its own event type.
-    pub fn completion_event<E, G>(mut self, mut completion_event: G) -> Self
-    where
-        E: Any + Send,
-        G: FnMut() -> E + Send + Sync + 'static,
-    {
-        self.instance.completion_event = Some(Box::new(move || Box::new(completion_event())));
-        self
-    }
-}
-
-impl<T, F> MovementBuilder<'_, T, F>
-where
-    T: Any + Send + Sync,
-    F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
-{
-    /// Register the movement with the runtime and return its handle.
-    pub fn mount(self) -> Movement<T> {
-        self.runtime.mount(self.instance)
     }
 }
 
@@ -287,10 +236,24 @@ struct MountedMovement {
     ending_time: Option<Instant>,
 }
 
-struct MovementInstance<T, F> {
+pub struct MovementInstance<T, F> {
     value: T,
     apply_animations: F,
     completion_event: Option<Box<dyn FnMut() -> Box<dyn Any + Send> + Send + Sync>>,
+}
+
+impl<T, F> MovementInstance<T, F> {
+    pub fn new(
+        value: T,
+        apply_animations: F,
+        completion_event: Option<Box<dyn FnMut() -> Box<dyn Any + Send> + Send + Sync>>,
+    ) -> Self {
+        Self {
+            value,
+            apply_animations,
+            completion_event,
+        }
+    }
 }
 
 impl<T, F> AnimatableMovement for MovementInstance<T, F>

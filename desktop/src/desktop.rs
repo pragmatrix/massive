@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -15,7 +14,6 @@ use massive_applications::{
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
-use massive_scene::ChangeCollector;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, FontManager, Scene, ShellWindow};
 use massive_util::CollectingVec;
 
@@ -73,8 +71,7 @@ impl Desktop {
         let fonts = FontManager::system(env.shaping_engine);
 
         // Create scene early for presenter initialization
-        let scene_changes = Arc::new(ChangeCollector::default());
-        let scene = context.new_scene_with_change_collector(scene_changes.clone());
+        let scene = context.new_scene();
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
         let environment = InstanceEnvironment::new(
@@ -139,13 +136,7 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(
-            env,
-            fonts.detached(),
-            default_size,
-            &scene,
-            context.movement_runtime(),
-        )?;
+        let mut system = DesktopSystem::new(env, fonts.detached(), default_size, &scene)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 

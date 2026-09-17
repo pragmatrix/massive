@@ -2,8 +2,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Ease, Interpolation, Movement, MovementRuntime,
+    Animated, AnimationAllocator, AnimationProgress, Ease, Interpolation, Movement,
 };
+use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_scene::LocationSpace;
 use massive_scene::prelude::*;
@@ -38,11 +39,7 @@ pub struct FocusDepthIndicatorPresenter {
 }
 
 impl FocusDepthIndicatorPresenter {
-    pub fn new(
-        scene: &Scene,
-        font_manager: &FontManager,
-        movement_runtime: &mut MovementRuntime,
-    ) -> Self {
+    pub fn new(scene: &Scene, font_manager: &FontManager) -> Self {
         let (badges, size) = FocusDepthIndicatorMovement::create_badges(font_manager);
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
@@ -54,12 +51,11 @@ impl FocusDepthIndicatorPresenter {
             .at(&location)
             .with_decal_order(DECAL_ORDER)
             .enter(scene);
-        let movement = movement_runtime
-            .movement(
-                FocusDepthIndicatorMovement::new(badges),
-                move |movement, progress| movement.apply(progress, &location, &visual),
-            )
-            .mount();
+        let movement = movement(
+            FocusDepthIndicatorMovement::new(badges),
+            move |movement, progress| movement.apply(progress, &location, &visual),
+        )
+        .mount();
 
         Self {
             scene_transform,

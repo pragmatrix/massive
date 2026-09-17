@@ -10,6 +10,7 @@ use winit::event_loop::EventLoopProxy;
 use winit::window::WindowAttributes;
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
+use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{ApplicationEvent, ApplicationMessage, Frame, PresentationId, ViewId};
 use massive_geometry::SizePx;
 use massive_scene::ChangeCollector;
@@ -35,8 +36,9 @@ pub struct ApplicationContext {
     // or when a window is moved?
     monitor_scale_factor: f64,
 
-    animation_coordinator: AnimationCoordinator,
-    movement_runtime: MovementRuntime,
+    /// Moved into the application task exactly once; `None` records that ownership was taken.
+    task_context: Option<TaskContext>,
+    scene: Scene,
 }
 
 impl ApplicationContext {
@@ -46,13 +48,20 @@ impl ApplicationContext {
         event_loop_proxy: EventLoopProxy<ShellCommand>,
         monitor_scale_factor: f64,
     ) -> Self {
+        let scene = Scene::new(Arc::new(ChangeCollector::default()));
+        let task_context = TaskContext::new(
+            scene.clone_scene(),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+        );
+
         Self {
             event_sender,
             event_receiver: event_receiver.into(),
             event_loop_proxy,
             monitor_scale_factor,
-            animation_coordinator: AnimationCoordinator::new(),
-            movement_runtime: MovementRuntime::default(),
+            task_context: Some(task_context),
+            scene,
         }
     }
 
@@ -60,9 +69,15 @@ impl ApplicationContext {
         self.monitor_scale_factor
     }
 
+    pub(crate) fn take_task_context(&mut self) -> TaskContext {
+        self.task_context
+            .take()
+            .expect("Application task context was already taken")
+    }
+
     /// Creates a new scene with a new change collector.
     pub fn new_scene(&self) -> Scene {
-        Scene::new(Arc::new(ChangeCollector::default()))
+        self.scene.clone_scene()
     }
 
     /// Creates a new scene with a caller-provided change collector.
@@ -70,21 +85,9 @@ impl ApplicationContext {
         Scene::new(collector)
     }
 
-    /// The application movement runtime for mounting long-lived movements.
-    pub fn movement_runtime(&mut self) -> &mut MovementRuntime {
-        &mut self.movement_runtime
-    }
-
     /// Bundle a scene with the application's animation clock for one update cycle.
-    pub fn frame<'scene, 'context>(
-        &'context mut self,
-        scene: &'scene Scene,
-    ) -> Frame<'scene, 'context> {
-        Frame::new(
-            scene,
-            &mut self.animation_coordinator,
-            &mut self.movement_runtime,
-        )
+    pub fn frame<'scene>(&mut self, scene: &'scene Scene) -> Frame<'scene> {
+        Frame::new(scene)
     }
 
     /// Creates a new window.
@@ -130,11 +133,11 @@ impl ApplicationContext {
                     application_events.push(ApplicationEvent::View(view_id, view_event));
                 }
                 ApplicationMessage::ApplyAnimations(presentation_id) => {
-                    self.animation_coordinator
-                        .upgrade_to_apply_animations_cycle();
-                    let completion_events = self
-                        .movement_runtime
-                        .apply_animations(self.animation_coordinator.animation_time());
+                    let completion_events =
+                        task_context::with_animation_and_movement(|animation, movement| {
+                            animation.upgrade_to_apply_animations_cycle();
+                            movement.apply_animations(animation.animation_time())
+                        });
                     application_events.push(ApplicationEvent::ApplyAnimations(presentation_id));
                     application_events.extend(
                         completion_events

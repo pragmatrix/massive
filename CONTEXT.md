@@ -116,3 +116,18 @@ _Avoid_: epoch sync, epoch-pull, seed
 
 **Session**:
 One acquisition of a handle's exclusive shaper: registry snapshot + scratch, opened by `FontManager::shaper` and dropped before the frame's output is submitted.
+
+**Task context**:
+The contexts installed for one Tokio task: its scene change collector, animation coordinator, and movement runtime.
+
+**Scene change collector**:
+The ordered receiver of scene changes that are submitted together for one application or instance.
+
+**Enter**:
+Create an object handle in a Scene and connect its future updates and deletion to that Scene change collector.
+
+**Exclusive animation-cycle lease**:
+The live `Frame` value that owns one animation cycle and prevents another cycle from using the same mutable animation contexts concurrently.
+
+**Shaping scratch**:
+Per-task font and layout state used by a shaping session, distinct from the shared font registry.
