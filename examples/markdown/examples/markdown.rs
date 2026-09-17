@@ -108,7 +108,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let transform = page_transform.enter(&scene);
     let location = transform.to_location().enter(&scene);
 
-    // Hold the staged visual, otherwise it will disappear.
+    // Hold the entered visual, otherwise it will disappear.
     let _visual = glyph_runs
         .clone()
         .into_iter()

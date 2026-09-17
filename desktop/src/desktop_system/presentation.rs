@@ -50,7 +50,6 @@ impl DesktopSystem {
             parameters,
             launcher_location,
             frame.scene(),
-            frame.movement_runtime(),
         );
 
         self.aggregates.instances.insert(instance, presenter)?;

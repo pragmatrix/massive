@@ -13,6 +13,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
+use massive_applications::task_context;
 use massive_applications::{ApplicationMessage, ViewEvent, ViewId};
 
 use crate::ApplicationContext;
@@ -85,10 +86,12 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
 
-    let spawn_application = |application_context: ApplicationContext| {
+    let spawn_application = |mut application_context: ApplicationContext| {
+        let task_context = application_context.take_task_context();
         let _application_task = tokio::spawn(async move {
             let event_loop_proxy = application_context.event_loop_proxy.clone();
-            let r = application(application_context).await;
+            let r =
+                task_context::with_context(task_context, application(application_context)).await;
             if let Err(EventLoopClosed(ShellCommand::ApplicationEnded(r))) =
                 event_loop_proxy.send_event(ShellCommand::ApplicationEnded(r))
             {

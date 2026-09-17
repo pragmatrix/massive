@@ -536,16 +536,8 @@ impl DesktopSystem {
         match change {
             ProjectChange::AddProject { id, properties } => {
                 let parent_location = self.desktop_presenter.location.clone();
-                self.aggregates.projects.insert(
-                    id,
-                    ProjectPresenter::new(
-                        properties,
-                        parent_location,
-                        frame.scene(),
-                        &self.fonts,
-                        frame.movement_runtime(),
-                    ),
-                )?;
+                let presenter = ProjectPresenter::new(properties, parent_location, frame.scene());
+                self.aggregates.projects.insert(id, presenter)?;
             }
             ProjectChange::RemoveProject(project) => {
                 self.aggregates.projects.remove(&project)?;
@@ -575,8 +567,6 @@ impl DesktopSystem {
                     profile,
                     massive_geometry::Size::default(),
                     frame.scene(),
-                    &self.fonts,
-                    frame.movement_runtime(),
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
             }
