@@ -196,11 +196,14 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             scale_factor,
         );
 
-        (spawner.take().unwrap())(application_context);
+        // The application can send CreateWindow as soon as it is spawned, so publish the Running
+        // state before starting its task.
+        let spawner = spawner.take().expect("application spawner is available");
         *self = Self::Running {
             event_sender,
             views: HashMap::new(),
-        }
+        };
+        spawner(application_context);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {
