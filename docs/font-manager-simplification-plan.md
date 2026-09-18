@@ -23,7 +23,9 @@ that do not represent real sharing.
 The first two are intentionally shared. The third is not: `FontManager` is not
 `Clone`, and `detached()` creates a fresh scratch value for each owner. The type
 therefore currently uses `Arc` around the scratch mutex even though that mutex is
-not shared.
+not shared. The deeper issue is that the manager is also the runtime shaping owner;
+the shaping context should be an independent value with its own scratch and a
+shared reference to the authority/publication state.
 
 Task-local shaping also has two exclusivity mechanisms: `task_context` wraps a
 `FontManager` in `RefCell`, while `FontManager::shaper()` protects scratch with a
@@ -32,28 +34,51 @@ is mostly mechanical borrowing protection.
 
 ## Proposed direction
 
-### 1. Make scratch singly owned
+### 1. Introduce an independent `ShapingContext`
 
-Change the handle field from:
-
-```rust
-Arc<Mutex<Box<dyn EngineScratch>>>
-```
-
-to:
+Move per-owner shaping state out of `FontManager` into a separate `ShapingContext`:
 
 ```rust
-Mutex<Box<dyn EngineScratch>>
+struct FontManagerState {
+   kind: ShapingEngineKind,
+   authority: Arc<Mutex<FontAuthority>>,
+   published: Arc<PublishedRegistry>,
+}
+
+pub struct FontManager {
+   state: Arc<FontManagerState>,
+}
+
+pub struct ShapingContext {
+   state: Arc<FontManagerState>,
+   scratch: Mutex<Box<dyn EngineScratch>>,
+}
 ```
 
-Keep the mutex because a handle still needs runtime detection of two simultaneous
-shapers. Remove only the outer `Arc`; `detached()` continues to construct a new
-mutex and new scratch for each logical owner.
+`FontManager::shaping_context()` creates a fresh scratch and clones only the shared
+state. The returned context does not borrow or depend on the lifetime of the manager
+value that created it, but contexts created from one state still share the canonical
+face authority and publication channel. A truly independent authority per context is
+not permitted because it would produce conflicting `FaceId` spaces.
 
-### 2. Remove the task-local `RefCell` around `FontManager`
+```rust
+let manager = FontManager::system(kind);
+let context = manager.shaping_context();
+let mut shaper = context.shaper();
+```
 
-Store `FontManager` directly in the shaping task-local and expose it to callers as
-`&FontManager`. Let the scratch mutex remain the single re-entrancy mechanism.
+`ShapingContext` keeps the mutex because one context still needs runtime detection
+of two simultaneous shapers. `Shaper` borrows the context, while fallback resolution
+and publication use the context's shared state. `FontManager` no longer owns scratch
+and no longer creates shapers directly.
+
+### 2. Remove the task-local `RefCell` around the shaping context
+
+Store `ShapingContext` directly in the shaping task-local and expose it to callers as
+`&ShapingContext`. Let the context's scratch mutex remain the single re-entrancy
+mechanism. This is a separate consumer migration from the core context ownership
+refactor; the `FontManager`/`ShapingContext` design must not depend on task-local
+storage.
 
 This preserves the existing loud failure for nested shaping while eliminating a
 second, independent borrow protocol. Update callers that currently accept
@@ -71,10 +96,10 @@ struct PublishedRegistry {
 }
 ```
 
-Use `Arc<PublishedRegistry>` for the manager and `FontRegistrySource`. This keeps
-the necessary outer `Arc` around `ArcSwap`: detached handles and renderers must
-observe the same swap cell. It also prevents `kind` and `published` from becoming
-mismatched parallel fields.
+Use `Arc<PublishedRegistry>` inside the shared `FontManagerState` and for
+`FontRegistrySource`. This keeps the necessary outer `Arc` around `ArcSwap`: all
+contexts and renderers must observe the same swap cell. It also prevents `kind` and
+`published` from becoming mismatched parallel fields.
 
 `FontRegistrySource` remains a cheap, render-only capability. It must not gain the
 face authority or shaping scratch.
@@ -106,11 +131,14 @@ available from that snapshot.
 
 ## Implementation phases
 
-1. **Scratch ownership:** remove `Arc` from the scratch field and update constructors.
-2. **Task-local access:** remove the `RefCell` wrapper and migrate the small set of
-   `with_shaper` callers from `&mut FontManager` to `&FontManager`.
-3. **Publication value:** introduce `PublishedRegistry`, migrate manager and source
-   reads/writes, and preserve the outer `Arc` around the shared swap cell.
+1. **Context ownership:** introduce shared `FontManagerState`, move scratch into
+   `ShapingContext`, and migrate direct `FontManager::shaper()` call sites to
+   `FontManager::shaping_context().shaper()`.
+2. **Publication value:** introduce `PublishedRegistry`, migrate manager, context,
+   and source reads/writes, and preserve the outer `Arc` around the shared swap cell.
+3. **Task-local access:** remove the `RefCell` wrapper, store `ShapingContext`, and
+   migrate the small set of `with_shaper` callers from `&mut FontManager` to
+   `&ShapingContext`.
 4. **Authority naming:** rename `FontManagerInner` and its field without changing
    behavior.
 5. **Contract cleanup:** remove genuinely unused `ShapingEngine` methods and make
@@ -128,7 +156,7 @@ lifetime.
 - `FaceId` values come from one canonical authority.
 - Registration and fallback resolution publish a complete immutable registry.
 - Renderer reads remain lock-free and observe the shared publication channel.
-- Different detached handles shape concurrently.
+- Different shaping contexts sharing one manager state shape concurrently.
 - Two shapers on one handle fail immediately rather than block indefinitely.
 - A shaper refreshes its session snapshot after shaping before callers inspect the
   returned run.
@@ -136,8 +164,8 @@ lifetime.
 
 ## Non-goals
 
-- Do not make `FontManager` clonable; `detached()` intentionally makes ownership
-  boundaries visible.
+- Do not make `FontManager` clonable; `shaping_context()` intentionally makes the
+   per-owner shaping boundary visible.
 - Do not replace the atomic snapshot publication with a mutex or a broadcast list.
 - Do not merge the face authority and per-owner scratch back into one engine object.
 - Do not change the accepted ADR 0006 runtime exclusivity policy in this cleanup.
