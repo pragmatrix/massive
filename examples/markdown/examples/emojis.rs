@@ -165,6 +165,8 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .with_decal_order(0)
         .enter(&scene);
 
+    ctx.frame(&scene).render_to(&mut renderer)?;
+
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
             info!("Event: {event:?}");

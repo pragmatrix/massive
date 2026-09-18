@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -14,6 +15,7 @@ use massive_applications::{
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
+use massive_scene::ChangeCollector;
 use massive_shell::{
     ApplicationContext, AsyncWindowRenderer, FontManager, Scene, ShellWindow, task_context,
 };
@@ -80,8 +82,12 @@ impl Desktop {
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
+        // Create the font manager - shared between desktop and instances. The engine is chosen
+        // once here (ADR 0005); a FaceId only resolves through this manager. Instances,
+        // the renderer and the desktop system each get a detached handle (ADR 0006).
         // Create scene early for presenter initialization
-        let scene = context.new_scene();
+        let scene_changes = Arc::new(ChangeCollector::default());
+        let scene = context.new_scene_with_change_collector(scene_changes.clone());
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
         let environment = InstanceEnvironment::new(
@@ -146,7 +152,7 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(env, default_size, &scene)?;
+        let mut system = DesktopSystem::new(env, fonts.detached(), default_size, &scene)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 

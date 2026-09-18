@@ -10,7 +10,7 @@
 //! avoids re-shaping the text (which could diverge from cosmic-text's layout) and keeps the
 //! renderer's rasterization path on the engine's font registry.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use cosmic_text::fontdb;
@@ -41,30 +41,51 @@ impl FontBridge {
     /// into a bare engine manager, and pairs each `fontdb::ID` with the engine [`FaceId`]
     /// for the same face. This keeps the two databases in sync so any font cosmic-text selects
     /// (including emoji fallbacks) resolves to a [`FaceId`] for rasterization.
+    ///
+    /// This eagerly reads every system font file and retains its bytes, which can consume a large
+    /// amount of memory. It is suitable for this example's complete fallback coverage, but not
+    /// for production startup; production code should load only fonts selected by shaping.
     pub fn system() -> Self {
         let mut font_db = fontdb::Database::new();
         font_db.load_system_fonts();
         // Cosmic-text matches inlyne's FontSystem, which does the measuring for these examples.
         let font_manager = massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText);
 
-        // Register each system face into the engine and record the fontdb::ID -> FaceId pairing.
-        // Deduplicate by (path, index) so a face shared across families is registered once.
-        let mut face_ids = HashMap::new();
-        let mut seen = HashSet::new();
+        // Register each unique system font file once and map every fontdb face back to the
+        // corresponding engine FaceId. A collection can expose several faces and family names,
+        // while one batch publication avoids rebuilding the growing registry for each file.
+        let mut file_indices = HashMap::new();
+        let mut font_files = Vec::new();
         for face in font_db.faces() {
-            let (path, index) = match &face.source {
-                fontdb::Source::File(path) => (path.clone(), face.index),
+            let path = match &face.source {
+                fontdb::Source::File(path) => path,
                 fontdb::Source::Binary(_) | fontdb::Source::SharedFile(_, _) => continue,
             };
-            if !seen.insert((path.clone(), index)) {
+            if file_indices.contains_key(path) {
                 continue;
             }
-            let Ok(bytes) = std::fs::read(&path) else {
+            let Ok(bytes) = std::fs::read(path) else {
                 continue;
             };
-            let engine_ids = font_manager.load_font(bytes);
+            file_indices.insert(path.clone(), font_files.len());
+            font_files.push(bytes);
+        }
+
+        let loaded_files = font_manager.load_fonts(font_files);
+        let mut face_ids = HashMap::new();
+        for face in font_db.faces() {
+            let path = match &face.source {
+                fontdb::Source::File(path) => path,
+                fontdb::Source::Binary(_) | fontdb::Source::SharedFile(_, _) => continue,
+            };
+            let Some(engine_ids) = file_indices
+                .get(path)
+                .and_then(|file_index| loaded_files.get(*file_index))
+            else {
+                continue;
+            };
             // load_font returns one id per face in file order; pick the face at `index`.
-            if let Some(face_id) = engine_ids.get(index as usize).copied() {
+            if let Some(face_id) = engine_ids.get(face.index as usize).copied() {
                 face_ids.insert(face.id, face_id);
             }
         }
@@ -212,6 +233,9 @@ fn font_metrics(font: &FontData, font_size: f32) -> Option<(f32, f32)> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+    use std::process::Command;
+
     use super::*;
     use cosmic_text::{Align, Attrs, Buffer, FontSystem, Metrics, Shaping};
 
@@ -254,5 +278,54 @@ mod tests {
             "glyph x should be monotonic, got {:?}",
             xs
         );
+    }
+
+    /// Reports the memory cost of eagerly registering every system font.
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "manual memory measurement"]
+    fn measure_system_font_memory() {
+        let before_rss_kib = process_rss_kib();
+        let bridge = FontBridge::system();
+        let after_rss_kib = process_rss_kib();
+
+        let mut paths = HashSet::new();
+        let mut file_bytes = 0u64;
+        for face in bridge.font_db().faces() {
+            let fontdb::Source::File(path) = &face.source else {
+                continue;
+            };
+            if paths.insert(path) {
+                file_bytes += std::fs::metadata(path)
+                    .map(|metadata| metadata.len())
+                    .unwrap_or(0);
+            }
+        }
+
+        let rss_delta = match (before_rss_kib, after_rss_kib) {
+            (Some(before), Some(after)) => {
+                format!("{} KiB RSS delta", after.saturating_sub(before))
+            }
+            _ => "RSS unavailable".to_owned(),
+        };
+
+        println!(
+            "system font memory: {} unique files, {} faces, {:.1} MiB font files, {}",
+            paths.len(),
+            bridge.font_db().faces().count(),
+            file_bytes as f64 / (1024.0 * 1024.0),
+            rss_delta,
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn process_rss_kib() -> Option<u64> {
+        let output = Command::new("ps")
+            .args(["-o", "rss=", "-p"])
+            .arg(std::process::id().to_string())
+            .output()
+            .ok()?;
+        let rss = String::from_utf8(output.stdout).ok()?;
+        rss.trim().parse().ok()
     }
 }

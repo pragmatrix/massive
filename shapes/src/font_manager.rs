@@ -193,8 +193,21 @@ impl FontManager {
     /// Font loading is possible at any time: parley sees the font through the shared
     /// collection; cosmic re-syncs on the next shaper's registry check.
     pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
+        self.load_fonts(std::iter::once(font_data))
+            .pop()
+            .expect("one font was loaded")
+    }
+
+    /// Adds multiple fonts and returns their font ids, publishing the registry once.
+    pub fn load_fonts<T>(&self, font_data: impl IntoIterator<Item = T>) -> Vec<Vec<FaceId>>
+    where
+        T: AsRef<[u8]> + Sync + Send + 'static,
+    {
         let mut inner = self.inner.lock();
-        let ids = inner.engine.load_font(Arc::new(font_data));
+        let ids = font_data
+            .into_iter()
+            .map(|data| inner.engine.load_font(Arc::new(data)))
+            .collect();
         // The registry just mutated: republish while the lock is still held (see module doc).
         self.published.store(inner.engine.font_registry());
         ids
@@ -706,6 +719,20 @@ mod tests {
                 fonts.shaper().font_data(id).is_some(),
                 "{kind:?}: the loaded font must resolve to font data"
             );
+        }
+    }
+
+    /// Batch loading returns every registration and publishes all resulting faces.
+    #[test]
+    fn load_fonts_registers_every_batch_item() {
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind);
+            let batches = fonts.load_fonts([JETBRAINS_MONO, JETBRAINS_MONO]);
+
+            assert_eq!(batches.len(), 2);
+            for id in batches.into_iter().flatten() {
+                assert!(fonts.published().font_data(id).is_some());
+            }
         }
     }
 
