@@ -32,28 +32,22 @@ is mostly mechanical borrowing protection.
 
 ## Proposed direction
 
-### 1. Make scratch singly owned
+### 1. Introduce an independent `ShapingContext`
 
-Change the handle field from:
+Move per-owner shaping state out of `FontManager` into a separate `ShapingContext`.
+`FontManager::shaping_context()` creates fresh scratch for each logical owner. The
+manager remains non-`Clone`, and `detached()` is removed because the context is now
+the explicit ownership boundary.
 
-```rust
-Arc<Mutex<Box<dyn EngineScratch>>>
-```
+Contexts created from one manager share the canonical face authority and publication
+channel, but each owns an exclusive `Mutex<Box<dyn EngineScratch>>`. They can shape
+concurrently; two shapers acquired from one context still fail immediately.
 
-to:
+### 2. Remove the task-local `RefCell` around the shaping context
 
-```rust
-Mutex<Box<dyn EngineScratch>>
-```
-
-Keep the mutex because a handle still needs runtime detection of two simultaneous
-shapers. Remove only the outer `Arc`; `detached()` continues to construct a new
-mutex and new scratch for each logical owner.
-
-### 2. Remove the task-local `RefCell` around `FontManager`
-
-Store `FontManager` directly in the shaping task-local and expose it to callers as
-`&FontManager`. Let the scratch mutex remain the single re-entrancy mechanism.
+Store `ShapingContext` directly in the shaping task-local and expose it to callers as
+`&ShapingContext`. Let the context scratch mutex remain the single re-entrancy
+mechanism.
 
 This preserves the existing loud failure for nested shaping while eliminating a
 second, independent borrow protocol. Update callers that currently accept
@@ -71,7 +65,7 @@ struct PublishedRegistry {
 }
 ```
 
-Use `Arc<PublishedRegistry>` for the manager and `FontRegistrySource`. This keeps
+Use `Arc<PublishedRegistry>` for the manager state and `FontRegistrySource`. This keeps
 the necessary outer `Arc` around `ArcSwap`: detached handles and renderers must
 observe the same swap cell. It also prevents `kind` and `published` from becoming
 mismatched parallel fields.
@@ -98,17 +92,17 @@ the explicit engine capabilities.
 
 ### 6. Make session registry reads coherent
 
-`Shaper::font_data()` currently checks its session snapshot and then falls back to
-the manager's latest publication, while `metrics()` reads only the session snapshot.
-Prefer one coherent session snapshot for both methods. Preserve the existing refresh
-after `shape()`, and add a regression test that every face in a returned run is
-available from that snapshot.
+`Shaper::font_data()` and `metrics()` both read one coherent session snapshot.
+After `shape()`, refresh that snapshot so fallback-discovered faces are available
+before callers inspect the returned run. Lookup methods do not fall back to a newer
+global publication.
 
 ## Implementation phases
 
-1. **Scratch ownership:** remove `Arc` from the scratch field and update constructors.
-2. **Task-local access:** remove the `RefCell` wrapper and migrate the small set of
-   `with_shaper` callers from `&mut FontManager` to `&FontManager`.
+1. **Context ownership:** introduce shared `FontManagerState`, move scratch into
+   `ShapingContext`, remove `detached()`, and migrate direct callers.
+2. **Task-local access:** remove the `RefCell` wrapper and migrate `with_shaper` to
+   `&ShapingContext`.
 3. **Publication value:** introduce `PublishedRegistry`, migrate manager and source
    reads/writes, and preserve the outer `Arc` around the shared swap cell.
 4. **Authority naming:** rename `FontManagerInner` and its field without changing
@@ -128,8 +122,8 @@ lifetime.
 - `FaceId` values come from one canonical authority.
 - Registration and fallback resolution publish a complete immutable registry.
 - Renderer reads remain lock-free and observe the shared publication channel.
-- Different detached handles shape concurrently.
-- Two shapers on one handle fail immediately rather than block indefinitely.
+- Different contexts sharing one manager state shape concurrently.
+- Two shapers on one context fail immediately rather than block indefinitely.
 - A shaper refreshes its session snapshot after shaping before callers inspect the
   returned run.
 - `FontRegistrySource` remains render-only.
@@ -146,8 +140,8 @@ lifetime.
 
 The focused checks should cover:
 
-- detached managers have independent scratch and can shape concurrently;
-- re-entrant shaping on one handle still panics at `shaper()`;
+- contexts sharing one manager have independent scratch and can shape concurrently;
+- re-entrant shaping on one context still panics at `shaper()`;
 - loads and fallback resolution remain visible through all registry sources;
 - renderer registry reads remain lock-free from the caller's perspective; and
 - session `font_data` and `metrics` resolve every face carried by a shaped run.

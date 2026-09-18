@@ -1,4 +1,4 @@
-//! The cosmic-text per-handle shaping scratch (ADR 0006).
+//! The cosmic-text per-context shaping scratch (ADR 0006).
 
 use std::sync::Arc;
 

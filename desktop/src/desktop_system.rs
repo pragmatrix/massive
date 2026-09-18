@@ -40,7 +40,7 @@ use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
 use massive_scene::prelude::*;
-use massive_shell::{FontManager, Frame, Scene};
+use massive_shell::{Frame, Scene, ShapingContext};
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
@@ -196,7 +196,7 @@ impl TransactionEffectsMode {
 #[derive(Debug)]
 pub struct DesktopSystem {
     env: DesktopEnvironment,
-    fonts: FontManager,
+    fonts: ShapingContext,
 
     default_panel_size: SizePx,
 
@@ -248,7 +248,7 @@ impl Aggregates {
 impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
-        fonts: FontManager,
+        fonts: ShapingContext,
         default_panel_size: SizePx,
         scene: &Scene,
     ) -> Result<Self> {

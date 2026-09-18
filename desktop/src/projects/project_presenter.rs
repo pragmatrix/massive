@@ -5,7 +5,7 @@ use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::{FontManager, Scene};
+use massive_shell::{Scene, ShapingContext};
 
 use super::ProjectProperties;
 
@@ -29,13 +29,14 @@ impl ProjectPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_manager: &FontManager,
+        shaping_context: &ShapingContext,
     ) -> Self {
         let (scene_transform, location) = identity_location()
             .relative_to(&parent_location)
             .enter(scene);
         let name = properties.name.clone();
-        let header = ProjectHeaderPresenter::new(properties, location.clone(), scene, font_manager);
+        let header =
+            ProjectHeaderPresenter::new(properties, location.clone(), scene, shaping_context);
         let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
 
         Self {
@@ -67,14 +68,14 @@ impl ProjectHeaderPresenter {
         properties: ProjectProperties,
         parent_location: Handle<Location>,
         scene: &Scene,
-        font_manager: &FontManager,
+        shaping_context: &ShapingContext,
     ) -> Self {
         let (scene_transform, location) = identity_location()
             .relative_to(&parent_location)
             .enter(scene);
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
-        let mut shaper = font_manager.shaper();
+        let mut shaper = shaping_context.shaper();
         let header_run = properties
             .name
             .size(PROJECT_HEADER_FONT_SIZE)

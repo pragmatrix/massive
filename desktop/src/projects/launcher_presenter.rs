@@ -13,7 +13,7 @@ use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::{FontManager, Scene};
+use massive_shell::{Scene, ShapingContext};
 
 use super::visor_layout;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
@@ -80,7 +80,7 @@ impl LauncherPresenter {
         profile: LaunchProfile,
         size: Size,
         scene: &Scene,
-        font_manager: &FontManager,
+        shaping_context: &ShapingContext,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
@@ -92,7 +92,7 @@ impl LauncherPresenter {
 
         let background = background_shape.at(&our_location).enter(scene);
 
-        let mut shaper = font_manager.shaper();
+        let mut shaper = shaping_context.shaper();
         let name = profile
             .name
             // Idea: To not waste so much memory here for large fonts, may use a quality index that

@@ -309,7 +309,7 @@ impl ShapingEngine for ParleyEngine {
         shape_line(font_context, layout_context, request, font_size)
     }
 
-    /// Per-handle shaping scratch over this engine's shared collection (ADR 0006): a
+    /// Per-context shaping scratch over this engine's shared collection (ADR 0006): a
     /// clone of the collection plus a fresh `LayoutContext`. A shared-mode collection
     /// clone shares the internally synchronized state, so later registrations (fonts
     /// loaded at any time) are visible to the scratch via fontique's version sync.

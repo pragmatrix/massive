@@ -12,36 +12,32 @@ The ADR 0005 published-registry amendment made the *render* path lock-free, but 
 
 ## Design
 
-### Shapers everywhere
+### Shaping contexts everywhere
 
-One shaper API: `FontManager::shaper()` returns a `Shaper<'_>`. There is **no instance variant** of the API: instance, application, and desktop code all acquire shapers the same way. Shapers take `&self` — the manager mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed. Exclusivity is enforced at runtime instead (below): `&mut` would have defended exactly one aliasing scenario that the shaper guard already serializes.
+`FontManager::shaping_context()` creates a `ShapingContext`, and `ShapingContext::shaper()` returns a `Shaper<'_>`. There is **no instance variant** of the API: instance, application, and desktop code all acquire shapers through an explicit context. Shapers take `&self` — the authority mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed. Exclusivity is enforced at runtime instead (below).
 
-What a shaper locks: it does not hold the manager mutex for its duration; it borrows the *caller's* `FontManager` (which the caller owns per task) and the manager mutex stays free for other threads.
+What a shaper locks: it does not hold the authority mutex for its duration; it borrows the caller's `ShapingContext`, whose scratch is exclusive to that logical owner. Contexts sharing one manager state can shape concurrently.
 
 A rule, made API-visible by this design: **a shaper must not outlive the frame cycle it shaped for** — the manager mutex is registration-only, so nothing about the shaper's lifetime needs to hold it; the rule instead defines when its shaped output stops being usable.
 
 ### Shaper exclusivity at runtime, not via borrow gating
 
-`shaper()` and `load_font` take `&self`. A shaper exclusively holds its handle's scratch mutex, and `shaper()` acquires it with `try_lock`, so a second shaper on the same handle **panics at the misuse point** (with a message naming the handle and the held scratch) instead of deadlocking on a non-reentrant parking_lot mutex. Shapers on different handles shape in parallel; `load_font` during an open shaper is safe by construction (the manager mutex is registration-only and never held while shaping). The trade: a misuse that a compile-time gate would reject now panics at runtime — judged worth it to drop the `&mut` plumbing through every presenter and constructor.
+`shaper()` and `load_font` take `&self`. A shaper exclusively holds its context scratch mutex, and `shaper()` acquires it with `try_lock`, so a second shaper on the same context **panics at the misuse point** instead of deadlocking on a non-reentrant parking_lot mutex. Shapers on different contexts shape in parallel; `load_font` during an open shaper is safe by construction because the authority mutex is registration-only. The trade is an explicit runtime failure for a misuse that a compile-time gate could reject.
 
-### Handles are detached, not cloned
+### Contexts are explicit, managers are shared
 
-`FontManager` does not implement `Clone`. Every handle's scratch is exclusively attached to
-one logical owner; deriving an independent handle is an explicit `detached()`: the
-returned handle shares only the face authority (engine behind the mutex) and the published
-snapshot, and gets a fresh, exclusively owned scratch seeded on first shaper. This makes
-the instance-boundary split visible at every call site — a `detached()` call means "this
-handle now shapes independently, contention-free" — instead of hiding inside a `Clone`
-impl whose semantics a reader cannot see. `InstanceEnvironment` keeps its derived-shaped
-`Clone` but detaches the font handle in its (manual) `Clone` impl: every spawned instance
-is exactly the owner boundary ADR names.
+`FontManager` does not implement `Clone` and owns no shaping scratch. It shares the face
+authority and published registry through internal reference-counted state. Each logical
+owner calls `shaping_context()` to obtain fresh, reusable scratch. `InstanceEnvironment`
+shares the manager configuration through `Arc<FontManager>`, while shaping owners retain
+their own contexts.
 
 ### The manager stops owning shaping contexts
 
-`FontManagerInner` keeps only the font-identity machinery; the engines' per-shape scratch moves out to per-task owners. The scratch itself is engine neutral: `ShapingEngine::new_scratch` creates a handle's scratch, and an `EngineScratch` trait (`sync`, `shape`) drives it — the manager names no engine type after construction, and the per-engine seeding/sync strategies (parley's shared-collection clone, cosmic's registry sync) live entirely in each engine's scratch implementation (`parley_scratch.rs`, `cosmic_scratch.rs`).
+`FontAuthority` keeps only the font-identity machinery; the engines' per-shape scratch moves out to per-context owners. The scratch itself is engine neutral: `ShapingEngine::new_scratch` creates a context's scratch, and an `EngineScratch` trait (`sync`, `shape`) drives it — the manager names no engine type after construction, and the per-engine seeding/sync strategies live entirely in each engine's scratch implementation.
 
 - **Face authority**: the manager remains the *only* `FaceId` issuer (face loading and session-path resolution). A `FaceId` is only meaningful within the manager that registered it — ADR 0005's consequence, now load-bearing across instances.
-- **Published registry**: unchanged (`Arc<ArcSwap<FontRegistry>>`, the one `&mut`-gate exemption). Shapers republish on drop exactly as today.
+- **Published registry**: a shared `Arc<PublishedRegistry>` bundles engine kind with its `ArcSwap<FontRegistry>`. Shapers publish resolved faces through the authority and refresh their session snapshot after each shape.
 
 ### Parley: fontique's native shared collection
 
@@ -104,9 +100,10 @@ The renderer's "registry miss is a real bug" stance stays absolute, and the debu
 
 ## Consequences
 
-- Two live shapers on one handle panic loudly (`shaper()`'s `try_lock` guard); two *instances* shaping in parallel is the point — contention is gone because there is nothing shared to lock in the hot path.
-- Handling a `FontManager` around is explicit: `detached()` marks every owner boundary;
-  a derived `Clone` would have silently multiplied owners sharing nothing but identity.
+- Two live shapers on one context panic loudly (`shaper()`'s `try_lock` guard); contexts
+  sharing one manager state shape in parallel because their scratch is independent.
+- Handling a `FontManager` around shares only identity and publication. Calling
+  `shaping_context()` marks every shaping-owner boundary.
 - `load_font` mid-run is legal and becomes visible without coordinator knowledge: parley via fontique's version sync, cosmic via registry sync at next shaper open.
 - Cosmic's per-instance `FontSystem` grows its caches without bound within one lifetime (its internals are not shareable by design) — the same cost every cosmic use pays; instances are long-lived, the cost is per-instance and bounded by workload.
 - The manager's mutex is touched only by registration work (load, resolve, publish); a benchmark gate (`benches/terminal_shaping.rs`) verifies the hot path no longer takes it.

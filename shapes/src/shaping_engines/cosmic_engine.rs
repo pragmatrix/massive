@@ -252,7 +252,7 @@ impl ShapingEngine for CosmicTextEngine {
         })
     }
 
-    /// Create this engine's per-handle scratch (ADR 0006): an *empty* seed — the scratch
+    /// Create this engine's per-context scratch (ADR 0006): an *empty* seed — the scratch
     /// pulls the published snapshot's faces on its first `sync`, building its own
     /// `FontSystem` over a clone of the engine's *prepared* candidate pool (a pure
     /// in-memory copy, so the full system catalog is never scanned more than once per

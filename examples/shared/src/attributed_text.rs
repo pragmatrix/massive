@@ -210,7 +210,8 @@ mod tests {
     #[test]
     fn shape_text_splits_runs_per_attribute() {
         let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
-        let mut shaper = fonts.shaper();
+        let context = fonts.shaping_context();
+        let mut shaper = context.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let attributes = vec![
@@ -239,7 +240,8 @@ mod tests {
     #[test]
     fn shape_text_default_run_between_ranges() {
         let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
-        let mut shaper = fonts.shaper();
+        let context = fonts.shaping_context();
+        let mut shaper = context.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let blue = Color::rgb(0.0, 0.0, 1.0);

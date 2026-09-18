@@ -21,7 +21,7 @@ pub use builder::*;
 pub use color_buffer::*;
 pub use config::*;
 // FontManager and friends now live in massive-shapes, where shaping owns the contexts.
-pub use massive_shapes::{FontManager, FontRegistrySource};
+pub use massive_shapes::{FontManager, FontRegistrySource, ShapingContext};
 pub use render_device::*;
 pub use render_geometry::{RenderGeometry, ViewProjections};
 pub use render_submission::*;
