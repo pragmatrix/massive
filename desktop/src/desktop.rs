@@ -65,7 +65,7 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         let fonts = FontManager::system(env.shaping_engine);
         task_context::with_shaper_context(
-            fonts.detached(),
+            fonts.shaping_context(),
             Self::new_with_shaper(env, context, fonts),
         )
         .await
@@ -84,16 +84,17 @@ impl Desktop {
 
         // Create the font manager - shared between desktop and instances. The engine is chosen
         // once here (ADR 0005); a FaceId only resolves through this manager. Instances,
-        // the renderer and the desktop system each get a detached handle (ADR 0006).
+        // the renderer shares the authority; the desktop system owns a shaping context.
         // Create scene early for presenter initialization
         let scene_changes = Arc::new(ChangeCollector::default());
         let scene = context.new_scene_with_change_collector(scene_changes.clone());
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
+        let shared_fonts = Arc::new(fonts);
         let environment = InstanceEnvironment::new(
             submissions_tx,
             context.primary_monitor_scale_factor(),
-            fonts.detached(),
+            Arc::clone(&shared_fonts),
         );
         let mut instance_manager = InstanceManager::new(environment);
 
@@ -141,7 +142,7 @@ impl Desktop {
             .with_shapes()
             // The renderer resolves glyphs through the published snapshot and never
             // shapes — a registry source, not a full handle (ADR 0006).
-            .with_text(fonts.registry_source())
+            .with_text(shared_fonts.registry_source())
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;
@@ -152,7 +153,8 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(env, fonts.detached(), default_size, &scene)?;
+        let mut system =
+            DesktopSystem::new(env, shared_fonts.shaping_context(), default_size, &scene)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 

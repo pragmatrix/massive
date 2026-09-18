@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Result, bail};
 use derive_more::Constructor;
 use serde::{Deserialize, Serialize};
@@ -10,26 +12,14 @@ use massive_util::ChangeSet;
 
 use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId, ViewRole};
 
-impl Clone for InstanceEnvironment {
-    fn clone(&self) -> Self {
-        Self {
-            submission_sender: self.submission_sender.clone(),
-            primary_monitor_scale_factor: self.primary_monitor_scale_factor,
-            font_manager: self.font_manager.detached(),
-            parameters: self.parameters.clone(),
-        }
-    }
-}
-
-/// Manual `Clone`: every clone is handed to a newly spawned instance, which must shape
-/// independently of every other instance — hence the detached font handle (ADR 0006)
-/// rather than a shared one, which a derive would have handed out.
-#[derive(Debug)]
+/// Shared instance configuration cloned into each spawned instance. Each instance creates its
+/// own shaping context when it shapes (ADR 0006).
+#[derive(Debug, Clone)]
 pub struct InstanceEnvironment {
     pub(crate) submission_sender: UnboundedSender<(InstanceId, InstanceSubmission)>,
     // Robustness: This might change on runtime.
     pub(crate) primary_monitor_scale_factor: f64,
-    pub(crate) font_manager: FontManager,
+    pub(crate) font_manager: Arc<FontManager>,
     pub(crate) parameters: Map<String, Value>,
 }
 
@@ -39,7 +29,7 @@ impl InstanceEnvironment {
     pub fn new(
         requests_tx: UnboundedSender<(InstanceId, InstanceSubmission)>,
         primary_monitor_scale_factor: f64,
-        font_manager: FontManager,
+        font_manager: Arc<FontManager>,
     ) -> Self {
         Self {
             submission_sender: requests_tx,

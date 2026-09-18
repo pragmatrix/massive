@@ -403,7 +403,7 @@ pub trait ShapingEngine: Send {
     /// tests shape through it.
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
 
-    /// Create this engine's per-handle shape-ready scratch (ADR 0006), seeded from the
+    /// Create this engine's per-context shape-ready scratch (ADR 0006), seeded from the
     /// `published` snapshot's world. Called by the manager on a handle's first session
     /// open; the scratch then registry-syncs itself on every open()
     /// ([`EngineScratch::sync`]) without touching the manager mutex.
@@ -419,7 +419,7 @@ pub trait ShapingEngine: Send {
     }
 }
 
-/// Per-handle, engine-specific shaping state behind an engine-neutral contract (ADR 0006).
+/// Per-context, engine-specific shaping state behind an engine-neutral contract (ADR 0006).
 ///
 /// [`crate::FontManager`] holds `Box<dyn EngineScratch>` per handle and names no engine
 /// type after construction: each engine creates its own scratch via

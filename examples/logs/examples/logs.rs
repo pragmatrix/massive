@@ -25,7 +25,7 @@ use massive_geometry::Vector3;
 use massive_scene::prelude::*;
 use massive_shapes::{Shape, Shaper, ShapingEngineKind};
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
+use massive_shell::{ApplicationContext, FontManager, Frame, Scene, ShapingContext};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text;
@@ -87,7 +87,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         .await?;
 
     let scene = ctx.new_scene();
-    let mut logs = Logs::new(&scene, fonts);
+    let mut logs = Logs::new(&scene, fonts.shaping_context());
 
     // Initial lines informing the user how to interact with the example.
     let mut frame = ctx.frame(&scene);
@@ -154,7 +154,7 @@ enum LogEvent {
 }
 
 struct Logs {
-    fonts: FontManager,
+    fonts: ShapingContext,
 
     application: Application,
 
@@ -167,7 +167,7 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(scene: &Scene, fonts: FontManager) -> Self {
+    fn new(scene: &Scene, fonts: ShapingContext) -> Self {
         let content_width = 1280;
         let application = Application::default();
 

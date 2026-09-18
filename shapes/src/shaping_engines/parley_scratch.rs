@@ -1,4 +1,4 @@
-//! Parley's per-handle shaping scratch (ADR 0006).
+//! Parley's per-context shaping scratch (ADR 0006).
 
 use crate::FaceId;
 use crate::engine::{EngineScratch, FontData, FontRegistry, ShapedRun, ShapingRequest};
