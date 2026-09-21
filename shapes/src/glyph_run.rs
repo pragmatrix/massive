@@ -18,7 +18,7 @@ use crate::engine::ShapingEngineKind;
 ///
 /// Rasterization resolves a `FaceId` through the engine/manager that produced it back to
 /// concrete font data ([`crate::engine::ShapingEngine::font_data`]).
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FaceId(u64);
 
 impl FaceId {
