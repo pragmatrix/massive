@@ -4,7 +4,6 @@ use std::{
 };
 
 use log::error;
-use massive_shapes::ShapingEngineKind;
 use massive_shell::{ApplicationContext, Result};
 
 use crate::{Application, application_registry::ApplicationRegistry, desktop::Desktop};
@@ -18,15 +17,12 @@ pub struct DesktopEnvironment {
     ///
     /// Default is the home directory of the current user / ".massive".
     pub projects_dir: Option<PathBuf>,
-    /// The shaping engine the shared font manager shapes with (ADR 0005). Every client names
-    /// its engine; there is no default.
-    pub shaping_engine: ShapingEngineKind,
 }
 
 const DEFAULT_PROJECT_DIR: &str = ".massive";
 
 impl DesktopEnvironment {
-    pub fn new(applications: Vec<Application>, shaping_engine: ShapingEngineKind) -> Self {
+    pub fn new(applications: Vec<Application>) -> Self {
         Self {
             primary_application: applications
                 .first()
@@ -35,7 +31,6 @@ impl DesktopEnvironment {
                 .clone(),
             applications: ApplicationRegistry::new(applications),
             projects_dir: None,
-            shaping_engine,
         }
     }
 
