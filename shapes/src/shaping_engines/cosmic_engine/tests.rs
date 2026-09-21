@@ -34,7 +34,7 @@ fn cosmic_engine_shapes_through_shared_file_faces() {
     // system fonts after cosmic-text's `make_shared_face_data` upgrade: the face's source
     // is `Source::SharedFile`, not `Binary`, so `load_font` never registered it and
     // shaping it must go through `resolve_face_index`'s lazy path.
-    let mut engine = CosmicTextEngine::bare();
+    let mut engine = CosmicTextEngine::new(false);
     let shared = Source::SharedFile(
         std::path::PathBuf::from("JetBrainsMono[wght].ttf"),
         std::sync::Arc::new(Vec::from(jetbrains)) as std::sync::Arc<dyn AsRef<[u8]> + Send + Sync>,

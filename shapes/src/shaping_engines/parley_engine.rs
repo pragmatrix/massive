@@ -67,36 +67,36 @@ impl ParleyEngine {
         })
     }
 
-    /// Create a completely bare engine: no fallbacks, no fonts.
-    pub fn bare() -> Self {
-        let font_context = FontContext {
+    /// Create an engine with or without system fonts.
+    ///
+    /// Without them the engine is completely bare: no fallbacks, no candidates, and only fonts the
+    /// application loads. With them, the platform catalog answers name lookups and implicit
+    /// selection, and the registry is rebuilt to include every face Parley may select.
+    pub fn new(system_fonts: bool) -> Self {
+        let mut font_context = FontContext {
             collection: Self::shared_collection(CollectionOptions {
-                system_fonts: false,
+                system_fonts,
                 ..Default::default()
             }),
+            // Parley creates an unshared source cache by default and prunes it on every layout
+            // builder creation. A pruned font file is re-loaded on demand with a NEW `Blob` id,
+            // which invalidates `FaceId`s derived from it (the renderer would see unknown faces).
+            // The shared cache stores only weak blob refs and is never pruned; the registry built
+            // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
+            // original blob and `Blob` ids stay stable for the engine's lifetime.
             source_cache: SourceCache::new_shared(),
         };
-        Self::from_context(font_context)
-    }
 
-    /// Create an engine with the environment's locale, platform families, fallbacks, and system
-    /// fonts loaded.
-    pub fn system() -> Self {
-        let mut font_context = FontContext::new();
-        // Parley creates an unshared source cache by default and prunes it on every layout
-        // builder creation. A pruned font file is re-loaded on demand with a NEW `Blob` id,
-        // which invalidates `FaceId`s derived from it (the renderer would see unknown faces).
-        // The shared cache stores only weak blob refs and is never pruned; the registry built
-        // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
-        // original blob and `Blob` ids stay stable for the engine's lifetime.
-        font_context.source_cache = SourceCache::new_shared();
-        font_context.collection = Self::shared_collection(CollectionOptions {
-            system_fonts: true,
-            ..Default::default()
-        });
-        font_context.collection.load_system_fonts();
+        if system_fonts {
+            font_context.collection.load_system_fonts();
+        }
+
         let mut engine = Self::from_context(font_context);
-        engine.rebuild_fonts();
+        if system_fonts {
+            // The registry and the symbol-fallback repair both derive from the collection Parley
+            // may select from; a bare engine has no collection to walk.
+            engine.rebuild_fonts();
+        }
         engine
     }
 
