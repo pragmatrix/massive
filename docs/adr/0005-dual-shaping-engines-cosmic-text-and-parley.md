@@ -76,39 +76,39 @@ Later ADRs and the glossary in [`CONTEXT.md`](../../CONTEXT.md) use **resolved f
 this document calls *interned/minted* faces, and **registry sync** for what ADR 0006 called
 *epoch-pull*. Terms here predate that refinement; read the older wording as the newer one.
 
-## Amendment: shell-owned bare font manager and a replaceable font policy (2026-09-21)
+## Amendment: the font policy belongs to the shell (2026-09-21)
 
-The font manager is constructed in the shell as a *bare* manager and installed with the task
-context; the desktop derives it from that context instead of constructing it. The rule this document
-states — no library-level default engine, every client names its engine — is unchanged, but it now
-holds at the shell boundary: the shell is given an engine kind and builds the manager from it, so
+**A font policy is the shell's construction input.** The engine and whether system fonts are
+selectable are client decisions that live in client settings, and the shell must not read client
+configuration. They therefore arrive as one `FontPolicy` parameter on `shell::run`, which is where
+the rule this document states — no library-level default engine, every client names its engine — now
+holds. The shell builds the font manager from the policy, constructs the application task's
+[`TaskContext`](0008-task-local-ui-contexts.md) from it, and installs that context around the
+application future. The desktop derives the manager from the context instead of constructing it, so
 `DesktopEnvironment` no longer needs the engine in order to construct fonts.
 
-**Bare by default.** System fonts are a selection source the application never named, and leaving
-that implicit has two costs that surface later. Cosmic scans the platform catalog when its engine is
-built — the cold-start gap measured in the results above — so a terminal that loads its own mono font
-still pays for a catalog it will not use. And an unnamed selectable face can win selection: the shaper
-preferring the system copy of the terminal font over the loaded one is the white-screen failure the
-fallback ordering in the cosmic engine guards against. Bare by default makes every selectable font an
-explicit application decision.
+**The policy is fixed at the task boundary.** A `FaceId` is only meaningful inside the manager that
+issued it, so replacing a manager after a task has shaped would mix identities across contexts that
+had already shaped; mutating a live manager's selection source has the same effect. The policy is
+consumed by value at `shell::run` and the task's shaping context is installed before the application
+starts, while nothing has shaped — a window the ownership model now enforces by construction, since
+neither the application context nor the task context offers a way to replace the manager. Changing
+the engine means a restart.
 
-**A replaceable font policy.** The engine and whether system fonts are selectable are client
-decisions that live in client settings, and the shell must not read application configuration.
-Passing them as `shell::run` parameters alone would force either application config into the shell or
-a default engine — and a default engine is what this document rejects.
-`ApplicationContext::set_font_policy` instead lets a client replace the manager once, before the
-desktop starts, which keeps font-content vocabulary out of the shell and removes a limitation
-accepted below: changing the engine no longer requires a restart.
-
-**Replacement rather than mutation.** A `FaceId` is only meaningful inside the manager that issued
-it, so mutating a live manager's selection source would mix identities across contexts that had
-already shaped. Replacing the manager makes the invalidation total and explicit, confines it to the
-window where nothing has shaped yet, and reuses the existing `system()` constructors — no engine
-changes. Ownership enforces that window: the switch is a method on the context the desktop consumes.
+**Bare is a policy, not a default.** System fonts are a selection source the application never named,
+and leaving that implicit has two costs that surface later. Cosmic scans the platform catalog when
+its engine is built — the cold-start gap measured in the results above — so a terminal that loads
+its own mono font still pays for a catalog it will not use. And an unnamed selectable face can win
+selection: the shaper preferring the system copy of the terminal font over the loaded one is the
+white-screen failure the fallback ordering in the cosmic engine guards against. The choice is stated
+at the policy: `FontPolicy::bare` and `FontPolicy::system` are the two named policies, and the
+manager-construction shorthands `FontManager::bare` and `FontManager::system` exist only to spell
+them where a manager is built. Every manager is still built from a policy the caller passed, and a
+caller that needs the flags separately uses `FontPolicy::new`.
 
 Lazy system-font loading on a live manager was considered and rejected. System fonts are a selection
 source, not registry faces: parley keeps them in a per-collection store that collection clones do not
 share, and cosmic clones its candidate pool into each scratch. No shaper that already exists can
 observe a later load without new per-engine re-seed machinery, and the registry's face-count sync
 cannot cover a face that has no `FaceId` until something selects it — which nothing does while the
-pool is empty. Replacing the manager provides the same capability without that machinery.
+pool is empty. Naming the policy up front provides the same capability without that machinery.

@@ -118,6 +118,6 @@ being shape-free.
 
 The rest of this document stands unchanged: task-local storage is an access mechanism, the contexts
 are installed at existing task boundaries, sibling tasks do not inherit a context, missing
-installation is a loud error, and the font manager stays shared rather than task-local. The shaper
-task-local becomes mutable, so a client can replace its manager before the desktop starts (see the
-font-manager amendment in [ADR 0005](0005-dual-shaping-engines-cosmic-text-and-parley.md)).
+installation is a loud error, and the font manager stays shared rather than task-local. The manager a
+task shapes with is fixed when its context is installed (see the font-policy amendment in
+[ADR 0005](0005-dual-shaping-engines-cosmic-text-and-parley.md)).
