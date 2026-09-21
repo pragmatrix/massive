@@ -1,26 +1,24 @@
-use std::sync::Arc;
-
 use anyhow::{Result, bail};
 use derive_more::Constructor;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use tokio::sync::mpsc::UnboundedSender;
 
-use massive_renderer::{FontManager, RenderPacing};
+use massive_renderer::RenderPacing;
 use massive_scene::{Location, Ref, SceneChange};
 use massive_util::ChangeSet;
 
 use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId, ViewRole};
 
-/// Shared instance configuration cloned into each spawned instance. Each instance creates its
-/// own shaping context when it shapes (ADR 0006).
+/// Shared instance configuration cloned into each spawned instance. Fonts are not part of it: the
+/// manager is reached through the task's shaping context (ADR 0005), and each instance derives its
+/// own scratch from it (ADR 0006).
 #[derive(Debug, Clone)]
 pub struct InstanceEnvironment {
-    pub(crate) submission_sender: UnboundedSender<(InstanceId, InstanceSubmission)>,
+    pub submission_sender: UnboundedSender<(InstanceId, InstanceSubmission)>,
     // Robustness: This might change on runtime.
-    pub(crate) primary_monitor_scale_factor: f64,
-    pub(crate) font_manager: Arc<FontManager>,
-    pub(crate) parameters: Map<String, Value>,
+    pub primary_monitor_scale_factor: f64,
+    pub parameters: Map<String, Value>,
 }
 
 pub type InstanceParameters = Map<String, Value>;
@@ -29,12 +27,10 @@ impl InstanceEnvironment {
     pub fn new(
         requests_tx: UnboundedSender<(InstanceId, InstanceSubmission)>,
         primary_monitor_scale_factor: f64,
-        font_manager: Arc<FontManager>,
     ) -> Self {
         Self {
             submission_sender: requests_tx,
             primary_monitor_scale_factor,
-            font_manager,
             parameters: Default::default(),
         }
     }

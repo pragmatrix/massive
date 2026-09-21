@@ -15,7 +15,7 @@ task_local! {
     static SCENE: Scene;
     static ANIMATION: RefCell<AnimationCoordinator>;
     static MOVEMENT: RefCell<MovementRuntime>;
-    static SHAPER: ShapingContext;
+    static SHAPER: RefCell<ShapingContext>;
 }
 
 /// The contexts installed together for one UI task.
@@ -24,14 +24,21 @@ pub struct TaskContext {
     scene: Scene,
     animation: AnimationCoordinator,
     movement: MovementRuntime,
+    shaping_context: ShapingContext,
 }
 
 impl TaskContext {
-    pub fn new(scene: Scene, animation: AnimationCoordinator, movement: MovementRuntime) -> Self {
+    pub fn new(
+        scene: Scene,
+        animation: AnimationCoordinator,
+        movement: MovementRuntime,
+        shaping_context: ShapingContext,
+    ) -> Self {
         Self {
             scene,
             animation,
             movement,
+            shaping_context,
         }
     }
 }
@@ -43,7 +50,11 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
             ANIMATION
                 .scope(RefCell::new(contexts.animation), async move {
                     MOVEMENT
-                        .scope(RefCell::new(contexts.movement), future)
+                        .scope(RefCell::new(contexts.movement), async move {
+                            SHAPER
+                                .scope(RefCell::new(contexts.shaping_context), future)
+                                .await
+                        })
                         .await
                 })
                 .await
@@ -51,14 +62,25 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
         .await
 }
 
-/// Run a future with a shaping context installed as the task's shaping owner.
-pub async fn with_shaper_context<F: Future>(context: ShapingContext, future: F) -> F::Output {
-    SHAPER.scope(context, future).await
+/// Replace the current task's shaping context with one from a different font manager.
+///
+/// This is the font-policy switch (ADR 0005): a manager replacement is a whole new face world, so
+/// it is only valid before anything has shaped. Panics if a shaper is open, because replacing the
+/// context under a live session would leave that session shaping against a retired manager.
+pub fn replace_shaping_context(context: ShapingContext) {
+    SHAPER.with(|shaper| {
+        let mut shaper = shaper.try_borrow_mut().unwrap_or_else(|_| {
+            panic!(
+                "task_context::replace_shaping_context() was called while a shaper session is open"
+            )
+        });
+        *shaper = context;
+    })
 }
 
 /// Access the current task's shaping owner synchronously.
 pub fn with_shaper<R>(f: impl FnOnce(&ShapingContext) -> R) -> R {
-    SHAPER.with(f)
+    SHAPER.with(|shaper| f(&shaper.borrow()))
 }
 
 /// Enter a scene object into the current task's scene change collector.
@@ -73,6 +95,11 @@ where
 /// Push an external change into the current task's scene change collector.
 pub fn push_change(change: SceneChange) {
     SCENE.with(|scene| scene.push_change(change));
+}
+
+/// Access the current task's scene handle while preserving its change collector.
+pub fn scene() -> Scene {
+    SCENE.with(Scene::clone_scene)
 }
 
 /// Mutably access the current task's animation coordinator synchronously.
@@ -172,6 +199,7 @@ where
 mod tests {
     use std::sync::Arc;
 
+    use massive_renderer::{FontManager, ShapingEngineKind};
     use massive_scene::{ChangeCollector, Scene};
 
     use super::*;
@@ -181,7 +209,27 @@ mod tests {
             Scene::new(Arc::new(ChangeCollector::default())),
             AnimationCoordinator::new(),
             MovementRuntime::default(),
+            // Any engine compiled into this build works: the tests never shape.
+            FontManager::bare(ShapingEngineKind::available()[0]).new_shaping_context(),
         )
+    }
+
+    #[tokio::test]
+    async fn replacing_the_shaping_context_installs_the_new_one() {
+        with_context(contexts(), async {
+            let replacement = FontManager::bare(ShapingEngineKind::available()[0])
+                .new_shaping_context()
+                .manager()
+                .engine_kind();
+            replace_shaping_context(
+                FontManager::bare(ShapingEngineKind::available()[0]).new_shaping_context(),
+            );
+            assert_eq!(
+                with_shaper(|shaper| shaper.manager().engine_kind()),
+                replacement
+            );
+        })
+        .await;
     }
 
     #[tokio::test]
