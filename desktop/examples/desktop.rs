@@ -2,12 +2,12 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use massive_applications::InstanceContext;
-use massive_desktop::{Application, DesktopEnvironment, ShapingEngineKind};
+use massive_desktop::{Application, DesktopEnvironment, FontPolicy, ShapingEngineKind};
 use massive_shell::{ApplicationContext, shell};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(run, ShapingEngineKind::Parley)
+    shell::run(run, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn run(ctx: ApplicationContext) -> Result<()> {

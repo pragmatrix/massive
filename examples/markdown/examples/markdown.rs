@@ -24,10 +24,11 @@ use inlyne::utils::Rect;
 use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::GlyphRun;
-use massive_shapes::ShapingEngineKind;
+use massive_shapes::{FontPolicy, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 
@@ -59,7 +60,7 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run(application, ShapingEngineKind::CosmicText)
+    shell::run(application, FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
@@ -102,7 +103,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     )?;
 
     let mut application = Application::default();
-    let scene = ctx.new_scene();
+    let scene = scene();
     let page_transform = application.get_transform(content_size);
 
     let transform = page_transform.enter(&scene);

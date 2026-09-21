@@ -19,9 +19,10 @@ use inlyne::utils::Rect;
 use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
-use massive_shapes::ShapingEngineKind;
+use massive_shapes::{FontPolicy, ShapingEngineKind};
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 use shared::application::{Application, UpdateResponse};
@@ -31,7 +32,7 @@ use markdown::FontBridge;
 #[tokio::main]
 async fn main() -> Result<()> {
     // The markdown bridge builds a cosmic-text manager, so the shell names the same engine.
-    shell::run(emojis, ShapingEngineKind::CosmicText)
+    shell::run(emojis, FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
@@ -154,7 +155,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = SizePx::new(page_width as _, page_height);
     let mut application = Application::default();
-    let scene = ctx.new_scene();
+    let scene = scene();
     let transform = application.get_transform(content_size).enter(&scene);
     let location = transform.to_location().enter(&scene);
 
