@@ -4,11 +4,12 @@ use anyhow::Result;
 use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, Size};
 use massive_scene::prelude::*;
 use massive_shapes::{
-    BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, ShapingEngineKind,
-    StrokeRect,
+    BeveledRect, Circle, Ellipse, FontPolicy, Rect as FilledRect, RoundRect, Shape,
+    ShapingEngineKind, StrokeRect,
 };
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
@@ -17,7 +18,7 @@ use shared::application::{Application, UpdateResponse};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(run, ShapingEngineKind::Parley)
+    shell::run(run, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn run(mut ctx: ApplicationContext) -> Result<()> {
@@ -33,7 +34,7 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
 
     // Scene & application
     let mut application = Application::default();
-    let scene = ctx.new_scene();
+    let scene = scene();
 
     // Logical page size based on layout of shapes (we adjust after computing bounds)
     // We'll build shapes around (0,0) then center them by translating the matrix to the page center.

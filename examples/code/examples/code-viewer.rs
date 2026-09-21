@@ -5,9 +5,10 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
-use massive_shapes::ShapingEngineKind;
+use massive_shapes::{FontPolicy, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 
@@ -16,7 +17,7 @@ use shared::attributed_text::{self, AttributedText};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(code_viewer, ShapingEngineKind::Parley)
+    shell::run(code_viewer, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
@@ -81,7 +82,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // So we compute the proper physical for now.
     // spellcheck: ignore
     // let physical_size = initial_size.to_physical(window.scale_factor());
-    let scene = ctx.new_scene();
+    let scene = scene();
     let mut renderer = window
         .renderer()
         .with_text(fonts.registry_source())

@@ -24,9 +24,10 @@ use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::{Color, SizePx};
 use massive_scene::prelude::*;
-use massive_shapes::{ShapingEngineKind, TextWeight};
+use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager};
 
@@ -58,7 +59,7 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run(application, ShapingEngineKind::Parley)
+    shell::run(application, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
@@ -265,7 +266,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
 
-    let scene = ctx.new_scene();
+    let scene = scene();
 
     let mut renderer = window
         .renderer()

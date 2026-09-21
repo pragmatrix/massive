@@ -23,7 +23,7 @@ use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{Shape, Shaper, ShapingEngineKind};
+use massive_shapes::{FontPolicy, Shape, Shaper, ShapingEngineKind};
 use massive_shell::shell;
 use massive_shell::{ApplicationContext, FontManager, Frame, Scene, ShapingContext};
 
@@ -52,7 +52,10 @@ async fn main() -> Result<()> {
         .with(info_only_layer)
         .init();
 
-    shell::run(|ctx| logs(receiver, ctx), ShapingEngineKind::Parley)
+    shell::run(
+        |ctx| logs(receiver, ctx),
+        FontPolicy::bare(ShapingEngineKind::Parley),
+    )
 }
 
 struct Sender(mpsc::UnboundedSender<Vec<u8>>);
@@ -86,7 +89,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         .build()
         .await?;
 
-    let scene = ctx.new_scene();
+    let scene = scene();
     let mut logs = Logs::new(&scene, fonts.new_shaping_context());
 
     // Initial lines informing the user how to interact with the example.

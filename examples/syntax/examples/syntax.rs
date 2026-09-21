@@ -10,9 +10,10 @@ use syntect::{
 use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::Color;
 use massive_scene::prelude::*;
-use massive_shapes::{ShapingEngineKind, TextWeight};
+use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
 use massive_shell::{ApplicationContext, FontManager, shell};
 
 use shared::{
@@ -22,7 +23,7 @@ use shared::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(syntax, ShapingEngineKind::Parley)
+    shell::run(syntax, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
@@ -85,7 +86,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let scene = ctx.new_scene();
+    let scene = scene();
     let mut renderer = window
         .renderer()
         .with_text(fonts.registry_source())
