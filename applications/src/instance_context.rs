@@ -7,16 +7,15 @@ use derive_more::Deref;
 use log::{error, trace, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_renderer::{FontManager, RenderPacing};
-use massive_scene::{HandleChangeReceiver, Location, Ref, SceneChange};
+use massive_scene::{HandleChangeReceiver, Location, Ref, Scene, SceneChange};
 use massive_util::CoalescingReceiver;
 
-use crate::task_context::{self, TaskContext};
+use crate::task_context;
 use crate::view_builder::ViewBuilder;
 use crate::{
     ApplicationEvent, ApplicationMessage, ConfigurationRequest, Frame, FrameSubmission,
-    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene,
+    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission,
     ViewExtent,
 };
 
@@ -42,13 +41,6 @@ pub struct InstanceContext {
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
     view_parent: Ref<Location>,
-
-    /// One task context owns the scene and mutable animation state for this instance.
-    ///
-    /// This is optional because ownership is moved into the instance task exactly once. The
-    /// empty state prevents taking the same context a second time.
-    task_context: Option<TaskContext>,
-    scene: Scene,
 
     /// The current changes of this instance. This includes all Scene changes interleaved with the
     /// instance changes (in order).
@@ -84,35 +76,14 @@ impl InstanceContext {
         creation_mode: CreationMode,
         environment: InstanceEnvironment,
         view_parent: Ref<Location>,
+        changes: Arc<InstanceChangeCollector>,
         events: UnboundedReceiver<ApplicationMessage>,
     ) -> Self {
-        // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
-        // the scene is rendered. This way, consistence can be preserved when animations are applied
-        // in several instances in parallel. Otherwise, timestamps from one instance could affect the
-        // other.
-        let animation_coordinator = AnimationCoordinator::new();
-
-        // ADR: Every instance gets its own change collector, because of ordering constraints
-        // between the commands sent to the desktop and the scene updates (they must be processed in
-        // order by the desktop, otherwise it could happen that Visual refer to Locations /
-        // Transforms that are not available anymore).
-        let changes = InstanceChangeCollector::default();
-
-        let changes: Arc<InstanceChangeCollector> = changes.into();
-        let scene = Scene::new(changes.clone());
-        let task_context = TaskContext::new(
-            scene.clone_scene(),
-            animation_coordinator,
-            MovementRuntime::default(),
-        );
-
         Self {
             id,
             creation_mode,
             environment,
             view_parent,
-            task_context: Some(task_context),
-            scene,
             changes,
             last_submitted_pacing: RenderPacing::Fast,
             events: events.into(),
@@ -138,21 +109,10 @@ impl InstanceContext {
         self.environment.primary_monitor_scale_factor
     }
 
-    pub fn fonts(&self) -> &FontManager {
-        &self.environment.font_manager
-    }
-
-    pub fn take_task_context(&mut self) -> TaskContext {
-        self.task_context
-            .take()
-            .expect("Instance task context was already taken")
-    }
-
-    /// ADR: We share _one_ single scene in all views now, so that we can keep the updates that we
-    /// send to desktop coordinated. Also, changes can't be submitted independently, all updates
-    /// from all views need to be submitted at once.
-    pub fn new_scene(&self) -> Scene {
-        self.scene.clone_scene()
+    pub fn fonts(&self) -> FontManager {
+        // The manager is reached through the task's shaping context: a context is a view onto the
+        // manager's face authority and published registry, not a separate font owner (ADR 0005).
+        task_context::with_shaper(|shaper| shaper.manager())
     }
 
     /// Bundle a scene with this instance's animation clock for one update cycle.
@@ -169,7 +129,7 @@ impl InstanceContext {
             self.changes.clone(),
             self.view_parent.clone(),
             extent.into().into(),
-            self.new_scene(),
+            task_context::scene(),
         )
     }
 
