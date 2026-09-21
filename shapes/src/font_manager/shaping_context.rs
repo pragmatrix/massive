@@ -189,8 +189,8 @@ mod tests {
     fn contexts_from_one_manager_shape_concurrently() {
         for kind in all_engines() {
             let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
-            let first_context = fonts.shaping_context();
-            let second_context = fonts.shaping_context();
+            let first_context = fonts.new_shaping_context();
+            let second_context = fonts.new_shaping_context();
 
             std::thread::scope(|scope| {
                 let first = scope.spawn(move || {
@@ -240,7 +240,7 @@ mod tests {
     #[should_panic(expected = "ShapingContext shaper reentrancy")]
     fn one_context_rejects_reentrant_shaping() {
         let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
-        let context = fonts.shaping_context();
+        let context = fonts.new_shaping_context();
         let _first = context.shaper();
         let _second = context.shaper();
     }
@@ -252,7 +252,7 @@ mod tests {
             let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
             let request =
                 ShapingRequest::new("a->b", TextAttributes::named_family("JetBrains Mono"));
-            let context = fonts.shaping_context();
+            let context = fonts.new_shaping_context();
             let mut shaper = context.shaper();
             let run = shaper
                 .shape(&request, 16.0)

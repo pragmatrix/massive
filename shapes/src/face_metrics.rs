@@ -80,7 +80,7 @@ mod tests {
         for kind in ShapingEngineKind::available() {
             let fonts = FontManager::bare(*kind).with_font(JETBRAINS_MONO);
             let face = fonts.load_font(JETBRAINS_MONO)[0];
-            let context = fonts.shaping_context();
+            let context = fonts.new_shaping_context();
             let mut shaper = context.shaper();
             let shaped = shaper
                 .shape(

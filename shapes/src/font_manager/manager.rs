@@ -165,7 +165,7 @@ impl FontManager {
     }
 
     /// Create a fresh shaping owner with exclusive engine scratch.
-    pub fn shaping_context(&self) -> ShapingContext {
+    pub fn new_shaping_context(&self) -> ShapingContext {
         let scratch = self
             .state
             .authority
@@ -252,7 +252,7 @@ mod tests {
             let request =
                 ShapingRequest::new(text, TextAttributes::named_family("Noto Sans Takri"));
             let run = {
-                let context = fonts.shaping_context();
+                let context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&request, 16.0)
@@ -299,7 +299,7 @@ mod tests {
             let request =
                 ShapingRequest::new(descenders, TextAttributes::named_family("JetBrains Mono"));
             let run = {
-                let context = fonts.shaping_context();
+                let context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&request, 16.0)
@@ -346,7 +346,7 @@ mod tests {
                 }
                 request.ranges = ranges;
                 let run = {
-                    let context = fonts.shaping_context();
+                    let context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)
@@ -426,7 +426,7 @@ mod tests {
                 let fonts = FontManager::bare(kind).with_font(AMIRI);
                 let request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
                 let run = {
-                    let context = fonts.shaping_context();
+                    let context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)
@@ -481,14 +481,14 @@ mod tests {
             let reference = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
 
             let run_overridden = {
-                let context = fonts.shaping_context();
+                let context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&overridden, 16.0)
                     .expect("shaping must produce a run")
             };
             let run_reference = {
-                let context = fonts.shaping_context();
+                let context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&reference, 16.0)
@@ -537,7 +537,7 @@ mod tests {
             let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
             assert_eq!(fonts.engine_kind(), kind);
             let id = fonts.load_font(JETBRAINS_MONO)[0];
-            let context = fonts.shaping_context();
+            let context = fonts.new_shaping_context();
             assert!(
                 context.shaper().font_data(id).is_some(),
                 "{kind:?}: the loaded font must resolve to font data"
@@ -592,7 +592,7 @@ mod tests {
                 ];
 
                 let run = {
-                    let context = fonts.shaping_context();
+                    let context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)
@@ -642,7 +642,7 @@ mod tests {
                 ),
             ];
             let run = {
-                let context = fonts.shaping_context();
+                let context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&request, 16.0)
@@ -686,7 +686,7 @@ mod tests {
                 let request =
                     ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
                 let run = {
-                    let context = fonts.shaping_context();
+                    let context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)
