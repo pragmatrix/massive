@@ -172,30 +172,26 @@ impl fmt::Debug for CosmicTextEngine {
 }
 
 impl CosmicTextEngine {
-    /// A bare engine: no system fonts, no candidates — seeds stay registry-only.
-    pub fn bare() -> Self {
-        Self {
-            font_system: FontSystem::new_with_locale_and_db(
-                "en-US".to_string(),
-                fontdb::Database::new(),
-            ),
-            candidate_pool: Arc::default(),
-            faces: Vec::new(),
-            published_faces: Arc::new(Vec::new()),
-            resolved: HashMap::new(),
-        }
-    }
-
-    /// Create an engine with the environment's locale, system fonts, and fallbacks loaded.
+    /// Create an engine with or without system fonts.
     ///
-    /// The one full system-catalog scan for the whole manager family: the scanned catalog
-    /// is kept as the candidate pool; scratch seeds clone it (in-memory copy) instead of
-    /// rescanning.
-    pub fn system() -> Self {
-        let font_system = FontSystem::new();
+    /// With them, the one full system-catalog scan for the whole manager family happens here; the
+    /// scanned catalog becomes the candidate pool, and scratch seeds clone it (in-memory copy)
+    /// instead of rescanning. Without them the pool stays empty and seeds stay registry-only.
+    pub fn new(system_fonts: bool) -> Self {
+        let font_system = if system_fonts {
+            FontSystem::new()
+        } else {
+            FontSystem::new_with_locale_and_db("en-US".to_string(), fontdb::Database::new())
+        };
+        let candidate_pool = if system_fonts {
+            Arc::new(fontdb::Database::clone(font_system.db()))
+        } else {
+            Arc::default()
+        };
+
         Self {
-            candidate_pool: Arc::new(fontdb::Database::clone(font_system.db())),
             font_system,
+            candidate_pool,
             faces: Vec::new(),
             published_faces: Arc::new(Vec::new()),
             resolved: HashMap::new(),

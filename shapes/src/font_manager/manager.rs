@@ -46,6 +46,7 @@ use std::sync::Arc;
 use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 
+use super::font_policy::FontPolicy;
 use super::shaping_context::ShapingContext;
 use super::state::{FontAuthority, FontManagerState, PublishedRegistry};
 use crate::FaceId;
@@ -83,26 +84,30 @@ impl FontManager {
         }
     }
 
-    /// Create a manager over the given engine kind, with system fonts loaded.
-    pub fn system(kind: ShapingEngineKind) -> Self {
+    /// Create a manager as `policy` prescribes.
+    ///
+    /// The policy is the whole construction input: which engine shapes, and whether system fonts
+    /// are selectable. Each engine has one policy-driven constructor, so this is a plain dispatch
+    /// over the compiled-in engines.
+    pub fn new(policy: FontPolicy) -> Self {
+        let kind = policy.engine();
         let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Box::new(ParleyEngine::system()),
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::new(policy.system_fonts())),
             #[cfg(feature = "cosmic-text")]
-            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::system()),
+            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::new(policy.system_fonts())),
         };
         Self::with_engine(kind, engine)
     }
 
     /// A bare manager over the given engine kind: no fallbacks, no fonts.
     pub fn bare(kind: ShapingEngineKind) -> Self {
-        let engine: Box<dyn ShapingEngine> = match kind {
-            #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Box::new(ParleyEngine::bare()),
-            #[cfg(feature = "cosmic-text")]
-            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::bare()),
-        };
-        Self::with_engine(kind, engine)
+        Self::new(FontPolicy::new(kind, false))
+    }
+
+    /// Create a manager over the given engine kind, with system fonts loaded.
+    pub fn system(kind: ShapingEngineKind) -> Self {
+        Self::new(FontPolicy::new(kind, true))
     }
 
     /// Adds the font and returns Self
