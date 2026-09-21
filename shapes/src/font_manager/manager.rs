@@ -179,6 +179,15 @@ impl FontManager {
             .new_scratch(&self.published());
         ShapingContext::from_parts(Arc::clone(&self.state), scratch)
     }
+
+    /// Wrap existing manager state as a handle.
+    ///
+    /// Used by [`ShapingContext::manager`] to hand back the very manager a context shapes for:
+    /// one face authority and one published registry are shared by the manager and all its
+    /// contexts, so this is the same manager, not a second one.
+    pub(crate) fn from_state(state: Arc<FontManagerState>) -> Self {
+        Self { state }
+    }
 }
 
 /// A render-only handle into a [`FontManager`]'s published registry (ADR 0006).

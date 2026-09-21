@@ -9,6 +9,7 @@ use crate::engine::{
 use crate::face_metrics::FaceMetrics;
 use crate::{FaceId, GlyphRun};
 
+use super::FontManager;
 use super::state::FontManagerState;
 
 /// A shaping owner with exclusive scratch and shared face identity state.
@@ -52,6 +53,15 @@ impl ShapingContext {
             state: Arc::clone(&self.state),
             scratch: Mutex::new(scratch),
         }
+    }
+
+    /// The font manager this context shapes for.
+    ///
+    /// Contexts do not own fonts; they observe the manager's face authority and published
+    /// registry (ADR 0006). This hands back that same manager, so loading a font or reading the
+    /// renderer's registry source needs no separately threaded manager handle.
+    pub fn manager(&self) -> FontManager {
+        FontManager::from_state(Arc::clone(&self.state))
     }
 
     /// Acquire a [`Shaper`] over this context's shaping state.
