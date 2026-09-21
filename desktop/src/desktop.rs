@@ -16,9 +16,7 @@ use massive_applications::{
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_scene::ChangeCollector;
-use massive_shell::{
-    ApplicationContext, AsyncWindowRenderer, FontManager, Scene, ShellWindow, task_context,
-};
+use massive_shell::{ApplicationContext, AsyncWindowRenderer, Scene, ShellWindow, task_context};
 use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
@@ -62,40 +60,20 @@ enum DesktopEvent {
 }
 
 impl Desktop {
-    pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
-        let fonts = FontManager::system(env.shaping_engine);
-        task_context::with_shaper_context(
-            fonts.shaping_context(),
-            Self::new_with_shaper(env, context, fonts),
-        )
-        .await
-    }
-
-    async fn new_with_shaper(
-        env: DesktopEnvironment,
-        mut context: ApplicationContext,
-        fonts: FontManager,
-    ) -> Result<Self> {
+    pub async fn new(env: DesktopEnvironment, mut context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
         let projects_dir = env.projects_dir();
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
-        // Create the font manager - shared between desktop and instances. The engine is chosen
-        // once here (ADR 0005); a FaceId only resolves through this manager. Instances,
-        // the renderer shares the authority; the desktop system owns a shaping context.
         // Create scene early for presenter initialization
         let scene_changes = Arc::new(ChangeCollector::default());
         let scene = context.new_scene_with_change_collector(scene_changes.clone());
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
-        let shared_fonts = Arc::new(fonts);
-        let environment = InstanceEnvironment::new(
-            submissions_tx,
-            context.primary_monitor_scale_factor(),
-            Arc::clone(&shared_fonts),
-        );
+        let environment =
+            InstanceEnvironment::new(submissions_tx, context.primary_monitor_scale_factor());
         let mut instance_manager = InstanceManager::new(environment);
 
         // We need to use ViewEvent early on, because the `EventRouter` isn't able to convert events.
@@ -137,12 +115,16 @@ impl Desktop {
         let default_size = creation_info.size();
 
         let window = context.new_window(creation_info.size()).await?;
+        // The renderer resolves glyphs through the published snapshot and never shapes — a
+        // registry source, not a full handle (ADR 0006). The manager comes from the task's
+        // shaping context, which the shell installed and the application may have replaced
+        // before this point (ADR 0005).
+        let registry_source =
+            task_context::with_shaper(|shaper| shaper.manager().registry_source());
         let mut renderer = window
             .renderer()
             .with_shapes()
-            // The renderer resolves glyphs through the published snapshot and never
-            // shapes — a registry source, not a full handle (ADR 0006).
-            .with_text(shared_fonts.registry_source())
+            .with_text(registry_source)
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;
@@ -153,8 +135,7 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system =
-            DesktopSystem::new(env, shared_fonts.shaping_context(), default_size, &scene)?;
+        let mut system = DesktopSystem::new(env, default_size, &scene)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 

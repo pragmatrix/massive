@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::panic::AssertUnwindSafe;
+use std::sync::Arc;
 
 use anyhow::{Context, anyhow};
 use derive_more::{Debug, From, Into};
@@ -8,10 +9,11 @@ use log::warn;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
-use massive_applications::task_context;
+use massive_animation::{AnimationCoordinator, MovementRuntime};
+use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment, InstanceId, ViewEvent,
-    ViewId,
+    ApplicationMessage, CreationMode, InstanceChangeCollector, InstanceContext,
+    InstanceEnvironment, InstanceId, Scene, ViewEvent, ViewId,
 };
 use massive_scene::{Location, Ref};
 use massive_shell::Result;
@@ -57,21 +59,35 @@ impl InstanceManager {
         root: Ref<Location>,
     ) -> Result<()> {
         let (events_tx, events_rx) = unbounded_channel();
-
+        let environment = self.environment.clone();
+        // Every instance gets its own change collector so scene and instance changes remain
+        // ordered in the desktop submission stream.
+        let change_collector: Arc<InstanceChangeCollector> =
+            InstanceChangeCollector::default().into();
         let instance_context = InstanceContext::new(
             instance_id,
             creation_mode,
-            self.environment.clone(),
+            environment,
             root,
+            Arc::clone(&change_collector),
             events_rx,
         );
-
-        let mut instance_context = instance_context;
-        let task_context = instance_context.take_task_context();
         let instance_future = (application.run)(instance_context);
+        // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
+        // the scene is rendered. This way, consistency can be preserved when animations are applied
+        // in several instances in parallel. Otherwise, timestamps from one instance could affect the
+        // other. Its shaping context is a fresh scratch over the manager this task shapes with, so
+        // instances shape in parallel without serializing on one scratch mutex (ADR 0006) — and,
+        // like the future, it must be created here: spawned tasks do not inherit task-local values.
+        let instance_task_context = TaskContext::new(
+            Scene::new(change_collector.clone()),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+            task_context::with_shaper(|shaper| shaper.new_context()),
+        );
         self.join_set.spawn(async move {
             let result = task_context::with_context(
-                task_context,
+                instance_task_context,
                 AssertUnwindSafe(instance_future).catch_unwind(),
             )
             .await;
