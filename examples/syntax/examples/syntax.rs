@@ -22,7 +22,7 @@ use shared::{
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(syntax)
+    shell::run(syntax, ShapingEngineKind::Parley)
 }
 
 async fn syntax(mut ctx: ApplicationContext) -> Result<()> {

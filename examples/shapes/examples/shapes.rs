@@ -7,7 +7,8 @@ use massive_applications::ApplicationEvent;
 use massive_geometry::{Color, Rect, Size};
 use massive_scene::prelude::*;
 use massive_shapes::{
-    BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, StrokeRect,
+    BeveledRect, Circle, Ellipse, Rect as FilledRect, RoundRect, Shape, ShapingEngineKind,
+    StrokeRect,
 };
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
@@ -16,7 +17,7 @@ use shared::application::{Application, UpdateResponse};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(run)
+    shell::run(run, ShapingEngineKind::Parley)
 }
 
 async fn run(mut ctx: ApplicationContext) -> Result<()> {

@@ -21,6 +21,7 @@ use inlyne::utils::markdown_to_html;
 use massive_applications::ApplicationEvent;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
+use massive_shapes::ShapingEngineKind;
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 use shared::application::{Application, UpdateResponse};
@@ -29,7 +30,8 @@ use markdown::FontBridge;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(emojis)
+    // The markdown bridge builds a cosmic-text manager, so the shell names the same engine.
+    shell::run(emojis, ShapingEngineKind::CosmicText)
 }
 
 async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
