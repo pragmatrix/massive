@@ -87,7 +87,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
         .await?;
 
     let scene = ctx.new_scene();
-    let mut logs = Logs::new(&scene, fonts.shaping_context());
+    let mut logs = Logs::new(&scene, fonts.new_shaping_context());
 
     // Initial lines informing the user how to interact with the example.
     let mut frame = ctx.frame(&scene);
