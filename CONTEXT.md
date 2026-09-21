@@ -122,7 +122,10 @@ A font manager with no fonts and no fallback candidates, so selection can only r
 _Avoid_: empty manager, registry-only collection
 
 **Font policy**:
-The pair of a shaping engine and whether system fonts are available for selection. Fixed before the desktop starts, because a face is only meaningful within the manager that issued it.
+The pair of a shaping engine and whether system fonts are available for selection. Named by the
+client and passed to `shell::run`, which builds the application task's font manager from it and
+installs the task's shaping context in the same step. A face is only meaningful within the manager
+that issued it, so the manager a task shapes with cannot change after that.
 _Avoid_: font settings, font config
 
 **Shaping context**:
