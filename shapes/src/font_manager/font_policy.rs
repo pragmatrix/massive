@@ -21,6 +21,17 @@ impl FontPolicy {
         }
     }
 
+    /// The bare policy: only fonts the application loaded itself are selectable. This is the
+    /// default clients state, because a selectable face nobody named can win selection (ADR 0005).
+    pub fn bare(engine: ShapingEngineKind) -> Self {
+        Self::new(engine, false)
+    }
+
+    /// The policy that additionally makes system fonts selectable, for fallback coverage.
+    pub fn system(engine: ShapingEngineKind) -> Self {
+        Self::new(engine, true)
+    }
+
     pub fn engine(self) -> ShapingEngineKind {
         self.engine
     }
