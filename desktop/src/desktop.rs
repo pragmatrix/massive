@@ -60,7 +60,7 @@ enum DesktopEvent {
 }
 
 impl Desktop {
-    pub async fn new(env: DesktopEnvironment, mut context: ApplicationContext) -> Result<Self> {
+    pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
         let projects_dir = env.projects_dir();
@@ -69,7 +69,7 @@ impl Desktop {
 
         // Create scene early for presenter initialization
         let scene_changes = Arc::new(ChangeCollector::default());
-        let scene = context.new_scene_with_change_collector(scene_changes.clone());
+        let scene = Scene::new(scene_changes.clone());
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
         let environment =

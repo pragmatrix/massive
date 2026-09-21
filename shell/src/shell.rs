@@ -13,9 +13,11 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopClosed, EventLoopProxy};
 use winit::window::{Window, WindowAttributes, WindowId};
 
-use massive_applications::task_context;
-use massive_applications::{ApplicationMessage, ViewEvent, ViewId};
-use massive_renderer::ShapingEngineKind;
+use massive_animation::{AnimationCoordinator, MovementRuntime};
+use massive_applications::task_context::{self, TaskContext};
+use massive_applications::{ApplicationMessage, Scene, ViewEvent, ViewId};
+use massive_renderer::{FontManager, FontPolicy};
+use massive_scene::ChangeCollector;
 
 use crate::ApplicationContext;
 use crate::shell_window::ShellWindowShared;
@@ -27,9 +29,13 @@ const FALLBACK_SCALE_FACTOR: f64 = 1.;
 /// This runs `application` with `tokio::spawn` on the tokio threadpool and waits for its
 /// completion. It also executes the winit event loop and blocks until it returns. This gives
 /// clients the option to run the event loop on the main thread, which some platforms require.
+///
+/// `font_policy` is the shell's construction input for the application task's font manager. The
+/// application cannot replace it: faces are only valid inside the manager that issued them, so a
+/// live task may not change its face authority (ADR 0005).
 pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
-    shaping_engine: ShapingEngineKind,
+    font_policy: FontPolicy,
 ) -> Result<()> {
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
@@ -63,7 +69,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     match tokio::runtime::Handle::try_current() {
         Ok(_handle) => {
             // Already inside a Tokio runtime.
-            run_with_tokio(application, shaping_engine)
+            run_with_tokio(application, font_policy)
         }
         Err(_) => {
             // Create and enter a multi-thread runtime so tokio::spawn can run while the event loop blocks.
@@ -71,7 +77,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
                 .enable_all()
                 .build()?;
             let _guard = runtime.enter();
-            let r = run_with_tokio(application, shaping_engine);
+            let r = run_with_tokio(application, font_policy);
             drop(_guard);
             r
         }
@@ -80,7 +86,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
 
 fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
-    shaping_engine: ShapingEngineKind,
+    font_policy: FontPolicy,
 ) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
 
@@ -89,8 +95,7 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     // Proxy for sending events to the event loop from another thread.
     let event_loop_proxy = event_loop.create_proxy();
 
-    let spawn_application = |mut application_context: ApplicationContext| {
-        let task_context = application_context.take_task_context();
+    let spawn_application = |task_context: TaskContext, application_context: ApplicationContext| {
         let _application_task = tokio::spawn(async move {
             let event_loop_proxy = application_context.event_loop_proxy.clone();
             let r =
@@ -108,7 +113,7 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     let mut winit_context = WinitApplicationHandler::Initializing {
         proxy: event_loop_proxy,
         spawner: Some(Box::new(spawn_application)),
-        shaping_engine,
+        font_policy,
     };
 
     info!("Entering event loop");
@@ -120,6 +125,20 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     };
 
     final_result
+}
+
+/// The contexts of the application task: its own scene, animation clock, movement runtime and a
+/// shaping context over the manager `font_policy` prescribes.
+///
+/// Built at the task boundary rather than by [`ApplicationContext`], so the values the task owns
+/// stay in the task and the handle the application receives never carries them (ADR 0008).
+fn application_task_context(font_policy: FontPolicy) -> TaskContext {
+    TaskContext::new(
+        Scene::new(Arc::new(ChangeCollector::default())),
+        AnimationCoordinator::new(),
+        MovementRuntime::default(),
+        FontManager::new(font_policy).new_shaping_context(),
+    )
 }
 
 #[derive(Debug)]
@@ -159,9 +178,8 @@ enum WinitApplicationHandler {
         // ADR: Option because we need to move it out.
         // Robustness: use a replace_with variant, so that we don't need an `Option<Box<..>>` here.
         spawner: Option<ApplicationSpawner>,
-        /// The engine of the manager the shell builds; the application may replace it before the
-        /// desktop starts (ADR 0005).
-        shaping_engine: ShapingEngineKind,
+        /// The policy the shell builds the application task's manager from (ADR 0005).
+        font_policy: FontPolicy,
     },
     Running {
         event_sender: UnboundedSender<ApplicationMessage>,
@@ -176,14 +194,14 @@ enum WinitApplicationHandler {
 }
 
 /// Type alias for the application spawner closure.
-type ApplicationSpawner = Box<dyn FnOnce(ApplicationContext)>;
+type ApplicationSpawner = Box<dyn FnOnce(TaskContext, ApplicationContext)>;
 
 impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let Self::Initializing {
             proxy,
             spawner,
-            shaping_engine,
+            font_policy,
         } = self
         else {
             panic!("Resumed called in an invalid state");
@@ -206,8 +224,10 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             event_receiver,
             proxy.clone(),
             scale_factor,
-            *shaping_engine,
         );
+        // The task boundary is here: `resumed` has the event loop, the font policy and the spawner
+        // in one place, and the contexts must exist before the application starts (ADR 0008).
+        let task_context = application_task_context(*font_policy);
 
         // The application can send CreateWindow as soon as it is spawned, so publish the Running
         // state before starting its task.
@@ -216,7 +236,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             event_sender,
             views: HashMap::new(),
         };
-        spawner(application_context);
+        spawner(task_context, application_context);
     }
 
     fn user_event(&mut self, event_loop: &ActiveEventLoop, event: ShellCommand) {

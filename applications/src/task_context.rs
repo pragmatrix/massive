@@ -62,22 +62,6 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
         .await
 }
 
-/// Replace the current task's shaping context with one from a different font manager.
-///
-/// This is the font-policy switch (ADR 0005): a manager replacement is a whole new face world, so
-/// it is only valid before anything has shaped. Panics if a shaper is open, because replacing the
-/// context under a live session would leave that session shaping against a retired manager.
-pub fn replace_shaping_context(context: ShapingContext) {
-    SHAPER.with(|shaper| {
-        let mut shaper = shaper.try_borrow_mut().unwrap_or_else(|_| {
-            panic!(
-                "task_context::replace_shaping_context() was called while a shaper session is open"
-            )
-        });
-        *shaper = context;
-    })
-}
-
 /// Access the current task's shaping owner synchronously.
 pub fn with_shaper<R>(f: impl FnOnce(&ShapingContext) -> R) -> R {
     SHAPER.with(|shaper| f(&shaper.borrow()))
@@ -212,24 +196,6 @@ mod tests {
             // Any engine compiled into this build works: the tests never shape.
             FontManager::bare(ShapingEngineKind::available()[0]).new_shaping_context(),
         )
-    }
-
-    #[tokio::test]
-    async fn replacing_the_shaping_context_installs_the_new_one() {
-        with_context(contexts(), async {
-            let replacement = FontManager::bare(ShapingEngineKind::available()[0])
-                .new_shaping_context()
-                .manager()
-                .engine_kind();
-            replace_shaping_context(
-                FontManager::bare(ShapingEngineKind::available()[0]).new_shaping_context(),
-            );
-            assert_eq!(
-                with_shaper(|shaper| shaper.manager().engine_kind()),
-                replacement
-            );
-        })
-        .await;
     }
 
     #[tokio::test]

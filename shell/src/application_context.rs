@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
@@ -9,22 +8,16 @@ use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoopProxy;
 use winit::window::WindowAttributes;
 
-use massive_animation::{AnimationCoordinator, MovementRuntime};
-use massive_applications::task_context::{self, TaskContext};
+use massive_applications::task_context;
 use massive_applications::{ApplicationEvent, ApplicationMessage, Frame, PresentationId, ViewId};
 use massive_geometry::SizePx;
-use massive_renderer::{FontManager, FontPolicy, ShapingEngineKind};
-use massive_scene::ChangeCollector;
 use massive_util::CoalescingReceiver;
 
 use crate::shell::ShellCommand;
 use crate::{Scene, ShellWindow};
 
-/// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
+/// The [`ApplicationContext`] is the application's connection to the shell. It allows it to create
 /// new windows and to wait for events while also forwarding scene changes to the renderer.
-///
-/// In addition to that it provides an animator that is updated with each event coming from the
-/// shell.
 #[derive(Debug)]
 pub struct ApplicationContext {
     // We use this to send `ApplyAnimations` from the renderers.
@@ -36,10 +29,6 @@ pub struct ApplicationContext {
     // Robustness: Should probably an event loop query. May be different for different windows and
     // or when a window is moved?
     monitor_scale_factor: f64,
-
-    /// Moved into the application task exactly once; `None` records that ownership was taken.
-    task_context: Option<TaskContext>,
-    scene: Scene,
 }
 
 impl ApplicationContext {
@@ -48,65 +37,25 @@ impl ApplicationContext {
         event_receiver: UnboundedReceiver<ApplicationMessage>,
         event_loop_proxy: EventLoopProxy<ShellCommand>,
         monitor_scale_factor: f64,
-        shaping_engine: ShapingEngineKind,
     ) -> Self {
-        let scene = Scene::new(Arc::new(ChangeCollector::default()));
-        // The shell owns font construction: it is the only layer that has a context alive before
-        // the application task starts. A bare manager makes every selectable font an explicit
-        // application decision; `set_font_policy` lets the application replace it once, before the
-        // desktop starts (ADR 0005).
-        let shaping_context = FontManager::bare(shaping_engine).new_shaping_context();
-        let task_context = TaskContext::new(
-            scene.clone_scene(),
-            AnimationCoordinator::new(),
-            MovementRuntime::default(),
-            shaping_context,
-        );
-
         Self {
             event_sender,
             event_receiver: event_receiver.into(),
             event_loop_proxy,
             monitor_scale_factor,
-            task_context: Some(task_context),
-            scene,
         }
-    }
-
-    /// Replace this application's font manager and task shaping context (ADR 0005).
-    ///
-    /// Font policy is the pair of a shaping engine and whether system fonts are selectable. It is
-    /// applied at most once and only before the desktop starts: a new manager is a new face
-    /// authority, so `FaceId`s issued by the previous one are meaningless, and the desktop's
-    /// renderer source and its instances must be built from the new manager. Ownership enforces the
-    /// window, because the desktop consumes this context. Replacing while a shaper session is open
-    /// is a loud error.
-    pub fn set_font_policy(&mut self, policy: FontPolicy) {
-        task_context::replace_shaping_context(FontManager::new(policy).new_shaping_context());
     }
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.monitor_scale_factor
     }
 
-    pub(crate) fn take_task_context(&mut self) -> TaskContext {
-        self.task_context
-            .take()
-            .expect("Application task context was already taken")
-    }
-
-    /// Creates a new scene with a new change collector.
-    pub fn new_scene(&self) -> Scene {
-        self.scene.clone_scene()
-    }
-
-    /// Creates a new scene with a caller-provided change collector.
-    pub fn new_scene_with_change_collector(&self, collector: Arc<ChangeCollector>) -> Scene {
-        Scene::new(collector)
-    }
-
     /// Bundle a scene with the application's animation clock for one update cycle.
-    pub fn frame<'scene>(&mut self, scene: &'scene Scene) -> Frame<'scene> {
+    ///
+    /// The scene is explicit because a task may work on several: the installed one is the
+    /// default (`task_context::scene()`), while a caller-provided one supports per-view scenes
+    /// and tests (ADR 0008).
+    pub fn frame<'scene>(&self, scene: &'scene Scene) -> Frame<'scene> {
         Frame::new(scene)
     }
 
