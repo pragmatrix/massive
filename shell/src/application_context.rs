@@ -13,6 +13,7 @@ use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{ApplicationEvent, ApplicationMessage, Frame, PresentationId, ViewId};
 use massive_geometry::SizePx;
+use massive_renderer::{FontManager, FontPolicy, ShapingEngineKind};
 use massive_scene::ChangeCollector;
 use massive_util::CoalescingReceiver;
 
@@ -47,12 +48,19 @@ impl ApplicationContext {
         event_receiver: UnboundedReceiver<ApplicationMessage>,
         event_loop_proxy: EventLoopProxy<ShellCommand>,
         monitor_scale_factor: f64,
+        shaping_engine: ShapingEngineKind,
     ) -> Self {
         let scene = Scene::new(Arc::new(ChangeCollector::default()));
+        // The shell owns font construction: it is the only layer that has a context alive before
+        // the application task starts. A bare manager makes every selectable font an explicit
+        // application decision; `set_font_policy` lets the application replace it once, before the
+        // desktop starts (ADR 0005).
+        let shaping_context = FontManager::bare(shaping_engine).new_shaping_context();
         let task_context = TaskContext::new(
             scene.clone_scene(),
             AnimationCoordinator::new(),
             MovementRuntime::default(),
+            shaping_context,
         );
 
         Self {
@@ -63,6 +71,18 @@ impl ApplicationContext {
             task_context: Some(task_context),
             scene,
         }
+    }
+
+    /// Replace this application's font manager and task shaping context (ADR 0005).
+    ///
+    /// Font policy is the pair of a shaping engine and whether system fonts are selectable. It is
+    /// applied at most once and only before the desktop starts: a new manager is a new face
+    /// authority, so `FaceId`s issued by the previous one are meaningless, and the desktop's
+    /// renderer source and its instances must be built from the new manager. Ownership enforces the
+    /// window, because the desktop consumes this context. Replacing while a shaper session is open
+    /// is a loud error.
+    pub fn set_font_policy(&mut self, policy: FontPolicy) {
+        task_context::replace_shaping_context(FontManager::new(policy).new_shaping_context());
     }
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
