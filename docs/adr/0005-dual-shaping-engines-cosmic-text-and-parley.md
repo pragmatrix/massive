@@ -27,7 +27,8 @@ Interpretation: cosmic-text's shaping-only path is lean for tiny inputs, but its
 - Runs carry their engine: each engine stamps `shaping_engine` onto its `ShapedRun` output (propagated to `GlyphRun`), and the renderer's text layer debug-asserts it against its manager's engine — a cheap tripwire if a run shaped by one engine is ever rendered through another engine's manager. Should engine-specific APIs ever return (e.g. parley contexts), they belong behind capability methods (`manager.parley_contexts() -> Option<_>`), not kind-gated shapers.
 - `TextAttributes` becomes engine-neutral (family as data, not parley `FontFamily` values); parley-specific accessors such as `Shaper::contexts()` move behind the parley engine.
 - Terminal cell-grid anchoring stays in mt and operates on engine-neutral shaped glyphs; the shaping contract stays "attributed text in, shaped glyphs out".
-- The `shaping_engine` setting does not hot-swap; switching engines requires a restart.
+- The `shaping_engine` setting does not hot-swap; engine selection is fixed before the desktop
+  starts.
 
 ## Amendment: no library-level default engine (2026-09-14)
 
@@ -74,3 +75,40 @@ the registry; metrics join the published snapshot.
 Later ADRs and the glossary in [`CONTEXT.md`](../../CONTEXT.md) use **resolved face** for what
 this document calls *interned/minted* faces, and **registry sync** for what ADR 0006 called
 *epoch-pull*. Terms here predate that refinement; read the older wording as the newer one.
+
+## Amendment: shell-owned bare font manager and a replaceable font policy (2026-09-21)
+
+The font manager is constructed in the shell as a *bare* manager and installed with the task
+context; the desktop derives it from that context instead of constructing it. The rule this document
+states — no library-level default engine, every client names its engine — is unchanged, but it now
+holds at the shell boundary: the shell is given an engine kind and builds the manager from it, so
+`DesktopEnvironment` no longer needs the engine in order to construct fonts.
+
+**Bare by default.** System fonts are a selection source the application never named, and leaving
+that implicit has two costs that surface later. Cosmic scans the platform catalog when its engine is
+built — the cold-start gap measured in the results above — so a terminal that loads its own mono font
+still pays for a catalog it will not use. And an unnamed selectable face can win selection: the shaper
+preferring the system copy of the terminal font over the loaded one is the white-screen failure the
+fallback ordering in the cosmic engine guards against. Bare by default makes every selectable font an
+explicit application decision.
+
+**A replaceable font policy.** The engine and whether system fonts are selectable are client
+decisions that live in client settings, and the shell must not read application configuration.
+Passing them as `shell::run` parameters alone would force either application config into the shell or
+a default engine — and a default engine is what this document rejects.
+`ApplicationContext::set_font_policy` instead lets a client replace the manager once, before the
+desktop starts, which keeps font-content vocabulary out of the shell and removes a limitation
+accepted below: changing the engine no longer requires a restart.
+
+**Replacement rather than mutation.** A `FaceId` is only meaningful inside the manager that issued
+it, so mutating a live manager's selection source would mix identities across contexts that had
+already shaped. Replacing the manager makes the invalidation total and explicit, confines it to the
+window where nothing has shaped yet, and reuses the existing `system()` constructors — no engine
+changes. Ownership enforces that window: the switch is a method on the context the desktop consumes.
+
+Lazy system-font loading on a live manager was considered and rejected. System fonts are a selection
+source, not registry faces: parley keeps them in a per-collection store that collection clones do not
+share, and cosmic clones its candidate pool into each scratch. No shaper that already exists can
+observe a later load without new per-engine re-seed machinery, and the registry's face-count sync
+cannot cover a face that has no `FaceId` until something selects it — which nothing does while the
+pool is empty. Replacing the manager provides the same capability without that machinery.
