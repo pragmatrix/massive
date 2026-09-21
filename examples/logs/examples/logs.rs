@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
         .with(info_only_layer)
         .init();
 
-    shell::run(|ctx| logs(receiver, ctx))
+    shell::run(|ctx| logs(receiver, ctx), ShapingEngineKind::Parley)
 }
 
 struct Sender(mpsc::UnboundedSender<Vec<u8>>);
