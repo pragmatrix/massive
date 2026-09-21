@@ -15,6 +15,7 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 use massive_applications::task_context;
 use massive_applications::{ApplicationMessage, ViewEvent, ViewId};
+use massive_renderer::ShapingEngineKind;
 
 use crate::ApplicationContext;
 use crate::shell_window::ShellWindowShared;
@@ -28,6 +29,7 @@ const FALLBACK_SCALE_FACTOR: f64 = 1.;
 /// clients the option to run the event loop on the main thread, which some platforms require.
 pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
+    shaping_engine: ShapingEngineKind,
 ) -> Result<()> {
     // _Try_ to instantiate env logger (main may already initialized it).
     let _ = env_logger::try_init();
@@ -61,7 +63,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
     match tokio::runtime::Handle::try_current() {
         Ok(_handle) => {
             // Already inside a Tokio runtime.
-            run_with_tokio(application)
+            run_with_tokio(application, shaping_engine)
         }
         Err(_) => {
             // Create and enter a multi-thread runtime so tokio::spawn can run while the event loop blocks.
@@ -69,7 +71,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
                 .enable_all()
                 .build()?;
             let _guard = runtime.enter();
-            let r = run_with_tokio(application);
+            let r = run_with_tokio(application, shaping_engine);
             drop(_guard);
             r
         }
@@ -78,6 +80,7 @@ pub fn run<R: Future<Output = Result<()>> + 'static + Send>(
 
 fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     application: impl FnOnce(ApplicationContext) -> R + 'static + Send,
+    shaping_engine: ShapingEngineKind,
 ) -> Result<()> {
     let event_loop = EventLoop::with_user_event().build()?;
 
@@ -105,6 +108,7 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     let mut winit_context = WinitApplicationHandler::Initializing {
         proxy: event_loop_proxy,
         spawner: Some(Box::new(spawn_application)),
+        shaping_engine,
     };
 
     info!("Entering event loop");
@@ -155,6 +159,9 @@ enum WinitApplicationHandler {
         // ADR: Option because we need to move it out.
         // Robustness: use a replace_with variant, so that we don't need an `Option<Box<..>>` here.
         spawner: Option<ApplicationSpawner>,
+        /// The engine of the manager the shell builds; the application may replace it before the
+        /// desktop starts (ADR 0005).
+        shaping_engine: ShapingEngineKind,
     },
     Running {
         event_sender: UnboundedSender<ApplicationMessage>,
@@ -173,7 +180,12 @@ type ApplicationSpawner = Box<dyn FnOnce(ApplicationContext)>;
 
 impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        let Self::Initializing { proxy, spawner } = self else {
+        let Self::Initializing {
+            proxy,
+            spawner,
+            shaping_engine,
+        } = self
+        else {
             panic!("Resumed called in an invalid state");
         };
 
@@ -194,6 +206,7 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
             event_receiver,
             proxy.clone(),
             scale_factor,
+            *shaping_engine,
         );
 
         // The application can send CreateWindow as soon as it is spawned, so publish the Running
