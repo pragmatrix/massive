@@ -1,6 +1,6 @@
 # Task-local UI contexts
 
-## Status: proposed; implementation phased
+## Status: implemented
 
 ## Problem
 
@@ -17,12 +17,12 @@ Install task-owned UI contexts once per Tokio task and expose narrow accessors f
 `massive-applications` owns the task-local context module, and `massive-shell` re-exports it for shell users. It provides:
 
 - a bare `Scene` task-local, since scene methods take `&self` and mutation flows through its internally shared change collector;
-- `RefCell<Option<AnimationCoordinator>>` and `RefCell<Option<MovementRuntime>>` task-locals for contexts currently passed as `&mut` values; and
-- an `Arc<Mutex<ShaperContext>>` task-local for per-task font and layout scratch.
+- `RefCell<AnimationCoordinator>` and `RefCell<MovementRuntime>` task-locals for contexts currently passed as `&mut` values; and
+- one `TaskContext` that always carries a shaping context. This supersedes both the shape-free application context and the separate `InstanceTaskContext` of the original decision; see the amendment below.
 
 Accessors return owned values or guards rather than references. Tokio task-local borrows cannot escape `with`; `Scene` therefore uses a cheap owned clone, while mutable contexts use owned guards. Re-entrant mutable access must use a non-blocking acquisition and fail loudly instead of deadlocking.
 
-The context is installed at existing task boundaries: `InstanceManager::spawn` for instance tasks and `shell::run` for the application task. Spawned sibling tasks do not inherit a parent's context and must install their own contexts. There is no default scene: an accessor without an explicitly installed collector-backed scene panics and identifies the missing installation point. This preserves the instance requirement that scene changes and instance changes share one ordered submission stream.
+The contexts are installed at existing task boundaries: `InstanceManager::spawn` for instance tasks and `shell::run` for the application task. The instance factory is invoked after its context is installed, so initialization and the returned future observe the same task-local values. Spawned sibling tasks do not inherit a parent's context and must install their own contexts. There is no default scene or shaping context: an accessor without an explicitly installed value panics and identifies the missing installation point. This preserves the instance requirement that scene changes and instance changes share one ordered submission stream.
 
 ### Frame as per-cycle state
 
@@ -41,7 +41,7 @@ The existing `.shape(&mut shaper)` builder API and the small number of raw `cont
 - Context access is synchronous and confined to one poll; guards cannot cross an `await`.
 - Task boundaries are firewalls. Every `tokio::spawn`, `JoinSet::spawn`, and blocking-thread site that uses these contexts must install its own scope.
 - Nested task contexts are supported; an inner context shadows and restores the outer value.
-- `RefCell` re-entrancy and `try_lock_arc` failures are deliberate loud errors for nested frames and shaper acquisition.
+- `RefCell` re-entrancy, missing task-local contexts, and shaper acquisition failures are deliberate loud errors.
 - The movement inbox remains explicit shared state, not ambient task-local state.
 - `massive-animation` does not gain a Tokio dependency merely to define the task locals; its low-level APIs retain explicit context parameters until call sites are migrated.
 - The task-local implementation must compile for native and wasm32 targets. Tokio's `rt` feature is required by `task_local!` and is already enabled for wasm32 in `massive-shell`.
@@ -52,6 +52,7 @@ The existing `.shape(&mut shaper)` builder API and the small number of raw `cont
 - **Use a shell-level default scene.** Rejected: it could route changes into the wrong collector and violate submission ordering. Missing installation is an error instead.
 - **Use a mutex for every mutable task-local.** Rejected: `RefCell` makes nested frame access fail immediately and prevents a borrowed reference from crossing an `await`; the shaper uses an owned mutex guard because its guard must escape the task-local closure.
 - **Make the whole font manager task-local.** Rejected: the registry and font data are intentionally shared with the renderer; only shaping scratch is task-owned.
+- **Use one context type for application and instance tasks.** Rejected for now: application tasks intentionally remain shape-free, while instance tasks require a fresh shaping context.
 - **Restructure the runtime around custom task types.** Rejected: existing Tokio task boundaries already match the ownership model.
 
 ## Consequences
@@ -80,11 +81,43 @@ Native and wasm32 checks are required in phase 1. Each migration phase should ru
 The design was compile-verified against Tokio 1.48, `parking_lot` 0.12.5 with `arc_lock`, parley 0.11.1, and fontique 0.11.1. The checks established that task-local values are isolated across spawned tasks, nested scopes shadow and restore values, references cannot escape `LocalKey::with`, owned `ArcMutexGuard` values can support mutable access, and the relevant shaping contexts are `Send + Sync`. They also confirmed that a shared font collection without its generic-family mapping can shape to an empty layout without returning an error.
 
 
-## Finalization Tasks (added by the author).
+## Finalization Tasks
 
-- [ ] Simplify FontManager
-- [ ] Remove Scene cloning.
-- [ ] Can we directly only push the Shaping context into instances and applications? (is load_font accessible then?)
-- [ ] TerminalViewParams should not mix Font shaping, this does not belong here (should probably be task_local anyway).
-- [ ] Shaping engine should be able to return its kind.
-- [ ] Why does PublishedRegistry need ShapingKind
+- [x] Simplify `FontManager`: shared authority/publication state is separated from per-owner
+	`ShapingContext` scratch.
+- [x] Keep scene cloning explicit with `clone_scene()`. Scene values still need a cheap handle
+	clone when a task-local collector is installed; implicit `Clone` is not required.
+- [x] Keep the application and instance task contexts separate; instance scenes and shaping
+	scratch are owned by `InstanceTaskContext`. (Superseded by the amendment below: one task
+	context type; an instance still owns its scene and shaping scratch.)
+- [x] Install one `ShapingContext` per instance task. Font loading remains available through the
+	instance's shared `FontManager`, while shaping scratch is task-local.
+- [x] Remove font shaping state from `TerminalViewParams`; terminal line shaping uses the instance
+	task's shaper context.
+- [x] Expose the shaping engine kind from the manager, shaper, and published registry.
+- [x] Keep `PublishedRegistry.kind`: the renderer compares it with each `GlyphRun`'s shaping kind
+	at the render boundary to catch cross-engine misuse.
+
+## Amendment: one task context, shaping always present (2026-09-21)
+
+The split this document decided is superseded: application and instance tasks share one task context
+type, which always carries a shaping context. The separate instance context and its installer are
+gone.
+
+The reason is that the split's premise did not survive. Application tasks were to remain shape-free;
+the desktop's application task shapes (its focus-depth badges), so the distinction described no task
+that exists. What it still cost was a second type whose fields were a superset of the first, a second
+installer, and an optional shaping context in the task-local — which made `with_shaper` fail for a
+state that can no longer occur. One type leaves one installer and one invariant: every UI task has
+exactly one shaping owner.
+
+The ownership rule the split protected survives: an instance still owns its own scene and its own
+shaping scratch. The rejected option below — "use one context type for application and instance
+tasks" — is therefore revised, not the reasoning that rejected it, which turned on application tasks
+being shape-free.
+
+The rest of this document stands unchanged: task-local storage is an access mechanism, the contexts
+are installed at existing task boundaries, sibling tasks do not inherit a context, missing
+installation is a loud error, and the font manager stays shared rather than task-local. The shaper
+task-local becomes mutable, so a client can replace its manager before the desktop starts (see the
+font-manager amendment in [ADR 0005](0005-dual-shaping-engines-cosmic-text-and-parley.md)).

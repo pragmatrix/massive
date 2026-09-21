@@ -117,8 +117,19 @@ _Avoid_: epoch sync, epoch-pull, seed
 **Session**:
 One acquisition of a handle's exclusive shaper: registry snapshot + scratch, opened by `FontManager::shaper` and dropped before the frame's output is submitted.
 
+**Bare manager**:
+A font manager with no fonts and no fallback candidates, so selection can only reach fonts the application loaded itself.
+_Avoid_: empty manager, registry-only collection
+
+**Font policy**:
+The pair of a shaping engine and whether system fonts are available for selection. Fixed before the desktop starts, because a face is only meaningful within the manager that issued it.
+_Avoid_: font settings, font config
+
+**Shaping context**:
+A task's shaping owner: exclusive shaping scratch over the shared font manager's face authority and published registry. Every task context has exactly one.
+
 **Task context**:
-The contexts installed for one Tokio task: its scene change collector, animation coordinator, and movement runtime.
+The contexts installed for one Tokio task: its scene change collector, animation coordinator, movement runtime, and shaping context.
 
 **Scene change collector**:
 The ordered receiver of scene changes that are submitted together for one application or instance.
