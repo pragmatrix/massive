@@ -14,7 +14,8 @@
 //! shape through [`EngineScratch::shape`]. Fonts loaded at any time are visible on the next
 //! session: parley's shared collection self-syncs (fontique version sync), cosmic re-pulls
 //! the published snapshot when its face count moved (registry sync). The one engine touch
-//! point left here is the construction match in [`FontManager::system`] / [`FontManager::bare`].
+//! point left here is the construction match in [`FontManager::new`], which [`FontManager::bare`]
+//! and [`FontManager::system`] name for the two common policies.
 //!
 //! ## Shaper exclusivity without borrow-gating
 //!
@@ -102,12 +103,12 @@ impl FontManager {
 
     /// A bare manager over the given engine kind: no fallbacks, no fonts.
     pub fn bare(kind: ShapingEngineKind) -> Self {
-        Self::new(FontPolicy::new(kind, false))
+        Self::new(FontPolicy::bare(kind))
     }
 
     /// Create a manager over the given engine kind, with system fonts loaded.
     pub fn system(kind: ShapingEngineKind) -> Self {
-        Self::new(FontPolicy::new(kind, true))
+        Self::new(FontPolicy::system(kind))
     }
 
     /// Adds the font and returns Self
