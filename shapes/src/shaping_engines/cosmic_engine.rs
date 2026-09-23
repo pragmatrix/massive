@@ -273,7 +273,11 @@ impl ShapingEngine for CosmicTextEngine {
             log::warn!("Rejecting cosmic-text font file: {error}");
             return Err(error.into());
         }
-        Ok(self.register(data))
+        let ids = self.register(data);
+        if ids.is_empty() {
+            return Err(anyhow!("fontdb did not load any faces from the font file"));
+        }
+        Ok(ids)
     }
 
     fn font_data(&self, id: FaceId) -> Option<FontData> {
