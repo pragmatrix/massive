@@ -13,7 +13,6 @@ use massive_renderer::RenderPacing;
 use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
-use massive_shell::Scene;
 
 use crate::desktop_system::fullscreen_scale;
 
@@ -28,11 +27,11 @@ pub struct InstanceRoot {
 }
 
 impl InstanceRoot {
-    pub fn new(scene: &Scene) -> Self {
-        let (layout_transform, layout_location) = identity_location().enter(scene);
+    pub fn new() -> Self {
+        let (layout_transform, layout_location) = identity_location().enter();
         let (presentation_transform, presentation_location) = identity_location()
             .relative_to(layout_location.to_ref())
-            .enter(scene);
+            .enter();
 
         Self {
             layout_transform,
@@ -132,14 +131,12 @@ pub struct ViewWindowState {
 }
 
 impl InstancePresenter {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
         parent: Handle<Location>,
-        scene: &Scene,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
@@ -156,7 +153,7 @@ impl InstancePresenter {
         let background = show_background.then(|| {
             let visual = InstanceBackground::shapes(Rect::ZERO)
                 .at(&root.presentation_location)
-                .enter(scene);
+                .enter();
 
             InstanceBackground {
                 visual,

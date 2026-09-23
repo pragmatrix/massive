@@ -1,16 +1,14 @@
 //! The context for an instance.
 
-use std::sync::Arc;
-
 use anyhow::{Result, bail};
-use derive_more::Deref;
 use log::{error, trace, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
 use massive_renderer::{FontManager, RenderPacing};
-use massive_scene::{HandleChangeReceiver, Location, Ref, Scene, SceneChange};
-use massive_util::CoalescingReceiver;
+use massive_scene::{Location, Ref, SceneChange};
+use massive_util::{ChangeCollector, ChangeSet, CoalescingReceiver};
 
+use crate::prelude::*;
 use crate::task_context;
 use crate::view_builder::ViewBuilder;
 use crate::{
@@ -25,13 +23,13 @@ pub enum CreationMode {
     Restore,
 }
 
-// Need a newtype here for the orphan rule.
-#[derive(Debug, Default, Deref)]
-pub struct InstanceChangeCollector(massive_util::ChangeCollector<InstanceChange>);
+/// The instance's change collector type: the generic collector collecting the union queue.
+pub type InstanceChangeCollector = ChangeCollector<InstanceChange>;
 
-impl HandleChangeReceiver for InstanceChangeCollector {
-    fn send(&self, change: SceneChange) {
-        self.0.collect(InstanceChange::Scene(change))
+/// Retyping from the erased scene changes into the instance queue (ADR 0008).
+impl From<SceneChange> for InstanceChange {
+    fn from(change: SceneChange) -> Self {
+        Self::Scene(change)
     }
 }
 
@@ -41,10 +39,6 @@ pub struct InstanceContext {
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
     view_parent: Ref<Location>,
-
-    /// The current changes of this instance. This includes all Scene changes interleaved with the
-    /// instance changes (in order).
-    changes: Arc<InstanceChangeCollector>,
 
     /// This is here so that we don't submit empty instance submissions when the pacing did not
     /// change.
@@ -56,9 +50,9 @@ pub struct InstanceContext {
 impl Drop for InstanceContext {
     fn drop(&mut self) {
         warn!("Submitting final instance changes: instance={:?}", self.id);
-        // If the instance ends, we _must_ submit all pending changes.
-        self.changes
-            .collect(InstanceChange::End(self.view_parent.clone()));
+        // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
+        // the desktop observes it behind every pending change of this submission.
+        collect(InstanceChange::End(self.view_parent.clone()));
         let pacing = if task_context::with_animation(|animation| animation.end_cycle()) {
             RenderPacing::Smooth
         } else {
@@ -76,7 +70,6 @@ impl InstanceContext {
         creation_mode: CreationMode,
         environment: InstanceEnvironment,
         view_parent: Ref<Location>,
-        changes: Arc<InstanceChangeCollector>,
         events: UnboundedReceiver<ApplicationMessage>,
     ) -> Self {
         Self {
@@ -84,7 +77,6 @@ impl InstanceContext {
             creation_mode,
             environment,
             view_parent,
-            changes,
             last_submitted_pacing: RenderPacing::Fast,
             events: events.into(),
         }
@@ -115,9 +107,10 @@ impl InstanceContext {
         task_context::with_shaper(|shaper| shaper.manager())
     }
 
-    /// Bundle a scene with this instance's animation clock for one update cycle.
-    pub fn frame<'scene>(&mut self, scene: &'scene Scene) -> Frame<'scene> {
-        Frame::new(scene)
+    /// Bundle this instance's animation clock for one update cycle over the task's change
+    /// queue. The change kind is fixed by calling `submit` (or `submission`) on the frame.
+    pub fn frame(&mut self) -> Frame<InstanceChange> {
+        Frame::new()
     }
 
     pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent<std::convert::Infallible>> {
@@ -125,25 +118,29 @@ impl InstanceContext {
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
-        ViewBuilder::new(
-            self.changes.clone(),
-            self.view_parent.clone(),
-            extent.into().into(),
-            task_context::scene(),
-        )
+        ViewBuilder::new(self.view_parent.clone(), extent.into().into())
     }
 
     /// Design: This may interfere with animations and requires a final submit()!
     pub fn collect_configuration_request(&mut self, request: ConfigurationRequest) {
-        self.changes.collect(InstanceChange::Configuration(request))
+        collect(InstanceChange::Configuration(request));
     }
 
-    pub fn submit(&mut self, submission: FrameSubmission<'_>) -> Result<()> {
-        self.submit_with_pacing(submission.pacing())
+    pub fn submit(&mut self, submission: FrameSubmission<InstanceChange>) -> Result<()> {
+        let (changes, pacing) = submission.into_parts();
+        self.submit_changes(changes, pacing)
     }
 
     fn submit_with_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
-        let changes = self.changes.take_all();
+        let changes = task_context::take_changes::<InstanceChange>();
+        self.submit_changes(changes, pacing)
+    }
+
+    fn submit_changes(
+        &mut self,
+        changes: ChangeSet<InstanceChange>,
+        pacing: RenderPacing,
+    ) -> Result<()> {
         let change_count = changes.len();
         // Desktop needs empty submissions to observe pacing transitions, but repeated pacing has
         // no effect.

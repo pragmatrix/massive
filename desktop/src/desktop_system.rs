@@ -35,12 +35,14 @@ use anyhow::Result;
 use derive_more::Debug;
 use log::warn;
 
+use massive_applications::prelude::*;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
+use massive_scene::SceneChange;
 use massive_scene::prelude::*;
-use massive_shell::{Frame, Scene};
+use massive_shell::Frame;
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
@@ -245,13 +247,13 @@ impl Aggregates {
 }
 
 impl DesktopSystem {
-    pub fn new(env: DesktopEnvironment, default_panel_size: SizePx, scene: &Scene) -> Result<Self> {
+    pub fn new(env: DesktopEnvironment, default_panel_size: SizePx) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
-        let (_, location) = identity_location().enter(scene);
+        let (_, location) = identity_location().enter();
 
-        let desktop_presenter = DesktopPresenter::new(location, scene);
-        let focus_depth_indicator = FocusDepthIndicatorPresenter::new(scene);
+        let desktop_presenter = DesktopPresenter::new(location);
+        let focus_depth_indicator = FocusDepthIndicatorPresenter::new();
 
         let event_router = EventRouter::new();
 
@@ -282,7 +284,7 @@ impl DesktopSystem {
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
-        frame: &mut Frame,
+        frame: &mut Frame<SceneChange>,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
         window_size: SizePx,

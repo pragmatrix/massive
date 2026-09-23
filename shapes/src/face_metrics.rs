@@ -15,7 +15,6 @@
 
 use swash::FontRef;
 
-use crate::FaceId;
 use crate::engine::FontData;
 
 /// The per-face values the glyph placement path reads: left side bearing per glyph id
@@ -32,8 +31,9 @@ impl FaceMetrics {
     /// Extract the metrics of a face from its font data — one linear pass over the
     /// horizontal-metrics table, performed once per face at registration time (see module doc).
     pub fn extract(font_data: &FontData) -> Option<Self> {
-        let font_ref =
-            FontRef::from_index(font_data.data.as_ref().as_ref(), font_data.index as usize)?;
+        let data = font_data.data.as_ref().as_ref();
+        let index = font_data.index as usize;
+        let font_ref = FontRef::from_index(data, index)?;
         let glyph_metrics = font_ref.glyph_metrics(&[]);
         let lsb: Vec<f32> = (0..glyph_metrics.glyph_count())
             .map(|glyph_id| glyph_metrics.lsb(glyph_id))
@@ -53,16 +53,6 @@ impl FaceMetrics {
     }
 }
 
-/// Extract metrics for every face of a registry-entry map (registration time; see module doc).
-pub(crate) fn extract_all(
-    entries: &std::collections::HashMap<FaceId, FontData>,
-) -> std::collections::HashMap<FaceId, FaceMetrics> {
-    entries
-        .iter()
-        .filter_map(|(id, data)| Some((*id, FaceMetrics::extract(data)?)))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{FontManager, ShapingEngineKind, ShapingRequest, TextAttributes};
@@ -78,8 +68,12 @@ mod tests {
     #[test]
     fn published_lsb_matches_fresh_swash_parse() {
         for kind in ShapingEngineKind::available() {
-            let fonts = FontManager::bare(*kind).with_font(JETBRAINS_MONO);
-            let face = fonts.load_font(JETBRAINS_MONO)[0];
+            let fonts = FontManager::bare(*kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
+            let face = fonts
+                .load_font(JETBRAINS_MONO)
+                .expect("bundled font is valid")[0];
             let context = fonts.new_shaping_context();
             let mut shaper = context.shaper();
             let shaped = shaper

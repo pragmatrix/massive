@@ -5,7 +5,7 @@ use massive_geometry::Transform;
 
 use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
 
-#[derive(Debug, From, Clone)]
+#[derive(Debug, From, Clone, PartialEq)]
 pub enum SceneChange {
     Transform(Change<Transform>),
     Location(Change<LocationRenderObj>),
@@ -24,7 +24,7 @@ impl SceneChange {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Change<T> {
     Create(Id, T),
     Update(Id, T),

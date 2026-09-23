@@ -1,20 +1,14 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 
 use massive_geometry::{BoxPx, Color};
 use massive_scene::{Location, Ref};
 
 use crate::view::{View, ViewRole};
-use crate::{InstanceChangeCollector, Scene};
 
 #[derive(Debug)]
 pub struct ViewBuilder {
-    /// The connection to the instance context for submitting changes.
-    change_collector: Arc<InstanceChangeCollector>,
     parent: Ref<Location>,
     extent: BoxPx,
-    scene: Scene,
 
     role: ViewRole,
 
@@ -22,17 +16,10 @@ pub struct ViewBuilder {
 }
 
 impl ViewBuilder {
-    pub(crate) fn new(
-        change_collector: Arc<InstanceChangeCollector>,
-        parent: Ref<Location>,
-        extent: BoxPx,
-        scene: Scene,
-    ) -> Self {
+    pub(crate) fn new(parent: Ref<Location>, extent: BoxPx) -> Self {
         Self {
-            change_collector,
             parent,
             extent,
-            scene,
             role: ViewRole::default(),
             background_color: None,
         }
@@ -49,12 +36,6 @@ impl ViewBuilder {
     }
 
     pub fn build(self) -> Result<View> {
-        View::new(
-            self.parent,
-            self.extent,
-            self.scene,
-            self.role,
-            self.change_collector,
-        )
+        View::new(self.parent, self.extent, self.role)
     }
 }

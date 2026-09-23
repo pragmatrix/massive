@@ -13,7 +13,7 @@ use massive_input::EventManager;
 use massive_layout::{LayoutAxis, Offset, Placement, Rect as LayoutRect, Size as LayoutSize};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::{Scene, ShapingContext};
+use massive_shell::ShapingContext;
 
 use super::visor_layout;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
@@ -79,18 +79,16 @@ impl LauncherPresenter {
         id: LaunchProfileId,
         profile: LaunchProfile,
         size: Size,
-        scene: &Scene,
         shaping_context: &ShapingContext,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
         let mode = profile.mode;
 
-        let (our_transform, our_location) = identity_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+        let (our_transform, our_location) =
+            identity_location().relative_to(&parent_location).enter();
 
-        let background = background_shape.at(&our_location).enter(scene);
+        let background = background_shape.at(&our_location).enter();
 
         let mut shaper = shaping_context.shaper();
         let name = profile
@@ -109,7 +107,7 @@ impl LauncherPresenter {
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(&our_location)
             .with_decal_order(0)
-            .enter(scene);
+            .enter();
 
         let scene_transform = our_transform.clone();
         let movement_background = background.clone();

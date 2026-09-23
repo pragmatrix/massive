@@ -61,6 +61,7 @@ chrono = "0.4.38"
 # shape-run-cache caches whole shaped runs keyed by (text, attrs, spans): shapes re-run
 # identical text across frames, so without it harfbuzz re-runs per frame.
 cosmic-text = { version = "0.19.0", features = ["swash", "shape-run-cache"] }
+criterion = "0.8.2"
 derive_more = { version = "2.0.1", features = ["full"] }
 parley = "0.11"
 env_logger = "0.11.3"

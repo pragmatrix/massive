@@ -2,11 +2,13 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 use serde_json::json;
 
+use massive_applications::prelude::*;
 use massive_applications::{
     ConfigurationRequest, CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
     ViewEvent, ViewRole,
 };
-use massive_shell::{Frame, Scene, task_context};
+use massive_scene::SceneChange;
+use massive_shell::{Frame, task_context};
 
 use super::change::Zoom;
 use super::change::set_focus;
@@ -80,7 +82,7 @@ impl ChangeOutput {
 
 impl DesktopSystem {
     /// Plan the execution of a command.
-    pub fn plan(&self, command: DesktopCommand, scene: &Scene) -> Result<Changes> {
+    pub fn plan(&self, command: DesktopCommand) -> Result<Changes> {
         match command {
             DesktopCommand::Project(project_command) => return self.plan_project(project_command),
             DesktopCommand::StartInstance {
@@ -98,7 +100,9 @@ impl DesktopSystem {
                     .unwrap_or(0);
                 let (root, spawn) = match root {
                     Some(root) => (root, false),
-                    None => (InstanceRoot::new(scene), true),
+                    // Rare case: only a spawned instance needs new scene objects, so the ambient
+                    // change queue is used here instead of being threaded through `plan`.
+                    None => (InstanceRoot::new(), true),
                 };
 
                 let mut changes: Changes = if spawn {
@@ -342,7 +346,7 @@ impl DesktopSystem {
     pub fn apply_change(
         &mut self,
         change: DesktopChange,
-        frame: &mut Frame,
+        frame: &mut Frame<SceneChange>,
         instance_manager: &mut InstanceManager,
     ) -> Result<ChangeOutput> {
         match change {
@@ -473,12 +477,12 @@ impl DesktopSystem {
                 let commands = self.forward_event_transitions(transitions, instance_manager)?;
                 let mut changes = Changes::default();
                 for command in commands {
-                    changes += self.plan(command, frame.scene())?;
+                    changes += self.plan(command)?;
                 }
                 return Ok(ChangeOutput::changes(changes));
             }
             DesktopChange::IntegrateInstanceSubmission(instance_id, instance_submission) => {
-                return self.apply_instance_submission(instance_id, instance_submission, frame);
+                return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
                 return self.apply_project_change(project_change, frame);
@@ -531,13 +535,13 @@ impl DesktopSystem {
     fn apply_project_change(
         &mut self,
         change: ProjectChange,
-        frame: &mut Frame,
+        _frame: &mut Frame<SceneChange>,
     ) -> Result<ChangeOutput> {
         match change {
             ProjectChange::AddProject { id, properties } => {
                 let parent_location = self.desktop_presenter.location.clone();
                 let presenter = task_context::with_shaper(|fonts| {
-                    ProjectPresenter::new(properties, parent_location, frame.scene(), fonts)
+                    ProjectPresenter::new(properties, parent_location, fonts)
                 });
                 self.aggregates.projects.insert(id, presenter)?;
             }
@@ -569,7 +573,6 @@ impl DesktopSystem {
                         id,
                         profile,
                         massive_geometry::Size::default(),
-                        frame.scene(),
                         fonts,
                     )
                 });
@@ -620,13 +623,12 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         submission: InstanceSubmission,
-        frame: &mut Frame,
     ) -> Result<ChangeOutput> {
         let (changes, pacing) = submission.into_parts();
         let mut output = ChangeOutput::default();
 
         for change in changes.release() {
-            output.combine(self.apply_instance_change(instance, change, frame)?);
+            output.combine(self.apply_instance_change(instance, change)?);
         }
 
         self.set_instance_pacing(instance, pacing);
@@ -637,11 +639,10 @@ impl DesktopSystem {
         &mut self,
         instance: InstanceId,
         change: InstanceChange,
-        frame: &mut Frame,
     ) -> Result<ChangeOutput> {
         match change {
             InstanceChange::Scene(change) => {
-                frame.push_change(change);
+                collect(change);
                 Ok(ChangeOutput::default())
             }
             InstanceChange::CreateView(creation_info) => {

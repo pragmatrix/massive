@@ -11,17 +11,20 @@ parley = ["dep:parley"]
 cosmic-text = ["dep:cosmic-text"]
 
 [dependencies]
-massive-geometry = { workspace = true }
+massive-geometry.workspace = true
+
+anyhow.workspace = true
 # Lock-free published font registry for the render path (see FontManager).
 arc-swap.workspace = true
 # Needed for TextShaping and GlyphRun CacheKey
 parley = { workspace = true, optional = true }
 # Gorilla: This is needed for Weight.
-swash = { workspace = true }
+swash.workspace = true
 cosmic-text = { workspace = true, optional = true }
 # Same version cosmic-text uses (0.23); used for font registration and data access.
 fontdb = "0.23"
-derive_more = { workspace = true }
+log.workspace = true
+derive_more.workspace = true
 glam = { workspace = true }
 parking_lot.workspace = true
 serde = { workspace = true }

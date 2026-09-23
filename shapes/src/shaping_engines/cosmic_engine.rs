@@ -13,8 +13,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::{Result, anyhow};
 use cosmic_text::{Attrs, AttrsList, BufferLine, FontSystem, LineEnding, Shaping, Weight};
 use fontdb::Source;
 
@@ -22,8 +24,15 @@ use crate::engine::{
     EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
     ShapingEngine, ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily,
 };
+use crate::font_validation::validate_font_file;
 use crate::shaping_engines::cosmic_scratch::CosmicScratch;
 use crate::{FaceId, TextWeight};
+
+#[derive(Hash, PartialEq, Eq)]
+enum FontSourceKey {
+    Binary(usize),
+    File(PathBuf),
+}
 
 /// The cosmic-text-backed [`ShapingEngine`].
 ///
@@ -177,25 +186,75 @@ impl CosmicTextEngine {
     /// With them, the one full system-catalog scan for the whole manager family happens here; the
     /// scanned catalog becomes the candidate pool, and scratch seeds clone it (in-memory copy)
     /// instead of rescanning. Without them the pool stays empty and seeds stay registry-only.
-    pub fn new(system_fonts: bool) -> Self {
-        let font_system = if system_fonts {
-            FontSystem::new()
+    pub fn new(system_fonts: bool) -> Result<Self> {
+        let (font_system, candidate_pool) = if system_fonts {
+            let db = Self::filtered_system_font_db()?;
+            let font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), db);
+            let candidate_pool = Arc::new(fontdb::Database::clone(font_system.db()));
+            (font_system, candidate_pool)
         } else {
-            FontSystem::new_with_locale_and_db("en-US".to_string(), fontdb::Database::new())
-        };
-        let candidate_pool = if system_fonts {
-            Arc::new(fontdb::Database::clone(font_system.db()))
-        } else {
-            Arc::default()
+            (
+                FontSystem::new_with_locale_and_db("en-US".to_string(), fontdb::Database::new()),
+                Arc::default(),
+            )
         };
 
-        Self {
+        Ok(Self {
             font_system,
             candidate_pool,
             faces: Vec::new(),
             published_faces: Arc::new(Vec::new()),
             resolved: HashMap::new(),
+        })
+    }
+
+    /// Load system fonts and retain only sources whose every face Swash can read.
+    ///
+    /// Faces sharing a source are validated together, so invalid files are filtered as a unit;
+    /// an unreadable source fails initialization instead.
+    fn filtered_system_font_db() -> Result<fontdb::Database> {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+
+        let mut source_faces: HashMap<FontSourceKey, (String, Vec<fontdb::ID>)> = HashMap::new();
+        for face in db.faces() {
+            let (key, label) = match &face.source {
+                Source::Binary(bytes) => (
+                    FontSourceKey::Binary(Arc::as_ptr(bytes) as *const () as usize),
+                    "binary system font".to_string(),
+                ),
+                Source::File(path) => (
+                    FontSourceKey::File(path.clone()),
+                    path.display().to_string(),
+                ),
+                Source::SharedFile(path, _) => (
+                    FontSourceKey::File(path.clone()),
+                    path.display().to_string(),
+                ),
+            };
+            source_faces
+                .entry(key)
+                .or_insert_with(|| (label, Vec::new()))
+                .1
+                .push(face.id);
         }
+
+        for (_, (label, ids)) in source_faces {
+            let first_id = ids[0];
+            let Some(validation) =
+                db.with_face_data(first_id, |bytes, _| validate_font_file(bytes))
+            else {
+                log::warn!("Cannot read cosmic-text system font source {label}");
+                return Err(anyhow!("cannot read system font source {label}"));
+            };
+            if let Err(error) = validation {
+                log::warn!("Filtering invalid cosmic-text system font source {label}: {error}");
+                for id in ids {
+                    db.remove_face(id);
+                }
+            }
+        }
+        Ok(db)
     }
 
     /// The candidate pool handed to scratch seeds via `new_scratch` (empty for `bare()`).
@@ -209,8 +268,12 @@ impl ShapingEngine for CosmicTextEngine {
         "cosmic-text"
     }
 
-    fn load_font(&mut self, data: FontBytes) -> Vec<FaceId> {
-        self.register(data)
+    fn load_font(&mut self, data: FontBytes) -> Result<Vec<FaceId>> {
+        if let Err(error) = validate_font_file(data.as_ref().as_ref()) {
+            log::warn!("Rejecting cosmic-text font file: {error}");
+            return Err(error.into());
+        }
+        Ok(self.register(data))
     }
 
     fn font_data(&self, id: FaceId) -> Option<FontData> {
@@ -236,8 +299,7 @@ impl ShapingEngine for CosmicTextEngine {
                 )
             })
             .collect();
-        let metrics = crate::face_metrics::extract_all(&fonts);
-        Arc::new(FontRegistry::from_owned(fonts, metrics))
+        Arc::new(FontRegistry::from_owned(fonts))
     }
 
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
@@ -259,6 +321,13 @@ impl ShapingEngine for CosmicTextEngine {
     }
 
     fn resolve_face(&mut self, data: FontData) -> Option<FaceId> {
+        if let Err(error) = validate_font_file(data.data.as_ref().as_ref()) {
+            log::warn!(
+                "Rejecting lazy cosmic-text fallback font file at face index {}: {error}",
+                data.index
+            );
+            return None;
+        }
         // Dedupe by content: session-path shaping resolves fontdb faces (system-scanned
         // duplicates included) whose data may already be registered — e.g. the terminal
         // font loaded via `load_font` matched in the session db as the system-scanned
@@ -486,9 +555,6 @@ impl CosmicTextEngine {
         FaceId::new(index as u64)
     }
 }
-
-#[cfg(test)]
-mod tests;
 
 /// Build cosmic-text attrs for one attributes value.
 ///

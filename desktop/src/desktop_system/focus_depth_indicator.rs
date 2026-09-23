@@ -9,7 +9,6 @@ use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_scene::LocationSpace;
 use massive_scene::prelude::*;
 use massive_shapes::{GlyphRun, IntoShape, Shape, Size as SizeExt};
-use massive_shell::Scene;
 
 use super::FocusDepth;
 
@@ -39,18 +38,17 @@ pub struct FocusDepthIndicatorPresenter {
 }
 
 impl FocusDepthIndicatorPresenter {
-    pub fn new(scene: &Scene) -> Self {
+    pub fn new() -> Self {
         let (badges, size) = FocusDepthIndicatorMovement::create_badges();
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
-        let (scene_transform, location) = identity_location()
-            .in_space(LocationSpace::Camera)
-            .enter(scene);
+        let (scene_transform, location) =
+            identity_location().in_space(LocationSpace::Camera).enter();
         let visual = Arc::<[Shape]>::default()
             .into_visual()
             .at(&location)
             .with_decal_order(DECAL_ORDER)
-            .enter(scene);
+            .enter();
         let movement = movement(
             FocusDepthIndicatorMovement::new(badges),
             move |movement, progress| movement.apply(progress, &location, &visual),

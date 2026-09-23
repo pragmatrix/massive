@@ -74,7 +74,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .join(Path::new("examples/code/examples"));
 
     let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
 
     let cargo_config = CargoConfig {
         // need to be able to look up examples.
@@ -266,23 +266,21 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
 
-    let scene = scene();
-
     let mut renderer = window
         .renderer()
-        .with_text(fonts.registry_source())
+        .with_text_registry(fonts.registry_source())
         .build()
         .await?;
 
-    let transform = application.get_transform(content_size).enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).enter_owned();
+    let location = transform.to_location().enter_owned();
 
     let _visual = glyph_runs
         .into_iter()
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
-        .enter(&scene);
+        .enter_owned();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -307,7 +305,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        ctx.frame().render_to(&mut renderer)?;
     }
 }
 

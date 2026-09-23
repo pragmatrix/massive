@@ -8,7 +8,8 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
-use crate::{Handle, Location, LocationParent, LocationSpace, Object, Ref, Scene, Visual};
+use crate::scene::enter_pair;
+use crate::{AnyCollector, Handle, Location, LocationParent, LocationSpace, Ref, Visual};
 
 // This should probably be moved to massive_geometry:
 
@@ -53,10 +54,10 @@ impl ToLocation for Handle<Transform> {
     }
 }
 
-/// A location that has not entered a scene yet. Enter it with a scene to create a location with an
+/// A location that has not entered a scene yet. Enter it to create a location with an
 /// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the location is not entered until `.enter(scene)` is called"]
+#[must_use = "the location is not entered until `.enter_in(collector)` is called"]
 pub struct UnenteredLocation {
     parent: LocationParent,
 }
@@ -74,11 +75,16 @@ impl UnenteredLocation {
         self
     }
 
-    /// Enter a location with an initially-identity transform, returning both handles.
-    pub fn enter(self, scene: &Scene) -> (Handle<Transform>, Handle<Location>) {
-        let transform = Transform::IDENTITY.enter(scene);
-        let location = Location::new(self.parent, transform.clone()).enter(scene);
-        (transform, location)
+    /// Enter a location with an initially-identity transform into `collector`, returning both
+    /// handles.
+    ///
+    /// The transform and the location are published as one batch, so the queue's lock is acquired
+    /// once instead of once per object. Ambient callers reach this through the task-context
+    /// `Enter::enter` implementation, which supplies the installed collector.
+    pub fn enter_in(self, collector: &AnyCollector) -> (Handle<Transform>, Handle<Location>) {
+        enter_pair(collector, Transform::IDENTITY, |transform| {
+            Location::new(self.parent, transform.clone())
+        })
     }
 }
 
@@ -140,7 +146,7 @@ impl VisualWithoutLocation {
         }
     }
 
-    #[must_use = "the visual is not placed until it is `.enter(scene)`ed"]
+    #[must_use = "the visual is not placed until it is `.enter()`ed"]
     pub fn at(self, location: impl Into<Ref<Location>>) -> Visual {
         Visual::new(location.into(), self.shapes)
     }
@@ -148,7 +154,7 @@ impl VisualWithoutLocation {
 
 /// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
-    #[must_use = "the visual is not entered until `.enter(scene)` is called"]
+    #[must_use = "the visual is not entered until `.enter()` is called"]
     fn at(self, location: impl Into<Ref<Location>>) -> Visual;
 }
 

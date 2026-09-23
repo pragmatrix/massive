@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 
+use anyhow::Result;
 use massive_geometry::Color;
 
 use crate::face_metrics::FaceMetrics;
@@ -43,60 +44,45 @@ impl FontData {
 /// registration time (ADR 0006): glyph-placement consumers read metrics through the same
 /// lock-free snapshot instead of parsing swash tables per cluster per frame.
 ///
-/// Font data and metrics live behind one shared inner `Arc`: they are always built from
-/// the same entries in one publication, updated together, and read together — so the face sets
-/// cannot drift apart, and a reader holding one map implicitly pins the other. (The
-/// alternative — two sibling `Arc` maps — made a cheaper `metrics_arc()`-style read
-/// possible, but that read runs once per frame, not per cluster, and the split kept the
-/// "same face set" invariant as an unchecked manual obligation.)
-#[derive(Clone, Default)]
+/// Font data and metrics are fields of one published snapshot, so every reader observes the
+/// same face set for both lookups.
+#[derive(Default)]
 pub struct FontRegistry {
-    inner: Arc<RegistryMap>,
+    faces: HashMap<FaceId, RegisteredFace>,
 }
 
-/// The registry's owned maps — held behind [`FontRegistry`]'s one shared `Arc`.
-#[derive(Clone, Default)]
-struct RegistryMap {
-    fonts: HashMap<FaceId, FontData>,
-    metrics: HashMap<FaceId, FaceMetrics>,
+struct RegisteredFace {
+    font_data: FontData,
+    metrics: FaceMetrics,
 }
 
 impl FontRegistry {
-    /// A snapshot from known registry entries (font data + extracted metrics).
-    /// Engines call this on publish; readers resolve through [`Self::font_data`] /
-    /// [`Self::metrics`].
-    pub fn new(
-        fonts: Arc<HashMap<FaceId, FontData>>,
-        metrics: Arc<HashMap<FaceId, FaceMetrics>>,
-    ) -> Self {
-        // Extract from the shared Arcs into the owned combined map: the inner `Arc` is
-        // born here once, and later snapshots replace it whole.
-        Self::from_owned((*fonts).clone(), (*metrics).clone())
-    }
-
     /// Assemble a snapshot from owned maps (the engines' publish path).
-    pub(crate) fn from_owned(
-        fonts: HashMap<FaceId, FontData>,
-        metrics: HashMap<FaceId, FaceMetrics>,
-    ) -> Self {
-        Self {
-            inner: Arc::new(RegistryMap { fonts, metrics }),
-        }
+    pub(crate) fn from_owned(fonts: HashMap<FaceId, FontData>) -> Self {
+        let faces = fonts
+            .into_iter()
+            .map(|(id, font_data)| {
+                let metrics = FaceMetrics::extract(&font_data)
+                    .expect("validated font registry entry must have metrics");
+                (id, RegisteredFace { font_data, metrics })
+            })
+            .collect();
+        Self { faces }
     }
 
     /// Resolve [`FaceId`] to concrete font data for rasterization.
     pub fn font_data(&self, id: FaceId) -> Option<FontData> {
-        self.inner.fonts.get(&id).cloned()
+        self.faces.get(&id).map(|face| face.font_data.clone())
     }
 
     /// The face's published swash metrics, extracted at registration time.
     pub fn metrics(&self, id: FaceId) -> Option<&FaceMetrics> {
-        self.inner.metrics.get(&id)
+        self.faces.get(&id).map(|face| &face.metrics)
     }
 
     /// The number of faces in this snapshot — the cosmic registry-sync token (ADR 0006).
     pub fn face_count(&self) -> usize {
-        self.inner.fonts.len()
+        self.faces.len()
     }
 
     /// Every `(FaceId, FontData)` of the snapshot, ordered by face payload.
@@ -106,10 +92,9 @@ impl FontRegistry {
     /// `HashMap` iteration orders.
     pub fn entries(&self) -> Vec<(FaceId, FontData)> {
         let mut entries: Vec<_> = self
-            .inner
-            .fonts
+            .faces
             .iter()
-            .map(|(id, data)| (*id, data.clone()))
+            .map(|(id, face)| (*id, face.font_data.clone()))
             .collect();
         entries.sort_unstable_by_key(|(id, _)| std::cmp::Reverse(id.payload()));
         entries.reverse();
@@ -381,8 +366,9 @@ pub trait ShapingEngine: Send {
     /// The engine identity (e.g. `"parley"`, `"cosmic-text"`).
     fn name(&self) -> &'static str;
 
-    /// Register a font file (all faces of it) and return one [`FaceId`] per face.
-    fn load_font(&mut self, data: FontBytes) -> Vec<FaceId>;
+    /// Register a validated font file (all faces of it) and return one [`FaceId`] per face.
+    /// Returns an error without mutation if any face fails Swash validation.
+    fn load_font(&mut self, data: FontBytes) -> Result<Vec<FaceId>>;
 
     /// Resolve a [`FaceId`] produced by this engine back to concrete font data.
     fn font_data(&self, id: FaceId) -> Option<FontData>;
@@ -409,10 +395,13 @@ pub trait ShapingEngine: Send {
     /// ([`EngineScratch::sync`]) without touching the manager mutex.
     fn new_scratch(&self, published: &FontRegistry) -> Box<dyn EngineScratch>;
 
-    /// Resolve a face from font data into the canonical registry, returning its [`FaceId`]
-    /// (ADR 0006: the manager is the only issuer). Used by session-path fallback resolution;
-    /// parley never needs it (its `FaceId`s derive from blob ids over the shared
-    /// collection, static after every registration).
+    /// Resolve selected font data into the canonical registry and return its [`FaceId`]
+    /// (ADR 0006: the manager is the only issuer).
+    ///
+    /// Cosmic calls this lazily when shaping first selects a database face that is absent from
+    /// the session scratch's synced registry and resolution cache, commonly a system fallback.
+    /// Further uses of that face in the scratch use its cached `FaceId`. Parley derives its ids
+    /// from the shared collection and does not call this hook.
     fn resolve_face(&mut self, data: FontData) -> Option<FaceId> {
         let _ = data;
         None

@@ -198,7 +198,9 @@ mod tests {
     #[test]
     fn contexts_from_one_manager_shape_concurrently() {
         for kind in all_engines() {
-            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
             let first_context = fonts.new_shaping_context();
             let second_context = fonts.new_shaping_context();
 
@@ -249,7 +251,9 @@ mod tests {
     #[test]
     #[should_panic(expected = "ShapingContext shaper reentrancy")]
     fn one_context_rejects_reentrant_shaping() {
-        let fonts = FontManager::bare(ShapingEngineKind::Parley).with_font(JETBRAINS_MONO);
+        let fonts = FontManager::bare(ShapingEngineKind::Parley)
+            .with_font(JETBRAINS_MONO)
+            .expect("bundled font is valid");
         let context = fonts.new_shaping_context();
         let _first = context.shaper();
         let _second = context.shaper();
@@ -259,7 +263,9 @@ mod tests {
     #[test]
     fn shaped_faces_resolve_to_font_data() {
         for kind in all_engines() {
-            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
             let request =
                 ShapingRequest::new("a->b", TextAttributes::named_family("JetBrains Mono"));
             let context = fonts.new_shaping_context();

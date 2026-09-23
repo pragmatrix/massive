@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::Result;
 use derive_more::{From, Into};
 use uuid::Uuid;
@@ -9,64 +7,47 @@ use massive_geometry::{BoxPx, Size, SizePx};
 use massive_scene::Ref;
 use massive_scene::prelude::*;
 
-use crate::{InstanceChange, InstanceChangeCollector, Scene, ViewId};
+use crate::prelude::*;
+use crate::{InstanceChange, ViewId};
 
-/// ADR: Decided to let the View own the Scene, so that we do have a lifetime restriction on the
-/// Scene and can properly clean up and detect dangling handles in this scene in the Desktop.
+/// A view of one instance: its desktop-side presenter state is driven by the typed
+/// `InstanceChange`s it pushes into the task's change queue (ADR 0008).
 #[derive(Debug)]
 pub struct View {
-    scene: Scene,
     id: ViewId,
     transform: Handle<Transform>,
     location: Handle<Location>,
-    change_collector: Arc<InstanceChangeCollector>,
     title: String,
     cursor: CursorIcon,
 }
 
 impl Drop for View {
     fn drop(&mut self) {
-        self.change_collector
-            .collect(InstanceChange::DestroyView(self.id));
+        collect(InstanceChange::DestroyView(self.id));
     }
 }
 
 impl View {
-    pub(crate) fn new(
-        parent: Ref<Location>,
-        extents: BoxPx,
-        scene: Scene,
-        role: ViewRole,
-        change_collector: Arc<InstanceChangeCollector>,
-    ) -> Result<Self> {
+    pub(crate) fn new(parent: Ref<Location>, extents: BoxPx, role: ViewRole) -> Result<Self> {
         let id = ViewId(Uuid::new_v4());
 
         let size: Size = SizePx::from(extents.size().cast()).into();
-        let local_transform = Transform::from(-size.center()).enter(&scene);
-        let location = local_transform
-            .to_location()
-            .relative_to(parent)
-            .enter(&scene);
+        let local_transform = Transform::from(-size.center()).enter();
+        let location = local_transform.to_location().relative_to(parent).enter();
 
-        change_collector.collect(InstanceChange::CreateView(ViewCreationInfo {
+        collect(InstanceChange::CreateView(ViewCreationInfo {
             id,
             role,
             extents,
         }));
 
         Ok(Self {
-            scene,
             id,
             transform: local_transform,
             location,
-            change_collector,
             title: String::new(),
             cursor: CursorIcon::default(),
         })
-    }
-
-    pub fn scene(&self) -> &Scene {
-        &self.scene
     }
 
     /// The location's transform.
@@ -88,7 +69,7 @@ impl View {
 
     #[allow(unused)]
     fn resize(&mut self, new_extents: impl Into<ViewExtent>) {
-        self.change_collector.collect(InstanceChange::View(
+        collect(InstanceChange::View(
             self.id,
             ViewChange::Resize(new_extents.into().into()),
         ))
@@ -101,8 +82,7 @@ impl View {
         }
 
         self.title = title.clone();
-        self.change_collector
-            .collect(InstanceChange::View(self.id, ViewChange::SetTitle(title)))
+        collect(InstanceChange::View(self.id, ViewChange::SetTitle(title)));
     }
 
     pub fn set_cursor(&mut self, cursor: CursorIcon) {
@@ -111,8 +91,7 @@ impl View {
         }
 
         self.cursor = cursor;
-        self.change_collector
-            .collect(InstanceChange::View(self.id, ViewChange::SetCursor(cursor)))
+        collect(InstanceChange::View(self.id, ViewChange::SetCursor(cursor)));
     }
 }
 

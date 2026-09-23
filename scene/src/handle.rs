@@ -2,7 +2,7 @@ use std::{fmt, hash, ops::Deref, sync::Arc};
 
 use parking_lot::{Mutex, MutexGuard};
 
-use crate::{Change, HandleChangeReceiver, Id, Scene, SceneChange};
+use crate::{Change, ChangeSink, Id, SceneChange, id_generator};
 
 /// A handle is a mutable representation of an object entered into a scene.
 ///
@@ -53,18 +53,42 @@ impl<T: Object> Handle<T>
 where
     SceneChange: From<Change<T::Change>>,
 {
-    pub(crate) fn new(id: Id, value: T, change_collector: Arc<dyn HandleChangeReceiver>) -> Self {
-        let uploaded = T::to_change(&value);
-        change_collector.send(Change::Create(id, uploaded).into());
+    pub(crate) fn new(value: T, change_collector: Arc<dyn ChangeSink>) -> Self
+    where
+        T: 'static,
+    {
+        let (handle, create) = Self::unpublished(value, &change_collector);
+        change_collector.send(create.into());
 
-        Self {
+        handle
+    }
+
+    /// Construct a handle without publishing its create change, returning that change.
+    ///
+    /// Invariant: the returned change must reach the queue before the handle is observable by
+    /// other code, otherwise a later drop deletes an id the queue never saw created. The only
+    /// caller is `scene::enter_pair`, which publishes the creates of both handles in one batch.
+    pub(crate) fn unpublished(
+        value: T,
+        change_collector: &Arc<dyn ChangeSink>,
+    ) -> (Self, Change<T::Change>)
+    where
+        T: 'static,
+    {
+        // Ids are keyed by type, which is what needs the 'static bound here.
+        let id = id_generator::acquire::<T>();
+        let create = Change::Create(id, T::to_change(&value));
+
+        let handle = Self {
             inner: InnerHandle {
                 id,
-                change_collector,
+                change_collector: change_collector.clone(),
                 value: value.into(),
             }
             .into(),
-        }
+        };
+
+        (handle, create)
     }
 
     pub fn id(&self) -> Id {
@@ -209,17 +233,31 @@ where
 }
 
 /// Internal representation of the object handle.
-#[derive(Debug)]
 struct InnerHandle<T: Object>
 where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
-    /// This is effectively the connection to the scene it was entered into.
-    change_collector: Arc<dyn HandleChangeReceiver>,
+    /// This is effectively the connection to the queue it was entered into.
+    change_collector: Arc<dyn ChangeSink>,
     // Optimization: Some values might be too large to be duplicated between the application and the
     // renderer.
     value: Mutex<T>,
+}
+
+impl<T: Object> fmt::Debug for InnerHandle<T>
+where
+    SceneChange: From<Change<T::Change>>,
+{
+    // The shared sink can hold the task's full pending queue, which every handle would repeat.
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let value = self.value.lock();
+        formatter
+            .debug_struct("InnerHandle")
+            .field("id", &self.id)
+            .field("value", &*value)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<T: Object> InnerHandle<T>
@@ -297,11 +335,4 @@ where
 
     /// Convert the current value to something that can be uploaded.
     fn to_change(&self) -> Self::Change;
-
-    fn enter(self, scene: &Scene) -> Handle<Self>
-    where
-        Self: 'static,
-    {
-        scene.enter(self)
-    }
 }

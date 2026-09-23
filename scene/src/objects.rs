@@ -124,7 +124,7 @@ impl Visual {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct VisualRenderObj {
     pub location: Id,
     pub decal_order: Option<usize>,
@@ -195,7 +195,7 @@ impl Location {
     }
 
     pub fn with_alpha(mut self, alpha: f32) -> Self {
-        self.alpha = normalize_alpha(alpha);
+        self.alpha = alpha;
         self
     }
 }
@@ -223,23 +223,26 @@ impl Object for Location {
         LocationRenderObj {
             parent,
             transform,
-            alpha: normalize_alpha(self.alpha),
+            alpha: self.alpha,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct LocationRenderObj {
     pub parent: LocationParentId,
     pub transform: Id,
     pub alpha: f32,
 }
 
-fn normalize_alpha(alpha: f32) -> f32 {
-    if alpha.is_finite() {
-        alpha.clamp(0.0, 1.0)
-    } else {
-        1.0
+impl LocationRenderObj {
+    /// Scene changes can be constructed directly, so the renderer must not trust their alpha.
+    pub fn sanitized_alpha(&self) -> f32 {
+        if self.alpha.is_finite() {
+            self.alpha.clamp(0.0, 1.0)
+        } else {
+            1.0
+        }
     }
 }
 
@@ -254,13 +257,12 @@ impl Object for Transform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ChangeCollector, Scene};
+    use crate::AnyCollector;
 
     #[test]
     fn location_new_defaults_to_opaque_alpha() {
-        let receiver = Arc::new(ChangeCollector::default());
-        let scene = Scene::new(receiver);
-        let transform = Transform::IDENTITY.enter(&scene);
+        let collector = AnyCollector::for_type::<SceneChange>();
+        let transform = crate::enter(&collector, Transform::IDENTITY);
         let location = Location::root(LocationSpace::World, transform);
 
         assert_eq!(location.alpha, 1.0);
@@ -268,31 +270,12 @@ mod tests {
     }
 
     #[test]
-    fn location_alpha_is_normalized_when_set_and_uploaded() {
-        let receiver = Arc::new(ChangeCollector::default());
-        let scene = Scene::new(receiver);
-        let transform = Transform::IDENTITY.enter(&scene);
+    fn location_alpha_is_forwarded_without_normalization() {
+        let collector = AnyCollector::for_type::<SceneChange>();
+        let transform = crate::enter(&collector, Transform::IDENTITY);
+        let location = Location::root(LocationSpace::World, transform).with_alpha(2.0);
 
-        assert_eq!(
-            Location::root(LocationSpace::World, transform.clone())
-                .with_alpha(2.0)
-                .to_change()
-                .alpha,
-            1.0
-        );
-        assert_eq!(
-            Location::root(LocationSpace::World, transform.clone())
-                .with_alpha(-1.0)
-                .to_change()
-                .alpha,
-            0.0
-        );
-        assert_eq!(
-            Location::root(LocationSpace::World, transform)
-                .with_alpha(f32::NAN)
-                .to_change()
-                .alpha,
-            1.0
-        );
+        assert_eq!(location.alpha, 2.0);
+        assert_eq!(location.to_change().alpha, 2.0);
     }
 }

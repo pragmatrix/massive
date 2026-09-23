@@ -44,6 +44,7 @@
 use std::fmt;
 use std::sync::Arc;
 
+use anyhow::{Result, bail};
 use arc_swap::ArcSwap;
 use parking_lot::Mutex;
 
@@ -52,10 +53,12 @@ use super::shaping_context::ShapingContext;
 use super::state::{FontAuthority, FontManagerState, PublishedRegistry};
 use crate::FaceId;
 use crate::engine::{FontRegistry, ShapingEngine, ShapingEngineKind};
+use crate::font_validation::validate_font_file;
 #[cfg(feature = "cosmic-text")]
 use crate::shaping_engines::CosmicTextEngine;
 #[cfg(feature = "parley")]
 use crate::shaping_engines::ParleyEngine;
+
 /// A font manager sharing one canonical shaping engine and published registry.
 ///
 /// Per-owner shaping scratch lives in [`ShapingContext`].
@@ -79,7 +82,7 @@ impl FontManager {
         });
         Self {
             state: Arc::new(FontManagerState {
-                authority: Arc::new(Mutex::new(FontAuthority { engine })),
+                authority: Mutex::new(FontAuthority { engine }),
                 published,
             }),
         }
@@ -88,36 +91,38 @@ impl FontManager {
     /// Create a manager as `policy` prescribes.
     ///
     /// The policy is the whole construction input: which engine shapes, and whether system fonts
-    /// are selectable. Each engine has one policy-driven constructor, so this is a plain dispatch
-    /// over the compiled-in engines.
-    pub fn new(policy: FontPolicy) -> Self {
+    /// are selectable. System-font initialization fails if the backend cannot guarantee that
+    /// every selectable face passes Swash validation.
+    pub fn new(policy: FontPolicy) -> Result<Self> {
         let kind = policy.engine();
         let engine: Box<dyn ShapingEngine> = match kind {
             #[cfg(feature = "parley")]
-            ShapingEngineKind::Parley => Box::new(ParleyEngine::new(policy.system_fonts())),
+            ShapingEngineKind::Parley => Box::new(ParleyEngine::new(policy.system_fonts())?),
             #[cfg(feature = "cosmic-text")]
-            ShapingEngineKind::CosmicText => Box::new(CosmicTextEngine::new(policy.system_fonts())),
+            ShapingEngineKind::CosmicText => {
+                Box::new(CosmicTextEngine::new(policy.system_fonts())?)
+            }
         };
-        Self::with_engine(kind, engine)
+        Ok(Self::with_engine(kind, engine))
     }
 
     /// A bare manager over the given engine kind: no fallbacks, no fonts.
     pub fn bare(kind: ShapingEngineKind) -> Self {
-        Self::new(FontPolicy::bare(kind))
+        Self::new(FontPolicy::bare(kind)).expect("bare font manager construction is infallible")
     }
 
     /// Create a manager over the given engine kind, with system fonts loaded.
-    pub fn system(kind: ShapingEngineKind) -> Self {
+    pub fn system(kind: ShapingEngineKind) -> Result<Self> {
         Self::new(FontPolicy::system(kind))
     }
 
-    /// Adds the font and returns Self
-    pub fn with_font(self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Self {
-        self.load_font(font_data);
-        self
+    /// Adds the font and returns `Self`, or errors if any face in the file is invalid.
+    pub fn with_font(self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Result<Self> {
+        self.load_font(font_data)?;
+        Ok(self)
     }
 
-    /// Adds the font and returns its font ids.
+    /// Adds the font and returns its face ids, or errors if any face in the file is invalid.
     ///
     /// Together with [`Self::shaping_context`], this is the *entire* entry surface for engine
     /// state. The manager mutex covers only this registration work — shapers shape per
@@ -129,28 +134,43 @@ impl FontManager {
     ///
     /// Font loading is possible at any time: parley sees the font through the shared
     /// collection; cosmic re-syncs on the next shaper's registry check.
-    pub fn load_font(&self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Vec<FaceId> {
+    pub fn load_font(
+        &self,
+        font_data: impl AsRef<[u8]> + Sync + Send + 'static,
+    ) -> Result<Vec<FaceId>> {
         self.load_fonts(std::iter::once(font_data))
-            .pop()
-            .expect("one font was loaded")
+            .map(|mut ids| ids.pop().expect("one font was loaded"))
     }
 
-    /// Adds multiple fonts and returns their font ids, publishing the registry once.
-    pub fn load_fonts<T>(&self, font_data: impl IntoIterator<Item = T>) -> Vec<Vec<FaceId>>
+    /// Adds multiple fonts and returns their face ids, publishing the registry once.
+    ///
+    /// Every file is validated before engine mutation; one invalid file rejects the entire batch.
+    pub fn load_fonts<T>(&self, font_data: impl IntoIterator<Item = T>) -> Result<Vec<Vec<FaceId>>>
     where
         T: AsRef<[u8]> + Sync + Send + 'static,
     {
+        let font_data: Vec<_> = font_data
+            .into_iter()
+            .map(|data| Arc::new(data) as crate::engine::FontBytes)
+            .collect();
+        for (index, data) in font_data.iter().enumerate() {
+            if let Err(error) = validate_font_file(data.as_ref().as_ref()) {
+                log::warn!("Rejecting font file at batch index {index}: {error}");
+                bail!("font file at batch index {index} is invalid: {error}");
+            }
+        }
+
         let mut authority = self.state.authority.lock();
         let ids = font_data
             .into_iter()
-            .map(|data| authority.engine.load_font(Arc::new(data)))
-            .collect();
+            .map(|data| authority.engine.load_font(data))
+            .collect::<Result<Vec<_>>>()?;
         // The registry just mutated: republish while the lock is still held (see module doc).
         self.state
             .published
             .current
             .store(authority.engine.font_registry());
-        ids
+        Ok(ids)
     }
 
     /// The engine this manager shapes with.
@@ -263,7 +283,9 @@ mod tests {
         let text = "\u{1168A}\u{116B6}\u{116A9}";
         let mut by_kind = Vec::new();
         for kind in all_engines() {
-            let fonts = FontManager::bare(kind).with_font(TAKRI);
+            let fonts = FontManager::bare(kind)
+                .with_font(TAKRI)
+                .expect("bundled font is valid");
             let request =
                 ShapingRequest::new(text, TextAttributes::named_family("Noto Sans Takri"));
             let run = {
@@ -310,7 +332,9 @@ mod tests {
         let descenders = "jyg";
         let mut by_kind = Vec::new();
         for kind in all_engines() {
-            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
             let request =
                 ShapingRequest::new(descenders, TextAttributes::named_family("JetBrains Mono"));
             let run = {
@@ -344,7 +368,9 @@ mod tests {
     fn probe_rtl_dump() {
         for text in ["abسلام", "سلامabسلام", "سلام"] {
             for kind in all_engines() {
-                let fonts = FontManager::bare(kind).with_font(AMIRI);
+                let fonts = FontManager::bare(kind)
+                    .with_font(AMIRI)
+                    .expect("bundled font is valid");
                 let mut request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"))
                     .with_metadata();
                 // Attribute every Arabic segment (defaults cover the LTR islands).
@@ -438,7 +464,9 @@ mod tests {
         let cases = [("سلام", vec![0, 2, 4, 6]), ("abسلام", vec![2, 4, 6, 8])];
         for (text, byte_starts) in cases {
             for kind in all_engines() {
-                let fonts = FontManager::bare(kind).with_font(AMIRI);
+                let fonts = FontManager::bare(kind)
+                    .with_font(AMIRI)
+                    .expect("bundled font is valid");
                 let request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
                 let run = {
                     let context = fonts.new_shaping_context();
@@ -487,7 +515,9 @@ mod tests {
         for kind in all_engines() {
             let fonts = FontManager::bare(kind)
                 .with_font(JETBRAINS_MONO)
-                .with_font(AMIRI);
+                .expect("bundled font is valid")
+                .with_font(AMIRI)
+                .expect("bundled font is valid");
             // Overridden range: JetBrains Mono default, `B` (byte 1..2) forced to Amiri.
             let mut overridden =
                 ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
@@ -549,9 +579,13 @@ mod tests {
     #[test]
     fn load_font_registers_all_engine_faces() {
         for kind in all_engines() {
-            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
             assert_eq!(fonts.engine_kind(), kind);
-            let id = fonts.load_font(JETBRAINS_MONO)[0];
+            let id = fonts
+                .load_font(JETBRAINS_MONO)
+                .expect("bundled font is valid")[0];
             let context = fonts.new_shaping_context();
             assert!(
                 context.shaper().font_data(id).is_some(),
@@ -565,12 +599,30 @@ mod tests {
     fn load_fonts_registers_every_batch_item() {
         for kind in all_engines() {
             let fonts = FontManager::bare(kind);
-            let batches = fonts.load_fonts([JETBRAINS_MONO, JETBRAINS_MONO]);
+            let batches = fonts
+                .load_fonts([JETBRAINS_MONO, JETBRAINS_MONO])
+                .expect("bundled fonts are valid");
 
             assert_eq!(batches.len(), 2);
             for id in batches.into_iter().flatten() {
                 assert!(fonts.published().font_data(id).is_some());
             }
+        }
+    }
+
+    #[test]
+    fn invalid_batch_does_not_register_valid_prefix() {
+        let invalid: &[u8] = b"not a font";
+        for kind in all_engines() {
+            let fonts = FontManager::bare(kind);
+            let result = fonts.load_fonts([JETBRAINS_MONO, invalid]);
+
+            assert!(result.is_err(), "{kind:?} must reject invalid input");
+            assert_eq!(
+                fonts.published().face_count(),
+                0,
+                "{kind:?} must reject the valid prefix too"
+            );
         }
     }
 
@@ -588,7 +640,9 @@ mod tests {
         // (text, boundary byte offset — must fall on a grapheme edge, not inside a mark)
         for (text, boundary) in [("a->ba", 2), ("afiba", 3), ("a=+=b", 2), ("e\u{0301}ab", 3)] {
             for kind in all_engines() {
-                let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+                let fonts = FontManager::bare(kind)
+                    .with_font(JETBRAINS_MONO)
+                    .expect("bundled font is valid");
 
                 let mut request = ShapingRequest::new(
                     text,
@@ -643,7 +697,9 @@ mod tests {
     fn metadata_disabled_yields_zero_clusters() {
         let text = "abcd";
         for kind in all_engines() {
-            let fonts = FontManager::bare(kind).with_font(JETBRAINS_MONO);
+            let fonts = FontManager::bare(kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
             let mut request =
                 ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
             request.ranges = vec![
@@ -697,7 +753,9 @@ mod tests {
             for kind in all_engines() {
                 let fonts = FontManager::bare(kind)
                     .with_font(JETBRAINS_MONO)
-                    .with_font(TAKRI);
+                    .expect("bundled font is valid")
+                    .with_font(TAKRI)
+                    .expect("bundled font is valid");
                 let request =
                     ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
                 let run = {

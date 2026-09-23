@@ -5,7 +5,7 @@ use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::{Scene, ShapingContext};
+use massive_shell::ShapingContext;
 
 use super::ProjectProperties;
 
@@ -28,16 +28,12 @@ impl ProjectPresenter {
     pub fn new(
         properties: ProjectProperties,
         parent_location: Handle<Location>,
-        scene: &Scene,
         shaping_context: &ShapingContext,
     ) -> Self {
-        let (scene_transform, location) = identity_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+        let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
         let name = properties.name.clone();
-        let header =
-            ProjectHeaderPresenter::new(properties, location.clone(), scene, shaping_context);
-        let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
+        let header = ProjectHeaderPresenter::new(properties, location.clone(), shaping_context);
+        let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
             name,
@@ -67,12 +63,9 @@ impl ProjectHeaderPresenter {
     pub fn new(
         properties: ProjectProperties,
         parent_location: Handle<Location>,
-        scene: &Scene,
         shaping_context: &ShapingContext,
     ) -> Self {
-        let (scene_transform, location) = identity_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+        let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
         let mut shaper = shaping_context.shaper();
@@ -86,13 +79,13 @@ impl ProjectHeaderPresenter {
 
         let background = background_shape(Rect::default(), PROJECT_HEADER_BACKGROUND_COLOR)
             .at(&location)
-            .enter(scene);
+            .enter();
 
         let name = header_run
             .map(|run| run.with_color(PROJECT_HEADER_TEXT_COLOR).into_shape())
             .at(&location)
             .with_decal_order(PROJECT_HEADER_TEXT_DECAL_ORDER)
-            .enter(scene);
+            .enter();
 
         let movement_scene_transform = scene_transform.clone();
         let movement_background = background.clone();
@@ -194,10 +187,8 @@ pub struct ProjectMatrixPresenter {
 }
 
 impl ProjectMatrixPresenter {
-    pub fn new(parent_location: Handle<Location>, scene: &Scene) -> Self {
-        let (scene_transform, location) = identity_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+    pub fn new(parent_location: Handle<Location>) -> Self {
+        let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
 
         Self {
             scene_transform,

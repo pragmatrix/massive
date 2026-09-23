@@ -13,6 +13,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::Result;
 use cosmic_text::fontdb;
 use swash::FontRef;
 
@@ -45,7 +46,7 @@ impl FontBridge {
     /// This eagerly reads every system font file and retains its bytes, which can consume a large
     /// amount of memory. It is suitable for this example's complete fallback coverage, but not
     /// for production startup; production code should load only fonts selected by shaping.
-    pub fn system() -> Self {
+    pub fn system() -> Result<Self> {
         let mut font_db = fontdb::Database::new();
         font_db.load_system_fonts();
         // Cosmic-text matches inlyne's FontSystem, which does the measuring for these examples.
@@ -71,7 +72,7 @@ impl FontBridge {
             font_files.push(bytes);
         }
 
-        let loaded_files = font_manager.load_fonts(font_files);
+        let loaded_files = font_manager.load_fonts(font_files)?;
         let mut face_ids = HashMap::new();
         for face in font_db.faces() {
             let path = match &face.source {
@@ -90,11 +91,11 @@ impl FontBridge {
             }
         }
 
-        Self {
+        Ok(Self {
             font_manager,
             font_db,
             face_ids,
-        }
+        })
     }
 
     /// Register `font_bytes` into both databases and build the `fontdb::ID → FaceId` map.
@@ -105,8 +106,8 @@ impl FontBridge {
         font_manager: massive_shapes::FontManager,
         mut font_db: fontdb::Database,
         font_bytes: Arc<[u8]>,
-    ) -> Self {
-        let engine_ids = font_manager.load_font(font_bytes.clone());
+    ) -> Result<Self> {
+        let engine_ids = font_manager.load_font(font_bytes.clone())?;
         // fontdb's `Source::Binary` needs a trait-object Arc; clone the bytes into a `Vec` so the
         // two databases each hold their own reference to the same data.
         let fontdb_source = fontdb::Source::Binary(
@@ -120,11 +121,11 @@ impl FontBridge {
                 face_ids.insert(fontdb_id, face_id);
             }
         }
-        Self {
+        Ok(Self {
             font_manager,
             font_db,
             face_ids,
-        }
+        })
     }
 
     /// The font manager, for the renderer's rasterization path.
@@ -251,7 +252,8 @@ mod tests {
             massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText),
             fontdb::Database::new(),
             Arc::from(MONTSERRAT),
-        );
+        )
+        .expect("bundled font is valid");
         let mut font_system =
             FontSystem::new_with_locale_and_db("en-US".into(), bridge.font_db().clone());
         let mut buffer = Buffer::new(&mut font_system, Metrics::new(16.0, 20.0));
@@ -286,7 +288,7 @@ mod tests {
     #[ignore = "manual memory measurement"]
     fn measure_system_font_memory() {
         let before_rss_kib = process_rss_kib();
-        let bridge = FontBridge::system();
+        let bridge = FontBridge::system().expect("system font sources are readable");
         let after_rss_kib = process_rss_kib();
 
         let mut paths = HashSet::new();

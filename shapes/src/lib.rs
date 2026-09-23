@@ -2,6 +2,7 @@ mod clip_box;
 mod engine;
 mod face_metrics;
 mod font_manager;
+mod font_validation;
 mod glyph_run;
 mod shape;
 mod shaping_engines;

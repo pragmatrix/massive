@@ -22,6 +22,15 @@ impl<C> ChangeCollector<C> {
         self.changes.lock().push(change);
     }
 
+    /// Collect a whole batch under one lock acquisition.
+    pub fn collect_all(&self, changes: impl IntoIterator<Item = C>) {
+        let mut queued = self.changes.lock();
+        for change in changes {
+            // Pushing one by one instead of extending keeps the batch's arrival time on record.
+            queued.push(change);
+        }
+    }
+
     pub fn collect_many(&self, changes: impl Into<ChangeSet<C>>) {
         let changes = changes.into();
         self.changes.lock().accumulate(changes);

@@ -63,7 +63,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     }
 
     let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
 
     let font_size = 32.;
     let line_height = 40.;
@@ -86,10 +86,9 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let scene = scene();
     let mut renderer = window
         .renderer()
-        .with_text(fonts.registry_source())
+        .with_text_registry(fonts.registry_source())
         .build()
         .await?;
 
@@ -97,8 +96,8 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = (1280, height as u32);
     let mut application = Application::default();
-    let transform = application.get_transform(content_size).enter(&scene);
-    let position = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).enter_owned();
+    let position = transform.to_location().enter_owned();
 
     // Hold the entered visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -106,7 +105,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&position)
-        .enter(&scene);
+        .enter_owned();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -129,6 +128,6 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        ctx.frame().render_to(&mut renderer)?;
     }
 }

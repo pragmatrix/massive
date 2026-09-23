@@ -11,10 +11,11 @@ use winit::window::WindowAttributes;
 use massive_applications::task_context;
 use massive_applications::{ApplicationEvent, ApplicationMessage, Frame, PresentationId, ViewId};
 use massive_geometry::SizePx;
+use massive_scene::SceneChange;
 use massive_util::CoalescingReceiver;
 
+use crate::ShellWindow;
 use crate::shell::ShellCommand;
-use crate::{Scene, ShellWindow};
 
 /// The [`ApplicationContext`] is the application's connection to the shell. It allows it to create
 /// new windows and to wait for events while also forwarding scene changes to the renderer.
@@ -50,13 +51,10 @@ impl ApplicationContext {
         self.monitor_scale_factor
     }
 
-    /// Bundle a scene with the application's animation clock for one update cycle.
-    ///
-    /// The scene is explicit because a task may work on several: the installed one is the
-    /// default (`task_context::scene()`), while a caller-provided one supports per-view scenes
-    /// and tests (ADR 0008).
-    pub fn frame<'scene>(&self, scene: &'scene Scene) -> Frame<'scene> {
-        Frame::new(scene)
+    /// Bundle the task's change queue with the application's animation clock for one update
+    /// cycle. The change kind is fixed by the submission call (ADR 0008).
+    pub fn frame(&self) -> Frame<SceneChange> {
+        Frame::new()
     }
 
     /// Creates a new window.
