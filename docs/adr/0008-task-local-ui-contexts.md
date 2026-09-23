@@ -34,7 +34,7 @@ The explicit scene entry points remain available for multi-scene tasks and tests
 
 `FontManager` retains the shared font registry, source cache, face-data map, generic family mapping, and symbol-fallback rebuild. The renderer continues to receive a `FontManager` handle. Per-task `ShaperContext` values hold `FontContext` and `LayoutContext<GlyphBrush>` over the shared collection, so shaping scratch is not serialized through the registry lock. The generic-family mapping remains part of shared collection setup because omitting it can produce silently empty layouts.
 
-The existing `.shape(&mut shaper)` builder API and the small number of raw `contexts()` call sites remain usable through the task-local guard. Completion-event downcasting and the app-configuration constructors `FontManager::bare`, `with_font`, and `system` are unchanged.
+The sizing builder resolves the task's shaper itself: `label.size(FONT_SIZE).shape()` shapes through `AmbientShape` (see the ambient-shaping amendment below), while `SizedTextShaper::shape_with(&mut Shaper)` stays the entry point for callers that already hold a shaper. Completion-event downcasting and the app-configuration constructors `FontManager::bare`, `with_font`, and `system` are unchanged.
 
 ## Context and invariants
 
@@ -174,3 +174,31 @@ changes via `From<SceneChange>`).
   is drained or the task logs" is an invariant, not an implementation detail.
 - Criterion benchmarks (`massive/scene/benches/push_cost.rs`) pin the erasure
   cost: roughly 2 ns per push over the plain typed collector, about 10%.
+
+## Amendment: ambient shaping, one ambient module (2026-09-23)
+
+Text shaping joins scene entry on the ambient path: `label.size(FONT_SIZE).shape()`
+resolves the task's shaper at the call site, so no presenter or call site carries a
+`&ShapingContext` any more.
+
+### Decision
+
+- The ambient step is `AmbientShape::shape(self) -> Option<GlyphRun>`, implemented
+  for `SizedTextShaper` — the type the sizing chain actually produces. It opens the
+  shaper from the task-local and delegates.
+- `SizedTextShaper::shape(self, &mut Shaper)` becomes `shape_with`. Two names, two
+  cases: `shape()` is ambient, `shape_with(shaper)` takes the shaper the caller
+  already holds (tests, benchmarks, shaping outside a task). The rename is forced by
+  name resolution, not taste: method lookup matches the receiver type and ignores
+  arity, so an inherent `shape` wins the probe against a same-named trait method even
+  when only the trait's arity fits. The compiler reports a missing argument
+  (`E0061`) for the inherent method, and nothing points at the trait.
+- The trait lives in `massive-applications`, which owns the task-local, not in
+  `massive-shapes`. `massive-shapes` sits below the context's installation point and
+  cannot name it without inverting the dependency. This gives `massive-applications`
+  a direct `massive-shapes` dependency, replacing its accidental reach through
+  `massive-renderer`'s re-exports.
+- Ambient accessors share one module, `massive-applications::ambient`: `Enter` and
+  `AmbientShape` are the same idea — read the task's installed context instead of
+  threading it — and the `prelude` re-exports them together. The earlier
+  `enter_ambient` and `ambient_shape` modules are merged into it.
