@@ -8,7 +8,7 @@ use massive_applications::{
     ViewEvent, ViewRole,
 };
 use massive_scene::SceneChange;
-use massive_shell::{Frame, task_context};
+use massive_shell::Frame;
 
 use super::change::Zoom;
 use super::change::set_focus;
@@ -540,9 +540,7 @@ impl DesktopSystem {
         match change {
             ProjectChange::AddProject { id, properties } => {
                 let parent_location = self.desktop_presenter.location.clone();
-                let presenter = task_context::with_shaper(|fonts| {
-                    ProjectPresenter::new(properties, parent_location, fonts)
-                });
+                let presenter = ProjectPresenter::new(properties, parent_location);
                 self.aggregates.projects.insert(id, presenter)?;
             }
             ProjectChange::RemoveProject(project) => {
@@ -567,15 +565,12 @@ impl DesktopSystem {
                     .matrix
                     .location();
 
-                let presenter = task_context::with_shaper(|fonts| {
-                    LauncherPresenter::new(
-                        matrix_location,
-                        id,
-                        profile,
-                        massive_geometry::Size::default(),
-                        fonts,
-                    )
-                });
+                let presenter = LauncherPresenter::new(
+                    matrix_location,
+                    id,
+                    profile,
+                    massive_geometry::Size::default(),
+                );
                 self.aggregates.launchers.insert(id, presenter)?;
             }
             ProjectChange::MoveLauncher {

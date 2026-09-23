@@ -11,6 +11,8 @@ massive-util.workspace = true
 # Only here for the FontManager?
 massive-renderer.workspace = true
 massive-input.workspace = true
+# AmbientShape implements over the text-shaping builder.
+massive-shapes.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true

@@ -102,14 +102,11 @@ impl FocusDepthIndicatorMovement {
     }
 
     fn create_badges() -> ([FocusDepthBadge; FOCUS_DEPTH_LABELS.len()], SizePx) {
-        let glyph_runs = with_shaper(|font_manager| {
-            let mut shaper = font_manager.shaper();
-            FOCUS_DEPTH_LABELS.map(|(_, label)| {
-                label
-                    .size(FONT_SIZE)
-                    .shape(&mut shaper)
-                    .expect("FocusDepth labels must produce glyphs")
-            })
+        let glyph_runs = FOCUS_DEPTH_LABELS.map(|(_, label)| {
+            label
+                .size(FONT_SIZE)
+                .shape()
+                .expect("FocusDepth labels must produce glyphs")
         });
         let (horizontal_padding, vertical_padding) = PADDING;
         let width = glyph_runs
