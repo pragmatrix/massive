@@ -124,16 +124,6 @@ where
     }
 }
 
-impl<C> Default for Frame<C>
-where
-    C: From<SceneChange> + std::fmt::Debug + Send + Any + 'static,
-{
-    #[track_caller]
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl<C> AnimationAllocator for Frame<C>
 where
     C: From<SceneChange> + std::fmt::Debug + Send + Any,
