@@ -6,7 +6,6 @@ use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_layout::Placement;
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
-use massive_shell::Scene;
 
 const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
@@ -24,12 +23,12 @@ pub struct DesktopPresenter {
 impl DesktopPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
 
-    pub fn new(location: Handle<Location>, scene: &Scene) -> Self {
-        let (hover_scene_transform, hover_location) = identity_location().enter(scene);
+    pub fn new(location: Handle<Location>) -> Self {
+        let (hover_scene_transform, hover_location) = identity_location().enter();
         let hover_visual = create_hover_shapes(None)
             .into_visual()
             .at(&hover_location)
-            .enter(scene);
+            .enter();
         let hover_movement = movement(HoverMovement::default(), move |movement, context| {
             movement.update_hover_placement_and_visual(
                 context,

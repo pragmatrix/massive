@@ -3,14 +3,11 @@ use massive_scene::{
     Id, LocationParentId, LocationRenderObj, LocationSpace, ResolvedLocation, Transform,
 };
 
-use crate::{
-    Transaction, Version,
-    scene::{
-        IdTable, Scene,
-        dependency_resolver::{DependencyResolver, resolve},
-    },
-    tools::{Computed, Versioned},
-};
+use crate::Transaction;
+use crate::Version;
+use crate::scene::dependency_resolver::{DependencyResolver, resolve};
+use crate::scene::{IdTable, Scene};
+use crate::tools::{Computed, Versioned};
 
 /// Computed matrices of all the visuals.
 #[derive(Debug, Default)]
@@ -129,18 +126,19 @@ impl DependencyResolver for VisualLocation {
         caches: &LocationTransforms,
         source: &Self::Source,
     ) -> Self::Computed {
+        // Sanitize each factor before composition; clamping only the product changes its meaning.
+        let local_alpha = source.sanitized_alpha();
         let (parent_id, transform_id) = match source.parent {
             LocationParentId::Location(parent_id) => (Some(parent_id), source.transform),
             LocationParentId::Root(space) => {
                 return ResolvedLocation {
                     transform: *scene.transforms[source.transform],
-                    alpha: source.alpha,
+                    alpha: local_alpha,
                     space,
                 };
             }
         };
         let local_transform = &*scene.transforms[transform_id];
-        let local_alpha = source.alpha;
         parent_id.map_or_else(
             || ResolvedLocation {
                 transform: *local_transform,
@@ -197,6 +195,16 @@ mod tests {
     }
 
     #[test]
+    fn root_alpha_is_sanitized_when_resolved() {
+        let (scene, transaction, location_id) = scene_with_root_location(2.0);
+        let mut locations = LocationTransforms::default();
+
+        locations.resolve_locations_and_matrices(&scene, &transaction, [location_id].into_iter());
+
+        assert_eq!(locations.get_alpha(location_id), 1.0);
+    }
+
+    #[test]
     fn child_alpha_multiplies_parent_alpha() {
         let mut transaction_manager = TransactionManager::default();
         let mut scene = Scene::default();
@@ -245,6 +253,57 @@ mod tests {
         );
 
         assert_eq!(locations.get_alpha(child_location_id), 0.125);
+    }
+
+    #[test]
+    fn child_alpha_is_sanitized_before_parent_multiplication() {
+        let mut transaction_manager = TransactionManager::default();
+        let mut scene = Scene::default();
+        let parent_transform_id = new_transform_id();
+        let child_transform_id = new_transform_id();
+        let parent_location_id = new_location_id();
+        let child_location_id = new_location_id();
+        let transaction = transaction_manager.new_transaction();
+
+        scene.apply(
+            &SceneChange::Transform(Change::Create(parent_transform_id, Transform::IDENTITY)),
+            &transaction,
+        );
+        scene.apply(
+            &SceneChange::Transform(Change::Create(child_transform_id, Transform::IDENTITY)),
+            &transaction,
+        );
+        scene.apply(
+            &SceneChange::Location(Change::Create(
+                parent_location_id,
+                LocationRenderObj {
+                    parent: LocationSpace::World.into(),
+                    transform: parent_transform_id,
+                    alpha: 0.5,
+                },
+            )),
+            &transaction,
+        );
+        scene.apply(
+            &SceneChange::Location(Change::Create(
+                child_location_id,
+                LocationRenderObj {
+                    parent: LocationParentId::Location(parent_location_id),
+                    transform: child_transform_id,
+                    alpha: 2.0,
+                },
+            )),
+            &transaction,
+        );
+
+        let mut locations = LocationTransforms::default();
+        locations.resolve_locations_and_matrices(
+            &scene,
+            &transaction,
+            [child_location_id].into_iter(),
+        );
+
+        assert_eq!(locations.get_alpha(child_location_id), 0.5);
     }
 
     #[test]

@@ -69,7 +69,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         FontManager::bare(ShapingEngineKind::CosmicText),
         fontdb::Database::new(),
         Arc::from(fonts::MONTSERRAT_REGULAR),
-    );
+    )?;
 
     // Need an equivalent font_system for inlyne.
     let font_system = {
@@ -88,7 +88,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut renderer = window
         .renderer()
-        .with_text(bridge.font_manager().registry_source())
+        .with_text_registry(bridge.font_manager().registry_source())
         .build()
         .await?;
 
@@ -103,11 +103,10 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     )?;
 
     let mut application = Application::default();
-    let scene = scene();
     let page_transform = application.get_transform(content_size);
 
-    let transform = page_transform.enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = page_transform.enter_owned();
+    let location = transform.to_location().enter_owned();
 
     // Hold the entered visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -117,7 +116,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .collect::<Vec<_>>()
         .at(&location)
         .with_decal_order(0)
-        .enter(&scene);
+        .enter_owned();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -143,7 +142,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        ctx.frame().render_to(&mut renderer)?;
     }
 }
 

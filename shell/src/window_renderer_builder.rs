@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use log::debug;
 
+use massive_applications::task_context;
 use massive_geometry::{Color, PixelCamera, SizePx};
 use massive_renderer::{FontRegistrySource, RenderDevice, RenderGeometry, RendererBuilder};
 
@@ -65,10 +66,18 @@ impl WindowRendererBuilder {
         self
     }
 
-    /// Enables text / font rendering support.
+    /// Enables text / font rendering support using the current task's font registry.
     ///
     /// By default, no font / GlyphRun support is available.
-    pub fn with_text(mut self, fonts: FontRegistrySource) -> Self {
+    pub fn with_text(mut self) -> Self {
+        self.text = Some(task_context::with_shaper(|shaper| {
+            shaper.manager().registry_source()
+        }));
+        self
+    }
+
+    /// Enables text rendering with an explicit registry, for glyph runs shaped by another manager.
+    pub fn with_text_registry(mut self, fonts: FontRegistrySource) -> Self {
         self.text = Some(fonts);
         self
     }

@@ -22,7 +22,7 @@ Install task-owned UI contexts once per Tokio task and expose narrow accessors f
 
 Accessors return owned values or guards rather than references. Tokio task-local borrows cannot escape `with`; `Scene` therefore uses a cheap owned clone, while mutable contexts use owned guards. Re-entrant mutable access must use a non-blocking acquisition and fail loudly instead of deadlocking.
 
-The contexts are installed at existing task boundaries: `InstanceManager::spawn` for instance tasks and `shell::run` for the application task. The instance factory is invoked after its context is installed, so initialization and the returned future observe the same task-local values. Spawned sibling tasks do not inherit a parent's context and must install their own contexts. There is no default scene or shaping context: an accessor without an explicitly installed value panics and identifies the missing installation point. This preserves the instance requirement that scene changes and instance changes share one ordered submission stream.
+The contexts are installed at existing task boundaries: `InstanceManager::spawn` for instance tasks and `shell::run` for the application task. The instance factory is invoked after its context is installed, so initialization and the returned future observe the same task-local values. Spawned sibling tasks do not inherit a parent's context and must install their own contexts. There is no default scene or shaping context: an accessor without an explicitly installed value panics and identifies the missing installation point. This preserves the instance requirement that scene changes and instance changes share one ordered submission queue.
 
 ### Frame as per-cycle state
 
@@ -44,7 +44,6 @@ The existing `.shape(&mut shaper)` builder API and the small number of raw `cont
 - `RefCell` re-entrancy, missing task-local contexts, and shaper acquisition failures are deliberate loud errors.
 - The movement inbox remains explicit shared state, not ambient task-local state.
 - `massive-animation` does not gain a Tokio dependency merely to define the task locals; its low-level APIs retain explicit context parameters until call sites are migrated.
-- The task-local implementation must compile for native and wasm32 targets. Tokio's `rt` feature is required by `task_local!` and is already enabled for wasm32 in `massive-shell`.
 
 ## Considered options
 
@@ -74,7 +73,7 @@ The migration is additive at first and proceeds in these phases:
 5. Split shaping scratch from the shared `FontManager` registry and migrate the four raw `contexts()` call sites.
 6. Migrate examples, `mt`, and desktop, then remove obsolete threaded parameters.
 
-Native and wasm32 checks are required in phase 1. Each migration phase should run the `massive` workspace and `mt` checks, the examples suite, and a smoke test of scroll animation and hyperlink hover.
+Each migration phase runs the `massive` workspace and `mt` checks, the examples suite, and a smoke test of scroll animation and hyperlink hover.
 
 ## Evidence
 
@@ -121,3 +120,57 @@ are installed at existing task boundaries, sibling tasks do not inherit a contex
 installation is a loud error, and the font manager stays shared rather than task-local. The manager a
 task shapes with is fixed when its context is installed (see the font-policy amendment in
 [ADR 0005](0005-dual-shaping-engines-cosmic-text-and-parley.md)).
+
+## Amendment: one change queue per task, the scene type removed (2026-09-23)
+
+The explicit scene entry points this document promised — `enter(&scene)`,
+`Frame::scene()`, `new_scene_with_change_collector` — are gone, and so is the
+`massive_scene::Scene` type they belonged to. A scene, it turned out, was a
+one-field wrapper around an erased change receiver: every one of its operations
+was a forwarder. What tasks actually own is a change queue, and each queue has
+exactly one change type: `SceneChange` for the application task's render queue,
+`InstanceChange` for an instance's submission queue (which interleaves scene
+changes via `From<SceneChange>`).
+
+### Decision
+
+- `massive_scene::AnyCollector` is the task's change queue: type-erased so one
+  task-local can hold any collector kind, with the change type fixed at install
+  time by `for_type::<C>()`. Typed accessors downcast and panic loudly on a kind
+  mismatch, naming the requested type. The erased sink is all that `Handle<T>`
+  ever sees — that erasure at the handle is what makes one queue per task
+  sufficient, because a handle's writes are retyped into the task's queue (the
+  `InstanceChange::End` ordering guarantee of the desktop relies on this).
+- Task accessors are write-only: `enter` and `collect`. The only
+  drain is `task_context::take_changes::<C>()`, invoked by the frame at
+  submission time. This preserves the rule that task-local storage is an access
+  mechanism and does not move the submission boundary: the drain still happens
+  where pacing and final-submission-on-drop are owned.
+- `Frame<C>` carries the change type as its only state. `render_submission()`
+  exists only where `C = SceneChange`; an instance frame drains into an
+  `InstanceChange` set for `InstanceContext::submit`. Draining a queue into the
+  wrong submission kind is a compile error, replacing the previous runtime panic
+  waiting in `Scene::take_changes` on instance collectors.
+- The send-only object-safe `ChangeSink` trait, with a blanket implementation for
+  every `ChangeCollector<C>` whose change type embeds scene changes, replaces
+  `HandleChangeReceiver` (whose `take_changes` defaulted to a panic). The
+  instance change collector is now the plain generic collector plus
+  `From<SceneChange> for InstanceChange`; the orphan-rule newtype is gone.
+- Method-style entry is one trait: `Enter::enter()` for scene values. It is
+  implemented for the object types and for `UnenteredLocation`, which enters
+  together with its transform in one batch; the trait dispatches by type because
+  a blanket `impl<T: Object>` would conflict with the `UnenteredLocation` impl (a
+  downstream crate may add `Object` for it). Code that must name the collector
+  instead of using the task's — tests, multi-queue tasks — calls
+  `scene::enter(collector, value)` or `UnenteredLocation::enter_in(collector)`.
+
+### Consequences
+
+- The desktop's separate per-desktop change collector is gone: the application
+  task's installed queue is the desktop's render queue, so the
+  previously-installed-but-never-drained shell scene can no longer exist.
+- An undrained queue at task end is a `ChangeSet` drop log, not silent loss;
+  since the installed queue is now live for every application, "a task's queue
+  is drained or the task logs" is an invariant, not an implementation detail.
+- Criterion benchmarks (`massive/scene/benches/push_cost.rs`) pin the erasure
+  cost: roughly 2 ns per push over the plain typed collector, about 10%.

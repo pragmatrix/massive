@@ -4,6 +4,7 @@ use log::warn;
 
 use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
 use massive_geometry::Vector3;
+use massive_scene::SceneChange;
 use massive_shell::Frame;
 
 use super::DesktopTarget;
@@ -29,7 +30,7 @@ impl DesktopSystem {
         instance: InstanceId,
         root: InstanceRoot,
         parameters: InstanceParameters,
-        frame: &mut Frame,
+        _frame: &mut Frame<SceneChange>,
     ) -> Result<()> {
         let (render_instance_background, launcher_location) = {
             let launcher = self
@@ -49,7 +50,6 @@ impl DesktopSystem {
             root,
             parameters,
             launcher_location,
-            frame.scene(),
         );
 
         self.aggregates.instances.insert(instance, presenter)?;

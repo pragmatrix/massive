@@ -44,7 +44,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     //     .init();
 
     let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
 
     // Load code.
 
@@ -82,17 +82,16 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // So we compute the proper physical for now.
     // spellcheck: ignore
     // let physical_size = initial_size.to_physical(window.scale_factor());
-    let scene = scene();
     let mut renderer = window
         .renderer()
-        .with_text(fonts.registry_source())
+        .with_text_registry(fonts.registry_source())
         .build()
         .await?;
 
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
-    let transform = application.get_transform(content_size).enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).enter();
+    let location = transform.to_location().enter();
 
     // Hold the visual in this context, otherwise it will disappear.
     let _visual = glyph_runs
@@ -100,7 +99,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         .map(|m| m.into())
         .collect::<Vec<_>>()
         .at(&location)
-        .enter(&scene);
+        .enter();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -123,6 +122,6 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        ctx.frame().render_to(&mut renderer)?;
     }
 }

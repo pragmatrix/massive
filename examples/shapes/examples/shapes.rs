@@ -34,7 +34,6 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
 
     // Scene & application
     let mut application = Application::default();
-    let scene = scene();
 
     // Logical page size based on layout of shapes (we adjust after computing bounds)
     // We'll build shapes around (0,0) then center them by translating the matrix to the page center.
@@ -219,12 +218,10 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let transform = application
-        .get_transform((page_width, page_height))
-        .enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = application.get_transform((page_width, page_height)).enter();
+    let location = transform.to_location().enter();
 
-    let _visual = shapes.at(&location).with_decal_order(0).enter(&scene);
+    let _visual = shapes.at(&location).with_decal_order(0).enter();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -245,6 +242,6 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        ctx.frame().render_to(&mut renderer)?;
     }
 }

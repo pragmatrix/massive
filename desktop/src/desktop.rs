@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -15,8 +14,8 @@ use massive_applications::{
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
-use massive_scene::ChangeCollector;
-use massive_shell::{ApplicationContext, AsyncWindowRenderer, Scene, ShellWindow, task_context};
+use massive_scene::SceneChange;
+use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
@@ -37,7 +36,6 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug)]
 pub struct Desktop {
-    scene: Scene,
     window: ShellWindow,
     window_state: WindowState,
     window_presentation_state: WindowPresentationState,
@@ -67,9 +65,8 @@ impl Desktop {
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
-        // Create scene early for presenter initialization
-        let scene_changes = Arc::new(ChangeCollector::default());
-        let scene = Scene::new(scene_changes.clone());
+        // The desktop task's change queue: installed by the shell's application task context
+        // (ADR 0008). Presenters enter their handles through the ambient accessors.
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
         let environment =
@@ -85,7 +82,7 @@ impl Desktop {
             .get_named(&env.primary_application)
             .expect("No primary application");
 
-        let primary_root = InstanceRoot::new(&scene);
+        let primary_root = InstanceRoot::new();
         let primary_instance = Uuid::new_v4().into();
         instance_manager.spawn(
             primary_instance,
@@ -115,16 +112,10 @@ impl Desktop {
         let default_size = creation_info.size();
 
         let window = context.new_window(creation_info.size()).await?;
-        // The renderer resolves glyphs through the published snapshot and never shapes — a
-        // registry source, not a full handle (ADR 0006). The manager comes from the task's
-        // shaping context, which the shell installed and the application may have replaced
-        // before this point (ADR 0005).
-        let registry_source =
-            task_context::with_shaper(|shaper| shaper.manager().registry_source());
         let mut renderer = window
             .renderer()
             .with_shapes()
-            .with_text(registry_source)
+            .with_text()
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;
@@ -135,7 +126,7 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(env, default_size, &scene)?;
+        let mut system = DesktopSystem::new(env, default_size)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
@@ -160,10 +151,10 @@ impl Desktop {
 
         let mut changes = Changes::Empty;
         for command in commands {
-            changes += system.plan(command, &scene)?;
+            changes += system.plan(command)?;
         }
 
-        let mut frame = context.frame(&scene);
+        let mut frame = context.frame();
         system.transact(
             changes + initial_submission_changes,
             &mut frame,
@@ -181,7 +172,6 @@ impl Desktop {
         )?;
 
         let desktop = Self {
-            scene,
             window,
             window_state,
             window_presentation_state: presentation_state,
@@ -218,7 +208,7 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.frame(&self.scene);
+            let mut frame = self.context.frame();
 
             match event {
                 DesktopEvent::ApplicationEvents(events) => {
@@ -250,8 +240,8 @@ impl Desktop {
 
                                     let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
-                                            self.system
-                                                .plan(keyboard_cmd.into_command(), &self.scene)?
+                                            let command = keyboard_cmd.into_command();
+                                            self.system.plan(command)?
                                         } else {
                                             self.system.process_input_event(
                                                 &input_event,
@@ -303,7 +293,6 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     handle_instance_ended(
                         &mut self.system,
-                        &self.scene,
                         &mut self.instance_manager,
                         &mut self.instance_submissions,
                         (instance_id, instance_result),
@@ -350,7 +339,7 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.frame(&self.scene);
+            let mut frame = self.context.frame();
             match event {
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
@@ -362,7 +351,6 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     handle_instance_ended(
                         &mut self.system,
-                        &self.scene,
                         &mut self.instance_manager,
                         &mut self.instance_submissions,
                         (instance_id, instance_result),
@@ -387,11 +375,10 @@ impl Desktop {
 
 fn handle_instance_ended(
     system: &mut DesktopSystem,
-    scene: &Scene,
     instance_manager: &mut InstanceManager,
     instance_submissions: &mut UnboundedReceiver<(InstanceId, InstanceSubmission)>,
     (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
-    frame: &mut Frame,
+    frame: &mut Frame<SceneChange>,
     window_size: massive_geometry::SizePx,
 ) -> Result<()> {
     info!(
@@ -402,7 +389,7 @@ fn handle_instance_ended(
     if system.is_present(&instance_id) {
         // Did it end on its own? -> Act as if the user ended it.
         // Robustness: This should probably handled differently.
-        let changes = system.plan(DesktopCommand::StopInstance(instance_id), scene)?;
+        let changes = system.plan(DesktopCommand::StopInstance(instance_id))?;
         system.transact(changes, frame, instance_manager, None, window_size)?;
     }
 
@@ -430,7 +417,7 @@ fn handle_instance_ended(
 /// Update the camera, pacing, submit the frame, and update the window presentation.
 fn finalize_desktop_frame(
     system: &mut DesktopSystem,
-    frame: Frame,
+    frame: Frame<SceneChange>,
     window: &ShellWindow,
     presentation_state: &mut WindowPresentationState,
     renderer: &mut AsyncWindowRenderer,

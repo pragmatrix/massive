@@ -132,13 +132,33 @@ _Avoid_: font settings, font config
 A task's shaping owner: exclusive shaping scratch over the shared font manager's face authority and published registry. Every task context has exactly one.
 
 **Task context**:
-The contexts installed for one Tokio task: its scene change collector, animation coordinator, movement runtime, and shaping context.
+The contexts installed for one Tokio task: its change queue, animation coordinator, movement runtime, and shaping context.
 
-**Scene change collector**:
-The ordered receiver of scene changes that are submitted together for one application or instance.
+**Change queue**:
+The changes one task submits together, in the order their writers produced them. Each UI
+task owns exactly one queue; its change type (`SceneChange` for the application task's
+render queue, `InstanceChange` for an instance's submission queue) is fixed at install
+time, and the frame drains the queue into a submission at animation-cycle end (ADR 0008).
+_Avoid_: change stream
+
+**Change collector**:
+The lock-guarded accumulation a change queue is stored in: an ordered set of changes of
+exactly one type. The change type is fixed when the collector is created, so a collector
+never has to check what it receives; draining takes the accumulated changes out in order.
+Every change queue is backed by exactly one collector.
+_Avoid_: change buffer, change list
+
+**Change sink**:
+The write-only view of a change queue that handles hold. It accepts scene changes and
+retypes them into the queue's own change type, so a handle never knows the queue's change
+kind. Erasing the sink is what lets one queue per task serve every handle.
+_Avoid_: change stream, sender, channel
 
 **Enter**:
-Create an object handle in a Scene and connect its future updates and deletion to that Scene change collector.
+Create an object handle and connect it to the task's change queue: the handle publishes
+its create into that queue, and its later updates and deletion follow the same path.
+Because handles hold the erased sink, their changes land in the same FIFO as the task's
+own changes.
 
 **Exclusive animation-cycle lease**:
 The live `Frame` value that owns one animation cycle and prevents another cycle from using the same mutable animation contexts concurrently.

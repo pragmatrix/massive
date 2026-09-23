@@ -2,6 +2,7 @@ use derive_more::From;
 use uuid::Uuid;
 
 mod application_event;
+mod enter_ambient;
 mod frame;
 mod instance_context;
 mod instance_environment;
@@ -19,8 +20,6 @@ pub use instance_environment::*;
 pub use project::*;
 pub use view::*;
 pub use view_event::*;
-
-pub use massive_scene::Scene;
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From)]
 pub struct InstanceId(Uuid);

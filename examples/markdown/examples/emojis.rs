@@ -49,7 +49,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
     // Register the system fonts into both databases and build the fontdb::ID -> FaceId map.
-    let bridge = FontBridge::system();
+    let bridge = FontBridge::system()?;
     // Need an equivalent FontSystem for inlyne.
     let font_system = Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(
         "en-US".into(),
@@ -66,7 +66,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut renderer = window
         .renderer()
-        .with_text(bridge.font_manager().registry_source())
+        .with_text_registry(bridge.font_manager().registry_source())
         .build()
         .await?;
 
@@ -155,9 +155,8 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = SizePx::new(page_width as _, page_height);
     let mut application = Application::default();
-    let scene = scene();
-    let transform = application.get_transform(content_size).enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).enter_owned();
+    let location = transform.to_location().enter_owned();
 
     // Hold the entered visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -166,9 +165,9 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .collect::<Vec<_>>()
         .at(&location)
         .with_decal_order(0)
-        .enter(&scene);
+        .enter_owned();
 
-    ctx.frame(&scene).render_to(&mut renderer)?;
+    ctx.frame().render_to(&mut renderer)?;
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -191,7 +190,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        ctx.frame().render_to(&mut renderer)?;
     }
 }
 

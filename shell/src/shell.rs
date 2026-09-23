@@ -15,9 +15,9 @@ use winit::window::{Window, WindowAttributes, WindowId};
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
-use massive_applications::{ApplicationMessage, Scene, ViewEvent, ViewId};
+use massive_applications::{ApplicationMessage, ViewEvent, ViewId};
 use massive_renderer::{FontManager, FontPolicy};
-use massive_scene::ChangeCollector;
+use massive_scene::{AnyCollector, SceneChange};
 
 use crate::ApplicationContext;
 use crate::shell_window::ShellWindowShared;
@@ -127,17 +127,17 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
     final_result
 }
 
-/// The contexts of the application task: its own scene, animation clock, movement runtime and a
-/// shaping context over the manager `font_policy` prescribes.
+/// The contexts of the application task: its change queue, animation clock, movement runtime
+/// and a shaping context over the supplied font manager.
 ///
 /// Built at the task boundary rather than by [`ApplicationContext`], so the values the task owns
 /// stay in the task and the handle the application receives never carries them (ADR 0008).
-fn application_task_context(font_policy: FontPolicy) -> TaskContext {
+fn application_task_context(font_manager: FontManager) -> TaskContext {
     TaskContext::new(
-        Scene::new(Arc::new(ChangeCollector::default())),
+        AnyCollector::for_type::<SceneChange>(),
         AnimationCoordinator::new(),
         MovementRuntime::default(),
-        FontManager::new(font_policy).new_shaping_context(),
+        font_manager.new_shaping_context(),
     )
 }
 
@@ -160,14 +160,6 @@ pub(crate) enum ShellCommand {
     },
     ToggleFullscreen,
     ApplicationEnded(Result<()>),
-}
-
-#[allow(unused)]
-pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
-    let start = std::time::Instant::now();
-    let r = f();
-    info!("{name}: {:?}", start.elapsed());
-    r
 }
 
 /// ADR: We move the application into the event loop handler.
@@ -227,7 +219,18 @@ impl ApplicationHandler<ShellCommand> for WinitApplicationHandler {
         );
         // The task boundary is here: `resumed` has the event loop, the font policy and the spawner
         // in one place, and the contexts must exist before the application starts (ADR 0008).
-        let task_context = application_task_context(*font_policy);
+        let font_manager = match FontManager::new(*font_policy) {
+            Ok(font_manager) => font_manager,
+            Err(error) => {
+                error!("Failed to initialize application font manager: {error:#}");
+                *self = Self::Ended {
+                    application_result: Err(error),
+                };
+                event_loop.exit();
+                return;
+            }
+        };
+        let task_context = application_task_context(font_manager);
 
         // The application can send CreateWindow as soon as it is spawned, so publish the Running
         // state before starting its task.
@@ -352,4 +355,13 @@ impl WinitApplicationHandler {
             }
         }
     }
+}
+
+/// Time a closure and log its duration.
+#[allow(unused)]
+pub fn time<T>(name: &str, f: impl FnOnce() -> T) -> T {
+    let start = std::time::Instant::now();
+    let r = f();
+    info!("{name}: {:?}", start.elapsed());
+    r
 }

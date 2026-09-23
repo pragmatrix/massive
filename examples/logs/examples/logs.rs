@@ -22,10 +22,11 @@ use massive_animation::{Animated, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
+use massive_scene::SceneChange;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, Shape, Shaper, ShapingEngineKind};
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager, Frame, Scene, ShapingContext};
+use massive_shell::{ApplicationContext, FontManager, Frame, ShapingContext};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text;
@@ -75,7 +76,7 @@ impl io::Write for Sender {
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
     let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
 
     // Window
 
@@ -85,15 +86,14 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
 
     let mut renderer = window
         .renderer()
-        .with_text(fonts.registry_source())
+        .with_text_registry(fonts.registry_source())
         .build()
         .await?;
 
-    let scene = scene();
-    let mut logs = Logs::new(&scene, fonts.new_shaping_context());
+    let mut logs = Logs::new(fonts.new_shaping_context());
 
     // Initial lines informing the user how to interact with the example.
-    let mut frame = ctx.frame(&scene);
+    let mut frame = ctx.frame();
     logs.add_line(
         &mut frame,
         b"Press a key in the window to generate more log output.",
@@ -114,7 +114,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             events = ctx.wait_for_events() => Wakeup::Events(events?),
         };
 
-        let mut frame = ctx.frame(&scene);
+        let mut frame = ctx.frame();
 
         match wakeup {
             Wakeup::Line(bytes) => {
@@ -170,23 +170,22 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(scene: &Scene, fonts: ShapingContext) -> Self {
+    fn new(fonts: ShapingContext) -> Self {
         let content_width = 1280;
         let application = Application::default();
 
-        let application_transform = application.get_transform((0, 0)).enter(scene);
-        let application_location = application_transform.to_location().enter(scene);
+        let application_transform = application.get_transform((0, 0)).enter_owned();
+        let application_location = application_transform.to_location().enter_owned();
 
         // Keep interaction transforms separate so the movement owns only animated centering.
-        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).enter(scene);
+        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).enter_owned();
         let content_location = content_transform
             .to_location()
             .relative_to(&application_location)
-            .enter(scene);
+            .enter_owned();
 
-        let (vertical_center_transform, location) = identity_location()
-            .relative_to(&content_location)
-            .enter(scene);
+        let (vertical_center_transform, location) =
+            enter_location(identity_location().relative_to(&content_location));
 
         let layout = movement(
             LayoutMovement {
@@ -218,7 +217,7 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
+    fn add_line(&mut self, _frame: &mut Frame<SceneChange>, bytes: &[u8]) {
         let mut shaper = self.fonts.shaper();
         let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
 
@@ -234,7 +233,7 @@ impl Logs {
         let line = glyph_runs
             .at(&self.location)
             .with_decal_order(0)
-            .enter(frame.scene());
+            .enter_owned();
 
         let line_id = self.next_line_id;
         let fader: Animated<_> = 0.0.into();

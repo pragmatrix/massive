@@ -1,61 +1,82 @@
-//! A short-lived bundle of the scene arena and the animation clock.
+//! A short-lived bundle of one animation cycle over the task's change queue.
 //!
 //! ADR: The [`AnimationCoordinator`] is owned by exactly one context (an instance or the
-//! application), while [`Scene`]s are created per view. Bundling a borrow of both here keeps the
-//! clock a single-owner value: no shared ownership and no interior mutability are needed.
+//! application), while the change queue is installed per task. The frame opens and closes the
+//! animation cycle; the task's queue is drained at submission time, so its ownership stays
+//! with the task context (ADR 0008).
+//!
+//! The frame carries the collected change type `C` as its only state beyond the cycle guards:
+//! a render submission exists only where `C: Into<SceneChange>` (the application task's scene
+//! queue), while an instance frame's submission stays an `InstanceChange` set for
+//! `InstanceContext::submit`. Draining a queue into the wrong submission kind is therefore a
+//! compile error.
 
+use std::any::Any;
 use std::panic::Location;
 use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use derive_more::Deref;
 use log::error;
 
 use massive_animation::AnimationAllocator;
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
-use massive_scene::Scene;
+use massive_scene::SceneChange;
+use massive_util::ChangeSet;
 
 use crate::task_context;
 
-#[derive(Debug, Deref)]
-pub struct Frame<'scene> {
-    #[deref]
-    scene: &'scene Scene,
+#[derive(Debug)]
+pub struct Frame<C>
+where
+    C: From<SceneChange> + std::fmt::Debug + Send + Any,
+{
     submitted: bool,
     created_at: &'static Location<'static>,
+    _change_type: std::marker::PhantomData<C>,
 }
 
 #[derive(Debug)]
-pub struct FrameSubmission<'a> {
-    scene: &'a Scene,
+pub struct FrameSubmission<C: Any> {
+    changes: ChangeSet<C>,
     pacing: RenderPacing,
 }
 
-impl FrameSubmission<'_> {
-    pub fn render_submission(self) -> RenderSubmission {
-        RenderSubmission::new(self.scene.take_changes(), self.pacing)
-    }
-
-    pub fn pacing(self) -> RenderPacing {
+impl<C: Any> FrameSubmission<C> {
+    /// The submission-level pacing; a scene-kind-agnostic submission property.
+    pub fn into_pacing(self) -> RenderPacing {
         self.pacing
     }
-}
 
-impl AnimationAllocator for Frame<'_> {
-    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
-        task_context::with_animation(|animation| animation.allocate_animation_time(duration))
+    pub fn into_parts(self) -> (ChangeSet<C>, RenderPacing) {
+        (self.changes, self.pacing)
     }
 }
 
-impl<'scene> Frame<'scene> {
+impl<C: Any> FrameSubmission<C>
+where
+    C: From<SceneChange> + std::fmt::Debug + Send,
+    SceneChange: From<C>,
+{
+    /// Render submission; only the application task's scene queue produces one,
+    /// because only there `C = SceneChange`.
+    pub fn render_submission(self) -> RenderSubmission {
+        RenderSubmission::new(self.changes.map(SceneChange::from), self.pacing)
+    }
+}
+
+impl<C> Frame<C>
+where
+    C: From<SceneChange> + std::fmt::Debug + Send + Any + 'static,
+{
+    /// Open one animation cycle; the change kind is inferred from the submission call.
     #[track_caller]
-    pub fn new(scene: &'scene Scene) -> Self {
+    pub fn new() -> Self {
         task_context::with_animation(|animation| animation.begin_cycle());
 
         Self {
-            scene,
             submitted: false,
             created_at: Location::caller(),
+            _change_type: std::marker::PhantomData,
         }
     }
 
@@ -67,25 +88,21 @@ impl<'scene> Frame<'scene> {
         task_context::with_animation(|animation| animation.animation_time())
     }
 
-    /// The scene, borrowed for the frame's full lifetime.
-    ///
-    /// Use this instead of the `Deref` when the reference has to outlive a mutable use of the
-    /// frame.
-    pub fn scene(&self) -> &'scene Scene {
-        self.scene
-    }
-
-    // Render all the current scene changes.
-    pub fn render_to(self, render_target: &mut dyn RenderTarget) -> Result<()> {
+    // Render all the current scene changes. Only the application task's scene queue
+    // (`C = SceneChange`) has a render submission.
+    pub fn render_to(self, render_target: &mut dyn RenderTarget) -> Result<()>
+    where
+        SceneChange: From<C>,
+    {
         render_target.render(self.submission().render_submission())
     }
 
-    /// End the animation cycle and produce its submission.
-    pub fn submission(mut self) -> FrameSubmission<'scene> {
+    /// End the animation cycle and drain the task's change queue into a submission.
+    pub fn submission(mut self) -> FrameSubmission<C> {
         let pacing = self.end_cycle();
 
         FrameSubmission {
-            scene: self.scene,
+            changes: task_context::take_changes::<C>(),
             pacing,
         }
     }
@@ -107,7 +124,19 @@ impl<'scene> Frame<'scene> {
     }
 }
 
-impl Drop for Frame<'_> {
+impl<C> AnimationAllocator for Frame<C>
+where
+    C: From<SceneChange> + std::fmt::Debug + Send + Any,
+{
+    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
+        task_context::with_animation(|animation| animation.allocate_animation_time(duration))
+    }
+}
+
+impl<C> Drop for Frame<C>
+where
+    C: From<SceneChange> + std::fmt::Debug + Send + Any,
+{
     fn drop(&mut self) {
         if !self.submitted {
             error!(

@@ -18,3 +18,12 @@ parking_lot = { workspace = true }
 
 # For channels only
 tokio = { workspace = true }
+
+[dev-dependencies]
+criterion = { workspace = true }
+# For task_local! in the push-cost benchmark.
+tokio = { workspace = true, features = ["rt", "macros"] }
+
+[[bench]]
+name = "push_cost"
+harness = false

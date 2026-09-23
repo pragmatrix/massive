@@ -1,9 +1,10 @@
 //! The Parley (fontique + harfrust) shaping engine.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 
+use anyhow::{Result, anyhow};
 use parley::fontique::{
     self, Blob, Collection, CollectionOptions, FamilyId, GenericFamily, SourceCache,
 };
@@ -15,6 +16,7 @@ use crate::engine::{
     EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
     ShapingEngine, ShapingEngineKind, ShapingRequest, covering_metadata,
 };
+use crate::font_validation::validate_font_file;
 use crate::shaping_engines::parley_scratch::ParleyScratch;
 use crate::{FaceId, TextFamily, TextWeight};
 
@@ -72,7 +74,7 @@ impl ParleyEngine {
     /// Without them the engine is completely bare: no fallbacks, no candidates, and only fonts the
     /// application loads. With them, the platform catalog answers name lookups and implicit
     /// selection, and the registry is rebuilt to include every face Parley may select.
-    pub fn new(system_fonts: bool) -> Self {
+    pub fn new(system_fonts: bool) -> Result<Self> {
         let mut font_context = FontContext {
             collection: Self::shared_collection(CollectionOptions {
                 system_fonts,
@@ -96,8 +98,53 @@ impl ParleyEngine {
             // The registry and the symbol-fallback repair both derive from the collection Parley
             // may select from; a bare engine has no collection to walk.
             engine.rebuild_fonts();
+            engine.validate_system_fonts()?;
         }
-        engine
+        Ok(engine)
+    }
+
+    fn validate_system_fonts(&mut self) -> Result<()> {
+        let mut validated_files = HashSet::new();
+        let family_names: Vec<String> = self
+            .font_context
+            .collection
+            .family_names()
+            .map(str::to_owned)
+            .collect();
+        for name in family_names {
+            let Some(family_id) = self.font_context.collection.family_id(&name) else {
+                continue;
+            };
+            let Some(family) = self.font_context.collection.family(family_id) else {
+                continue;
+            };
+            for font_info in family.fonts() {
+                let Some(blob) = self.font_context.source_cache.get(font_info.source()) else {
+                    log::warn!(
+                        "Rejecting Parley system-font catalog: cannot read {name} face index {}",
+                        font_info.index()
+                    );
+                    return Err(anyhow!(
+                        "cannot read Parley system font {name} face index {}",
+                        font_info.index()
+                    ));
+                };
+                if !validated_files.insert(blob.id()) {
+                    continue;
+                }
+                if let Err(error) = validate_font_file(blob.as_ref()) {
+                    log::warn!(
+                        "Rejecting Parley system-font catalog: invalid file for {name} face index {}: {error}",
+                        font_info.index()
+                    );
+                    return Err(anyhow!(
+                        "invalid Parley system font {name} face index {}: {error}",
+                        font_info.index()
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn from_context(font_context: FontContext) -> Self {
@@ -242,7 +289,11 @@ impl ShapingEngine for ParleyEngine {
         "parley"
     }
 
-    fn load_font(&mut self, data: FontBytes) -> Vec<FaceId> {
+    fn load_font(&mut self, data: FontBytes) -> Result<Vec<FaceId>> {
+        if let Err(error) = validate_font_file(data.as_ref().as_ref()) {
+            log::warn!("Rejecting Parley font file: {error}");
+            return Err(error.into());
+        }
         // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
         let blob: Blob<u8> = Blob::new(data);
         let families = self
@@ -285,7 +336,7 @@ impl ShapingEngine for ParleyEngine {
                 ids.push(id);
             }
         }
-        ids
+        Ok(ids)
     }
 
     fn font_data(&self, id: FaceId) -> Option<FontData> {
@@ -293,8 +344,7 @@ impl ShapingEngine for ParleyEngine {
     }
 
     fn font_registry(&self) -> Arc<FontRegistry> {
-        let metrics = crate::face_metrics::extract_all(&self.fonts);
-        Arc::new(FontRegistry::from_owned(self.fonts.clone(), metrics))
+        Arc::new(FontRegistry::from_owned(self.fonts.clone()))
     }
 
     /// Shape one line through per-session contexts (ADR 0006): the same pipeline the

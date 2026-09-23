@@ -94,13 +94,10 @@ mod tests {
         candidate_db.load_font_source(fontdb::Source::Binary(Arc::clone(&candidate_bytes)));
 
         let registry_bytes: FontBytes = Arc::new(TAKRI.to_vec());
-        let registry = FontRegistry::from_owned(
-            HashMap::from([(
-                FaceId::new(0),
-                FontData::new(Arc::clone(&registry_bytes), 0),
-            )]),
-            HashMap::new(),
-        );
+        let registry = FontRegistry::from_owned(HashMap::from([(
+            FaceId::new(0),
+            FontData::new(Arc::clone(&registry_bytes), 0),
+        )]));
         let mut scratch = CosmicScratch::new(Arc::new(candidate_db));
         scratch.sync(&registry);
 
