@@ -213,7 +213,7 @@ mod tests {
     use massive_scene::{AnyCollector, SceneChange};
 
     use super::*;
-    use crate::enter_ambient::Enter;
+    use crate::ambient::Enter;
 
     fn contexts() -> TaskContext {
         TaskContext::new(

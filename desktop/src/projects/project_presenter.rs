@@ -5,7 +5,6 @@ use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::ShapingContext;
 
 use super::ProjectProperties;
 
@@ -25,14 +24,10 @@ pub struct ProjectPresenter {
 }
 
 impl ProjectPresenter {
-    pub fn new(
-        properties: ProjectProperties,
-        parent_location: Handle<Location>,
-        shaping_context: &ShapingContext,
-    ) -> Self {
+    pub fn new(properties: ProjectProperties, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
         let name = properties.name.clone();
-        let header = ProjectHeaderPresenter::new(properties, location.clone(), shaping_context);
+        let header = ProjectHeaderPresenter::new(properties, location.clone());
         let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
@@ -60,19 +55,11 @@ pub struct ProjectHeaderPresenter {
 }
 
 impl ProjectHeaderPresenter {
-    pub fn new(
-        properties: ProjectProperties,
-        parent_location: Handle<Location>,
-        shaping_context: &ShapingContext,
-    ) -> Self {
+    pub fn new(properties: ProjectProperties, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
-        let mut shaper = shaping_context.shaper();
-        let header_run = properties
-            .name
-            .size(PROJECT_HEADER_FONT_SIZE)
-            .shape(&mut shaper);
+        let header_run = properties.name.size(PROJECT_HEADER_FONT_SIZE).shape();
         let measured_size = header_run
             .as_ref()
             .map_or(SizePx::default(), |run| run.metrics.size());

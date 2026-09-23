@@ -1,8 +1,8 @@
 use derive_more::From;
 use uuid::Uuid;
 
+mod ambient;
 mod application_event;
-mod enter_ambient;
 mod frame;
 mod instance_context;
 mod instance_environment;
@@ -13,6 +13,7 @@ mod view;
 mod view_builder;
 mod view_event;
 
+pub use ambient::*;
 pub use application_event::*;
 pub use frame::*;
 pub use instance_context::*;
