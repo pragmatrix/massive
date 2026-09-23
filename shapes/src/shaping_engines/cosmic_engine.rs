@@ -310,14 +310,15 @@ impl ShapingEngine for CosmicTextEngine {
         })
     }
 
-    /// Create this engine's per-context scratch (ADR 0006): an *empty* seed — the scratch
-    /// pulls the published snapshot's faces on its first `sync`, building its own
-    /// `FontSystem` over a clone of the engine's *prepared* candidate pool (a pure
-    /// in-memory copy, so the full system catalog is never scanned more than once per
-    /// manager family — see `system()`; empty for `bare()`, keeping those shapers
-    /// registry-only).
-    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn EngineScratch> {
-        Box::new(CosmicScratch::new(Arc::clone(self.candidate_pool())))
+    /// Create this engine's per-context scratch (ADR 0006), seeded from the current registry
+    /// and a clone of the engine's prepared candidate pool. The full system catalog is never
+    /// scanned more than once per manager family (see `system()`); `bare()` keeps the pool
+    /// empty, so those shapers remain registry-only.
+    fn new_scratch(&self, published: &FontRegistry) -> Box<dyn EngineScratch> {
+        Box::new(CosmicScratch::new(
+            Arc::clone(self.candidate_pool()),
+            published,
+        ))
     }
 
     fn resolve_face(&mut self, data: FontData) -> Option<FaceId> {
