@@ -95,4 +95,3 @@ where
 
 // The blanket impl covers C = SceneChange via the reflexive From<SceneChange>; no separate
 // impl exists.
-// HandleChangeReceiver is gone: all impls and call sites moved to ChangeSink (ADR 0008).

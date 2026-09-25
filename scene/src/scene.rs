@@ -3,11 +3,10 @@ use crate::{Change, Handle, Object, SceneChange};
 
 /// Enter an object into the change queue collected by `collector`.
 ///
-/// Application code enters through the ambient `Enter::enter()` instead, which supplies the
-/// task's installed queue (ADR 0008). Naming a collector is how tests, multi-queue tasks, and
-/// code outside a task context enter explicitly; the handle retypes its changes into that
-/// queue's change type via the erased sink, so entering through an instance task's collector
-/// wraps every subsequent handle update and drop into the instance's change queue.
+/// Naming a collector is how tests, multi-queue tasks, and code outside a task context enter
+/// explicitly; the handle retypes its changes into that queue's change type via the erased sink,
+/// so entering through an instance task's collector wraps every subsequent handle update and
+/// drop into the instance's change queue.
 pub fn enter<T>(collector: &AnyCollector, value: T) -> Handle<T>
 where
     T: Object + 'static,
