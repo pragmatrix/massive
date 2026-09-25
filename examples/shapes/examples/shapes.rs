@@ -242,6 +242,6 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        ctx.begin_frame().render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }

@@ -11,7 +11,7 @@ use tokio::task_local;
 use massive_animation::{
     AnimationCoordinator, AnimationProgress, Movement, MovementInstance, MovementRuntime,
 };
-use massive_renderer::ShapingContext;
+use massive_renderer::{FontManager, ShapingContext};
 use massive_scene::{AnyCollector, ChangeSink, SceneChange};
 
 task_local! {
@@ -85,6 +85,16 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
 /// Access the current task's shaping owner synchronously.
 pub fn with_shaper<R>(f: impl FnOnce(&ShapingContext) -> R) -> R {
     SHAPER.with(|shaper| f(&shaper.borrow()))
+}
+
+/// The font manager of the current task's shaping owner.
+///
+/// A context observes the manager's face authority and published registry rather than owning
+/// fonts (ADR 0005), so this is the one identity world the task shapes and renders with — the
+/// manager the shell built from the [`FontPolicy`](massive_renderer::FontPolicy) passed to
+/// `shell::run`. Fonts the application needs are loaded into it.
+pub fn fonts() -> FontManager {
+    with_shaper(|shaping_context| shaping_context.manager())
 }
 
 /// Collect one change of the installed change type.

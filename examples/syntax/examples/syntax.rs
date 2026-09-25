@@ -14,7 +14,7 @@ use massive_applications::prelude::*;
 use massive_geometry::Color;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
-use massive_shell::{ApplicationContext, FontManager, shell};
+use massive_shell::{ApplicationContext, shell};
 
 use shared::{
     application::{Application, UpdateResponse},
@@ -62,21 +62,23 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
+    // Register the bundled font in the task's manager; the shell built it from the font policy
+    // this application names, so shaping and rendering share one identity world (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     let font_size = 32.;
     let line_height = 40.;
 
-    let context = fonts.new_shaping_context();
-    let (glyph_runs, height) = attributed_text::shape_text(
-        &mut context.shaper(),
-        &final_text,
-        &text_attributes,
-        font_size,
-        line_height,
-        None,
-    );
+    let (glyph_runs, height) = with_shaper(|shaping_context| {
+        attributed_text::shape_text(
+            &mut shaping_context.shaper(),
+            &final_text,
+            &text_attributes,
+            font_size,
+            line_height,
+            None,
+        )
+    });
 
     // Window
 
@@ -86,11 +88,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let mut renderer = window
-        .renderer()
-        .with_text_registry(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     // Application
 
@@ -128,6 +126,6 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.begin_frame().render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }

@@ -10,11 +10,10 @@ use uuid::Uuid;
 
 use massive_applications::{
     ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceEnvironment, InstanceId,
-    InstanceParameters, InstanceSubmission, ViewEvent,
+    InstanceParameters, InstanceSubmission, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
-use massive_scene::SceneChange;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 use massive_util::CollectingVec;
 
@@ -154,7 +153,7 @@ impl Desktop {
             changes += system.plan(command)?;
         }
 
-        let mut frame = context.begin_frame();
+        let mut frame = begin_frame();
         system.transact(
             changes + initial_submission_changes,
             &mut frame,
@@ -208,7 +207,7 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.begin_frame();
+            let mut frame = begin_frame();
 
             match event {
                 DesktopEvent::ApplicationEvents(events) => {
@@ -339,7 +338,7 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.begin_frame();
+            let mut frame = begin_frame();
             match event {
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
@@ -378,7 +377,7 @@ fn handle_instance_ended(
     instance_manager: &mut InstanceManager,
     instance_submissions: &mut UnboundedReceiver<(InstanceId, InstanceSubmission)>,
     (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
-    frame: &mut Frame<SceneChange>,
+    frame: &mut Frame,
     window_size: massive_geometry::SizePx,
 ) -> Result<()> {
     info!(
@@ -417,7 +416,7 @@ fn handle_instance_ended(
 /// Update the camera, pacing, submit the frame, and update the window presentation.
 fn finalize_desktop_frame(
     system: &mut DesktopSystem,
-    frame: Frame<SceneChange>,
+    frame: Frame,
     window: &ShellWindow,
     presentation_state: &mut WindowPresentationState,
     renderer: &mut AsyncWindowRenderer,
@@ -426,10 +425,7 @@ fn finalize_desktop_frame(
 
     let camera = *system.camera(frame.animation_time());
 
-    let mut submission = frame
-        .submission()
-        .into_render_submission()
-        .with_camera(camera);
+    let mut submission = frame.render_submission().with_camera(camera);
     // If any instance runs on smooth pacing, we need to, too.
     if system.effective_pacing() == RenderPacing::Smooth {
         submission = submission.with_pacing(RenderPacing::Smooth);

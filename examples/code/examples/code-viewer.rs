@@ -9,8 +9,8 @@ use massive_applications::prelude::*;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind};
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, AttributedText};
@@ -43,8 +43,9 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     //     // .with(chrome_layer)
     //     .init();
 
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
+    // Register the bundled font in the task's manager; the shell built it from the font policy
+    // this application names, so shaping and rendering share one identity world (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     // Load code.
 
@@ -60,15 +61,16 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let context = fonts.new_shaping_context();
-    let (glyph_runs, height) = attributed_text::shape_text(
-        &mut context.shaper(),
-        &code.text,
-        &code.attributes,
-        font_size,
-        line_height,
-        None,
-    );
+    let (glyph_runs, height) = with_shaper(|shaping_context| {
+        attributed_text::shape_text(
+            &mut shaping_context.shaper(),
+            &code.text,
+            &code.attributes,
+            font_size,
+            line_height,
+            None,
+        )
+    });
 
     // Application
 
@@ -82,11 +84,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // So we compute the proper physical for now.
     // spellcheck: ignore
     // let physical_size = initial_size.to_physical(window.scale_factor());
-    let mut renderer = window
-        .renderer()
-        .with_text_registry(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
@@ -122,6 +120,6 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.begin_frame().render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }
