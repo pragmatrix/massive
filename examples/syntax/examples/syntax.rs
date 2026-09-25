@@ -96,8 +96,8 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = (1280, height as u32);
     let mut application = Application::default();
-    let transform = application.get_transform(content_size).enter_owned();
-    let position = transform.to_location().enter_owned();
+    let transform = application.get_transform(content_size).enter();
+    let position = transform.to_location().enter();
 
     // Hold the entered visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -105,7 +105,7 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&position)
-        .enter_owned();
+        .enter();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {

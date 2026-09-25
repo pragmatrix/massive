@@ -155,8 +155,8 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = SizePx::new(page_width as _, page_height);
     let mut application = Application::default();
-    let transform = application.get_transform(content_size).enter_owned();
-    let location = transform.to_location().enter_owned();
+    let transform = application.get_transform(content_size).enter();
+    let location = transform.to_location().enter();
 
     // Hold the entered visual, otherwise it will disappear.
     let _visual = glyph_runs
@@ -165,7 +165,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .collect::<Vec<_>>()
         .at(&location)
         .with_decal_order(0)
-        .enter_owned();
+        .enter();
 
     ctx.frame().render_to(&mut renderer)?;
 
