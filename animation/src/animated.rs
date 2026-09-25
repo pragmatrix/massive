@@ -45,7 +45,7 @@ impl<T: Send + Interpolatable> Animated<T> {
         }
     }
 
-    pub fn animate_if_changed(
+    pub fn animate_if_changed_with(
         &mut self,
         context: &mut dyn AnimationAllocator,
         target_value: T,
@@ -58,10 +58,11 @@ impl<T: Send + Interpolatable> Animated<T> {
             return;
         }
 
-        self.animate(context, target_value, duration, interpolation);
+        self.animate_with(context, target_value, duration, interpolation);
     }
 
-    pub fn animate(
+    /// Animate toward `target_value`, timestamps allocated through the given `context`.
+    pub fn animate_with(
         &mut self,
         context: &mut dyn AnimationAllocator,
         target_value: T,
@@ -71,6 +72,21 @@ impl<T: Send + Interpolatable> Animated<T> {
         T: 'static,
     {
         let instant = context.allocate_animation_time(duration);
+        self.animate_at(instant, target_value, duration, interpolation);
+    }
+
+    /// Animate toward `target_value` starting at `instant`.
+    ///
+    /// For callers that already resolved the start time and hold no allocator.
+    pub fn animate_at(
+        &mut self,
+        instant: Instant,
+        target_value: T,
+        duration: Duration,
+        interpolation: Interpolation,
+    ) where
+        T: 'static,
+    {
         let value = self.value.clone();
         self.animation
             .animate_to(value, instant, target_value, duration, interpolation);
@@ -95,7 +111,8 @@ impl<T: Send + Interpolatable> Animated<T> {
         self.animation.target().unwrap_or(&self.value)
     }
 
-    pub fn proceed(&mut self, progress: impl Into<AnimationProgress>) -> &T {
+    /// Advance the animation to `progress`, reading the value after the update.
+    pub fn proceed_with(&mut self, progress: impl Into<AnimationProgress>) -> &T {
         match progress.into() {
             AnimationProgress::Proceed(instant) => self.proceed_animation(instant),
             AnimationProgress::Snap => self.finish(),

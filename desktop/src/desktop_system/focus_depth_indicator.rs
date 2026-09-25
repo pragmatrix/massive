@@ -138,7 +138,7 @@ impl FocusDepthIndicatorMovement {
         self.focus_depth = focus_depth;
         self.timeline.snap(0.0);
         self.timeline
-            .animate(context, 1.0, INDICATOR_DURATION, Interpolation::Linear);
+            .animate_with(context, 1.0, INDICATOR_DURATION, Interpolation::Linear);
     }
 
     fn apply(
@@ -147,7 +147,7 @@ impl FocusDepthIndicatorMovement {
         location: &Handle<Location>,
         visual: &Handle<Visual>,
     ) {
-        let timeline = *self.timeline.proceed(progress);
+        let timeline = *self.timeline.proceed_with(progress);
         let alpha = if timeline < FADE_IN_END {
             (timeline / FADE_IN_END).interpolate(Interpolation::CubicOut)
         } else {

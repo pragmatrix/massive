@@ -238,7 +238,94 @@ the shape and nothing else.
   it is a loud one: the typed task-local accessor panics naming the requested type (the
   one-change-queue-per-task amendment above).
 
+## Amendment: the frame witnesses animation access (2026-09-25)
+
+Animation state becomes reachable only while a frame is live. The task local holds one
+`ANIMATION: RefCell<AnimationState>` whose fields are the `AnimationCoordinator`, the
+`MovementRuntime`, and the frame *witness* (`Option<FrameWitness>`). `begin_frame()` installs the
+witness and releases it unconditionally via `Frame`'s `Drop`; the owned `Frame` itself never
+enters the task local. Its remaining fields are diagnostics only: `submitted` is what lets Drop
+distinguish a commit from a leak, `created_at` locates the leak.
+
+### Why the witness records the creation site
+
+Occupancy alone (`Cell<bool>`) would be enough for the gate. `FrameWitness.created_at` exists for
+exactly one panic only the witness can produce: a second `begin_frame()` while a frame is still
+live. The live frame is a plain local further up the stack the task local deliberately does not
+own, so only the recorded site can name the blocking frame unconditionally; without it the panic
+points at the second call site and the culprit must be recovered from a backtrace.
+
+### Why the animation world is one cell
+
+The coordinator, the movement runtime, and the witness share a cell because they are accessed
+together: every `run_actions`/`apply_animations` step drives the coordinator by the movement
+runtime's `ending_time`, and the witness gates access to both. Separate cells made each access pay
+a second task-local lookup and a second `try_borrow_mut` with its own re-entrancy panic, and they
+forced `begin_frame` to acquire the witness and then separately begin the cycle — a two-step
+opener whose ordering ("acquire before touching animation state") had to be documented as
+load-bearing. One cell makes the gate a field check inside the single borrow that already yields
+the coordinator, and collapses the opener into `begin_frame_cycle`, which stores the witness and
+begins the cycle under one borrow.
+
+### Decision
+
+- One task-local owner (`ANIMATION: RefCell<AnimationState>`) holds the coordinator, the movement
+  runtime, and the witness. All mutation and timestamp reads go through one borrow point,
+  `with_animation_state`, which panics on re-entry. `with_animation` and
+  `with_animation_and_movement` assert a live frame and hand out the coordinator (and movement)
+  fields; there is no ungated coordinator tier — the coordinator's query methods are reached only
+  through the gated accessors or test code.
+- `begin_frame_cycle(created_at)` is the only opener: it installs the witness and begins the
+  cycle, and returns where the blocking frame was begun when one is already live. `begin_frame()`
+  turns that into the panic naming both frames' creation sites. This implements the "a live frame
+  prevents another frame" rule from the original decision, which was previously unimplemented:
+  `begin_cycle` silently reused an open cycle, dating new animations against a stale cycle start
+  time.
+- `Frame::drop` is release-only and unconditional: it releases the witness, and for a frame
+  dropped without submitting it closes the open cycle (flushing movement actions first) and logs
+  the leak. Frames are legitimately dropped un-submitted on the normal quit paths (the desktop's
+  and instance loops return on `CloseRequested`/`Shutdown` with a frame open, and shutdown opens
+  further frames afterwards), so a missing submit must never poison the witness or trap the next
+  begin — that is why the witness is released rather than left for a detection-at-next-begin.
+- One `&mut Frame`-passing boundary survives deliberately: the commit sites (`Frame::submission`,
+  `Frame::render_submission`) take the frame by value, so a commit is still impossible without
+  owning the frame. Everything else reads the ambient clock: `task_context::animation_time()` and
+  `task_context::allocate_animation_time(duration)` replace every `&mut Frame`/
+  `frame.animation_time()` parameter (in `transact`, `handle_instance_ended`,
+  `TerminalPresenter::update`, `process_view_event`, selection progress). There is no allocator
+  object on the ambient path: `AmbientAnimation::animate` reads the allocated start time from the
+  task's frame and calls `Animated::animate_at(instant, ..)`, the same explicit-timestamp step
+  `animate_with` reaches after delegating allocation to its `context`.
+- Two sanctioned accesses run without a live frame and go through one named function,
+  `task_context::with_detached_animation_cycle`: (1) the shell's apply-animations step while
+  awaiting events (`ApplicationContext::wait_for_events`), which upgrades the cycle and applies
+  movement runtime animations — the cycle deliberately stays open, because the cycle spans the
+  shell's step and the application's next frame, and `end_cycle`'s `ApplyAnimations` comparison
+  needs that span to decide pacing; (2) instance teardown (`InstanceContext::drop`), which closes
+  the cycle for the final pacing decision and flushes queued movement actions — a real cycle end,
+  not a silent `end_cycle`-with-no-cycle no-op. The detached helper installs the witness only if
+  none is installed (joining, never stealing or panicking) and releases it only if it installed
+  it; it never opens or closes a cycle.
+- Mounting and queueing movements stay ungated: `movement(..).mount()`, `Movement::modify`, and
+  `Movement::snap` touch only the movement runtime's action inbox, never the clock — mounting
+  happens at presenter construction, before any frame exists. `with_movement` is therefore the one
+  ungated accessor into the shared cell; it reaches only the movement field and is the only path
+  to movement without a frame. The inbox defers actions to the next frame's `run_actions` by
+  construction (the cross-boundary mailbox the ADR already grants). `Frame` is `!Send` so a
+  witness release can never fire on behalf of another task.
+- Movement closures keep the movement's own allocator. `MovementRuntime::run_actions` wraps each
+  queued `modify` in a `MovementAnimationAllocator` that records the movement's `ending_time`,
+  and `apply_animations` advances only movements that have one. A closure that allocated its
+  animations on the ambient clock would leave `ending_time` unset, so those animations would
+  never advance and never emit a completion event; presenter and example call sites inside
+  `modify` therefore keep the explicit `animate_with`/`proceed_with` forms. The ambient API is the
+  default everywhere else.
+
 ### Consequences
 
+- `begin_frame()` is the only opener and the witness gate is the only path to animation state; a
+  mis-ordered call chain fails with a panic naming the missing frame instead of silently reading a
+  stale or default cycle time.
 - Text rendering requires an installed task context, which every application and instance task has.
 - `FontManager::bare`/`system`/`with_font` are the construction path for non-task code.
+- `begin_frame`'s signature and the submission call sites are unchanged.

@@ -14,13 +14,13 @@
 //! instead of mixing submissions silently.
 
 use std::fmt;
+use std::marker::PhantomData;
 use std::panic::Location;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 use log::error;
 
-use massive_animation::AnimationAllocator;
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::SceneChange;
 use massive_util::ChangeSet;
@@ -41,6 +41,10 @@ impl<C> Change for C where C: From<SceneChange> + fmt::Debug + Send + 'static {}
 pub struct Frame {
     submitted: bool,
     created_at: &'static Location<'static>,
+    // `Frame` owns its task's frame witness and releases it on drop; a witness must never be
+    // released on behalf of another task, so the frame is confined to its task. The raw-pointer
+    // PhantomData makes `Frame` `!Send` and `!Sync` (a `*mut ()` is neither).
+    _task_local: PhantomData<*mut ()>,
 }
 
 #[derive(Debug)]
@@ -80,11 +84,27 @@ where
 /// clock.
 #[track_caller]
 pub fn begin_frame() -> Frame {
-    task_context::with_animation(|animation| animation.begin_cycle());
+    let created_at = Location::caller();
+
+    // One call installs the witness and begins the cycle. Failing here means a frame is still
+    // live; the returned site names the blocking frame so both frames appear in the panic.
+    if let Err(live_at) = task_context::begin_frame_cycle(created_at) {
+        panic!(
+            "begin_frame() attempted at {}:{}:{} while a frame begun at {}:{}:{} is still live \
+             (a frame must be submitted before the next one opens)",
+            created_at.file(),
+            created_at.line(),
+            created_at.column(),
+            live_at.file(),
+            live_at.line(),
+            live_at.column(),
+        );
+    }
 
     Frame {
         submitted: false,
-        created_at: Location::caller(),
+        created_at,
+        _task_local: PhantomData,
     }
 }
 
@@ -136,15 +156,23 @@ impl Frame {
     }
 }
 
-impl AnimationAllocator for Frame {
-    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
-        task_context::with_animation(|animation| animation.allocate_animation_time(duration))
-    }
-}
-
 impl Drop for Frame {
+    // Release-only, unconditionally: frames are legitimately dropped unsubmitted on the normal
+    // quit paths (e.g. the desktop's CloseRequested return, which then opens further frames
+    // during shutdown), so a missing submit must never poison the witness for the next frame.
+    // The cycle is closed here too, so a dropped frame cannot leak its open cycle into the next
+    // frame's cycle start time.
     fn drop(&mut self) {
         if !self.submitted {
+            // Terminate the cycle and flush queued movement actions the same way a submission
+            // would.
+            task_context::with_animation_and_movement(|animation, movement| {
+                movement.run_actions(animation);
+            });
+            task_context::with_animation(|animation| {
+                animation.end_cycle();
+            });
+
             error!(
                 "Frame was dropped without being submitted: {}:{}:{}",
                 self.created_at.file(),
@@ -152,5 +180,7 @@ impl Drop for Frame {
                 self.created_at.column(),
             );
         }
+
+        task_context::release_frame_witness();
     }
 }
