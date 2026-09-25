@@ -62,12 +62,6 @@ impl AnimationCoordinator {
         }
     }
 
-    /// Start the current event processing cycle, if it has not started yet.
-    pub fn begin_cycle(&mut self) {
-        self.cycle
-            .get_or_insert_with(|| AnimationCycle::implicit(Instant::now()));
-    }
-
     /// Upgrade the current cycle to an apply animations cycle.
     ///
     /// If the cycle has not been started yet, it's started now.
@@ -85,6 +79,12 @@ impl AnimationCoordinator {
         self.cycle
             .as_ref()
             .is_some_and(|cycle| cycle.mode == CycleMode::ApplyAnimations)
+    }
+
+    /// Start the current event processing cycle, if it has not started yet.
+    pub fn begin_cycle(&mut self) {
+        self.cycle
+            .get_or_insert_with(|| AnimationCycle::implicit(Instant::now()));
     }
 
     /// Ends an update cycle. Returns true if animations are active. This resets the current time.
