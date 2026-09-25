@@ -271,10 +271,10 @@ begins the cycle under one borrow.
 
 - One task-local owner (`ANIMATION: RefCell<AnimationState>`) holds the coordinator, the movement
   runtime, and the witness. All mutation and timestamp reads go through one borrow point,
-  `with_animation_state`, which panics on re-entry. `with_animation` and
-  `with_animation_and_movement` assert a live frame and hand out the coordinator (and movement)
-  fields; there is no ungated coordinator tier — the coordinator's query methods are reached only
-  through the gated accessors or test code.
+  `with_animation_state`, which panics on re-entry. `with_animation` and `end_frame_cycle` assert
+  a live frame and hand out the coordinator field, respectively end the cycle; there is no
+  ungated coordinator tier — the coordinator's query methods are reached only through the gated
+  accessors or test code.
 - `begin_frame_cycle(created_at)` is the only opener: it installs the witness and begins the
   cycle, and returns where the blocking frame was begun when one is already live. `begin_frame()`
   turns that into the panic naming both frames' creation sites. This implements the "a live frame
@@ -296,23 +296,37 @@ begins the cycle under one borrow.
   object on the ambient path: `AmbientAnimation::animate` reads the allocated start time from the
   task's frame and calls `Animated::animate_at(instant, ..)`, the same explicit-timestamp step
   `animate_with` reaches after delegating allocation to its `context`.
-- Two sanctioned accesses run without a live frame and go through one named function,
-  `task_context::with_detached_animation_cycle`: (1) the shell's apply-animations step while
-  awaiting events (`ApplicationContext::wait_for_events`), which upgrades the cycle and applies
-  movement runtime animations — the cycle deliberately stays open, because the cycle spans the
-  shell's step and the application's next frame, and `end_cycle`'s `ApplyAnimations` comparison
-  needs that span to decide pacing; (2) instance teardown (`InstanceContext::drop`), which closes
-  the cycle for the final pacing decision and flushes queued movement actions — a real cycle end,
-  not a silent `end_cycle`-with-no-cycle no-op. The detached helper installs the witness only if
-  none is installed (joining, never stealing or panicking) and releases it only if it installed
-  it; it never opens or closes a cycle.
+- Two sanctioned accesses run without a live frame, one named function each: (1) the shell's
+  apply-animations step while awaiting events (`ApplicationContext::wait_for_events`),
+  `task_context::with_coordinator_and_movement`, which upgrades the cycle, applies movement
+  runtime animations and returns their completion events — the cycle deliberately stays open,
+  because the cycle spans the shell's step and the application's next frame, and `end_cycle`'s
+  `ApplyAnimations` comparison needs that span to decide pacing; (2) instance teardown
+  (`InstanceContext::drop`), `task_context::end_frame_cycle_detached`, which closes the cycle for
+  the final pacing decision and flushes queued movement actions — a real cycle end, not a silent
+  `end_cycle`-with-no-cycle no-op. Neither installs a frame witness. An earlier design did, to
+  "witness" the access, and took a closure so callers could supply the work; both were removed:
+  the witness cannot be consulted from inside these spans, because the call holds the single
+  `with_animation_state` borrow for its whole duration, so any gated access from within panics on
+  re-entry (`animation state was re-entered`) before the gate is ever read, and opening a frame
+  from within is impossible by construction (the application task owns the frame loop and is
+  blocked in the span; `begin_frame_cycle` could not borrow the state anyway). A witness would
+  also have to be installed *before* the borrow, re-introducing the split borrow the single-borrow
+  design removed. With no closure to fill, the step reads its two fields directly and the shell
+  calls one operation instead of restating the coordinator/movement pairing.
+- Frame ends share one body, `AnimationState::flush_and_end_cycle`: queued movement actions are
+  flushed before the cycle closes, because completion events arrive during apply-animations cycles
+  and may queue successor actions that must not wait for an unrelated event. It is reached through
+  `end_frame_cycle` (gated, for `Frame::submission` and `Frame::drop` — the cycle that closes is
+  the one that decides the next frame's pacing) or `end_frame_cycle_detached` (teardown).
 - Mounting and queueing movements stay ungated: `movement(..).mount()`, `Movement::modify`, and
   `Movement::snap` touch only the movement runtime's action inbox, never the clock — mounting
-  happens at presenter construction, before any frame exists. `with_movement` is therefore the one
-  ungated accessor into the shared cell; it reaches only the movement field and is the only path
-  to movement without a frame. The inbox defers actions to the next frame's `run_actions` by
-  construction (the cross-boundary mailbox the ADR already grants). `Frame` is `!Send` so a
-  witness release can never fire on behalf of another task.
+  happens at presenter construction, before any frame exists. `mount` reaches its field directly
+  inside `with_animation_state`, which is also the only borrow point; `with_movement` and
+  `with_animation_and_movement` existed for exactly two callers each and asserted nothing the
+  borrow point did not, so they are inlined. The inbox defers actions to the next frame's
+  `run_actions` by construction (the cross-boundary mailbox the ADR already grants). `Frame` is
+  `!Send` so a witness release can never fire on behalf of another task.
 - Movement closures keep the movement's own allocator. `MovementRuntime::run_actions` wraps each
   queued `modify` in a `MovementAnimationAllocator` that records the movement's `ending_time`,
   and `apply_animations` advances only movements that have one. A closure that allocated its
