@@ -137,13 +137,8 @@ impl Frame {
     fn end_cycle(&mut self) -> RenderPacing {
         self.submitted = true;
 
-        // Completion events arrive during apply-animation cycles and may queue successor actions.
-        // Drain them now so they do not wait for unrelated input.
-        task_context::with_animation_and_movement(|animation, movement| {
-            movement.run_actions(animation);
-        });
-
-        if task_context::with_animation(|animation| animation.end_cycle()) {
+        // Flushes queued movement actions before closing the cycle.
+        if task_context::end_frame_cycle() {
             RenderPacing::Smooth
         } else {
             RenderPacing::Fast
@@ -161,12 +156,7 @@ impl Drop for Frame {
         if !self.submitted {
             // Terminate the cycle and flush queued movement actions the same way a submission
             // would.
-            task_context::with_animation_and_movement(|animation, movement| {
-                movement.run_actions(animation);
-            });
-            task_context::with_animation(|animation| {
-                animation.end_cycle();
-            });
+            task_context::end_frame_cycle();
 
             error!(
                 "Frame was dropped without being submitted: {}:{}:{}",

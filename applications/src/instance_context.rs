@@ -52,17 +52,16 @@ impl Drop for InstanceContext {
         // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
         // the desktop observes it behind every pending change of this submission.
         collect(InstanceChange::End(self.view_parent.clone()));
-        // Teardown runs after the run loop returned, so no frame is live. The detached cycle
-        // witnesses animation access for this one teardown (joining, not replacing, a frame
-        // held across a panic unwind) and never panics — this is a Drop.
-        let pacing = task_context::with_detached_animation_cycle(|animation, movement| {
-            movement.run_actions(animation);
-            if animation.end_cycle() {
-                RenderPacing::Smooth
-            } else {
-                RenderPacing::Fast
-            }
-        });
+        // Teardown runs after the run loop returned, so no frame is live. The detached frame end
+        // witnesses animation access for this one teardown (joining, not replacing, a frame held
+        // across a panic unwind), flushes queued movement actions, closes the cycle and never
+        // panics — this is a Drop.
+        let animating = task_context::end_frame_cycle_detached();
+        let pacing = if animating {
+            RenderPacing::Smooth
+        } else {
+            RenderPacing::Fast
+        };
         if let Err(e) = self.submit_with_pacing(pacing) {
             error!("Final instance submit error for {:?}: {e:?}", self.id);
         }
