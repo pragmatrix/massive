@@ -16,12 +16,10 @@
 use std::fmt;
 use std::marker::PhantomData;
 use std::panic::Location;
-use std::time::Instant;
 
-use anyhow::Result;
 use log::error;
 
-use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
+use massive_renderer::{RenderPacing, RenderSubmission};
 use massive_scene::SceneChange;
 use massive_util::ChangeSet;
 
@@ -106,16 +104,6 @@ pub fn begin_frame() -> Frame {
 impl Frame {
     pub fn upgrade_to_apply_animations_cycle(&mut self) {
         task_context::with_animation(|animation| animation.upgrade_to_apply_animations_cycle());
-    }
-
-    pub fn animation_time(&self) -> Instant {
-        task_context::with_animation(|animation| animation.animation_time())
-    }
-
-    // Render all the current scene changes. Only the application task's scene queue has a
-    // render submission.
-    pub fn render_to(self, render_target: &mut dyn RenderTarget) -> Result<()> {
-        render_target.render(self.render_submission())
     }
 
     /// The application task's render submission: its queue drained as [`SceneChange`]s.
