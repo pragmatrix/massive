@@ -11,7 +11,8 @@
 //! `InstanceContext::submit`. Draining a queue into the wrong submission kind is therefore a
 //! compile error.
 
-use std::any::Any;
+use std::fmt;
+use std::marker::PhantomData;
 use std::panic::Location;
 use std::time::{Duration, Instant};
 
@@ -25,23 +26,32 @@ use massive_util::ChangeSet;
 
 use crate::task_context;
 
+/// The bounds a frame's change kind `C` must satisfy: it converts from [`SceneChange`] and is
+/// the collected type of the task's change queue (see [`task_context::take_changes`]).
+///
+/// Stated once here instead of on every `Frame` impl. It is public so generic code over
+/// `Frame<C>` can name it; the blanket impl covers every type that satisfies the bounds.
+pub trait Change: From<SceneChange> + fmt::Debug + Send + 'static {}
+
+impl<C> Change for C where C: From<SceneChange> + fmt::Debug + Send + 'static {}
+
 #[derive(Debug)]
 pub struct Frame<C>
 where
-    C: From<SceneChange> + std::fmt::Debug + Send + Any,
+    C: Change,
 {
     submitted: bool,
     created_at: &'static Location<'static>,
-    _change_type: std::marker::PhantomData<C>,
+    _change_type: PhantomData<C>,
 }
 
 #[derive(Debug)]
-pub struct FrameSubmission<C: Any> {
+pub struct FrameSubmission<C: Change> {
     changes: ChangeSet<C>,
     pacing: RenderPacing,
 }
 
-impl<C: Any> FrameSubmission<C> {
+impl<C: Change> FrameSubmission<C> {
     /// The submission-level pacing; a scene-kind-agnostic submission property.
     pub fn into_pacing(self) -> RenderPacing {
         self.pacing
@@ -52,26 +62,21 @@ impl<C: Any> FrameSubmission<C> {
     }
 }
 
-impl<C: Any> FrameSubmission<C>
+impl<C: Change> FrameSubmission<C>
 where
-    C: From<SceneChange> + std::fmt::Debug + Send,
     SceneChange: From<C>,
 {
     /// Render submission; only the application task's scene queue produces one,
     /// because only there `C = SceneChange`.
-    pub fn render_submission(self) -> RenderSubmission {
+    pub fn into_render_submission(self) -> RenderSubmission {
         RenderSubmission::new(self.changes.map(SceneChange::from), self.pacing)
     }
 }
 
-impl<C> Frame<C>
-where
-    C: From<SceneChange> + std::fmt::Debug + Send + Any + 'static,
-{
+impl<C: Change> Frame<C> {
     /// Open one animation cycle; the change kind is inferred from the submission call.
     #[track_caller]
-    #[allow(clippy::new_without_default)]
-    pub fn new() -> Self {
+    pub fn begin() -> Self {
         task_context::with_animation(|animation| animation.begin_cycle());
 
         Self {
@@ -95,7 +100,7 @@ where
     where
         SceneChange: From<C>,
     {
-        render_target.render(self.submission().render_submission())
+        render_target.render(self.submission().into_render_submission())
     }
 
     /// End the animation cycle and drain the task's change queue into a submission.
@@ -125,19 +130,13 @@ where
     }
 }
 
-impl<C> AnimationAllocator for Frame<C>
-where
-    C: From<SceneChange> + std::fmt::Debug + Send + Any,
-{
+impl<C: Change> AnimationAllocator for Frame<C> {
     fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
         task_context::with_animation(|animation| animation.allocate_animation_time(duration))
     }
 }
 
-impl<C> Drop for Frame<C>
-where
-    C: From<SceneChange> + std::fmt::Debug + Send + Any,
-{
+impl<C: Change> Drop for Frame<C> {
     fn drop(&mut self) {
         if !self.submitted {
             error!(

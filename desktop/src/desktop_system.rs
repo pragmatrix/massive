@@ -303,7 +303,7 @@ impl DesktopSystem {
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
-                let output = self.apply_change(change, frame, instance_manager)?;
+                let output = self.apply_change(change, instance_manager)?;
                 // TODO: I think Changes should support a DoubleEndedIterator.
                 for new_change in output
                     .changes

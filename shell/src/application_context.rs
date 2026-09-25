@@ -53,8 +53,8 @@ impl ApplicationContext {
 
     /// Bundle the task's change queue with the application's animation clock for one update
     /// cycle. The change kind is fixed by the submission call (ADR 0008).
-    pub fn frame(&self) -> Frame<SceneChange> {
-        Frame::new()
+    pub fn begin_frame(&self) -> Frame<SceneChange> {
+        Frame::begin()
     }
 
     /// Creates a new window.

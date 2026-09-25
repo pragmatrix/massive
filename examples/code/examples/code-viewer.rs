@@ -122,6 +122,6 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame().render_to(&mut renderer)?;
+        ctx.begin_frame().render_to(&mut renderer)?;
     }
 }

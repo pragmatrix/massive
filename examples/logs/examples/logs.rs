@@ -93,7 +93,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let mut logs = Logs::new(fonts.new_shaping_context());
 
     // Initial lines informing the user how to interact with the example.
-    let mut frame = ctx.frame();
+    let mut frame = ctx.begin_frame();
     logs.add_line(
         &mut frame,
         b"Press a key in the window to generate more log output.",
@@ -114,7 +114,7 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             events = ctx.wait_for_events() => Wakeup::Events(events?),
         };
 
-        let mut frame = ctx.frame();
+        let mut frame = ctx.begin_frame();
 
         match wakeup {
             Wakeup::Line(bytes) => {

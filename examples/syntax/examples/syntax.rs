@@ -128,6 +128,6 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame().render_to(&mut renderer)?;
+        ctx.begin_frame().render_to(&mut renderer)?;
     }
 }

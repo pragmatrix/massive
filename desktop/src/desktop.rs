@@ -154,7 +154,7 @@ impl Desktop {
             changes += system.plan(command)?;
         }
 
-        let mut frame = context.frame();
+        let mut frame = context.begin_frame();
         system.transact(
             changes + initial_submission_changes,
             &mut frame,
@@ -208,7 +208,7 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.frame();
+            let mut frame = self.context.begin_frame();
 
             match event {
                 DesktopEvent::ApplicationEvents(events) => {
@@ -339,7 +339,7 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.frame();
+            let mut frame = self.context.begin_frame();
             match event {
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
@@ -423,19 +423,22 @@ fn finalize_desktop_frame(
     renderer: &mut AsyncWindowRenderer,
 ) -> Result<()> {
     let window_context = WindowContext::new(window, presentation_state, renderer);
-    let animation_time = frame.animation_time();
-    let camera = *system.camera(animation_time);
-    let mut submission = frame.submission().render_submission().with_camera(camera);
+
+    let camera = *system.camera(frame.animation_time());
+
+    let mut submission = frame
+        .submission()
+        .into_render_submission()
+        .with_camera(camera);
     // If any instance runs on smooth pacing, we need to, too.
     if system.effective_pacing() == RenderPacing::Smooth {
         submission = submission.with_pacing(RenderPacing::Smooth);
     }
     submission.submit_to(window_context.renderer)?;
 
-    let window_presentation_state = system.window_presentation_state()?;
     window_context
         .presentation_state
-        .delta_sync(window_presentation_state, window_context.window);
+        .delta_sync(system.window_presentation_state()?, window_context.window);
     Ok(())
 }
 
