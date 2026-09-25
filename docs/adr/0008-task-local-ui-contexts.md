@@ -202,3 +202,43 @@ resolves the task's shaper at the call site, so no presenter or call site carrie
   `AmbientShape` are the same idea — read the task's installed context instead of
   threading it — and the `prelude` re-exports them together. The earlier
   `enter_ambient` and `ambient_shape` modules are merged into it.
+
+## Amendment: one identity world per task (2026-09-25)
+
+Every UI task has exactly one font manager — the one the shell built from the `FontPolicy` — and
+the renderer reads that manager's registry. The task reaches it through `fonts()`, a free accessor
+beside `with_shaper` in the task-context module and the prelude, because the manager is a property
+of the task and not of a context: the contexts handed to applications carry no task-owned state.
+Fonts an application needs are loaded into that manager, which ADR 0006 permits at any time; the
+shaper is pulled from the same task-local at the shaping call, so its exclusive scratch is held for
+the shape and nothing else.
+
+### Decision
+
+- The task's manager is reached through `fonts()`, for application and instance tasks alike. No
+  context exposes a `fonts()` method, so the access surface is uniform and the contexts stay the
+  shell's handle.
+- `WindowRendererBuilder::with_text()` is the single way to enable text rendering, and it resolves
+  the registry from the task-local. A renderer whose text layer observes a different manager's
+  registry than the one that shaped its runs cannot be correct — a `FaceId` is meaningful only
+  inside the issuing manager (ADR 0005) — so there is no variant that takes a registry.
+- No production code constructs a `FontManager`; tests and benchmarks do, and they have no task
+  context. A manager built outside the shell is a second identity world no renderer can consume.
+- The requirement is *one identity world per task*, not *every shaping call goes through the
+  task-local*: every `GlyphRun` a task renders was shaped through that task's manager, or converted
+  from a foreign layout engine and mapped to that manager's face ids, which the renderer checks by
+  comparing each run's shaping engine with its layer's (ADR 0005). A foreign layout engine may
+  therefore keep shaping.
+- Frames are opened by one prelude free function, `begin_frame()`, and `Frame` carries no change
+  kind as a type parameter: the kind is fixed where the frame is consumed — render submissions
+  drain the application task's `SceneChange` queue, and an instance's `submit` fixes
+  `InstanceChange`. A kind on the opener cannot do that: it forces an annotation exactly where
+  nothing else constrains the kind, and one opener per task kind duplicates the entry point.
+- Draining a queue with the wrong kind is therefore a runtime failure rather than a type error, and
+  it is a loud one: the typed task-local accessor panics naming the requested type (the
+  one-change-queue-per-task amendment above).
+
+### Consequences
+
+- Text rendering requires an installed task context, which every application and instance task has.
+- `FontManager::bare`/`system`/`with_font` are the construction path for non-task code.

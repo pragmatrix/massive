@@ -76,12 +76,6 @@ impl WindowRendererBuilder {
         self
     }
 
-    /// Enables text rendering with an explicit registry, for glyph runs shaped by another manager.
-    pub fn with_text_registry(mut self, fonts: FontRegistrySource) -> Self {
-        self.text = Some(fonts);
-        self
-    }
-
     /// Measure performance.
     ///
     /// Default is off.

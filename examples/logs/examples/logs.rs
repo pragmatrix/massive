@@ -22,11 +22,10 @@ use massive_animation::{Animated, Interpolation, Movement};
 use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
-use massive_scene::SceneChange;
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, Shape, Shaper, ShapingEngineKind};
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager, Frame, ShapingContext};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text;
@@ -75,8 +74,9 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
+    // Register the bundled font in the task's manager; the shell built it from the font policy
+    // this application names, so shaping and rendering share one identity world (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     // Window
 
@@ -84,24 +84,14 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let window = ctx.new_window((size.width, size.height)).await?;
     let view_id = window.view_id();
 
-    let mut renderer = window
-        .renderer()
-        .with_text_registry(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
-    let mut logs = Logs::new(fonts.new_shaping_context());
+    let mut logs = Logs::new();
 
     // Initial lines informing the user how to interact with the example.
-    let mut frame = ctx.begin_frame();
-    logs.add_line(
-        &mut frame,
-        b"Press a key in the window to generate more log output.",
-    );
-    logs.add_line(
-        &mut frame,
-        b"Mouse + Left click : translate, Cmd + Mouse + Left click : rotate.",
-    );
+    let frame = begin_frame();
+    logs.add_line(b"Press a key in the window to generate more log output.");
+    logs.add_line(b"Mouse + Left click : translate, Cmd + Mouse + Left click : rotate.");
     logs.update_layout()?;
     frame.render_to(&mut renderer)?;
 
@@ -114,11 +104,11 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             events = ctx.wait_for_events() => Wakeup::Events(events?),
         };
 
-        let mut frame = ctx.begin_frame();
+        let frame = begin_frame();
 
         match wakeup {
             Wakeup::Line(bytes) => {
-                logs.add_line(&mut frame, &bytes);
+                logs.add_line(&bytes);
                 logs.update_layout()?;
             }
             Wakeup::Events(events) => {
@@ -157,8 +147,6 @@ enum LogEvent {
 }
 
 struct Logs {
-    fonts: ShapingContext,
-
     application: Application,
 
     application_transform: Handle<Transform>,
@@ -170,7 +158,7 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(fonts: ShapingContext) -> Self {
+    fn new() -> Self {
         let content_width = 1280;
         let application = Application::default();
 
@@ -206,7 +194,6 @@ impl Logs {
         .mount();
 
         Self {
-            fonts,
             application,
             application_transform,
             layout,
@@ -217,9 +204,12 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, _frame: &mut Frame<SceneChange>, bytes: &[u8]) {
-        let mut shaper = self.fonts.shaper();
-        let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
+    fn add_line(&mut self, bytes: &[u8]) {
+        // Shape through the task's shaping owner: the same identity world the renderer reads.
+        let (glyph_runs, height) = with_shaper(|shaping_context| {
+            let mut shaper = shaping_context.shaper();
+            shape_log_line(&mut shaper, bytes, self.next_line_top)
+        });
 
         let glyph_runs: Vec<Shape> = glyph_runs
             .into_iter()

@@ -28,8 +28,8 @@ use massive_applications::prelude::*;
 use massive_geometry::{Color, SizePx};
 use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, AttributedText, TextAttribute};
@@ -73,8 +73,10 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .unwrap()
         .join(Path::new("examples/code/examples"));
 
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO)?;
+    // Register the bundled font in the task's manager. The shell built that manager from the
+    // font policy this application names, so shaping and rendering share one identity world
+    // (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     let cargo_config = CargoConfig {
         // need to be able to look up examples.
@@ -245,15 +247,16 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let context = fonts.new_shaping_context();
-    let (glyph_runs, height) = attributed_text::shape_text(
-        &mut context.shaper(),
-        text,
-        &attributes,
-        font_size,
-        line_height,
-        None,
-    );
+    let (glyph_runs, height) = with_shaper(|shaping_context| {
+        attributed_text::shape_text(
+            &mut shaping_context.shaper(),
+            text,
+            &attributes,
+            font_size,
+            line_height,
+            None,
+        )
+    });
 
     // Window
 
@@ -266,11 +269,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
 
-    let mut renderer = window
-        .renderer()
-        .with_text_registry(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     let transform = application.get_transform(content_size).enter();
     let location = transform.to_location().enter();
@@ -305,7 +304,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.begin_frame().render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }
 

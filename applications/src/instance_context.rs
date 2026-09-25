@@ -4,7 +4,7 @@ use anyhow::{Result, bail};
 use log::{error, trace, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use massive_renderer::{FontManager, RenderPacing};
+use massive_renderer::RenderPacing;
 use massive_scene::{Location, Ref, SceneChange};
 use massive_util::{ChangeCollector, ChangeSet, CoalescingReceiver};
 
@@ -12,9 +12,8 @@ use crate::prelude::*;
 use crate::task_context;
 use crate::view_builder::ViewBuilder;
 use crate::{
-    ApplicationEvent, ApplicationMessage, ConfigurationRequest, Frame, FrameSubmission,
-    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission,
-    ViewExtent,
+    ApplicationEvent, ApplicationMessage, ConfigurationRequest, FrameSubmission, InstanceChange,
+    InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, ViewExtent,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -99,18 +98,6 @@ impl InstanceContext {
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.environment.primary_monitor_scale_factor
-    }
-
-    pub fn fonts(&self) -> FontManager {
-        // The manager is reached through the task's shaping context: a context is a view onto the
-        // manager's face authority and published registry, not a separate font owner (ADR 0005).
-        task_context::with_shaper(|shaper| shaper.manager())
-    }
-
-    /// Bundle this instance's animation clock for one update cycle over the task's change
-    /// queue. The change kind is fixed by calling `submit` (or `submission`) on the frame.
-    pub fn begin_frame(&mut self) -> Frame<InstanceChange> {
-        Frame::begin()
     }
 
     pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent<std::convert::Infallible>> {

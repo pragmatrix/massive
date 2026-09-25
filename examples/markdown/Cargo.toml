@@ -22,6 +22,7 @@ chrono = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 
+massive-animation = { workspace = true }
 massive-applications = { workspace = true }
 massive-geometry = { workspace = true }
 massive-scene = { workspace = true }

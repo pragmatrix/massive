@@ -40,7 +40,6 @@ use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
-use massive_scene::SceneChange;
 use massive_scene::prelude::*;
 use massive_shell::Frame;
 use massive_util::CollectingVec;
@@ -284,7 +283,7 @@ impl DesktopSystem {
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
-        frame: &mut Frame<SceneChange>,
+        frame: &mut Frame,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
         window_size: SizePx,

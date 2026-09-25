@@ -48,7 +48,8 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
-    // Register the system fonts into both databases and build the fontdb::ID -> FaceId map.
+    // Register the system fonts into both databases and build the fontdb::ID -> FaceId map. The
+    // task's manager is the one identity world the renderer reads (ADR 0005).
     let bridge = FontBridge::system()?;
     // Need an equivalent FontSystem for inlyne.
     let font_system = Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(
@@ -64,11 +65,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let mut renderer = window
-        .renderer()
-        .with_text_registry(bridge.font_manager().registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     let hidpi_scale = window.scale_factor();
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
@@ -167,7 +164,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .with_decal_order(0)
         .enter();
 
-    ctx.begin_frame().render_to(&mut renderer)?;
+    begin_frame().render_to(&mut renderer)?;
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -190,7 +187,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.begin_frame().render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }
 

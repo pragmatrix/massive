@@ -9,9 +9,8 @@ use winit::event_loop::EventLoopProxy;
 use winit::window::WindowAttributes;
 
 use massive_applications::task_context;
-use massive_applications::{ApplicationEvent, ApplicationMessage, Frame, PresentationId, ViewId};
+use massive_applications::{ApplicationEvent, ApplicationMessage, PresentationId, ViewId};
 use massive_geometry::SizePx;
-use massive_scene::SceneChange;
 use massive_util::CoalescingReceiver;
 
 use crate::ShellWindow;
@@ -49,12 +48,6 @@ impl ApplicationContext {
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.monitor_scale_factor
-    }
-
-    /// Bundle the task's change queue with the application's animation clock for one update
-    /// cycle. The change kind is fixed by the submission call (ADR 0008).
-    pub fn begin_frame(&self) -> Frame<SceneChange> {
-        Frame::begin()
     }
 
     /// Creates a new window.
