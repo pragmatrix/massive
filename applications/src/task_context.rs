@@ -27,8 +27,9 @@ task_local! {
 /// One cell rather than three: the coordinator, the movement runtime, and the witness are
 /// accessed together (each `run_actions`/`apply_animations` step touches both runtimes, and the
 /// witness gates access to both), so separate cells only added nested borrows and a second
-/// occupancy check per access. Movement is also reached on its own — mounting happens before any
-/// frame exists — through the ungated [`with_movement`].
+/// occupancy check per access. Movement is also reached on its own — mounting
+/// ([`TaskMovementBuilder::mount`]) happens before any frame exists — through the same borrow,
+/// without the gate.
 #[derive(Debug)]
 pub(crate) struct AnimationState {
     coordinator: AnimationCoordinator,
@@ -53,6 +54,17 @@ impl AnimationState {
                  call begin_frame() first"
             );
         }
+    }
+
+    /// Flush queued movement actions, then close the cycle and report whether animations remain.
+    ///
+    /// The one frame-end body: the gated frame ends (a submitted or dropped frame) and the
+    /// detached instance teardown all end this way. Actions are flushed first because completion
+    /// events arrive during apply-animations cycles and may queue successor actions, which must
+    /// not wait for an unrelated event.
+    fn flush_and_end_cycle(&mut self) -> bool {
+        self.movement.run_actions(&mut self.coordinator);
+        self.coordinator.end_cycle()
     }
 }
 
@@ -188,8 +200,8 @@ pub fn sink() -> Arc<dyn ChangeSink> {
 ///
 /// Gated: requires a live frame ([`crate::Frame`], begun via [`crate::begin_frame`]). The frame
 /// witness proves animation activity is declared; without it animation state is unreachable by
-/// design, so this panics. The sanctioned frame-free exception is
-/// [`with_detached_animation_cycle`].
+/// design, so this panics. The frame-free exceptions are [`with_coordinator_and_movement`] and
+/// [`end_frame_cycle_detached`].
 pub(crate) fn with_animation<R>(f: impl FnOnce(&mut AnimationCoordinator) -> R) -> R {
     with_animation_state(|state| {
         state.assert_frame_live();
@@ -210,42 +222,42 @@ pub(crate) fn allocate_animation_time(duration: Duration) -> Instant {
     with_animation(|animation| animation.allocate_animation_time(duration))
 }
 
-/// The one sanctioned animation access without a live frame: the shell's apply-animations step
-/// and instance teardown.
+/// Mutably access the current task's animation coordinator and movement runtime together, without
+/// a live frame.
 ///
-/// Acquires the frame witness for the duration of `f` and releases it afterwards; the animation
-/// cycle itself is intentionally not opened or closed here (the shell's step runs mid-cycle, and
-/// teardown closing is `f`'s concern). If a witness is somehow already held — e.g. an
-/// unsubmitted frame held across a panic unwind — it is joined and left alone instead of being
-/// replaced, so this never panics and never steals another frame's witness.
-pub fn with_detached_animation_cycle<R>(
+/// Two things need the pair in one borrow and run without a frame: the shell's apply-animations
+/// step (upgrade the cycle, read its time, drive the movement runtime by it) and the teardown
+/// that closes the cycle. No witness is involved, for the same reason a gated access here is
+/// unreachable: the closure holds the single animation-state borrow, and `ANIMATION` is task-local
+/// and scoped to one future, so the frame-free caller cannot hold a frame. The cycle is neither
+/// opened nor closed: it spans the shell's step and the application's next frame, and `end_cycle`'s
+/// `ApplyAnimations` comparison needs that span to decide pacing.
+pub fn with_animation_and_movement<R>(
     f: impl FnOnce(&mut AnimationCoordinator, &mut MovementRuntime) -> R,
 ) -> R {
-    let acquired = acquire_witness_if_unheld();
-    let result = with_animation_and_movement(|animation, movement| f(animation, movement));
-    if acquired {
-        release_frame_witness();
-    }
-    result
+    with_animation_state(|state| f(&mut state.coordinator, &mut state.movement))
 }
 
-/// Mutably access the current task's movement runtime synchronously.
+/// End the current frame's animation cycle: flush queued movement actions, then close the cycle
+/// and report whether animations remain.
 ///
-/// Deliberately ungated: mounting a movement ([`TaskMovementBuilder::mount`]) is presenter
-/// construction work that runs before any frame exists. The gate lives on the other two fields
-/// of the same [`AnimationState`], so this is the only way to reach movement without a frame.
-pub fn with_movement<R>(f: impl FnOnce(&mut MovementRuntime) -> R) -> R {
-    with_animation_state(|state| f(&mut state.movement))
-}
-
-/// Mutably access the current task's animation coordinator and movement runtime together.
-pub(crate) fn with_animation_and_movement<R>(
-    f: impl FnOnce(&mut AnimationCoordinator, &mut MovementRuntime) -> R,
-) -> R {
+/// Gated like [`with_animation`]: the closed cycle decides the next frame's pacing, so it belongs
+/// to the frame that is being submitted or dropped. The one frame-free end is
+/// [`end_frame_cycle_detached`].
+pub(crate) fn end_frame_cycle() -> bool {
     with_animation_state(|state| {
         state.assert_frame_live();
-        f(&mut state.coordinator, &mut state.movement)
+        state.flush_and_end_cycle()
     })
+}
+
+/// [`end_frame_cycle`] for instance teardown, which runs after the run loop returned and so has
+/// no frame.
+///
+/// The same end without the liveness assert, for the same reason
+/// [`with_coordinator_and_movement`] needs no witness: the borrow makes the gate unreachable.
+pub(crate) fn end_frame_cycle_detached() -> bool {
+    with_animation_state(AnimationState::flush_and_end_cycle)
 }
 
 /// Mutably borrow the task's animation state, panicking on re-entry.
@@ -276,22 +288,6 @@ pub(crate) fn begin_frame_cycle(
         state.witness = Some(FrameWitness { created_at });
         state.coordinator.begin_cycle();
         Ok(())
-    })
-}
-
-/// Acquire the witness only when none is held; returns whether this call acquired it.
-///
-/// The detached access never opens a cycle: the shell's span runs mid-cycle and teardown closes
-/// the cycle itself. Joining an existing witness rather than replacing it keeps this a Drop-safe
-/// no-op when a frame is held across a panic unwind.
-fn acquire_witness_if_unheld() -> bool {
-    let created_at = Location::caller();
-    with_animation_state(|state| match state.witness {
-        Some(_) => false,
-        None => {
-            state.witness = Some(FrameWitness { created_at });
-            true
-        }
     })
 }
 
@@ -346,8 +342,10 @@ where
             completion_event,
         } = self;
 
-        with_movement(|runtime| {
-            runtime.mount(MovementInstance::new(
+        // Mounting is the one ungated animation access: it happens at presenter construction,
+        // before any frame exists, and touches only the movement runtime's action inbox.
+        with_animation_state(|state| {
+            state.movement.mount(MovementInstance::new(
                 value,
                 apply_animations,
                 completion_event,
@@ -435,26 +433,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn detached_cycle_witnesses_access_without_a_frame() {
+    async fn detached_frame_end_closes_the_cycle_without_a_frame() {
         with_context(contexts(), async {
-            let result = with_detached_animation_cycle(|animation, _| {
-                animation.upgrade_to_apply_animations_cycle();
-                animation.animation_time()
-            });
-            let _ = result;
+            // Teardown's end: no frame is live, so only the detached form may close the cycle.
+            // The fresh cycle holds no animations, hence fast pacing.
+            assert!(!end_frame_cycle_detached());
 
-            // The detached witness is released again: animation access panics once more.
-            let panic = tokio::spawn(async { with_animation(|_| ()) })
-                .await
-                .unwrap_err();
-            assert!(panic.is_panic());
+            // The gated end asserts liveness, so it still refuses without a frame. Its panic
+            // cannot be confused with re-entry: no borrow is held here.
+            let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(end_frame_cycle));
+            assert!(panic.is_err());
 
-            // A live frame is joined, not replaced: the witness survives the detached access.
+            // A live frame still ends through the gated path, so the frame loop is unaffected by
+            // the detached form's existence.
             let frame = crate::begin_frame();
-            with_detached_animation_cycle(|animation, _| {
-                assert!(animation.is_apply_animations_cycle());
-            });
-            drop(frame);
+            assert!(!end_frame_cycle_detached());
+            frame.submission::<SceneChange>();
         })
         .await;
     }

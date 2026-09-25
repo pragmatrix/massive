@@ -94,11 +94,9 @@ impl ApplicationContext {
                 }
                 ApplicationMessage::ApplyAnimations(presentation_id) => {
                     // The shell applies animations while awaiting events, before the application
-                    // opens its next frame. This is the sanctioned frame-free animation access:
-                    // the detached cycle witnesses the access for this span only, and leaves the
-                    // cycle open so the application's next frame continues it.
+                    // opens its next frame.
                     let completion_events =
-                        task_context::with_detached_animation_cycle(|animation, movement| {
+                        task_context::with_animation_and_movement(|animation, movement| {
                             animation.upgrade_to_apply_animations_cycle();
                             movement.apply_animations(animation.animation_time())
                         });
