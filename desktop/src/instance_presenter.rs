@@ -213,7 +213,7 @@ impl InstancePresenter {
         self.movement.modify(move |movement, context| {
             // Same here, this looks weird.
             movement.view_alpha.snap(0.0);
-            movement.view_alpha.animate(
+            movement.view_alpha.animate_with(
                 context,
                 1.0,
                 STRUCTURAL_ANIMATION_DURATION,
@@ -368,13 +368,13 @@ impl InstanceMovement {
         layout_transform: Transform,
         visibility_alpha: f32,
     ) {
-        self.visibility_alpha.animate_if_changed(
+        self.visibility_alpha.animate_if_changed_with(
             context,
             visibility_alpha,
             STRUCTURAL_ANIMATION_DURATION,
             Interpolation::CubicOut,
         );
-        self.layout_transform.animate_if_changed(
+        self.layout_transform.animate_if_changed_with(
             context,
             layout_transform,
             STRUCTURAL_ANIMATION_DURATION,
@@ -389,10 +389,10 @@ impl InstanceMovement {
         location: &Handle<Location>,
     ) {
         // Apply transform and alpha animation updates for this frame.
-        transform.update_if_changed(*self.layout_transform.proceed(progress));
+        transform.update_if_changed(*self.layout_transform.proceed_with(progress));
         location.update_if_changed_with(|location| {
-            location.alpha =
-                *self.view_alpha.proceed(progress) * *self.visibility_alpha.proceed(progress);
+            location.alpha = *self.view_alpha.proceed_with(progress)
+                * *self.visibility_alpha.proceed_with(progress);
         });
     }
 }

@@ -75,8 +75,8 @@ impl HoverMovement {
         hover_location: &Handle<Location>,
         hover_visual: &Handle<Visual>,
     ) {
-        let alpha = *self.alpha.proceed(progress);
-        let layout = *self.layout.proceed(progress);
+        let alpha = *self.alpha.proceed_with(progress);
+        let layout = *self.layout.proceed_with(progress);
         let local_rect = layout.rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
         hover_scene_transform.update_if_changed(layout.to_origin_space());
@@ -98,7 +98,7 @@ impl HoverMovement {
                 let size = placement.rect.size;
                 let layout =
                     SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform);
-                self.alpha.animate_if_changed(
+                self.alpha.animate_if_changed_with(
                     context,
                     1.0,
                     HOVER_ANIMATION_DURATION,
@@ -107,7 +107,7 @@ impl HoverMovement {
                 if *self.alpha.latest() == 0.0 {
                     self.layout.snap(layout);
                 } else {
-                    self.layout.animate_if_changed(
+                    self.layout.animate_if_changed_with(
                         context,
                         layout,
                         HOVER_ANIMATION_DURATION,
@@ -115,7 +115,7 @@ impl HoverMovement {
                     );
                 }
             }
-            None => self.alpha.animate_if_changed(
+            None => self.alpha.animate_if_changed_with(
                 context,
                 0.0,
                 HOVER_ANIMATION_DURATION,

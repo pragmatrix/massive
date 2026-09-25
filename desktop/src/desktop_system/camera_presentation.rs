@@ -1,6 +1,5 @@
-use std::time::Instant;
-
-use massive_animation::{Animated, AnimationAllocator, Interpolation};
+use massive_animation::{Animated, Interpolation};
+use massive_applications::prelude::AmbientAnimation;
 use massive_geometry::PixelCamera;
 
 use crate::instance_presenter::STRUCTURAL_ANIMATION_DURATION;
@@ -39,17 +38,11 @@ impl CameraPresentation {
         self.desired = desired;
     }
 
-    pub fn synchronize(
-        &mut self,
-        animation_time: Instant,
-        context: &mut dyn AnimationAllocator,
-        mode: CameraPresentationMode,
-    ) {
+    pub fn synchronize(&mut self, mode: CameraPresentationMode) {
         match mode {
             CameraPresentationMode::Animate => {
                 if let Some(desired) = self.desired {
                     self.presented.animate_if_changed(
-                        context,
                         desired,
                         STRUCTURAL_ANIMATION_DURATION,
                         Interpolation::CubicOut,
@@ -63,14 +56,14 @@ impl CameraPresentation {
             }
             CameraPresentationMode::Freeze => {
                 if self.presented.is_animating() {
-                    let presented = *self.presented.proceed(animation_time);
+                    let presented = *self.presented.proceed();
                     self.presented.snap(presented);
                 }
             }
         }
     }
 
-    pub fn proceed(&mut self, instant: Instant) -> &PixelCamera {
-        self.presented.proceed(instant)
+    pub fn proceed(&mut self) -> &PixelCamera {
+        self.presented.proceed()
     }
 }

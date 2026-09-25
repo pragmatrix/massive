@@ -4,7 +4,9 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::fmt;
 use std::future::Future;
+use std::panic::Location;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use tokio::task_local;
 
@@ -16,9 +18,56 @@ use massive_scene::{AnyCollector, ChangeSink, SceneChange};
 
 task_local! {
     static CHANGES: AnyCollector;
-    static ANIMATION: RefCell<AnimationCoordinator>;
-    static MOVEMENT: RefCell<MovementRuntime>;
+    static ANIMATION: RefCell<AnimationState>;
     static SHAPER: RefCell<ShapingContext>;
+}
+
+/// The task's animation world, gated by the frame witness.
+///
+/// One cell rather than three: the coordinator, the movement runtime, and the witness are
+/// accessed together (each `run_actions`/`apply_animations` step touches both runtimes, and the
+/// witness gates access to both), so separate cells only added nested borrows and a second
+/// occupancy check per access. Movement is also reached on its own — mounting happens before any
+/// frame exists — through the ungated [`with_movement`].
+#[derive(Debug)]
+pub(crate) struct AnimationState {
+    coordinator: AnimationCoordinator,
+    movement: MovementRuntime,
+    witness: Option<FrameWitness>,
+}
+
+impl AnimationState {
+    fn new(coordinator: AnimationCoordinator, movement: MovementRuntime) -> Self {
+        Self {
+            coordinator,
+            movement,
+            witness: None,
+        }
+    }
+
+    /// Panic unless a frame is live: the witness is the only gate on animation state.
+    fn assert_frame_live(&self) {
+        if self.witness.is_none() {
+            panic!(
+                "animation state is only accessible inside a frame: no frame is live, \
+                 call begin_frame() first"
+            );
+        }
+    }
+}
+
+/// Proof that a frame is live and the task's animation state may be accessed.
+///
+/// Why the witness records the frame's creation site: occupancy alone would be enough for the
+/// gate, and the owned [`Frame`](crate::Frame) carries its own diagnostics. `created_at` exists
+/// for the one panic only the witness can produce — a second `begin_frame()` while a frame is
+/// live. The live frame is a plain local further up the stack that the witness deliberately does
+/// not own, so without the recorded site the panic could only name the second call site and the
+/// culprit would have to be recovered from a backtrace. Recording where the blocking frame was
+/// begun names both frames unconditionally.
+#[derive(Debug)]
+pub(crate) struct FrameWitness {
+    created_at: &'static Location<'static>,
 }
 
 /// The contexts installed together for one UI task.
@@ -64,22 +113,33 @@ impl TaskContext {
 }
 
 /// Run a future with the supplied contexts installed as task-local values.
-pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Output {
-    let (changes, animation, movement, shaping_context) = contexts.into_parts();
-
+async fn with_all_contexts<F: Future>(
+    changes: AnyCollector,
+    animation_state: RefCell<AnimationState>,
+    shaping_context: RefCell<ShapingContext>,
+    future: F,
+) -> F::Output {
     CHANGES
         .scope(changes, async move {
             ANIMATION
-                .scope(RefCell::new(animation), async move {
-                    MOVEMENT
-                        .scope(RefCell::new(movement), async move {
-                            SHAPER.scope(RefCell::new(shaping_context), future).await
-                        })
-                        .await
+                .scope(animation_state, async move {
+                    SHAPER.scope(shaping_context, future).await
                 })
                 .await
         })
         .await
+}
+
+/// Run a future with the supplied contexts installed as task-local values.
+pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Output {
+    let (changes, animation, movement, shaping_context) = contexts.into_parts();
+    with_all_contexts(
+        changes,
+        RefCell::new(AnimationState::new(animation, movement)),
+        RefCell::new(shaping_context),
+        future,
+    )
+    .await
 }
 
 /// Access the current task's shaping owner synchronously.
@@ -125,40 +185,119 @@ pub fn sink() -> Arc<dyn ChangeSink> {
 }
 
 /// Mutably access the current task's animation coordinator synchronously.
-pub fn with_animation<R>(f: impl FnOnce(&mut AnimationCoordinator) -> R) -> R {
-    ANIMATION.with(|animation| {
-        let mut animation = animation
-            .try_borrow_mut()
-            .unwrap_or_else(|_| panic!("task_context::with_animation() was re-entered"));
-        f(&mut animation)
+///
+/// Gated: requires a live frame ([`crate::Frame`], begun via [`crate::begin_frame`]). The frame
+/// witness proves animation activity is declared; without it animation state is unreachable by
+/// design, so this panics. The sanctioned frame-free exception is
+/// [`with_detached_animation_cycle`].
+pub(crate) fn with_animation<R>(f: impl FnOnce(&mut AnimationCoordinator) -> R) -> R {
+    with_animation_state(|state| {
+        state.assert_frame_live();
+        f(&mut state.coordinator)
     })
+}
+
+/// The current frame's animation timestamp: the cycle's start time.
+pub fn animation_time() -> Instant {
+    with_animation(|animation| animation.animation_time())
+}
+
+/// Allocate an animation duration on the current frame's clock and return its start time.
+///
+/// The ambient allocation step, read from the same gated clock as [`animation_time`]; the two are
+/// the whole allocator surface the ambient API needs, so no allocator object exists for it.
+pub(crate) fn allocate_animation_time(duration: Duration) -> Instant {
+    with_animation(|animation| animation.allocate_animation_time(duration))
+}
+
+/// The one sanctioned animation access without a live frame: the shell's apply-animations step
+/// and instance teardown.
+///
+/// Acquires the frame witness for the duration of `f` and releases it afterwards; the animation
+/// cycle itself is intentionally not opened or closed here (the shell's step runs mid-cycle, and
+/// teardown closing is `f`'s concern). If a witness is somehow already held — e.g. an
+/// unsubmitted frame held across a panic unwind — it is joined and left alone instead of being
+/// replaced, so this never panics and never steals another frame's witness.
+pub fn with_detached_animation_cycle<R>(
+    f: impl FnOnce(&mut AnimationCoordinator, &mut MovementRuntime) -> R,
+) -> R {
+    let acquired = acquire_witness_if_unheld();
+    let result = with_animation_and_movement(|animation, movement| f(animation, movement));
+    if acquired {
+        release_frame_witness();
+    }
+    result
 }
 
 /// Mutably access the current task's movement runtime synchronously.
+///
+/// Deliberately ungated: mounting a movement ([`TaskMovementBuilder::mount`]) is presenter
+/// construction work that runs before any frame exists. The gate lives on the other two fields
+/// of the same [`AnimationState`], so this is the only way to reach movement without a frame.
 pub fn with_movement<R>(f: impl FnOnce(&mut MovementRuntime) -> R) -> R {
-    MOVEMENT.with(|movement| {
-        let mut movement = movement
-            .try_borrow_mut()
-            .unwrap_or_else(|_| panic!("task_context::with_movement() was re-entered"));
-        f(&mut movement)
-    })
+    with_animation_state(|state| f(&mut state.movement))
 }
 
 /// Mutably access the current task's animation coordinator and movement runtime together.
-pub fn with_animation_and_movement<R>(
+pub(crate) fn with_animation_and_movement<R>(
     f: impl FnOnce(&mut AnimationCoordinator, &mut MovementRuntime) -> R,
 ) -> R {
-    ANIMATION.with(|animation| {
-        let mut animation = animation
-            .try_borrow_mut()
-            .unwrap_or_else(|_| panic!("task_context::with_animation() was re-entered"));
-        MOVEMENT.with(|movement| {
-            let mut movement = movement
-                .try_borrow_mut()
-                .unwrap_or_else(|_| panic!("task_context::with_movement() was re-entered"));
-            f(&mut animation, &mut movement)
-        })
+    with_animation_state(|state| {
+        state.assert_frame_live();
+        f(&mut state.coordinator, &mut state.movement)
     })
+}
+
+/// Mutably borrow the task's animation state, panicking on re-entry.
+///
+/// The single borrow point for all animation state: a re-entrant access (e.g. an ambient
+/// allocation from inside a movement closure, which already holds this borrow) fails loudly
+/// here rather than silently observing half-updated state.
+fn with_animation_state<R>(f: impl FnOnce(&mut AnimationState) -> R) -> R {
+    ANIMATION.with(|state| {
+        let mut state = state
+            .try_borrow_mut()
+            .unwrap_or_else(|_| panic!("task_context animation state was re-entered"));
+        f(&mut state)
+    })
+}
+
+/// Acquire the frame witness and begin the animation cycle: the one opener of a frame.
+///
+/// Both steps share one borrow, so a frame is never installed without its cycle having begun.
+/// Returns where the blocking frame was begun if one is already live.
+pub(crate) fn begin_frame_cycle(
+    created_at: &'static Location<'static>,
+) -> Result<(), &'static Location<'static>> {
+    with_animation_state(|state| {
+        if let Some(witness) = &state.witness {
+            return Err(witness.created_at);
+        }
+        state.witness = Some(FrameWitness { created_at });
+        state.coordinator.begin_cycle();
+        Ok(())
+    })
+}
+
+/// Acquire the witness only when none is held; returns whether this call acquired it.
+///
+/// The detached access never opens a cycle: the shell's span runs mid-cycle and teardown closes
+/// the cycle itself. Joining an existing witness rather than replacing it keeps this a Drop-safe
+/// no-op when a frame is held across a panic unwind.
+fn acquire_witness_if_unheld() -> bool {
+    let created_at = Location::caller();
+    with_animation_state(|state| match state.witness {
+        Some(_) => false,
+        None => {
+            state.witness = Some(FrameWitness { created_at });
+            true
+        }
+    })
+}
+
+/// Release the frame witness.
+pub(crate) fn release_frame_witness() {
+    with_animation_state(|state| state.witness = None);
 }
 
 /// Build a movement that mounts into the current task context when requested.
@@ -244,22 +383,101 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn animation_access_requires_a_live_frame() {
+        with_context(contexts(), async {
+            // A context is installed, but no frame is open: the gate must panic.
+            let panic = tokio::spawn(async { with_animation(|_| ()) })
+                .await
+                .unwrap_err();
+            assert!(panic.is_panic());
+
+            // Animation access works while a frame is live.
+            let frame = crate::begin_frame();
+            with_animation(|animation| {
+                animation.upgrade_to_apply_animations_cycle();
+                assert!(animation.is_apply_animations_cycle());
+            });
+
+            // The frame's drop releases the witness; the next begin works again.
+            drop(frame);
+            let frame = crate::begin_frame();
+            with_animation(|animation| {
+                assert!(!animation.is_apply_animations_cycle());
+            });
+            drop(frame);
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    #[should_panic(expected = "while a frame begun at")]
+    async fn double_begin_panics() {
+        with_context(contexts(), async {
+            let _first = crate::begin_frame();
+            let _second = crate::begin_frame();
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn dropped_frame_releases_the_witness() {
+        with_context(contexts(), async {
+            {
+                let frame = crate::begin_frame();
+                frame.submission::<SceneChange>();
+            }
+            // The unsubmitted frame's drop must release the witness, not poison it: this begin
+            // must not panic.
+            let frame = crate::begin_frame();
+            frame.submission::<SceneChange>();
+        })
+        .await;
+    }
+
+    #[tokio::test]
+    async fn detached_cycle_witnesses_access_without_a_frame() {
+        with_context(contexts(), async {
+            let result = with_detached_animation_cycle(|animation, _| {
+                animation.upgrade_to_apply_animations_cycle();
+                animation.animation_time()
+            });
+            let _ = result;
+
+            // The detached witness is released again: animation access panics once more.
+            let panic = tokio::spawn(async { with_animation(|_| ()) })
+                .await
+                .unwrap_err();
+            assert!(panic.is_panic());
+
+            // A live frame is joined, not replaced: the witness survives the detached access.
+            let frame = crate::begin_frame();
+            with_detached_animation_cycle(|animation, _| {
+                assert!(animation.is_apply_animations_cycle());
+            });
+            drop(frame);
+        })
+        .await;
+    }
+
+    #[tokio::test]
     async fn nested_contexts_restore_the_outer_context() {
         with_context(contexts(), async {
+            let outer_frame = crate::begin_frame();
             with_animation(|animation| {
-                animation.begin_cycle();
                 animation.upgrade_to_apply_animations_cycle();
             });
             with_context(contexts(), async {
+                let inner_frame = crate::begin_frame();
                 assert!(!with_animation(|animation| {
-                    animation.begin_cycle();
                     animation.is_apply_animations_cycle()
                 }));
+                inner_frame.submission::<SceneChange>();
             })
             .await;
             assert!(with_animation(
                 |animation| animation.is_apply_animations_cycle()
             ));
+            outer_frame.submission::<SceneChange>();
         })
         .await;
     }
@@ -268,17 +486,19 @@ mod tests {
     async fn sibling_tasks_do_not_share_mutable_contexts() {
         with_context(contexts(), async {
             let first = tokio::spawn(with_context(contexts(), async {
-                with_animation(|animation| {
-                    animation.begin_cycle();
+                let frame = crate::begin_frame();
+                let upgraded = with_animation(|animation| {
                     animation.upgrade_to_apply_animations_cycle();
                     animation.is_apply_animations_cycle()
-                })
+                });
+                frame.submission::<SceneChange>();
+                upgraded
             }));
             let second = tokio::spawn(with_context(contexts(), async {
-                with_animation(|animation| {
-                    animation.begin_cycle();
-                    animation.is_apply_animations_cycle()
-                })
+                let frame = crate::begin_frame();
+                let fresh = with_animation(|animation| animation.is_apply_animations_cycle());
+                frame.submission::<SceneChange>();
+                fresh
             }));
             assert!(first.await.unwrap());
             assert!(!second.await.unwrap());
@@ -297,12 +517,14 @@ mod tests {
     #[tokio::test]
     async fn mutable_access_rejects_reentry() {
         with_context(contexts(), async {
+            let frame = crate::begin_frame();
             with_animation(|_| {
                 let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     with_animation(|_| ())
                 }));
                 assert!(panic.is_err());
             });
+            frame.submission::<SceneChange>();
         })
         .await;
     }

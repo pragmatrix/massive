@@ -153,10 +153,9 @@ impl Desktop {
             changes += system.plan(command)?;
         }
 
-        let mut frame = begin_frame();
+        let frame = begin_frame();
         system.transact(
             changes + initial_submission_changes,
-            &mut frame,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
             window_state.inner_size,
@@ -253,7 +252,6 @@ impl Desktop {
 
                                 self.system.transact(
                                     desktop_changes,
-                                    &mut frame,
                                     &mut self.instance_manager,
                                     None,
                                     self.window_state.inner_size,
@@ -284,7 +282,6 @@ impl Desktop {
                 }
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
-                    &mut frame,
                     &mut self.instance_manager,
                     None,
                     self.window_state.inner_size,
@@ -295,7 +292,6 @@ impl Desktop {
                         &mut self.instance_manager,
                         &mut self.instance_submissions,
                         (instance_id, instance_result),
-                        &mut frame,
                         self.window_state.inner_size,
                     )?;
                 }
@@ -338,11 +334,10 @@ impl Desktop {
                 }
             };
 
-            let mut frame = begin_frame();
+            let frame = begin_frame();
             match event {
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
-                    &mut frame,
                     &mut self.instance_manager,
                     None,
                     self.window_state.inner_size,
@@ -353,7 +348,6 @@ impl Desktop {
                         &mut self.instance_manager,
                         &mut self.instance_submissions,
                         (instance_id, instance_result),
-                        &mut frame,
                         self.window_state.inner_size,
                     )?;
                 }
@@ -377,7 +371,6 @@ fn handle_instance_ended(
     instance_manager: &mut InstanceManager,
     instance_submissions: &mut UnboundedReceiver<(InstanceId, InstanceSubmission)>,
     (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
-    frame: &mut Frame,
     window_size: massive_geometry::SizePx,
 ) -> Result<()> {
     info!(
@@ -389,7 +382,7 @@ fn handle_instance_ended(
         // Did it end on its own? -> Act as if the user ended it.
         // Robustness: This should probably handled differently.
         let changes = system.plan(DesktopCommand::StopInstance(instance_id))?;
-        system.transact(changes, frame, instance_manager, None, window_size)?;
+        system.transact(changes, instance_manager, None, window_size)?;
     }
 
     // Feature: Display the error to the user?
@@ -401,7 +394,6 @@ fn handle_instance_ended(
     while let Ok((instance, submission)) = instance_submissions.try_recv() {
         system.transact(
             DesktopChange::IntegrateInstanceSubmission(instance, submission),
-            frame,
             instance_manager,
             None,
             window_size,
@@ -423,7 +415,7 @@ fn finalize_desktop_frame(
 ) -> Result<()> {
     let window_context = WindowContext::new(window, presentation_state, renderer);
 
-    let camera = *system.camera(frame.animation_time());
+    let camera = *system.camera();
 
     let mut submission = frame.render_submission().with_camera(camera);
     // If any instance runs on smooth pacing, we need to, too.

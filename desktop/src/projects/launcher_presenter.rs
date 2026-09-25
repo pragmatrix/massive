@@ -304,7 +304,7 @@ impl LauncherPresenter {
         self.movement.modify(|movement, context| {
             movement
                 .fader
-                .animate(context, 0.0, FADING_DURATION, Interpolation::CubicOut);
+                .animate_with(context, 0.0, FADING_DURATION, Interpolation::CubicOut);
         });
     }
 
@@ -313,7 +313,7 @@ impl LauncherPresenter {
         self.movement.modify(|movement, context| {
             movement
                 .fader
-                .animate(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
+                .animate_with(context, 1.0, FADING_DURATION, Interpolation::CubicOut);
         });
     }
 }
@@ -327,7 +327,7 @@ impl LauncherMovement {
     }
 
     fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
-        self.layout.animate_if_changed(
+        self.layout.animate_if_changed_with(
             context,
             layout,
             STRUCTURAL_ANIMATION_DURATION,
@@ -342,11 +342,11 @@ impl LauncherMovement {
         background: &Handle<Visual>,
         name: &Handle<Visual>,
     ) {
-        let layout = *self.layout.proceed(progress);
+        let layout = *self.layout.proceed_with(progress);
         let scene_transform = layout.to_origin_space();
         scene_transform_handle.update_if_changed(scene_transform);
 
-        let alpha = self.fader.proceed(progress);
+        let alpha = self.fader.proceed_with(progress);
 
         // Performance: How can we not call this if `self.size` and `self.fader` are both not
         // animating. `is_animating()` is perhaps not reliable.

@@ -29,7 +29,6 @@ mod topology;
 
 use std::collections::{HashSet, VecDeque};
 use std::mem;
-use std::time::Instant;
 
 use anyhow::Result;
 use derive_more::Debug;
@@ -41,7 +40,6 @@ use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
 use massive_scene::prelude::*;
-use massive_shell::Frame;
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
@@ -283,7 +281,6 @@ impl DesktopSystem {
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
-        frame: &mut Frame,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
         window_size: SizePx,
@@ -356,8 +353,7 @@ impl DesktopSystem {
             self.camera.set_desired(desired);
         }
 
-        let animation_time = frame.animation_time();
-        self.camera.synchronize(animation_time, frame, camera_mode);
+        self.camera.synchronize(camera_mode);
 
         if update_focus_depth_indicator {
             self.focus_depth_indicator.sync_layout(window_size);
@@ -384,8 +380,8 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self, instant: Instant) -> &PixelCamera {
-        self.camera.proceed(instant)
+    pub fn camera(&mut self) -> &PixelCamera {
+        self.camera.proceed()
     }
 
     pub fn any_buttons_pressed(&self) -> bool {

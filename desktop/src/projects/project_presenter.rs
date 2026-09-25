@@ -125,7 +125,7 @@ impl Default for ProjectHeaderMovement {
 
 impl ProjectHeaderMovement {
     fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
-        self.layout.animate_if_changed(
+        self.layout.animate_if_changed_with(
             context,
             layout,
             PROJECT_HEADER_ANIMATION_DURATION,
@@ -140,7 +140,7 @@ impl ProjectHeaderMovement {
         background: &Handle<Visual>,
         name: &Handle<Visual>,
     ) {
-        let layout = *self.layout.proceed(progress);
+        let layout = *self.layout.proceed_with(progress);
         let scene_transform = layout.to_origin_space();
         scene_transform_handle.update_if_changed(scene_transform);
         background.update_if_changed_with(|visual| {

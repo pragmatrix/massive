@@ -181,13 +181,13 @@ impl Logs {
                 vertical_center: 0.0.into(),
             },
             move |layout, progress| {
-                let content_height = *layout.content_height.proceed(progress);
+                let content_height = *layout.content_height.proceed_with(progress);
                 content_transform.update_if_changed(Transform::from_xy(
                     -(content_width as f64) / 2.,
                     -content_height / 2.,
                 ));
 
-                let vertical_center = *layout.vertical_center.proceed(progress);
+                let vertical_center = *layout.vertical_center.proceed_with(progress);
                 vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
             },
         )
@@ -229,7 +229,7 @@ impl Logs {
                 fader.is_animating(),
                 "Internal error: animation state is not in sync with the context"
             );
-            let fading = *fader.proceed(context);
+            let fading = *fader.proceed_with(context);
             line.update_with(|visual| {
                 visual.shapes = visual
                     .shapes
@@ -249,7 +249,7 @@ impl Logs {
         .completion_event(move || LogEvent::FadeCompleted(line_id))
         .mount();
         fader.modify(|fader, context| {
-            fader.animate(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
+            fader.animate_with(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
         });
         self.lines.push_back(LogLine {
             id: line_id,
@@ -271,7 +271,7 @@ impl Logs {
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
                     line.fader.modify(|fader, context| {
-                        fader.animate(context, 0., FADE_DURATION, Interpolation::CubicIn);
+                        fader.animate_with(context, 0., FADE_DURATION, Interpolation::CubicIn);
                     });
                     line.fading_out = true;
                 }
@@ -341,13 +341,13 @@ impl Logs {
         // While a size animation runs, it's fine that we don't.
         assert!(new_height.is_multiple_of(2));
         self.layout.modify(move |layout, context| {
-            layout.vertical_center.animate(
+            layout.vertical_center.animate_with(
                 context,
                 -top_line_top,
                 VERTICAL_ALIGNMENT_DURATION,
                 Interpolation::CubicOut,
             );
-            layout.content_height.animate(
+            layout.content_height.animate_with(
                 context,
                 new_height as f64,
                 VERTICAL_ALIGNMENT_DURATION,
