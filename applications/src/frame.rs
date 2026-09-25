@@ -70,6 +70,7 @@ where
 {
     /// Open one animation cycle; the change kind is inferred from the submission call.
     #[track_caller]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         task_context::with_animation(|animation| animation.begin_cycle());
 
