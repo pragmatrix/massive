@@ -54,11 +54,6 @@ pub struct FrameSubmission<C: Change> {
 }
 
 impl<C: Change> FrameSubmission<C> {
-    /// The submission-level pacing; a scene-kind-agnostic submission property.
-    pub fn into_pacing(self) -> RenderPacing {
-        self.pacing
-    }
-
     pub fn into_parts(self) -> (ChangeSet<C>, RenderPacing) {
         (self.changes, self.pacing)
     }

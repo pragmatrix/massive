@@ -87,11 +87,6 @@ impl AnimationCoordinator {
             .is_some_and(|cycle| cycle.mode == CycleMode::ApplyAnimations)
     }
 
-    /// `true` if there are active animations right now.
-    pub fn animations_active(&self) -> bool {
-        self.animating
-    }
-
     /// Ends an update cycle. Returns true if animations are active. This resets the current time.
     pub fn end_cycle(&mut self) -> bool {
         if let Some(cycle) = self.cycle.take() {

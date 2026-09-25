@@ -6,8 +6,7 @@
 //!
 //! Each benchmark pushes a full batch, then drains, with `Throughput::Elements(CAPACITY)`, so
 //! the reported time per element is the per-push cost with the amortized drain. Both run inside
-//! their task-local scope with one `.with` per push: the ambient write path the task-context
-//! accessors take.
+//! their task-local scope with one `.with` per push.
 //!
 //! The task-locals only need their scope alive while criterion runs the closures; the scopes
 //! wrap the group drivers inside `block_on` on a current-thread runtime (task-local visibility
@@ -50,8 +49,8 @@ fn make_changes() -> Vec<SceneChange> {
         .collect()
 }
 
-// AnyCollector variant (ambient write path). Both closures run under the SCENE scope installed
-// by the driver below, so the task-local access is the real ambient path.
+// AnyCollector variant (erased write path). Both closures run under the SCENE scope installed
+// by the driver below, so the task-local access is the path the sink takes.
 fn any_group(c: &mut Criterion, changes: &[SceneChange]) {
     let mut group = c.benchmark_group("task-scope any");
     group.throughput(Throughput::Elements(CAPACITY as u64));

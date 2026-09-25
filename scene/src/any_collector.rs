@@ -1,8 +1,8 @@
 //! The task's change queue, erased so that one task-local can hold any collector type.
 //!
 //! A UI task collects exactly one queue of changes (ADR 0008). The queue's change type is fixed
-//! at install time by [`AnyCollector::for_type`]; ambient access through the collected sink is
-//! write-only, typed access downcasts and panics loudly on a kind mismatch.
+//! at install time by [`AnyCollector::for_type`]; access through the collected sink is write-only,
+//! typed access downcasts and panics loudly on a kind mismatch.
 
 use std::any::{Any, TypeId};
 use std::fmt;
@@ -22,7 +22,7 @@ pub struct AnyCollector {
     /// queue per task: a handle never sees a typed collector (ADR 0008).
     sink: Arc<dyn ChangeSink>,
 
-    /// The typed view for ambient writes that need the change type and for drains: the allocation
+    /// The typed view for writes that need the change type and for drains: the allocation
     /// `sink` was cloned from, erased.
     typed: Arc<dyn Any + Send + Sync>,
 }

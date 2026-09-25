@@ -79,8 +79,7 @@ impl UnenteredLocation {
     /// handles.
     ///
     /// The transform and the location are published as one batch, so the queue's lock is acquired
-    /// once instead of once per object. Ambient callers reach this through the task-context
-    /// `Enter::enter` implementation, which supplies the installed collector.
+    /// once instead of once per object.
     pub fn enter_in(self, collector: &AnyCollector) -> (Handle<Transform>, Handle<Location>) {
         enter_pair(collector, Transform::IDENTITY, |transform| {
             Location::new(self.parent, transform.clone())
