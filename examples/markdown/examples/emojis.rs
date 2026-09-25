@@ -167,7 +167,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .with_decal_order(0)
         .enter();
 
-    ctx.frame().render_to(&mut renderer)?;
+    ctx.begin_frame().render_to(&mut renderer)?;
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -190,7 +190,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame().render_to(&mut renderer)?;
+        ctx.begin_frame().render_to(&mut renderer)?;
     }
 }
 

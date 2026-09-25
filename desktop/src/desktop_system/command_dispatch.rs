@@ -2,14 +2,6 @@ use anyhow::{Context, Result};
 use log::{debug, warn};
 use serde_json::json;
 
-use massive_applications::prelude::*;
-use massive_applications::{
-    ConfigurationRequest, CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
-    ViewEvent, ViewRole,
-};
-use massive_scene::SceneChange;
-use massive_shell::Frame;
-
 use super::change::Zoom;
 use super::change::set_focus;
 use super::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
@@ -26,6 +18,11 @@ use crate::projects::{
     ProjectPresenter, ProjectProperties,
 };
 use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
+use massive_applications::prelude::*;
+use massive_applications::{
+    ConfigurationRequest, CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
+    ViewEvent, ViewRole,
+};
 
 /// The outcome of applying a change: its effects and any follow-up changes.
 #[derive(Debug, Default)]
@@ -346,7 +343,6 @@ impl DesktopSystem {
     pub fn apply_change(
         &mut self,
         change: DesktopChange,
-        frame: &mut Frame<SceneChange>,
         instance_manager: &mut InstanceManager,
     ) -> Result<ChangeOutput> {
         match change {
@@ -396,7 +392,6 @@ impl DesktopSystem {
                     instance,
                     root,
                     parameters,
-                    frame,
                 )?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
@@ -485,7 +480,7 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                return self.apply_project_change(project_change, frame);
+                return self.apply_project_change(project_change);
             }
         }
 
@@ -532,11 +527,7 @@ impl DesktopSystem {
         }
     }
 
-    fn apply_project_change(
-        &mut self,
-        change: ProjectChange,
-        _frame: &mut Frame<SceneChange>,
-    ) -> Result<ChangeOutput> {
+    fn apply_project_change(&mut self, change: ProjectChange) -> Result<ChangeOutput> {
         match change {
             ProjectChange::AddProject { id, properties } => {
                 let parent_location = self.desktop_presenter.location.clone();

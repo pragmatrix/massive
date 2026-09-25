@@ -109,8 +109,8 @@ impl InstanceContext {
 
     /// Bundle this instance's animation clock for one update cycle over the task's change
     /// queue. The change kind is fixed by calling `submit` (or `submission`) on the frame.
-    pub fn frame(&mut self) -> Frame<InstanceChange> {
-        Frame::new()
+    pub fn begin_frame(&mut self) -> Frame<InstanceChange> {
+        Frame::begin()
     }
 
     pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent<std::convert::Infallible>> {

@@ -142,7 +142,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        ctx.frame().render_to(&mut renderer)?;
+        ctx.begin_frame().render_to(&mut renderer)?;
     }
 }
 
