@@ -141,19 +141,22 @@ impl Drop for Frame {
     // The cycle is closed here too, so a dropped frame cannot leak its open cycle into the next
     // frame's cycle start time.
     fn drop(&mut self) {
-        if !self.submitted {
-            // Terminate the cycle and flush queued movement actions the same way a submission
-            // would.
-            task_context::end_frame_cycle();
-
-            error!(
-                "Frame was dropped without being submitted: {}:{}:{}",
-                self.created_at.file(),
-                self.created_at.line(),
-                self.created_at.column(),
-            );
-        }
-
-        task_context::release_frame_witness();
+        // One borrow ends the frame whether it was submitted or not: the witness is released
+        // unconditionally, and an unsubmitted frame closes its cycle (flushing queued movement
+        // actions) the same way a submission would. Ending here rather than through
+        // `end_frame_cycle` is what keeps the release on the borrow that already holds the
+        // state.
+        task_context::with_animation_state(|state| {
+            if !self.submitted {
+                state.flush_and_end_cycle();
+                error!(
+                    "Frame was dropped without being submitted: {}:{}:{}",
+                    self.created_at.file(),
+                    self.created_at.line(),
+                    self.created_at.column(),
+                );
+            }
+            state.witness = None;
+        });
     }
 }

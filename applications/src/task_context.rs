@@ -34,7 +34,9 @@ task_local! {
 pub(crate) struct AnimationState {
     coordinator: AnimationCoordinator,
     movement: MovementRuntime,
-    witness: Option<FrameWitness>,
+    /// `pub(crate)` so [`Frame`](crate::Frame) releases its own witness inside the borrow it
+    /// already holds to end its cycle; no other accessor exists for it.
+    pub(crate) witness: Option<FrameWitness>,
 }
 
 impl AnimationState {
@@ -62,7 +64,7 @@ impl AnimationState {
     /// detached instance teardown all end this way. Actions are flushed first because completion
     /// events arrive during apply-animations cycles and may queue successor actions, which must
     /// not wait for an unrelated event.
-    fn flush_and_end_cycle(&mut self) -> bool {
+    pub(crate) fn flush_and_end_cycle(&mut self) -> bool {
         self.movement.run_actions(&mut self.coordinator);
         self.coordinator.end_cycle()
     }
@@ -264,8 +266,9 @@ pub(crate) fn end_frame_cycle_detached() -> bool {
 ///
 /// The single borrow point for all animation state: a re-entrant access (e.g. an ambient
 /// allocation from inside a movement closure, which already holds this borrow) fails loudly
-/// here rather than silently observing half-updated state.
-fn with_animation_state<R>(f: impl FnOnce(&mut AnimationState) -> R) -> R {
+/// here rather than silently observing half-updated state. [`Frame`](crate::Frame)'s drop uses
+/// it directly, because releasing the witness belongs to the same borrow that ends its cycle.
+pub(crate) fn with_animation_state<R>(f: impl FnOnce(&mut AnimationState) -> R) -> R {
     ANIMATION.with(|state| {
         let mut state = state
             .try_borrow_mut()
@@ -289,11 +292,6 @@ pub(crate) fn begin_frame_cycle(
         state.coordinator.begin_cycle();
         Ok(())
     })
-}
-
-/// Release the frame witness.
-pub(crate) fn release_frame_witness() {
-    with_animation_state(|state| state.witness = None);
 }
 
 /// Build a movement that mounts into the current task context when requested.
