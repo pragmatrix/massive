@@ -271,8 +271,8 @@ begins the cycle under one borrow.
 
 - One task-local owner (`ANIMATION: RefCell<AnimationState>`) holds the coordinator, the movement
   runtime, and the witness. All mutation and timestamp reads go through one borrow point,
-  `with_animation_state`, which panics on re-entry. `with_animation` and `end_frame_cycle` assert
-  a live frame and hand out the coordinator field, respectively end the cycle; there is no
+  `with_animation_state`, which panics on re-entry. `with_frame_animation` and `end_frame_cycle`
+  assert a live frame and hand out the coordinator field, respectively end the cycle; there is no
   ungated coordinator tier — the coordinator's query methods are reached only through the gated
   accessors or test code.
 - `begin_frame_cycle(created_at)` is the only opener: it installs the witness and begins the
