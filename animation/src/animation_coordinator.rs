@@ -35,6 +35,15 @@ use std::time::{Duration, Instant};
 
 use crate::AnimationAllocator;
 
+/// How an animation cycle ended, and so whether the next frame still has work to animate.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub enum CycleEnd {
+    /// Animations are still running.
+    Animating,
+    /// No animation is left to advance.
+    Settled,
+}
+
 #[derive(Debug)]
 pub struct AnimationCoordinator {
     /// This is the public state that indicates if there are currently animations running.
@@ -87,15 +96,19 @@ impl AnimationCoordinator {
             .get_or_insert_with(|| AnimationCycle::implicit(Instant::now()));
     }
 
-    /// Ends an update cycle. Returns true if animations are active. This resets the current time.
-    pub fn end_cycle(&mut self) -> bool {
+    /// Ends an update cycle and reports how it ended. This resets the current time.
+    pub fn end_cycle(&mut self) -> CycleEnd {
         if let Some(cycle) = self.cycle.take() {
             if cycle.mode == CycleMode::ApplyAnimations && cycle.start_time >= self.ending_time {
                 self.animating = false;
             }
         }
 
-        self.animating
+        if self.animating {
+            CycleEnd::Animating
+        } else {
+            CycleEnd::Settled
+        }
     }
 
     /// Returns the timestamp that should be used for animated values.
