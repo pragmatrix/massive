@@ -4,7 +4,8 @@
 //! are installed, so none of them has to be named at the call site (ADR 0008). [`Enter`] enters
 //! scene content into the task's change queue, which is what makes it active; [`AmbientShape`]
 //! shapes text with the installed shaper; [`AmbientAnimation`] starts animations on the installed
-//! animation clock, and [`AmbientTimeScale`] reads the elapsed frame time from it.
+//! animation clock, and [`AmbientTimeScale`] constructs a [`TimeScale`] on that clock and reads
+//! its elapsed frame time.
 //!
 //! The ambient traits mirror the explicit `*_with` methods for code that holds its own shaper or
 //! allocator (tests, benchmarks, code outside a task context). They live in this crate rather than
@@ -127,13 +128,23 @@ where
     }
 }
 
-/// Scale a value that is relative to seconds by the current task's frame time, read from the
-/// task's animation clock; [`TimeScale::scale_seconds_with`] is the explicit twin.
+/// Create and advance a [`TimeScale`] on the current task's frame clock.
+///
+/// The explicit twins [`TimeScale::new_with`] and [`TimeScale::scale_seconds_with`] take the
+/// timestamp.
 pub trait AmbientTimeScale {
+    /// Create a [`TimeScale`] whose first update cycle starts in the current frame.
+    fn new() -> Self;
+
+    /// Scale a value that is relative to seconds by the current frame's elapsed time.
     fn scale_seconds(&mut self) -> f64;
 }
 
 impl AmbientTimeScale for TimeScale {
+    fn new() -> Self {
+        TimeScale::new_with(task_context::animation_time())
+    }
+
     fn scale_seconds(&mut self) -> f64 {
         TimeScale::scale_seconds_with(self, task_context::animation_time())
     }
