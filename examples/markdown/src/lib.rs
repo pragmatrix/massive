@@ -29,14 +29,8 @@ use massive_shapes::{
 };
 use massive_shell::task_context;
 
-/// Bridges cosmic-text's font database to the shaping engine behind the task's
-/// [`FontManager`], so cosmic-text glyphs can be converted to [`GlyphRun`]s that rasterize
-/// through that engine.
-///
-/// Holds the task's manager — which must use the cosmic-text engine — and the cosmic-text
-/// `fontdb::Database`, plus a map from each `fontdb::ID` to the engine [`FaceId`] for the same
-/// face. The map is built at construction time by registering the same font bytes into both
-/// databases and pairing faces by index.
+/// Bridges cosmic-text's font database to the shaping engine behind the task's [`FontManager`],
+/// so cosmic-text glyphs can be converted to [`GlyphRun`]s that rasterize through that engine.
 pub struct FontBridge {
     font_manager: FontManager,
     font_db: fontdb::Database,
@@ -45,13 +39,7 @@ pub struct FontBridge {
 }
 
 impl FontBridge {
-    /// Build a bridge over the system fonts, registering every system face into the task's
-    /// manager.
-    ///
-    /// Enumerates the system fonts from a fresh `fontdb::Database`, registers each face's bytes
-    /// into the task's manager, and pairs each `fontdb::ID` with the engine [`FaceId`] for the
-    /// same face. This keeps the two databases in sync so any font cosmic-text selects
-    /// (including emoji fallbacks) resolves to a [`FaceId`] for rasterization.
+    /// Build a bridge over the system fonts, enumerating them from a fresh `fontdb::Database`.
     ///
     /// This eagerly reads every system font file and retains its bytes, which can consume a large
     /// amount of memory. It is suitable for this example's complete fallback coverage, but not
@@ -61,9 +49,7 @@ impl FontBridge {
         let mut font_db = fontdb::Database::new();
         font_db.load_system_fonts();
 
-        // Register each unique system font file once and map every fontdb face back to the
-        // corresponding engine FaceId. A collection can expose several faces and family names,
-        // while one batch publication avoids rebuilding the growing registry for each file.
+        // One batch publication avoids rebuilding the growing registry per file.
         let mut file_indices = HashMap::new();
         let mut font_files = Vec::new();
         for face in font_db.faces() {
@@ -223,11 +209,6 @@ impl FontBridge {
 }
 
 /// The task's font manager, which the bridge requires to use the cosmic-text engine.
-///
-/// The bridge pairs cosmic-text faces with the manager's `FaceId`s by face index, which is exact
-/// only for that engine: cosmic-text ids are positions in its database, while Parley keys on blob
-/// id plus face index and returns ids family-major from `load_font`. A foreign engine would pair
-/// the wrong face silently, so it panics instead.
 fn cosmic_text_manager() -> FontManager {
     let font_manager = task_context::fonts();
     let engine = font_manager.engine_kind();
@@ -260,8 +241,6 @@ mod tests {
     use massive_animation::{AnimationCoordinator, MovementRuntime};
     use massive_scene::{AnyCollector, SceneChange};
     use massive_shell::task_context::TaskContext;
-
-    /// A bundled monospace font so the test doesn't depend on system fonts.
     const MONTSERRAT: &[u8] =
         include_bytes!("../../../assets/fonts/Montserrat/Montserrat-Regular.ttf");
 

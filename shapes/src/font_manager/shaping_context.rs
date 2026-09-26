@@ -12,11 +12,9 @@ use crate::{FaceId, GlyphRun};
 use super::FontManager;
 use super::state::FontManagerState;
 
-/// A shaping owner with exclusive scratch and shared face identity state.
-///
-/// Contexts created from one [`crate::FontManager`] share the canonical face authority and
-/// published registry, so they can shape concurrently. Two shapers acquired from one context
-/// fail immediately rather than blocking on the context's scratch mutex.
+/// A shaping owner with exclusive scratch and shared face identity state, for one task or
+/// instance. Contexts from one [`crate::FontManager`] share the face authority, so they shape
+/// concurrently (ADR 0006).
 pub struct ShapingContext {
     state: Arc<FontManagerState>,
     scratch: Mutex<Box<dyn EngineScratch>>,
@@ -41,7 +39,6 @@ impl ShapingContext {
         }
     }
 
-    /// Create another context sharing this context's face authority and publication state.
     pub fn new_context(&self) -> Self {
         let scratch = self
             .state
@@ -55,22 +52,15 @@ impl ShapingContext {
         }
     }
 
-    /// The font manager this context shapes for.
-    ///
-    /// Contexts do not own fonts; they observe the manager's face authority and published
-    /// registry (ADR 0006). This hands back that same manager, so loading a font or reading the
-    /// renderer's registry source needs no separately threaded manager handle.
+    /// The font manager this context shapes for (ADR 0006).
     pub fn manager(&self) -> FontManager {
         FontManager::from_state(Arc::clone(&self.state))
     }
 
     /// Acquire a [`Shaper`] over this context's shaping state.
     ///
-    /// Takes `&self`: exclusivity is runtime-enforced instead of compile-time (ADR 0006) —
-    /// a shaper exclusively holds its context's scratch mutex, `shaper()` acquires it with
-    /// `try_lock`, and a second shaper on the same context panics loudly at the misuse point
-    /// rather than deadlocking on the non-reentrant mutex. Shapers on different contexts shape
-    /// in parallel.
+    /// Panics if this context already has a shaper open: the scratch mutex is non-reentrant, so
+    /// exclusivity is runtime-enforced at the misuse point (ADR 0006).
     #[must_use]
     pub fn shaper(&self) -> Shaper<'_> {
         let mut scratch = self.scratch.try_lock().unwrap_or_else(|| {
@@ -79,10 +69,8 @@ impl ShapingContext {
                  scratch mutex is held); two live shapers on one context are unsupported"
             )
         });
-        // Registry sync at session open: the scratch syncs itself whenever the manager's
-        // known face world has moved (ADR 0006). The snapshot is captured *before* the sync,
-        // so the session's metrics view stays a consistent pre-open world; `shape` refreshes
-        // it from the manager's latest publication afterwards.
+        // Capture the snapshot before the sync so the session's metrics view stays a consistent
+        // pre-open world; `shape` refreshes it from the manager's latest publication.
         let registry = self.state.published.current.load_full();
         scratch.sync(&registry);
         Shaper {
@@ -93,14 +81,10 @@ impl ShapingContext {
         }
     }
 
-    /// Resolve a face from the session path: serialize the registration (and its publication)
-    /// under the manager mutex, via the canonical engine's face registry (single `FaceId`
-    /// authority, ADR 0006).
+    /// Publish the resolved face while the lock is held, so lock-free readers see it immediately.
     fn resolve_face(&self, data: FontData) -> Option<FaceId> {
         let mut authority = self.state.authority.lock();
         let id = authority.engine.resolve_face(data)?;
-        // The resolution mutated the registry: republish while the lock is held, so the face is
-        // visible to lock-free readers (the render path) immediately (see module doc).
         self.state
             .published
             .current
@@ -109,38 +93,22 @@ impl ShapingContext {
     }
 }
 
-/// A shaper over one [`ShapingContext`].
-///
-/// Created by [`ShapingContext::shaper`]. The shaper borrows its context and shapes through
-/// that context's own scratch, lock-free against shapers from other contexts.
-///
-/// Faces a shaper resolves (fallback picks reaching the face authority) are published at
-/// registration time, under the manager lock — the published snapshot a concurrently
-/// submitted frame reads is always complete (see the parent module doc).
+/// A shaper over one [`ShapingContext`], shaping through that context's own scratch.
 pub struct Shaper<'a> {
-    /// The context's engine kind, fixed at construction; read without a lock.
     kind: ShapingEngineKind,
-    /// This context: the face authority/publication state and exclusive scratch owner.
     context: &'a ShapingContext,
-    /// This context's shape-ready scratch, registry-synced at session open.
     scratch: MutexGuard<'a, Box<dyn EngineScratch>>,
-    /// The registry snapshot for this session: faces and metrics for lock-free placement
-    /// resolution. Captured at session open and refreshed after each `shape` — faces resolved
-    /// during this session become visible here on the next read.
+    /// Captured at session open and refreshed after each `shape`, so faces resolved during this
+    /// session are visible to the frame's metrics and font-data reads.
     registry: Arc<FontRegistry>,
 }
 
 impl Shaper<'_> {
-    /// Shape one attributed line at `font_size` through this context's scratch.
     pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        // Unregistered fallback faces resolve through the context: the canonical engine
-        // registers the resolved font data under its lock and publishes the registry.
         let context = self.context;
         let run = self
             .scratch
             .shape(request, font_size, &mut |data| context.resolve_face(data));
-        // Refresh the session snapshot so faces resolved during this shape are visible to
-        // the frame's metrics and font-data reads.
         self.registry = context.state.published.current.load_full();
         run
     }
@@ -155,7 +123,6 @@ impl Shaper<'_> {
         self.registry.metrics(id)
     }
 
-    /// The registry snapshot captured at session open and refreshed after shaping.
     pub fn registry(&self) -> &FontRegistry {
         &self.registry
     }
@@ -175,7 +142,6 @@ impl Shaper<'_> {
         ))
     }
 
-    /// The engine this shaper shapes with.
     pub fn engine_kind(&self) -> ShapingEngineKind {
         self.kind
     }

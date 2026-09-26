@@ -73,9 +73,8 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .unwrap()
         .join(Path::new("examples/code/examples"));
 
-    // Register the bundled font in the task's manager. The shell built that manager from the
-    // font policy this application names, so shaping and rendering share one identity world
-    // (ADR 0005).
+    // The shell built the task's manager from the font policy this application names, so shaping
+    // and rendering share one identity world (ADR 0005).
     fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     let cargo_config = CargoConfig {

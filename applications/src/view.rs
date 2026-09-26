@@ -10,7 +10,7 @@ use massive_scene::prelude::*;
 use crate::prelude::*;
 use crate::{InstanceChange, ViewId};
 
-/// A view of one instance: its desktop-side presenter state is driven by the typed
+/// A view of one instance, whose desktop-side presenter state is driven by the typed
 /// `InstanceChange`s it pushes into the task's change queue (ADR 0008).
 #[derive(Debug)]
 pub struct View {

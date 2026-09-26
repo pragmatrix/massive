@@ -1,8 +1,8 @@
 //! The task's change queue, erased so that one task-local can hold any collector type.
 //!
 //! A UI task collects exactly one queue of changes (ADR 0008). The queue's change type is fixed
-//! at install time by [`AnyCollector::for_type`]; access through the collected sink is write-only,
-//! typed access downcasts and panics loudly on a kind mismatch.
+//! at install time by [`AnyCollector::for_type`]; the sink is write-only, typed access downcasts
+//! and panics on a kind mismatch.
 
 use std::any::{Any, TypeId};
 use std::fmt;
@@ -12,18 +12,10 @@ use massive_util::{ChangeCollector, ChangeSet};
 
 use crate::{ChangeSink, SceneChange};
 
-/// The change queue a UI task collects into.
-///
-/// Holds one collector per install, erased behind `Arc<dyn Any>` so its change type is invisible,
-/// plus the sink cloned from the same allocation. There is no locking beyond the collector's own
-/// mutex and no first-push type fixing: `for_type` erases the collector before any change exists.
+/// The change queue a UI task collects into, its change type fixed by [`AnyCollector::for_type`]
+/// before any change exists (ADR 0008).
 pub struct AnyCollector {
-    /// The sink `Handle<T>`s clone out at enter time. Erasure at the handle is what keeps one
-    /// queue per task: a handle never sees a typed collector (ADR 0008).
     sink: Arc<dyn ChangeSink>,
-
-    /// The typed view for writes that need the change type and for drains: the allocation
-    /// `sink` was cloned from, erased.
     typed: Arc<dyn Any + Send + Sync>,
 }
 
@@ -36,18 +28,17 @@ impl AnyCollector {
         let collector = Arc::new(ChangeCollector::<C>::default());
         Self {
             sink: collector.clone(),
-            // Coerces to `Arc<dyn Any + Send + Sync>` in place: erasing the pointer _is_ the
-            // erasure, so no second allocation wraps it.
+            // Coercing the pointer to `Arc<dyn Any + Send + Sync>` _is_ the erasure; no second
+            // allocation wraps it.
             typed: collector,
         }
     }
 
-    /// The erased sink handles push their changes into.
     pub fn sink(&self) -> &Arc<dyn ChangeSink> {
         &self.sink
     }
 
-    /// Collect one change of the installed type.
+    /// Collect one change of the queue's change type.
     pub fn collect<C>(&self, change: impl Into<C>)
     where
         C: From<SceneChange> + fmt::Debug + Send + 'static,
@@ -63,10 +54,8 @@ impl AnyCollector {
         self.typed_collector::<C>().take_all()
     }
 
-    /// The typed collector, downcasting to the type fixed at install.
-    ///
-    /// The erased `Arc` is not part of the downcast target: a `dyn Any` reports the pointee's type
-    /// id, so the target is `ChangeCollector<C>` itself.
+    /// The downcast target is `ChangeCollector<C>` itself: a `dyn Any` reports the pointee's type
+    /// id, so the erased `Arc` is not part of it.
     fn typed_collector<C>(&self) -> &ChangeCollector<C>
     where
         C: From<SceneChange> + fmt::Debug + Send + 'static,
@@ -98,7 +87,6 @@ mod tests {
     use crate::{AnyCollector, Change, SceneChange};
 
     /// A second change type that embeds scene changes: the kind the wrong-drain test installs.
-    /// The inner change is never read; the type identity is what the mismatch exercises.
     #[derive(Debug)]
     struct InnerChange(#[allow(dead_code)] crate::Change<crate::Transform>);
 
@@ -113,9 +101,7 @@ mod tests {
 
     /// Q19: for_type + erased-sink pushes + typed access land in one FIFO, in call order.
     ///
-    /// Every [`transform_change`] acquires a fresh id, so the drained ids themselves prove the
-    /// order: the three pushes (sink, typed, sink) must come back as successive ids in exactly
-    /// that sequence.
+    /// Every push acquires a fresh id, so the drained ids themselves prove the order.
     #[test]
     fn erased_sink_and_typed_access_share_one_fifo() {
         let any = AnyCollector::for_type::<SceneChange>();
@@ -154,8 +140,6 @@ mod tests {
         let _ = any.take_all::<SceneChange>();
     }
 
-    /// One fresh transform update: every call acquires a new id, which is what the FIFO-order
-    /// assertion reads back.
     fn transform_change() -> crate::Change<crate::Transform> {
         let id = crate::id_generator::acquire::<crate::Transform>();
         Change::Update(id, crate::Transform::IDENTITY)

@@ -74,9 +74,7 @@ impl<'a> SizedTextShaper<'a> {
         }
     }
 
-    /// Shape with a caller-supplied shaper.
-    ///
-    /// For code that already holds a shaper.
+    /// Shape with a caller-supplied shaper, for code that already holds one.
     pub fn shape_with(self, shaper: &mut Shaper<'_>) -> Option<GlyphRun> {
         self.layouter.layout(shaper, self.font_size)
     }

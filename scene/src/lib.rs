@@ -62,24 +62,17 @@ pub type SceneChangeSet = util::ChangeSet<SceneChange>;
 
 /// The erased receiver the `Handle<T>` type needs to propagate its changes and drops.
 ///
-/// The trait indirection is here so that other layers can interleave scene changes into their
-/// specific collector. Implementations retype the change into the collected change type; draining
-/// is deliberately not part of this trait, it belongs to the concrete collector (ADR 0008).
+/// The indirection lets other layers interleave scene changes into their own collector;
+/// implementations retype the change, and draining belongs to the concrete collector
+/// (ADR 0008).
 pub trait ChangeSink: fmt::Debug + Send + Sync {
     fn send(&self, change: SceneChange);
 
-    /// Send a batch of changes as one ordered batch.
-    ///
-    /// Required rather than defaulted: a sink that fell back to looping [`ChangeSink::send`] would
-    /// take the queue's lock once per change, which the batch exists to avoid. Implementations
-    /// must keep the iterator's order.
-    ///
-    /// The iterator is a `dyn` reference to keep this trait object-safe, which `Arc<dyn
-    /// ChangeSink>` in every handle requires.
+    /// Required rather than defaulted: looping [`ChangeSink::send`] would take the queue's lock
+    /// once per change, which the batch exists to avoid. Implementations must keep the order.
     fn send_all(&self, changes: &mut dyn Iterator<Item = SceneChange>);
 }
 
-/// Every `ChangeCollector` whose change type embeds scene changes is a `ChangeSink`.
 impl<C> ChangeSink for util::ChangeCollector<C>
 where
     C: From<SceneChange> + fmt::Debug + Send,
@@ -92,6 +85,3 @@ where
         self.collect_all(changes.map(C::from));
     }
 }
-
-// The blanket impl covers C = SceneChange via the reflexive From<SceneChange>; no separate
-// impl exists.

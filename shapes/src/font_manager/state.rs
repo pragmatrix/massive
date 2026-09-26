@@ -11,9 +11,6 @@ pub struct FontManagerState {
 }
 
 /// The font-identity machinery: the canonical engine instance, used as the face authority.
-///
-/// The manager mutex covers only registration work (load, resolve, publish); shaping happens
-/// per context, in shapers created from engine-built scratch state.
 pub struct FontAuthority {
     /// Boxed to keep the manager handle small while supporting multiple engine implementations.
     pub engine: Box<dyn ShapingEngine>,

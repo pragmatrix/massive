@@ -19,27 +19,19 @@
 //!
 //! ## Shaper exclusivity without borrow-gating
 //!
-//! The registration entry point ([`FontManager::load_font`]) and context shaping entry point
-//! ([`ShapingContext::shaper`]) take `&self`:
-//! shaping never touches the manager mutex, so no compile-time borrow gate is needed.
-//! Exclusivity is enforced at runtime instead: a shaper exclusively holds
-//! its context's scratch mutex, and `shaper()` acquires it with `try_lock`, so two shapers
-//! on one context panic loudly at the misuse point instead of deadlocking. Shapers on
-//! different contexts shape in parallel — that is the point (ADR 0006); the manager mutex is
-//! untouched by shaping.
+//! Shaping never touches the manager mutex, so no compile-time borrow gate is needed: a shaper
+//! exclusively holds its context's scratch mutex and `shaper()` takes it with `try_lock`, so two
+//! shapers on one context panic at the misuse point instead of deadlocking (ADR 0006).
 //!
-//! A shaper must not outlive the frame cycle it shaped for: `update_lines`-style call
-//! sites hold one shaper per frame and drop it before anything the frame produced is
-//! submitted — the ordering the renderer's freshness contract rests on.
+//! A shaper must not outlive the frame cycle it shaped for: `update_lines`-style call sites hold
+//! one shaper per frame and drop it before anything the frame produced is submitted — the
+//! ordering the renderer's freshness contract rests on.
 //!
 //! ## The published registry (with metrics)
 //!
-//! `FaceId` → font-data plus per-face swash [`FaceMetrics`] are published as an immutable
-//! `Arc` snapshot ([`FontManager::published`]), read lock-free on the render and
-//! lock-free on the render and glyph-placement paths. Every registration — `load_font`, and
-//! face resolution from inside a shaper — republishes under the manager lock at registration
-//! time, so a published snapshot never lags the known face world, and in-session resolution
-//! ([`Shaper::font_data`]) is a plain lock-free map read.
+//! Every registration — `load_font`, and face resolution from inside a shaper — republishes under
+//! the manager lock, so a published snapshot never lags the known face world and in-session
+//! resolution ([`Shaper::font_data`]) is a plain lock-free map read.
 
 use std::fmt;
 use std::sync::Arc;
@@ -90,9 +82,8 @@ impl FontManager {
 
     /// Create a manager as `policy` prescribes.
     ///
-    /// The policy is the whole construction input: which engine shapes, and whether system fonts
-    /// are selectable. System-font initialization fails if the backend cannot guarantee that
-    /// every selectable face passes Swash validation.
+    /// System-font initialization fails if the backend cannot guarantee that every selectable
+    /// face passes Swash validation.
     pub fn new(policy: FontPolicy) -> Result<Self> {
         let kind = policy.engine();
         let engine: Box<dyn ShapingEngine> = match kind {
@@ -116,24 +107,15 @@ impl FontManager {
         Self::new(FontPolicy::system(kind))
     }
 
-    /// Adds the font and returns `Self`, or errors if any face in the file is invalid.
+    /// Loads the font and returns `Self`, or errors if any face in the file is invalid.
     pub fn with_font(self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Result<Self> {
         self.load_font(font_data)?;
         Ok(self)
     }
 
-    /// Adds the font and returns its face ids, or errors if any face in the file is invalid.
+    /// Loads the font and returns its face ids, or errors if any face in the file is invalid.
     ///
-    /// Together with [`Self::shaping_context`], this is the *entire* entry surface for engine
-    /// state. The manager mutex covers only this registration work — shapers shape per
-    /// handle, lock-free (ADR 0006).
-    ///
-    /// Takes `&self`: shaping never holds the manager mutex (ADR 0006), so loading during
-    /// an open shaper cannot deadlock — the runtime exclusivity guarantee lives on the
-    /// shaper's scratch lock, not here.
-    ///
-    /// Font loading is possible at any time: parley sees the font through the shared
-    /// collection; cosmic re-syncs on the next shaper's registry check.
+    /// Never blocks an open shaper: shaping does not hold the manager mutex (ADR 0006).
     pub fn load_font(
         &self,
         font_data: impl AsRef<[u8]> + Sync + Send + 'static,
@@ -142,7 +124,7 @@ impl FontManager {
             .map(|mut ids| ids.pop().expect("one font was loaded"))
     }
 
-    /// Adds multiple fonts and returns their face ids, publishing the registry once.
+    /// Loads multiple fonts and returns their face ids, publishing the registry once.
     ///
     /// Every file is validated before engine mutation; one invalid file rejects the entire batch.
     pub fn load_fonts<T>(&self, font_data: impl IntoIterator<Item = T>) -> Result<Vec<Vec<FaceId>>>
@@ -173,7 +155,6 @@ impl FontManager {
         Ok(ids)
     }
 
-    /// The engine this manager shapes with.
     pub fn engine_kind(&self) -> ShapingEngineKind {
         self.state.published.kind
     }
@@ -183,14 +164,12 @@ impl FontManager {
         self.state.published.current.load_full()
     }
 
-    /// A render-only view of this manager's published registry.
     pub fn registry_source(&self) -> FontRegistrySource {
         FontRegistrySource {
             published: Arc::clone(&self.state.published),
         }
     }
 
-    /// Create a fresh shaping owner with exclusive engine scratch.
     pub fn new_shaping_context(&self) -> ShapingContext {
         let scratch = self
             .state
@@ -201,11 +180,7 @@ impl FontManager {
         ShapingContext::from_parts(Arc::clone(&self.state), scratch)
     }
 
-    /// Wrap existing manager state as a handle.
-    ///
-    /// Used by [`ShapingContext::manager`] to hand back the very manager a context shapes for:
-    /// one face authority and one published registry are shared by the manager and all its
-    /// contexts, so this is the same manager, not a second one.
+    /// Used by [`ShapingContext::manager`] to hand back the very manager a context shapes for.
     pub(crate) fn from_state(state: Arc<FontManagerState>) -> Self {
         Self { state }
     }
@@ -214,9 +189,8 @@ impl FontManager {
 /// A render-only handle into a [`FontManager`]'s published registry (ADR 0006).
 ///
 /// The renderer resolves glyphs lock-free through the latest-published snapshot and checks
-/// runs' engine kind against the manager's (a debug assert). It never shapes — so it needs
-/// neither the face authority nor a shaping scratch, which a full [`FontManager`] handle
-/// would carry. Cheap to clone (two `Arc`s).
+/// runs' engine kind against the manager's (a debug assert). It never shapes, so it needs neither
+/// the face authority nor a shaping scratch (ADR 0006). Cheap to clone (two `Arc`s).
 #[derive(Clone)]
 pub struct FontRegistrySource {
     /// The manager's engine identity and published snapshot, swapped at every registration.
@@ -232,7 +206,6 @@ impl fmt::Debug for FontRegistrySource {
 }
 
 impl FontRegistrySource {
-    /// The engine kind of the manager this source observes.
     pub fn engine_kind(&self) -> ShapingEngineKind {
         self.published.kind
     }

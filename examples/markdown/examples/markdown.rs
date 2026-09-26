@@ -64,7 +64,7 @@ async fn main() -> Result<()> {
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
-    // Register the bundled font into both databases and build the fontdb::ID -> FaceId map. The
+    // Register the bundled font into both databases and build the fontdb::ID -> FaceId map; the
     // task's manager is the one identity world the renderer reads (ADR 0005).
     let bridge = FontBridge::new(
         fontdb::Database::new(),

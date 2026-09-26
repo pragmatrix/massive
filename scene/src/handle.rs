@@ -66,8 +66,7 @@ where
     /// Construct a handle without publishing its create change, returning that change.
     ///
     /// Invariant: the returned change must reach the queue before the handle is observable by
-    /// other code, otherwise a later drop deletes an id the queue never saw created. The only
-    /// caller is `scene::enter_pair`, which publishes the creates of both handles in one batch.
+    /// other code, otherwise a later drop deletes an id the queue never saw created.
     pub(crate) fn unpublished(
         value: T,
         change_collector: &Arc<dyn ChangeSink>,
@@ -238,7 +237,6 @@ where
     SceneChange: From<Change<T::Change>>,
 {
     id: Id,
-    /// This is effectively the connection to the queue it was entered into.
     change_collector: Arc<dyn ChangeSink>,
     // Optimization: Some values might be too large to be duplicated between the application and the
     // renderer.

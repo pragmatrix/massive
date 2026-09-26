@@ -62,8 +62,8 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    // Register the bundled font in the task's manager; the shell built it from the font policy
-    // this application names, so shaping and rendering share one identity world (ADR 0005).
+    // The shell built the task's manager from the font policy this application names, so shaping
+    // and rendering share one identity world (ADR 0005).
     fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     let font_size = 32.;

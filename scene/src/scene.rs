@@ -1,12 +1,10 @@
 use crate::any_collector::AnyCollector;
 use crate::{Change, Handle, Object, SceneChange};
 
-/// Enter an object into the change queue collected by `collector`.
+/// Enter an object into the scene whose changes `collector` collects, making it active there.
 ///
 /// Naming a collector is how tests, multi-queue tasks, and code outside a task context enter
-/// explicitly; the handle retypes its changes into that queue's change type via the erased sink,
-/// so entering through an instance task's collector wraps every subsequent handle update and
-/// drop into the instance's change queue.
+/// explicitly.
 pub fn enter<T>(collector: &AnyCollector, value: T) -> Handle<T>
 where
     T: Object + 'static,
@@ -15,11 +13,9 @@ where
     Handle::new(value, collector.sink().clone())
 }
 
-/// Enter a pair of dependent objects with one batch of create changes.
-///
-/// The second value is built from the first handle, which is how a location is entered together
-/// with the transform it refers to. Both creates reach the queue under a single lock acquisition
-/// and in entry order, so the first object exists before the second refers to it.
+/// Enter a pair of dependent objects with one batch of create changes, the second built from the
+/// first handle — which is how a location is entered together with its transform. Both creates
+/// reach the queue in entry order, so the first object exists before the second refers to it.
 pub(crate) fn enter_pair<A, B, F>(
     collector: &AnyCollector,
     first: A,
