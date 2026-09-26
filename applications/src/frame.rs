@@ -103,7 +103,9 @@ pub fn begin_frame() -> Frame {
 
 impl Frame {
     pub fn upgrade_to_apply_animations_cycle(&mut self) {
-        task_context::with_animation(|animation| animation.upgrade_to_apply_animations_cycle());
+        task_context::with_frame_animation(|animation| {
+            animation.upgrade_to_apply_animations_cycle()
+        });
     }
 
     /// The application task's render submission: its queue drained as [`SceneChange`]s.
