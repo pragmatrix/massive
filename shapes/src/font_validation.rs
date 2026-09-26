@@ -30,11 +30,8 @@ impl fmt::Display for FontValidationError {
 
 impl Error for FontValidationError {}
 
-/// Validate every face before registering a font file as a unit.
-///
-/// Engines may select any face in the file, and every registered face must have Swash metrics
-/// in the published registry. Rejecting the whole file keeps shaping and rasterization from
-/// selecting a face that the registry cannot fully serve.
+/// Validate every face before registering a font file as a unit: a face the registry cannot
+/// fully serve must not become selectable.
 pub(crate) fn validate_font_file(data: &[u8]) -> Result<(), FontValidationError> {
     let faces = FontDataRef::new(data).ok_or(FontValidationError::InvalidFile)?;
     if faces.is_empty() {

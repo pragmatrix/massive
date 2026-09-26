@@ -1,15 +1,9 @@
 //! A short-lived bundle of one animation cycle over the task's change queue.
 //!
-//! ADR: The [`AnimationCoordinator`] is owned by exactly one context (an instance or the
-//! application), while the change queue is installed per task. The frame opens and closes the
-//! animation cycle; the task's queue is drained at submission time, so its ownership stays
-//! with the task context (ADR 0008).
-//!
-//! The frame itself is change-kind agnostic: the kind is fixed where the frame is consumed.
-//! A render submission exists only for the application task's scene queue
-//! ([`Frame::render_to`], [`Frame::render_submission`]), while [`Frame::submission`] is
-//! generic and takes its kind from the submission call — an instance's
-//! `InstanceContext::submit` fixes `InstanceChange`.
+//! The [`AnimationCoordinator`] is owned by exactly one context (an instance or the application),
+//! while the change queue is installed per task. The frame opens and closes the animation cycle
+//! and drains the task's queue at submission time (ADR 0008). [`Frame::render_to`] and
+//! [`Frame::render_submission`] expose the application task's scene queue.
 
 use std::fmt;
 use std::marker::PhantomData;
@@ -25,12 +19,8 @@ use massive_util::ChangeSet;
 
 use crate::task_context;
 
-/// The bounds a frame's change kind `C` must satisfy: it converts from [`SceneChange`] and is
-/// the collected type of the task's change queue (see [`task_context::take_changes`]).
-///
-/// Stated once here instead of on every submission item. It is public so generic code over
-/// [`FrameSubmission`] can name it; the blanket impl covers every type that satisfies the
-/// bounds.
+/// The bounds a frame's change kind `C` must satisfy, stated once so generic code over
+/// [`FrameSubmission`] can name them.
 pub trait Change: From<SceneChange> + fmt::Debug + Send + 'static {}
 
 impl<C> Change for C where C: From<SceneChange> + fmt::Debug + Send + 'static {}
@@ -38,7 +28,9 @@ impl<C> Change for C where C: From<SceneChange> + fmt::Debug + Send + 'static {}
 /// The pacing a cycle end asks of the next frame.
 ///
 /// [`CycleEnd`] is animation vocabulary and [`RenderPacing`] render-target vocabulary, so the
-/// mapping lives here, with the frame that submits under it.
+/// mapping lives here, with the frame that submits under it. Instance teardown maps its detached
+/// cycle end the same way: the last pacing of the instance is the pacing its final submission
+/// carries.
 pub(crate) fn pacing_for(cycle_end: CycleEnd) -> RenderPacing {
     match cycle_end {
         CycleEnd::Animating => RenderPacing::Smooth,
@@ -81,17 +73,12 @@ where
 
 /// Open one animation cycle over the task's change queue.
 ///
-/// The change kind follows from how the frame is consumed, so one opener serves both task
-/// kinds: [`Frame::render_to`] and [`Frame::render_submission`] drain the application task's
-/// [`SceneChange`] queue, while [`Frame::submission`] takes the kind of the submission call
-/// that receives it. A task context must be installed: the frame reads the task's animation
-/// clock.
+/// A task context must be installed: the frame reads the task's animation clock.
 #[track_caller]
 pub fn begin_frame() -> Frame {
     let created_at = Location::caller();
 
-    // One call installs the witness and begins the cycle. Failing here means a frame is still
-    // live; the returned site names the blocking frame so both frames appear in the panic.
+    // The returned site names the blocking frame so both frames appear in the panic.
     if let Err(live_at) = task_context::begin_frame_cycle(created_at) {
         panic!(
             "begin_frame() attempted at {}:{}:{} while a frame begun at {}:{}:{} is still live \
@@ -125,13 +112,13 @@ impl Frame {
         render_target.render(self.render_submission())
     }
 
-    /// The application task's render submission: its queue drained as [`SceneChange`]s.
+    /// The application task's render submission.
     pub fn render_submission(self) -> RenderSubmission {
         self.submission::<SceneChange>().into_render_submission()
     }
 
     /// End the animation cycle and drain the task's change queue into a submission of the
-    /// installed change kind `C`.
+    /// change kind `C`.
     pub fn submission<C: Change>(mut self) -> FrameSubmission<C> {
         let pacing = pacing_for(self.end_cycle());
 
@@ -151,15 +138,11 @@ impl Frame {
 impl Drop for Frame {
     // Release-only, unconditionally: frames are legitimately dropped unsubmitted on the normal
     // quit paths (e.g. the desktop's CloseRequested return, which then opens further frames
-    // during shutdown), so a missing submit must never poison the witness for the next frame.
-    // The cycle is closed here too, so a dropped frame cannot leak its open cycle into the next
-    // frame's cycle start time.
+    // during shutdown), so a missing submit must never poison the witness for the next frame —
+    // nor leak this frame's open cycle into the next frame's start time.
     fn drop(&mut self) {
-        // One borrow ends the frame whether it was submitted or not: the witness is released
-        // unconditionally, and an unsubmitted frame closes its cycle (flushing queued movement
-        // actions) the same way a submission would. Ending here rather than through
-        // `end_frame_cycle` is what keeps the release on the borrow that already holds the
-        // state.
+        // One borrow releases the witness and closes the cycle whether the frame was submitted
+        // or not.
         task_context::with_animation_state(|state| {
             if !self.submitted {
                 state.flush_and_end_cycle();

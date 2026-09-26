@@ -13,7 +13,6 @@ pub struct FontPolicy {
 }
 
 impl FontPolicy {
-    /// A policy over `engine`, with system fonts selectable only when `system_fonts` is set.
     pub fn new(engine: ShapingEngineKind, system_fonts: bool) -> Self {
         Self {
             engine,

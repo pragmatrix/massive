@@ -70,10 +70,6 @@ impl ParleyEngine {
     }
 
     /// Create an engine with or without system fonts.
-    ///
-    /// Without them the engine is completely bare: no fallbacks, no candidates, and only fonts the
-    /// application loads. With them, the platform catalog answers name lookups and implicit
-    /// selection, and the registry is rebuilt to include every face Parley may select.
     pub fn new(system_fonts: bool) -> Result<Self> {
         let mut font_context = FontContext {
             collection: Self::shared_collection(CollectionOptions {

@@ -43,9 +43,6 @@ impl FontData {
 /// The snapshot also carries swash [`FaceMetrics`] per face, extracted eagerly at
 /// registration time (ADR 0006): glyph-placement consumers read metrics through the same
 /// lock-free snapshot instead of parsing swash tables per cluster per frame.
-///
-/// Font data and metrics are fields of one published snapshot, so every reader observes the
-/// same face set for both lookups.
 #[derive(Default)]
 pub struct FontRegistry {
     faces: HashMap<FaceId, RegisteredFace>,
@@ -366,8 +363,8 @@ pub trait ShapingEngine: Send {
     /// The engine identity (e.g. `"parley"`, `"cosmic-text"`).
     fn name(&self) -> &'static str;
 
-    /// Register a validated font file (all faces of it) and return one [`FaceId`] per face.
-    /// Returns an error without mutation if any face fails Swash validation.
+    /// Register a validated font file and return one [`FaceId`] per face; errors without
+    /// mutation if any face fails Swash validation.
     fn load_font(&mut self, data: FontBytes) -> Result<Vec<FaceId>>;
 
     /// Resolve a [`FaceId`] produced by this engine back to concrete font data.
@@ -390,18 +387,15 @@ pub trait ShapingEngine: Send {
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
 
     /// Create this engine's per-context shape-ready scratch (ADR 0006), seeded from the
-    /// `published` snapshot's world. Called by the manager on a handle's first session
-    /// open; the scratch then registry-syncs itself on every open()
-    /// ([`EngineScratch::sync`]) without touching the manager mutex.
+    /// `published` snapshot's world; the manager calls this on a context's first session open.
     fn new_scratch(&self, published: &FontRegistry) -> Box<dyn EngineScratch>;
 
     /// Resolve selected font data into the canonical registry and return its [`FaceId`]
     /// (ADR 0006: the manager is the only issuer).
     ///
-    /// Cosmic calls this lazily when shaping first selects a database face that is absent from
-    /// the session scratch's synced registry and resolution cache, commonly a system fallback.
-    /// Further uses of that face in the scratch use its cached `FaceId`. Parley derives its ids
-    /// from the shared collection and does not call this hook.
+    /// Cosmic calls this lazily for a database face absent from the session scratch, commonly a
+    /// system fallback; further uses in that scratch hit its `FaceId` cache. Parley derives its
+    /// ids from the shared collection and does not call this.
     fn resolve_face(&mut self, data: FontData) -> Option<FaceId> {
         let _ = data;
         None
@@ -410,7 +404,7 @@ pub trait ShapingEngine: Send {
 
 /// Per-context, engine-specific shaping state behind an engine-neutral contract (ADR 0006).
 ///
-/// [`crate::FontManager`] holds `Box<dyn EngineScratch>` per handle and names no engine
+/// [`crate::FontManager`] holds `Box<dyn EngineScratch>` per context and names no engine
 /// type after construction: each engine creates its own scratch via
 /// [`ShapingEngine::new_scratch`] (seeded from the published snapshot), keeps it
 /// registry-synced in [`EngineScratch::sync`], and shapes through [`EngineScratch::shape`].

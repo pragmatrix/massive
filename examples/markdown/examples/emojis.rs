@@ -48,8 +48,8 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
-    // Register the system fonts into both databases and build the fontdb::ID -> FaceId map. The
-    // task's manager is the one identity world the renderer reads (ADR 0005).
+    // Builds the fontdb::ID -> FaceId map over the task's manager, the one identity world the
+    // renderer reads (ADR 0005).
     let bridge = FontBridge::system()?;
     // Need an equivalent FontSystem for inlyne.
     let font_system = Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(

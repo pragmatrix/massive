@@ -128,10 +128,7 @@ fn run_with_tokio<R: Future<Output = Result<()>> + 'static + Send>(
 }
 
 /// The contexts of the application task: its change queue, animation clock, movement runtime
-/// and a shaping context over the supplied font manager.
-///
-/// Built at the task boundary rather than by [`ApplicationContext`], so the values the task owns
-/// stay in the task and the handle the application receives never carries them (ADR 0008).
+/// and a shaping context over the supplied font manager (ADR 0008).
 fn application_task_context(font_manager: FontManager) -> TaskContext {
     TaskContext::new(
         AnyCollector::for_type::<SceneChange>(),

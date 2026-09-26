@@ -57,7 +57,7 @@ impl ToLocation for Handle<Transform> {
 /// A location that has not entered a scene yet. Enter it to create a location with an
 /// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the location is not entered until `.enter_in(collector)` is called"]
+#[must_use = "the location is not active in the scene until `.enter_in(collector)` is called"]
 pub struct UnenteredLocation {
     parent: LocationParent,
 }
@@ -78,8 +78,7 @@ impl UnenteredLocation {
     /// Enter a location with an initially-identity transform into `collector`, returning both
     /// handles.
     ///
-    /// The transform and the location are published as one batch, so the queue's lock is acquired
-    /// once instead of once per object.
+    /// The transform and the location are entered together, in one batch.
     pub fn enter_in(self, collector: &AnyCollector) -> (Handle<Transform>, Handle<Location>) {
         enter_pair(collector, Transform::IDENTITY, |transform| {
             Location::new(self.parent, transform.clone())
@@ -153,7 +152,7 @@ impl VisualWithoutLocation {
 
 /// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
-    #[must_use = "the visual is not entered until `.enter()` is called"]
+    #[must_use = "the visual is not visible until `.enter()` is called"]
     fn at(self, location: impl Into<Ref<Location>>) -> Visual;
 }
 

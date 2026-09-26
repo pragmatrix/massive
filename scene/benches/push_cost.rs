@@ -35,8 +35,8 @@ fn transform(id: u32) -> massive_geometry::Transform {
     ))
 }
 
-/// One full round of changes: successive acquires from the real per-type generator mimic the id
-/// distribution handles produce in practice.
+/// Successive acquires from the real per-type generator mimic the id distribution handles
+/// produce in practice.
 fn make_changes() -> Vec<SceneChange> {
     (0..CAPACITY)
         .map(|_| {
@@ -49,8 +49,6 @@ fn make_changes() -> Vec<SceneChange> {
         .collect()
 }
 
-// AnyCollector variant (erased write path). Both closures run under the SCENE scope installed
-// by the driver below, so the task-local access is the path the sink takes.
 fn any_group(c: &mut Criterion, changes: &[SceneChange]) {
     let mut group = c.benchmark_group("task-scope any");
     group.throughput(Throughput::Elements(CAPACITY as u64));
@@ -82,7 +80,6 @@ fn any_group(c: &mut Criterion, changes: &[SceneChange]) {
     group.finish();
 }
 
-// Typed collector variant.
 fn collector_group(c: &mut Criterion, changes: &[SceneChange]) {
     let mut group = c.benchmark_group("task-scope collector");
     group.throughput(Throughput::Elements(CAPACITY as u64));
@@ -106,8 +103,6 @@ fn collector_group(c: &mut Criterion, changes: &[SceneChange]) {
 fn bench(c: &mut Criterion) {
     let changes = make_changes();
 
-    // Task-locals must be installed while criterion runs the closures; the scopes wrap the
-    // whole group driver.
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

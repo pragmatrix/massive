@@ -74,8 +74,8 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    // Register the bundled font in the task's manager; the shell built it from the font policy
-    // this application names, so shaping and rendering share one identity world (ADR 0005).
+    // The shell built the task's manager from the font policy this application names, so shaping
+    // and rendering share one identity world (ADR 0005).
     fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     // Window

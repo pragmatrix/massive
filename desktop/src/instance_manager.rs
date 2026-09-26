@@ -63,14 +63,12 @@ impl InstanceManager {
         let instance_context =
             InstanceContext::new(instance_id, creation_mode, environment, root, events_rx);
         let instance_future = (application.run)(instance_context);
-        // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
-        // the scene is rendered. This way, consistency can be preserved when animations are applied
-        // in several instances in parallel. Otherwise, timestamps from one instance could affect the
-        // other. Its shaping context is a fresh scratch over the manager this task shapes with, so
-        // instances shape in parallel without serializing on one scratch mutex (ADR 0006) — and,
-        // like the future, it must be created here: spawned tasks do not inherit task-local values.
-        // The instance's change queue collects the typed instance changes, scene changes
-        // interleaved via the erased sink (ADR 0008).
+        // Own coordinator per instance: a timestamp from one instance must not affect another's
+        // animations when instances are applied in parallel. The shaping context is a fresh
+        // scratch over the manager this task shapes with, so instances shape in parallel without
+        // serializing on one scratch mutex (ADR 0006) — and, like the future, it must be created
+        // here: spawned tasks do not inherit task-local values. The change queue collects the
+        // typed instance changes, scene changes interleaved via the erased sink (ADR 0008).
         let instance_task_context = TaskContext::new(
             AnyCollector::for_type::<InstanceChange>(),
             AnimationCoordinator::new(),
@@ -132,9 +130,6 @@ impl InstanceManager {
     }
 
     /// Wait for the next instance to complete and handle cleanup.
-    ///
-    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
-    /// canceled or the JoinSet is empty.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result

@@ -182,10 +182,6 @@ impl fmt::Debug for CosmicTextEngine {
 
 impl CosmicTextEngine {
     /// Create an engine with or without system fonts.
-    ///
-    /// With them, the one full system-catalog scan for the whole manager family happens here; the
-    /// scanned catalog becomes the candidate pool, and scratch seeds clone it (in-memory copy)
-    /// instead of rescanning. Without them the pool stays empty and seeds stay registry-only.
     pub fn new(system_fonts: bool) -> Result<Self> {
         let (font_system, candidate_pool) = if system_fonts {
             let db = Self::filtered_system_font_db()?;
@@ -314,10 +310,8 @@ impl ShapingEngine for CosmicTextEngine {
         })
     }
 
-    /// Create this engine's per-context scratch (ADR 0006), seeded from the current registry
-    /// and a clone of the engine's prepared candidate pool. The full system catalog is never
-    /// scanned more than once per manager family (see `system()`); `bare()` keeps the pool
-    /// empty, so those shapers remain registry-only.
+    /// Create this engine's per-context scratch (ADR 0006), seeded from the current registry and
+    /// the engine's prepared candidate pool.
     fn new_scratch(&self, published: &FontRegistry) -> Box<dyn EngineScratch> {
         Box::new(CosmicScratch::new(
             Arc::clone(self.candidate_pool()),

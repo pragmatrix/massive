@@ -10,9 +10,7 @@ use massive_util::ChangeSet;
 
 use crate::{InstanceId, ViewChange, ViewCreationInfo, ViewId, ViewRole};
 
-/// Shared instance configuration cloned into each spawned instance. Fonts are not part of it: the
-/// manager is reached through the task's shaping context (ADR 0005), and each instance derives its
-/// own scratch from it (ADR 0006).
+/// Shared instance configuration cloned into each spawned instance.
 #[derive(Debug, Clone)]
 pub struct InstanceEnvironment {
     pub submission_sender: UnboundedSender<(InstanceId, InstanceSubmission)>,
