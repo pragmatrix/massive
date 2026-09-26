@@ -9,12 +9,12 @@ use massive_scene::{Location, Ref, SceneChange};
 use massive_util::{ChangeCollector, ChangeSet, CoalescingReceiver};
 
 use crate::prelude::*;
-use crate::task_context;
 use crate::view_builder::ViewBuilder;
 use crate::{
     ApplicationEvent, ApplicationMessage, ConfigurationRequest, FrameSubmission, InstanceChange,
     InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, ViewExtent,
 };
+use crate::{pacing_for, task_context};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreationMode {
@@ -22,10 +22,9 @@ pub enum CreationMode {
     Restore,
 }
 
-/// The instance's change collector type: the generic collector collecting the union queue.
+/// The instance's change queue: scene changes interleaved with instance changes (ADR 0008).
 pub type InstanceChangeCollector = ChangeCollector<InstanceChange>;
 
-/// Retyping from the erased scene changes into the instance queue (ADR 0008).
 impl From<SceneChange> for InstanceChange {
     fn from(change: SceneChange) -> Self {
         Self::Scene(change)
@@ -55,13 +54,8 @@ impl Drop for InstanceContext {
         // Teardown runs after the run loop returned, so no frame is live. The detached frame end
         // witnesses animation access for this one teardown (joining, not replacing, a frame held
         // across a panic unwind), flushes queued movement actions, closes the cycle and never
-        // panics — this is a Drop.
-        let animating = task_context::end_frame_cycle_detached();
-        let pacing = if animating {
-            RenderPacing::Smooth
-        } else {
-            RenderPacing::Fast
-        };
+        // panics — this is a Drop. How the cycle ends is the final pacing.
+        let pacing = pacing_for(task_context::end_frame_cycle_detached());
         if let Err(e) = self.submit_with_pacing(pacing) {
             error!("Final instance submit error for {:?}: {e:?}", self.id);
         }

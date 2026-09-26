@@ -19,6 +19,7 @@ use std::panic::Location;
 
 use log::error;
 
+use massive_animation::CycleEnd;
 use massive_renderer::{RenderPacing, RenderSubmission};
 use massive_scene::SceneChange;
 use massive_util::ChangeSet;
@@ -34,6 +35,17 @@ use crate::task_context;
 pub trait Change: From<SceneChange> + fmt::Debug + Send + 'static {}
 
 impl<C> Change for C where C: From<SceneChange> + fmt::Debug + Send + 'static {}
+
+/// The pacing a cycle end asks of the next frame.
+///
+/// [`CycleEnd`] is animation vocabulary and [`RenderPacing`] render-target vocabulary, so the
+/// mapping lives here, with the frame that submits under it.
+pub(crate) fn pacing_for(cycle_end: CycleEnd) -> RenderPacing {
+    match cycle_end {
+        CycleEnd::Animating => RenderPacing::Smooth,
+        CycleEnd::Settled => RenderPacing::Fast,
+    }
+}
 
 #[derive(Debug)]
 pub struct Frame {
@@ -116,7 +128,7 @@ impl Frame {
     /// End the animation cycle and drain the task's change queue into a submission of the
     /// installed change kind `C`.
     pub fn submission<C: Change>(mut self) -> FrameSubmission<C> {
-        let pacing = self.end_cycle();
+        let pacing = pacing_for(self.end_cycle());
 
         FrameSubmission {
             changes: task_context::take_changes::<C>(),
@@ -124,15 +136,10 @@ impl Frame {
         }
     }
 
-    fn end_cycle(&mut self) -> RenderPacing {
+    /// Close this frame's animation cycle and report how it ended.
+    fn end_cycle(&mut self) -> CycleEnd {
         self.submitted = true;
-
-        // Flushes queued movement actions before closing the cycle.
-        if task_context::end_frame_cycle() {
-            RenderPacing::Smooth
-        } else {
-            RenderPacing::Fast
-        }
+        task_context::end_frame_cycle()
     }
 }
 
