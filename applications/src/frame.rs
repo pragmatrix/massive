@@ -9,18 +9,17 @@
 //! A render submission exists only for the application task's scene queue
 //! ([`Frame::render_to`], [`Frame::render_submission`]), while [`Frame::submission`] is
 //! generic and takes its kind from the submission call — an instance's
-//! `InstanceContext::submit` fixes `InstanceChange`. The typed task-local accessor downcasts
-//! and panics loudly on a kind mismatch, so draining the wrong queue names the wrong type
-//! instead of mixing submissions silently.
+//! `InstanceContext::submit` fixes `InstanceChange`.
 
 use std::fmt;
 use std::marker::PhantomData;
 use std::panic::Location;
 
+use anyhow::Result;
 use log::error;
 
 use massive_animation::CycleEnd;
-use massive_renderer::{RenderPacing, RenderSubmission};
+use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
 use massive_scene::SceneChange;
 use massive_util::ChangeSet;
 
@@ -118,6 +117,12 @@ impl Frame {
         task_context::with_frame_animation(|animation| {
             animation.upgrade_to_apply_animations_cycle()
         });
+    }
+
+    /// Submit this frame's changes to `render_target` in one call: the application task's scene
+    /// queue drained and rendered.
+    pub fn render_to(self, render_target: &mut dyn RenderTarget) -> Result<()> {
+        render_target.render(self.render_submission())
     }
 
     /// The application task's render submission: its queue drained as [`SceneChange`]s.
