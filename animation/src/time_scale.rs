@@ -11,7 +11,8 @@ pub struct TimeScale {
 }
 
 impl TimeScale {
-    pub fn new(now: Instant) -> Self {
+    /// Create a [`TimeScale`] whose first update cycle starts at `now`.
+    pub fn new_with(now: Instant) -> Self {
         Self {
             now,
             duration_since: Duration::ZERO,
