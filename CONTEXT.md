@@ -107,16 +107,17 @@ Faces available to the shaper for implicit selection (system fonts when the mana
 _Avoid_: system font db, fallback fonts (as a synonym for the pool)
 
 **Published registry**:
-The immutable snapshot mapping every known `FaceId` (loaded and resolved faces) to font data and metrics, read lock-free by the renderer and by session resolution.
+The immutable snapshot mapping every known `FaceId` (loaded and resolved faces) to font data and metrics, read lock-free by the renderer and by a shaping context's own resolution.
 _Avoid_: font registry (ambiguous with the candidate pool), minted registry
 
 **Registry sync**:
-The per-session-open step where a scratch compares the published registry's face count against its last-seen count and loads faces it has not seen yet. Keeps per-handle shapers aligned with the identity world without locking.
+The per-shape step where a scratch compares the published registry's face count against its last-seen count and loads faces it has not seen yet. Keeps a context's scratch aligned with the identity world without locking; it runs before every shape, so a loaded face is visible to the next shape rather than the next batch.
 _Avoid_: epoch sync, epoch-pull, seed
 
 **Session**:
-One acquisition of a handle's exclusive shaper: registry snapshot + scratch, opened by
-`ShapingContext::shaper` and dropped before the frame's output is submitted.
+One shaping batch over a context: the context plus its registry snapshot, opened by
+`task_context::shaper` and dropped before the frame's output is submitted.
+_Avoid_: shaper session, shaper handle
 
 **Bare manager**:
 A font manager with no fonts and no fallback candidates, so selection can only reach fonts the application loaded itself.
@@ -130,7 +131,7 @@ that issued it, so the manager a task shapes with cannot change after that.
 _Avoid_: font settings, font config
 
 **Shaping context**:
-A task's shaping owner: exclusive shaping scratch over the shared font manager's face authority and published registry. Every task context has exactly one.
+A task's shaping owner: it *is* the shaping session, holding the exclusive shaping scratch over the shared font manager's face authority and published registry. Every task context has exactly one; on the ambient path it is lent out by the `task_context::shaper` guard.
 
 **Task context**:
 The contexts installed for one Tokio task: its change queue, animation coordinator, movement runtime, and shaping context.
@@ -165,4 +166,4 @@ own changes.
 The live `Frame` value that owns one animation cycle and prevents another cycle from using the same mutable animation contexts concurrently.
 
 **Shaping scratch**:
-Per-task font and layout state used by a shaping session, distinct from the shared font registry.
+Per-task font and layout state owned by a shaping context, distinct from the shared font registry. It outlives a batch, so its fallback-resolution caches survive across frames.

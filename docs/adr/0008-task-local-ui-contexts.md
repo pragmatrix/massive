@@ -34,7 +34,7 @@ The explicit scene entry points remain available for multi-scene tasks and tests
 
 `FontManager` retains the shared font registry, source cache, face-data map, generic family mapping, and symbol-fallback rebuild. The renderer continues to receive a `FontManager` handle. Per-task `ShaperContext` values hold `FontContext` and `LayoutContext<GlyphBrush>` over the shared collection, so shaping scratch is not serialized through the registry lock. The generic-family mapping remains part of shared collection setup because omitting it can produce silently empty layouts.
 
-The sizing builder resolves the task's shaper itself: `label.size(FONT_SIZE).shape()` shapes through `AmbientShape` (see the ambient-shaping amendment below), while `SizedTextShaper::shape_with(&mut impl ShapingSession)` stays the entry point for callers that already hold a shaping session. Completion-event downcasting and the app-configuration constructors `FontManager::bare`, `with_font`, and `system` are unchanged.
+The sizing builder resolves the task's shaper itself: `label.size(FONT_SIZE).shape()` shapes through `AmbientShape` (see the ambient-shaping amendment below), while `SizedTextShaper::shape_with(&mut ShapingContext)` stays the entry point for callers that already hold a shaping context. Completion-event downcasting and the app-configuration constructors `FontManager::bare`, `with_font`, and `system` are unchanged.
 
 ## Context and invariants
 
@@ -49,7 +49,7 @@ The sizing builder resolves the task's shaper itself: `label.size(FONT_SIZE).sha
 
 - **Thread every context explicitly.** Rejected for the UI layer: ownership is already per task, and the repeated parameters are mechanical plumbing. Explicit scene entry points and domain state remain where they carry meaningful information.
 - **Use a shell-level default scene.** Rejected: it could route changes into the wrong collector and violate submission ordering. Missing installation is an error instead.
-- **Use a mutex for every mutable task-local.** Rejected: `RefCell` makes nested frame access fail immediately and prevents a borrowed reference from crossing an `await`. The shaping context needs no guard of its own: the task-local holds `RefCell<Option<ShapingContext>>`, and an owning `Shaper` handle moves the context out while it is open and restores it on drop, so the context's scratch lock is held by a value that outlives the access closure instead of a guard escaping it.
+- **Use a mutex for every mutable task-local.** Rejected: `RefCell` makes nested frame access fail immediately and prevents a borrowed reference from crossing an `await`. The shaping context needs no guard of its own: the task-local holds `RefCell<Option<ShapingContext>>`, and an owning `Shaper` guard moves the context out while it is open and restores it on drop, so the context's scratch lock is held by a value that outlives the access closure instead of a guard escaping it.
 - **Make the whole font manager task-local.** Rejected: the registry and font data are intentionally shared with the renderer; only shaping scratch is task-owned.
 - **Use one context type for application and instance tasks.** Rejected for now: application tasks intentionally remain shape-free, while instance tasks require a fresh shaping context.
 - **Restructure the runtime around custom task types.** Rejected: existing Tokio task boundaries already match the ownership model.
@@ -77,7 +77,7 @@ Each migration phase runs the `massive` workspace and `mt` checks, the examples 
 
 ## Evidence
 
-The design was compile-verified against Tokio 1.48, `parking_lot` 0.12.5, parley 0.11.1, and fontique 0.11.1. The checks established that task-local values are isolated across spawned tasks, nested scopes shadow and restore values, and references cannot escape `LocalKey::with`. The last is why the shaping context is moved out into an owning handle (`RefCell<Option<_>>` take, restore on drop) rather than borrowed, and why `massive_shapes::ShapingSession` unifies the owning handle with the borrowed session so both feed the same shaping helpers. They also confirmed that a shared font collection without its generic-family mapping can shape to an empty layout without returning an error.
+The design was compile-verified against Tokio 1.48, `parking_lot` 0.12.5, parley 0.11.1, and fontique 0.11.1. The checks established that task-local values are isolated across spawned tasks, nested scopes shadow and restore values, and references cannot escape `LocalKey::with`. The last is why the shaping context is moved out into an owning guard (`RefCell<Option<_>>` take, restore on drop) rather than borrowed: the guard lends the context to the shaping helpers through `Deref`, so one surface (`&mut ShapingContext`) serves both the ambient and the explicit caller. They also confirmed that a shared font collection without its generic-family mapping can shape to an empty layout without returning an error.
 
 
 ## Finalization Tasks
@@ -185,14 +185,15 @@ resolves the task's shaper at the call site, so no presenter or call site carrie
 
 - The ambient step is `AmbientShape::shape(self) -> Option<GlyphRun>`, implemented
   for `SizedTextShaper` — the type the sizing chain actually produces. It opens the
-  shaper from the task-local and delegates.
-- `SizedTextShaper::shape(self, &mut Shaper)` becomes `shape_with`. Two names, two
-  cases: `shape()` is ambient, `shape_with(shaper)` takes the shaper the caller
-  already holds (tests, benchmarks, shaping outside a task). The rename is forced by
+  guard from the task-local and delegates.
+- `SizedTextShaper::shape_with` is the entry point for a caller that already holds a shaping
+  context (`shape()` stays ambient). Two names, two cases. The rename was forced by
   name resolution, not taste: method lookup matches the receiver type and ignores
   arity, so an inherent `shape` wins the probe against a same-named trait method even
   when only the trait's arity fits. The compiler reports a missing argument
-  (`E0061`) for the inherent method, and nothing points at the trait.
+  (`E0061`) for the inherent method, and nothing points at the trait. (The trait in
+  question — the ambient `AmbientShape`, not a shaping session — still requires the two
+  names.)
 - The trait lives in `massive-applications`, which owns the task-local, not in
   `massive-shapes`. `massive-shapes` sits below the context's installation point and
   cannot name it without inverting the dependency. This gives `massive-applications`
@@ -344,11 +345,11 @@ begins the cycle under one borrow.
 - `FontManager::bare`/`system`/`with_font` are the construction path for non-task code.
 - `begin_frame`'s signature and the submission call sites are unchanged.
 
-## Amendment: the owning shaping handle, no closure (2026-09-27)
+## Amendment: the task-local shaping guard, no closure (2026-09-27)
 
 The ambient shaping accessor loses its closure. The task-local becomes
 `SHAPER: RefCell<Option<ShapingContext>>`; opening a shaper *takes* the context into an owning
-`task_context::Shaper` handle and its `Drop` restores it. Call sites bind the handle
+`task_context::Shaper` guard and its `Drop` restores it. Call sites bind the guard
 (`let mut shaper = shaper();`) and pass `&mut shaper` to the shaping helpers, so a whole batch
 shapes through one scratch without a callback. `with_shaper` and its prelude re-export are gone;
 `fonts()` reads the manager through the installed `ShapingContext` (its owner) without taking the
@@ -356,31 +357,61 @@ context out of the task-local.
 
 ### Decision
 
-- `massive_shapes::ShapingSession` is the shared shaping surface: `shape`, `glyph_run`, `font_data`,
-  `metrics`, `registry`, `engine_kind`. It has no supertraits, so the borrowed
-  `massive_shapes::Shaper<'_>` and the owning `task_context::Shaper` both implement it and the
+- `ShapingContext` *is* the session: it owns the scratch and the registry snapshot, and shapes
+  through `shape`/`glyph_run`/`font_data`/`metrics`/`engine_kind` on itself, so a second live
+  shape on one context is a compile error. There is no separate session type and no trait: the
   helpers (`SizedTextShaper::shape_with`, `TextShaper::layout`, `shape_text`, the terminal's
-  `update_lines`/`create_line_shapes`/`cluster_to_run`) take `&mut impl ShapingSession`.
-- The handle owns the context because a task-local borrow cannot escape the access closure — the
+  `update_lines`/`create_line_shapes`/`cluster_to_run`) name `&mut ShapingContext` directly.
+  A former design borrowed a short-lived `Shaper<'_>` out of the context per shape call
+  (`ShapingContext::shaper`, unified with the owning handle by a `ShapingSession` trait); that
+  wrapper existed only to satisfy the guard's forwarding, and it duplicated the registry
+  snapshot it could not share. Exclusivity needs no wrapper: `&mut self` on the context's own
+  methods rejects a second live shape just as `shaper(&mut self)` did.
+- Every shape syncs the scratch against the manager's latest publication before shaping (the
+  registry sync). The sync must not lag a shape: a scratch synced from stale registry state can
+  shape to an empty run or panic inside the engine when a font was loaded since — cosmic's
+  `pull` only adds faces, never removes, so a stale sync leaves a loaded face absent and
+  selection panics (`no default font found`). `refresh()` — sync plus snapshot capture — is what
+  the guard runs when it opens a batch, so a read taken before the batch's first shape still sees
+  the current world.
+- The guard owns the context because a task-local borrow cannot escape the access closure — the
   same constraint that forced the old callback. Take-and-restore preserves scratch exclusivity:
-  a second open handle finds `None` and panics with a reentrancy message, and a handle dropped
-  after its scope exited restores nothing (`try_with`) instead of panicking.
-- The `Option` exists only for the move-out; the *task-local* needs no guard of its own, since the
-  scratch is owned by the taken context — `ShapingContext` holds it as a plain field (the session
-  borrows it with `&mut`), and the context itself is exclusive to the taken slot rather than to a
-  lock escaping the closure.
-- The handle is deliberately `!Send` (`PhantomData<Rc<()>>`): it reaches the task-local, so
+  a second open guard finds `None` and panics with a reentrancy message, and a guard dropped
+  after its scope exited restores nothing (`try_with`) instead of panicking. The guard holds no
+  state of its own and lends the context through `Deref`/`DerefMut`, which is why no call site
+  changes shape: a `&mut shaper` argument deref-coerces into `&mut ShapingContext`.
+- The `Option` exists only for the move-out; the *task-local* needs no guard of its own, since
+  the scratch is owned by the taken context — `ShapingContext` holds it as a plain field, and the
+  context itself is exclusive to the taken slot rather than to a lock escaping the closure.
+- The guard is deliberately `!Send` (`PhantomData<Rc<()>>`): it reaches the task-local, so
   moving it to another task would strand the originating task's slot. It therefore cannot cross
   an `await`; call sites scope it so it drops before the next suspension point.
-- On auto-traits: the borrowed `massive_shapes::Shaper<'_>` is also `!Send`, because the
-  `&ShapingContext` it holds borrows a context whose scratch is `Box<dyn EngineScratch>` — and
-  `EngineScratch: Send` without `Sync` keeps the context (and thus the borrowed session) `!Sync`,
-  so the reference is `!Send`. The owning handle above is `!Send` by the
+- On auto-traits: `ShapingContext` is `Send` and `!Sync`, because its scratch is
+  `Box<dyn EngineScratch>` and `EngineScratch: Send` without `Sync` — a context is movable but
+  not shareable. Pinned in `shaping_context.rs`'s tests; the guard is `!Send` by the
   `PhantomData<Rc<()>>` marker instead.
-- `fonts()` does *not* mint a handle. It borrows the task-local slot, reads the manager off the
+- `fonts()` does *not* mint a guard. It borrows the task-local slot, reads the manager off the
   installed `ShapingContext` (`ShapingContext::manager` needs only `&self`), and drops the borrow.
-  Minting a handle for the read was pointless — a manager read needs no scratch — and it turned
-  every manager read into a panic hazard: any read that raced an open handle would have taken the
-  context away from it. The only remaining conflict is inherent: a `Shaper` handle has the context
+  Minting a guard for the read was pointless — a manager read needs no scratch — and it turned
+  every manager read into a panic hazard: any read that raced an open guard would have taken the
+  context away from it. The only remaining conflict is inherent: a `Shaper` guard has the context
   checked out while it shapes, so `fonts()` panics then (a distinct message from the reentrancy
-  panic), and works again once the handle is dropped.
+  panic), and works again once the guard is dropped.
+
+### Consequences
+
+- One shaping surface instead of three names (context, borrowed session, owning handle): a call
+  site holds a `&mut ShapingContext` or the ambient guard, and nothing else.
+- A batch is bounded by one mechanism (the guard's exclusive possession) instead of two (the
+  borrow that rejected a second session *and* the take/restore that rejected a second handle).
+- Per shape the context pays one snapshot load for the sync and one for the post-shape refresh;
+  the pre-change guard path paid three (open, a dead post-shape refresh on the temporary, and the
+  guard's own refresh). Measured on the terminal benches, the change is within run-to-run noise:
+  an interleaved A/B showed the same old code moving ±7-10% between sessions while the new code
+  landed inside that band, and the allocation bench is byte-identical for parley.
+- `shaping/full_screen` previously built a fresh context (with scratch seeding) per iteration,
+  which the terminal never does per frame; it now holds one context and refreshes per batch, so
+  the bench measures the per-frame path (cosmic-text drops ~55% as the synthetic seeding goes).
+- The terminal keeps one context per task and opens a guard per frame batch, so the scratch's
+  fallback-resolution caches persist across frames (ADR 0006).
+

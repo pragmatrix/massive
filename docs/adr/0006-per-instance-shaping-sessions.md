@@ -14,15 +14,15 @@ The ADR 0005 published-registry amendment made the *render* path lock-free, but 
 
 ### Shaping contexts everywhere
 
-`FontManager::shaping_context()` creates a `ShapingContext`, and `ShapingContext::shaper()` returns a `Shaper<'_>`. There is **no instance variant** of the API: instance, application, and desktop code all acquire shapers through an explicit context. Shapers take `&self` — the authority mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed on the manager. Exclusivity is a property of the context's ownership instead (below).
+`FontManager::shaping_context()` creates a `ShapingContext`, and the context itself is the shaping session (ADR 0008 replaced an earlier borrowed-session design: `ShapingContext::shaper()` and a `ShapingSession` trait). There is **no instance variant** of the API: instance, application, and desktop code all shape through an explicit context. The context's session methods take `&mut self` — the authority mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed on the manager. Exclusivity is a property of the context's ownership instead (below).
 
-What a shaper holds: it does not hold the authority mutex for its duration; it borrows the caller's `ShapingContext`, whose scratch is exclusive to that logical owner. Contexts sharing one manager state can shape concurrently.
+What a session holds: it does not hold the authority mutex for its duration; it uses the caller's `ShapingContext`, whose scratch is exclusive to that logical owner. Contexts sharing one manager state can shape concurrently.
 
-A rule, made API-visible by this design: **a shaper must not outlive the frame cycle it shaped for** — the manager mutex is registration-only, so nothing about the shaper's lifetime needs to hold it; the rule instead defines when its shaped output stops being usable.
+A rule, made API-visible by this design: **a session must not outlive the frame cycle it shaped for** — the manager mutex is registration-only, so nothing about the session's lifetime needs to hold it; the rule instead defines when its shaped output stops being usable.
 
-### Shaper exclusivity by exclusive scratch ownership
+### Session exclusivity by exclusive scratch ownership
 
-`ShapingContext::shaper` takes `&mut self`, and the returned `Shaper<'_>` borrows the context's scratch for its whole lifetime. Two live shapers on one context are therefore a **compile error**. Shapers on different contexts shape in parallel because their scratch is independent; `load_font` during an open shaper is safe by construction because the authority mutex is registration-only. `shaper()` takes `&mut self` only to hand out the scratch — it does not lock the manager, so a context is a per-owner value that a task holds exclusively rather than a shared handle.
+The context's session methods take `&mut self`, so the scratch stays exclusive to this context and two live sessions on one context are a **compile error**. Sessions on different contexts shape in parallel because their scratch is independent; `load_font` during an open session is safe by construction because the authority mutex is registration-only. `&mut self` exists only to hand out the scratch — it does not lock the manager, so a context is a per-owner value that a task holds exclusively rather than a shared handle.
 
 ### Contexts are explicit, managers are shared
 
@@ -37,7 +37,7 @@ their own contexts.
 `FontAuthority` keeps only the font-identity machinery; the engines' per-shape scratch moves out to per-context owners. The scratch itself is engine neutral: `ShapingEngine::new_scratch` creates a context's scratch, and an `EngineScratch` trait (`sync`, `shape`) drives it — the manager names no engine type after construction, and the per-engine seeding/sync strategies live entirely in each engine's scratch implementation.
 
 - **Face authority**: the manager remains the *only* `FaceId` issuer (face loading and session-path resolution). A `FaceId` is only meaningful within the manager that registered it — ADR 0005's consequence, now load-bearing across instances.
-- **Published registry**: a shared `Arc<PublishedRegistry>` bundles engine kind with its `ArcSwap<FontRegistry>`. Shapers publish resolved faces through the authority and refresh their session snapshot after each shape.
+- **Published registry**: a shared `Arc<PublishedRegistry>` bundles engine kind with its `ArcSwap<FontRegistry>`. Sessions publish resolved faces through the authority and refresh their snapshot after each shape.
 
 ### Parley: fontique's native shared collection
 
@@ -56,17 +56,17 @@ The canonical engine instance inside the manager becomes the *face authority*: i
 
 cosmic's `fontdb` 0.23 has no shared mode (plain fields; `Database::clone` is a deep copy) and `FontSystem` privately owns its db, so fontique's trick is unavailable. Instead:
 
-- Instances own a full `FontSystem` (its caches are per-instance anyway), seeded from the published snapshot only — a registry-only database means every shaper selection is a registry face by construction.
-- Managers built with system fonts (`FontManager::system`) also carry a **prepared system database** as the fallback *candidate pool*: the canonical engine scans the full system font catalog exactly once, at construction, and every scratch seed afterwards builds its `FontSystem` over a clone of that database (a pure in-memory copy — no I/O, no re-parsing), registry faces loaded after it so loaded families win selection. A full catalog rescan per seed would cost a directory walk plus font-table parsing over the entire system fonts directory per manager handle — prohibitive, and unnecessary: the catalog only changes on OS font installation. A prepared database is also the reason the registry-only seed did not *have* to stay candidate-pool-free: the white-screen bug (system copies of loaded families) is avoided by loading registry faces last, not by removing the pool. `bare()` managers skip this entirely: no scan, no pool, hermetic registry-only shapers (tests rely on it).
+- Instances own a full `FontSystem` (its caches are per-instance anyway), seeded from the published snapshot only — a registry-only database means every session selection is a registry face by construction.
+- Managers built with system fonts (`FontManager::system`) also carry a **prepared system database** as the fallback *candidate pool*: the canonical engine scans the full system font catalog exactly once, at construction, and every scratch seed afterwards builds its `FontSystem` over a clone of that database (a pure in-memory copy — no I/O, no re-parsing), registry faces loaded after it so loaded families win selection. A full catalog rescan per seed would cost a directory walk plus font-table parsing over the entire system fonts directory per manager handle — prohibitive, and unnecessary: the catalog only changes on OS font installation. A prepared database is also the reason the registry-only seed did not *have* to stay candidate-pool-free: the white-screen bug (system copies of loaded families) is avoided by loading registry faces last, not by removing the pool. `bare()` managers skip this entirely: no scan, no pool, hermetic registry-only sessions (tests rely on it).
 - The manager publishes, next to the registry, a **sync token** — the registry's face count serves as the token (publication = version bump).
-- A cosmic shaper, at its start, compares the manager's published face count against the one it synced last; on mismatch it loads the snapshot's unseen faces into its `FontSystem`'s db and updates its local count (registry sync). New fonts are visible to the instance on its next shaper — worst case one frame.
+- A cosmic session, at its start, compares the manager's published face count against the one it synced last; on mismatch it loads the snapshot's unseen faces into its `FontSystem`'s db and updates its local count (registry sync). New fonts are visible to the instance on its next sync — worst case one shape.
 - Nobody keeps a list of live instances; the sync replaces broadcast.
 
 Cost, accepted: incremental face replays per sync per instance (face metadata, not glyph data; bounded by known faces; registrations change only on actual loads). Resolution of newly hit fallback faces routes through the face authority (`resolve_face` under the manager mutex, published at resolution time) — a cold-path-only lock acquisition, so concurrent loads cannot conflict: register + publish are serialized and the registry is published atomically.
 
 ### Resolved faces publish at resolution time
 
-Fallback faces the shaper picks (unknown scripts, emoji, symbols) are not loadable — they enter the identity world when a shaper first uses them: the scratch hands the face's data to the manager (`Shaper` → `resolve_face`), which registers it under the manager lock and republishes immediately. Every published snapshot is therefore complete for every issued `FaceId`, and a frame submitted concurrently resolves the face lock-free. Within the same session, the session's captured snapshot is refreshed from the manager's latest publication at the end of every `shape` — so every face a returned run carries (its own fallbacks included) is visible to the session's `font_data`/`metrics` reads before the caller touches them.
+Fallback faces the shaper picks (unknown scripts, emoji, symbols) are not loadable — they enter the identity world when a session first uses them: the scratch hands the face's data to the manager (`resolve_face`), which registers it under the manager lock and republishes immediately. Every published snapshot is therefore complete for every issued `FaceId`, and a frame submitted concurrently resolves the face lock-free. Within the same context, the context's captured snapshot is refreshed from the manager's latest publication at the end of every `shape` — so every face a returned run carries (its own fallbacks included) is visible to the context's `font_data`/`metrics` reads before the caller touches them.
 
 ### Published metrics
 
@@ -74,7 +74,7 @@ Fallback faces the shaper picks (unknown scripts, emoji, symbols) are not loadab
 
 ### Renderer contract unchanged
 
-The renderer's "registry miss is a real bug" stance stays absolute, and the debug assert of `GlyphRun.shaping_engine` against the manager's engine stays. Both survive because: publication happens at every registration (load and resolution), always under the manager lock, shapers do not outlive their frame cycle, and drop precedes submission within a task.
+The renderer's "registry miss is a real bug" stance stays absolute, and the debug assert of `GlyphRun.shaping_engine` against the manager's engine stays. Both survive because: publication happens at every registration (load and resolution), always under the manager lock, sessions do not outlive their frame cycle, and drop precedes submission within a task.
 
 ## Considered options
 
@@ -103,10 +103,10 @@ The renderer's "registry miss is a real bug" stance stays absolute, and the debu
 
 ## Consequences
 
-- Two live shapers on one context are a compile error (`shaper(&mut self)`); contexts
+- Two live sessions on one context are a compile error (the session methods take `&mut self`); contexts
   sharing one manager state shape in parallel because their scratch is independent.
 - Handling a `FontManager` around shares only identity and publication. Calling
   `shaping_context()` marks every shaping-owner boundary.
-- `load_font` mid-run is legal and becomes visible without coordinator knowledge: parley via fontique's version sync, cosmic via registry sync at next shaper open.
+- `load_font` mid-run is legal and becomes visible without coordinator knowledge: parley via fontique's version sync, cosmic via registry sync at next sync.
 - Cosmic's per-instance `FontSystem` grows its caches without bound within one lifetime (its internals are not shareable by design) — the same cost every cosmic use pays; instances are long-lived, the cost is per-instance and bounded by workload.
 - The manager's mutex is touched only by registration work (load, resolve, publish); a benchmark gate (`benches/terminal_shaping.rs`) verifies the hot path no longer takes it.
