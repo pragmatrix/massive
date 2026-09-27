@@ -7,13 +7,11 @@ use derive_more::Debug;
 use massive_geometry::Color;
 use massive_shapes::Shape;
 
-use crate::{
-    FontRegistrySource,
-    renderer::{PreparationContext, RenderBatch},
-    shape_renderer::{self, ShapeRenderer},
-    text_layer::TextLayerRenderer,
-    tools::PipelineVariant,
-};
+use crate::FontRegistrySource;
+use crate::renderer::{PreparationContext, RenderBatch};
+use crate::shape_renderer::{self, ShapeRenderer};
+use crate::text_layer::TextLayerRenderer;
+use crate::tools::PipelineVariant;
 
 pub const DEFAULT_BACKGROUND_COLOR: Color = Color::WHITE;
 

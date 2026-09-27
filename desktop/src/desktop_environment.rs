@@ -1,7 +1,5 @@
-use std::{
-    env,
-    path::{Path, PathBuf},
-};
+use std::env;
+use std::path::{Path, PathBuf};
 
 use log::error;
 use massive_shell::{ApplicationContext, Result};

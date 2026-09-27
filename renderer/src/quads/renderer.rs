@@ -2,16 +2,12 @@ use anyhow::Result;
 use massive_geometry::Matrix4;
 use massive_scene::Shape;
 use massive_shapes::{Quad, Quads};
-use wgpu::{
-    BufferUsages,
-    util::{BufferInitDescriptor, DeviceExt},
-};
+use wgpu::BufferUsages;
+use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::{
-    pods::ColorVertex,
-    renderer::{PreparationContext, RenderContext},
-    tools::{PipelineVariant, QuadIndexBuffer, create_pipeline},
-};
+use crate::pods::ColorVertex;
+use crate::renderer::{PreparationContext, RenderContext};
+use crate::tools::{PipelineVariant, QuadIndexBuffer, create_pipeline};
 
 pub struct QuadsRenderer {
     pipeline: wgpu::RenderPipeline,

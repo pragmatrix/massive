@@ -1,7 +1,5 @@
-use std::{
-    convert,
-    ops::{Div, Mul},
-};
+use std::convert;
+use std::ops::{Div, Mul};
 
 use euclid::{Size2D, UnknownUnit};
 

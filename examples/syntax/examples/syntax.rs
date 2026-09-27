@@ -1,12 +1,10 @@
 use std::convert::Infallible;
 
 use anyhow::Result;
-use syntect::{
-    easy::HighlightLines,
-    highlighting::{FontStyle, Style, ThemeSet},
-    parsing::SyntaxSet,
-    util::LinesWithEndings,
-};
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{FontStyle, Style, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
 use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
@@ -16,10 +14,8 @@ use massive_scene::prelude::*;
 use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
 use massive_shell::{ApplicationContext, shell};
 
-use shared::{
-    application::{Application, UpdateResponse},
-    attributed_text::{self, TextAttribute},
-};
+use shared::application::{Application, UpdateResponse};
+use shared::attributed_text::{self, TextAttribute};
 
 #[tokio::main]
 async fn main() -> Result<()> {

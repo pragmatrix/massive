@@ -4,11 +4,9 @@ use winit::event::{DeviceId, ElementState, MouseButton};
 
 use massive_geometry::Point;
 
-use crate::{
-    ButtonSensor, DeviceIdExtensions, InputEvent,
-    event_history::{EventHistory, HistoryIterator},
-    tracker::Movement,
-};
+use crate::event_history::{EventHistory, HistoryIterator};
+use crate::tracker::Movement;
+use crate::{ButtonSensor, DeviceIdExtensions, InputEvent};
 
 impl<E: InputEvent> EventHistory<E> {
     pub fn detect_double_click(

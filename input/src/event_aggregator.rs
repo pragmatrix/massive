@@ -7,10 +7,8 @@ use std::{collections::HashMap, time::Instant};
 
 use itertools::Itertools;
 use massive_geometry::Point;
-use winit::{
-    event::{ElementState, Modifiers, MouseButton},
-    keyboard::ModifiersState,
-};
+use winit::event::{ElementState, Modifiers, MouseButton};
+use winit::keyboard::ModifiersState;
 
 use crate::{AggregationEvent, ButtonSensor, InputEvent};
 

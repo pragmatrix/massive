@@ -12,10 +12,8 @@ use std::cmp::max;
 
 use derive_more::{From, Into};
 
-use crate::{
-    LayoutAxis,
-    dimensional_types::{Offset, Rect, Size, Thickness},
-};
+use crate::LayoutAxis;
+use crate::dimensional_types::{Offset, Rect, Size, Thickness};
 
 pub fn leaf<Id: Clone, const RANK: usize>(
     id: impl Into<Option<Id>>,

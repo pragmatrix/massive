@@ -1,10 +1,9 @@
 use std::{iter, ops::Range};
 
-use termwiz::{
-    cell::Intensity,
-    color::ColorSpec,
-    escape::{self, Action, CSI, ControlCode, csi::Sgr},
-};
+use termwiz::cell::Intensity;
+use termwiz::color::ColorSpec;
+use termwiz::escape::csi::Sgr;
+use termwiz::escape::{self, Action, CSI, ControlCode};
 
 use crate::terminal::{Rgb, color_schemes};
 use massive_geometry::Color;
