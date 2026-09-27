@@ -69,16 +69,19 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
     let font_size = 32.;
     let line_height = 40.;
 
-    let (glyph_runs, height) = with_shaper(|shaping_context| {
+    // The handle is `!Send` and is dropped at the end of this block, before any await, so the
+    // example's future stays `Send` for the shell.
+    let (glyph_runs, height) = {
+        let mut shaper = shaper();
         attributed_text::shape_text(
-            &mut shaping_context.shaper(),
+            &mut shaper,
             &final_text,
             &text_attributes,
             font_size,
             line_height,
             None,
         )
-    });
+    };
 
     // Window
 

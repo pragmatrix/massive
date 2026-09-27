@@ -23,7 +23,7 @@ use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{FontPolicy, Shape, Shaper, ShapingEngineKind};
+use massive_shapes::{FontPolicy, Shape, ShapingEngineKind, ShapingSession};
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
@@ -206,10 +206,8 @@ impl Logs {
 
     fn add_line(&mut self, bytes: &[u8]) {
         // Shape through the task's shaping owner: the same identity world the renderer reads.
-        let (glyph_runs, height) = with_shaper(|shaping_context| {
-            let mut shaper = shaping_context.shaper();
-            shape_log_line(&mut shaper, bytes, self.next_line_top)
-        });
+        let mut shaper = shaper();
+        let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
 
         let glyph_runs: Vec<Shape> = glyph_runs
             .into_iter()
@@ -366,7 +364,7 @@ struct LayoutMovement {
 const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
-    shaper: &mut Shaper<'_>,
+    shaper: &mut impl ShapingSession,
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {

@@ -61,16 +61,19 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = with_shaper(|shaping_context| {
+    // The handle is `!Send` and is dropped at the end of this block, before any await, so the
+    // example's future stays `Send` for the shell.
+    let (glyph_runs, height) = {
+        let mut shaper = shaper();
         attributed_text::shape_text(
-            &mut shaping_context.shaper(),
+            &mut shaper,
             &code.text,
             &code.attributes,
             font_size,
             line_height,
             None,
         )
-    });
+    };
 
     // Application
 
