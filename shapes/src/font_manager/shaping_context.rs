@@ -5,7 +5,7 @@ use crate::engine::{
     EngineScratch, FontData, FontRegistry, ShapedRun, ShapingEngineKind, ShapingRequest,
 };
 use crate::face_metrics::FaceMetrics;
-use crate::{FaceId, GlyphRun};
+use crate::{FaceId, GlyphRun, shaped_run_to_glyph_run};
 
 use super::FontManager;
 use super::state::FontManagerState;
@@ -52,14 +52,28 @@ impl ShapingContext {
         FontManager::from_state(Arc::clone(&self.state))
     }
 
-    /// Bring this context up to date with the manager's published face world: sync the scratch, then
-    /// capture the snapshot its `metrics`/`font_data` reads resolve against.
+    /// Bring this context up to date with the manager's published face world and capture the
+    /// snapshot its `metrics`/`font_data` reads resolve against.
     ///
     /// The owning guard calls this when it opens a batch, so a read taken before the batch's first
     /// shape sees the current world; `shape` syncs again before every shape on its own.
     pub fn refresh(&mut self) {
-        self.sync_scratch();
-        self.registry = self.state.published.current.load_full();
+        self.registry = self.sync_scratch();
+    }
+
+    /// Shape and assemble a [`GlyphRun`] carrying the default attributes' color/weight.
+    pub fn glyph_run(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<GlyphRun> {
+        let run = self.shape(request, font_size)?;
+        let color = request.default_attributes.color;
+        let weight = request.default_attributes.weight;
+        Some(shaped_run_to_glyph_run(
+            &run,
+            &run.clusters,
+            run.width,
+            color,
+            weight,
+            Default::default(),
+        ))
     }
 
     /// Shape a run through this context's exclusive scratch.
@@ -67,21 +81,36 @@ impl ShapingContext {
         // Sync against the latest publication before shaping: a scratch seeded from stale registry
         // state shapes to an empty run or panics inside the engine when a font was loaded but is
         // not yet in the scratch, so the sync must not lag a shape (ADR 0006).
-        self.sync_scratch();
+        let synced = self.sync_scratch();
         let state = &self.state;
-        let run = self
-            .scratch
-            .shape(request, font_size, &mut |data| resolve_face(state, data));
-        // Faces resolved during the shape were published under the manager lock; capture them so
-        // this context's reads see the run's own fallback faces.
-        self.registry = state.published.current.load_full();
+        let mut published = false;
+        let run = self.scratch.shape(request, font_size, &mut |data| {
+            let face = resolve_face(state, data);
+            // `Some` means the authority registered and published this face (`None` changes
+            // nothing). Accumulated because a second, unresolvable face later in the same shape
+            // must not undo the first resolution's publication.
+            published |= face.is_some();
+            face
+        });
+        // The snapshot `font_data`/`metrics` resolve against. A scratch selects only faces it synced
+        // or resolved, so `synced` covers the whole run — unless the shape resolved a face, which
+        // published a new face world; the swap then holds the complete one, and that read only
+        // happens on this cold path.
+        self.registry = if published {
+            state.published.current.load_full()
+        } else {
+            synced
+        };
         run
     }
 
-    /// Bring the scratch in line with the manager's published face world (ADR 0006).
-    fn sync_scratch(&mut self) {
-        let registry = self.state.published.current.load_full();
-        self.scratch.sync(&registry);
+    /// Bring the scratch in line with the manager's published face world (ADR 0006) and hand back
+    /// the snapshot it was synced to: the least a following shape's reads must resolve against.
+    #[must_use]
+    fn sync_scratch(&mut self) -> Arc<FontRegistry> {
+        let published = self.state.published.current.load_full();
+        self.scratch.sync(&published);
+        published
     }
 
     /// Resolve concrete font data through this context's registry snapshot.
@@ -92,21 +121,6 @@ impl ShapingContext {
     /// The per-face metrics snapshot of this context.
     pub fn metrics(&self, id: FaceId) -> Option<&FaceMetrics> {
         self.registry.metrics(id)
-    }
-
-    /// Shape and assemble a [`GlyphRun`] carrying the default attributes' color/weight.
-    pub fn glyph_run(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<GlyphRun> {
-        let run = self.shape(request, font_size)?;
-        let color = request.default_attributes.color;
-        let weight = request.default_attributes.weight;
-        Some(crate::engine::shaped_run_to_glyph_run(
-            &run,
-            &run.clusters,
-            run.width,
-            color,
-            weight,
-            Default::default(),
-        ))
     }
 
     pub fn engine_kind(&self) -> ShapingEngineKind {
