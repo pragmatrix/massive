@@ -28,10 +28,8 @@ pub trait AmbientShape {
 
 impl AmbientShape for SizedTextShaper<'_> {
     fn shape(self) -> Option<GlyphRun> {
-        task_context::with_shaper(|shaping_context| {
-            let mut shaper = shaping_context.shaper();
-            SizedTextShaper::shape_with(self, &mut shaper)
-        })
+        let mut shaper = task_context::shaper();
+        SizedTextShaper::shape_with(self, &mut shaper)
     }
 }
 

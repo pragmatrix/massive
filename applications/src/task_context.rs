@@ -15,9 +15,13 @@ use massive_renderer::{FontManager, ShapingContext};
 use massive_scene::{AnyCollector, ChangeSink, SceneChange};
 
 pub(crate) mod animation;
+mod shaper;
 
 /// The animation accessors an application may call.
 pub use animation::{TaskMovementBuilder, animation_time, movement, with_animation_and_movement};
+
+/// The owning shaping handle an application holds while it shapes.
+pub use shaper::{Shaper, shaper};
 
 /// The frame-cycle protocol: driven by [`Frame`](crate::Frame), not by applications.
 pub(crate) use animation::{
@@ -28,7 +32,9 @@ pub(crate) use animation::{
 task_local! {
     static CHANGES: AnyCollector;
     static ANIMATION: RefCell<AnimationState>;
-    static SHAPER: RefCell<ShapingContext>;
+    // `Option` so an owning `Shaper` can move the context out and restore it on drop;
+    // `fonts()` borrows the slot in place instead, so a manager read never mints a handle.
+    static SHAPER: RefCell<Option<ShapingContext>>;
 }
 
 /// The contexts installed together for one UI task.
@@ -75,14 +81,16 @@ impl TaskContext {
 async fn with_all_contexts<F: Future>(
     changes: AnyCollector,
     animation_state: RefCell<AnimationState>,
-    shaping_context: RefCell<ShapingContext>,
+    shaping_context: ShapingContext,
     future: F,
 ) -> F::Output {
     CHANGES
         .scope(changes, async move {
             ANIMATION
                 .scope(animation_state, async move {
-                    SHAPER.scope(shaping_context, future).await
+                    SHAPER
+                        .scope(RefCell::new(Some(shaping_context)), future)
+                        .await
                 })
                 .await
         })
@@ -95,20 +103,42 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
     with_all_contexts(
         changes,
         RefCell::new(AnimationState::new(animation, movement)),
-        RefCell::new(shaping_context),
+        shaping_context,
         future,
     )
     .await
 }
 
-pub fn with_shaper<R>(f: impl FnOnce(&ShapingContext) -> R) -> R {
-    SHAPER.with(|shaper| f(&shaper.borrow()))
-}
-
 /// The font manager of the current task's shaping owner: the manager the shell built from the
 /// [`FontPolicy`](massive_renderer::FontPolicy) passed to `shell::run`.
+///
+/// Reads the manager through the installed [`ShapingContext`], its owner, without taking the
+/// context out of the task-local or minting a [`Shaper`] handle.
+///
+/// The one constraint is exclusivity: a [`Shaper`] handle holds the context checked out for as
+/// long as it is open, so reading the manager while shaping is an inherent conflict and `fonts()`
+/// panics then. Install the task context with [`with_context`] before calling it, and drop any
+/// open handle first.
 pub fn fonts() -> FontManager {
-    with_shaper(|shaping_context| shaping_context.manager())
+    SHAPER
+        .try_with(|slot| {
+            slot.borrow()
+                .as_ref()
+                .unwrap_or_else(|| {
+                    panic!(
+                        "shaping context checked out: a Shaper handle is open in this task, so \
+                         fonts() cannot read the manager while shaping; drop the handle before \
+                         reading fonts()"
+                    )
+                })
+                .manager()
+        })
+        .unwrap_or_else(|_| {
+            panic!(
+                "no shaping context installed: fonts() requires the task context, so call \
+                 task_context::with_context before reading fonts()"
+            )
+        })
 }
 
 pub fn collect<C>(change: C)

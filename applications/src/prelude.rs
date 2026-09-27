@@ -2,4 +2,4 @@
 
 pub use super::ambient::{AmbientAnimation, AmbientShape, AmbientTimeScale, Enter};
 pub use super::frame::begin_frame;
-pub use super::task_context::{collect, fonts, movement, with_changes, with_shaper};
+pub use super::task_context::{collect, fonts, movement, shaper, with_changes};

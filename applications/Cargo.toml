@@ -24,3 +24,7 @@ uuid.workspace = true
 # Architecture: We should get rid of the winit dependency here. Current ViewEvent depends on it, 
 # and the converter does not seem to belong in this crate.
 winit.workspace = true
+
+[dev-dependencies]
+# Used only under `#[cfg(test)]` (Send/!Send pins in `task_context`).
+static_assertions.workspace = true
