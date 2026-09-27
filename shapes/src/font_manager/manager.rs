@@ -262,8 +262,7 @@ mod tests {
                 ShapingRequest::new(text, TextAttributes::named_family("Noto Sans Takri"));
             let run = {
                 let mut context = fonts.new_shaping_context();
-                let mut shaper = context.shaper();
-                shaper
+                context
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
             };
@@ -311,8 +310,7 @@ mod tests {
                 ShapingRequest::new(descenders, TextAttributes::named_family("JetBrains Mono"));
             let run = {
                 let mut context = fonts.new_shaping_context();
-                let mut shaper = context.shaper();
-                shaper
+                context
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
             };
@@ -360,8 +358,7 @@ mod tests {
                 request.ranges = ranges;
                 let run = {
                     let mut context = fonts.new_shaping_context();
-                    let mut shaper = context.shaper();
-                    shaper
+                    context
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
                 };
@@ -442,8 +439,7 @@ mod tests {
                 let request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
                 let run = {
                     let mut context = fonts.new_shaping_context();
-                    let mut shaper = context.shaper();
-                    shaper
+                    context
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
                 };
@@ -499,15 +495,13 @@ mod tests {
 
             let run_overridden = {
                 let mut context = fonts.new_shaping_context();
-                let mut shaper = context.shaper();
-                shaper
+                context
                     .shape(&overridden, 16.0)
                     .expect("shaping must produce a run")
             };
             let run_reference = {
                 let mut context = fonts.new_shaping_context();
-                let mut shaper = context.shaper();
-                shaper
+                context
                     .shape(&reference, 16.0)
                     .expect("shaping must produce a run")
             };
@@ -634,8 +628,7 @@ mod tests {
 
                 let run = {
                     let mut context = fonts.new_shaping_context();
-                    let mut shaper = context.shaper();
-                    shaper
+                    context
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
                 };
@@ -686,8 +679,7 @@ mod tests {
             ];
             let run = {
                 let mut context = fonts.new_shaping_context();
-                let mut shaper = context.shaper();
-                shaper
+                context
                     .shape(&request, 16.0)
                     .expect("shaping must produce a run")
             };
@@ -732,8 +724,7 @@ mod tests {
                     ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
                 let run = {
                     let mut context = fonts.new_shaping_context();
-                    let mut shaper = context.shaper();
-                    shaper
+                    context
                         .shape(&request, 16.0)
                         .expect("shaping must produce a run")
                 };

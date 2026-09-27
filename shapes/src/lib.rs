@@ -74,8 +74,9 @@ impl<'a> SizedTextShaper<'a> {
         }
     }
 
-    /// Shape with a caller-supplied session, for code that already holds one.
-    pub fn shape_with(self, shaper: &mut impl ShapingSession) -> Option<GlyphRun> {
+    /// Shape with the caller's own context, for code that already holds one (tests, benchmarks,
+    /// shaping outside a task context).
+    pub fn shape_with(self, shaper: &mut ShapingContext) -> Option<GlyphRun> {
         self.layouter.layout(shaper, self.font_size)
     }
 }

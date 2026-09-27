@@ -75,8 +75,7 @@ mod tests {
                 .load_font(JETBRAINS_MONO)
                 .expect("bundled font is valid")[0];
             let mut context = fonts.new_shaping_context();
-            let mut shaper = context.shaper();
-            let shaped = shaper
+            let shaped = context
                 .shape(
                     &ShapingRequest::new("a", TextAttributes::named_family("JetBrains Mono")),
                     13.0,
@@ -84,13 +83,10 @@ mod tests {
                 .expect("shape");
             let glyph_id = shaped.glyphs[0].glyph_id;
 
-            // Resolve font data through the session guard: the manager's mutex-protected
-            // registry is not lock-free-readable while the session may resolve faces. Copy both
-            // values out before the assert so the guard borrow is not held across it.
-            let font_data = shaper.font_data(face).expect("font data");
-            drop(shaper);
+            // The context's own snapshot, taken after the shape published any faces it resolved.
+            let font_data = context.font_data(face).expect("font data");
 
-            // Read the published snapshot after the session republished it.
+            // Read the published snapshot after the shape republished it.
             let cached = fonts
                 .published()
                 .metrics(face)

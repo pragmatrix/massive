@@ -29,3 +29,7 @@ glam = { workspace = true }
 parking_lot.workspace = true
 serde = { workspace = true }
 smallbox.workspace = true
+
+[dev-dependencies]
+# Send/!Sync pins on `ShapingContext`.
+static_assertions = { workspace = true }
