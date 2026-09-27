@@ -133,8 +133,26 @@ mod tests {
         "../../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
     );
 
+    /// Fallback-only coverage: nothing selects this family by name, the shaper only reaches it
+    /// when the requested family lacks the script (Takri).
+    const TAKRI: &[u8] =
+        include_bytes!("../../../assets/fonts/NotoSansTakri/NotoSansTakri-Regular.ttf");
+
+    fn shaping_context_for(engine: ShapingEngineKind) -> ShapingContext {
+        FontManager::bare(engine).new_shaping_context()
+    }
+
     fn shaping_context() -> ShapingContext {
-        FontManager::bare(ShapingEngineKind::available()[0]).new_shaping_context()
+        shaping_context_for(ShapingEngineKind::available()[0])
+    }
+
+    fn contexts_for(engine: ShapingEngineKind) -> TaskContext {
+        TaskContext::new(
+            AnyCollector::for_type::<SceneChange>(),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+            shaping_context_for(engine),
+        )
     }
 
     fn contexts() -> TaskContext {
@@ -278,6 +296,49 @@ mod tests {
                 .expect("second shape through the guard");
             assert!(!first.glyphs.is_empty());
             assert!(!second.glyphs.is_empty());
+        })
+        .await;
+    }
+
+    /// A font that enters the world mid-batch must reach the shaper's fallback selection.
+    ///
+    /// The per-shape sync is what makes this work, and losing it is silent for a fallback-only
+    /// font: the face is absent from the session's database, the shaper selects glyph 0 of a face
+    /// it does know, and since that face resolves and carries metrics nothing detects it — the run
+    /// renders the wrong font rather than panicking or coming back empty.
+    #[tokio::test]
+    async fn a_batch_sees_a_fallback_font_loaded_mid_batch() {
+        with_context(contexts_for(ShapingEngineKind::CosmicText), async {
+            fonts()
+                .load_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
+
+            let mut handle = shaper();
+            handle
+                .shape(&request("a"), 16.0)
+                .expect("the loaded family must shape");
+
+            // The batch's only Takri coverage enters the world mid-batch; nothing selects it
+            // by family, so only fallback can reach it.
+            handle
+                .manager()
+                .load_font(TAKRI)
+                .expect("bundled font is valid");
+
+            let takri = ShapingRequest::new(
+                "\u{1168A}\u{116B6}\u{116A9}",
+                TextAttributes::named_family("JetBrains Mono"),
+            );
+            let run = handle
+                .shape(&takri, 16.0)
+                .expect("the open guard must shape the fallback script");
+            let face = run.glyphs[0].face_id;
+            let data = handle.font_data(face).expect("the face must resolve");
+            assert_eq!(
+                data.data.as_ref().as_ref().len(),
+                TAKRI.len(),
+                "the glyph must come from the mid-batch font, not glyph 0 of a known face"
+            );
         })
         .await;
     }
