@@ -74,8 +74,8 @@ impl<'a> SizedTextShaper<'a> {
         }
     }
 
-    /// Shape with a caller-supplied shaper, for code that already holds one.
-    pub fn shape_with(self, shaper: &mut Shaper<'_>) -> Option<GlyphRun> {
+    /// Shape with a caller-supplied session, for code that already holds one.
+    pub fn shape_with(self, shaper: &mut impl ShapingSession) -> Option<GlyphRun> {
         self.layouter.layout(shaper, self.font_size)
     }
 }
