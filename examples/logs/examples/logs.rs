@@ -23,7 +23,7 @@ use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{FontPolicy, Shape, ShapingEngineKind, ShapingSession};
+use massive_shapes::{FontPolicy, Shape, ShapingContext, ShapingEngineKind};
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 
@@ -364,7 +364,7 @@ struct LayoutMovement {
 const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
-    shaper: &mut impl ShapingSession,
+    shaper: &mut ShapingContext,
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {

@@ -12,7 +12,7 @@ use serde_tuple::{Deserialize_tuple, Serialize_tuple};
 use massive_geometry::{Color, Vector3};
 
 use massive_shapes::{
-    GlyphRun, ShapedRun, ShapingRequest, ShapingSession, TextAttributes, TextFamily, TextWeight,
+    GlyphRun, ShapedRun, ShapingContext, ShapingRequest, TextAttributes, TextFamily, TextWeight,
     shaped_run_to_glyph_run,
 };
 
@@ -37,7 +37,7 @@ pub struct TextAttribute {
 /// attribute ranges are re-based locally, and each shaped run is translated down by `line_height`
 /// per line index. The returned height covers all lines.
 pub fn shape_text(
-    shaper: &mut impl ShapingSession,
+    shaper: &mut ShapingContext,
     text: &str,
     attributes: &[TextAttribute],
     font_size: f32,
@@ -213,7 +213,6 @@ mod tests {
             .with_font(JETBRAINS_MONO)
             .expect("bundled font is valid");
         let mut context = fonts.new_shaping_context();
-        let mut shaper = context.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let attributes = vec![
@@ -228,7 +227,7 @@ mod tests {
                 weight: TextWeight::BOLD,
             },
         ];
-        let (runs, _) = shape_text(&mut shaper, "abcd", &attributes, 32., 40., None);
+        let (runs, _) = shape_text(&mut context, "abcd", &attributes, 32., 40., None);
 
         assert_eq!(runs.len(), 2, "one run per attribute segment");
         assert_eq!(runs[0].text_color, red);
@@ -245,7 +244,6 @@ mod tests {
             .with_font(JETBRAINS_MONO)
             .expect("bundled font is valid");
         let mut context = fonts.new_shaping_context();
-        let mut shaper = context.shaper();
 
         let red = Color::rgb(1.0, 0.0, 0.0);
         let blue = Color::rgb(0.0, 0.0, 1.0);
@@ -261,7 +259,7 @@ mod tests {
                 weight: TextWeight::BOLD,
             },
         ];
-        let (runs, _) = shape_text(&mut shaper, "abcd", &attributes, 32., 40., None);
+        let (runs, _) = shape_text(&mut context, "abcd", &attributes, 32., 40., None);
 
         // One run per attribute segment, and the gap carries the defaults.
         assert_eq!(runs.len(), 3, "red | default gap | blue");
