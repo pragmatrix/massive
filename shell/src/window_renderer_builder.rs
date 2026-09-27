@@ -70,9 +70,7 @@ impl WindowRendererBuilder {
     ///
     /// By default, no font / GlyphRun support is available.
     pub fn with_text(mut self) -> Self {
-        self.text = Some(task_context::with_shaper(|shaper| {
-            shaper.manager().registry_source()
-        }));
+        self.text = Some(task_context::fonts().registry_source());
         self
     }
 

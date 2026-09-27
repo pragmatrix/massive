@@ -65,15 +65,15 @@ impl InstanceManager {
         let instance_future = (application.run)(instance_context);
         // Own coordinator per instance: a timestamp from one instance must not affect another's
         // animations when instances are applied in parallel. The shaping context is a fresh
-        // scratch over the manager this task shapes with, so instances shape in parallel without
-        // serializing on one scratch mutex (ADR 0006) — and, like the future, it must be created
+        // scratch over the manager the task context reaches, so instances shape in parallel on
+        // their own scratch (ADR 0006) — and, like the future, it must be created
         // here: spawned tasks do not inherit task-local values. The change queue collects the
         // typed instance changes, scene changes interleaved via the erased sink (ADR 0008).
         let instance_task_context = TaskContext::new(
             AnyCollector::for_type::<InstanceChange>(),
             AnimationCoordinator::new(),
             MovementRuntime::default(),
-            task_context::with_shaper(|shaper| shaper.new_context()),
+            task_context::fonts().new_shaping_context(),
         );
         self.join_set.spawn(async move {
             let result = task_context::with_context(
