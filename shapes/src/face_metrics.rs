@@ -74,7 +74,7 @@ mod tests {
             let face = fonts
                 .load_font(JETBRAINS_MONO)
                 .expect("bundled font is valid")[0];
-            let context = fonts.new_shaping_context();
+            let mut context = fonts.new_shaping_context();
             let mut shaper = context.shaper();
             let shaped = shaper
                 .shape(

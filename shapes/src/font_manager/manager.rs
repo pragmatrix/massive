@@ -4,8 +4,7 @@
 //! only font loading and session-path face resolution — the only work that must be serialized,
 //! because it registers [`FaceId`]s and publishes the registry (with metrics). Shaping runs in
 //! sessions over per-context scratch state: each [`ShapingContext`] holds its own shape-ready
-//! scratch ([`EngineScratch`], created by its engine) and shapes without contending with other
-//! contexts.
+//! scratch ([`EngineScratch`], created by its engine), so contexts shape concurrently.
 //!
 //! ## Engine neutrality
 //!
@@ -17,11 +16,11 @@
 //! point left here is the construction match in [`FontManager::new`], which [`FontManager::bare`]
 //! and [`FontManager::system`] name for the two common policies.
 //!
-//! ## Shaper exclusivity without borrow-gating
+//! ## Shaper exclusivity
 //!
-//! Shaping never touches the manager mutex, so no compile-time borrow gate is needed: a shaper
-//! exclusively holds its context's scratch mutex and `shaper()` takes it with `try_lock`, so two
-//! shapers on one context panic at the misuse point instead of deadlocking (ADR 0006).
+//! Shaping never touches the manager mutex: a [`ShapingContext`] owns its scratch and
+//! [`ShapingContext::shaper`] takes `&mut self`, so the type system rejects a second live shaper on
+//! one context (ADR 0006).
 //!
 //! A shaper must not outlive the frame cycle it shaped for: `update_lines`-style call sites hold
 //! one shaper per frame and drop it before anything the frame produced is submitted — the
@@ -262,7 +261,7 @@ mod tests {
             let request =
                 ShapingRequest::new(text, TextAttributes::named_family("Noto Sans Takri"));
             let run = {
-                let context = fonts.new_shaping_context();
+                let mut context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&request, 16.0)
@@ -311,7 +310,7 @@ mod tests {
             let request =
                 ShapingRequest::new(descenders, TextAttributes::named_family("JetBrains Mono"));
             let run = {
-                let context = fonts.new_shaping_context();
+                let mut context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&request, 16.0)
@@ -360,7 +359,7 @@ mod tests {
                 }
                 request.ranges = ranges;
                 let run = {
-                    let context = fonts.new_shaping_context();
+                    let mut context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)
@@ -442,7 +441,7 @@ mod tests {
                     .expect("bundled font is valid");
                 let request = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
                 let run = {
-                    let context = fonts.new_shaping_context();
+                    let mut context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)
@@ -499,14 +498,14 @@ mod tests {
             let reference = ShapingRequest::new(text, TextAttributes::named_family("Amiri"));
 
             let run_overridden = {
-                let context = fonts.new_shaping_context();
+                let mut context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&overridden, 16.0)
                     .expect("shaping must produce a run")
             };
             let run_reference = {
-                let context = fonts.new_shaping_context();
+                let mut context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&reference, 16.0)
@@ -561,7 +560,7 @@ mod tests {
                 .expect("bundled font is valid")[0];
             let context = fonts.new_shaping_context();
             assert!(
-                context.shaper().font_data(id).is_some(),
+                context.manager().published().font_data(id).is_some(),
                 "{kind:?}: the loaded font must resolve to font data"
             );
         }
@@ -634,7 +633,7 @@ mod tests {
                 ];
 
                 let run = {
-                    let context = fonts.new_shaping_context();
+                    let mut context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)
@@ -686,7 +685,7 @@ mod tests {
                 ),
             ];
             let run = {
-                let context = fonts.new_shaping_context();
+                let mut context = fonts.new_shaping_context();
                 let mut shaper = context.shaper();
                 shaper
                     .shape(&request, 16.0)
@@ -732,7 +731,7 @@ mod tests {
                 let request =
                     ShapingRequest::new(text, TextAttributes::named_family("JetBrains Mono"));
                 let run = {
-                    let context = fonts.new_shaping_context();
+                    let mut context = fonts.new_shaping_context();
                     let mut shaper = context.shaper();
                     shaper
                         .shape(&request, 16.0)

@@ -1,8 +1,6 @@
 use std::fmt;
 use std::sync::Arc;
 
-use parking_lot::{Mutex, MutexGuard};
-
 use crate::engine::{
     EngineScratch, FontData, FontRegistry, ShapedRun, ShapingEngineKind, ShapingRequest,
 };
@@ -17,7 +15,7 @@ use super::state::FontManagerState;
 /// concurrently (ADR 0006).
 pub struct ShapingContext {
     state: Arc<FontManagerState>,
-    scratch: Mutex<Box<dyn EngineScratch>>,
+    scratch: Box<dyn EngineScratch>,
 }
 
 impl fmt::Debug for ShapingContext {
@@ -33,23 +31,7 @@ impl ShapingContext {
         state: Arc<FontManagerState>,
         scratch: Box<dyn EngineScratch>,
     ) -> Self {
-        Self {
-            state,
-            scratch: Mutex::new(scratch),
-        }
-    }
-
-    pub fn new_context(&self) -> Self {
-        let scratch = self
-            .state
-            .authority
-            .lock()
-            .engine
-            .new_scratch(&self.state.published.current.load_full());
-        Self {
-            state: Arc::clone(&self.state),
-            scratch: Mutex::new(scratch),
-        }
+        Self { state, scratch }
     }
 
     /// The font manager this context shapes for (ADR 0006).
@@ -59,45 +41,51 @@ impl ShapingContext {
 
     /// Acquire a [`Shaper`] over this context's shaping state.
     ///
-    /// Panics if this context already has a shaper open: the scratch mutex is non-reentrant, so
-    /// exclusivity is runtime-enforced at the misuse point (ADR 0006).
+    /// Takes `&mut self` because it borrows the context's scratch for the session's lifetime, so
+    /// the scratch stays exclusive to this context and a second live shaper is rejected (ADR 0006).
     #[must_use]
-    pub fn shaper(&self) -> Shaper<'_> {
-        let mut scratch = self.scratch.try_lock().unwrap_or_else(|| {
-            panic!(
-                "ShapingContext shaper reentrancy: this context already has a shaper open (its \
-                 scratch mutex is held); two live shapers on one context are unsupported"
-            )
-        });
+    pub fn shaper(&mut self) -> Shaper<'_> {
         // Capture the snapshot before the sync so the session's metrics view stays a consistent
         // pre-open world; `shape` refreshes it from the manager's latest publication.
         let registry = self.state.published.current.load_full();
-        scratch.sync(&registry);
+        self.scratch.sync(&registry);
         Shaper {
             kind: self.state.published.kind,
-            context: self,
-            scratch,
+            state: &self.state,
+            scratch: &mut self.scratch,
             registry,
         }
     }
+}
 
-    /// Publish the resolved face while the lock is held, so lock-free readers see it immediately.
-    fn resolve_face(&self, data: FontData) -> Option<FaceId> {
-        let mut authority = self.state.authority.lock();
-        let id = authority.engine.resolve_face(data)?;
-        self.state
-            .published
-            .current
-            .store(authority.engine.font_registry());
-        Some(id)
-    }
+/// Publish the resolved face while the lock is held, so lock-free readers see it immediately.
+fn resolve_face(state: &FontManagerState, data: FontData) -> Option<FaceId> {
+    let mut authority = state.authority.lock();
+    let id = authority.engine.resolve_face(data)?;
+    state
+        .published
+        .current
+        .store(authority.engine.font_registry());
+    Some(id)
+}
+
+/// The shaping surface shared by a borrowed session and the ambient owning handle.
+pub trait ShapingSession {
+    fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
+    fn glyph_run(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<GlyphRun>;
+    fn font_data(&self, id: FaceId) -> Option<FontData>;
+    fn metrics(&self, id: FaceId) -> Option<&FaceMetrics>;
+    fn registry(&self) -> &FontRegistry;
+    fn engine_kind(&self) -> ShapingEngineKind;
 }
 
 /// A shaper over one [`ShapingContext`], shaping through that context's own scratch.
 pub struct Shaper<'a> {
     kind: ShapingEngineKind,
-    context: &'a ShapingContext,
-    scratch: MutexGuard<'a, Box<dyn EngineScratch>>,
+    /// The context's shared face authority and publication channel; borrowed separately from the
+    /// exclusive scratch so a session can hold the scratch mutably and still resolve faces.
+    state: &'a FontManagerState,
+    scratch: &'a mut Box<dyn EngineScratch>,
     /// Captured at session open and refreshed after each `shape`, so faces resolved during this
     /// session are visible to the frame's metrics and font-data reads.
     registry: Arc<FontRegistry>,
@@ -105,11 +93,11 @@ pub struct Shaper<'a> {
 
 impl Shaper<'_> {
     pub fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        let context = self.context;
+        let state = self.state;
         let run = self
             .scratch
-            .shape(request, font_size, &mut |data| context.resolve_face(data));
-        self.registry = context.state.published.current.load_full();
+            .shape(request, font_size, &mut |data| resolve_face(state, data));
+        self.registry = state.published.current.load_full();
         run
     }
 
@@ -147,6 +135,32 @@ impl Shaper<'_> {
     }
 }
 
+impl ShapingSession for Shaper<'_> {
+    fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
+        self.shape(request, font_size)
+    }
+
+    fn glyph_run(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<GlyphRun> {
+        self.glyph_run(request, font_size)
+    }
+
+    fn font_data(&self, id: FaceId) -> Option<FontData> {
+        self.font_data(id)
+    }
+
+    fn metrics(&self, id: FaceId) -> Option<&FaceMetrics> {
+        self.metrics(id)
+    }
+
+    fn registry(&self) -> &FontRegistry {
+        self.registry()
+    }
+
+    fn engine_kind(&self) -> ShapingEngineKind {
+        self.engine_kind()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,8 +181,8 @@ mod tests {
             let fonts = FontManager::bare(kind)
                 .with_font(JETBRAINS_MONO)
                 .expect("bundled font is valid");
-            let first_context = fonts.new_shaping_context();
-            let second_context = fonts.new_shaping_context();
+            let mut first_context = fonts.new_shaping_context();
+            let mut second_context = fonts.new_shaping_context();
 
             std::thread::scope(|scope| {
                 let first = scope.spawn(move || {
@@ -214,14 +228,17 @@ mod tests {
         }
     }
 
+    /// The scratch is exclusive by ownership: dropping a session releases it so the next one
+    /// can open, while a live session keeps the context mutably borrowed (a second one is a
+    /// compile error, not a runtime check).
     #[test]
-    #[should_panic(expected = "ShapingContext shaper reentrancy")]
-    fn one_context_rejects_reentrant_shaping() {
+    fn one_context_reopens_after_the_session_drops() {
         let fonts = FontManager::bare(ShapingEngineKind::Parley)
             .with_font(JETBRAINS_MONO)
             .expect("bundled font is valid");
-        let context = fonts.new_shaping_context();
+        let mut context = fonts.new_shaping_context();
         let _first = context.shaper();
+        drop(_first);
         let _second = context.shaper();
     }
 
@@ -234,7 +251,7 @@ mod tests {
                 .expect("bundled font is valid");
             let request =
                 ShapingRequest::new("a->b", TextAttributes::named_family("JetBrains Mono"));
-            let context = fonts.new_shaping_context();
+            let mut context = fonts.new_shaping_context();
             let mut shaper = context.shaper();
             let run = shaper
                 .shape(&request, 16.0)
