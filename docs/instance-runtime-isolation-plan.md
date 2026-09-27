@@ -53,11 +53,12 @@ the artificial constraint.
 ### 2. Mint `TaskContext` where the task-locals will live
 
 The instance future must not read the desktop task's shaper task-local. The
-shaping context is therefore minted on the desktop task — `with_shaper(|shaper|
-shaper.new_context())` stays a desktop-task call — and passed into the thread
-closure explicitly. Contexts are `Send + Sync` (ADR 0006), so the hand-off is
-safe; the manager mutex is mint-time-only, so the thread never touches shared
-shaping state. The remaining `TaskContext` parts (`AnyCollector`,
+shaping context is therefore minted on the desktop task —
+`task_context::fonts().new_shaping_context()` stays a desktop-task
+call — and passed into the thread closure explicitly. `ShapingContext` is
+`Send`, so the hand-off is safe; the manager mutex is mint-time-only, so the
+thread never touches shared shaping state. The remaining `TaskContext` parts
+(`AnyCollector`,
 `AnimationCoordinator`, `MovementRuntime`) are constructed per instance without
 ambient reads, as today.
 

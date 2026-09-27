@@ -14,15 +14,15 @@ The ADR 0005 published-registry amendment made the *render* path lock-free, but 
 
 ### Shaping contexts everywhere
 
-`FontManager::shaping_context()` creates a `ShapingContext`, and `ShapingContext::shaper()` returns a `Shaper<'_>`. There is **no instance variant** of the API: instance, application, and desktop code all acquire shapers through an explicit context. Shapers take `&self` — the authority mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed. Exclusivity is enforced at runtime instead (below).
+`FontManager::shaping_context()` creates a `ShapingContext`, and `ShapingContext::shaper()` returns a `Shaper<'_>`. There is **no instance variant** of the API: instance, application, and desktop code all acquire shapers through an explicit context. Shapers take `&self` — the authority mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed on the manager. Exclusivity is a property of the context's ownership instead (below).
 
-What a shaper locks: it does not hold the authority mutex for its duration; it borrows the caller's `ShapingContext`, whose scratch is exclusive to that logical owner. Contexts sharing one manager state can shape concurrently.
+What a shaper holds: it does not hold the authority mutex for its duration; it borrows the caller's `ShapingContext`, whose scratch is exclusive to that logical owner. Contexts sharing one manager state can shape concurrently.
 
 A rule, made API-visible by this design: **a shaper must not outlive the frame cycle it shaped for** — the manager mutex is registration-only, so nothing about the shaper's lifetime needs to hold it; the rule instead defines when its shaped output stops being usable.
 
-### Shaper exclusivity at runtime, not via borrow gating
+### Shaper exclusivity by exclusive scratch ownership
 
-`shaper()` and `load_font` take `&self`. A shaper exclusively holds its context scratch mutex, and `shaper()` acquires it with `try_lock`, so a second shaper on the same context **panics at the misuse point** instead of deadlocking on a non-reentrant parking_lot mutex. Shapers on different contexts shape in parallel; `load_font` during an open shaper is safe by construction because the authority mutex is registration-only. The trade is an explicit runtime failure for a misuse that a compile-time gate could reject.
+`ShapingContext::shaper` takes `&mut self`, and the returned `Shaper<'_>` borrows the context's scratch for its whole lifetime. Two live shapers on one context are therefore a **compile error**. Shapers on different contexts shape in parallel because their scratch is independent; `load_font` during an open shaper is safe by construction because the authority mutex is registration-only. `shaper()` takes `&mut self` only to hand out the scratch — it does not lock the manager, so a context is a per-owner value that a task holds exclusively rather than a shared handle.
 
 ### Contexts are explicit, managers are shared
 
@@ -85,11 +85,14 @@ The renderer's "registry miss is a real bug" stance stays absolute, and the debu
 - **Eager registration-time republish of resolved cosmic faces** (publish inside `shape()`). Rejected on grilling review: a shaper is dropped before anything it shaped can be submitted, so the drop-publish window is unreachable; no contract change is needed.
 - **Per-instance metrics caches.** Rejected in favor of publishing metrics with the registry — eager, identical across instances, and lock-free.
 - **One shaper API with an instance/manager split** (instance vs. non-instance variants). Rejected: a single shaper API everywhere; ownership decides nothing about behavior.
-- **Keeping the `&mut` gate** (`shaper()`/`load_font` as `&mut self`). Rejected: shaping
-  never holds the manager mutex, so the gate's only protection — two shapers aliasing one
-  handle — is serialized by the scratch mutex anyway; while the `&mut` plumbing forced
-  `&mut self.fonts` through every presenter and a clone-then-shaper dance in mt's
-  `update_lines`. The `try_lock` + panic guard (see Design) covers it.
+- **Keeping the `&mut` gate on the manager** (`shaper()`/`load_font` as `&mut self` on
+  `FontManager`). Rejected: shaping never holds the manager mutex, so the gate's only
+  protection — two shapers aliasing one manager handle — is not a real sharing hazard,
+  while the `&mut` plumbing forced `&mut self.fonts` through every presenter and a
+  clone-then-shaper dance in mt's `update_lines`. The same exclusivity is expressed where
+  it belongs, on the per-owner `ShapingContext` (`shaper(&mut self)`), leaving
+  `FontManager` a shared `&self` handle.
+- **A non-reentrant scratch mutex with a `try_lock` guard** (`shaper()` panicking on a second session). Rejected: the scratch is exclusive to its context and never shared, so the lock only existed to hand out `&mut` from a `&self`, and `&mut self` on `shaper()` rejects the same misuse at compile time while dropping `Mutex`/`MutexGuard` and the panic path from `ShapingContext`.
 - **Keeping derived `Clone` on `FontManager`.** Rejected: the clone's fresh-scratch
   semantics (the whole point — independent, contention-free shaping) were invisible at
   call sites, so any `.clone()` looked like a cheap share. `detached()` names the split.
@@ -100,7 +103,7 @@ The renderer's "registry miss is a real bug" stance stays absolute, and the debu
 
 ## Consequences
 
-- Two live shapers on one context panic loudly (`shaper()`'s `try_lock` guard); contexts
+- Two live shapers on one context are a compile error (`shaper(&mut self)`); contexts
   sharing one manager state shape in parallel because their scratch is independent.
 - Handling a `FontManager` around shares only identity and publication. Calling
   `shaping_context()` marks every shaping-owner boundary.

@@ -115,7 +115,8 @@ The per-session-open step where a scratch compares the published registry's face
 _Avoid_: epoch sync, epoch-pull, seed
 
 **Session**:
-One acquisition of a handle's exclusive shaper: registry snapshot + scratch, opened by `FontManager::shaper` and dropped before the frame's output is submitted.
+One acquisition of a handle's exclusive shaper: registry snapshot + scratch, opened by
+`ShapingContext::shaper` and dropped before the frame's output is submitted.
 
 **Bare manager**:
 A font manager with no fonts and no fallback candidates, so selection can only reach fonts the application loaded itself.
