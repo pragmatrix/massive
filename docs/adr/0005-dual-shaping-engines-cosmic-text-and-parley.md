@@ -73,7 +73,7 @@ the registry; metrics join the published snapshot.
 ## Terminology (2026-09-15)
 
 Later ADRs and the glossary in [`CONTEXT.md`](../../CONTEXT.md) use **resolved face** for what
-this document calls *interned/minted* faces, and **registry sync** for what ADR 0006 called
+this document calls *interned* faces, and **registry sync** for what ADR 0006 called
 *epoch-pull*. Terms here predate that refinement; read the older wording as the newer one.
 
 ## Amendment: the font policy belongs to the shell (2026-09-21)

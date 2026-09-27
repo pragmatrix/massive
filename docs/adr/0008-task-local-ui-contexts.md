@@ -374,6 +374,14 @@ context out of the task-local.
   selection panics (`no default font found`). `refresh()` — sync plus snapshot capture — is what
   the guard runs when it opens a batch, so a read taken before the batch's first shape still sees
   the current world.
+- A mid-batch *fallback-only* font is the case a session-scoped sync loses silently, and the one
+  worth remembering when touching the sync: a font nothing selects by family, loaded after the
+  batch's guard opened. Its face is absent from the session's database, so fallback selection finds
+  no coverage and returns glyph 0 of a face the session *does* know — and because that face resolves
+  and carries metrics, no assertion, no empty run and no panic reports it; the batch renders the
+  wrong font. Client-directed loads fail loudly instead (the requested family is missing, so the
+  engine's default-font selection panics), which is why a test suite can lose the fallback case
+  without noticing. Pinned by `a_batch_sees_a_fallback_font_loaded_mid_batch`.
 - The guard owns the context because a task-local borrow cannot escape the access closure — the
   same constraint that forced the old callback. Take-and-restore preserves scratch exclusivity:
   a second open guard finds `None` and panics with a reentrancy message, and a guard dropped
@@ -390,9 +398,9 @@ context out of the task-local.
   `Box<dyn EngineScratch>` and `EngineScratch: Send` without `Sync` — a context is movable but
   not shareable. Pinned in `shaping_context.rs`'s tests; the guard is `!Send` by the
   `PhantomData<Rc<()>>` marker instead.
-- `fonts()` does *not* mint a guard. It borrows the task-local slot, reads the manager off the
+- `fonts()` does *not* open a guard. It borrows the task-local slot, reads the manager off the
   installed `ShapingContext` (`ShapingContext::manager` needs only `&self`), and drops the borrow.
-  Minting a guard for the read was pointless — a manager read needs no scratch — and it turned
+  Opening a guard for the read was pointless — a manager read needs no scratch — and it turned
   every manager read into a panic hazard: any read that raced an open guard would have taken the
   context away from it. The only remaining conflict is inherent: a `Shaper` guard has the context
   checked out while it shapes, so `fonts()` panics then (a distinct message from the reentrancy

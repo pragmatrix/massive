@@ -50,13 +50,13 @@ blocking pool, and everything owned by `TaskContext` lives inside the future's
 own scope. `block_on` on the instance thread accepts `!Send` futures, dropping
 the artificial constraint.
 
-### 2. Mint `TaskContext` where the task-locals will live
+### 2. Create `TaskContext` where the task-locals will live
 
 The instance future must not read the desktop task's shaper task-local. The
-shaping context is therefore minted on the desktop task —
+shaping context is therefore created on the desktop task —
 `task_context::fonts().new_shaping_context()` stays a desktop-task
 call — and passed into the thread closure explicitly. `ShapingContext` is
-`Send`, so the hand-off is safe; the manager mutex is mint-time-only, so the
+`Send`, so the hand-off is safe; the manager mutex is registration-only, so the
 thread never touches shared shaping state. The remaining `TaskContext` parts
 (`AnyCollector`,
 `AnimationCoordinator`, `MovementRuntime`) are constructed per instance without
@@ -84,7 +84,7 @@ from the launch path.
 
 ## Sequencing
 
-1. Thread + `current_thread` isolation with `TaskContext` minting moved to the
+1. Thread + `current_thread` isolation with `TaskContext` creation moved to the
    closure boundary; delete `yield_now` and the starvation comment.
 2. Remove `#[tokio::main]` from mt.
 3. The `InstanceRuntimeKind` enum (step 3 above) only when an instance needs

@@ -113,7 +113,7 @@ pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Out
 /// [`FontPolicy`](massive_renderer::FontPolicy) passed to `shell::run`.
 ///
 /// Reads the manager through the installed [`ShapingContext`], its owner, without taking the
-/// context out of the task-local or minting a [`Shaper`] handle.
+/// context out of the task-local or opening a [`Shaper`] handle.
 ///
 /// The one constraint is exclusivity: a [`Shaper`] handle holds the context checked out for as
 /// long as it is open, so reading the manager while shaping is an inherent conflict and `fonts()`

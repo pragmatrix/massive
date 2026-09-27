@@ -96,11 +96,10 @@ _Avoid_: registered face
 
 **Resolved face**:
 A font face the shaper selected while shaping (typically as a fallback for a codepoint the requested family lacks) that was not loaded beforehand. It is registered on first use through the face authority and published immediately.
-_Avoid_: minted face, minted font, interned face, interning (collides with string interning), lazy intern, adopted face
+_Avoid_: interned face, interning (collides with string interning), lazy intern, adopted face
 
 **Face authority**:
 The single issuer of `FaceId`s — the canonical shaping engine behind the `FontManager` mutex. All loaded and resolved faces enter the identity world through it.
-_Avoid_: mint authority
 
 **Candidate pool**:
 Faces available to the shaper for implicit selection (system fonts when the manager is created with `system()`) that are not in the identity world. A candidate pool face exists only for selection; it joins the published world only once actually resolved.
@@ -108,7 +107,7 @@ _Avoid_: system font db, fallback fonts (as a synonym for the pool)
 
 **Published registry**:
 The immutable snapshot mapping every known `FaceId` (loaded and resolved faces) to font data and metrics, read lock-free by the renderer and by a shaping context's own resolution.
-_Avoid_: font registry (ambiguous with the candidate pool), minted registry
+_Avoid_: font registry (ambiguous with the candidate pool)
 
 **Registry sync**:
 The per-shape step where a scratch compares the published registry's face count against its last-seen count and loads faces it has not seen yet. Keeps a context's scratch aligned with the identity world without locking; it runs before every shape, so a loaded face is visible to the next shape rather than the next batch.
