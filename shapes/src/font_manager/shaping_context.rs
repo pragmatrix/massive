@@ -128,12 +128,16 @@ fn resolve_face(state: &FontManagerState, data: FontData) -> Option<FaceId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::engine::TextAttributes;
+    use crate::engine::{FontBytes, TextAttributes};
     use crate::{FontManager, ShapingRequest};
 
     const JETBRAINS_MONO: &[u8] = include_bytes!(
         "../../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
     );
+
+    /// A font no request selects by family: reachable only through fallback selection.
+    const TAKRI: &[u8] =
+        include_bytes!("../../../assets/fonts/NotoSansTakri/NotoSansTakri-Regular.ttf");
 
     fn all_engines() -> Vec<ShapingEngineKind> {
         ShapingEngineKind::available().to_vec()
@@ -230,6 +234,46 @@ mod tests {
                 "{kind:?}: every shaped glyph's FaceId must resolve through the same context"
             );
         }
+    }
+
+    /// A face supplied by the *candidate pool* enters the identity world only when a shape
+    /// resolves it, and then the context's own reads must see it.
+    ///
+    /// This is what the post-shape capture is for, and why it cannot be replaced by the snapshot
+    /// the shape synced against: a pool face is selectable without being in the published registry,
+    /// so `resolve_face` widens the world mid-shape and the swap — not the synced snapshot — is
+    /// where the run's faces are complete.
+    #[test]
+    fn a_resolved_pool_face_is_readable_after_the_shape() {
+        // The pool holds only a Takri font; nothing is loaded, so selection can reach it only
+        // through the pool.
+        let mut pool = fontdb::Database::new();
+        let bytes: FontBytes = Arc::new(TAKRI.to_vec());
+        pool.load_font_source(fontdb::Source::Binary(bytes));
+        let fonts = FontManager::with_candidate_pool(pool);
+        assert_eq!(
+            fonts.published().face_count(),
+            0,
+            "the identity world starts empty"
+        );
+
+        let mut context = fonts.new_shaping_context();
+        let request = ShapingRequest::new("\u{1168A}\u{116B6}\u{116A9}", TextAttributes::default());
+        let run = context
+            .shape(&request, 16.0)
+            .expect("the pool face must shape");
+        let face = run.glyphs[0].face_id;
+
+        assert_eq!(
+            fonts.published().face_count(),
+            1,
+            "resolving a pool face publishes it"
+        );
+        assert!(
+            context.font_data(face).is_some(),
+            "the context must read the face its own shape resolved"
+        );
+        assert!(context.metrics(face).is_some());
     }
 
     // The scratch is `Box<dyn EngineScratch>` and `EngineScratch: Send` without `Sync`, so a

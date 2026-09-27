@@ -106,6 +106,23 @@ impl CosmicTextEngine {
         engine
     }
 
+    /// A test engine over a caller-supplied fallback pool.
+    ///
+    /// Real managers get their pool from the system font scan; this seeds one from bytes so a test
+    /// can exercise pool-driven fallback selection — a face reachable only through the pool and so
+    /// resolvable only at shape time (ADR 0006) — without depending on installed fonts.
+    #[cfg(test)]
+    pub(crate) fn with_candidate_pool(pool: fontdb::Database) -> Self {
+        let candidate_pool = Arc::new(pool);
+        Self {
+            font_system: Self::seed_font_system(&candidate_pool),
+            candidate_pool,
+            faces: Vec::new(),
+            published_faces: Arc::new(Vec::new()),
+            resolved: HashMap::new(),
+        }
+    }
+
     /// Seed constructor over a clone of the candidate pool (pure in-memory copy — never
     /// rescans); the locale mirrors cosmic-text's std default.
     fn seed_font_system(candidate_pool: &Arc<fontdb::Database>) -> FontSystem {

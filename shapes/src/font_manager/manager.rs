@@ -106,6 +106,20 @@ impl FontManager {
         Self::new(FontPolicy::system(kind))
     }
 
+    /// A manager whose only selectable faces come from a caller-supplied pool, with an empty
+    /// registry.
+    ///
+    /// Real managers get that pool from the system font scan; this is the test seam for exercising
+    /// pool-driven fallback — a face reachable only through the pool, which enters the identity
+    /// world at resolution time (ADR 0006) — without depending on installed fonts.
+    #[cfg(test)]
+    pub(crate) fn with_candidate_pool(pool: fontdb::Database) -> Self {
+        Self::with_engine(
+            ShapingEngineKind::CosmicText,
+            Box::new(CosmicTextEngine::with_candidate_pool(pool)),
+        )
+    }
+
     /// Loads the font and returns `Self`, or errors if any face in the file is invalid.
     pub fn with_font(self, font_data: impl AsRef<[u8]> + Sync + Send + 'static) -> Result<Self> {
         self.load_font(font_data)?;
