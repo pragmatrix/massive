@@ -6,19 +6,17 @@ use itertools::Itertools;
 use log::{info, warn};
 use wgpu::{CurrentSurfaceTexture, PresentMode, StoreOp, SurfaceTexture};
 
-use crate::tools::PipelineVariant;
-use crate::{
-    RenderDevice, Transaction, TransactionManager,
-    config::RendererConfig,
-    pods::{AsBytes, ClipRect, Immediates, ToPod},
-    render_batches::RenderBatches,
-    render_geometry::ViewProjections,
-    scene::{LocationTransforms, Scene},
-    stats::MeasureSeries,
-    tools::{DEPTH_FORMAT, QuadIndexBuffer},
-};
 use massive_geometry::{Color, Matrix4, SizePx, Vector3};
 use massive_scene::{ChangedIds, Id, LocationSpace, SceneChange, VisualRenderObj};
+
+use crate::config::RendererConfig;
+use crate::pods::{AsBytes, ClipRect, Immediates, ToPod};
+use crate::render_batches::RenderBatches;
+use crate::render_geometry::ViewProjections;
+use crate::scene::{LocationTransforms, Scene};
+use crate::stats::MeasureSeries;
+use crate::tools::{DEPTH_FORMAT, PipelineVariant, QuadIndexBuffer};
+use crate::{RenderDevice, Transaction, TransactionManager};
 
 const DEFAULT_MAXIMUM_FRAME_LATENCY: u32 = 1;
 
