@@ -1,75 +1,64 @@
-//! The owning ambient shaping handle: the task's [`ShapingContext`] moved out of the task-local
-//! for as long as the handle is open, then restored on drop.
+//! The task's shaping guard: the task's [`ShapingContext`] moved out of the task-local for as long
+//! as the guard is open, then restored on drop.
 //!
 //! The context is owned because the task-local borrow cannot escape the access closure, while the
 //! context has to stay reachable across a whole batch of shapes (ADR 0008). Moving it out and
-//! restoring it on drop is what keeps the scratch exclusive to the task without a closure.
+//! restoring it on drop is what keeps the scratch exclusive to the task without a closure; the
+//! guard lends the context through `Deref`, so call sites shape through `&mut shaper` exactly as
+//! they would through a context they own.
 //!
-//! Only shaping opens a handle. A pure manager read goes through
+//! Only shaping opens a guard. A pure manager read goes through
 //! [`fonts()`](crate::task_context::fonts), which reads the installed [`ShapingContext`] in place.
-//!
-//! The context's scratch is not held for the handle's whole life: each `shape`/`glyph_run`
-//! opens a short-lived session over it (`ShapingContext::shaper` borrows the scratch mutably),
-//! shapes through it, and drops it. The session cannot be stored on the handle because it borrows
-//! the context it came from; exclusivity against a second handle comes from the context being taken
-//! out of the task-local.
 
+use std::fmt;
 use std::marker::PhantomData;
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
-use std::sync::Arc;
 
-use massive_shapes::{
-    FaceId, FaceMetrics, FontData, FontManager, FontRegistry, GlyphRun, ShapedRun, ShapingContext,
-    ShapingEngineKind, ShapingRequest, ShapingSession,
-};
+use massive_shapes::ShapingContext;
 
 use super::SHAPER;
 
-/// The task's shaping context, owned for as long as the handle is open.
+/// The task's shaping context, held for as long as the guard is open.
 pub struct Shaper {
     /// `Option` because `Drop::drop(&mut self)` must move the context back out to restore it;
     /// a plain field cannot be moved out of `&mut self`.
     context: Option<ShapingContext>,
-    /// Captured when the handle opens and refreshed after each shape, so the borrowed reads
-    /// (`metrics`/`registry`/`font_data`) can return references into it — a per-call session is a
-    /// temporary and cannot be borrowed from. Mirrors `massive_shapes::Shaper`'s own `registry`.
-    registry: Arc<FontRegistry>,
-    /// The only thing making the handle `!Send`. The handle reaches the task-local: moving it to
+    /// The only thing making the guard `!Send`. The guard reaches the task-local: moving it to
     /// another task would make `Drop` fail to restore the context there, stranding the originating
     /// task's slot (a later, misattributed panic). Deliberate — do not replace with `Send`.
     _not_send: PhantomData<Rc<()>>,
 }
 
-impl std::fmt::Debug for Shaper {
+impl fmt::Debug for Shaper {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Shaper")
-            .field("engine", &self.context_ref().manager().engine_kind())
+            .field("engine", &self.engine_kind())
             .finish_non_exhaustive()
     }
 }
 
-impl Shaper {
-    /// The font manager the task's shaping owner shapes for.
-    pub fn manager(&self) -> FontManager {
-        self.context_ref().manager()
-    }
+impl Deref for Shaper {
+    type Target = ShapingContext;
 
-    fn context_ref(&self) -> &ShapingContext {
+    fn deref(&self) -> &ShapingContext {
         self.context
             .as_ref()
-            .expect("Shaper owns its context until it is dropped")
+            .expect("Shaper holds its context until it is dropped")
     }
+}
 
-    fn context_mut(&mut self) -> &mut ShapingContext {
+impl DerefMut for Shaper {
+    fn deref_mut(&mut self) -> &mut ShapingContext {
         self.context
             .as_mut()
-            .expect("Shaper owns its context until it is dropped")
+            .expect("Shaper holds its context until it is dropped")
     }
 }
 
 impl Drop for Shaper {
     fn drop(&mut self) {
-        // `try_with` so a handle dropped after its scope exited drops the context quietly instead
+        // `try_with` so a guard dropped after its scope exited drops the context quietly instead
         // of panicking (this also keeps it quiet during unwinding).
         if let Some(context) = self.context.take() {
             let _ = SHAPER.try_with(|slot| {
@@ -83,14 +72,14 @@ impl Drop for Shaper {
                     // the process, so report it without failing.
                     log::error!(
                         "shaping context lost: the task-local slot was refilled while a Shaper \
-                         handle was open"
+                         guard was open"
                     );
                 } else {
                     // Outside unwinding the breach must fail hard; `context` is dropped here,
                     // which is acceptable because the breach is fatal.
                     panic!(
                         "shaping context lost: the task-local slot was refilled while a Shaper \
-                         handle was open"
+                         guard was open"
                     );
                 }
             });
@@ -98,55 +87,24 @@ impl Drop for Shaper {
     }
 }
 
-impl ShapingSession for Shaper {
-    fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
-        let run = self.context_mut().shaper().shape(request, font_size);
-        // Faces resolved during the shape are published; refresh so this handle's borrowed reads
-        // see them (mirrors `massive_shapes::Shaper::shape`).
-        self.registry = self.context_ref().manager().published();
-        run
-    }
-
-    fn glyph_run(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<GlyphRun> {
-        let run = self.context_mut().shaper().glyph_run(request, font_size);
-        self.registry = self.context_ref().manager().published();
-        run
-    }
-
-    fn font_data(&self, id: FaceId) -> Option<FontData> {
-        self.registry.font_data(id)
-    }
-
-    fn metrics(&self, id: FaceId) -> Option<&FaceMetrics> {
-        self.registry.metrics(id)
-    }
-
-    fn registry(&self) -> &FontRegistry {
-        &self.registry
-    }
-
-    fn engine_kind(&self) -> ShapingEngineKind {
-        self.context_ref().manager().engine_kind()
-    }
-}
-
-/// Move the task's shaping context out into an owning handle, restoring it on drop.
+/// Move the task's shaping context out into an owning guard, restoring it on drop.
 ///
-/// The handle is short-lived by contract: it owns the task's context (and with it the exclusive
-/// scratch), so two open handles panic rather than alias (ADR 0006, ADR 0008).
+/// The guard is short-lived by contract: it owns the task's context (and with it the exclusive
+/// scratch), so two open guards panic rather than alias (ADR 0006, ADR 0008).
 pub fn shaper() -> Shaper {
     SHAPER
         .try_with(|slot| {
-            let context = slot.borrow_mut().take().unwrap_or_else(|| {
+            let mut context = slot.borrow_mut().take().unwrap_or_else(|| {
                 panic!(
-                    "shaping reentrancy: the task-local slot is empty because a Shaper handle is \
-                     already open in this task; drop the handle before opening another"
+                    "shaping reentrancy: the task-local slot is empty because a Shaper guard is \
+                     already open in this task; drop the guard before opening another"
                 )
             });
-            let registry = context.manager().published();
+            // Open-time sync and snapshot: a read taken before the batch's first shape must see the
+            // world as it is now, not as the context last saw it.
+            context.refresh();
             Shaper {
                 context: Some(context),
-                registry,
                 _not_send: PhantomData,
             }
         })
@@ -162,11 +120,11 @@ pub fn shaper() -> Shaper {
 mod tests {
     use std::cell::RefCell;
 
-    use static_assertions::{assert_impl_all, assert_not_impl_any};
+    use static_assertions::assert_not_impl_any;
 
     use massive_animation::{AnimationCoordinator, MovementRuntime};
     use massive_scene::{AnyCollector, SceneChange};
-    use massive_shapes::{ShapingEngineKind, ShapingRequest, TextAttributes};
+    use massive_shapes::{FontManager, ShapingEngineKind, ShapingRequest, TextAttributes};
 
     use super::*;
     use crate::task_context::{TaskContext, fonts, with_context};
@@ -200,7 +158,7 @@ mod tests {
 
     #[tokio::test]
     #[should_panic(expected = "shaping reentrancy")]
-    async fn a_second_open_handle_panics() {
+    async fn a_second_open_guard_panics() {
         with_context(contexts(), async {
             let _first = shaper();
             let _second = shaper();
@@ -209,7 +167,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn drop_restores_the_context_for_the_next_handle() {
+    async fn drop_restores_the_context_for_the_next_guard() {
         with_context(contexts(), async {
             fonts()
                 .load_font(JETBRAINS_MONO)
@@ -218,7 +176,7 @@ mod tests {
             let mut handle = shaper();
             let first = handle
                 .shape(&request("a"), 16.0)
-                .expect("the open handle must shape");
+                .expect("the open guard must shape");
             assert!(!first.glyphs.is_empty());
             let face = first.glyphs[0].face_id;
             drop(handle);
@@ -233,18 +191,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_handle_dropped_after_its_scope_exited_does_not_panic() {
+    async fn a_guard_dropped_after_its_scope_exited_does_not_panic() {
         let handle = with_context(contexts(), async { shaper() }).await;
         // The task-local scope is gone; the restore must be a quiet no-op, not a panic.
         drop(handle);
     }
 
-    // Pins the hard-fail invariant: if something refills the task-local slot while a handle holds
+    // Pins the hard-fail invariant: if something refills the task-local slot while a guard holds
     // the taken context, `Drop` must not silently discard the owned context (which would strand
     // the task with the wrong context and a later, misleading reentrancy panic). It panics.
     #[tokio::test]
     #[should_panic(expected = "shaping context lost")]
-    async fn refilling_the_slot_while_a_handle_is_open_panics_on_drop() {
+    async fn refilling_the_slot_while_a_guard_is_open_panics_on_drop() {
         // Write into the same task-local directly; nesting `with_context` would shadow the local,
         // so it could not reproduce the occupied-slot breach.
         SHAPER
@@ -258,23 +216,23 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fonts_panics_while_a_handle_is_open_and_recovers_after_drop() {
+    async fn fonts_panics_while_a_guard_is_open_and_recovers_after_drop() {
         with_context(contexts(), async {
             let handle = shaper();
 
-            // The context is checked out for the open handle, so `fonts()` cannot read the
+            // The context is checked out for the open guard, so `fonts()` cannot read the
             // manager out of the slot while shaping.
             let result = std::panic::catch_unwind(fonts);
             let payload = match result {
                 Err(payload) => payload,
-                Ok(_) => panic!("fonts() must panic while a handle is open"),
+                Ok(_) => panic!("fonts() must panic while a guard is open"),
             };
             let message = payload
                 .downcast_ref::<&str>()
                 .expect("panic payload is the static message");
             assert!(message.contains("fonts()"));
 
-            // Dropping the handle restores the context, so `fonts()` must work again.
+            // Dropping the guard restores the context, so `fonts()` must work again.
             drop(handle);
             let _recovered = fonts();
         })
@@ -282,11 +240,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shaping_refreshes_the_handles_registry_reads() {
+    async fn a_batch_sees_a_font_loaded_after_the_guard_opened() {
         with_context(contexts(), async {
             let mut handle = shaper();
-            // Load the font *after* the handle opened, so its open-time snapshot predates this
-            // face; only the post-shape refresh can make the borrowed reads resolve it.
+            // Loading a font after the guard opened moves the published face world; the guard's
+            // post-shape refresh is what makes the loaded face resolvable through the guard.
             handle
                 .manager()
                 .load_font(JETBRAINS_MONO)
@@ -294,7 +252,7 @@ mod tests {
 
             let run = handle
                 .shape(&request("a"), 16.0)
-                .expect("the open handle must shape");
+                .expect("the open guard must shape");
             let face = run.glyphs[0].face_id;
 
             assert!(handle.font_data(face).is_some());
@@ -303,10 +261,9 @@ mod tests {
         .await;
     }
 
-    // The handle is a batch session: scratch is opened per `shape` call and released, so a second
-    // shape through the same handle must succeed.
+    // The guard is a batch surface: one guard shapes many clusters through one context.
     #[tokio::test]
-    async fn one_handle_shapes_a_batch() {
+    async fn one_guard_shapes_a_batch() {
         with_context(contexts(), async {
             fonts()
                 .load_font(JETBRAINS_MONO)
@@ -315,22 +272,17 @@ mod tests {
             let mut handle = shaper();
             let first = handle
                 .shape(&request("a"), 16.0)
-                .expect("first shape through the handle");
+                .expect("first shape through the guard");
             let second = handle
                 .shape(&request("bb"), 16.0)
-                .expect("second shape through the handle");
+                .expect("second shape through the guard");
             assert!(!first.glyphs.is_empty());
             assert!(!second.glyphs.is_empty());
         })
         .await;
     }
 
-    // A handle that reached another task would strand the originating task's slot, so the handle
-    // must stay on its task.
+    // A guard that reached another task would strand the originating task's slot, so it must stay
+    // on its task.
     assert_not_impl_any!(Shaper: Send);
-    // The borrowed session's only non-`Send` borrow is the `&mut Box<dyn EngineScratch>`
-    // (the `&ShapingContext` is `Send`): a session is movable, not shareable, and is dropped
-    // before the frame it shaped for is submitted.
-    assert_impl_all!(massive_shapes::Shaper<'static>: Send);
-    assert_not_impl_any!(massive_shapes::Shaper<'static>: Sync);
 }
