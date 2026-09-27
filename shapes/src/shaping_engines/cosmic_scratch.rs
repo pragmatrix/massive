@@ -106,4 +106,30 @@ mod tests {
 
         assert_eq!(resolutions, 1);
     }
+
+    /// A resolution that *fails* must be remembered like a success is, or every later shape retries
+    /// it: re-reading the face's bytes out of the database and re-validating (parsing) the file,
+    /// warning each time, per shape per frame.
+    #[test]
+    fn a_failed_resolution_is_not_retried() {
+        let candidate_bytes: FontBytes = Arc::new(JETBRAINS_MONO.to_vec());
+        let mut candidate_db = fontdb::Database::new();
+        candidate_db.load_font_source(fontdb::Source::Binary(Arc::clone(&candidate_bytes)));
+
+        let registry = FontRegistry::default();
+        let mut scratch = CosmicScratch::new(Arc::new(candidate_db), &registry);
+
+        let request = ShapingRequest::new("abc", TextAttributes::named_family("JetBrains Mono"));
+        let mut resolutions = 0;
+        let mut resolve = |_data: FontData| {
+            resolutions += 1;
+            None
+        };
+
+        // A failed resolution aborts the run (`shape_impl`'s `?`); the *retry* is what this pins.
+        assert!(scratch.shape(&request, 16.0, &mut resolve).is_none());
+        assert!(scratch.shape(&request, 16.0, &mut resolve).is_none());
+
+        assert_eq!(resolutions, 1, "a rejected face must not be resolved again");
+    }
 }

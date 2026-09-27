@@ -28,6 +28,11 @@ use crate::font_validation::validate_font_file;
 use crate::shaping_engines::cosmic_scratch::CosmicScratch;
 use crate::{FaceId, TextWeight};
 
+// `cosmic_engine/tests.rs` existed without a declaring module, so nothing compiled or ran it;
+// this line is what puts those tests in the test binary.
+#[cfg(test)]
+mod tests;
+
 #[derive(Hash, PartialEq, Eq)]
 enum FontSourceKey {
     Binary(usize),
@@ -60,10 +65,13 @@ pub struct CosmicTextEngine {
     /// Simplification note: the separate Vec could go if `faces` were itself an Arc, at
     /// the cost of copy-on-write for resolution lookups — kept simple for now.
     published_faces: Arc<Vec<CosmicFace>>,
-    /// Faces the shaper resolved without a registry hit, mapped by their `fontdb::ID` so
+    /// Faces the shaper selected without a registry hit, mapped by their `fontdb::ID` so
     /// the (byte-copying) data read and content comparison happens at most once per
-    /// distinct face — not per glyph of every cluster, every frame.
-    resolved: HashMap<fontdb::ID, FaceId>,
+    /// distinct face — not per glyph of every cluster, every frame. `None` records a
+    /// *rejected* face (unreadable or invalid data): resolution reads and parses whole font
+    /// files, so a face that cannot resolve must be remembered too, or every later shape
+    /// retries it and aborts there.
+    resolved: HashMap<fontdb::ID, Option<FaceId>>,
 }
 
 impl CosmicTextEngine {
@@ -205,7 +213,6 @@ impl CosmicTextEngine {
     }
 
     /// Load system fonts and retain only sources whose every face Swash can read.
-    ///
     /// Faces sharing a source are validated together, so invalid files are filtered as a unit;
     /// an unreadable source fails initialization instead.
     fn filtered_system_font_db() -> Result<fontdb::Database> {
@@ -414,14 +421,16 @@ impl CosmicTextEngine {
                     let face_id = match self.lookup(glyph.font_id, glyph.font_weight) {
                         Some(index) => Self::face_id(index),
                         // First sighting of this database face: resolve through `resolve`
-                        // (canonical registry or manager resolution), then memoize — the resolver
-                        // reads and compares whole font files, unaffordable per glyph.
+                        // (canonical registry or manager resolution), then memoize the verdict —
+                        // the resolver reads and compares whole font files, unaffordable per
+                        // glyph, and a rejection costs the same read, so both are cached. A
+                        // remembered rejection aborts like a fresh one, without the read.
                         None => match self.resolved.get(&glyph.font_id) {
-                            Some(face_id) => *face_id,
+                            Some(face_id) => (*face_id)?,
                             None => {
-                                let face_id = resolve(self, glyph.font_id, glyph.font_weight)?;
+                                let face_id = resolve(self, glyph.font_id, glyph.font_weight);
                                 self.resolved.insert(glyph.font_id, face_id);
-                                face_id
+                                face_id?
                             }
                         },
                     };
