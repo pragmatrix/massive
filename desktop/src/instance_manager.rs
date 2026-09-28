@@ -141,8 +141,8 @@ impl InstanceManager {
 
     /// Wait for the next instance to complete and handle cleanup.
     ///
-    /// Returns an error when no instances are running (like `JoinSet::join_next` on an
-    /// empty set) or when the completion channel closed because the manager was dropped.
+    /// Returns an error when no instances are running, or when the completion
+    /// channel closed because the manager was dropped.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         if self.instances.is_empty() {
             bail!("No instances in InstanceManager");
@@ -216,8 +216,16 @@ where
                 RuntimeKind::MultiThread => tokio::runtime::Builder::new_multi_thread()
                     .enable_all()
                     .build(),
-            }
-            .expect("building an instance runtime");
+            };
+            let runtime = match runtime {
+                Ok(runtime) => runtime,
+                // Report the failure on the completion channel instead of panicking: a
+                // panic below would skip the send and leave `join_next` waiting forever.
+                Err(e) => {
+                    let _ = completions_tx.send((instance_id, Err(e.into())));
+                    return;
+                }
+            };
             let result = runtime.block_on(task_context::with_context(
                 instance_task_context,
                 AssertUnwindSafe(instance_future).catch_unwind(),
