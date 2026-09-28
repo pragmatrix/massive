@@ -29,7 +29,13 @@ moved into the thread closure explicitly (`ShapingContext` is `Send`).
 Each `Application` chooses its runtime flavor: `current_thread` by default, with an
 opt-in multi-thread variant for instances that have internal parallelism. No current
 instance has such a workload — every instance frame is strictly sequential with the
-pty reader as its only concurrent piece — so the default stays cheap.
+pty reader as its only concurrent piece — so the default stays cheap. The
+`current_thread` flavor covers every primitive the instance path uses: mpsc
+channels and `Notify` are runtime-independent, `spawn_blocking` runs on the
+blocking pool any flavor provides, and the `TaskContext` parts (`AnyCollector`,
+`AnimationCoordinator`, `MovementRuntime`) are constructed per instance without
+ambient reads, as before. An instance that starts using `tokio::spawn` or timers
+internally is the moment its application opts into the multi-thread flavor.
 
 Instance threads are detached. Shutdown remains cooperative (`request_shutdown_all`
 plus the bounded shutdown deadline); once the deadline expires, the desktop bails,
@@ -80,3 +86,21 @@ process regardless.
   bail is immediately followed by desktop end, and `request_shutdown_all` covers the
   cooperative path.
 - The `yield_now` hack and its starvation comment in `mt` are deleted.
+- `mt` can start without its own runtime: `shell::run`'s built runtime hosts only
+  the application task, removing one runtime layer and the `Handle::try_current`
+  branch from the launch path.
+
+## Validation
+
+- `cargo check`/`cargo test` for `massive-desktop`, `massive-applications`, and
+  `mt`; the instance task-local tests must pass with instances running on their
+  spawned threads (the thread is a new kind of task boundary for ADR 0008's
+  firewall rule).
+- The deciding experiment: a debug-build output burst (warm-cache rerun of
+  `find .` in a terminal) must leave the desktop/launcher responsive — now without
+  the `yield_now` mitigation. Acceptance is observational: fixed recipe (same
+  burst, warm cache, debug build) plus the launcher window opening/zooming while
+  the burst runs. If the desktop still stutters, something besides instance
+  polling starves and must be identified before trusting the isolation.
+- Smoke: instance teardown (close window, shutdown) still submits pending instance
+  changes; the pty reading ends cleanly with the shell.
