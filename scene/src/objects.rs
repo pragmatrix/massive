@@ -50,8 +50,8 @@ impl From<LocationSpace> for LocationParentId {
     }
 }
 
-/// The final, resolved state of a location: composed transform, inherited alpha, and the space of
-/// its root.
+/// The final, resolved state of a location: composed transform, inherited alpha sanitized into
+/// `[0, 1]`, and the space of its root.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ResolvedLocation {
     pub transform: Transform,
@@ -162,6 +162,7 @@ impl Object for Visual {
 pub struct Location {
     pub parent: LocationParent,
     pub transform: Ref<Transform>,
+    /// Alpha as set; consumers sanitize it into `[0, 1]` because it is a plain writable field.
     pub alpha: f32,
 }
 
@@ -238,11 +239,18 @@ pub struct LocationRenderObj {
 impl LocationRenderObj {
     /// Scene changes can be constructed directly, so the renderer must not trust their alpha.
     pub fn sanitized_alpha(&self) -> f32 {
-        if self.alpha.is_finite() {
-            self.alpha.clamp(0.0, 1.0)
-        } else {
-            1.0
-        }
+        sanitize_alpha(self.alpha)
+    }
+}
+
+/// Clamp an alpha into `[0, 1]`, treating a non-finite value as opaque.
+///
+/// A location's alpha is stored as set, so every consumer of it must sanitize.
+pub(crate) fn sanitize_alpha(alpha: f32) -> f32 {
+    if alpha.is_finite() {
+        alpha.clamp(0.0, 1.0)
+    } else {
+        1.0
     }
 }
 
@@ -270,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn location_alpha_is_forwarded_without_normalization() {
+    fn location_alpha_is_stored_as_set() {
         let collector = AnyCollector::for_type::<SceneChange>();
         let transform = crate::enter(&collector, Transform::IDENTITY);
         let location = Location::root(LocationSpace::World, transform).with_alpha(2.0);

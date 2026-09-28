@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
+use crate::objects::sanitize_alpha;
 use crate::{Location, LocationParent, Ref, ResolvedLocation};
 
 /// Resolve final transforms from a set of locations.
+///
+/// The resolved alpha is sanitized, invariant for every [`ResolvedLocation`], including the
+/// cached ones.
 #[derive(Debug, Default)]
 pub struct TransformResolver {
     map: HashMap<Ref<Location>, ResolvedLocation>,
@@ -24,7 +28,7 @@ impl TransformResolver {
                     // Roots are terminal: their space is the resolved space.
                     let resolved = ResolvedLocation {
                         transform: *location_value.transform.value(),
-                        alpha: location_value.alpha,
+                        alpha: sanitize_alpha(location_value.alpha),
                         space: *space,
                     };
                     self.map.insert(location.clone(), resolved);
@@ -34,7 +38,7 @@ impl TransformResolver {
             (
                 parent,
                 *location_value.transform.value(),
-                location_value.alpha,
+                sanitize_alpha(location_value.alpha),
             )
         };
 
