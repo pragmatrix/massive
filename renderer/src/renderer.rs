@@ -189,10 +189,10 @@ impl Renderer {
         let transaction = self.transaction_manager.new_transaction();
 
         for change in changes {
-            self.scene.apply(&change, &transaction);
-            if let SceneChange::Visual(visual_change) = change {
+            if let SceneChange::Visual(visual_change) = &change {
                 self.changed_visuals.add(visual_change.id());
             }
+            self.scene.apply(change, &transaction);
         }
         Ok(())
     }

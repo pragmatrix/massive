@@ -4,9 +4,13 @@
 //!   sink handle path.
 //! - `collector`: the typed `massive_util::ChangeCollector<SceneChange>` task-local.
 //!
-//! Each benchmark pushes a full batch, then drains, with `Throughput::Elements(CAPACITY)`, so
-//! the reported time per element is the per-push cost with the amortized drain. Both run inside
-//! their task-local scope with one `.with` per push.
+//! Each benchmark drains a full batch of `CAPACITY` changes, with
+//! `Throughput::Elements(CAPACITY)`, so the reported time per element is the per-push cost with the
+//! amortized drain. Both run inside their task-local scope with one `.with` per push.
+//!
+//! Pushing consumes the change, so each push builds a fresh one from the real id generator. That
+//! construction is on the measured path and is identical across both variants, so the comparison
+//! holds; the absolute per-element time includes it.
 //!
 //! The task-locals only need their scope alive while criterion runs the closures; the scopes
 //! wrap the group drivers inside `block_on` on a current-thread runtime (task-local visibility
@@ -35,21 +39,18 @@ fn transform(id: u32) -> massive_geometry::Transform {
     ))
 }
 
-/// Successive acquires from the real per-type generator mimic the id distribution handles
-/// produce in practice.
-fn make_changes() -> Vec<SceneChange> {
-    (0..CAPACITY)
-        .map(|_| {
-            let id = massive_scene::id_generator::acquire::<massive_geometry::Transform>();
-            SceneChange::Transform(massive_scene::Change::Update(
-                id,
-                transform(id.to_usize() as u32),
-            ))
-        })
-        .collect()
+/// One transform-update change. Successive acquires from the real per-type generator mimic the id
+/// distribution handles produce in practice; building it per push keeps the benchmark on the
+/// by-value path (`SceneChange` is moved, not cloned).
+fn change() -> SceneChange {
+    let id = massive_scene::id_generator::acquire::<massive_geometry::Transform>();
+    SceneChange::Transform(massive_scene::Change::Update(
+        id,
+        transform(id.to_usize() as u32),
+    ))
 }
 
-fn any_group(c: &mut Criterion, changes: &[SceneChange]) {
+fn any_group(c: &mut Criterion) {
     let mut group = c.benchmark_group("task-scope any");
     group.throughput(Throughput::Elements(CAPACITY as u64));
     group.measurement_time(MEASUREMENT);
@@ -57,8 +58,8 @@ fn any_group(c: &mut Criterion, changes: &[SceneChange]) {
 
     group.bench_function("typed access: .with per push", |b| {
         b.iter(|| {
-            for change in changes {
-                SCENE.with(|any| any.collect::<SceneChange>(change.clone()));
+            for _ in 0..CAPACITY {
+                SCENE.with(|any| any.collect::<SceneChange>(change()));
             }
             SCENE.with(|any| {
                 let _ = any.take_all::<SceneChange>();
@@ -68,8 +69,8 @@ fn any_group(c: &mut Criterion, changes: &[SceneChange]) {
 
     group.bench_function("sink(): .with per push", |b| {
         b.iter(|| {
-            for change in changes {
-                SCENE.with(|any| any.sink().send(change.clone()));
+            for _ in 0..CAPACITY {
+                SCENE.with(|any| any.sink().send(change()));
             }
             SCENE.with(|any| {
                 let _ = any.take_all::<SceneChange>();
@@ -80,7 +81,7 @@ fn any_group(c: &mut Criterion, changes: &[SceneChange]) {
     group.finish();
 }
 
-fn collector_group(c: &mut Criterion, changes: &[SceneChange]) {
+fn collector_group(c: &mut Criterion) {
     let mut group = c.benchmark_group("task-scope collector");
     group.throughput(Throughput::Elements(CAPACITY as u64));
     group.measurement_time(MEASUREMENT);
@@ -88,8 +89,8 @@ fn collector_group(c: &mut Criterion, changes: &[SceneChange]) {
 
     group.bench_function("typed collect: .with per push", |b| {
         b.iter(|| {
-            for change in changes {
-                TYPED.with(|collector| collector.collect(change.clone()));
+            for _ in 0..CAPACITY {
+                TYPED.with(|collector| collector.collect(change()));
             }
             TYPED.with(|collector| {
                 let _ = collector.take_all();
@@ -101,8 +102,6 @@ fn collector_group(c: &mut Criterion, changes: &[SceneChange]) {
 }
 
 fn bench(c: &mut Criterion) {
-    let changes = make_changes();
-
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
@@ -110,7 +109,7 @@ fn bench(c: &mut Criterion) {
         .block_on(async {
             SCENE
                 .scope(AnyCollector::for_type::<SceneChange>(), async {
-                    any_group(c, &changes);
+                    any_group(c);
                 })
                 .await;
         });
@@ -124,7 +123,7 @@ fn bench(c: &mut Criterion) {
                 .scope(
                     massive_util::ChangeCollector::<SceneChange>::default(),
                     async {
-                        collector_group(c, &changes);
+                        collector_group(c);
                     },
                 )
                 .await;

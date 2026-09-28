@@ -24,9 +24,9 @@ impl Scene {
     ///
     /// The transaction is given a new version number, which is then treated as the most recent
     /// version and the current version of the whole scene.
-    pub fn apply(&mut self, change: &SceneChange, transaction: &Transaction) {
+    pub fn apply(&mut self, change: SceneChange, transaction: &Transaction) {
         let current_version = transaction.current_version();
-        match change.clone() {
+        match change {
             SceneChange::Transform(change) => {
                 self.transforms.apply_versioned(change, current_version)
             }

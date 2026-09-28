@@ -5,7 +5,8 @@ use massive_geometry::Transform;
 
 use crate::{Id, Location, LocationRenderObj, Visual, VisualRenderObj};
 
-#[derive(Debug, From, Clone, PartialEq)]
+/// One structural change to a scene object, retyped into the receiving queue's change kind.
+#[derive(Debug, From)]
 pub enum SceneChange {
     Transform(Change<Transform>),
     Location(Change<LocationRenderObj>),
@@ -24,7 +25,8 @@ impl SceneChange {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// A create, update, or delete of one object, keyed by its id.
+#[derive(Debug)]
 pub enum Change<T> {
     Create(Id, T),
     Update(Id, T),

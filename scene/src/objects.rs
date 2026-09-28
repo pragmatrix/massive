@@ -124,7 +124,8 @@ impl Visual {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// The render-side snapshot of a [`Visual`], carried inside a [`SceneChange`].
+#[derive(Debug)]
 pub struct VisualRenderObj {
     pub location: Id,
     pub decal_order: Option<usize>,
@@ -229,7 +230,8 @@ impl Object for Location {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+/// The render-side snapshot of a [`Location`], carried inside a [`SceneChange`].
+#[derive(Debug)]
 pub struct LocationRenderObj {
     pub parent: LocationParentId,
     pub transform: Id,

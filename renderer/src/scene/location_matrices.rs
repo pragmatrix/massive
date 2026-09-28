@@ -215,15 +215,15 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            &SceneChange::Transform(Change::Create(parent_transform_id, Transform::IDENTITY)),
+            SceneChange::Transform(Change::Create(parent_transform_id, Transform::IDENTITY)),
             &transaction,
         );
         scene.apply(
-            &SceneChange::Transform(Change::Create(child_transform_id, Transform::IDENTITY)),
+            SceneChange::Transform(Change::Create(child_transform_id, Transform::IDENTITY)),
             &transaction,
         );
         scene.apply(
-            &SceneChange::Location(Change::Create(
+            SceneChange::Location(Change::Create(
                 parent_location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -234,7 +234,7 @@ mod tests {
             &transaction,
         );
         scene.apply(
-            &SceneChange::Location(Change::Create(
+            SceneChange::Location(Change::Create(
                 child_location_id,
                 LocationRenderObj {
                     parent: LocationParentId::Location(parent_location_id),
@@ -266,15 +266,15 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            &SceneChange::Transform(Change::Create(parent_transform_id, Transform::IDENTITY)),
+            SceneChange::Transform(Change::Create(parent_transform_id, Transform::IDENTITY)),
             &transaction,
         );
         scene.apply(
-            &SceneChange::Transform(Change::Create(child_transform_id, Transform::IDENTITY)),
+            SceneChange::Transform(Change::Create(child_transform_id, Transform::IDENTITY)),
             &transaction,
         );
         scene.apply(
-            &SceneChange::Location(Change::Create(
+            SceneChange::Location(Change::Create(
                 parent_location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -285,7 +285,7 @@ mod tests {
             &transaction,
         );
         scene.apply(
-            &SceneChange::Location(Change::Create(
+            SceneChange::Location(Change::Create(
                 child_location_id,
                 LocationRenderObj {
                     parent: LocationParentId::Location(parent_location_id),
@@ -317,11 +317,11 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            &SceneChange::Transform(Change::Create(transform_id, initial_transform)),
+            SceneChange::Transform(Change::Create(transform_id, initial_transform)),
             &transaction,
         );
         scene.apply(
-            &SceneChange::Location(Change::Create(
+            SceneChange::Location(Change::Create(
                 location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -339,7 +339,7 @@ mod tests {
 
         let transaction = transaction_manager.new_transaction();
         scene.apply(
-            &SceneChange::Transform(Change::Update(transform_id, moved_transform)),
+            SceneChange::Transform(Change::Update(transform_id, moved_transform)),
             &transaction,
         );
         locations.resolve_locations_and_matrices(&scene, &transaction, [location_id].into_iter());
@@ -348,7 +348,7 @@ mod tests {
 
         let transaction = transaction_manager.new_transaction();
         scene.apply(
-            &SceneChange::Location(Change::Update(
+            SceneChange::Location(Change::Update(
                 location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
@@ -377,11 +377,11 @@ mod tests {
         let transaction = transaction_manager.new_transaction();
 
         scene.apply(
-            &SceneChange::Transform(Change::Create(transform_id, Transform::IDENTITY)),
+            SceneChange::Transform(Change::Create(transform_id, Transform::IDENTITY)),
             &transaction,
         );
         scene.apply(
-            &SceneChange::Location(Change::Create(
+            SceneChange::Location(Change::Create(
                 location_id,
                 LocationRenderObj {
                     parent: LocationSpace::World.into(),
