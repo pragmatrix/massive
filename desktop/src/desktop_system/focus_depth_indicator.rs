@@ -43,12 +43,12 @@ impl FocusDepthIndicatorPresenter {
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
         let (scene_transform, location) =
-            identity_location().in_space(LocationSpace::Camera).enter();
+            identity_location().in_space(LocationSpace::Camera).submit();
         let visual = Arc::<[Shape]>::default()
             .into_visual()
             .at(&location)
             .with_decal_order(DECAL_ORDER)
-            .enter();
+            .submit();
         let movement = movement(
             FocusDepthIndicatorMovement::new(badges),
             move |movement, progress| movement.apply(progress, &location, &visual),

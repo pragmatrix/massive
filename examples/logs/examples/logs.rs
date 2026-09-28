@@ -162,18 +162,18 @@ impl Logs {
         let content_width = 1280;
         let application = Application::default();
 
-        let application_transform = application.get_transform((0, 0)).enter();
-        let application_location = application_transform.to_location().enter();
+        let application_transform = application.get_transform((0, 0)).submit();
+        let application_location = application_transform.to_location().submit();
 
         // Keep interaction transforms separate so the movement owns only animated centering.
-        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).enter();
+        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).submit();
         let content_location = content_transform
             .to_location()
             .relative_to(&application_location)
-            .enter();
+            .submit();
 
         let (vertical_center_transform, location) =
-            identity_location().relative_to(&content_location).enter();
+            identity_location().relative_to(&content_location).submit();
 
         let layout = movement(
             LayoutMovement {
@@ -218,7 +218,7 @@ impl Logs {
             })
             .collect();
 
-        let line = glyph_runs.at(&self.location).with_decal_order(0).enter();
+        let line = glyph_runs.at(&self.location).with_decal_order(0).submit();
 
         let line_id = self.next_line_id;
         let fader: Animated<_> = 0.0.into();

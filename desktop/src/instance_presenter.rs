@@ -28,10 +28,10 @@ pub struct InstanceRoot {
 
 impl InstanceRoot {
     pub fn new() -> Self {
-        let (layout_transform, layout_location) = identity_location().enter();
+        let (layout_transform, layout_location) = identity_location().submit();
         let (presentation_transform, presentation_location) = identity_location()
             .relative_to(layout_location.to_ref())
-            .enter();
+            .submit();
 
         Self {
             layout_transform,
@@ -153,7 +153,7 @@ impl InstancePresenter {
         let background = show_background.then(|| {
             let visual = InstanceBackground::shapes(Rect::ZERO)
                 .at(&root.presentation_location)
-                .enter();
+                .submit();
 
             InstanceBackground {
                 visual,

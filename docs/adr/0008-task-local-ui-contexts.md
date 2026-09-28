@@ -156,13 +156,14 @@ changes via `From<SceneChange>`).
   `HandleChangeReceiver` (whose `take_changes` defaulted to a panic). The
   instance change collector is now the plain generic collector plus
   `From<SceneChange> for InstanceChange`; the orphan-rule newtype is gone.
-- Method-style entry is one trait: `Enter::enter()` for scene values. It is
-  implemented for the object types and for `UnenteredLocation`, which enters
-  together with its transform in one batch; the trait dispatches by type because
-  a blanket `impl<T: Object>` would conflict with the `UnenteredLocation` impl (a
-  downstream crate may add `Object` for it). Code that must name the collector
-  instead of using the task's — tests, multi-queue tasks — calls
-  `scene::enter(collector, value)` or `UnenteredLocation::enter_in(collector)`.
+- Method-style submission is one trait: `Submit::submit()` for scene values. It is
+  implemented for the object types and for `UnsubmittedLocation`, which is
+  submitted together with its transform in one batch; the trait dispatches by type
+  because a blanket `impl<T: Object>` would conflict with the
+  `UnsubmittedLocation` impl (a downstream crate may add `Object` for it). Code
+  that must name the collector instead of using the task's — tests, multi-queue
+  tasks — calls `scene::submit(collector, value)` or
+  `UnsubmittedLocation::submit_to(collector)`.
 
 ### Consequences
 

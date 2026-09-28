@@ -1,11 +1,11 @@
 use crate::any_collector::AnyCollector;
 use crate::{Change, Handle, Object, SceneChange};
 
-/// Enter an object into the scene whose changes `collector` collects, making it active there.
+/// Submit an object to the queue whose changes `collector` collects, making it active there.
 ///
-/// Naming a collector is how tests, multi-queue tasks, and code outside a task context enter
+/// Naming a collector is how tests, multi-queue tasks, and code outside a task context submit
 /// explicitly.
-pub fn enter<T>(collector: &AnyCollector, value: T) -> Handle<T>
+pub fn submit<T>(collector: &AnyCollector, value: T) -> Handle<T>
 where
     T: Object + 'static,
     SceneChange: From<Change<T::Change>>,
@@ -13,10 +13,10 @@ where
     Handle::new(value, collector.sink().clone())
 }
 
-/// Enter a pair of dependent objects with one batch of create changes, the second built from the
-/// first handle — which is how a location is entered together with its transform. Both creates
-/// reach the queue in entry order, so the first object exists before the second refers to it.
-pub(crate) fn enter_pair<A, B, F>(
+/// Submit a pair of dependent objects with one batch of create changes, the second built from the
+/// first handle — which is how a location is submitted together with its transform. Both creates
+/// reach the queue in submission order, so the first object exists before the second refers to it.
+pub(crate) fn submit_pair<A, B, F>(
     collector: &AnyCollector,
     first: A,
     second: F,

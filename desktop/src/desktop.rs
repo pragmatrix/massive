@@ -65,7 +65,7 @@ impl Desktop {
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
         // The desktop task's change queue: installed by the shell's application task context
-        // (ADR 0008). Presenters enter their handles through the ambient accessors.
+        // (ADR 0008). Presenters submit their handles through the ambient accessors.
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
         let environment =

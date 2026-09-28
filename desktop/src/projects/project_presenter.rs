@@ -25,7 +25,8 @@ pub struct ProjectPresenter {
 
 impl ProjectPresenter {
     pub fn new(properties: ProjectProperties, parent_location: Handle<Location>) -> Self {
-        let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
+        let (scene_transform, location) =
+            identity_location().relative_to(&parent_location).submit();
         let name = properties.name.clone();
         let header = ProjectHeaderPresenter::new(properties, location.clone());
         let matrix = ProjectMatrixPresenter::new(location.clone());
@@ -56,7 +57,8 @@ pub struct ProjectHeaderPresenter {
 
 impl ProjectHeaderPresenter {
     pub fn new(properties: ProjectProperties, parent_location: Handle<Location>) -> Self {
-        let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
+        let (scene_transform, location) =
+            identity_location().relative_to(&parent_location).submit();
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
         let header_run = properties.name.size(PROJECT_HEADER_FONT_SIZE).shape();
@@ -66,13 +68,13 @@ impl ProjectHeaderPresenter {
 
         let background = background_shape(Rect::default(), PROJECT_HEADER_BACKGROUND_COLOR)
             .at(&location)
-            .enter();
+            .submit();
 
         let name = header_run
             .map(|run| run.with_color(PROJECT_HEADER_TEXT_COLOR).into_shape())
             .at(&location)
             .with_decal_order(PROJECT_HEADER_TEXT_DECAL_ORDER)
-            .enter();
+            .submit();
 
         let movement_scene_transform = scene_transform.clone();
         let movement_background = background.clone();
@@ -175,7 +177,8 @@ pub struct ProjectMatrixPresenter {
 
 impl ProjectMatrixPresenter {
     pub fn new(parent_location: Handle<Location>) -> Self {
-        let (scene_transform, location) = identity_location().relative_to(&parent_location).enter();
+        let (scene_transform, location) =
+            identity_location().relative_to(&parent_location).submit();
 
         Self {
             scene_transform,

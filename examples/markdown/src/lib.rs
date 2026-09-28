@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use cosmic_text::fontdb;
+use cosmic_text::fontdb::Source;
 use swash::FontRef;
 
 use massive_geometry::{Color, Vector3};
@@ -54,8 +55,8 @@ impl FontBridge {
         let mut font_files = Vec::new();
         for face in font_db.faces() {
             let path = match &face.source {
-                fontdb::Source::File(path) => path,
-                fontdb::Source::Binary(_) | fontdb::Source::SharedFile(_, _) => continue,
+                Source::File(path) => path,
+                Source::Binary(_) | Source::SharedFile(_, _) => continue,
             };
             if file_indices.contains_key(path) {
                 continue;
@@ -71,8 +72,8 @@ impl FontBridge {
         let mut face_ids = HashMap::new();
         for face in font_db.faces() {
             let path = match &face.source {
-                fontdb::Source::File(path) => path,
-                fontdb::Source::Binary(_) | fontdb::Source::SharedFile(_, _) => continue,
+                Source::File(path) => path,
+                Source::Binary(_) | Source::SharedFile(_, _) => continue,
             };
             let Some(engine_ids) = file_indices
                 .get(path)
@@ -102,9 +103,8 @@ impl FontBridge {
         let engine_ids = font_manager.load_font(font_bytes.clone())?;
         // fontdb's `Source::Binary` needs a trait-object Arc; clone the bytes into a `Vec` so the
         // two databases each hold their own reference to the same data.
-        let fontdb_source = fontdb::Source::Binary(
-            Arc::new(font_bytes.to_vec()) as Arc<dyn AsRef<[u8]> + Send + Sync>
-        );
+        let fontdb_source =
+            Source::Binary(Arc::new(font_bytes.to_vec()) as Arc<dyn AsRef<[u8]> + Send + Sync>);
         let fontdb_ids = font_db.load_font_source(fontdb_source);
         let mut face_ids = HashMap::new();
         for fontdb_id in fontdb_ids {
@@ -236,11 +236,14 @@ mod tests {
     use std::collections::HashSet;
     use std::process::Command;
 
-    use super::*;
     use cosmic_text::{Align, Attrs, Buffer, FontSystem, Metrics, Shaping};
+
     use massive_animation::{AnimationCoordinator, MovementRuntime};
     use massive_scene::{AnyCollector, SceneChange};
     use massive_shell::task_context::TaskContext;
+
+    use super::*;
+
     const MONTSERRAT: &[u8] =
         include_bytes!("../../../assets/fonts/Montserrat/Montserrat-Regular.ttf");
 

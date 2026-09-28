@@ -8,7 +8,7 @@ use std::sync::Arc;
 use massive_geometry::{PixelCamera, Point, PointPx, Transform};
 use massive_shapes::Shape;
 
-use crate::scene::enter_pair;
+use crate::scene::submit_pair;
 use crate::{AnyCollector, Handle, Location, LocationParent, LocationSpace, Ref, Visual};
 
 // This should probably be moved to massive_geometry:
@@ -54,15 +54,15 @@ impl ToLocation for Handle<Transform> {
     }
 }
 
-/// A location that has not entered a scene yet. Enter it to create a location with an
+/// A location that has not been submitted yet. Submit it to create a location with an
 /// initially-identity transform, returning both handles so the transform can be updated later.
 #[derive(Debug)]
-#[must_use = "the location is not active in the scene until `.enter_in(collector)` is called"]
-pub struct UnenteredLocation {
+#[must_use = "the location is not active in the queue until `.submit_to(collector)` is called"]
+pub struct UnsubmittedLocation {
     parent: LocationParent,
 }
 
-impl UnenteredLocation {
+impl UnsubmittedLocation {
     /// Root the location in the given coordinate space.
     pub fn in_space(mut self, space: LocationSpace) -> Self {
         self.parent = space.into();
@@ -75,20 +75,20 @@ impl UnenteredLocation {
         self
     }
 
-    /// Enter a location with an initially-identity transform into `collector`, returning both
+    /// Submit a location with an initially-identity transform to `collector`, returning both
     /// handles.
     ///
-    /// The transform and the location are entered together, in one batch.
-    pub fn enter_in(self, collector: &AnyCollector) -> (Handle<Transform>, Handle<Location>) {
-        enter_pair(collector, Transform::IDENTITY, |transform| {
+    /// The transform and the location are submitted together, in one batch.
+    pub fn submit_to(self, collector: &AnyCollector) -> (Handle<Transform>, Handle<Location>) {
+        submit_pair(collector, Transform::IDENTITY, |transform| {
             Location::new(self.parent, transform.clone())
         })
     }
 }
 
-/// Creates an unentered location whose transform starts as identity.
-pub fn identity_location() -> UnenteredLocation {
-    UnenteredLocation {
+/// Creates an unsubmitted location whose transform starts as identity.
+pub fn identity_location() -> UnsubmittedLocation {
+    UnsubmittedLocation {
         parent: LocationSpace::World.into(),
     }
 }
@@ -144,7 +144,7 @@ impl VisualWithoutLocation {
         }
     }
 
-    #[must_use = "the visual is not placed until it is `.enter()`ed"]
+    #[must_use = "the visual is not placed until it is `.submit()`ted"]
     pub fn at(self, location: impl Into<Ref<Location>>) -> Visual {
         Visual::new(location.into(), self.shapes)
     }
@@ -152,7 +152,7 @@ impl VisualWithoutLocation {
 
 /// Places a value at a location, converting it into a [`Visual`].
 pub trait At {
-    #[must_use = "the visual is not visible until `.enter()` is called"]
+    #[must_use = "the visual is not visible until `.submit()` is called"]
     fn at(self, location: impl Into<Ref<Location>>) -> Visual;
 }
 

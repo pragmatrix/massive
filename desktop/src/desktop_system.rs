@@ -247,7 +247,7 @@ impl DesktopSystem {
     pub fn new(env: DesktopEnvironment, default_panel_size: SizePx) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
-        let (_, location) = identity_location().enter();
+        let (_, location) = identity_location().submit();
 
         let desktop_presenter = DesktopPresenter::new(location);
         let focus_depth_indicator = FocusDepthIndicatorPresenter::new();

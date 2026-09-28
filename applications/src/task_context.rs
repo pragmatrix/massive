@@ -141,28 +141,28 @@ pub fn fonts() -> FontManager {
         })
 }
 
-pub fn collect<C>(change: C)
+pub fn submit<C>(change: C)
 where
     C: From<SceneChange> + fmt::Debug + Send + 'static,
 {
-    CHANGES.with(|collector| collector.collect::<C>(change));
+    with_changes(|collector| collector.collect::<C>(change));
 }
 
 pub fn take_changes<C>() -> massive_util::ChangeSet<C>
 where
     C: From<SceneChange> + fmt::Debug + Send + 'static,
 {
-    CHANGES.with(|collector| collector.take_all::<C>())
-}
-
-pub fn with_changes<R>(f: impl FnOnce(&AnyCollector) -> R) -> R {
-    CHANGES.with(f)
+    with_changes(|collector| collector.take_all::<C>())
 }
 
 /// The erased sink of the task's change queue, for callers that cannot borrow the task-local
 /// collector across calls (long-lived visuals, builder chains).
 pub fn sink() -> Arc<dyn ChangeSink> {
-    CHANGES.with(|collector| collector.sink().clone())
+    with_changes(|collector| collector.sink().clone())
+}
+
+pub fn with_changes<R>(f: impl FnOnce(&AnyCollector) -> R) -> R {
+    CHANGES.with(f)
 }
 
 #[cfg(test)]

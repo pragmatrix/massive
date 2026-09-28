@@ -47,8 +47,8 @@ pub use handle::*;
 pub use id::Id;
 pub use objects::*;
 pub mod prelude;
-pub use ergonomics::UnenteredLocation;
-pub use scene::enter;
+pub use ergonomics::UnsubmittedLocation;
+pub use scene::submit;
 pub use transform_resolver::*;
 pub use type_id_generator::id_generator;
 

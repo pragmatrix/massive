@@ -84,9 +84,9 @@ impl LauncherPresenter {
         let mode = profile.mode;
 
         let (our_transform, our_location) =
-            identity_location().relative_to(&parent_location).enter();
+            identity_location().relative_to(&parent_location).submit();
 
-        let background = background_shape.at(&our_location).enter();
+        let background = background_shape.at(&our_location).submit();
 
         let name = profile
             .name
@@ -104,7 +104,7 @@ impl LauncherPresenter {
             .map(|r| r.with_color(TEXT_COLOR).into_shape())
             .at(&our_location)
             .with_decal_order(0)
-            .enter();
+            .submit();
 
         let scene_transform = our_transform.clone();
         let movement_background = background.clone();

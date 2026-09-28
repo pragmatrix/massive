@@ -24,11 +24,11 @@ impl DesktopPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
 
     pub fn new(location: Handle<Location>) -> Self {
-        let (hover_scene_transform, hover_location) = identity_location().enter();
+        let (hover_scene_transform, hover_location) = identity_location().submit();
         let hover_visual = create_hover_shapes(None)
             .into_visual()
             .at(&hover_location)
-            .enter();
+            .submit();
         let hover_movement = movement(HoverMovement::default(), move |movement, context| {
             movement.update_hover_placement_and_visual(
                 context,

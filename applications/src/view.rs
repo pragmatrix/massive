@@ -23,7 +23,7 @@ pub struct View {
 
 impl Drop for View {
     fn drop(&mut self) {
-        collect(InstanceChange::DestroyView(self.id));
+        submit(InstanceChange::DestroyView(self.id));
     }
 }
 
@@ -32,10 +32,10 @@ impl View {
         let id = ViewId(Uuid::new_v4());
 
         let size: Size = SizePx::from(extents.size().cast()).into();
-        let local_transform = Transform::from(-size.center()).enter();
-        let location = local_transform.to_location().relative_to(parent).enter();
+        let local_transform = Transform::from(-size.center()).submit();
+        let location = local_transform.to_location().relative_to(parent).submit();
 
-        collect(InstanceChange::CreateView(ViewCreationInfo {
+        submit(InstanceChange::CreateView(ViewCreationInfo {
             id,
             role,
             extents,
@@ -69,7 +69,7 @@ impl View {
 
     #[allow(unused)]
     fn resize(&mut self, new_extents: impl Into<ViewExtent>) {
-        collect(InstanceChange::View(
+        submit(InstanceChange::View(
             self.id,
             ViewChange::Resize(new_extents.into().into()),
         ))
@@ -82,7 +82,7 @@ impl View {
         }
 
         self.title = title.clone();
-        collect(InstanceChange::View(self.id, ViewChange::SetTitle(title)));
+        submit(InstanceChange::View(self.id, ViewChange::SetTitle(title)));
     }
 
     pub fn set_cursor(&mut self, cursor: CursorIcon) {
@@ -91,7 +91,7 @@ impl View {
         }
 
         self.cursor = cursor;
-        collect(InstanceChange::View(self.id, ViewChange::SetCursor(cursor)));
+        submit(InstanceChange::View(self.id, ViewChange::SetCursor(cursor)));
     }
 }
 

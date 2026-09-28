@@ -101,10 +101,10 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let mut application = Application::default();
     let page_transform = application.get_transform(content_size);
 
-    let transform = page_transform.enter();
-    let location = transform.to_location().enter();
+    let transform = page_transform.submit();
+    let location = transform.to_location().submit();
 
-    // Hold the entered visual, otherwise it will disappear.
+    // Hold the submitted visual, otherwise it will disappear.
     let _visual = glyph_runs
         .clone()
         .into_iter()
@@ -112,7 +112,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .collect::<Vec<_>>()
         .at(&location)
         .with_decal_order(0)
-        .enter();
+        .submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {

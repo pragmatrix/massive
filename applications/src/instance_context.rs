@@ -50,7 +50,7 @@ impl Drop for InstanceContext {
         warn!("Submitting final instance changes: instance={:?}", self.id);
         // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
         // the desktop observes it behind every pending change of this submission.
-        collect(InstanceChange::End(self.view_parent.clone()));
+        submit(InstanceChange::End(self.view_parent.clone()));
         // Teardown runs after the run loop returned, so no frame is live. The detached frame end
         // witnesses animation access for this one teardown (joining, not replacing, a frame held
         // across a panic unwind), flushes queued movement actions, closes the cycle and never
@@ -109,7 +109,7 @@ impl InstanceContext {
 
     /// Design: This may interfere with animations and requires a final submit()!
     pub fn collect_configuration_request(&mut self, request: ConfigurationRequest) {
-        collect(InstanceChange::Configuration(request));
+        submit(InstanceChange::Configuration(request));
     }
 
     pub fn submit(&mut self, submission: FrameSubmission<InstanceChange>) -> Result<()> {

@@ -91,8 +91,8 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
-    let transform = application.get_transform(content_size).enter();
-    let location = transform.to_location().enter();
+    let transform = application.get_transform(content_size).submit();
+    let location = transform.to_location().submit();
 
     // Hold the visual in this context, otherwise it will disappear.
     let _visual = glyph_runs
@@ -100,7 +100,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         .map(|m| m.into())
         .collect::<Vec<_>>()
         .at(&location)
-        .enter();
+        .submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {

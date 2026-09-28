@@ -218,10 +218,12 @@ async fn run(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let transform = application.get_transform((page_width, page_height)).enter();
-    let location = transform.to_location().enter();
+    let transform = application
+        .get_transform((page_width, page_height))
+        .submit();
+    let location = transform.to_location().submit();
 
-    let _visual = shapes.at(&location).with_decal_order(0).enter();
+    let _visual = shapes.at(&location).with_decal_order(0).submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {

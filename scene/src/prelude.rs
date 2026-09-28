@@ -4,7 +4,7 @@
 //! [`identity_location`] free function, and the core content types into scope.
 
 pub use crate::ergonomics::{
-    At, IntoVisual, ToCamera, ToLocation, ToTransform, UnenteredLocation, VisualWithoutLocation,
+    At, IntoVisual, ToCamera, ToLocation, ToTransform, UnsubmittedLocation, VisualWithoutLocation,
     identity_location,
 };
 pub use crate::{Handle, Location, Object, Transform, Visual};

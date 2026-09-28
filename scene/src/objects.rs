@@ -270,7 +270,7 @@ mod tests {
     #[test]
     fn location_new_defaults_to_opaque_alpha() {
         let collector = AnyCollector::for_type::<SceneChange>();
-        let transform = crate::enter(&collector, Transform::IDENTITY);
+        let transform = crate::submit(&collector, Transform::IDENTITY);
         let location = Location::root(LocationSpace::World, transform);
 
         assert_eq!(location.alpha, 1.0);
@@ -280,7 +280,7 @@ mod tests {
     #[test]
     fn location_alpha_is_stored_as_set() {
         let collector = AnyCollector::for_type::<SceneChange>();
-        let transform = crate::enter(&collector, Transform::IDENTITY);
+        let transform = crate::submit(&collector, Transform::IDENTITY);
         let location = Location::root(LocationSpace::World, transform).with_alpha(2.0);
 
         assert_eq!(location.alpha, 2.0);

@@ -1,8 +1,8 @@
-//! Ambient access: scene entry, shaping, and animation resolve the task's installed contexts.
+//! Ambient access: scene submission, shaping, and animation resolve the task's installed contexts.
 //!
 //! Application code runs inside a task whose change queue, shaping context, and animation clock
-//! are installed, so none of them has to be named at the call site (ADR 0008). [`Enter`] enters
-//! scene content into the task's change queue, which is what makes it active; [`AmbientShape`]
+//! are installed, so none of them has to be named at the call site (ADR 0008). [`Submit`] submits
+//! scene content to the task's change queue, which is what makes it active; [`AmbientShape`]
 //! shapes text with the installed shaper; [`AmbientAnimation`] starts animations on the installed
 //! animation clock, and [`AmbientTimeScale`] constructs a [`TimeScale`] on that clock and reads
 //! its elapsed frame time.
@@ -14,7 +14,7 @@
 
 use massive_animation::{Animated, Interpolatable, Interpolation, TimeScale};
 use massive_scene::{
-    Change, Handle, Location, Object, SceneChange, Transform, UnenteredLocation, Visual,
+    Change, Handle, Location, Object, SceneChange, Transform, UnsubmittedLocation, Visual,
 };
 use massive_shapes::{GlyphRun, SizedTextShaper};
 use std::time::Duration;
@@ -33,58 +33,58 @@ impl AmbientShape for SizedTextShaper<'_> {
     }
 }
 
-/// Enter a scene value into the scene, making it active.
+/// Submit a scene value to the task's change queue, making it active.
 ///
-/// Entering publishes the create change into the task's change queue, and the returned handle
+/// Submitting publishes the create change into the task's change queue, and the returned handle
 /// keeps the object alive and carries later updates. Objects the renderer draws, like
-/// [`Visual`], become visible this way. The associated [`Entered`](Enter::Entered) type is the
-/// handle the caller receives: a location yields its transform and location handles, everything
-/// else its own handle.
-pub trait Enter: Sized {
-    type Entered;
+/// [`Visual`], become visible this way. The associated [`Submitted`](Submit::Submitted) type is
+/// the handle the caller receives: a location yields its transform and location handles,
+/// everything else its own handle.
+pub trait Submit: Sized {
+    type Submitted;
 
-    fn enter(self) -> Self::Entered;
+    fn submit(self) -> Self::Submitted;
 }
 
-impl Enter for UnenteredLocation {
-    type Entered = (Handle<Transform>, Handle<Location>);
+impl Submit for UnsubmittedLocation {
+    type Submitted = (Handle<Transform>, Handle<Location>);
 
-    /// A location is entered together with its transform, in one batch.
-    fn enter(self) -> Self::Entered {
-        task_context::with_changes(|collector| self.enter_in(collector))
+    /// A location is submitted together with its transform, in one batch.
+    fn submit(self) -> Self::Submitted {
+        task_context::with_changes(|collector| self.submit_to(collector))
     }
 }
 
-impl Enter for Visual {
-    type Entered = Handle<Self>;
+impl Submit for Visual {
+    type Submitted = Handle<Self>;
 
-    fn enter(self) -> Self::Entered {
-        enter_object(self)
+    fn submit(self) -> Self::Submitted {
+        submit_object(self)
     }
 }
 
-impl Enter for Location {
-    type Entered = Handle<Self>;
+impl Submit for Location {
+    type Submitted = Handle<Self>;
 
-    fn enter(self) -> Self::Entered {
-        enter_object(self)
+    fn submit(self) -> Self::Submitted {
+        submit_object(self)
     }
 }
 
-impl Enter for Transform {
-    type Entered = Handle<Self>;
+impl Submit for Transform {
+    type Submitted = Handle<Self>;
 
-    fn enter(self) -> Self::Entered {
-        enter_object(self)
+    fn submit(self) -> Self::Submitted {
+        submit_object(self)
     }
 }
 
-fn enter_object<T>(value: T) -> Handle<T>
+fn submit_object<T>(value: T) -> Handle<T>
 where
     T: Object + 'static,
     SceneChange: From<Change<T::Change>>,
 {
-    task_context::with_changes(|collector| massive_scene::enter(collector, value))
+    task_context::with_changes(|collector| massive_scene::submit(collector, value))
 }
 
 /// Advance animations on the current task's animation clock: the timestamp comes from the task's

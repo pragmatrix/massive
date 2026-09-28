@@ -628,7 +628,7 @@ impl DesktopSystem {
     ) -> Result<ChangeOutput> {
         match change {
             InstanceChange::Scene(change) => {
-                collect(change);
+                submit(change);
                 Ok(ChangeOutput::default())
             }
             InstanceChange::CreateView(creation_info) => {

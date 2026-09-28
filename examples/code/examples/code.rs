@@ -266,15 +266,15 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let mut renderer = window.renderer().with_text().build().await?;
 
-    let transform = application.get_transform(content_size).enter();
-    let location = transform.to_location().enter();
+    let transform = application.get_transform(content_size).submit();
+    let location = transform.to_location().submit();
 
     let _visual = glyph_runs
         .into_iter()
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
-        .enter();
+        .submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
