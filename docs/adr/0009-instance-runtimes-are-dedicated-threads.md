@@ -16,7 +16,7 @@ body. Spawning with `JoinSet` additionally forces the instance future to be `Sen
 ## Decision
 
 Each instance gets a dedicated OS thread created by `InstanceManager::spawn`, named
-`instance <id>`, running its own tokio runtime built inside the thread closure so
+`massive <id>`, running its own tokio runtime built inside the thread closure so
 its lifetime encloses `block_on`. The thread blocks on the instance future and
 reports `(InstanceId, result)` to the desktop over an mpsc channel that
 `join_next()` drains; the desktop's `select!` arms keep their meaning, only the

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::future::Future;
+use std::io;
 use std::panic::AssertUnwindSafe;
 use std::thread;
 
@@ -7,6 +8,8 @@ use anyhow::{Context, anyhow, bail};
 use derive_more::{Debug, From, Into};
 use futures::FutureExt;
 use log::warn;
+use panic_message::panic_message as panic_payload_message;
+use tokio::runtime::Builder;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
@@ -20,6 +23,10 @@ use massive_scene::{Location, Ref};
 use massive_shell::Result;
 
 use crate::application_registry::{Application, RuntimeKind};
+
+/// Prefix for the OS thread name of each instance thread; the [`InstanceId`] follows
+/// its debug form.
+const INSTANCE_THREAD_NAME_PREFIX: &str = "massive ";
 
 /// Manages running application instances with lifecycle control.
 ///
@@ -200,12 +207,12 @@ fn spawn_instance_thread<F>(
     instance_future: F,
     instance_task_context: TaskContext,
     completions_tx: UnboundedSender<(InstanceId, Result<()>)>,
-) -> std::io::Result<thread::JoinHandle<()>>
+) -> io::Result<thread::JoinHandle<()>>
 where
     F: Future<Output = Result<()>> + Send + 'static,
 {
     thread::Builder::new()
-        .name(format!("instance {instance_id:?}"))
+        .name(format!("{INSTANCE_THREAD_NAME_PREFIX}{instance_id:?}"))
         .spawn(move || {
             // The send is the only exit: every failure of [run_instance_future] becomes a
             // completion, so the manager never waits on an instance that cannot report.
@@ -227,13 +234,11 @@ where
     // The runtime is built inside the thread closure so its lifetime encloses `block_on`:
     // dropping a runtime before `spawn_blocking` work completes would abort the pty reader.
     let runtime = match runtime_kind {
-        RuntimeKind::CurrentThread => tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build(),
-        RuntimeKind::MultiThread => tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build(),
+        RuntimeKind::CurrentThread => Builder::new_current_thread(),
+        RuntimeKind::MultiThread => Builder::new_multi_thread(),
     }
+    .enable_all()
+    .build()
     .context("building an instance runtime")?;
     let result = runtime.block_on(task_context::with_context(
         instance_task_context,
@@ -241,13 +246,12 @@ where
     ));
     match result {
         Ok(result) => result,
-        Err(payload) => {
-            let message = payload
-                .downcast_ref::<&str>()
-                .copied()
-                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                .unwrap_or("<non-string panic payload>");
-            Err(anyhow!("Instance panicked : {message}"))
-        }
+        // `catch_unwind` yields `Box<dyn Any + Send>`, exactly the payload type
+        // `panic_message` takes — it unpacks `&str`/`String` payloads like rustc's
+        // default handler and falls back to "Box<dyn Any>" for anything else.
+        Err(payload) => Err(anyhow!(
+            "Instance panicked : {}",
+            panic_payload_message(&payload)
+        )),
     }
 }
