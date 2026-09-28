@@ -1,5 +1,7 @@
 # Instance runtime isolation plan
 
+Decision record: docs/adr/0009-instance-runtimes-are-dedicated-threads.md.
+
 ## Goal
 
 Remove the cooperative-scheduling hack from the instance run loop and give each
@@ -7,10 +9,11 @@ instance a runtime that the OS scheduler, not tokio, preempts:
 
 - instances no longer share the desktop's tokio worker pool;
 - `MassiveTerminal::run` no longer needs `task::yield_now().await` per iteration; and
-- the instance future's `Send` bound is no longer forced by spawning.
+- instances run on their own OS thread instead of the desktop task's worker pool.
 
 The change keeps the desktop application task, the render thread, and the shell
-event-loop wiring untouched.
+event-loop wiring untouched. The instance future's `Send` bound deliberately
+stays (see Current braid and ADR 0009).
 
 ## Current braid
 
@@ -27,28 +30,42 @@ the desktop is otherwise idle, and not a real fix for a long synchronous body.
 
 Spawning with `JoinSet` additionally forces the future to be `Send`, which pins
 instance state to `Send`-only machinery even though each instance future is
-single-owner by design.
+single-owner by design. (Relaxing that bound is out of scope here: it would change
+the public `Application` API for a benefit no current instance needs — recorded in
+ADR 0009.)
 
 ## Proposed direction
 
-### 1. One dedicated thread and a `current_thread` runtime per instance
+### 1. One dedicated thread and a runtime per instance
 
 `InstanceManager::spawn` stops using `JoinSet::spawn`. Instead it spawns a
-`std::thread` per instance whose closure builds a `current_thread` runtime,
-blocks on `with_context(instance_task_context, AssertUnwindSafe(future).catch_unwind())`,
+`std::thread` per instance — named `instance <id>` for observability in samplers —
+whose closure builds a tokio runtime, blocks on
+`with_context(instance_task_context, AssertUnwindSafe(future).catch_unwind())`,
 and reports `(InstanceId, result)` to the desktop over an mpsc channel that
 `join_next()` now drains. The desktop's `select!` arms on `join_next` keep their
 meaning; only the completion source changes.
+
+The thread is detached: shutdown stays cooperative (`request_shutdown_all` plus
+the bounded shutdown deadline); once the deadline expires the desktop bails and
+the process end reaps any un-cooperative instance thread. The manager never joins
+or aborts instance threads.
+
+Per-application runtime flavor: each `Application` selects its runtime kind
+(`current_thread` default, multi-thread opt-in) via a `RuntimeKind` field with a
+builder setter. No current instance has the internal parallelism that would
+warrant multi-thread, so the default stays cheap — but the choice lives at the
+application-definition site from the start rather than as a later variant.
 
 Preemption moves to the OS: an instance can burn a full time slice and the
 desktop thread still makes progress. The yield hack and its starvation comment
 are deleted (mt `src/main.rs`).
 
-`current_thread` covers every primitive the instance path uses: mpsc channels and
-`Notify` are runtime-independent, `spawn_blocking` (the pty reader) runs on the
-blocking pool, and everything owned by `TaskContext` lives inside the future's
-own scope. `block_on` on the instance thread accepts `!Send` futures, dropping
-the artificial constraint.
+`current_thread` covers every primitive the instance path uses today: mpsc
+channels and `Notify` are runtime-independent, and `spawn_blocking` (the pty
+reader) runs on the blocking pool — the same pool any runtime flavor provides.
+If an instance ever uses `tokio::spawn` or timers internally, that is the moment
+its application opts into the multi-thread flavor.
 
 ### 2. Create `TaskContext` where the task-locals will live
 
@@ -66,13 +83,13 @@ The runtime is built inside the thread closure so its lifetime encloses
 `block_on`: dropping a runtime before `spawn_blocking` work completes would
 abort the pty reader.
 
-### 3. Opt-in multi-thread runtime variant (deferred)
+### 3. Opt-in multi-thread runtime variant
 
-The wiring above is identical for both runtime kinds; only the builder lines
-differ. Adding the option is a one-variant enum on the instance policy once real
-parallelism inside an instance exists. No current instance has such a workload —
-every instance frame is strictly sequential with the pty reader as its only
-concurrent piece — so the variant waits for a first user.
+Applied to the initial implementation (ADR 0009): the wiring is identical for both
+runtime kinds — only the builder lines in the thread closure differ — so the
+per-application choice costs nothing now. `current_thread` remains the default and
+no instance opts into multi-thread today; adding it is one chained setter on
+`Application`.
 
 ### 4. Drop `mt`'s `#[tokio::main]`
 
@@ -84,11 +101,10 @@ from the launch path.
 
 ## Sequencing
 
-1. Thread + `current_thread` isolation with `TaskContext` creation moved to the
-   closure boundary; delete `yield_now` and the starvation comment.
+1. Thread + runtime isolation with `TaskContext` creation moved to the closure
+   boundary, per-application `RuntimeKind`, named threads, detached-thread
+   completion via mpsc; delete `yield_now` and the starvation comment.
 2. Remove `#[tokio::main]` from mt.
-3. The `InstanceRuntimeKind` enum (step 3 above) only when an instance needs
-   internal parallelism.
 
 ## Validation
 
