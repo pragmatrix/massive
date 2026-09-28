@@ -1,12 +1,16 @@
 use std::collections::HashMap;
+use std::future::Future;
+use std::io;
 use std::panic::AssertUnwindSafe;
+use std::thread;
 
-use anyhow::{Context, anyhow};
+use anyhow::{Context, anyhow, bail};
 use derive_more::{Debug, From, Into};
 use futures::FutureExt;
 use log::warn;
-use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
-use tokio::task::JoinSet;
+use panic_message::panic_message as panic_payload_message;
+use tokio::runtime::Builder;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 use massive_animation::{AnimationCoordinator, MovementRuntime};
 use massive_applications::task_context::{self, TaskContext};
@@ -18,14 +22,26 @@ use massive_scene::AnyCollector;
 use massive_scene::{Location, Ref};
 use massive_shell::Result;
 
-use crate::application_registry::Application;
+use crate::application_registry::{Application, RuntimeKind};
+
+/// Prefix for the OS thread name of each instance thread; the [`InstanceId`] follows
+/// its debug form.
+const INSTANCE_THREAD_NAME_PREFIX: &str = "massive ";
 
 /// Manages running application instances with lifecycle control.
+///
+/// Each instance runs on its own dedicated OS thread with its own runtime, detached from
+/// the desktop's shared worker pool (ADR 0009). Completions arrive on the mpsc channel;
+/// the threads are never joined or aborted — shutdown is cooperative and the process end
+/// reaps threads that outlive the shutdown deadline.
 #[derive(Debug)]
 pub struct InstanceManager {
     instances: HashMap<InstanceId, RunningInstance>,
     environment: InstanceEnvironment,
-    join_set: JoinSet<(InstanceId, Result<()>)>,
+    /// Sender the instance threads report their result on. Held by the manager so the
+    /// receiver in `completions_rx` stays open between spawns.
+    completions_tx: UnboundedSender<(InstanceId, Result<()>)>,
+    completions_rx: UnboundedReceiver<(InstanceId, Result<()>)>,
 }
 
 #[derive(Debug)]
@@ -43,10 +59,12 @@ pub struct ViewPath {
 
 impl InstanceManager {
     pub fn new(environment: InstanceEnvironment) -> Self {
+        let (completions_tx, completions_rx) = unbounded_channel();
         Self {
             environment,
             instances: HashMap::new(),
-            join_set: JoinSet::new(),
+            completions_tx,
+            completions_rx,
         }
     }
 
@@ -63,30 +81,29 @@ impl InstanceManager {
         let instance_context =
             InstanceContext::new(instance_id, creation_mode, environment, root, events_rx);
         let instance_future = (application.run)(instance_context);
+        let runtime_kind = application.runtime_kind;
         // Own coordinator per instance: a timestamp from one instance must not affect another's
-        // animations when instances are applied in parallel. The shaping context is a fresh
-        // scratch over the manager the task context reaches, so instances shape in parallel on
-        // their own scratch (ADR 0006) — and, like the future, it must be created
-        // here: spawned tasks do not inherit task-local values. The change queue collects the
-        // typed instance changes, scene changes interleaved via the erased sink (ADR 0008).
+        // animations when instances run in parallel. The shaping context is a fresh scratch over
+        // the manager the task context reaches, so instances shape in parallel on their own
+        // scratch (ADR 0006) — and it must be created here, on the desktop task: the instance
+        // thread runs outside the desktop's task-locals (ADR 0008/0009). ShapingContext is
+        // Send, so the move into the thread closure is sound.
         let instance_task_context = TaskContext::new(
             AnyCollector::for_type::<InstanceChange>(),
             AnimationCoordinator::new(),
             MovementRuntime::default(),
             task_context::fonts().new_shaping_context(),
         );
-        self.join_set.spawn(async move {
-            let result = task_context::with_context(
-                instance_task_context,
-                AssertUnwindSafe(instance_future).catch_unwind(),
-            )
-            .await;
-            let result = match result {
-                Ok(r) => r,
-                Err(e) => Err(anyhow!("Instance panicked : {e:?}")),
-            };
-            (instance_id, result)
-        });
+        let completions_tx = self.completions_tx.clone();
+        // Detached thread: the manager never joins or aborts it (ADR 0009).
+        spawn_instance_thread(
+            instance_id,
+            runtime_kind,
+            instance_future,
+            instance_task_context,
+            completions_tx,
+        )
+        .with_context(|| format!("Spawning instance thread for {instance_id:?}"))?;
 
         self.instances.insert(
             instance_id,
@@ -108,8 +125,8 @@ impl InstanceManager {
         Ok(())
     }
 
-    /// Begin the shutdown of an instance by sending [`ApplicationMessage::Shutdown`]. Returns immediately
-    /// after sending the event
+    /// Begin the shutdown of an instance by sending [`ApplicationMessage::Shutdown`]. Returns
+    /// immediately after sending the event
     pub fn request_shutdown(&self, instance_id: InstanceId) -> Result<()> {
         let instance = self.instances.get(&instance_id).ok_or_else(|| {
             anyhow!(
@@ -130,11 +147,18 @@ impl InstanceManager {
     }
 
     /// Wait for the next instance to complete and handle cleanup.
+    ///
+    /// Returns an error when no instances are running, or when the completion
+    /// channel closed because the manager was dropped.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
-        let join_result = self.join_set.join_next().await;
-        let (instance_id, result) = join_result
-            .ok_or_else(|| anyhow!("No instances in JoinSet"))?
-            .map_err(|e| anyhow!("Task cancelled: {}", e))?;
+        if self.instances.is_empty() {
+            bail!("No instances in InstanceManager");
+        }
+        let (instance_id, result) = self
+            .completions_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("Instance completion channel closed"))?;
         self.instances.remove(&instance_id);
         Ok((instance_id, result))
     }
@@ -169,5 +193,65 @@ impl InstanceManager {
         self.instances
             .get(&instance)
             .ok_or_else(|| anyhow!("Instance {:?} does not exist", instance))
+    }
+}
+
+/// Run one instance future on its own dedicated OS thread (ADR 0009).
+///
+/// The thread is detached: it reports `(InstanceId, result)` on the completion channel and
+/// the manager never joins or aborts it — shutdown is cooperative and the process end reaps
+/// threads that outlive the shutdown deadline.
+fn spawn_instance_thread<F>(
+    instance_id: InstanceId,
+    runtime_kind: RuntimeKind,
+    instance_future: F,
+    instance_task_context: TaskContext,
+    completions_tx: UnboundedSender<(InstanceId, Result<()>)>,
+) -> io::Result<thread::JoinHandle<()>>
+where
+    F: Future<Output = Result<()>> + Send + 'static,
+{
+    thread::Builder::new()
+        .name(format!("{INSTANCE_THREAD_NAME_PREFIX}{instance_id:?}"))
+        .spawn(move || {
+            // The send is the only exit: every failure of [run_instance_future] becomes a
+            // completion, so the manager never waits on an instance that cannot report.
+            let result = run_instance_future(runtime_kind, instance_future, instance_task_context);
+            let _ = completions_tx.send((instance_id, result));
+        })
+}
+
+/// Build the instance runtime and drive the instance future to completion, converting a
+/// panic into an error result.
+fn run_instance_future<F>(
+    runtime_kind: RuntimeKind,
+    instance_future: F,
+    instance_task_context: TaskContext,
+) -> Result<()>
+where
+    F: Future<Output = Result<()>> + Send + 'static,
+{
+    // The runtime is built inside the thread closure so its lifetime encloses `block_on`:
+    // dropping a runtime before `spawn_blocking` work completes would abort the pty reader.
+    let runtime = match runtime_kind {
+        RuntimeKind::CurrentThread => Builder::new_current_thread(),
+        RuntimeKind::MultiThread => Builder::new_multi_thread(),
+    }
+    .enable_all()
+    .build()
+    .context("building an instance runtime")?;
+    let result = runtime.block_on(task_context::with_context(
+        instance_task_context,
+        AssertUnwindSafe(instance_future).catch_unwind(),
+    ));
+    match result {
+        Ok(result) => result,
+        // `catch_unwind` yields `Box<dyn Any + Send>`, exactly the payload type
+        // `panic_message` takes — it unpacks `&str`/`String` payloads like rustc's
+        // default handler and falls back to "Box<dyn Any>" for anything else.
+        Err(payload) => Err(anyhow!(
+            "Instance panicked : {}",
+            panic_payload_message(&payload)
+        )),
     }
 }

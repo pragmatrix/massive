@@ -24,6 +24,7 @@ derive_more.workspace = true
 euclid.workspace = true
 futures.workspace = true
 log.workspace = true
+panic-message.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 strum.workspace = true
