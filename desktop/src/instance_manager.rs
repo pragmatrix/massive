@@ -193,9 +193,7 @@ impl InstanceManager {
 ///
 /// The thread is detached: it reports `(InstanceId, result)` on the completion channel and
 /// the manager never joins or aborts it — shutdown is cooperative and the process end reaps
-/// threads that outlive the shutdown deadline. The runtime is built inside the closure so
-/// its lifetime encloses `block_on`: dropping a runtime before `spawn_blocking` work
-/// completes would abort the pty reader.
+/// threads that outlive the shutdown deadline.
 fn spawn_instance_thread<F>(
     instance_id: InstanceId,
     runtime_kind: RuntimeKind,
@@ -209,38 +207,47 @@ where
     thread::Builder::new()
         .name(format!("instance {instance_id:?}"))
         .spawn(move || {
-            let runtime = match runtime_kind {
-                RuntimeKind::CurrentThread => tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build(),
-                RuntimeKind::MultiThread => tokio::runtime::Builder::new_multi_thread()
-                    .enable_all()
-                    .build(),
-            };
-            let runtime = match runtime {
-                Ok(runtime) => runtime,
-                // Report the failure on the completion channel instead of panicking: a
-                // panic below would skip the send and leave `join_next` waiting forever.
-                Err(e) => {
-                    let _ = completions_tx.send((instance_id, Err(e.into())));
-                    return;
-                }
-            };
-            let result = runtime.block_on(task_context::with_context(
-                instance_task_context,
-                AssertUnwindSafe(instance_future).catch_unwind(),
-            ));
-            let result = match result {
-                Ok(r) => r,
-                Err(e) => {
-                    let message = e
-                        .downcast_ref::<&str>()
-                        .copied()
-                        .or_else(|| e.downcast_ref::<String>().map(String::as_str))
-                        .unwrap_or("<non-string panic payload>");
-                    Err(anyhow!("Instance panicked : {message}"))
-                }
-            };
+            // The send is the only exit: every failure of [run_instance_future] becomes a
+            // completion, so the manager never waits on an instance that cannot report.
+            let result = run_instance_future(runtime_kind, instance_future, instance_task_context);
             let _ = completions_tx.send((instance_id, result));
         })
+}
+
+/// Build the instance runtime and drive the instance future to completion, converting a
+/// panic into an error result.
+fn run_instance_future<F>(
+    runtime_kind: RuntimeKind,
+    instance_future: F,
+    instance_task_context: TaskContext,
+) -> Result<()>
+where
+    F: Future<Output = Result<()>> + Send + 'static,
+{
+    // The runtime is built inside the thread closure so its lifetime encloses `block_on`:
+    // dropping a runtime before `spawn_blocking` work completes would abort the pty reader.
+    let runtime = match runtime_kind {
+        RuntimeKind::CurrentThread => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build(),
+        RuntimeKind::MultiThread => tokio::runtime::Builder::new_multi_thread()
+            .enable_all()
+            .build(),
+    }
+    .context("building an instance runtime")?;
+    let result = runtime.block_on(task_context::with_context(
+        instance_task_context,
+        AssertUnwindSafe(instance_future).catch_unwind(),
+    ));
+    match result {
+        Ok(result) => result,
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .copied()
+                .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+                .unwrap_or("<non-string panic payload>");
+            Err(anyhow!("Instance panicked : {message}"))
+        }
+    }
 }
