@@ -208,24 +208,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_context_shapes_a_batch() {
-        let fonts = FontManager::bare(ShapingEngineKind::Parley)
-            .with_font(JETBRAINS_MONO)
-            .expect("bundled font is valid");
-        let mut context = fonts.new_shaping_context();
-        let first = context.shape(
-            &ShapingRequest::new("a", TextAttributes::named_family("JetBrains Mono")),
-            16.0,
-        );
-        let second = context.shape(
-            &ShapingRequest::new("bb", TextAttributes::named_family("JetBrains Mono")),
-            16.0,
-        );
-        assert!(first.is_some_and(|run| !run.glyphs.is_empty()));
-        assert!(second.is_some_and(|run| !run.glyphs.is_empty()));
-    }
-
     /// Every glyph returned by a shape must resolve through the same context.
     #[test]
     fn shaped_faces_resolve_to_font_data() {

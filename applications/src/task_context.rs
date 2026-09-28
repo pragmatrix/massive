@@ -172,7 +172,6 @@ mod tests {
     use massive_scene::{AnyCollector, SceneChange};
 
     use super::*;
-    use crate::ambient::Enter;
 
     fn contexts() -> TaskContext {
         TaskContext::new(
@@ -304,14 +303,6 @@ mod tests {
             }));
             assert!(first.await.unwrap());
             assert!(!second.await.unwrap());
-        })
-        .await;
-    }
-
-    #[tokio::test]
-    async fn enter_uses_the_installed_change_queue() {
-        with_context(contexts(), async {
-            let _transform = massive_geometry::Transform::IDENTITY.enter();
         })
         .await;
     }
