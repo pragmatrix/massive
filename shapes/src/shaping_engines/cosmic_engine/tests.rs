@@ -10,7 +10,7 @@ use fontdb::Source;
 use super::*;
 
 /// A bundled font (SIL OFL 1.1) used as the data behind a synthetic face entry.
-const JETBRAINS_MONO: &'static [u8] = include_bytes!(
+const JETBRAINS_MONO: &[u8] = include_bytes!(
     "../../../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
 );
 
