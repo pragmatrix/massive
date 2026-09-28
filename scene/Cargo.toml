@@ -21,6 +21,8 @@ tokio = { workspace = true }
 
 [dev-dependencies]
 criterion = { workspace = true }
+# For the `SceneChange` trait-impl assertions.
+static_assertions = { workspace = true }
 # For task_local! in the push-cost benchmark.
 tokio = { workspace = true, features = ["rt", "macros"] }
 
