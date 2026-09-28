@@ -14,6 +14,7 @@ use std::fmt;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
+use std::thread;
 
 use massive_shapes::ShapingContext;
 
@@ -65,7 +66,7 @@ impl Drop for Shaper {
                 let mut slot = slot.borrow_mut();
                 if slot.is_none() {
                     *slot = Some(context);
-                } else if std::thread::panicking() {
+                } else if thread::panicking() {
                     // A refilled slot means the task's context would be silently discarded here,
                     // and the next `shaper()` would panic with a misleading reentrancy message.
                     // This is a real invariant breach, but panicking while unwinding would abort
@@ -92,28 +93,35 @@ impl Drop for Shaper {
 /// The guard is short-lived by contract: it owns the task's context (and with it the exclusive
 /// scratch), so two open guards panic rather than alias (ADR 0006, ADR 0008).
 pub fn shaper() -> Shaper {
-    SHAPER
-        .try_with(|slot| {
-            let mut context = slot.borrow_mut().take().unwrap_or_else(|| {
+    Shaper::of_task()
+}
+
+impl Shaper {
+    /// The task's shaping guard: checkout of [`shaper`].
+    pub fn of_task() -> Shaper {
+        SHAPER
+            .try_with(|slot| {
+                let mut context = slot.borrow_mut().take().unwrap_or_else(|| {
+                    panic!(
+                        "shaping reentrancy: the task-local slot is empty because a Shaper guard is \
+                         already open in this task; drop the guard before opening another"
+                    )
+                });
+                // Open-time sync and snapshot: a read taken before the batch's first shape must see
+                // the world as it is now, not as the context last saw it.
+                context.refresh();
+                Shaper {
+                    context: Some(context),
+                    _not_send: PhantomData,
+                }
+            })
+            .unwrap_or_else(|_| {
                 panic!(
-                    "shaping reentrancy: the task-local slot is empty because a Shaper guard is \
-                     already open in this task; drop the guard before opening another"
+                    "no shaping context installed: a shaper requires the task context, so call \
+                     task_context::with_context before opening one"
                 )
-            });
-            // Open-time sync and snapshot: a read taken before the batch's first shape must see the
-            // world as it is now, not as the context last saw it.
-            context.refresh();
-            Shaper {
-                context: Some(context),
-                _not_send: PhantomData,
-            }
-        })
-        .unwrap_or_else(|_| {
-            panic!(
-                "no shaping context installed: a shaper requires the task context, so call \
-                 task_context::with_context before opening one"
-            )
-        })
+            })
+    }
 }
 
 #[cfg(test)]

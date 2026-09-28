@@ -37,16 +37,23 @@ task_local! {
     static SHAPER: RefCell<Option<ShapingContext>>;
 }
 
-/// The contexts installed together for one UI task.
+/// The contexts a UI task runs with: its change queue, animation coordinator, movement runtime,
+/// and shaping context.
+///
+/// [`with_context`] installs them as the task's task-locals, so every call inside the task reaches
+/// the same queue, clock, movement runtime, and scratch. Each instance and the application task
+/// build their own, which is what keeps one task's animation and shaping state out of another's
+/// (ADR 0006, ADR 0008).
 #[derive(Debug)]
 pub struct TaskContext {
-    changes: AnyCollector,
-    animation: AnimationCoordinator,
-    movement: MovementRuntime,
-    shaping_context: ShapingContext,
+    pub changes: AnyCollector,
+    pub animation: AnimationCoordinator,
+    pub movement: MovementRuntime,
+    pub shaping_context: ShapingContext,
 }
 
 impl TaskContext {
+    /// The contexts of one UI task.
     pub fn new(
         changes: AnyCollector,
         animation: AnimationCoordinator,
@@ -60,30 +67,18 @@ impl TaskContext {
             shaping_context,
         }
     }
-
-    fn into_parts(
-        self,
-    ) -> (
-        AnyCollector,
-        AnimationCoordinator,
-        MovementRuntime,
-        ShapingContext,
-    ) {
-        (
-            self.changes,
-            self.animation,
-            self.movement,
-            self.shaping_context,
-        )
-    }
 }
 
-async fn with_all_contexts<F: Future>(
-    changes: AnyCollector,
-    animation_state: RefCell<AnimationState>,
-    shaping_context: ShapingContext,
-    future: F,
-) -> F::Output {
+/// Run a future with the supplied contexts installed as task-local values.
+pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Output {
+    let TaskContext {
+        changes,
+        animation,
+        movement,
+        shaping_context,
+    } = contexts;
+    // One `AnimationState` owns the coordinator and the movement runtime for the task's lifetime.
+    let animation_state = RefCell::new(AnimationState::new(animation, movement));
     CHANGES
         .scope(changes, async move {
             ANIMATION
@@ -95,18 +90,6 @@ async fn with_all_contexts<F: Future>(
                 .await
         })
         .await
-}
-
-/// Run a future with the supplied contexts installed as task-local values.
-pub async fn with_context<F: Future>(contexts: TaskContext, future: F) -> F::Output {
-    let (changes, animation, movement, shaping_context) = contexts.into_parts();
-    with_all_contexts(
-        changes,
-        RefCell::new(AnimationState::new(animation, movement)),
-        shaping_context,
-        future,
-    )
-    .await
 }
 
 /// The font manager of the current task's shaping owner: the manager the shell built from the

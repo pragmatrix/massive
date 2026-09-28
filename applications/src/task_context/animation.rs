@@ -59,14 +59,14 @@ pub struct FrameWitness {
     created_at: &'static Location<'static>,
 }
 
-/// Mutably borrow the task's animation state, panicking on re-entry.
-pub fn with_animation_state<R>(f: impl FnOnce(&mut AnimationState) -> R) -> R {
-    ANIMATION.with(|state| {
-        let mut state = state
-            .try_borrow_mut()
-            .unwrap_or_else(|_| panic!("task_context animation state was re-entered"));
-        f(&mut state)
-    })
+/// The current frame's animation timestamp: the cycle's start time.
+pub fn animation_time() -> Instant {
+    with_frame_animation(|animation| animation.animation_time())
+}
+
+/// Allocate an animation duration on the current frame's clock and return its start time.
+pub fn allocate_animation_time(duration: Duration) -> Instant {
+    with_frame_animation(|animation| animation.allocate_animation_time(duration))
 }
 
 /// Mutably access the current task's animation coordinator. Requires a live frame.
@@ -78,16 +78,6 @@ pub fn with_frame_animation<R>(f: impl FnOnce(&mut AnimationCoordinator) -> R) -
         state.assert_frame_live();
         f(&mut state.coordinator)
     })
-}
-
-/// The current frame's animation timestamp: the cycle's start time.
-pub fn animation_time() -> Instant {
-    with_frame_animation(|animation| animation.animation_time())
-}
-
-/// Allocate an animation duration on the current frame's clock and return its start time.
-pub fn allocate_animation_time(duration: Duration) -> Instant {
-    with_frame_animation(|animation| animation.allocate_animation_time(duration))
 }
 
 /// Mutably access the current task's animation coordinator and movement runtime together, without
@@ -181,4 +171,14 @@ where
             ))
         })
     }
+}
+
+/// Mutably borrow the task's animation state, panicking on re-entry.
+pub fn with_animation_state<R>(f: impl FnOnce(&mut AnimationState) -> R) -> R {
+    ANIMATION.with(|state| {
+        let mut state = state
+            .try_borrow_mut()
+            .unwrap_or_else(|_| panic!("task_context animation state was re-entered"));
+        f(&mut state)
+    })
 }
