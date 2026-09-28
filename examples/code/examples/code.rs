@@ -24,11 +24,12 @@ use syntax::{AstNode, SyntaxKind, WalkEvent};
 use vfs::VfsPath;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::{Color, SizePx};
 use massive_scene::prelude::*;
-use massive_shapes::{ShapingEngineKind, TextWeight};
+use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, AttributedText, TextAttribute};
@@ -58,7 +59,7 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run(application)
+    shell::run(application, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
@@ -72,8 +73,9 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .unwrap()
         .join(Path::new("examples/code/examples"));
 
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+    // The shell built the task's manager from the font policy this application names, so shaping
+    // and rendering share one identity world (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     let cargo_config = CargoConfig {
         // need to be able to look up examples.
@@ -244,14 +246,12 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = attributed_text::shape_text(
-        &mut fonts.shaper(),
-        text,
-        &attributes,
-        font_size,
-        line_height,
-        None,
-    );
+    // The handle is `!Send` and is dropped at the end of this block, before any await, so the
+    // example's future stays `Send` for the shell.
+    let (glyph_runs, height) = {
+        let mut shaper = shaper();
+        attributed_text::shape_text(&mut shaper, text, &attributes, font_size, line_height, None)
+    };
 
     // Window
 
@@ -264,23 +264,17 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
 
-    let scene = ctx.new_scene();
+    let mut renderer = window.renderer().with_text().build().await?;
 
-    let mut renderer = window
-        .renderer()
-        .with_text(fonts.registry_source())
-        .build()
-        .await?;
-
-    let transform = application.get_transform(content_size).enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).submit();
+    let location = transform.to_location().submit();
 
     let _visual = glyph_runs
         .into_iter()
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
-        .enter(&scene);
+        .submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -305,7 +299,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }
 

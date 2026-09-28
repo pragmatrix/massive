@@ -5,18 +5,19 @@ use tracing::info;
 use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
-use massive_shapes::ShapingEngineKind;
+use massive_shapes::{FontPolicy, ShapingEngineKind};
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text::{self, AttributedText};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(code_viewer)
+    shell::run(code_viewer, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
@@ -42,8 +43,9 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     //     // .with(chrome_layer)
     //     .init();
 
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+    // The shell built the task's manager from the font policy this application names, so shaping
+    // and rendering share one identity world (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     // Load code.
 
@@ -59,14 +61,19 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // let font_size = 16.;
     // let line_height = 20.;
 
-    let (glyph_runs, height) = attributed_text::shape_text(
-        &mut fonts.shaper(),
-        &code.text,
-        &code.attributes,
-        font_size,
-        line_height,
-        None,
-    );
+    // The handle is `!Send` and is dropped at the end of this block, before any await, so the
+    // example's future stays `Send` for the shell.
+    let (glyph_runs, height) = {
+        let mut shaper = shaper();
+        attributed_text::shape_text(
+            &mut shaper,
+            &code.text,
+            &code.attributes,
+            font_size,
+            line_height,
+            None,
+        )
+    };
 
     // Application
 
@@ -80,17 +87,12 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
     // So we compute the proper physical for now.
     // spellcheck: ignore
     // let physical_size = initial_size.to_physical(window.scale_factor());
-    let scene = ctx.new_scene();
-    let mut renderer = window
-        .renderer()
-        .with_text(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     let content_size = SizePx::new(1280, height as u32);
     let mut application = Application::default();
-    let transform = application.get_transform(content_size).enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).submit();
+    let location = transform.to_location().submit();
 
     // Hold the visual in this context, otherwise it will disappear.
     let _visual = glyph_runs
@@ -98,7 +100,7 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
         .map(|m| m.into())
         .collect::<Vec<_>>()
         .at(&location)
-        .enter(&scene);
+        .submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -121,6 +123,6 @@ async fn code_viewer(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }

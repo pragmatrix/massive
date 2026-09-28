@@ -2,6 +2,7 @@ mod clip_box;
 mod engine;
 mod face_metrics;
 mod font_manager;
+mod font_validation;
 mod glyph_run;
 mod shape;
 mod shaping_engines;
@@ -73,7 +74,9 @@ impl<'a> SizedTextShaper<'a> {
         }
     }
 
-    pub fn shape(self, shaper: &mut Shaper<'_>) -> Option<GlyphRun> {
+    /// Shape with the caller's own context, for code that already holds one (tests, benchmarks,
+    /// shaping outside a task context).
+    pub fn shape_with(self, shaper: &mut ShapingContext) -> Option<GlyphRun> {
         self.layouter.layout(shaper, self.font_size)
     }
 }

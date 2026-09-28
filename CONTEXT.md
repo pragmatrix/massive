@@ -96,23 +96,77 @@ _Avoid_: registered face
 
 **Resolved face**:
 A font face the shaper selected while shaping (typically as a fallback for a codepoint the requested family lacks) that was not loaded beforehand. It is registered on first use through the face authority and published immediately.
-_Avoid_: minted face, minted font, interned face, interning (collides with string interning), lazy intern, adopted face
+_Avoid_: interned face, interning (collides with string interning), lazy intern, adopted face
 
 **Face authority**:
 The single issuer of `FaceId`s — the canonical shaping engine behind the `FontManager` mutex. All loaded and resolved faces enter the identity world through it.
-_Avoid_: mint authority
 
 **Candidate pool**:
 Faces available to the shaper for implicit selection (system fonts when the manager is created with `system()`) that are not in the identity world. A candidate pool face exists only for selection; it joins the published world only once actually resolved.
 _Avoid_: system font db, fallback fonts (as a synonym for the pool)
 
 **Published registry**:
-The immutable snapshot mapping every known `FaceId` (loaded and resolved faces) to font data and metrics, read lock-free by the renderer and by session resolution.
-_Avoid_: font registry (ambiguous with the candidate pool), minted registry
+The immutable snapshot mapping every known `FaceId` (loaded and resolved faces) to font data and metrics, read lock-free by the renderer and by a shaping context's own resolution.
+_Avoid_: font registry (ambiguous with the candidate pool)
 
 **Registry sync**:
-The per-session-open step where a scratch compares the published registry's face count against its last-seen count and loads faces it has not seen yet. Keeps per-handle shapers aligned with the identity world without locking.
+The per-shape step where a scratch compares the published registry's face count against its last-seen count and loads faces it has not seen yet. Keeps a context's scratch aligned with the identity world without locking; it runs before every shape, so a loaded face is visible to the next shape rather than the next batch.
 _Avoid_: epoch sync, epoch-pull, seed
 
-**Session**:
-One acquisition of a handle's exclusive shaper: registry snapshot + scratch, opened by `FontManager::shaper` and dropped before the frame's output is submitted.
+**Shaping session**:
+One shaping batch over a context: the context plus its registry snapshot, opened by
+`task_context::shaper` and dropped before the frame's output is submitted.
+_Avoid_: session, shaper session, shaper handle
+
+**Bare manager**:
+A font manager with no fonts and no fallback candidates, so selection can only reach fonts the application loaded itself.
+_Avoid_: empty manager, registry-only collection
+
+**Font policy**:
+The pair of a shaping engine and whether system fonts are available for selection. Named by the
+client and passed to `shell::run`, which builds the application task's font manager from it and
+installs the task's shaping context in the same step. A face is only meaningful within the manager
+that issued it, so the manager a task shapes with cannot change after that.
+_Avoid_: font settings, font config
+
+**Shaping context**:
+A task's shaping owner: it *is* the shaping session, holding the exclusive shaping scratch over the shared font manager's face authority and published registry. Every task context has exactly one; on the ambient path it is lent out by the `task_context::shaper` guard.
+
+**Task context**:
+The contexts installed for one Tokio task: its change queue, animation coordinator, movement runtime, and shaping context.
+
+**Change queue**:
+The changes one task submits together, in the order their writers produced them. Each UI
+task owns exactly one queue; its change type (`SceneChange` for the application task's
+render queue, `InstanceChange` for an instance's submission queue) is fixed at install
+time, and the frame drains the queue into a submission at animation-cycle end (ADR 0008).
+_Avoid_: change stream
+
+**Change collector**:
+The lock-guarded accumulation a change queue is stored in: an ordered set of changes of
+exactly one type. The change type is fixed when the collector is created, so a collector
+never has to check what it receives; draining takes the accumulated changes out in order.
+Every change queue is backed by exactly one collector.
+_Avoid_: change buffer, change list
+
+**Change sink**:
+The write-only view of a change queue that handles hold. It accepts scene changes and
+retypes them into the queue's own change type, so a handle never knows the queue's change
+kind. Erasing the sink is what lets one queue per task serve every handle.
+_Avoid_: change stream, sender, channel
+
+**Submit**:
+Create an object handle and add it to the task's change queue: the handle publishes
+its create into that queue, and its later updates and deletion follow the same path.
+Because handles hold the erased sink, their changes land in the same FIFO as the task's
+own changes.
+_Avoid_: connect, enter
+
+**Mounting**:
+Wiring a movement's value and apply-animations callback into a task's movement runtime, done once at presenter construction, before any frame exists. Mounting only enqueues the movement's actions; it does not animate or read the animation clock.
+
+**Exclusive animation-cycle lease**:
+The live `Frame` value that owns one animation cycle and prevents another cycle from using the same mutable animation contexts concurrently.
+
+**Shaping scratch**:
+Per-task font and layout state owned by a shaping context, distinct from the shared font registry. It outlives a batch, so its fallback-resolution caches survive across frames.

@@ -1,23 +1,20 @@
 //! The context for an instance.
 
-use std::sync::Arc;
-
 use anyhow::{Result, bail};
-use derive_more::Deref;
 use log::{error, trace, warn};
 use tokio::sync::mpsc::UnboundedReceiver;
 
-use massive_animation::{AnimationCoordinator, MovementRuntime};
-use massive_renderer::{FontManager, RenderPacing};
-use massive_scene::{HandleChangeReceiver, Location, Ref, SceneChange};
-use massive_util::CoalescingReceiver;
+use massive_renderer::RenderPacing;
+use massive_scene::{Location, Ref, SceneChange};
+use massive_util::{ChangeCollector, ChangeSet, CoalescingReceiver};
 
+use crate::prelude::*;
 use crate::view_builder::ViewBuilder;
 use crate::{
-    ApplicationEvent, ApplicationMessage, ConfigurationRequest, Frame, FrameSubmission,
-    InstanceChange, InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, Scene,
-    ViewExtent,
+    ApplicationEvent, ApplicationMessage, ConfigurationRequest, FrameSubmission, InstanceChange,
+    InstanceEnvironment, InstanceId, InstanceParameters, InstanceSubmission, ViewExtent,
 };
+use crate::{pacing_for, task_context};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CreationMode {
@@ -25,13 +22,12 @@ pub enum CreationMode {
     Restore,
 }
 
-// Need a newtype here for the orphan rule.
-#[derive(Debug, Default, Deref)]
-pub struct InstanceChangeCollector(massive_util::ChangeCollector<InstanceChange>);
+/// The instance's change queue: scene changes interleaved with instance changes (ADR 0008).
+pub type InstanceChangeCollector = ChangeCollector<InstanceChange>;
 
-impl HandleChangeReceiver for InstanceChangeCollector {
-    fn send(&self, change: SceneChange) {
-        self.0.collect(InstanceChange::Scene(change))
+impl From<SceneChange> for InstanceChange {
+    fn from(change: SceneChange) -> Self {
+        Self::Scene(change)
     }
 }
 
@@ -41,15 +37,6 @@ pub struct InstanceContext {
     creation_mode: CreationMode,
     environment: InstanceEnvironment,
     view_parent: Ref<Location>,
-
-    /// We currently use one Scene per Context, so that everything is ordered properly. This also
-    /// contains the AnimationCoordinator, which we need one only per instance anyway.
-    animation_coordinator: AnimationCoordinator,
-    movement_runtime: MovementRuntime,
-
-    /// The current changes of this instance. This includes all Scene changes interleaved with the
-    /// instance changes (in order).
-    changes: Arc<InstanceChangeCollector>,
 
     /// This is here so that we don't submit empty instance submissions when the pacing did not
     /// change.
@@ -61,14 +48,14 @@ pub struct InstanceContext {
 impl Drop for InstanceContext {
     fn drop(&mut self) {
         warn!("Submitting final instance changes: instance={:?}", self.id);
-        // If the instance ends, we _must_ submit all pending changes.
-        self.changes
-            .collect(InstanceChange::End(self.view_parent.clone()));
-        let pacing = if self.animation_coordinator.end_cycle() {
-            RenderPacing::Smooth
-        } else {
-            RenderPacing::Fast
-        };
+        // If the instance ends, we _must_ submit all pending changes. The End is pushed last so
+        // the desktop observes it behind every pending change of this submission.
+        submit(InstanceChange::End(self.view_parent.clone()));
+        // Teardown runs after the run loop returned, so no frame is live. The detached frame end
+        // witnesses animation access for this one teardown (joining, not replacing, a frame held
+        // across a panic unwind), flushes queued movement actions, closes the cycle and never
+        // panics — this is a Drop. How the cycle ends is the final pacing.
+        let pacing = pacing_for(task_context::end_frame_cycle_detached());
         if let Err(e) = self.submit_with_pacing(pacing) {
             error!("Final instance submit error for {:?}: {e:?}", self.id);
         }
@@ -83,26 +70,11 @@ impl InstanceContext {
         view_parent: Ref<Location>,
         events: UnboundedReceiver<ApplicationMessage>,
     ) -> Self {
-        // ADR: Every instance gets its own animation coordinator and its timestamp is reset as soon
-        // the scene is rendered. This way, consistence can be preserved when animations are applied
-        // in several instances in parallel. Otherwise, timestamps from one instance could affect the
-        // other.
-        let animation_coordinator = AnimationCoordinator::new();
-
-        // ADR: Every instance gets its own change collector, because of ordering constraints
-        // between the commands sent to the desktop and the scene updates (they must be processed in
-        // order by the desktop, otherwise it could happen that Visual refer to Locations /
-        // Transforms that are not available anymore).
-        let changes = InstanceChangeCollector::default();
-
         Self {
             id,
             creation_mode,
             environment,
             view_parent,
-            animation_coordinator,
-            movement_runtime: MovementRuntime::default(),
-            changes: changes.into(),
             last_submitted_pacing: RenderPacing::Fast,
             events: events.into(),
         }
@@ -127,53 +99,34 @@ impl InstanceContext {
         self.environment.primary_monitor_scale_factor
     }
 
-    pub fn fonts(&self) -> &FontManager {
-        &self.environment.font_manager
-    }
-
-    /// ADR: We share _one_ single scene in all views now, so that we can keep the updates that we
-    /// send to desktop coordinated. Also, changes can't be submitted independently, all updates
-    /// from all views need to be submitted at once.
-    pub fn new_scene(&self) -> Scene {
-        Scene::new(self.changes.clone())
-    }
-
-    /// Bundle a scene with this instance's animation clock for one update cycle.
-    pub fn frame<'scene, 'context>(
-        &'context mut self,
-        scene: &'scene Scene,
-    ) -> Frame<'scene, 'context> {
-        Frame::new(
-            scene,
-            &mut self.animation_coordinator,
-            &mut self.movement_runtime,
-        )
-    }
-
     pub async fn wait_for_event(&mut self) -> Result<ApplicationEvent<std::convert::Infallible>> {
         Ok(self.events.recv().await?.into())
     }
 
     pub fn view(&self, extent: impl Into<ViewExtent>) -> ViewBuilder {
-        ViewBuilder::new(
-            self.changes.clone(),
-            self.view_parent.clone(),
-            extent.into().into(),
-            self.new_scene(),
-        )
+        ViewBuilder::new(self.view_parent.clone(), extent.into().into())
     }
 
     /// Design: This may interfere with animations and requires a final submit()!
     pub fn collect_configuration_request(&mut self, request: ConfigurationRequest) {
-        self.changes.collect(InstanceChange::Configuration(request))
+        submit(InstanceChange::Configuration(request));
     }
 
-    pub fn submit(&mut self, submission: FrameSubmission<'_>) -> Result<()> {
-        self.submit_with_pacing(submission.pacing())
+    pub fn submit(&mut self, submission: FrameSubmission<InstanceChange>) -> Result<()> {
+        let (changes, pacing) = submission.into_parts();
+        self.submit_changes(changes, pacing)
     }
 
     fn submit_with_pacing(&mut self, pacing: RenderPacing) -> Result<()> {
-        let changes = self.changes.take_all();
+        let changes = task_context::take_changes::<InstanceChange>();
+        self.submit_changes(changes, pacing)
+    }
+
+    fn submit_changes(
+        &mut self,
+        changes: ChangeSet<InstanceChange>,
+        pacing: RenderPacing,
+    ) -> Result<()> {
         let change_count = changes.len();
         // Desktop needs empty submissions to observe pacing transitions, but repeated pacing has
         // no effect.

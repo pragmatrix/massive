@@ -1,13 +1,11 @@
 use std::{sync::Arc, time::Duration};
 
-use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
-};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_layout::Placement;
 use massive_scene::prelude::*;
 use massive_shapes::{IntoShape, Shape, StrokeRect};
-use massive_shell::Scene;
 
 const HOVER_ANIMATION_DURATION: Duration = Duration::from_millis(250);
 
@@ -25,26 +23,21 @@ pub struct DesktopPresenter {
 impl DesktopPresenter {
     const HOVER_STROKE: (f64, f64) = (10.0, 10.0);
 
-    pub fn new(
-        location: Handle<Location>,
-        scene: &Scene,
-        movement_runtime: &mut MovementRuntime,
-    ) -> Self {
-        let (hover_scene_transform, hover_location) = identity_location().enter(scene);
+    pub fn new(location: Handle<Location>) -> Self {
+        let (hover_scene_transform, hover_location) = identity_location().submit();
         let hover_visual = create_hover_shapes(None)
             .into_visual()
             .at(&hover_location)
-            .enter(scene);
-        let hover_movement = movement_runtime
-            .movement(HoverMovement::default(), move |movement, context| {
-                movement.update_hover_placement_and_visual(
-                    context,
-                    &hover_scene_transform,
-                    &hover_location,
-                    &hover_visual,
-                );
-            })
-            .mount();
+            .submit();
+        let hover_movement = movement(HoverMovement::default(), move |movement, context| {
+            movement.update_hover_placement_and_visual(
+                context,
+                &hover_scene_transform,
+                &hover_location,
+                &hover_visual,
+            );
+        })
+        .mount();
 
         Self {
             location,
@@ -82,8 +75,8 @@ impl HoverMovement {
         hover_location: &Handle<Location>,
         hover_visual: &Handle<Visual>,
     ) {
-        let alpha = *self.alpha.proceed(progress);
-        let layout = *self.layout.proceed(progress);
+        let alpha = *self.alpha.proceed_with(progress);
+        let layout = *self.layout.proceed_with(progress);
         let local_rect = layout.rect();
         let rect_alpha = (alpha != 0.0).then_some((local_rect, alpha));
         hover_scene_transform.update_if_changed(layout.to_origin_space());
@@ -105,7 +98,7 @@ impl HoverMovement {
                 let size = placement.rect.size;
                 let layout =
                     SizedTransform::new(SizePx::new(size[0], size[1]), placement.transform);
-                self.alpha.animate_if_changed(
+                self.alpha.animate_if_changed_with(
                     context,
                     1.0,
                     HOVER_ANIMATION_DURATION,
@@ -114,7 +107,7 @@ impl HoverMovement {
                 if *self.alpha.latest() == 0.0 {
                     self.layout.snap(layout);
                 } else {
-                    self.layout.animate_if_changed(
+                    self.layout.animate_if_changed_with(
                         context,
                         layout,
                         HOVER_ANIMATION_DURATION,
@@ -122,7 +115,7 @@ impl HoverMovement {
                     );
                 }
             }
-            None => self.alpha.animate_if_changed(
+            None => self.alpha.animate_if_changed_with(
                 context,
                 0.0,
                 HOVER_ANIMATION_DURATION,

@@ -18,13 +18,14 @@ use termwiz::escape;
 use winit::dpi::LogicalSize;
 use winit::event::{ElementState, KeyEvent};
 
-use massive_animation::{Animated, Interpolation, Movement, MovementRuntime};
+use massive_animation::{Animated, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_applications::{ApplicationEvent, ViewEvent};
 use massive_geometry::Vector3;
 use massive_scene::prelude::*;
-use massive_shapes::{Shape, Shaper, ShapingEngineKind};
+use massive_shapes::{FontPolicy, Shape, ShapingContext, ShapingEngineKind};
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager, Frame, Scene};
 
 use shared::application::{Application, UpdateResponse};
 use shared::attributed_text;
@@ -51,7 +52,10 @@ async fn main() -> Result<()> {
         .with(info_only_layer)
         .init();
 
-    shell::run(|ctx| logs(receiver, ctx))
+    shell::run(
+        |ctx| logs(receiver, ctx),
+        FontPolicy::bare(ShapingEngineKind::Parley),
+    )
 }
 
 struct Sender(mpsc::UnboundedSender<Vec<u8>>);
@@ -70,8 +74,9 @@ impl io::Write for Sender {
 }
 
 async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationContext) -> Result<()> {
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+    // The shell built the task's manager from the font policy this application names, so shaping
+    // and rendering share one identity world (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     // Window
 
@@ -79,25 +84,14 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
     let window = ctx.new_window((size.width, size.height)).await?;
     let view_id = window.view_id();
 
-    let mut renderer = window
-        .renderer()
-        .with_text(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
-    let scene = ctx.new_scene();
-    let mut logs = Logs::new(&scene, ctx.movement_runtime(), fonts);
+    let mut logs = Logs::new();
 
     // Initial lines informing the user how to interact with the example.
-    let mut frame = ctx.frame(&scene);
-    logs.add_line(
-        &mut frame,
-        b"Press a key in the window to generate more log output.",
-    );
-    logs.add_line(
-        &mut frame,
-        b"Mouse + Left click : translate, Cmd + Mouse + Left click : rotate.",
-    );
+    let frame = begin_frame();
+    logs.add_line(b"Press a key in the window to generate more log output.");
+    logs.add_line(b"Mouse + Left click : translate, Cmd + Mouse + Left click : rotate.");
     logs.update_layout()?;
     frame.render_to(&mut renderer)?;
 
@@ -110,11 +104,11 @@ async fn logs(mut receiver: UnboundedReceiver<Vec<u8>>, mut ctx: ApplicationCont
             events = ctx.wait_for_events() => Wakeup::Events(events?),
         };
 
-        let mut frame = ctx.frame(&scene);
+        let frame = begin_frame();
 
         match wakeup {
             Wakeup::Line(bytes) => {
-                logs.add_line(&mut frame, &bytes);
+                logs.add_line(&bytes);
                 logs.update_layout()?;
             }
             Wakeup::Events(events) => {
@@ -153,8 +147,6 @@ enum LogEvent {
 }
 
 struct Logs {
-    fonts: FontManager,
-
     application: Application,
 
     application_transform: Handle<Transform>,
@@ -166,45 +158,42 @@ struct Logs {
 }
 
 impl Logs {
-    fn new(scene: &Scene, movement: &mut MovementRuntime, fonts: FontManager) -> Self {
+    fn new() -> Self {
         let content_width = 1280;
         let application = Application::default();
 
-        let application_transform = application.get_transform((0, 0)).enter(scene);
-        let application_location = application_transform.to_location().enter(scene);
+        let application_transform = application.get_transform((0, 0)).submit();
+        let application_location = application_transform.to_location().submit();
 
         // Keep interaction transforms separate so the movement owns only animated centering.
-        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).enter(scene);
+        let content_transform = Transform::from_xy(-(content_width as f64) / 2., 0.).submit();
         let content_location = content_transform
             .to_location()
             .relative_to(&application_location)
-            .enter(scene);
+            .submit();
 
-        let (vertical_center_transform, location) = identity_location()
-            .relative_to(&content_location)
-            .enter(scene);
+        let (vertical_center_transform, location) =
+            identity_location().relative_to(&content_location).submit();
 
-        let layout = movement
-            .movement(
-                LayoutMovement {
-                    content_height: 0.0.into(),
-                    vertical_center: 0.0.into(),
-                },
-                move |layout, progress| {
-                    let content_height = *layout.content_height.proceed(progress);
-                    content_transform.update_if_changed(Transform::from_xy(
-                        -(content_width as f64) / 2.,
-                        -content_height / 2.,
-                    ));
+        let layout = movement(
+            LayoutMovement {
+                content_height: 0.0.into(),
+                vertical_center: 0.0.into(),
+            },
+            move |layout, progress| {
+                let content_height = *layout.content_height.proceed_with(progress);
+                content_transform.update_if_changed(Transform::from_xy(
+                    -(content_width as f64) / 2.,
+                    -content_height / 2.,
+                ));
 
-                    let vertical_center = *layout.vertical_center.proceed(progress);
-                    vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
-                },
-            )
-            .mount();
+                let vertical_center = *layout.vertical_center.proceed_with(progress);
+                vertical_center_transform.update_if_changed((0., vertical_center, 0.).into());
+            },
+        )
+        .mount();
 
         Self {
-            fonts,
             application,
             application_transform,
             layout,
@@ -215,8 +204,9 @@ impl Logs {
         }
     }
 
-    fn add_line(&mut self, frame: &mut Frame, bytes: &[u8]) {
-        let mut shaper = self.fonts.shaper();
+    fn add_line(&mut self, bytes: &[u8]) {
+        // Shape through the task's shaping owner: the same identity world the renderer reads.
+        let mut shaper = shaper();
         let (glyph_runs, height) = shape_log_line(&mut shaper, bytes, self.next_line_top);
 
         let glyph_runs: Vec<Shape> = glyph_runs
@@ -228,41 +218,36 @@ impl Logs {
             })
             .collect();
 
-        let line = glyph_runs
-            .at(&self.location)
-            .with_decal_order(0)
-            .enter(frame.scene());
+        let line = glyph_runs.at(&self.location).with_decal_order(0).submit();
 
         let line_id = self.next_line_id;
         let fader: Animated<_> = 0.0.into();
-        let fader = frame
-            .movement(fader, move |fader, context| {
-                assert!(
-                    fader.is_animating(),
-                    "Internal error: animation state is not in sync with the context"
-                );
-                let fading = *fader.proceed(context);
-                line.update_with(|visual| {
-                    visual.shapes = visual
-                        .shapes
-                        .iter()
-                        .cloned()
-                        .map(|mut shape| {
-                            if let Shape::GlyphRun(ref mut glyph_run) = shape {
-                                glyph_run.text_color.alpha = fading as f32;
-                                glyph_run.translation.z =
-                                    (1.0 - fading) * -LogLine::FADE_TRANSLATION;
-                            }
-                            shape
-                        })
-                        .collect::<Vec<_>>()
-                        .into()
-                });
-            })
-            .completion_event(move || LogEvent::FadeCompleted(line_id))
-            .mount();
+        let fader = movement(fader, move |fader, context| {
+            assert!(
+                fader.is_animating(),
+                "Internal error: animation state is not in sync with the context"
+            );
+            let fading = *fader.proceed_with(context);
+            line.update_with(|visual| {
+                visual.shapes = visual
+                    .shapes
+                    .iter()
+                    .cloned()
+                    .map(|mut shape| {
+                        if let Shape::GlyphRun(ref mut glyph_run) = shape {
+                            glyph_run.text_color.alpha = fading as f32;
+                            glyph_run.translation.z = (1.0 - fading) * -LogLine::FADE_TRANSLATION;
+                        }
+                        shape
+                    })
+                    .collect::<Vec<_>>()
+                    .into()
+            });
+        })
+        .completion_event(move || LogEvent::FadeCompleted(line_id))
+        .mount();
         fader.modify(|fader, context| {
-            fader.animate(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
+            fader.animate_with(context, 1.0, FADE_DURATION, Interpolation::CubicOut);
         });
         self.lines.push_back(LogLine {
             id: line_id,
@@ -284,7 +269,7 @@ impl Logs {
             for line in self.lines.iter_mut().take(overhead_lines) {
                 if !line.fading_out {
                     line.fader.modify(|fader, context| {
-                        fader.animate(context, 0., FADE_DURATION, Interpolation::CubicIn);
+                        fader.animate_with(context, 0., FADE_DURATION, Interpolation::CubicIn);
                     });
                     line.fading_out = true;
                 }
@@ -354,13 +339,13 @@ impl Logs {
         // While a size animation runs, it's fine that we don't.
         assert!(new_height.is_multiple_of(2));
         self.layout.modify(move |layout, context| {
-            layout.vertical_center.animate(
+            layout.vertical_center.animate_with(
                 context,
                 -top_line_top,
                 VERTICAL_ALIGNMENT_DURATION,
                 Interpolation::CubicOut,
             );
-            layout.content_height.animate(
+            layout.content_height.animate_with(
                 context,
                 new_height as f64,
                 VERTICAL_ALIGNMENT_DURATION,
@@ -379,7 +364,7 @@ struct LayoutMovement {
 const LINE_HEIGHT: u32 = 40;
 
 fn shape_log_line(
-    shaper: &mut Shaper<'_>,
+    shaper: &mut ShapingContext,
     bytes: &[u8],
     y: f64,
 ) -> (Vec<massive_shapes::GlyphRun>, f64) {

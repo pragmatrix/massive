@@ -1,10 +1,8 @@
 use massive_geometry::{Color, SizePx};
 
-use crate::{
-    FontRegistrySource, RenderDevice, Renderer, RendererConfig,
-    shape_renderer::{self, ShapeRenderer},
-    text_layer::TextLayerRenderer,
-};
+use crate::shape_renderer::{self, ShapeRenderer};
+use crate::text_layer::TextLayerRenderer;
+use crate::{FontRegistrySource, RenderDevice, Renderer, RendererConfig};
 
 #[derive(Debug)]
 pub struct RendererBuilder {

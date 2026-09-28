@@ -11,14 +11,20 @@ massive-util.workspace = true
 # Only here for the FontManager?
 massive-renderer.workspace = true
 massive-input.workspace = true
+# AmbientShape implements over the text-shaping builder.
+massive-shapes.workspace = true
 
 anyhow.workspace = true
 derive_more.workspace = true
 log.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt"] }
 uuid.workspace = true
 # Architecture: We should get rid of the winit dependency here. Current ViewEvent depends on it, 
 # and the converter does not seem to belong in this crate.
 winit.workspace = true
+
+[dev-dependencies]
+# Used only under `#[cfg(test)]` (Send/!Send pins in `task_context`).
+static_assertions.workspace = true

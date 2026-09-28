@@ -3,11 +3,9 @@ use massive_geometry::{Color, Rect};
 use massive_shapes::Shape;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::{
-    pods::{self, AsBytes, VertexLayout},
-    renderer::RenderBatch,
-    tools::{PipelineParams, PipelineVariant},
-};
+use crate::pods::{self, AsBytes, VertexLayout};
+use crate::renderer::RenderBatch;
+use crate::tools::{PipelineParams, PipelineVariant};
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
 

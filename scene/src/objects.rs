@@ -50,8 +50,8 @@ impl From<LocationSpace> for LocationParentId {
     }
 }
 
-/// The final, resolved state of a location: composed transform, inherited alpha, and the space of
-/// its root.
+/// The final, resolved state of a location: composed transform, inherited alpha sanitized into
+/// `[0, 1]`, and the space of its root.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ResolvedLocation {
     pub transform: Transform,
@@ -124,7 +124,8 @@ impl Visual {
     }
 }
 
-#[derive(Debug, Clone)]
+/// The render-side snapshot of a [`Visual`], carried inside a [`SceneChange`].
+#[derive(Debug)]
 pub struct VisualRenderObj {
     pub location: Id,
     pub decal_order: Option<usize>,
@@ -162,6 +163,7 @@ impl Object for Visual {
 pub struct Location {
     pub parent: LocationParent,
     pub transform: Ref<Transform>,
+    /// Alpha as set; consumers sanitize it into `[0, 1]` because it is a plain writable field.
     pub alpha: f32,
 }
 
@@ -195,7 +197,7 @@ impl Location {
     }
 
     pub fn with_alpha(mut self, alpha: f32) -> Self {
-        self.alpha = normalize_alpha(alpha);
+        self.alpha = alpha;
         self
     }
 }
@@ -223,19 +225,30 @@ impl Object for Location {
         LocationRenderObj {
             parent,
             transform,
-            alpha: normalize_alpha(self.alpha),
+            alpha: self.alpha,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+/// The render-side snapshot of a [`Location`], carried inside a [`SceneChange`].
+#[derive(Debug)]
 pub struct LocationRenderObj {
     pub parent: LocationParentId,
     pub transform: Id,
     pub alpha: f32,
 }
 
-fn normalize_alpha(alpha: f32) -> f32 {
+impl LocationRenderObj {
+    /// Scene changes can be constructed directly, so the renderer must not trust their alpha.
+    pub fn sanitized_alpha(&self) -> f32 {
+        sanitize_alpha(self.alpha)
+    }
+}
+
+/// Clamp an alpha into `[0, 1]`, treating a non-finite value as opaque.
+///
+/// A location's alpha is stored as set, so every consumer of it must sanitize.
+pub(crate) fn sanitize_alpha(alpha: f32) -> f32 {
     if alpha.is_finite() {
         alpha.clamp(0.0, 1.0)
     } else {
@@ -254,13 +267,12 @@ impl Object for Transform {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{ChangeCollector, Scene};
+    use crate::AnyCollector;
 
     #[test]
     fn location_new_defaults_to_opaque_alpha() {
-        let receiver = Arc::new(ChangeCollector::default());
-        let scene = Scene::new(receiver);
-        let transform = Transform::IDENTITY.enter(&scene);
+        let collector = AnyCollector::for_type::<SceneChange>();
+        let transform = crate::submit(&collector, Transform::IDENTITY);
         let location = Location::root(LocationSpace::World, transform);
 
         assert_eq!(location.alpha, 1.0);
@@ -268,31 +280,12 @@ mod tests {
     }
 
     #[test]
-    fn location_alpha_is_normalized_when_set_and_uploaded() {
-        let receiver = Arc::new(ChangeCollector::default());
-        let scene = Scene::new(receiver);
-        let transform = Transform::IDENTITY.enter(&scene);
+    fn location_alpha_is_stored_as_set() {
+        let collector = AnyCollector::for_type::<SceneChange>();
+        let transform = crate::submit(&collector, Transform::IDENTITY);
+        let location = Location::root(LocationSpace::World, transform).with_alpha(2.0);
 
-        assert_eq!(
-            Location::root(LocationSpace::World, transform.clone())
-                .with_alpha(2.0)
-                .to_change()
-                .alpha,
-            1.0
-        );
-        assert_eq!(
-            Location::root(LocationSpace::World, transform.clone())
-                .with_alpha(-1.0)
-                .to_change()
-                .alpha,
-            0.0
-        );
-        assert_eq!(
-            Location::root(LocationSpace::World, transform)
-                .with_alpha(f32::NAN)
-                .to_change()
-                .alpha,
-            1.0
-        );
+        assert_eq!(location.alpha, 2.0);
+        assert_eq!(location.to_change().alpha, 2.0);
     }
 }

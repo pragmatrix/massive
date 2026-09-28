@@ -36,7 +36,8 @@ cluster:
 
 Context and fallback resolution are already right (per-session shared-mode
 collection clone, ADR 0006); fontique query and fallback are not the problem.
-Per-face swash metrics are already cached (mint-time `FaceMetrics`), so the
+Per-face swash metrics are already cached (`FaceMetrics`, captured at registration
+with the registry), so the
 historic per-cluster metrics cost is gone.
 
 ## Recommendations, in expected-payoff order

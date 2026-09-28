@@ -24,12 +24,13 @@ use inlyne::utils::Rect;
 use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
 use massive_shapes::GlyphRun;
-use massive_shapes::ShapingEngineKind;
+use massive_shapes::{FontPolicy, ShapingEngineKind};
+use massive_shell::ApplicationContext;
 use massive_shell::shell;
-use massive_shell::{ApplicationContext, FontManager};
 
 use shared::application::{Application, UpdateResponse};
 use shared::fonts;
@@ -59,16 +60,16 @@ async fn main() -> Result<()> {
         // .with(chrome_layer)
         .init();
 
-    shell::run(application)
+    shell::run(application, FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 async fn application(mut ctx: ApplicationContext) -> Result<()> {
-    // Register the bundled font into both databases and build the fontdb::ID -> FaceId map.
+    // Register the bundled font into both databases and build the fontdb::ID -> FaceId map; the
+    // task's manager is the one identity world the renderer reads (ADR 0005).
     let bridge = FontBridge::new(
-        FontManager::bare(ShapingEngineKind::CosmicText),
         fontdb::Database::new(),
         Arc::from(fonts::MONTSERRAT_REGULAR),
-    );
+    )?;
 
     // Need an equivalent font_system for inlyne.
     let font_system = {
@@ -85,11 +86,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
 
     let font_system = Arc::new(Mutex::new(font_system));
 
-    let mut renderer = window
-        .renderer()
-        .with_text(bridge.font_manager().registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     let markdown = include_str!("replicator.org.md");
 
@@ -102,13 +99,12 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
     )?;
 
     let mut application = Application::default();
-    let scene = ctx.new_scene();
     let page_transform = application.get_transform(content_size);
 
-    let transform = page_transform.enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = page_transform.submit();
+    let location = transform.to_location().submit();
 
-    // Hold the staged visual, otherwise it will disappear.
+    // Hold the submitted visual, otherwise it will disappear.
     let _visual = glyph_runs
         .clone()
         .into_iter()
@@ -116,7 +112,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
         .collect::<Vec<_>>()
         .at(&location)
         .with_decal_order(0)
-        .enter(&scene);
+        .submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -142,7 +138,7 @@ async fn application(mut ctx: ApplicationContext) -> Result<()> {
             }
         }
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }
 

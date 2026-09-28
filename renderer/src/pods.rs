@@ -1,7 +1,5 @@
-use std::{
-    fmt,
-    mem::{self, offset_of, size_of},
-};
+use std::fmt;
+use std::mem::{self, offset_of, size_of};
 
 use bytemuck::{Pod, Zeroable};
 use static_assertions::const_assert_eq;

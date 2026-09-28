@@ -15,7 +15,6 @@
 
 use swash::FontRef;
 
-use crate::FaceId;
 use crate::engine::FontData;
 
 /// The per-face values the glyph placement path reads: left side bearing per glyph id
@@ -32,8 +31,9 @@ impl FaceMetrics {
     /// Extract the metrics of a face from its font data — one linear pass over the
     /// horizontal-metrics table, performed once per face at registration time (see module doc).
     pub fn extract(font_data: &FontData) -> Option<Self> {
-        let font_ref =
-            FontRef::from_index(font_data.data.as_ref().as_ref(), font_data.index as usize)?;
+        let data = font_data.data.as_ref().as_ref();
+        let index = font_data.index as usize;
+        let font_ref = FontRef::from_index(data, index)?;
         let glyph_metrics = font_ref.glyph_metrics(&[]);
         let lsb: Vec<f32> = (0..glyph_metrics.glyph_count())
             .map(|glyph_id| glyph_metrics.lsb(glyph_id))
@@ -53,16 +53,6 @@ impl FaceMetrics {
     }
 }
 
-/// Extract metrics for every face of a registry-entry map (registration time; see module doc).
-pub(crate) fn extract_all(
-    entries: &std::collections::HashMap<FaceId, FontData>,
-) -> std::collections::HashMap<FaceId, FaceMetrics> {
-    entries
-        .iter()
-        .filter_map(|(id, data)| Some((*id, FaceMetrics::extract(data)?)))
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use crate::{FontManager, ShapingEngineKind, ShapingRequest, TextAttributes};
@@ -78,10 +68,14 @@ mod tests {
     #[test]
     fn published_lsb_matches_fresh_swash_parse() {
         for kind in ShapingEngineKind::available() {
-            let fonts = FontManager::bare(*kind).with_font(JETBRAINS_MONO);
-            let face = fonts.load_font(JETBRAINS_MONO)[0];
-            let mut shaper = fonts.shaper();
-            let shaped = shaper
+            let fonts = FontManager::bare(*kind)
+                .with_font(JETBRAINS_MONO)
+                .expect("bundled font is valid");
+            let face = fonts
+                .load_font(JETBRAINS_MONO)
+                .expect("bundled font is valid")[0];
+            let mut context = fonts.new_shaping_context();
+            let shaped = context
                 .shape(
                     &ShapingRequest::new("a", TextAttributes::named_family("JetBrains Mono")),
                     13.0,
@@ -89,13 +83,10 @@ mod tests {
                 .expect("shape");
             let glyph_id = shaped.glyphs[0].glyph_id;
 
-            // Resolve font data through the session guard: the manager's mutex-protected
-            // registry is not lock-free-readable while the session may resolve faces. Copy both
-            // values out before the assert so the guard borrow is not held across it.
-            let font_data = shaper.font_data(face).expect("font data");
-            drop(shaper);
+            // The context's own snapshot, taken after the shape published any faces it resolved.
+            let font_data = context.font_data(face).expect("font data");
 
-            // Read the published snapshot after the session republished it.
+            // Read the published snapshot after the shape republished it.
             let cached = fonts
                 .published()
                 .metrics(face)

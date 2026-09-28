@@ -2,13 +2,11 @@ use bytemuck::Pod;
 use derive_more::Deref;
 use wgpu::util::{BufferInitDescriptor, DeviceExt};
 
-use crate::{
-    bind_group_entries,
-    glyph::GlyphAtlas,
-    pods::{self, AsBytes, VertexLayout},
-    renderer::{PreparationContext, RenderBatch},
-    tools::{BindGroupLayoutBuilder, PipelineParams, PipelineVariant, texture_sampler},
-};
+use crate::bind_group_entries;
+use crate::glyph::GlyphAtlas;
+use crate::pods::{self, AsBytes, VertexLayout};
+use crate::renderer::{PreparationContext, RenderBatch};
+use crate::tools::{BindGroupLayoutBuilder, PipelineParams, PipelineVariant, texture_sampler};
 
 const FRAGMENT_SHADER_ENTRY: &str = "fs_main";
 

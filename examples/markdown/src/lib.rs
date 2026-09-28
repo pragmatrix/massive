@@ -6,91 +6,105 @@
 //! data path stays on the engine-neutral text pipeline (ADR 0005).
 //!
 //! [`FontBridge`] converts cosmic-text's own glyph coordinates into [`GlyphRun`]s, mapping each
-//! cosmic-text `fontdb::ID` to the [`FaceId`] of the same face in the manager's engine. This
+//! cosmic-text `fontdb::ID` to the [`FaceId`] of the same face in the task's font manager. This
 //! avoids re-shaping the text (which could diverge from cosmic-text's layout) and keeps the
 //! renderer's rasterization path on the engine's font registry.
+//!
+//! The bridge is cosmic-text only: it pairs cosmic-text faces with the manager's `FaceId`s by
+//! face index, which is exact only for that engine (its ids are database positions). A manager
+//! using another engine panics at construction rather than rasterizing the wrong face.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use anyhow::Result;
 use cosmic_text::fontdb;
+use cosmic_text::fontdb::Source;
 use swash::FontRef;
 
 use massive_geometry::{Color, Vector3};
 use massive_shapes::ClipBoxPx;
-use massive_shapes::ShapingEngineKind;
-use massive_shapes::{FaceId, FontData, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph, TextWeight};
+use massive_shapes::{
+    FaceId, FontData, FontManager, GlyphKey, GlyphRun, GlyphRunMetrics, RunGlyph,
+    ShapingEngineKind, TextWeight,
+};
+use massive_shell::task_context;
 
-/// Bridges cosmic-text's font database to the shaping engine behind a [`massive_shapes::FontManager`],
+/// Bridges cosmic-text's font database to the shaping engine behind the task's [`FontManager`],
 /// so cosmic-text glyphs can be converted to [`GlyphRun`]s that rasterize through that engine.
-///
-/// Owns the manager and the cosmic-text `fontdb::Database`, plus a map from each
-/// `fontdb::ID` to the engine [`FaceId`] for the same face. The map is built at construction time
-/// by registering the same font bytes into both databases and pairing faces by index.
 pub struct FontBridge {
-    font_manager: massive_shapes::FontManager,
+    font_manager: FontManager,
     font_db: fontdb::Database,
     /// Maps a cosmic-text `fontdb::ID` to the engine [`FaceId`] for the same face.
     face_ids: HashMap<fontdb::ID, FaceId>,
 }
 
 impl FontBridge {
-    /// Build a bridge over the system fonts, registering every system face into both databases.
+    /// Build a bridge over the system fonts, enumerating them from a fresh `fontdb::Database`.
     ///
-    /// Enumerates the system fonts from a fresh `fontdb::Database`, registers each face's bytes
-    /// into a bare engine manager, and pairs each `fontdb::ID` with the engine [`FaceId`]
-    /// for the same face. This keeps the two databases in sync so any font cosmic-text selects
-    /// (including emoji fallbacks) resolves to a [`FaceId`] for rasterization.
-    pub fn system() -> Self {
+    /// This eagerly reads every system font file and retains its bytes, which can consume a large
+    /// amount of memory. It is suitable for this example's complete fallback coverage, but not
+    /// for production startup; production code should load only fonts selected by shaping.
+    pub fn system() -> Result<Self> {
+        let font_manager = cosmic_text_manager();
         let mut font_db = fontdb::Database::new();
         font_db.load_system_fonts();
-        // Cosmic-text matches inlyne's FontSystem, which does the measuring for these examples.
-        let font_manager = massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText);
 
-        // Register each system face into the engine and record the fontdb::ID -> FaceId pairing.
-        // Deduplicate by (path, index) so a face shared across families is registered once.
-        let mut face_ids = HashMap::new();
-        let mut seen = HashSet::new();
+        // One batch publication avoids rebuilding the growing registry per file.
+        let mut file_indices = HashMap::new();
+        let mut font_files = Vec::new();
         for face in font_db.faces() {
-            let (path, index) = match &face.source {
-                fontdb::Source::File(path) => (path.clone(), face.index),
-                fontdb::Source::Binary(_) | fontdb::Source::SharedFile(_, _) => continue,
+            let path = match &face.source {
+                Source::File(path) => path,
+                Source::Binary(_) | Source::SharedFile(_, _) => continue,
             };
-            if !seen.insert((path.clone(), index)) {
+            if file_indices.contains_key(path) {
                 continue;
             }
-            let Ok(bytes) = std::fs::read(&path) else {
+            let Ok(bytes) = std::fs::read(path) else {
                 continue;
             };
-            let engine_ids = font_manager.load_font(bytes);
+            file_indices.insert(path.clone(), font_files.len());
+            font_files.push(bytes);
+        }
+
+        let loaded_files = font_manager.load_fonts(font_files)?;
+        let mut face_ids = HashMap::new();
+        for face in font_db.faces() {
+            let path = match &face.source {
+                Source::File(path) => path,
+                Source::Binary(_) | Source::SharedFile(_, _) => continue,
+            };
+            let Some(engine_ids) = file_indices
+                .get(path)
+                .and_then(|file_index| loaded_files.get(*file_index))
+            else {
+                continue;
+            };
             // load_font returns one id per face in file order; pick the face at `index`.
-            if let Some(face_id) = engine_ids.get(index as usize).copied() {
+            if let Some(face_id) = engine_ids.get(face.index as usize).copied() {
                 face_ids.insert(face.id, face_id);
             }
         }
 
-        Self {
+        Ok(Self {
             font_manager,
             font_db,
             face_ids,
-        }
+        })
     }
 
     /// Register `font_bytes` into both databases and build the `fontdb::ID → FaceId` map.
     ///
     /// A single font file may hold several faces (e.g. a `.ttc`); each is paired by face index so
     /// the map stays correct for collections.
-    pub fn new(
-        font_manager: massive_shapes::FontManager,
-        mut font_db: fontdb::Database,
-        font_bytes: Arc<[u8]>,
-    ) -> Self {
-        let engine_ids = font_manager.load_font(font_bytes.clone());
+    pub fn new(mut font_db: fontdb::Database, font_bytes: Arc<[u8]>) -> Result<Self> {
+        let font_manager = cosmic_text_manager();
+        let engine_ids = font_manager.load_font(font_bytes.clone())?;
         // fontdb's `Source::Binary` needs a trait-object Arc; clone the bytes into a `Vec` so the
         // two databases each hold their own reference to the same data.
-        let fontdb_source = fontdb::Source::Binary(
-            Arc::new(font_bytes.to_vec()) as Arc<dyn AsRef<[u8]> + Send + Sync>
-        );
+        let fontdb_source =
+            Source::Binary(Arc::new(font_bytes.to_vec()) as Arc<dyn AsRef<[u8]> + Send + Sync>);
         let fontdb_ids = font_db.load_font_source(fontdb_source);
         let mut face_ids = HashMap::new();
         for fontdb_id in fontdb_ids {
@@ -99,16 +113,11 @@ impl FontBridge {
                 face_ids.insert(fontdb_id, face_id);
             }
         }
-        Self {
+        Ok(Self {
             font_manager,
             font_db,
             face_ids,
-        }
-    }
-
-    /// The font manager, for the renderer's rasterization path.
-    pub fn font_manager(&self) -> &massive_shapes::FontManager {
-        &self.font_manager
+        })
     }
 
     /// The cosmic-text font database, for building a `FontSystem`.
@@ -199,6 +208,18 @@ impl FontBridge {
     }
 }
 
+/// The task's font manager, which the bridge requires to use the cosmic-text engine.
+fn cosmic_text_manager() -> FontManager {
+    let font_manager = task_context::fonts();
+    let engine = font_manager.engine_kind();
+    assert!(
+        engine == ShapingEngineKind::CosmicText,
+        "FontBridge requires a cosmic-text font manager, but the task's manager uses {engine:?}; \
+         build the task with `FontPolicy::bare(ShapingEngineKind::CosmicText)`"
+    );
+    font_manager
+}
+
 /// Pixel ascent/descent of a font at `font_size`, from its swash metrics.
 fn font_metrics(font: &FontData, font_size: f32) -> Option<(f32, f32)> {
     let font_ref = FontRef::from_index(font.data.as_ref().as_ref(), font.index as usize)?;
@@ -212,47 +233,127 @@ fn font_metrics(font: &FontData, font_size: f32) -> Option<(f32, f32)> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::collections::HashSet;
+    use std::process::Command;
+
     use cosmic_text::{Align, Attrs, Buffer, FontSystem, Metrics, Shaping};
 
-    /// A bundled monospace font so the test doesn't depend on system fonts.
+    use massive_animation::{AnimationCoordinator, MovementRuntime};
+    use massive_scene::{AnyCollector, SceneChange};
+    use massive_shell::task_context::TaskContext;
+
+    use super::*;
+
     const MONTSERRAT: &[u8] =
         include_bytes!("../../../assets/fonts/Montserrat/Montserrat-Regular.ttf");
 
+    /// The bridge reads the task's manager, so its tests need a task context.
+    fn context(engine: ShapingEngineKind) -> TaskContext {
+        TaskContext::new(
+            AnyCollector::for_type::<SceneChange>(),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+            FontManager::bare(engine).new_shaping_context(),
+        )
+    }
+
     /// Shapes a known string through cosmic-text and asserts the bridge emits baseline-relative
     /// Y-up glyph positions (y ≈ 0) and monotonic x, locking the coordinate conversion.
-    #[test]
-    fn cosmic_run_positions_are_baseline_relative_and_monotonic() {
-        let bridge = FontBridge::new(
-            massive_shapes::FontManager::bare(ShapingEngineKind::CosmicText),
-            fontdb::Database::new(),
-            Arc::from(MONTSERRAT),
-        );
-        let mut font_system =
-            FontSystem::new_with_locale_and_db("en-US".into(), bridge.font_db().clone());
-        let mut buffer = Buffer::new(&mut font_system, Metrics::new(16.0, 20.0));
-        buffer.set_text("HI", &Attrs::new(), Shaping::Advanced, Some(Align::Left));
-        buffer.shape_until_scroll(&mut font_system, false);
+    #[tokio::test]
+    async fn cosmic_run_positions_are_baseline_relative_and_monotonic() {
+        task_context::with_context(context(ShapingEngineKind::CosmicText), async {
+            let bridge = FontBridge::new(fontdb::Database::new(), Arc::from(MONTSERRAT))
+                .expect("bundled font is valid");
+            let mut font_system =
+                FontSystem::new_with_locale_and_db("en-US".into(), bridge.font_db().clone());
+            let mut buffer = Buffer::new(&mut font_system, Metrics::new(16.0, 20.0));
+            buffer.set_text("HI", &Attrs::new(), Shaping::Advanced, Some(Align::Left));
+            buffer.shape_until_scroll(&mut font_system, false);
 
-        let runs = bridge.cosmic_buffer_to_glyph_runs(&buffer, 0.0, 0.0);
-        let run = runs.first().expect("has a run");
-        assert!(
-            run.glyphs.len() >= 2,
-            "two glyphs for two ASCII chars, got {}",
-            run.glyphs.len()
-        );
-        for glyph in &run.glyphs {
+            let runs = bridge.cosmic_buffer_to_glyph_runs(&buffer, 0.0, 0.0);
+            let run = runs.first().expect("has a run");
             assert!(
-                glyph.pos.y == 0,
-                "glyph y should be baseline-relative (Y-up), got {:?}",
-                glyph.pos.y
+                run.glyphs.len() >= 2,
+                "two glyphs for two ASCII chars, got {}",
+                run.glyphs.len()
             );
-        }
-        let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.x).collect();
-        assert!(
-            xs.windows(2).all(|w| w[0] < w[1]),
-            "glyph x should be monotonic, got {:?}",
-            xs
-        );
+            for glyph in &run.glyphs {
+                assert!(
+                    glyph.pos.y == 0,
+                    "glyph y should be baseline-relative (Y-up), got {:?}",
+                    glyph.pos.y
+                );
+            }
+            let xs: Vec<i32> = run.glyphs.iter().map(|g| g.pos.x).collect();
+            assert!(
+                xs.windows(2).all(|w| w[0] < w[1]),
+                "glyph x should be monotonic, got {:?}",
+                xs
+            );
+        })
+        .await;
+    }
+
+    /// The face pairing is cosmic-text specific, so a manager using another engine is rejected
+    /// instead of silently pairing the wrong face.
+    #[tokio::test]
+    #[should_panic(expected = "FontBridge requires a cosmic-text font manager")]
+    async fn rejects_a_foreign_shaping_engine() {
+        task_context::with_context(context(ShapingEngineKind::Parley), async {
+            let _ = FontBridge::new(fontdb::Database::new(), Arc::from(MONTSERRAT));
+        })
+        .await;
+    }
+
+    /// Reports the memory cost of eagerly registering every system font.
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    #[ignore = "manual memory measurement"]
+    async fn measure_system_font_memory() {
+        task_context::with_context(context(ShapingEngineKind::CosmicText), async {
+            let before_rss_kib = process_rss_kib();
+            let bridge = FontBridge::system().expect("system font sources are readable");
+            let after_rss_kib = process_rss_kib();
+
+            let mut paths = HashSet::new();
+            let mut file_bytes = 0u64;
+            for face in bridge.font_db().faces() {
+                let fontdb::Source::File(path) = &face.source else {
+                    continue;
+                };
+                if paths.insert(path) {
+                    file_bytes += std::fs::metadata(path)
+                        .map(|metadata| metadata.len())
+                        .unwrap_or(0);
+                }
+            }
+
+            let rss_delta = match (before_rss_kib, after_rss_kib) {
+                (Some(before), Some(after)) => {
+                    format!("{} KiB RSS delta", after.saturating_sub(before))
+                }
+                _ => "RSS unavailable".to_owned(),
+            };
+
+            println!(
+                "system font memory: {} unique files, {} faces, {:.1} MiB font files, {}",
+                paths.len(),
+                bridge.font_db().faces().count(),
+                file_bytes as f64 / (1024.0 * 1024.0),
+                rss_delta,
+            );
+        })
+        .await;
+    }
+
+    #[cfg(target_os = "macos")]
+    fn process_rss_kib() -> Option<u64> {
+        let output = Command::new("ps")
+            .args(["-o", "rss=", "-p"])
+            .arg(std::process::id().to_string())
+            .output()
+            .ok()?;
+        let rss = String::from_utf8(output.stdout).ok()?;
+        rss.trim().parse().ok()
     }
 }

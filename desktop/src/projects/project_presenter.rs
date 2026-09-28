@@ -1,12 +1,10 @@
 use std::time::Duration;
 
-use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
-};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
-use massive_shell::{FontManager, Scene};
 
 use super::ProjectProperties;
 
@@ -26,25 +24,12 @@ pub struct ProjectPresenter {
 }
 
 impl ProjectPresenter {
-    pub fn new(
-        properties: ProjectProperties,
-        parent_location: Handle<Location>,
-        scene: &Scene,
-        font_manager: &FontManager,
-        movement_runtime: &mut MovementRuntime,
-    ) -> Self {
-        let (scene_transform, location) = identity_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+    pub fn new(properties: ProjectProperties, parent_location: Handle<Location>) -> Self {
+        let (scene_transform, location) =
+            identity_location().relative_to(&parent_location).submit();
         let name = properties.name.clone();
-        let header = ProjectHeaderPresenter::new(
-            properties,
-            location.clone(),
-            scene,
-            font_manager,
-            movement_runtime,
-        );
-        let matrix = ProjectMatrixPresenter::new(location.clone(), scene);
+        let header = ProjectHeaderPresenter::new(properties, location.clone());
+        let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
             name,
@@ -71,53 +56,41 @@ pub struct ProjectHeaderPresenter {
 }
 
 impl ProjectHeaderPresenter {
-    pub fn new(
-        properties: ProjectProperties,
-        parent_location: Handle<Location>,
-        scene: &Scene,
-        font_manager: &FontManager,
-        movement_runtime: &mut MovementRuntime,
-    ) -> Self {
-        let (scene_transform, location) = identity_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+    pub fn new(properties: ProjectProperties, parent_location: Handle<Location>) -> Self {
+        let (scene_transform, location) =
+            identity_location().relative_to(&parent_location).submit();
 
         // Architecture: It may be preferable to allow empty glyph runs for invalid/empty names.
-        let mut shaper = font_manager.shaper();
-        let header_run = properties
-            .name
-            .size(PROJECT_HEADER_FONT_SIZE)
-            .shape(&mut shaper);
+        let header_run = properties.name.size(PROJECT_HEADER_FONT_SIZE).shape();
         let measured_size = header_run
             .as_ref()
             .map_or(SizePx::default(), |run| run.metrics.size());
 
         let background = background_shape(Rect::default(), PROJECT_HEADER_BACKGROUND_COLOR)
             .at(&location)
-            .enter(scene);
+            .submit();
 
         let name = header_run
             .map(|run| run.with_color(PROJECT_HEADER_TEXT_COLOR).into_shape())
             .at(&location)
             .with_decal_order(PROJECT_HEADER_TEXT_DECAL_ORDER)
-            .enter(scene);
+            .submit();
 
         let movement_scene_transform = scene_transform.clone();
         let movement_background = background.clone();
         let movement_name = name.clone();
-        let movement = movement_runtime
-            .movement(
-                ProjectHeaderMovement::default(),
-                move |movement, progress| {
-                    movement.apply_animations(
-                        progress,
-                        &movement_scene_transform,
-                        &movement_background,
-                        &movement_name,
-                    );
-                },
-            )
-            .mount();
+        let movement = movement(
+            ProjectHeaderMovement::default(),
+            move |movement, progress| {
+                movement.apply_animations(
+                    progress,
+                    &movement_scene_transform,
+                    &movement_background,
+                    &movement_name,
+                );
+            },
+        )
+        .mount();
 
         Self {
             measured_size,
@@ -154,7 +127,7 @@ impl Default for ProjectHeaderMovement {
 
 impl ProjectHeaderMovement {
     fn set_layout(&mut self, context: &mut dyn AnimationAllocator, layout: SizedTransform) {
-        self.layout.animate_if_changed(
+        self.layout.animate_if_changed_with(
             context,
             layout,
             PROJECT_HEADER_ANIMATION_DURATION,
@@ -169,7 +142,7 @@ impl ProjectHeaderMovement {
         background: &Handle<Visual>,
         name: &Handle<Visual>,
     ) {
-        let layout = *self.layout.proceed(progress);
+        let layout = *self.layout.proceed_with(progress);
         let scene_transform = layout.to_origin_space();
         scene_transform_handle.update_if_changed(scene_transform);
         background.update_if_changed_with(|visual| {
@@ -203,10 +176,9 @@ pub struct ProjectMatrixPresenter {
 }
 
 impl ProjectMatrixPresenter {
-    pub fn new(parent_location: Handle<Location>, scene: &Scene) -> Self {
-        let (scene_transform, location) = identity_location()
-            .relative_to(&parent_location)
-            .enter(scene);
+    pub fn new(parent_location: Handle<Location>) -> Self {
+        let (scene_transform, location) =
+            identity_location().relative_to(&parent_location).submit();
 
         Self {
             scene_transform,

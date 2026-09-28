@@ -1,5 +1,4 @@
 use std::convert::Infallible;
-use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -11,12 +10,11 @@ use uuid::Uuid;
 
 use massive_applications::{
     ApplicationEvent, ApplicationMessage, CreationMode, Frame, InstanceEnvironment, InstanceId,
-    InstanceParameters, InstanceSubmission, ViewEvent,
+    InstanceParameters, InstanceSubmission, ViewEvent, begin_frame,
 };
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
-use massive_scene::ChangeCollector;
-use massive_shell::{ApplicationContext, AsyncWindowRenderer, FontManager, Scene, ShellWindow};
+use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
@@ -37,7 +35,6 @@ const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Debug)]
 pub struct Desktop {
-    scene: Scene,
     window: ShellWindow,
     window_state: WindowState,
     window_presentation_state: WindowPresentationState,
@@ -60,28 +57,19 @@ enum DesktopEvent {
 }
 
 impl Desktop {
-    pub async fn new(env: DesktopEnvironment, mut context: ApplicationContext) -> Result<Self> {
+    pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
         let projects_dir = env.projects_dir();
         let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
-        // Create the font manager - shared between desktop and instances. The engine is chosen
-        // once here (ADR 0005); a FaceId only resolves through this manager. Instances,
-        // the renderer and the desktop system each get a detached handle (ADR 0006).
-        let fonts = FontManager::system(env.shaping_engine);
-
-        // Create scene early for presenter initialization
-        let scene_changes = Arc::new(ChangeCollector::default());
-        let scene = context.new_scene_with_change_collector(scene_changes.clone());
+        // The desktop task's change queue: installed by the shell's application task context
+        // (ADR 0008). Presenters submit their handles through the ambient accessors.
 
         let (submissions_tx, mut submissions_rx) = unbounded_channel();
-        let environment = InstanceEnvironment::new(
-            submissions_tx,
-            context.primary_monitor_scale_factor(),
-            fonts.detached(),
-        );
+        let environment =
+            InstanceEnvironment::new(submissions_tx, context.primary_monitor_scale_factor());
         let mut instance_manager = InstanceManager::new(environment);
 
         // We need to use ViewEvent early on, because the `EventRouter` isn't able to convert events.
@@ -93,7 +81,7 @@ impl Desktop {
             .get_named(&env.primary_application)
             .expect("No primary application");
 
-        let primary_root = InstanceRoot::new(&scene);
+        let primary_root = InstanceRoot::new();
         let primary_instance = Uuid::new_v4().into();
         instance_manager.spawn(
             primary_instance,
@@ -126,9 +114,7 @@ impl Desktop {
         let mut renderer = window
             .renderer()
             .with_shapes()
-            // The renderer resolves glyphs through the published snapshot and never
-            // shapes — a registry source, not a full handle (ADR 0006).
-            .with_text(fonts.registry_source())
+            .with_text()
             .with_background_color(massive_geometry::Color::BLACK)
             .build()
             .await?;
@@ -139,13 +125,7 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(
-            env,
-            fonts.detached(),
-            default_size,
-            &scene,
-            context.movement_runtime(),
-        )?;
+        let mut system = DesktopSystem::new(env, default_size)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
@@ -170,13 +150,12 @@ impl Desktop {
 
         let mut changes = Changes::Empty;
         for command in commands {
-            changes += system.plan(command, &scene)?;
+            changes += system.plan(command)?;
         }
 
-        let mut frame = context.frame(&scene);
+        let frame = begin_frame();
         system.transact(
             changes + initial_submission_changes,
-            &mut frame,
             &mut instance_manager,
             TransactionEffectsMode::Setup,
             window_state.inner_size,
@@ -191,7 +170,6 @@ impl Desktop {
         )?;
 
         let desktop = Self {
-            scene,
             window,
             window_state,
             window_presentation_state: presentation_state,
@@ -228,7 +206,7 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.frame(&self.scene);
+            let mut frame = begin_frame();
 
             match event {
                 DesktopEvent::ApplicationEvents(events) => {
@@ -260,8 +238,8 @@ impl Desktop {
 
                                     let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
-                                            self.system
-                                                .plan(keyboard_cmd.into_command(), &self.scene)?
+                                            let command = keyboard_cmd.into_command();
+                                            self.system.plan(command)?
                                         } else {
                                             self.system.process_input_event(
                                                 &input_event,
@@ -274,7 +252,6 @@ impl Desktop {
 
                                 self.system.transact(
                                     desktop_changes,
-                                    &mut frame,
                                     &mut self.instance_manager,
                                     None,
                                     self.window_state.inner_size,
@@ -305,7 +282,6 @@ impl Desktop {
                 }
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
-                    &mut frame,
                     &mut self.instance_manager,
                     None,
                     self.window_state.inner_size,
@@ -313,11 +289,9 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     handle_instance_ended(
                         &mut self.system,
-                        &self.scene,
                         &mut self.instance_manager,
                         &mut self.instance_submissions,
                         (instance_id, instance_result),
-                        &mut frame,
                         self.window_state.inner_size,
                     )?;
                 }
@@ -360,11 +334,10 @@ impl Desktop {
                 }
             };
 
-            let mut frame = self.context.frame(&self.scene);
+            let frame = begin_frame();
             match event {
                 DesktopEvent::InstanceSubmission(instance, submission) => self.system.transact(
                     DesktopChange::IntegrateInstanceSubmission(instance, submission),
-                    &mut frame,
                     &mut self.instance_manager,
                     None,
                     self.window_state.inner_size,
@@ -372,11 +345,9 @@ impl Desktop {
                 DesktopEvent::InstanceEnded(instance_id, instance_result) => {
                     handle_instance_ended(
                         &mut self.system,
-                        &self.scene,
                         &mut self.instance_manager,
                         &mut self.instance_submissions,
                         (instance_id, instance_result),
-                        &mut frame,
                         self.window_state.inner_size,
                     )?;
                 }
@@ -397,11 +368,9 @@ impl Desktop {
 
 fn handle_instance_ended(
     system: &mut DesktopSystem,
-    scene: &Scene,
     instance_manager: &mut InstanceManager,
     instance_submissions: &mut UnboundedReceiver<(InstanceId, InstanceSubmission)>,
     (instance_id, instance_result): (InstanceId, massive_shell::Result<()>),
-    frame: &mut Frame,
     window_size: massive_geometry::SizePx,
 ) -> Result<()> {
     info!(
@@ -412,8 +381,8 @@ fn handle_instance_ended(
     if system.is_present(&instance_id) {
         // Did it end on its own? -> Act as if the user ended it.
         // Robustness: This should probably handled differently.
-        let changes = system.plan(DesktopCommand::StopInstance(instance_id), scene)?;
-        system.transact(changes, frame, instance_manager, None, window_size)?;
+        let changes = system.plan(DesktopCommand::StopInstance(instance_id))?;
+        system.transact(changes, instance_manager, None, window_size)?;
     }
 
     // Feature: Display the error to the user?
@@ -425,7 +394,6 @@ fn handle_instance_ended(
     while let Ok((instance, submission)) = instance_submissions.try_recv() {
         system.transact(
             DesktopChange::IntegrateInstanceSubmission(instance, submission),
-            frame,
             instance_manager,
             None,
             window_size,
@@ -446,19 +414,19 @@ fn finalize_desktop_frame(
     renderer: &mut AsyncWindowRenderer,
 ) -> Result<()> {
     let window_context = WindowContext::new(window, presentation_state, renderer);
-    let animation_time = frame.animation_time();
-    let camera = *system.camera(animation_time);
-    let mut submission = frame.submission().render_submission().with_camera(camera);
+
+    let camera = *system.camera();
+
+    let mut submission = frame.render_submission().with_camera(camera);
     // If any instance runs on smooth pacing, we need to, too.
     if system.effective_pacing() == RenderPacing::Smooth {
         submission = submission.with_pacing(RenderPacing::Smooth);
     }
     submission.submit_to(window_context.renderer)?;
 
-    let window_presentation_state = system.window_presentation_state()?;
     window_context
         .presentation_state
-        .delta_sync(window_presentation_state, window_context.window);
+        .delta_sync(system.window_presentation_state()?, window_context.window);
     Ok(())
 }
 

@@ -1,140 +1,162 @@
-//! A short-lived bundle of the scene arena and the animation clock.
+//! A short-lived bundle of one animation cycle over the task's change queue.
 //!
-//! ADR: The [`AnimationCoordinator`] is owned by exactly one context (an instance or the
-//! application), while [`Scene`]s are created per view. Bundling a borrow of both here keeps the
-//! clock a single-owner value: no shared ownership and no interior mutability are needed.
+//! The [`AnimationCoordinator`] is owned by exactly one context (an instance or the application),
+//! while the change queue is installed per task. The frame opens and closes the animation cycle
+//! and drains the task's queue at submission time (ADR 0008). [`Frame::render_to`] and
+//! [`Frame::render_submission`] expose the application task's scene queue.
 
-use std::any::Any;
+use std::fmt;
+use std::marker::PhantomData;
 use std::panic::Location;
-use std::time::{Duration, Instant};
 
 use anyhow::Result;
-use derive_more::Deref;
 use log::error;
 
-use massive_animation::{
-    AnimationAllocator, AnimationCoordinator, AnimationProgress, MovementBuilder, MovementRuntime,
-};
+use massive_animation::CycleEnd;
 use massive_renderer::{RenderPacing, RenderSubmission, RenderTarget};
-use massive_scene::Scene;
+use massive_scene::SceneChange;
+use massive_util::ChangeSet;
 
-#[derive(Debug, Deref)]
-pub struct Frame<'scene, 'context> {
-    #[deref]
-    scene: &'scene Scene,
-    animation: &'context mut AnimationCoordinator,
-    movement: &'context mut MovementRuntime,
+use crate::task_context;
+
+/// The bounds a frame's change kind `C` must satisfy, stated once so generic code over
+/// [`FrameSubmission`] can name them.
+pub trait Change: From<SceneChange> + fmt::Debug + Send + 'static {}
+
+impl<C> Change for C where C: From<SceneChange> + fmt::Debug + Send + 'static {}
+
+#[derive(Debug)]
+pub struct Frame {
     submitted: bool,
     created_at: &'static Location<'static>,
+    // `Frame` owns its task's frame witness and releases it on drop; a witness must never be
+    // released on behalf of another task, so the frame is confined to its task. The raw-pointer
+    // PhantomData makes `Frame` `!Send` and `!Sync` (a `*mut ()` is neither).
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 #[derive(Debug)]
-pub struct FrameSubmission<'a> {
-    scene: &'a Scene,
+pub struct FrameSubmission<C: Change> {
+    changes: ChangeSet<C>,
     pacing: RenderPacing,
 }
 
-impl FrameSubmission<'_> {
-    pub fn render_submission(self) -> RenderSubmission {
-        RenderSubmission::new(self.scene.take_changes(), self.pacing)
-    }
-
-    pub fn pacing(self) -> RenderPacing {
-        self.pacing
+impl<C: Change> FrameSubmission<C> {
+    pub fn into_parts(self) -> (ChangeSet<C>, RenderPacing) {
+        (self.changes, self.pacing)
     }
 }
 
-impl AnimationAllocator for Frame<'_, '_> {
-    fn allocate_animation_time(&mut self, duration: Duration) -> Instant {
-        self.animation.allocate_animation_time(duration)
+impl<C: Change> FrameSubmission<C>
+where
+    SceneChange: From<C>,
+{
+    /// Render submission; only the application task's scene queue produces one,
+    /// because only there `C = SceneChange`.
+    pub fn into_render_submission(self) -> RenderSubmission {
+        RenderSubmission::new(self.changes.map(SceneChange::from), self.pacing)
     }
 }
 
-impl<'scene, 'context> Frame<'scene, 'context> {
-    #[track_caller]
-    pub fn new(
-        scene: &'scene Scene,
-        animation: &'context mut AnimationCoordinator,
-        movement: &'context mut MovementRuntime,
-    ) -> Self {
-        animation.begin_cycle();
+/// Begin a frame: take the task's frame witness and return the [`Frame`] that owns it until it is
+/// submitted (or dropped).
+///
+/// Acquiring the witness opens the task's animation cycle as a side effect — the cycle's start
+/// time, and with it the frame's animation timestamp, is fixed here. A task context must be
+/// installed, because the witness lives in the task's animation state.
+#[track_caller]
+pub fn begin_frame() -> Frame {
+    let created_at = Location::caller();
 
-        Self {
-            scene,
-            animation,
-            movement,
-            submitted: false,
-            created_at: Location::caller(),
-        }
+    // The returned site names the blocking frame so both frames appear in the panic.
+    if let Err(live_at) = task_context::begin_frame_cycle(created_at) {
+        panic!(
+            "begin_frame() attempted at {}:{}:{} while a frame begun at {}:{}:{} is still live \
+             (a frame must be submitted before the next one opens)",
+            created_at.file(),
+            created_at.line(),
+            created_at.column(),
+            live_at.file(),
+            live_at.line(),
+            live_at.column(),
+        );
     }
 
+    Frame {
+        submitted: false,
+        created_at,
+        _not_send_sync: PhantomData,
+    }
+}
+
+impl Frame {
     pub fn upgrade_to_apply_animations_cycle(&mut self) {
-        self.animation.upgrade_to_apply_animations_cycle();
+        task_context::with_frame_animation(|animation| {
+            animation.upgrade_to_apply_animations_cycle()
+        });
     }
 
-    pub fn animation_time(&self) -> Instant {
-        self.animation.animation_time()
-    }
-
-    /// The scene, borrowed for the frame's full lifetime.
-    ///
-    /// Use this instead of the `Deref` when the reference has to outlive a mutable use of the
-    /// frame.
-    pub fn scene(&self) -> &'scene Scene {
-        self.scene
-    }
-
-    pub fn movement<T, F>(&mut self, value: T, apply_animations: F) -> MovementBuilder<'_, T, F>
-    where
-        T: Any + Send + Sync,
-        F: FnMut(&mut T, AnimationProgress) + Send + Sync + 'static,
-    {
-        self.movement.movement(value, apply_animations)
-    }
-
-    pub fn movement_runtime(&mut self) -> &mut MovementRuntime {
-        self.movement
-    }
-
-    // Render all the current scene changes.
+    /// Submit this frame's changes to `render_target` in one call: the application task's scene
+    /// queue drained and rendered.
     pub fn render_to(self, render_target: &mut dyn RenderTarget) -> Result<()> {
-        render_target.render(self.submission().render_submission())
+        render_target.render(self.render_submission())
     }
 
-    /// End the animation cycle and produce its submission.
-    pub fn submission(mut self) -> FrameSubmission<'scene> {
-        let pacing = self.end_cycle();
+    /// The application task's render submission.
+    pub fn render_submission(self) -> RenderSubmission {
+        self.submission::<SceneChange>().into_render_submission()
+    }
+
+    /// End the animation cycle and drain the task's change queue into a submission of the
+    /// change kind `C`.
+    pub fn submission<C: Change>(mut self) -> FrameSubmission<C> {
+        let pacing = pacing_for(self.end_cycle());
 
         FrameSubmission {
-            scene: self.scene,
+            changes: task_context::take_changes::<C>(),
             pacing,
         }
     }
 
-    fn end_cycle(&mut self) -> RenderPacing {
+    /// Close this frame's animation cycle and report how it ended.
+    fn end_cycle(&mut self) -> CycleEnd {
         self.submitted = true;
-
-        // Completion events arrive during apply-animation cycles and may queue successor actions.
-        // Drain them now so they do not wait for unrelated input.
-        self.movement.run_actions(self.animation);
-
-        if self.animation.end_cycle() {
-            RenderPacing::Smooth
-        } else {
-            RenderPacing::Fast
-        }
+        task_context::end_frame_cycle()
     }
 }
 
-impl Drop for Frame<'_, '_> {
+/// The pacing a cycle end asks of the next frame.
+///
+/// [`CycleEnd`] is animation vocabulary and [`RenderPacing`] render-target vocabulary, so the
+/// mapping lives here, with the frame that submits under it. Instance teardown maps its detached
+/// cycle end the same way: the last pacing of the instance is the pacing its final submission
+/// carries.
+pub(crate) fn pacing_for(cycle_end: CycleEnd) -> RenderPacing {
+    match cycle_end {
+        CycleEnd::Animating => RenderPacing::Smooth,
+        CycleEnd::Settled => RenderPacing::Fast,
+    }
+}
+
+impl Drop for Frame {
+    // Release-only, unconditionally: frames are legitimately dropped unsubmitted on the normal
+    // quit paths (e.g. the desktop's CloseRequested return, which then opens further frames
+    // during shutdown), so a missing submit must never poison the witness for the next frame —
+    // nor leak this frame's open cycle into the next frame's start time.
     fn drop(&mut self) {
-        if !self.submitted {
-            error!(
-                "Frame was dropped without being submitted: {}:{}:{}",
-                self.created_at.file(),
-                self.created_at.line(),
-                self.created_at.column(),
-            );
-        }
+        // One borrow releases the witness and closes the cycle whether the frame was submitted
+        // or not.
+        task_context::with_animation_state(|state| {
+            if !self.submitted {
+                state.flush_and_end_cycle();
+                error!(
+                    "Frame was dropped without being submitted: {}:{}:{}",
+                    self.created_at.file(),
+                    self.created_at.line(),
+                    self.created_at.column(),
+                );
+            }
+            state.witness = None;
+        });
     }
 }

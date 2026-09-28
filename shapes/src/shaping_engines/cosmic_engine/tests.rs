@@ -9,6 +9,38 @@ use fontdb::Source;
 
 use super::*;
 
+/// A bundled font (SIL OFL 1.1) used as the data behind a synthetic face entry.
+const JETBRAINS_MONO: &[u8] = include_bytes!(
+    "../../../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+);
+
+/// A rejected resolution registers the file in the engine's own registry but issues no `FaceId`.
+///
+/// `resolve_face_index` registers before it looks the selected face index up, so the engine's
+/// `faces` grows even when it then reports failure — and it reports that failure as `None`, which
+/// is the *only* thing that can reach the manager's published snapshot (the store sits behind the
+/// `?`). Callers must therefore key on the returned id, never on the registry's contents.
+#[test]
+fn a_rejected_resolution_registers_without_issuing_a_face_id() {
+    let mut engine = CosmicTextEngine::new(false).expect("bare engine is valid");
+    let bytes: FontBytes = std::sync::Arc::new(JETBRAINS_MONO.to_vec());
+    assert_eq!(
+        engine.font_registry().face_count(),
+        0,
+        "nothing published yet"
+    );
+
+    // A data index the file's faces do not have: registration succeeds, the selected-index
+    // lookup then finds nothing.
+    let rejected = engine.resolve_face(FontData::new(bytes, 99));
+    assert!(rejected.is_none(), "an absent face index must fail");
+    assert_eq!(
+        engine.font_registry().face_count(),
+        1,
+        "the file is registered into the engine's own registry either way"
+    );
+}
+
 /// Shaping must be able to resolve faces the shaper selected lazily, including file-backed
 /// faces that fontdb stores as `Source::SharedFile` (the state `FontSystem::get_font` leaves
 /// the database in after its `make_shared_face_data` upgrade on first use).
@@ -34,7 +66,7 @@ fn cosmic_engine_shapes_through_shared_file_faces() {
     // system fonts after cosmic-text's `make_shared_face_data` upgrade: the face's source
     // is `Source::SharedFile`, not `Binary`, so `load_font` never registered it and
     // shaping it must go through `resolve_face_index`'s lazy path.
-    let mut engine = CosmicTextEngine::bare();
+    let mut engine = CosmicTextEngine::new(false).expect("bare engine is valid");
     let shared = Source::SharedFile(
         std::path::PathBuf::from("JetBrainsMono[wght].ttf"),
         std::sync::Arc::new(Vec::from(jetbrains)) as std::sync::Arc<dyn AsRef<[u8]> + Send + Sync>,

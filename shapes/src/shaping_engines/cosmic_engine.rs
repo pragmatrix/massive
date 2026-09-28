@@ -13,8 +13,10 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use anyhow::{Result, anyhow};
 use cosmic_text::{Attrs, AttrsList, BufferLine, FontSystem, LineEnding, Shaping, Weight};
 use fontdb::Source;
 
@@ -22,8 +24,20 @@ use crate::engine::{
     EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
     ShapingEngine, ShapingEngineKind, ShapingRequest, TextAttributes, TextFamily,
 };
+use crate::font_validation::validate_font_file;
 use crate::shaping_engines::cosmic_scratch::CosmicScratch;
 use crate::{FaceId, TextWeight};
+
+// `cosmic_engine/tests.rs` existed without a declaring module, so nothing compiled or ran it;
+// this line is what puts those tests in the test binary.
+#[cfg(test)]
+mod tests;
+
+#[derive(Hash, PartialEq, Eq)]
+enum FontSourceKey {
+    Binary(usize),
+    File(PathBuf),
+}
 
 /// The cosmic-text-backed [`ShapingEngine`].
 ///
@@ -51,10 +65,13 @@ pub struct CosmicTextEngine {
     /// Simplification note: the separate Vec could go if `faces` were itself an Arc, at
     /// the cost of copy-on-write for resolution lookups — kept simple for now.
     published_faces: Arc<Vec<CosmicFace>>,
-    /// Faces the shaper resolved without a registry hit, mapped by their `fontdb::ID` so
+    /// Faces the shaper selected without a registry hit, mapped by their `fontdb::ID` so
     /// the (byte-copying) data read and content comparison happens at most once per
-    /// distinct face — not per glyph of every cluster, every frame.
-    resolved: HashMap<fontdb::ID, FaceId>,
+    /// distinct face — not per glyph of every cluster, every frame. `None` records a
+    /// *rejected* face (unreadable or invalid data): resolution reads and parses whole font
+    /// files, so a face that cannot resolve must be remembered too, or every later shape
+    /// retries it and aborts there.
+    resolved: HashMap<fontdb::ID, Option<FaceId>>,
 }
 
 impl CosmicTextEngine {
@@ -87,6 +104,23 @@ impl CosmicTextEngine {
         };
         engine.pull(published);
         engine
+    }
+
+    /// A test engine over a caller-supplied fallback pool.
+    ///
+    /// Real managers get their pool from the system font scan; this seeds one from bytes so a test
+    /// can exercise pool-driven fallback selection — a face reachable only through the pool and so
+    /// resolvable only at shape time (ADR 0006) — without depending on installed fonts.
+    #[cfg(test)]
+    pub(crate) fn with_candidate_pool(pool: fontdb::Database) -> Self {
+        let candidate_pool = Arc::new(pool);
+        Self {
+            font_system: Self::seed_font_system(&candidate_pool),
+            candidate_pool,
+            faces: Vec::new(),
+            published_faces: Arc::new(Vec::new()),
+            resolved: HashMap::new(),
+        }
     }
 
     /// Seed constructor over a clone of the candidate pool (pure in-memory copy — never
@@ -172,34 +206,75 @@ impl fmt::Debug for CosmicTextEngine {
 }
 
 impl CosmicTextEngine {
-    /// A bare engine: no system fonts, no candidates — seeds stay registry-only.
-    pub fn bare() -> Self {
-        Self {
-            font_system: FontSystem::new_with_locale_and_db(
-                "en-US".to_string(),
-                fontdb::Database::new(),
-            ),
-            candidate_pool: Arc::default(),
+    /// Create an engine with or without system fonts.
+    pub fn new(system_fonts: bool) -> Result<Self> {
+        let (font_system, candidate_pool) = if system_fonts {
+            let db = Self::filtered_system_font_db()?;
+            let font_system = FontSystem::new_with_locale_and_db("en-US".to_string(), db);
+            let candidate_pool = Arc::new(fontdb::Database::clone(font_system.db()));
+            (font_system, candidate_pool)
+        } else {
+            (
+                FontSystem::new_with_locale_and_db("en-US".to_string(), fontdb::Database::new()),
+                Arc::default(),
+            )
+        };
+
+        Ok(Self {
+            font_system,
+            candidate_pool,
             faces: Vec::new(),
             published_faces: Arc::new(Vec::new()),
             resolved: HashMap::new(),
-        }
+        })
     }
 
-    /// Create an engine with the environment's locale, system fonts, and fallbacks loaded.
-    ///
-    /// The one full system-catalog scan for the whole manager family: the scanned catalog
-    /// is kept as the candidate pool; scratch seeds clone it (in-memory copy) instead of
-    /// rescanning.
-    pub fn system() -> Self {
-        let font_system = FontSystem::new();
-        Self {
-            candidate_pool: Arc::new(fontdb::Database::clone(font_system.db())),
-            font_system,
-            faces: Vec::new(),
-            published_faces: Arc::new(Vec::new()),
-            resolved: HashMap::new(),
+    /// Load system fonts and retain only sources whose every face Swash can read.
+    /// Faces sharing a source are validated together, so invalid files are filtered as a unit;
+    /// an unreadable source fails initialization instead.
+    fn filtered_system_font_db() -> Result<fontdb::Database> {
+        let mut db = fontdb::Database::new();
+        db.load_system_fonts();
+
+        let mut source_faces: HashMap<FontSourceKey, (String, Vec<fontdb::ID>)> = HashMap::new();
+        for face in db.faces() {
+            let (key, label) = match &face.source {
+                Source::Binary(bytes) => (
+                    FontSourceKey::Binary(Arc::as_ptr(bytes) as *const () as usize),
+                    "binary system font".to_string(),
+                ),
+                Source::File(path) => (
+                    FontSourceKey::File(path.clone()),
+                    path.display().to_string(),
+                ),
+                Source::SharedFile(path, _) => (
+                    FontSourceKey::File(path.clone()),
+                    path.display().to_string(),
+                ),
+            };
+            source_faces
+                .entry(key)
+                .or_insert_with(|| (label, Vec::new()))
+                .1
+                .push(face.id);
         }
+
+        for (_, (label, ids)) in source_faces {
+            let first_id = ids[0];
+            let Some(validation) =
+                db.with_face_data(first_id, |bytes, _| validate_font_file(bytes))
+            else {
+                log::warn!("Cannot read cosmic-text system font source {label}");
+                return Err(anyhow!("cannot read system font source {label}"));
+            };
+            if let Err(error) = validation {
+                log::warn!("Filtering invalid cosmic-text system font source {label}: {error}");
+                for id in ids {
+                    db.remove_face(id);
+                }
+            }
+        }
+        Ok(db)
     }
 
     /// The candidate pool handed to scratch seeds via `new_scratch` (empty for `bare()`).
@@ -213,8 +288,16 @@ impl ShapingEngine for CosmicTextEngine {
         "cosmic-text"
     }
 
-    fn load_font(&mut self, data: FontBytes) -> Vec<FaceId> {
-        self.register(data)
+    fn load_font(&mut self, data: FontBytes) -> Result<Vec<FaceId>> {
+        if let Err(error) = validate_font_file(data.as_ref().as_ref()) {
+            log::warn!("Rejecting cosmic-text font file: {error}");
+            return Err(error.into());
+        }
+        let ids = self.register(data);
+        if ids.is_empty() {
+            return Err(anyhow!("fontdb did not load any faces from the font file"));
+        }
+        Ok(ids)
     }
 
     fn font_data(&self, id: FaceId) -> Option<FontData> {
@@ -240,8 +323,7 @@ impl ShapingEngine for CosmicTextEngine {
                 )
             })
             .collect();
-        let metrics = crate::face_metrics::extract_all(&fonts);
-        Arc::new(FontRegistry::from_owned(fonts, metrics))
+        Arc::new(FontRegistry::from_owned(fonts))
     }
 
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun> {
@@ -252,17 +334,23 @@ impl ShapingEngine for CosmicTextEngine {
         })
     }
 
-    /// Create this engine's per-handle scratch (ADR 0006): an *empty* seed — the scratch
-    /// pulls the published snapshot's faces on its first `sync`, building its own
-    /// `FontSystem` over a clone of the engine's *prepared* candidate pool (a pure
-    /// in-memory copy, so the full system catalog is never scanned more than once per
-    /// manager family — see `system()`; empty for `bare()`, keeping those shapers
-    /// registry-only).
-    fn new_scratch(&self, _published: &FontRegistry) -> Box<dyn EngineScratch> {
-        Box::new(CosmicScratch::new(Arc::clone(self.candidate_pool())))
+    /// Create this engine's per-context scratch (ADR 0006), seeded from the current registry and
+    /// the engine's prepared candidate pool.
+    fn new_scratch(&self, published: &FontRegistry) -> Box<dyn EngineScratch> {
+        Box::new(CosmicScratch::new(
+            Arc::clone(self.candidate_pool()),
+            published,
+        ))
     }
 
     fn resolve_face(&mut self, data: FontData) -> Option<FaceId> {
+        if let Err(error) = validate_font_file(data.data.as_ref().as_ref()) {
+            log::warn!(
+                "Rejecting lazy cosmic-text fallback font file at face index {}: {error}",
+                data.index
+            );
+            return None;
+        }
         // Dedupe by content: session-path shaping resolves fontdb faces (system-scanned
         // duplicates included) whose data may already be registered — e.g. the terminal
         // font loaded via `load_font` matched in the session db as the system-scanned
@@ -350,14 +438,16 @@ impl CosmicTextEngine {
                     let face_id = match self.lookup(glyph.font_id, glyph.font_weight) {
                         Some(index) => Self::face_id(index),
                         // First sighting of this database face: resolve through `resolve`
-                        // (canonical registry or manager resolution), then memoize — the resolver
-                        // reads and compares whole font files, unaffordable per glyph.
+                        // (canonical registry or manager resolution), then memoize the verdict —
+                        // the resolver reads and compares whole font files, unaffordable per
+                        // glyph, and a rejection costs the same read, so both are cached. A
+                        // remembered rejection aborts like a fresh one, without the read.
                         None => match self.resolved.get(&glyph.font_id) {
-                            Some(face_id) => *face_id,
+                            Some(face_id) => (*face_id)?,
                             None => {
-                                let face_id = resolve(self, glyph.font_id, glyph.font_weight)?;
+                                let face_id = resolve(self, glyph.font_id, glyph.font_weight);
                                 self.resolved.insert(glyph.font_id, face_id);
-                                face_id
+                                face_id?
                             }
                         },
                     };
@@ -490,9 +580,6 @@ impl CosmicTextEngine {
         FaceId::new(index as u64)
     }
 }
-
-#[cfg(test)]
-mod tests;
 
 /// Build cosmic-text attrs for one attributes value.
 ///

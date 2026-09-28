@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use anyhow::{Result, anyhow};
 use parley::fontique::{
     self, Blob, Collection, CollectionOptions, FamilyId, GenericFamily, SourceCache,
 };
@@ -15,6 +16,7 @@ use crate::engine::{
     EngineScratch, FontBytes, FontData, FontRegistry, ShapedCluster, ShapedGlyph, ShapedRun,
     ShapingEngine, ShapingEngineKind, ShapingRequest, covering_metadata,
 };
+use crate::font_validation::validate_font_file;
 use crate::shaping_engines::parley_scratch::ParleyScratch;
 use crate::{FaceId, TextFamily, TextWeight};
 
@@ -67,37 +69,80 @@ impl ParleyEngine {
         })
     }
 
-    /// Create a completely bare engine: no fallbacks, no fonts.
-    pub fn bare() -> Self {
-        let font_context = FontContext {
+    /// Create an engine with or without system fonts.
+    ///
+    /// Returns an error only if a catalog source cannot be read; a file fontique cannot parse is
+    /// skipped during collection construction and so cannot fail engine construction.
+    pub fn new(system_fonts: bool) -> Result<Self> {
+        let mut font_context = FontContext {
             collection: Self::shared_collection(CollectionOptions {
-                system_fonts: false,
+                system_fonts,
                 ..Default::default()
             }),
+            // Parley creates an unshared source cache by default and prunes it on every layout
+            // builder creation. A pruned font file is re-loaded on demand with a NEW `Blob` id,
+            // which invalidates `FaceId`s derived from it (the renderer would see unknown faces).
+            // The shared cache stores only weak blob refs and is never pruned; the registry built
+            // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
+            // original blob and `Blob` ids stay stable for the engine's lifetime.
             source_cache: SourceCache::new_shared(),
         };
-        Self::from_context(font_context)
+
+        if system_fonts {
+            font_context.collection.load_system_fonts();
+        }
+
+        let mut engine = Self::from_context(font_context);
+        if system_fonts {
+            // The registry and the symbol-fallback repair both derive from the collection Parley
+            // may select from; a bare engine has no collection to walk.
+            engine.rebuild_fonts();
+            engine.validate_system_fonts()?;
+        }
+        Ok(engine)
     }
 
-    /// Create an engine with the environment's locale, platform families, fallbacks, and system
-    /// fonts loaded.
-    pub fn system() -> Self {
-        let mut font_context = FontContext::new();
-        // Parley creates an unshared source cache by default and prunes it on every layout
-        // builder creation. A pruned font file is re-loaded on demand with a NEW `Blob` id,
-        // which invalidates `FaceId`s derived from it (the renderer would see unknown faces).
-        // The shared cache stores only weak blob refs and is never pruned; the registry built
-        // by `rebuild_fonts` pins strong refs, so a pruned entry always upgrades back to the
-        // original blob and `Blob` ids stay stable for the engine's lifetime.
-        font_context.source_cache = SourceCache::new_shared();
-        font_context.collection = Self::shared_collection(CollectionOptions {
-            system_fonts: true,
-            ..Default::default()
-        });
-        font_context.collection.load_system_fonts();
-        let mut engine = Self::from_context(font_context);
-        engine.rebuild_fonts();
-        engine
+    /// Fail if a catalog source cannot be read; a source fontique could not parse is not a
+    /// failure, because it contributed no face to the collection in the first place.
+    ///
+    /// Every registered face is Swash-readable: fontique registers a face only if the file
+    /// carries a supported sfnt tag and the face's name and cmap tables parse, which is strictly
+    /// stronger than Swash's readability check on that face. Re-checking the file here would also
+    /// condemn a face fontique already skipped — a sibling in the same collection file — and take
+    /// the whole catalog down with it.
+    fn validate_system_fonts(&mut self) -> Result<()> {
+        let family_names: Vec<String> = self
+            .font_context
+            .collection
+            .family_names()
+            .map(str::to_owned)
+            .collect();
+        for name in family_names {
+            let Some(family_id) = self.font_context.collection.family_id(&name) else {
+                continue;
+            };
+            let Some(family) = self.font_context.collection.family(family_id) else {
+                continue;
+            };
+            for font_info in family.fonts() {
+                if self
+                    .font_context
+                    .source_cache
+                    .get(font_info.source())
+                    .is_none()
+                {
+                    log::warn!(
+                        "Rejecting Parley system-font catalog: cannot read {name} face index {}",
+                        font_info.index()
+                    );
+                    return Err(anyhow!(
+                        "cannot read Parley system font {name} face index {}",
+                        font_info.index()
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn from_context(font_context: FontContext) -> Self {
@@ -242,7 +287,11 @@ impl ShapingEngine for ParleyEngine {
         "parley"
     }
 
-    fn load_font(&mut self, data: FontBytes) -> Vec<FaceId> {
+    fn load_font(&mut self, data: FontBytes) -> Result<Vec<FaceId>> {
+        if let Err(error) = validate_font_file(data.as_ref().as_ref()) {
+            log::warn!("Rejecting Parley font file: {error}");
+            return Err(error.into());
+        }
         // FontData owns a shared `Blob<u8>`; keep the bytes alive in the registry.
         let blob: Blob<u8> = Blob::new(data);
         let families = self
@@ -285,7 +334,7 @@ impl ShapingEngine for ParleyEngine {
                 ids.push(id);
             }
         }
-        ids
+        Ok(ids)
     }
 
     fn font_data(&self, id: FaceId) -> Option<FontData> {
@@ -293,8 +342,7 @@ impl ShapingEngine for ParleyEngine {
     }
 
     fn font_registry(&self) -> Arc<FontRegistry> {
-        let metrics = crate::face_metrics::extract_all(&self.fonts);
-        Arc::new(FontRegistry::from_owned(self.fonts.clone(), metrics))
+        Arc::new(FontRegistry::from_owned(self.fonts.clone()))
     }
 
     /// Shape one line through per-session contexts (ADR 0006): the same pipeline the
@@ -309,7 +357,7 @@ impl ShapingEngine for ParleyEngine {
         shape_line(font_context, layout_context, request, font_size)
     }
 
-    /// Per-handle shaping scratch over this engine's shared collection (ADR 0006): a
+    /// Per-context shaping scratch over this engine's shared collection (ADR 0006): a
     /// clone of the collection plus a fresh `LayoutContext`. A shared-mode collection
     /// clone shares the internally synchronized state, so later registrations (fonts
     /// loaded at any time) are visible to the scratch via fontique's version sync.
@@ -462,4 +510,136 @@ fn parley_family<'a>(family: &TextFamily<'a>) -> FontFamily<'a> {
 /// Derive a [`FaceId`] from Parley font data: the `Blob` unique id packed with the face index.
 fn face_id_from_parley_data(font: &parley::FontData) -> FaceId {
     FaceId::new((font.data.id() << 32) | font.index as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use super::*;
+
+    /// One unreadable file in the catalog must not reject the whole catalog: fontique already
+    /// skipped the face it could not parse, so every registered face is Swash-readable.
+    #[test]
+    fn one_unreadable_catalog_file_does_not_reject_the_catalog() {
+        let mut engine = engine_with_font(database_with_a_partly_readable_file());
+
+        assert_eq!(
+            engine.fonts.len(),
+            1,
+            "fontique registers the valid face and skips the unreadable one"
+        );
+        assert!(
+            engine.validate_system_fonts().is_ok(),
+            "a file whose spare face is unreadable must not fail engine construction"
+        );
+    }
+
+    /// A file fontique cannot parse at all contributes no face, so it cannot reject the catalog.
+    #[test]
+    fn unparseable_catalog_file_does_not_reject_the_catalog() {
+        let mut engine = engine_with_font(b"not a font".to_vec());
+
+        assert!(
+            engine.fonts.is_empty(),
+            "an unparseable file yields no face"
+        );
+        assert!(
+            engine.validate_system_fonts().is_ok(),
+            "an unparseable file must not fail engine construction"
+        );
+    }
+
+    /// A catalog source that cannot be read must reject the catalog: the engine promises every
+    /// published `FaceId` resolves to bytes, so a registered face whose file is gone is fatal.
+    #[test]
+    fn unreadable_catalog_source_rejects_the_catalog() {
+        let path = write_catalog_font(JETBRAINS_MONO);
+        let mut engine = ParleyEngine::from_context(FontContext {
+            collection: ParleyEngine::shared_collection(CollectionOptions {
+                system_fonts: false,
+                ..Default::default()
+            }),
+            source_cache: SourceCache::new_shared(),
+        });
+        engine
+            .font_context
+            .collection
+            .load_fonts_from_paths([&path]);
+        let registered = engine.font_context.collection.family_names().count();
+        std::fs::remove_file(&path).unwrap();
+
+        // `rebuild_fonts` is the first read of the path, so it caches a failure and drops the
+        // face from the registry; validation must then surface the unreadable source.
+        engine.rebuild_fonts();
+
+        assert!(registered > 0, "the readable file registered a face");
+        assert!(
+            engine.fonts.is_empty(),
+            "the unreadable source contributed no face to the registry"
+        );
+        let error = engine
+            .validate_system_fonts()
+            .expect_err("an unreadable catalog source must fail engine construction");
+        assert!(
+            error.to_string().contains("cannot read"),
+            "unexpected error: {error}"
+        );
+    }
+
+    const JETBRAINS_MONO: &[u8] = include_bytes!(
+        "../../../assets/fonts/JetBrainsMono-2.304/fonts/variable/JetBrainsMono[wght].ttf"
+    );
+
+    /// An engine with the given file registered as its only font, without system fonts.
+    fn engine_with_font(bytes: Vec<u8>) -> ParleyEngine {
+        let mut engine = ParleyEngine::from_context(FontContext {
+            collection: ParleyEngine::shared_collection(CollectionOptions {
+                system_fonts: false,
+                ..Default::default()
+            }),
+            source_cache: SourceCache::new_shared(),
+        });
+        let blob: Blob<u8> = Blob::new(std::sync::Arc::new(bytes));
+        engine.font_context.collection.register_fonts(blob, None);
+        engine.rebuild_fonts();
+        engine
+    }
+
+    /// A font database holding one valid face plus one whose table directory is garbage.
+    ///
+    /// Fontique registers a collection face by face, so the valid face is a selectable catalog
+    /// entry whose bytes only parse because they are the whole file.
+    fn database_with_a_partly_readable_file() -> Vec<u8> {
+        const HEADER: usize = 20;
+        let num_tables = u16::from_be_bytes([JETBRAINS_MONO[4], JETBRAINS_MONO[5]]) as usize;
+        let mut ttc = Vec::with_capacity(JETBRAINS_MONO.len() + HEADER + 16);
+        ttc.extend_from_slice(b"ttcf");
+        ttc.extend_from_slice(&0x0001_0000u32.to_be_bytes());
+        ttc.extend_from_slice(&2u32.to_be_bytes());
+        ttc.extend_from_slice(&(HEADER as u32).to_be_bytes());
+        ttc.extend_from_slice(&(JETBRAINS_MONO.len() as u32 + HEADER as u32).to_be_bytes());
+        ttc.extend_from_slice(JETBRAINS_MONO);
+        for i in 0..num_tables {
+            let offset = HEADER + 12 + 16 * i + 8;
+            let old = u32::from_be_bytes(ttc[offset..offset + 4].try_into().unwrap());
+            ttc[offset..offset + 4].copy_from_slice(&(old + HEADER as u32).to_be_bytes());
+        }
+        ttc.extend_from_slice(b"junk-table-dir!");
+        ttc
+    }
+
+    /// A uniquely named `.ttf` in the temp dir holding `bytes`, so it can be registered from a
+    /// [`fontique::SourceKind::Path`] source.
+    fn write_catalog_font(bytes: &[u8]) -> PathBuf {
+        static UNIQUE: AtomicU32 = AtomicU32::new(0);
+        let path = std::env::temp_dir().join(format!(
+            "massive-parley-catalog-{}-{}.ttf",
+            std::process::id(),
+            UNIQUE.fetch_add(1, Ordering::Relaxed)
+        ));
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
 }

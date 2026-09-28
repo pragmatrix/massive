@@ -1,28 +1,25 @@
 use std::convert::Infallible;
 
 use anyhow::Result;
-use syntect::{
-    easy::HighlightLines,
-    highlighting::{FontStyle, Style, ThemeSet},
-    parsing::SyntaxSet,
-    util::LinesWithEndings,
-};
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{FontStyle, Style, ThemeSet};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
 use winit::dpi::LogicalSize;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::Color;
 use massive_scene::prelude::*;
-use massive_shapes::{ShapingEngineKind, TextWeight};
-use massive_shell::{ApplicationContext, FontManager, shell};
+use massive_shapes::{FontPolicy, ShapingEngineKind, TextWeight};
+use massive_shell::{ApplicationContext, shell};
 
-use shared::{
-    application::{Application, UpdateResponse},
-    attributed_text::{self, TextAttribute},
-};
+use shared::application::{Application, UpdateResponse};
+use shared::attributed_text::{self, TextAttribute};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(syntax)
+    shell::run(syntax, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
@@ -61,20 +58,26 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         }
     }
 
-    let fonts =
-        FontManager::bare(ShapingEngineKind::Parley).with_font(shared::fonts::JETBRAINS_MONO);
+    // The shell built the task's manager from the font policy this application names, so shaping
+    // and rendering share one identity world (ADR 0005).
+    fonts().load_font(shared::fonts::JETBRAINS_MONO)?;
 
     let font_size = 32.;
     let line_height = 40.;
 
-    let (glyph_runs, height) = attributed_text::shape_text(
-        &mut fonts.shaper(),
-        &final_text,
-        &text_attributes,
-        font_size,
-        line_height,
-        None,
-    );
+    // The handle is `!Send` and is dropped at the end of this block, before any await, so the
+    // example's future stays `Send` for the shell.
+    let (glyph_runs, height) = {
+        let mut shaper = shaper();
+        attributed_text::shape_text(
+            &mut shaper,
+            &final_text,
+            &text_attributes,
+            font_size,
+            line_height,
+            None,
+        )
+    };
 
     // Window
 
@@ -84,27 +87,22 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let scene = ctx.new_scene();
-    let mut renderer = window
-        .renderer()
-        .with_text(fonts.registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     // Application
 
     let content_size = (1280, height as u32);
     let mut application = Application::default();
-    let transform = application.get_transform(content_size).enter(&scene);
-    let position = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).submit();
+    let position = transform.to_location().submit();
 
-    // Hold the staged visual, otherwise it will disappear.
+    // Hold the submitted visual, otherwise it will disappear.
     let _visual = glyph_runs
         .into_iter()
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&position)
-        .enter(&scene);
+        .submit();
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -127,6 +125,6 @@ async fn syntax(mut ctx: ApplicationContext) -> Result<()> {
         // needs to redraw.
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }

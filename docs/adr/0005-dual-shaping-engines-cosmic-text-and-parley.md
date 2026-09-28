@@ -27,7 +27,8 @@ Interpretation: cosmic-text's shaping-only path is lean for tiny inputs, but its
 - Runs carry their engine: each engine stamps `shaping_engine` onto its `ShapedRun` output (propagated to `GlyphRun`), and the renderer's text layer debug-asserts it against its manager's engine — a cheap tripwire if a run shaped by one engine is ever rendered through another engine's manager. Should engine-specific APIs ever return (e.g. parley contexts), they belong behind capability methods (`manager.parley_contexts() -> Option<_>`), not kind-gated shapers.
 - `TextAttributes` becomes engine-neutral (family as data, not parley `FontFamily` values); parley-specific accessors such as `Shaper::contexts()` move behind the parley engine.
 - Terminal cell-grid anchoring stays in mt and operates on engine-neutral shaped glyphs; the shaping contract stays "attributed text in, shaped glyphs out".
-- The `shaping_engine` setting does not hot-swap; switching engines requires a restart.
+- The `shaping_engine` setting does not hot-swap; engine selection is fixed before the desktop
+  starts.
 
 ## Amendment: no library-level default engine (2026-09-14)
 
@@ -72,5 +73,71 @@ the registry; metrics join the published snapshot.
 ## Terminology (2026-09-15)
 
 Later ADRs and the glossary in [`CONTEXT.md`](../../CONTEXT.md) use **resolved face** for what
-this document calls *interned/minted* faces, and **registry sync** for what ADR 0006 called
+this document calls *interned* faces, and **registry sync** for what ADR 0006 called
 *epoch-pull*. Terms here predate that refinement; read the older wording as the newer one.
+
+## Amendment: the font policy belongs to the shell (2026-09-21)
+
+**A font policy is the shell's construction input.** The engine and whether system fonts are
+selectable are client decisions that live in client settings, and the shell must not read client
+configuration. They therefore arrive as one `FontPolicy` parameter on `shell::run`, which is where
+the rule this document states — no library-level default engine, every client names its engine — now
+holds. The shell builds the font manager from the policy, constructs the application task's
+[`TaskContext`](0008-task-local-ui-contexts.md) from it, and installs that context around the
+application future. The desktop derives the manager from the context instead of constructing it, so
+`DesktopEnvironment` no longer needs the engine in order to construct fonts.
+
+**The policy is fixed at the task boundary.** A `FaceId` is only meaningful inside the manager that
+issued it, so replacing a manager after a task has shaped would mix identities across contexts that
+had already shaped; mutating a live manager's selection source has the same effect. The policy is
+consumed by value at `shell::run` and the task's shaping context is installed before the application
+starts, while nothing has shaped — a window the ownership model now enforces by construction, since
+neither the application context nor the task context offers a way to replace the manager. Changing
+the engine means a restart.
+
+**Bare is a policy, not a default.** System fonts are a selection source the application never named,
+and leaving that implicit has two costs that surface later. Cosmic scans the platform catalog when
+its engine is built — the cold-start gap measured in the results above — so a terminal that loads
+its own mono font still pays for a catalog it will not use. And an unnamed selectable face can win
+selection: the shaper preferring the system copy of the terminal font over the loaded one is the
+white-screen failure the fallback ordering in the cosmic engine guards against. The choice is stated
+at the policy: `FontPolicy::bare` and `FontPolicy::system` are the two named policies, and the
+manager-construction shorthands `FontManager::bare` and `FontManager::system` exist only to spell
+them where a manager is built. Every manager is still built from a policy the caller passed, and a
+caller that needs the flags separately uses `FontPolicy::new`.
+
+Lazy system-font loading on a live manager was considered and rejected. System fonts are a selection
+source, not registry faces: parley keeps them in a per-collection store that collection clones do not
+share, and cosmic clones its candidate pool into each scratch. No shaper that already exists can
+observe a later load without new per-engine re-seed machinery, and the registry's face-count sync
+cannot cover a face that has no `FaceId` until something selects it — which nothing does while the
+pool is empty. Naming the policy up front provides the same capability without that machinery.
+
+## Amendment: system-font validation fails at the source, not per face (2026-09-28)
+
+**A catalog source that cannot be read fails startup; a file the backend cannot parse is skipped and
+must not.** Both engines validate the system catalog before they become selectable, and both draw the
+line at the *source* rather than at each face. A source that cannot be read is an error
+(`SourceCache::get` returning `None` for parley, `fontdb::with_face_data` returning `None` for
+cosmic): the engine cannot inspect what it would select, so it fails closed. A file that cannot be
+*parsed* is not an error for either engine, because their font database constructors already dropped
+it — fontique's scanner keeps a collection face only when its table directory tag, name table and
+cmap parse, and fontdb's `load_system_fonts` skips what it cannot read — so such a file contributes
+no selectable face and is invisible to the engine.
+
+**The engines must not differ here, and the earlier parley check did.** Parley validated each catalog
+source with the Swash file check used for application-loaded fonts and failed the whole catalog on
+the first bad one. Because Swash walks *every* face in a file, a single unreadable face in a system
+`.ttc` — a face fontique had already skipped, and that nothing can select — aborted the terminal at
+startup, while cosmic filtered it and kept running. Parity for the same catalog is the contract: the
+manager's `load_fonts` still rejects a file the application loaded, but the system catalog only
+tolerates what its own database builder already skipped. Parley's check therefore drops the per-face
+Swash walk and keeps the unreadable-source failure; a *registered* face needs no independent
+re-validation, since fontique's registration condition is strictly stronger than Swash's readability
+check on that face.
+
+Rejected: **filtering unreadable parley sources like cosmic removes invalid faces.** Fontique cannot
+drop a face from the system catalog — `unregister_font` keys on `(family, width, style, weight)` and
+touches only application-registered families, not system faces — so "filter" would mean silently
+keeping a face that cannot be rasterized. Failing closed is the only honest option on the one axis
+where filtering is impossible.

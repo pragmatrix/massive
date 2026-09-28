@@ -1,0 +1,149 @@
+//! Ambient access: scene submission, shaping, and animation resolve the task's installed contexts.
+//!
+//! Application code runs inside a task whose change queue, shaping context, and animation clock
+//! are installed, so none of them has to be named at the call site (ADR 0008). [`Submit`] submits
+//! scene content to the task's change queue, which is what makes it active; [`AmbientShape`]
+//! shapes text with the installed shaper; [`AmbientAnimation`] starts animations on the installed
+//! animation clock, and [`AmbientTimeScale`] constructs a [`TimeScale`] on that clock and reads
+//! its elapsed frame time.
+//!
+//! The ambient traits mirror the explicit `*_with` methods for code that holds its own shaper or
+//! allocator (tests, benchmarks, code outside a task context). They live in this crate rather than
+//! in `massive-shapes`/`massive-animation` because the task-locals they read are installed above
+//! them.
+
+use massive_animation::{Animated, Interpolatable, Interpolation, TimeScale};
+use massive_scene::{
+    Change, Handle, Location, Object, SceneChange, Transform, UnsubmittedLocation, Visual,
+};
+use massive_shapes::{GlyphRun, SizedTextShaper};
+use std::time::Duration;
+
+use crate::task_context;
+
+/// Shape the first line of the text at its font size with the current task's shaper.
+pub trait AmbientShape {
+    fn shape(self) -> Option<GlyphRun>;
+}
+
+impl AmbientShape for SizedTextShaper<'_> {
+    fn shape(self) -> Option<GlyphRun> {
+        let mut shaper = task_context::shaper();
+        SizedTextShaper::shape_with(self, &mut shaper)
+    }
+}
+
+/// Submit a scene value to the task's change queue, making it active.
+///
+/// Submitting publishes the create change into the task's change queue, and the returned handle
+/// keeps the object alive and carries later updates. Objects the renderer draws, like
+/// [`Visual`], become visible this way. The associated [`Submitted`](Submit::Submitted) type is
+/// the handle the caller receives: a location yields its transform and location handles,
+/// everything else its own handle.
+pub trait Submit: Sized {
+    type Submitted;
+
+    fn submit(self) -> Self::Submitted;
+}
+
+impl Submit for UnsubmittedLocation {
+    type Submitted = (Handle<Transform>, Handle<Location>);
+
+    /// A location is submitted together with its transform, in one batch.
+    fn submit(self) -> Self::Submitted {
+        task_context::with_changes(|collector| self.submit_to(collector))
+    }
+}
+
+impl Submit for Visual {
+    type Submitted = Handle<Self>;
+
+    fn submit(self) -> Self::Submitted {
+        submit_object(self)
+    }
+}
+
+impl Submit for Location {
+    type Submitted = Handle<Self>;
+
+    fn submit(self) -> Self::Submitted {
+        submit_object(self)
+    }
+}
+
+impl Submit for Transform {
+    type Submitted = Handle<Self>;
+
+    fn submit(self) -> Self::Submitted {
+        submit_object(self)
+    }
+}
+
+fn submit_object<T>(value: T) -> Handle<T>
+where
+    T: Object + 'static,
+    SceneChange: From<Change<T::Change>>,
+{
+    task_context::with_changes(|collector| massive_scene::submit(collector, value))
+}
+
+/// Advance animations on the current task's animation clock: the timestamp comes from the task's
+/// frame instead of an allocator. Use the inherent `*_with` methods with code that holds its own
+/// allocator or timestamp.
+pub trait AmbientAnimation<T> {
+    /// Animate the value to `target` over `duration`, allocating the start time from the task's
+    /// frame.
+    fn animate(&mut self, target: T, duration: Duration, interpolation: Interpolation);
+
+    /// [`animate`](Self::animate), but only when the target differs from the animation's current
+    /// target.
+    fn animate_if_changed(&mut self, target: T, duration: Duration, interpolation: Interpolation);
+
+    /// Advance the animation to the task's current animation time and read the value.
+    fn proceed(&mut self) -> &T;
+}
+
+impl<T> AmbientAnimation<T> for Animated<T>
+where
+    T: Send + Interpolatable + PartialEq + 'static,
+{
+    fn animate(&mut self, target: T, duration: Duration, interpolation: Interpolation) {
+        let instant = task_context::allocate_animation_time(duration);
+        Animated::animate_at(self, instant, target, duration, interpolation);
+    }
+
+    fn animate_if_changed(&mut self, target: T, duration: Duration, interpolation: Interpolation) {
+        // Compares against the animation's current target so re-issuing an animation toward its
+        // running target is skipped.
+        if *self.target() == target {
+            return;
+        }
+        self.animate(target, duration, interpolation);
+    }
+
+    fn proceed(&mut self) -> &T {
+        Animated::proceed_with(self, task_context::animation_time())
+    }
+}
+
+/// Create and advance a [`TimeScale`] on the current task's frame clock.
+///
+/// The explicit twins [`TimeScale::new_with`] and [`TimeScale::scale_seconds_with`] take the
+/// timestamp.
+pub trait AmbientTimeScale {
+    /// Create a [`TimeScale`] whose first update cycle starts in the current frame.
+    fn new() -> Self;
+
+    /// Scale a value that is relative to seconds by the current frame's elapsed time.
+    fn scale_seconds(&mut self) -> f64;
+}
+
+impl AmbientTimeScale for TimeScale {
+    fn new() -> Self {
+        TimeScale::new_with(task_context::animation_time())
+    }
+
+    fn scale_seconds(&mut self) -> f64 {
+        TimeScale::scale_seconds_with(self, task_context::animation_time())
+    }
+}

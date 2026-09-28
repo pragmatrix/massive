@@ -11,7 +11,8 @@ pub struct TimeScale {
 }
 
 impl TimeScale {
-    pub fn new(now: Instant) -> Self {
+    /// Create a [`TimeScale`] whose first update cycle starts at `now`.
+    pub fn new_with(now: Instant) -> Self {
         Self {
             now,
             duration_since: Duration::ZERO,
@@ -21,7 +22,7 @@ impl TimeScale {
     /// Multiply with the returned value to scale another value that is relative to seconds.
     ///
     /// Returns 0 if [`TimeScale`] was created in the current update cycle.
-    pub fn scale_seconds(&mut self, now: Instant) -> f64 {
+    pub fn scale_seconds_with(&mut self, now: Instant) -> f64 {
         self.duration_passed(now).as_secs_f64()
     }
 

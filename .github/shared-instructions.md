@@ -10,9 +10,10 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 - Give each function, type, and module a single, focused responsibility.
 - Avoid shallow forwarding functions; expose a composed capability directly or combine related work into a meaningful operation.
 - Consolidate multiple exit points that return the same result when it improves readability.
-- Comment only to explain non-obvious reasoning or intent; prefer concise, ideally one-line comments for conceptual/semantic blocks. Document the reason behind unusual behavior (cache invalidation, lifecycle ordering) so future readers don't "fix" it.
-- Comments should focus on the most important stuff: the *why* (the reasoning behind a decision), not the *what* it replaces. Don't add outdated information or restate what a previous implementation did.
+- Comment the *why* (the reasoning behind a decision), not the *what*; describe what the code does only when it is genuinely complicated. Always in the fewest words that carry the reason, ideally one line. Document the reason behind unusual behavior (cache invalidation, lifecycle ordering) so future readers don't "fix" it.
+- Documentation should describe the current terminology and design directly; do not add outdated information or historical references such as "previously", "replaces", or "older terminology" unless explicitly requested.
 - When a comment cites a design decision (an ADR or design doc), cite it and state the code's rationale as it is now — never narrate prior state ("previously X", "no longer", "replaces the old ..."). History belongs in git history and the ADR's context section, not in code comments.
+- State the reason the code is as it is; a contrast with a design that is not visible at that spot ("rather than a mutex", "instead of a runtime check") explains the change, not the code. Keep deliberate history that carries a reason — a dated measurement, a rejected alternative, a `TODO` or open design question.
 - Preserve existing comments during refactors unless inaccurate; update them when their rationale changes.
 - Apply the stepdown rule (reverse topological order) to functions and types alike: high-level callers and dependent types come first, the functions/types they depend on are declared below them, and leaf/helper items sit at the bottom, so reading top-down follows control flow from the aggregate toward the leaves.
 - Exception: constants, mode/switch enums, and defaults belong above the functions and types they are defined for — they are the policy an item reads or selects by, so readers meet them before encountering the behavior that depends on them.
@@ -34,6 +35,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 - Prefer `derive_more` (Debug, Deref) and deriving traits over manual implementations when equivalent derives exist; derives are less error-prone and stay in sync with the type.
 - Don't import enum discriminants into scope; prefer qualified variants (e.g., `LauncherMode::Visor`).
 - Flatten `use` declarations into direct module-path groups; combine leaf imports sharing the exact module path. Keep grouped imports shallow; avoid multi-level brace nesting unless the file already uses that style.
+- Import application prelude modules with `use ...::prelude::*;` rather than importing individual prelude items.
 - Import distinctive external types directly rather than fully qualified paths; keep original names unless they conflict, then use a clear alias.
 - Use `pub` by default; use `pub(crate)` only when the containing module is already crate-public. Control visibility at module boundaries.
 - Prefer adding fields to existing structs over parallel data structures; parallel fields drift out of sync.
@@ -48,6 +50,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 
 ## Safety & Quality
 - Avoid unsafe or experimental APIs unless required; preserve backwards compatibility unless instructed otherwise.
+- For bugs, hangs, regressions, and unexpected behavior, use the `bugfix` skill for evidence-first diagnosis and validation.
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - Unit-test functions that carry logic across a representation change (scalar fields → domain types, loose values → structured types): the old shape's implicit semantics (parameter order, units, corner-vs-origin) don't transfer automatically, and the mistakes compile fine while corrupting downstream behavior.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.

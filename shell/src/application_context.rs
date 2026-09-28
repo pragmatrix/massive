@@ -1,5 +1,4 @@
 use std::any::Any;
-use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use tokio::sync::mpsc::{UnboundedReceiver, WeakUnboundedSender};
@@ -9,20 +8,16 @@ use winit::dpi::PhysicalSize;
 use winit::event_loop::EventLoopProxy;
 use winit::window::WindowAttributes;
 
-use massive_animation::{AnimationCoordinator, MovementRuntime};
-use massive_applications::{ApplicationEvent, ApplicationMessage, Frame, PresentationId, ViewId};
+use massive_applications::task_context;
+use massive_applications::{ApplicationEvent, ApplicationMessage, PresentationId, ViewId};
 use massive_geometry::SizePx;
-use massive_scene::ChangeCollector;
 use massive_util::CoalescingReceiver;
 
+use crate::ShellWindow;
 use crate::shell::ShellCommand;
-use crate::{Scene, ShellWindow};
 
-/// The [`ApplicationContext`] is the application's connection to the outer world. It allows it to create
+/// The [`ApplicationContext`] is the application's connection to the shell. It allows it to create
 /// new windows and to wait for events while also forwarding scene changes to the renderer.
-///
-/// In addition to that it provides an animator that is updated with each event coming from the
-/// shell.
 #[derive(Debug)]
 pub struct ApplicationContext {
     // We use this to send `ApplyAnimations` from the renderers.
@@ -34,9 +29,6 @@ pub struct ApplicationContext {
     // Robustness: Should probably an event loop query. May be different for different windows and
     // or when a window is moved?
     monitor_scale_factor: f64,
-
-    animation_coordinator: AnimationCoordinator,
-    movement_runtime: MovementRuntime,
 }
 
 impl ApplicationContext {
@@ -51,40 +43,11 @@ impl ApplicationContext {
             event_receiver: event_receiver.into(),
             event_loop_proxy,
             monitor_scale_factor,
-            animation_coordinator: AnimationCoordinator::new(),
-            movement_runtime: MovementRuntime::default(),
         }
     }
 
     pub fn primary_monitor_scale_factor(&self) -> f64 {
         self.monitor_scale_factor
-    }
-
-    /// Creates a new scene with a new change collector.
-    pub fn new_scene(&self) -> Scene {
-        Scene::new(Arc::new(ChangeCollector::default()))
-    }
-
-    /// Creates a new scene with a caller-provided change collector.
-    pub fn new_scene_with_change_collector(&self, collector: Arc<ChangeCollector>) -> Scene {
-        Scene::new(collector)
-    }
-
-    /// The application movement runtime for mounting long-lived movements.
-    pub fn movement_runtime(&mut self) -> &mut MovementRuntime {
-        &mut self.movement_runtime
-    }
-
-    /// Bundle a scene with the application's animation clock for one update cycle.
-    pub fn frame<'scene, 'context>(
-        &'context mut self,
-        scene: &'scene Scene,
-    ) -> Frame<'scene, 'context> {
-        Frame::new(
-            scene,
-            &mut self.animation_coordinator,
-            &mut self.movement_runtime,
-        )
     }
 
     /// Creates a new window.
@@ -130,11 +93,13 @@ impl ApplicationContext {
                     application_events.push(ApplicationEvent::View(view_id, view_event));
                 }
                 ApplicationMessage::ApplyAnimations(presentation_id) => {
-                    self.animation_coordinator
-                        .upgrade_to_apply_animations_cycle();
-                    let completion_events = self
-                        .movement_runtime
-                        .apply_animations(self.animation_coordinator.animation_time());
+                    // The shell applies animations while awaiting events, before the application
+                    // opens its next frame.
+                    let completion_events =
+                        task_context::with_animation_and_movement(|animation, movement| {
+                            animation.upgrade_to_apply_animations_cycle();
+                            movement.apply_animations(animation.animation_time())
+                        });
                     application_events.push(ApplicationEvent::ApplyAnimations(presentation_id));
                     application_events.extend(
                         completion_events

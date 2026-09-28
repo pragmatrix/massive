@@ -19,8 +19,10 @@ use inlyne::utils::Rect;
 use inlyne::utils::markdown_to_html;
 
 use massive_applications::ApplicationEvent;
+use massive_applications::prelude::*;
 use massive_geometry::SizePx;
 use massive_scene::prelude::*;
+use massive_shapes::{FontPolicy, ShapingEngineKind};
 use massive_shell::ApplicationContext;
 use massive_shell::shell;
 use shared::application::{Application, UpdateResponse};
@@ -29,7 +31,8 @@ use markdown::FontBridge;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(emojis)
+    // The markdown bridge builds a cosmic-text manager, so the shell names the same engine.
+    shell::run(emojis, FontPolicy::bare(ShapingEngineKind::CosmicText))
 }
 
 async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
@@ -45,8 +48,9 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let element_queue = Arc::new(Mutex::new(VecDeque::new()));
 
-    // Register the system fonts into both databases and build the fontdb::ID -> FaceId map.
-    let bridge = FontBridge::system();
+    // Builds the fontdb::ID -> FaceId map over the task's manager, the one identity world the
+    // renderer reads (ADR 0005).
+    let bridge = FontBridge::system()?;
     // Need an equivalent FontSystem for inlyne.
     let font_system = Arc::new(Mutex::new(FontSystem::new_with_locale_and_db(
         "en-US".into(),
@@ -61,11 +65,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
         .await?;
     let view_id = window.view_id();
 
-    let mut renderer = window
-        .renderer()
-        .with_text(bridge.font_manager().registry_source())
-        .build()
-        .await?;
+    let mut renderer = window.renderer().with_text().build().await?;
 
     let hidpi_scale = window.scale_factor();
     let image_cache = Arc::new(Mutex::new(HashMap::new()));
@@ -152,18 +152,19 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
     let content_size = SizePx::new(page_width as _, page_height);
     let mut application = Application::default();
-    let scene = ctx.new_scene();
-    let transform = application.get_transform(content_size).enter(&scene);
-    let location = transform.to_location().enter(&scene);
+    let transform = application.get_transform(content_size).submit();
+    let location = transform.to_location().submit();
 
-    // Hold the staged visual, otherwise it will disappear.
+    // Hold the submitted visual, otherwise it will disappear.
     let _visual = glyph_runs
         .into_iter()
         .map(|run| run.into())
         .collect::<Vec<_>>()
         .at(&location)
         .with_decal_order(0)
-        .enter(&scene);
+        .submit();
+
+    begin_frame().render_to(&mut renderer)?;
 
     loop {
         for event in ctx.wait_for_events::<Infallible>().await? {
@@ -186,7 +187,7 @@ async fn emojis(mut ctx: ApplicationContext) -> Result<()> {
 
         transform.update_if_changed(application.get_transform(content_size));
 
-        ctx.frame(&scene).render_to(&mut renderer)?;
+        begin_frame().render_to(&mut renderer)?;
     }
 }
 

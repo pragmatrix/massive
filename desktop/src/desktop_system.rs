@@ -29,19 +29,17 @@ mod topology;
 
 use std::collections::{HashSet, VecDeque};
 use std::mem;
-use std::time::Instant;
 
 use anyhow::Result;
 use derive_more::Debug;
 use log::warn;
 
-use massive_animation::MovementRuntime;
+use massive_applications::prelude::*;
 use massive_applications::{InstanceId, ViewId};
 use massive_geometry::{PixelCamera, SizePx};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
 use massive_scene::prelude::*;
-use massive_shell::{FontManager, Frame, Scene};
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
@@ -197,7 +195,6 @@ impl TransactionEffectsMode {
 #[derive(Debug)]
 pub struct DesktopSystem {
     env: DesktopEnvironment,
-    fonts: FontManager,
 
     default_panel_size: SizePx,
 
@@ -247,20 +244,13 @@ impl Aggregates {
 }
 
 impl DesktopSystem {
-    pub fn new(
-        env: DesktopEnvironment,
-        fonts: FontManager,
-        default_panel_size: SizePx,
-        scene: &Scene,
-        movement_runtime: &mut MovementRuntime,
-    ) -> Result<Self> {
+    pub fn new(env: DesktopEnvironment, default_panel_size: SizePx) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
-        let (_, location) = identity_location().enter(scene);
+        let (_, location) = identity_location().submit();
 
-        let desktop_presenter = DesktopPresenter::new(location, scene, movement_runtime);
-        let focus_depth_indicator =
-            FocusDepthIndicatorPresenter::new(scene, &fonts, movement_runtime);
+        let desktop_presenter = DesktopPresenter::new(location);
+        let focus_depth_indicator = FocusDepthIndicatorPresenter::new();
 
         let event_router = EventRouter::new();
 
@@ -268,7 +258,6 @@ impl DesktopSystem {
 
         let system = Self {
             env,
-            fonts,
 
             default_panel_size,
 
@@ -292,7 +281,6 @@ impl DesktopSystem {
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
-        frame: &mut Frame,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
         window_size: SizePx,
@@ -311,7 +299,7 @@ impl DesktopSystem {
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
-                let output = self.apply_change(change, frame, instance_manager)?;
+                let output = self.apply_change(change, instance_manager)?;
                 // TODO: I think Changes should support a DoubleEndedIterator.
                 for new_change in output
                     .changes
@@ -365,8 +353,7 @@ impl DesktopSystem {
             self.camera.set_desired(desired);
         }
 
-        let animation_time = frame.animation_time();
-        self.camera.synchronize(animation_time, frame, camera_mode);
+        self.camera.synchronize(camera_mode);
 
         if update_focus_depth_indicator {
             self.focus_depth_indicator.sync_layout(window_size);
@@ -393,8 +380,8 @@ impl DesktopSystem {
         self.aggregates.instances.contains_key(instance)
     }
 
-    pub fn camera(&mut self, instant: Instant) -> &PixelCamera {
-        self.camera.proceed(instant)
+    pub fn camera(&mut self) -> &PixelCamera {
+        self.camera.proceed()
     }
 
     pub fn any_buttons_pressed(&self) -> bool {

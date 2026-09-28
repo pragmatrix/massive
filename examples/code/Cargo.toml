@@ -42,3 +42,10 @@ ide = { path = "rust-analyzer/crates/ide" }
 console_error_panic_hook = "0.1.7"
 console_log = "1.0.0"
 wasm-bindgen-futures = { workspace = true }
+
+# ra-ap-rustc_lexer, reached through the vendored rust-analyzer crates, rejects a
+# unicode-ident whose Unicode tables differ from unicode-properties': the latter is
+# pinned at 0.1.4 (Unicode 17) and unicode-ident switched to Unicode 18 in 1.0.25.
+# 1.0.24 is the last unicode-ident release carrying the matching Unicode 17 tables.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+unicode-ident = "=1.0.24"

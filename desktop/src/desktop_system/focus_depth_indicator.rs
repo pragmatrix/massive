@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Ease, Interpolation, Movement, MovementRuntime,
+    Animated, AnimationAllocator, AnimationProgress, Ease, Interpolation, Movement,
 };
+use massive_applications::prelude::*;
 use massive_geometry::{Color, Rect, SizePx, Transform, Vector3};
 use massive_scene::LocationSpace;
 use massive_scene::prelude::*;
 use massive_shapes::{GlyphRun, IntoShape, Shape, Size as SizeExt};
-use massive_shell::{FontManager, Scene};
 
 use super::FocusDepth;
 
@@ -38,28 +38,22 @@ pub struct FocusDepthIndicatorPresenter {
 }
 
 impl FocusDepthIndicatorPresenter {
-    pub fn new(
-        scene: &Scene,
-        font_manager: &FontManager,
-        movement_runtime: &mut MovementRuntime,
-    ) -> Self {
-        let (badges, size) = FocusDepthIndicatorMovement::create_badges(font_manager);
+    pub fn new() -> Self {
+        let (badges, size) = FocusDepthIndicatorMovement::create_badges();
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
-        let (scene_transform, location) = identity_location()
-            .in_space(LocationSpace::Camera)
-            .enter(scene);
+        let (scene_transform, location) =
+            identity_location().in_space(LocationSpace::Camera).submit();
         let visual = Arc::<[Shape]>::default()
             .into_visual()
             .at(&location)
             .with_decal_order(DECAL_ORDER)
-            .enter(scene);
-        let movement = movement_runtime
-            .movement(
-                FocusDepthIndicatorMovement::new(badges),
-                move |movement, progress| movement.apply(progress, &location, &visual),
-            )
-            .mount();
+            .submit();
+        let movement = movement(
+            FocusDepthIndicatorMovement::new(badges),
+            move |movement, progress| movement.apply(progress, &location, &visual),
+        )
+        .mount();
 
         Self {
             scene_transform,
@@ -107,14 +101,11 @@ impl FocusDepthIndicatorMovement {
         }
     }
 
-    fn create_badges(
-        font_manager: &FontManager,
-    ) -> ([FocusDepthBadge; FOCUS_DEPTH_LABELS.len()], SizePx) {
-        let mut shaper = font_manager.shaper();
+    fn create_badges() -> ([FocusDepthBadge; FOCUS_DEPTH_LABELS.len()], SizePx) {
         let glyph_runs = FOCUS_DEPTH_LABELS.map(|(_, label)| {
             label
                 .size(FONT_SIZE)
-                .shape(&mut shaper)
+                .shape()
                 .expect("FocusDepth labels must produce glyphs")
         });
         let (horizontal_padding, vertical_padding) = PADDING;
@@ -147,7 +138,7 @@ impl FocusDepthIndicatorMovement {
         self.focus_depth = focus_depth;
         self.timeline.snap(0.0);
         self.timeline
-            .animate(context, 1.0, INDICATOR_DURATION, Interpolation::Linear);
+            .animate_with(context, 1.0, INDICATOR_DURATION, Interpolation::Linear);
     }
 
     fn apply(
@@ -156,7 +147,7 @@ impl FocusDepthIndicatorMovement {
         location: &Handle<Location>,
         visual: &Handle<Visual>,
     ) {
-        let timeline = *self.timeline.proceed(progress);
+        let timeline = *self.timeline.proceed_with(progress);
         let alpha = if timeline < FADE_IN_END {
             (timeline / FADE_IN_END).interpolate(Interpolation::CubicOut)
         } else {

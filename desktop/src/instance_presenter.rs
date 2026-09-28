@@ -5,16 +5,14 @@ use anyhow::{Result, bail};
 
 use winit::window::CursorIcon;
 
-use massive_animation::{
-    Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement, MovementRuntime,
-};
+use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
+use massive_applications::prelude::*;
 use massive_applications::{InstanceParameters, ViewCreationInfo, ViewId, ViewRole};
 use massive_geometry::{Color, Rect, Size, SizePx, SizedTransform, Transform, Vector3};
 use massive_renderer::RenderPacing;
 use massive_scene::Ref;
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, Shape};
-use massive_shell::Scene;
 
 use crate::desktop_system::fullscreen_scale;
 
@@ -29,11 +27,11 @@ pub struct InstanceRoot {
 }
 
 impl InstanceRoot {
-    pub fn new(scene: &Scene) -> Self {
-        let (layout_transform, layout_location) = identity_location().enter(scene);
+    pub fn new() -> Self {
+        let (layout_transform, layout_location) = identity_location().submit();
         let (presentation_transform, presentation_location) = identity_location()
             .relative_to(layout_location.to_ref())
-            .enter(scene);
+            .submit();
 
         Self {
             layout_transform,
@@ -133,15 +131,12 @@ pub struct ViewWindowState {
 }
 
 impl InstancePresenter {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         initial_center_translation: Option<Vector3>,
         show_background: bool,
         root: InstanceRoot,
         parameters: InstanceParameters,
         parent: Handle<Location>,
-        scene: &Scene,
-        movement_runtime: &mut MovementRuntime,
     ) -> Self {
         root.layout_location.update_if_changed_with(|location| {
             location.parent = parent.to_ref().into();
@@ -158,7 +153,7 @@ impl InstancePresenter {
         let background = show_background.then(|| {
             let visual = InstanceBackground::shapes(Rect::ZERO)
                 .at(&root.presentation_location)
-                .enter(scene);
+                .submit();
 
             InstanceBackground {
                 visual,
@@ -168,14 +163,13 @@ impl InstancePresenter {
 
         let transform = root.layout_transform();
         let location = root.layout_location.clone();
-        let movement = movement_runtime
-            .movement(
-                InstanceMovement::new(initial_center_translation),
-                move |movement, context| {
-                    movement.apply_animations(context, &transform, &location);
-                },
-            )
-            .mount();
+        let movement = movement(
+            InstanceMovement::new(initial_center_translation),
+            move |movement, context| {
+                movement.apply_animations(context, &transform, &location);
+            },
+        )
+        .mount();
 
         Self {
             state: InstancePresenterState::WaitingForPrimaryView,
@@ -219,7 +213,7 @@ impl InstancePresenter {
         self.movement.modify(move |movement, context| {
             // Same here, this looks weird.
             movement.view_alpha.snap(0.0);
-            movement.view_alpha.animate(
+            movement.view_alpha.animate_with(
                 context,
                 1.0,
                 STRUCTURAL_ANIMATION_DURATION,
@@ -374,13 +368,13 @@ impl InstanceMovement {
         layout_transform: Transform,
         visibility_alpha: f32,
     ) {
-        self.visibility_alpha.animate_if_changed(
+        self.visibility_alpha.animate_if_changed_with(
             context,
             visibility_alpha,
             STRUCTURAL_ANIMATION_DURATION,
             Interpolation::CubicOut,
         );
-        self.layout_transform.animate_if_changed(
+        self.layout_transform.animate_if_changed_with(
             context,
             layout_transform,
             STRUCTURAL_ANIMATION_DURATION,
@@ -395,10 +389,10 @@ impl InstanceMovement {
         location: &Handle<Location>,
     ) {
         // Apply transform and alpha animation updates for this frame.
-        transform.update_if_changed(*self.layout_transform.proceed(progress));
+        transform.update_if_changed(*self.layout_transform.proceed_with(progress));
         location.update_if_changed_with(|location| {
-            location.alpha =
-                *self.view_alpha.proceed(progress) * *self.visibility_alpha.proceed(progress);
+            location.alpha = *self.view_alpha.proceed_with(progress)
+                * *self.visibility_alpha.proceed_with(progress);
         });
     }
 }

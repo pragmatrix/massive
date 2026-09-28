@@ -8,10 +8,13 @@ use log::warn;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 use tokio::task::JoinSet;
 
+use massive_animation::{AnimationCoordinator, MovementRuntime};
+use massive_applications::task_context::{self, TaskContext};
 use massive_applications::{
-    ApplicationMessage, CreationMode, InstanceContext, InstanceEnvironment, InstanceId, ViewEvent,
-    ViewId,
+    ApplicationMessage, CreationMode, InstanceChange, InstanceContext, InstanceEnvironment,
+    InstanceId, ViewEvent, ViewId,
 };
+use massive_scene::AnyCollector;
 use massive_scene::{Location, Ref};
 use massive_shell::Result;
 
@@ -56,18 +59,28 @@ impl InstanceManager {
         root: Ref<Location>,
     ) -> Result<()> {
         let (events_tx, events_rx) = unbounded_channel();
-
-        let instance_context = InstanceContext::new(
-            instance_id,
-            creation_mode,
-            self.environment.clone(),
-            root,
-            events_rx,
-        );
-
+        let environment = self.environment.clone();
+        let instance_context =
+            InstanceContext::new(instance_id, creation_mode, environment, root, events_rx);
         let instance_future = (application.run)(instance_context);
+        // Own coordinator per instance: a timestamp from one instance must not affect another's
+        // animations when instances are applied in parallel. The shaping context is a fresh
+        // scratch over the manager the task context reaches, so instances shape in parallel on
+        // their own scratch (ADR 0006) — and, like the future, it must be created
+        // here: spawned tasks do not inherit task-local values. The change queue collects the
+        // typed instance changes, scene changes interleaved via the erased sink (ADR 0008).
+        let instance_task_context = TaskContext::new(
+            AnyCollector::for_type::<InstanceChange>(),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+            task_context::fonts().new_shaping_context(),
+        );
         self.join_set.spawn(async move {
-            let result = AssertUnwindSafe(instance_future).catch_unwind().await;
+            let result = task_context::with_context(
+                instance_task_context,
+                AssertUnwindSafe(instance_future).catch_unwind(),
+            )
+            .await;
             let result = match result {
                 Ok(r) => r,
                 Err(e) => Err(anyhow!("Instance panicked : {e:?}")),
@@ -117,9 +130,6 @@ impl InstanceManager {
     }
 
     /// Wait for the next instance to complete and handle cleanup.
-    ///
-    /// Returns `Ok((instance_id, result))` when an instance completes, `Err` if the task was
-    /// canceled or the JoinSet is empty.
     pub async fn join_next(&mut self) -> Result<(InstanceId, Result<()>)> {
         let join_result = self.join_set.join_next().await;
         let (instance_id, result) = join_result

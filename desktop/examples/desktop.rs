@@ -2,17 +2,17 @@ use anyhow::Result;
 use tokio::sync::mpsc;
 
 use massive_applications::InstanceContext;
-use massive_desktop::{Application, DesktopEnvironment, ShapingEngineKind};
+use massive_desktop::{Application, DesktopEnvironment, FontPolicy, ShapingEngineKind};
 use massive_shell::{ApplicationContext, shell};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    shell::run(run)
+    shell::run(run, FontPolicy::bare(ShapingEngineKind::Parley))
 }
 
 async fn run(ctx: ApplicationContext) -> Result<()> {
     let applications = vec![Application::new("Hello Application", hello_instance)];
-    let env = DesktopEnvironment::new(applications, ShapingEngineKind::Parley);
+    let env = DesktopEnvironment::new(applications);
     env.run_desktop(ctx).await
 }
 

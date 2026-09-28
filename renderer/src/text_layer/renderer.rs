@@ -22,7 +22,7 @@ use crate::tools::PipelineVariant;
 pub struct TextLayerRenderer {
     // The published-registry snapshot source: render-only (ADR 0006). Rasterization
     // resolves faces lock-free through the latest-published snapshot and never shapes, so
-    // this carries no mint authority and no shaping scratch.
+    // this carries no face authority and no shaping scratch.
     fonts: FontRegistrySource,
     // Font cache and scratch buffers for the rasterizer.
     //
@@ -178,8 +178,8 @@ impl TextLayerRenderer {
         // Not yet in an atlas and not empty. Now rasterize.
 
         // Resolve the concrete font for this glyph's key from the lock-free registry snapshot.
-        // A miss means the face was neither loaded nor interned when the snapshot was taken:
-        // snapshots are refreshed at every registry mutation (load_font, session drop), so
+        // A miss means the face was neither loaded nor resolved when the snapshot was taken:
+        // snapshots are refreshed at every registration (load_font and face resolution), so
         // this is a real bug, not a transient state.
         let Some(font) = registry.font_data(glyph_key.glyph.face_id) else {
             log::warn!("did not find font {:?}", glyph_key.glyph.face_id);

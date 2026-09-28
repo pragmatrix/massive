@@ -1,11 +1,10 @@
 use bytemuck::{Pod, Zeroable};
+
 use massive_geometry::Vector3;
 
 use super::atlas_renderer::AtlasInstance;
-use crate::{
-    glyph::glyph_atlas,
-    pods::{Vertex, VertexLayout},
-};
+use crate::glyph::glyph_atlas;
+use crate::pods::{Vertex, VertexLayout};
 
 #[derive(Debug)]
 pub struct Instance {
