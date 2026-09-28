@@ -179,7 +179,7 @@ impl TextLayerRenderer {
 
         // Resolve the concrete font for this glyph's key from the lock-free registry snapshot.
         // A miss means the face was neither loaded nor resolved when the snapshot was taken:
-        // snapshots are refreshed at every registry mutation (load_font, session drop), so
+        // snapshots are refreshed at every registration (load_font and face resolution), so
         // this is a real bug, not a transient state.
         let Some(font) = registry.font_data(glyph_key.glyph.face_id) else {
             log::warn!("did not find font {:?}", glyph_key.glyph.face_id);
