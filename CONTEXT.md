@@ -113,10 +113,10 @@ _Avoid_: font registry (ambiguous with the candidate pool)
 The per-shape step where a scratch compares the published registry's face count against its last-seen count and loads faces it has not seen yet. Keeps a context's scratch aligned with the identity world without locking; it runs before every shape, so a loaded face is visible to the next shape rather than the next batch.
 _Avoid_: epoch sync, epoch-pull, seed
 
-**Session**:
+**Shaping session**:
 One shaping batch over a context: the context plus its registry snapshot, opened by
 `task_context::shaper` and dropped before the frame's output is submitted.
-_Avoid_: shaper session, shaper handle
+_Avoid_: session, shaper session, shaper handle
 
 **Bare manager**:
 A font manager with no fonts and no fallback candidates, so selection can only reach fonts the application loaded itself.
@@ -155,11 +155,15 @@ retypes them into the queue's own change type, so a handle never knows the queue
 kind. Erasing the sink is what lets one queue per task serve every handle.
 _Avoid_: change stream, sender, channel
 
-**Enter**:
-Create an object handle and connect it to the task's change queue: the handle publishes
+**Submit**:
+Create an object handle and add it to the task's change queue: the handle publishes
 its create into that queue, and its later updates and deletion follow the same path.
 Because handles hold the erased sink, their changes land in the same FIFO as the task's
 own changes.
+_Avoid_: connect, enter
+
+**Mounting**:
+Wiring a movement's value and apply-animations callback into a task's movement runtime, done once at presenter construction, before any frame exists. Mounting only enqueues the movement's actions; it does not animate or read the animation clock.
 
 **Exclusive animation-cycle lease**:
 The live `Frame` value that owns one animation cycle and prevents another cycle from using the same mutable animation contexts concurrently.

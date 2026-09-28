@@ -4,9 +4,9 @@ use parking_lot::{Mutex, MutexGuard};
 
 use crate::{Change, ChangeSink, Id, SceneChange, id_generator};
 
-/// A handle is a mutable representation of an object entered into a scene.
+/// A handle is a mutable representation of an object submitted to a queue.
 ///
-/// Although all scenes share a common id space, a handle can only be entered into one scene.
+/// Although all queues share a common id space, a handle can only be submitted to one queue.
 #[derive(Debug)]
 pub struct Handle<T: Object>
 where
@@ -67,6 +67,7 @@ where
     ///
     /// Invariant: the returned change must reach the queue before the handle is observable by
     /// other code, otherwise a later drop deletes an id the queue never saw created.
+    #[must_use = "the returned create change must be published, or the handle's id is unknown to the queue"]
     pub(crate) fn unpublished(
         value: T,
         change_collector: &Arc<dyn ChangeSink>,
@@ -130,7 +131,7 @@ where
     }
 }
 
-/// A read-only handle to an object entered into a scene.
+/// A read-only handle to an object submitted to a queue.
 #[derive(Debug)]
 pub struct Ref<T: Object>
 where

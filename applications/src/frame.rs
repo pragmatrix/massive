@@ -25,19 +25,6 @@ pub trait Change: From<SceneChange> + fmt::Debug + Send + 'static {}
 
 impl<C> Change for C where C: From<SceneChange> + fmt::Debug + Send + 'static {}
 
-/// The pacing a cycle end asks of the next frame.
-///
-/// [`CycleEnd`] is animation vocabulary and [`RenderPacing`] render-target vocabulary, so the
-/// mapping lives here, with the frame that submits under it. Instance teardown maps its detached
-/// cycle end the same way: the last pacing of the instance is the pacing its final submission
-/// carries.
-pub(crate) fn pacing_for(cycle_end: CycleEnd) -> RenderPacing {
-    match cycle_end {
-        CycleEnd::Animating => RenderPacing::Smooth,
-        CycleEnd::Settled => RenderPacing::Fast,
-    }
-}
-
 #[derive(Debug)]
 pub struct Frame {
     submitted: bool,
@@ -45,7 +32,7 @@ pub struct Frame {
     // `Frame` owns its task's frame witness and releases it on drop; a witness must never be
     // released on behalf of another task, so the frame is confined to its task. The raw-pointer
     // PhantomData makes `Frame` `!Send` and `!Sync` (a `*mut ()` is neither).
-    _task_local: PhantomData<*mut ()>,
+    _not_send_sync: PhantomData<*mut ()>,
 }
 
 #[derive(Debug)]
@@ -71,9 +58,12 @@ where
     }
 }
 
-/// Open one animation cycle over the task's change queue.
+/// Begin a frame: take the task's frame witness and return the [`Frame`] that owns it until it is
+/// submitted (or dropped).
 ///
-/// A task context must be installed: the frame reads the task's animation clock.
+/// Acquiring the witness opens the task's animation cycle as a side effect — the cycle's start
+/// time, and with it the frame's animation timestamp, is fixed here. A task context must be
+/// installed, because the witness lives in the task's animation state.
 #[track_caller]
 pub fn begin_frame() -> Frame {
     let created_at = Location::caller();
@@ -95,7 +85,7 @@ pub fn begin_frame() -> Frame {
     Frame {
         submitted: false,
         created_at,
-        _task_local: PhantomData,
+        _not_send_sync: PhantomData,
     }
 }
 
@@ -132,6 +122,19 @@ impl Frame {
     fn end_cycle(&mut self) -> CycleEnd {
         self.submitted = true;
         task_context::end_frame_cycle()
+    }
+}
+
+/// The pacing a cycle end asks of the next frame.
+///
+/// [`CycleEnd`] is animation vocabulary and [`RenderPacing`] render-target vocabulary, so the
+/// mapping lives here, with the frame that submits under it. Instance teardown maps its detached
+/// cycle end the same way: the last pacing of the instance is the pacing its final submission
+/// carries.
+pub(crate) fn pacing_for(cycle_end: CycleEnd) -> RenderPacing {
+    match cycle_end {
+        CycleEnd::Animating => RenderPacing::Smooth,
+        CycleEnd::Settled => RenderPacing::Fast,
     }
 }
 
