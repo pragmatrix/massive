@@ -112,3 +112,32 @@ share, and cosmic clones its candidate pool into each scratch. No shaper that al
 observe a later load without new per-engine re-seed machinery, and the registry's face-count sync
 cannot cover a face that has no `FaceId` until something selects it — which nothing does while the
 pool is empty. Naming the policy up front provides the same capability without that machinery.
+
+## Amendment: system-font validation fails at the source, not per face (2026-09-28)
+
+**A catalog source that cannot be read fails startup; a file the backend cannot parse is skipped and
+must not.** Both engines validate the system catalog before they become selectable, and both draw the
+line at the *source* rather than at each face. A source that cannot be read is an error
+(`SourceCache::get` returning `None` for parley, `fontdb::with_face_data` returning `None` for
+cosmic): the engine cannot inspect what it would select, so it fails closed. A file that cannot be
+*parsed* is not an error for either engine, because their font database constructors already dropped
+it — fontique's scanner keeps a collection face only when its table directory tag, name table and
+cmap parse, and fontdb's `load_system_fonts` skips what it cannot read — so such a file contributes
+no selectable face and is invisible to the engine.
+
+**The engines must not differ here, and the earlier parley check did.** Parley validated each catalog
+source with the Swash file check used for application-loaded fonts and failed the whole catalog on
+the first bad one. Because Swash walks *every* face in a file, a single unreadable face in a system
+`.ttc` — a face fontique had already skipped, and that nothing can select — aborted the terminal at
+startup, while cosmic filtered it and kept running. Parity for the same catalog is the contract: the
+manager's `load_fonts` still rejects a file the application loaded, but the system catalog only
+tolerates what its own database builder already skipped. Parley's check therefore drops the per-face
+Swash walk and keeps the unreadable-source failure; a *registered* face needs no independent
+re-validation, since fontique's registration condition is strictly stronger than Swash's readability
+check on that face.
+
+Rejected: **filtering unreadable parley sources like cosmic removes invalid faces.** Fontique cannot
+drop a face from the system catalog — `unregister_font` keys on `(family, width, style, weight)` and
+touches only application-registered families, not system faces — so "filter" would mean silently
+keeping a face that cannot be rasterized. Failing closed is the only honest option on the one axis
+where filtering is impossible.

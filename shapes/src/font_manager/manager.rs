@@ -81,8 +81,8 @@ impl FontManager {
 
     /// Create a manager as `policy` prescribes.
     ///
-    /// System-font initialization fails if the backend cannot guarantee that every selectable
-    /// face passes Swash validation.
+    /// System-font initialization fails only when a catalog source cannot be read; a file the
+    /// backend cannot parse is skipped there, so it never blocks startup.
     pub fn new(policy: FontPolicy) -> Result<Self> {
         let kind = policy.engine();
         let engine: Box<dyn ShapingEngine> = match kind {
