@@ -72,10 +72,8 @@ impl Desktop {
             );
             persistence::initialize_file(&configuration_path)?;
         }
-        let mut configuration_document = ConfigurationDocument::load(&configuration_path)?;
-        let project_configuration = configuration_document.configuration()?;
-        let project_set = ProjectSet::from_configuration(project_configuration)?;
-        configuration_document.register_loaded(&project_set);
+        let (configuration_document, project_set) =
+            ConfigurationDocument::load(&configuration_path)?;
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.

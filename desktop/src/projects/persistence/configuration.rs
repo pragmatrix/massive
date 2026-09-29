@@ -11,9 +11,7 @@ use kdl::KdlDocument;
 
 use super::kdl_codec::{apply_change, atomic_write, configuration_from_document, default_document};
 use crate::desktop_system::change::ProjectChange;
-use crate::projects::{
-    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectConfiguration, ProjectId, ProjectSet,
-};
+use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, ProjectSet};
 
 /// The desktop configuration: the parsed KDL document plus the id → name map that
 /// resolves live-model ids into the document's vocabulary.
@@ -36,26 +34,29 @@ pub struct ConfigurationDocument {
 }
 
 impl ConfigurationDocument {
-    /// Loads the configuration from the file, expecting it to exist.
+    /// Loads the configuration from the file, expecting it to exist, and derives
+    /// the live model from it — the document's names are registered for later
+    /// id → name resolution as part of the load.
     ///
     /// Any file error — including a missing file — fails: the caller decides the
-    /// no-file policy (see [`initialize_file`]).
-    pub fn load(path: &Path) -> Result<Self> {
+    /// no-file policy (see [`initialize_file`]). Project derivation errors fail
+    /// too.
+    pub fn load(path: &Path) -> Result<(Self, ProjectSet)> {
         let text = std::fs::read_to_string(path)?;
         let document = text
             .parse()
             .with_context(|| format!("parsing {}", path.display()))?;
-        Ok(Self {
+        let project_set = ProjectSet::from_configuration(
+            configuration_from_document(&document)
+                .with_context(|| format!("reading configuration from {}", path.display()))?,
+        )?;
+        let document = Self {
             document,
             path: path.into(),
             unwritten_changes: false,
-            keys: ConfigKeys::default(),
-        })
-    }
-
-    /// The configuration, resolved from the document.
-    pub fn configuration(&self) -> Result<ProjectConfiguration> {
-        configuration_from_document(&self.document)
+            keys: ConfigKeys::registered_from(&project_set),
+        };
+        Ok((document, project_set))
     }
 }
 
@@ -69,15 +70,6 @@ pub fn initialize_file(path: &Path) -> Result<KdlDocument> {
 }
 
 impl ConfigurationDocument {
-    /// Registers the names of the projects and launchers loaded from the
-    /// configuration file.
-    ///
-    /// The configuration's order matches the document's, so the loaded names are
-    /// already unique; registration cannot introduce a collision.
-    pub fn register_loaded(&mut self, project_set: &ProjectSet) {
-        self.keys.register_loaded(project_set);
-    }
-
     /// Applies a configuration change to the in-memory document.
     ///
     /// A failed edit is returned without changing the document, so callers can
@@ -123,16 +115,22 @@ struct ConfigKeys {
 }
 
 impl ConfigKeys {
-    /// Registers the names of projects and launchers loaded from the file.
-    fn register_loaded(&mut self, project_set: &ProjectSet) {
+    /// Registers the names of the projects and launchers the loaded configuration
+    /// derived.
+    ///
+    /// The configuration's order matches the document's, so the loaded names are
+    /// already unique; registration cannot introduce a collision.
+    fn registered_from(project_set: &ProjectSet) -> Self {
+        let mut keys = Self::default();
         for project in &project_set.projects {
-            self.projects
+            keys.projects
                 .insert(project.id, project.properties.name.clone());
             for launcher in &project.launchers {
-                self.launchers
+                keys.launchers
                     .insert(launcher.id, (project.id, launcher.profile.name.clone()));
             }
         }
+        keys
     }
 
     /// Registers a project under a document-unique name, renaming it on collision.
