@@ -125,10 +125,10 @@ fn project_name(configuration: &DesktopConfiguration, project: ProjectId) -> Res
 
 /// A launcher's owning project's name and its own name, or an error when the
 /// launcher is not in the configuration.
-fn launcher_key<'a>(
-    configuration: &'a DesktopConfiguration,
+fn launcher_key(
+    configuration: &DesktopConfiguration,
     launcher: LaunchProfileId,
-) -> Result<(&'a str, &'a str)> {
+) -> Result<(&str, &str)> {
     let name = configuration
         .launcher_name(launcher)
         .with_context(|| format!("launcher {launcher:?} is not in the configuration"))?;
