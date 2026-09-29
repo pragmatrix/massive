@@ -28,9 +28,9 @@ pub struct ConfigurationDocument {
     /// configuration is written when no file exists yet, so every later change has
     /// a file to be persisted to.
     path: PathBuf,
-    /// Configuration changes applied since the last flush, i.e. whether the
-    /// in-memory document differs from the file on disk.
-    pending: bool,
+    /// Whether applied configuration changes have not yet been written to the file
+    /// on disk.
+    unwritten_changes: bool,
     /// Maps configuration ids to the document's names for the persistence edits.
     keys: ConfigKeys,
 }
@@ -66,7 +66,7 @@ impl ConfigurationDocument {
         Ok(Self {
             document,
             path,
-            pending: false,
+            unwritten_changes: false,
             keys: ConfigKeys::default(),
         })
     }
@@ -92,7 +92,7 @@ impl ConfigurationDocument {
     pub fn apply(&mut self, change: ProjectChange) -> Result<()> {
         let change = self.keys.translate_change(&change)?;
         super::kdl_codec::apply_change(&mut self.document, &change)?;
-        self.pending = true;
+        self.unwritten_changes = true;
         Ok(())
     }
 
@@ -100,15 +100,15 @@ impl ConfigurationDocument {
     /// disk.
     ///
     /// Called at the end of a transaction, so its several changes persist as one
-    /// file write. A write failure is logged and leaves the change pending, so the
-    /// next flush retries it.
+    /// file write. A write failure is logged and leaves `unwritten_changes` set, so
+    /// the next flush retries it.
     pub fn flush(&mut self) {
-        if !self.pending {
+        if !self.unwritten_changes {
             return;
         }
         let text = self.document.to_string();
         match super::kdl_codec::atomic_write(&self.path, &text) {
-            Ok(()) => self.pending = false,
+            Ok(()) => self.unwritten_changes = false,
             Err(error) => log::warn!(
                 "Failed to persist configuration to {}: {error:#}",
                 self.path.display()
