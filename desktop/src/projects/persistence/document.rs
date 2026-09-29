@@ -1,6 +1,7 @@
 //! The KDL document's structure: applying configuration changes as surgical node
 //! edits, and reading the configuration back out of the document.
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::Path;
@@ -61,82 +62,134 @@ pub(super) fn atomic_write(path: &Path, text: &str) -> Result<()> {
     Ok(())
 }
 
+/// The identity tags of the document's projects and launchers.
+///
+/// A tag rides in the node's `span`, a field the parser fills for diagnostics and
+/// stringification never writes, so the document can address its nodes by identity
+/// while the file stays byte-identical. Tags are assigned as nodes are parsed or
+/// added, and the node lookups below resolve a tag back to its node.
+#[derive(Debug, Default)]
+pub(super) struct NodeTags {
+    projects: HashMap<ProjectId, usize>,
+    launchers: HashMap<LaunchProfileId, usize>,
+    next: usize,
+}
+
+impl NodeTags {
+    fn next_tag(&mut self) -> usize {
+        self.next += 1;
+        self.next
+    }
+
+    fn tag_project(&mut self, project: ProjectId, node: &mut KdlNode) {
+        let tag = self.next_tag();
+        node.set_span(tag);
+        self.projects.insert(project, tag);
+    }
+
+    fn tag_launcher(&mut self, launcher: LaunchProfileId, node: &mut KdlNode) {
+        let tag = self.next_tag();
+        node.set_span(tag);
+        self.launchers.insert(launcher, tag);
+    }
+
+    fn project_tag(&self, project: ProjectId) -> Option<usize> {
+        self.projects.get(&project).copied()
+    }
+
+    fn launcher_tag(&self, launcher: LaunchProfileId) -> Option<usize> {
+        self.launchers.get(&launcher).copied()
+    }
+}
+
 /// Applies a configuration change as surgical node edits, so that user comments and
 /// formatting survive byte-identical.
 ///
-/// The document is keyed by name, so every change resolves its names from
-/// `configuration`. It must therefore hold the change's projects and launchers —
-/// removals included, which is why the document view is written before the live
-/// model.
+/// Names are read from the nodes themselves: a change addresses its nodes by id
+/// through `tags`, so duplicate names address exactly the node they mean.
 pub(super) fn apply_change(
     document: &mut KdlDocument,
+    tags: &mut NodeTags,
     change: &ConfigurationChange,
-    configuration: &DesktopConfiguration,
 ) -> Result<()> {
     match change {
         ConfigurationChange::SetStartupLauncher(launcher) => {
             let name = match launcher {
-                Some(id) => Some(launcher_key(configuration, *id)?.1.to_string()),
+                Some(id) => Some(launcher_name(document, tags, *id)?.to_string()),
                 None => None,
             };
             set_startup(document, &name)
         }
-        ConfigurationChange::AddProject { name, .. } => add_project(document, name),
-        ConfigurationChange::RemoveProject(project) => {
-            let name = project_name(configuration, *project)?;
-            remove_node(document, "project", name)
-        }
+        ConfigurationChange::AddProject { id, name } => add_project(document, tags, *id, name),
+        ConfigurationChange::RemoveProject(project) => remove_project(document, tags, *project),
         ConfigurationChange::AddLauncher {
             project,
+            id,
             profile,
             placement,
-            ..
-        } => {
-            let project = project_name(configuration, *project)?;
-            add_launcher(
-                document,
-                project,
-                &profile.name,
-                profile.mode,
-                &profile.params,
-                *placement,
-            )
-        }
+        } => add_launcher(
+            document,
+            tags,
+            *project,
+            *id,
+            &profile.name,
+            profile.mode,
+            &profile.params,
+            *placement,
+        ),
         ConfigurationChange::MoveLauncher {
             launcher,
             placement,
-        } => {
-            let (project, name) = launcher_key(configuration, *launcher)?;
-            move_launcher(document, project, name, *placement)
-        }
-        ConfigurationChange::RemoveLauncher(launcher) => {
-            let (project, name) = launcher_key(configuration, *launcher)?;
-            remove_launcher(document, project, name)
-        }
+        } => move_launcher(document, tags, *launcher, *placement),
+        ConfigurationChange::RemoveLauncher(launcher) => remove_launcher(document, tags, *launcher),
     }
 }
 
-/// The project's name, or an error when it is not in the configuration.
-fn project_name(configuration: &DesktopConfiguration, project: ProjectId) -> Result<&str> {
-    configuration
-        .project_name(project)
-        .with_context(|| format!("project {project:?} is not in the configuration"))
+/// The launcher's name, or an error when the id has no launcher node.
+fn launcher_name<'a>(
+    document: &'a KdlDocument,
+    tags: &NodeTags,
+    launcher: LaunchProfileId,
+) -> Result<&'a str> {
+    let node = launcher_node_of(document, tags, launcher)
+        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
+    string_arg(node, "launcher")
 }
 
-/// A launcher's owning project's name and its own name, or an error when the
-/// launcher is not in the configuration.
-fn launcher_key(
-    configuration: &DesktopConfiguration,
+/// The launcher node the id was tagged on, or an error.
+fn launcher_node_of<'a>(
+    document: &'a KdlDocument,
+    tags: &NodeTags,
     launcher: LaunchProfileId,
-) -> Result<(&str, &str)> {
-    let name = configuration
-        .launcher_name(launcher)
-        .with_context(|| format!("launcher {launcher:?} is not in the configuration"))?;
-    let project = configuration
-        .project_of_launcher(launcher)
-        .map(Project::name)
-        .with_context(|| format!("launcher {launcher:?} has no owning project"))?;
-    Ok((project, name))
+) -> Result<&'a KdlNode> {
+    let tag = tags
+        .launcher_tag(launcher)
+        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
+    document
+        .nodes()
+        .iter()
+        .filter_map(|node| node.children())
+        .flat_map(|children| children.nodes())
+        .find(|node| node.span().offset() == tag)
+        .with_context(|| format!("launcher {launcher:?} has no document node"))
+}
+
+/// The launcher node the id was tagged on, or an error.
+fn launcher_node_mut<'a>(
+    document: &'a mut KdlDocument,
+    tags: &NodeTags,
+    launcher: LaunchProfileId,
+) -> Result<&'a mut KdlNode> {
+    let tag = tags
+        .launcher_tag(launcher)
+        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
+    document
+        .nodes_mut()
+        .iter_mut()
+        .filter_map(|node| node.children_mut().as_mut())
+        .flat_map(|children| children.nodes_mut())
+        .find(|node| node.span().offset() == tag)
+        .with_context(|| format!("launcher {launcher:?} has no document node"))
 }
 
 fn set_startup(document: &mut KdlDocument, name: &Option<String>) -> Result<()> {
@@ -154,7 +207,12 @@ fn set_startup(document: &mut KdlDocument, name: &Option<String>) -> Result<()> 
     Ok(())
 }
 
-fn add_project(document: &mut KdlDocument, name: &str) -> Result<()> {
+fn add_project(
+    document: &mut KdlDocument,
+    tags: &mut NodeTags,
+    id: ProjectId,
+    name: &str,
+) -> Result<()> {
     // Match the spacing of the existing projects (blank lines and all).
     let leading = document
         .nodes()
@@ -168,86 +226,91 @@ fn add_project(document: &mut KdlDocument, name: &str) -> Result<()> {
     let mut node = KdlNode::new("project");
     node.push(name);
     node.set_format(fresh_node_format(&leading));
+    tags.tag_project(id, &mut node);
     document.nodes_mut().push(node);
     Ok(())
 }
 
-/// Removes the top-level node with the given name and first-string argument.
-fn remove_node(document: &mut KdlDocument, kind: &str, name: &str) -> Result<()> {
-    let index = named_index(document.nodes(), kind, name)
-        .with_context(|| format!("{kind} '{name}' not found in the configuration"))?;
+fn remove_project(
+    document: &mut KdlDocument,
+    tags: &mut NodeTags,
+    project: ProjectId,
+) -> Result<()> {
+    let tag = tags
+        .project_tag(project)
+        .with_context(|| format!("project {project:?} is not in the document"))?;
+    let index = document
+        .nodes()
+        .iter()
+        .position(|node| node.span().offset() == tag)
+        .with_context(|| format!("project {project:?} has no document node"))?;
     document.nodes_mut().remove(index);
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn add_launcher(
     document: &mut KdlDocument,
-    project: &str,
+    tags: &mut NodeTags,
+    project: ProjectId,
+    id: LaunchProfileId,
     name: &str,
     mode: LauncherMode,
     params: &serde_json::Map<String, Value>,
     placement: MatrixPlacement,
 ) -> Result<()> {
-    let project_node = project_node_mut(document, project)?;
+    let project_tag = tags
+        .project_tag(project)
+        .with_context(|| format!("project {project:?} is not in the document"))?;
+    let project_node = document
+        .nodes_mut()
+        .iter_mut()
+        .find(|node| node.span().offset() == project_tag)
+        .with_context(|| format!("project {project:?} has no document node"))?;
     let project_indent = node_indent(project_node);
     let children = project_node.ensure_children();
 
     let launcher_indent = sibling_leading(children).unwrap_or_else(|| project_indent + "    ");
-    children.nodes_mut().push(launcher_node(
-        name,
-        mode,
-        params,
-        placement,
-        launcher_indent,
-    ));
+    let mut node = launcher_node(name, mode, params, placement, launcher_indent);
+    tags.tag_launcher(id, &mut node);
+    children.nodes_mut().push(node);
     Ok(())
 }
 
 fn move_launcher(
     document: &mut KdlDocument,
-    project: &str,
-    name: &str,
+    tags: &NodeTags,
+    launcher: LaunchProfileId,
     placement: MatrixPlacement,
 ) -> Result<()> {
-    let children = project_children_mut(document, project)?;
-    let launcher_index = named_index(children.nodes(), "launcher", name)
-        .with_context(|| format!("Launcher '{name}' not found in project '{project}'"))?;
-    set_placement(&mut children.nodes_mut()[launcher_index], placement);
+    let node = launcher_node_mut(document, tags, launcher)?;
+    set_placement(node, placement);
     Ok(())
 }
 
-fn remove_launcher(document: &mut KdlDocument, project: &str, name: &str) -> Result<()> {
-    let children = project_children_mut(document, project)?;
-    let launcher_index = named_index(children.nodes(), "launcher", name)
-        .with_context(|| format!("Launcher '{name}' not found in project '{project}'"))?;
-    children.nodes_mut().remove(launcher_index);
-    Ok(())
-}
-
-/// The project node with the given name, or an error.
-fn project_node_mut<'a>(document: &'a mut KdlDocument, name: &str) -> Result<&'a mut KdlNode> {
-    let index = named_index(document.nodes(), "project", name)
-        .with_context(|| format!("Project '{name}' not found in the configuration"))?;
-    Ok(&mut document.nodes_mut()[index])
-}
-
-/// The launcher nodes of the project with the given name, or an error.
-fn project_children_mut<'a>(
-    document: &'a mut KdlDocument,
-    name: &'a str,
-) -> Result<&'a mut KdlDocument> {
-    let project_node = project_node_mut(document, name)?;
-    project_node
-        .children_mut()
-        .as_mut()
-        .with_context(|| format!("Project '{name}' has no launchers"))
-}
-
-/// The index of the node with the given name and first-string argument.
-fn named_index(nodes: &[KdlNode], name: &str, arg: &str) -> Option<usize> {
-    nodes.iter().position(|node| {
-        node.name().value() == name && node.get(0).and_then(KdlValue::as_string) == Some(arg)
-    })
+fn remove_launcher(
+    document: &mut KdlDocument,
+    tags: &mut NodeTags,
+    launcher: LaunchProfileId,
+) -> Result<()> {
+    let tag = tags
+        .launcher_tag(launcher)
+        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
+    for project in document.nodes_mut() {
+        let Some(children) = project.children_mut().as_mut() else {
+            continue;
+        };
+        if let Some(index) = children
+            .nodes()
+            .iter()
+            .position(|node| node.span().offset() == tag)
+        {
+            children.nodes_mut().remove(index);
+            tags.launchers.remove(&launcher);
+            return Ok(());
+        }
+    }
+    bail!("launcher {launcher:?} has no document node")
 }
 
 /// The `leading` formatting of the last child, so appended nodes keep the block's
@@ -322,42 +385,61 @@ fn set_placement(node: &mut KdlNode, placement: MatrixPlacement) {
     node.insert("row", KdlEntry::new_prop("row", i128::from(placement.row)));
 }
 
-/// Parses the configuration out of the document, minting fresh ids and
+/// Parses the configuration out of the document, assigning fresh ids and
 /// resolving the startup launcher by name.
-pub(super) fn configuration_from_document(document: &KdlDocument) -> Result<DesktopConfiguration> {
+///
+/// Each parsed node is tagged as it is parsed, so a later change addresses the
+/// node the id was assigned to — duplicates included.
+pub(super) fn parse_configuration(
+    document: &mut KdlDocument,
+) -> Result<(DesktopConfiguration, NodeTags)> {
+    let mut tags = NodeTags::default();
     let mut startup: Option<String> = None;
     let mut projects = Vec::new();
 
-    for node in document.nodes() {
-        match node.name().value() {
+    for index in 0..document.nodes().len() {
+        let kind = document.nodes()[index].name().value().to_string();
+        match kind.as_str() {
             "startup" => {
                 if startup.is_some() {
                     warn!("Multiple `startup` nodes; using the first one");
                     continue;
                 }
-                startup = Some(string_arg(node, "startup")?.into());
+                startup = Some(string_arg(&document.nodes()[index], "startup")?.to_string());
             }
             "project" => {
-                let name = string_arg(node, "project")?;
+                let name = string_arg(&document.nodes()[index], "project")?.to_string();
                 let mut launchers = Vec::new();
-                if let Some(children) = node.children() {
-                    for child in children.nodes() {
-                        match child.name().value() {
-                            "launcher" => launchers.push(launcher(child)?),
-                            other => warn!("Ignoring unknown node '{other}' in project '{name}'"),
+                if let Some(children) = document.nodes_mut()[index].children_mut() {
+                    for child in children.nodes_mut() {
+                        let kind = child.name().value().to_string();
+                        match kind.as_str() {
+                            "launcher" => {
+                                let launcher = parse_launcher(child)?;
+                                tags.tag_launcher(launcher.id(), child);
+                                launchers.push(launcher);
+                            }
+                            other => {
+                                warn!("Ignoring unknown node '{other}' in project '{name}'")
+                            }
                         }
                     }
                 }
-                projects.push(Project::new(name.into(), launchers));
+                let project = Project::new(name, launchers);
+                tags.tag_project(project.id(), &mut document.nodes_mut()[index]);
+                projects.push(project);
             }
             other => warn!("Ignoring unknown top-level node '{other}'"),
         }
     }
 
-    DesktopConfiguration::new(projects, startup.as_deref())
+    Ok((
+        DesktopConfiguration::new(projects, startup.as_deref())?,
+        tags,
+    ))
 }
 
-fn launcher(node: &KdlNode) -> Result<Launcher> {
+fn parse_launcher(node: &KdlNode) -> Result<Launcher> {
     let name = string_arg(node, "launcher")?;
 
     let column = placement_component(node, "column")?;

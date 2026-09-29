@@ -1,10 +1,8 @@
 //! Persistence of the desktop configuration as a hand-editable KDL file.
 //!
-//! The file is keyed by name: projects and launchers get fresh IDs every startup, so
-//! the document cannot reference them. Launcher names must be unique among their
-//! project's siblings and project names unique document-wide — a change that would
-//! introduce a duplicate is renamed by appending ` 2`, ` 3`, and so on, keeping the
-//! live model aligned with the file.
+//! The file is keyed by name — projects and launchers get fresh IDs every startup, so
+//! the document cannot reference them — but names may repeat: a node's identity is a
+//! tag the document keeps in memory, and every change addresses its node by id.
 
 mod configuration;
 mod document;

@@ -60,10 +60,10 @@ impl DesktopConfiguration {
     // Apply-side changes land on the aggregate here so the live model and the
     // plan/apply logic read positions from one source instead of `MatrixPositions`.
     // Parse keeps its own construction path (`new`), where placements are absent
-    // from the document and duplicates there are a parse error, not a re-apply.
+    // from the document and a startup name has not been resolved to an id yet.
 
     /// Adds a project, or accepts one already present: the boot flow parses the
-    /// aggregate and then re-applies the same ids as commands (ids are minted at
+    /// aggregate and then re-applies the same ids as commands (ids are created at
     /// parse, so the id equality carries the "is already applied" fact).
     pub fn add_project(&mut self, id: ProjectId, name: String) {
         if let Some(project) = self.project_mut(id) {
@@ -164,6 +164,20 @@ impl DesktopConfiguration {
             .and_then(|project| project.launcher_mut(launcher))
     }
 
+    /// The document-order index of the project, which is what orders the projects
+    /// on screen: `RemoveProject` by name removes the nearest one.
+    pub fn project_index(&self, project: ProjectId) -> Option<usize> {
+        self.projects.iter().position(|p| p.id == project)
+    }
+
+    /// The placement index of the launcher within its project, counting the
+    /// placement-sorted launchers: Manhattan distance between those indexes is the
+    /// matrix distance `RemoveLauncher` by name picks the nearest launcher by.
+    pub fn launcher_index(&self, launcher: LaunchProfileId) -> Option<usize> {
+        let project = self.project_of_launcher(launcher)?;
+        project.launchers.iter().position(|l| l.id == launcher)
+    }
+
     /// The launcher's placement, `None` when it is not in the configuration.
     pub fn placement_of(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
         self.launcher(launcher).map(|launcher| launcher.placement)
@@ -181,40 +195,12 @@ impl DesktopConfiguration {
             .and_then(|project| project.launcher(launcher))
     }
 
-    /// The project's name, `None` when it is not in the configuration.
-    pub fn project_name(&self, project: ProjectId) -> Option<&str> {
-        self.project(project).map(Project::name)
-    }
-
-    /// The launcher's name, `None` when it is not in the configuration.
-    pub fn launcher_name(&self, launcher: LaunchProfileId) -> Option<&str> {
-        self.launcher(launcher).map(Launcher::name)
-    }
-
     /// How many launchers the configuration defines across all projects.
     pub fn launcher_count(&self) -> usize {
         self.projects
             .iter()
             .map(|project| project.launchers.len())
             .sum()
-    }
-
-    /// `name` with a numeric suffix appended while it collides with an existing
-    /// project name.
-    pub fn unique_project_name(&self, name: &str) -> String {
-        let existing: Vec<&str> = self.projects.iter().map(Project::name).collect();
-        unique_name(name, &existing)
-    }
-
-    /// `name` with a numeric suffix appended while it collides with a name of one
-    /// of `project`'s launchers. A project not in the configuration has no
-    /// siblings yet, so the name passes through.
-    pub fn unique_launcher_name(&self, project: ProjectId, name: &str) -> String {
-        let existing: Vec<&str> = self
-            .project(project)
-            .map(|project| project.launchers().iter().map(Launcher::name).collect())
-            .unwrap_or_default();
-        unique_name(name, &existing)
     }
 
     /// The launcher occupying `placement` in `project`, if any. Placements are
@@ -305,22 +291,6 @@ fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfi
         .map(|launcher| launcher.id)
 }
 
-/// Appends a numeric suffix while `name` collides with an existing name, so names
-/// stay unique among siblings — the document view addresses its nodes by name.
-fn unique_name(name: &str, existing: &[&str]) -> String {
-    if !existing.contains(&name) {
-        return name.into();
-    }
-    let mut suffix = 2;
-    loop {
-        let candidate = format!("{name} {suffix}");
-        if !existing.iter().any(|existing| *existing == candidate) {
-            return candidate;
-        }
-        suffix += 1;
-    }
-}
-
 #[derive(Debug)]
 pub struct Project {
     id: ProjectId,
@@ -329,7 +299,7 @@ pub struct Project {
 }
 
 impl Project {
-    /// Mints the project's id and puts its launchers into sorted order.
+    /// Creates the project's id and puts its launchers into sorted order.
     ///
     /// The sort is stable, so launchers sharing a placement keep their document
     /// order.
@@ -403,7 +373,7 @@ pub struct Launcher {
 }
 
 impl Launcher {
-    /// Mints the launcher's id.
+    /// Creates the launcher's id.
     pub(crate) fn new(
         name: String,
         mode: LauncherMode,

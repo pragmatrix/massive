@@ -13,7 +13,7 @@ A change to the desktop configuration: adding or removing a project or launcher,
 _Avoid_: project change
 
 **Project**:
-A named top-level group in the desktop configuration that owns a matrix of launchers. A project exists only while it has at least one launcher; removing a launcher removes its project with it.
+A named top-level group in the desktop configuration that owns a matrix of launchers. A project exists only while it has at least one launcher; removing a launcher removes its project with it. Project names may repeat.
 _Avoid_: workspace, section
 
 **Matrix placement**:
@@ -21,11 +21,11 @@ A launcher's (column, row) position in its project's matrix. Placements are uniq
 _Avoid_: slot, tile, coordinates
 
 **Startup launcher**:
-The launcher the session boots into. Persisted by name in the desktop configuration; resolved to a launcher id on load.
+The launcher the session boots into. Persisted by name in the desktop configuration; resolved to a launcher id on load, and to the first launcher of that name when several share it.
 _Avoid_: startup profile, boot target
 
 **Launcher id**:
-The stable per-session identity of a launcher. Ids are minted fresh every session and never persist; names are the persistence identity.
+The stable per-session identity of a launcher. Ids are newly created every session and never persist; names are the persistence identity and may repeat, so a name that addresses one launcher resolves to the nearest match.
 _Avoid_: profile id, launch profile
 
 **Runtime state**:
