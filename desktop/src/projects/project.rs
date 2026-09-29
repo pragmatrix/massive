@@ -118,7 +118,6 @@ fn convert_project(project: ProjectSpec) -> Project {
                 profile: LaunchProfile {
                     name: launcher.name,
                     mode: launcher.mode,
-                    tags: launcher.tags,
                     params: launcher.params,
                 },
                 placement: MatrixPlacement {

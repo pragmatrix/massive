@@ -8,7 +8,7 @@ use super::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
 use super::navigation::focus_depth_from_target;
 use super::{
     ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason,
-    ProjectCommand,
+    ProjectCommand, TransactionEffectsMode,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -313,6 +313,9 @@ impl DesktopSystem {
         changes
     }
 
+    /// Removes a launcher from the matrix, shifting the launchers right of the freed
+    /// slot one column left (`MatrixPositions::remove_slot`'s `ShiftLeft` policy) as
+    /// explicit move changes, so the file mirrors each launcher's resulting slot.
     fn plan_remove_launcher(
         &self,
         project: ProjectId,
@@ -330,12 +333,18 @@ impl DesktopSystem {
         let placement = self.aggregates.matrix_positions[&launcher];
         changes <<= TopologyChange::Remove(launcher.into());
         changes <<= ProjectChange::RemoveLauncher(launcher);
-        if let Some(shifting_policy) = shifting_policy {
-            changes <<= ProjectChange::RemoveSlot {
-                project,
-                placement,
-                shifting_policy,
-            };
+        if shifting_policy == Some(RemoveSlotShiftingPolicy::ShiftLeft) {
+            let launchers = self.aggregates.hierarchy.matrix_launchers(project);
+            for (launcher, placement) in self
+                .aggregates
+                .matrix_positions
+                .shifted_left_launchers(launchers, placement)
+            {
+                changes <<= ProjectChange::MoveLauncher {
+                    launcher,
+                    placement,
+                };
+            }
         }
         changes
     }
@@ -344,6 +353,7 @@ impl DesktopSystem {
         &mut self,
         change: DesktopChange,
         instance_manager: &mut InstanceManager,
+        effects_mode: TransactionEffectsMode,
     ) -> Result<ChangeOutput> {
         match change {
             DesktopChange::SpawnInstance {
@@ -480,7 +490,18 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                return self.apply_project_change(project_change);
+                // A setup change only updates the live model; it must not mirror into
+                // the persisted document.
+                let persisted_change = if effects_mode != TransactionEffectsMode::Setup {
+                    Some(project_change.clone())
+                } else {
+                    None
+                };
+                let output = self.apply_project_change(project_change)?;
+                if let Some(persisted_change) = persisted_change {
+                    self.persist_project_change(persisted_change)?;
+                }
+                return Ok(output);
             }
         }
 
@@ -584,25 +605,35 @@ impl DesktopSystem {
                     .matrix_positions
                     .remove(&launch_profile_id)?;
             }
-            ProjectChange::RemoveSlot {
-                project,
-                placement,
-                shifting_policy,
-            } => {
-                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
-                self.aggregates
-                    .matrix_positions
-                    .remove_slot(launchers, placement, shifting_policy);
-                return Ok(ChangeOutput::measures(DesktopTarget::ProjectMatrix(
-                    project,
-                )));
-            }
             ProjectChange::SetStartupProfile(launch_profile_id) => {
                 self.aggregates.startup_profile = launch_profile_id;
             }
         }
 
         Ok(ChangeOutput::default())
+    }
+
+    /// Mirrors a configuration change into the persisted KDL document.
+    ///
+    /// Translates the ids of the live model into the document's names and applies
+    /// the change to the in-memory document. The file is written by
+    /// [`DesktopSystem::transact`]'s single flush, so a transaction's several
+    /// changes persist as one file write.
+    pub(crate) fn persist_project_change(&mut self, change: ProjectChange) -> Result<()> {
+        // The startup profile's name is resolved here, because it is read from the
+        // aggregates rather than from the change's payload: a `SetStartupProfile`
+        // change that clears the profile carries no id to look the name up with.
+        let startup_profile_name = if let ProjectChange::SetStartupProfile(id) = change {
+            Some(id.map(|id| self.aggregates.launchers[&id].name().to_owned()))
+        } else {
+            None
+        };
+        let change = self.config_keys.config_change(
+            &change,
+            startup_profile_name.as_ref().map(|name| name.as_deref()),
+        )?;
+        self.persistence.apply(change)?;
+        Ok(())
     }
 
     fn apply_instance_submission(
@@ -723,7 +754,6 @@ impl DesktopSystem {
                         profile: LaunchProfile {
                             name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
                             mode: LauncherMode::Visor,
-                            tags: Vec::new(),
                             params: Default::default(),
                         },
                         placement: MatrixPlacement { column: 0, row: 0 },
@@ -776,7 +806,6 @@ impl DesktopSystem {
                     profile: LaunchProfile {
                         name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
                         mode: LauncherMode::Visor,
-                        tags: Vec::new(),
                         params: Default::default(),
                     },
                     placement: MatrixPlacement {

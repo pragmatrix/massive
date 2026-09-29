@@ -24,9 +24,10 @@ use crate::desktop_system::{
 };
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
+use crate::projects::persistence::{ConfigKeys, ConfigurationDocument};
 use crate::projects::{
-    LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project,
-    ProjectConfiguration, ProjectId, ProjectProperties, ProjectSet,
+    LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project, ProjectId,
+    ProjectProperties, ProjectSet,
 };
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
@@ -61,7 +62,8 @@ impl Desktop {
         // Load configuration
 
         let projects_dir = env.projects_dir();
-        let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
+        let configuration_document = ConfigurationDocument::load(projects_dir.as_deref())?;
+        let project_configuration = configuration_document.configuration()?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
 
         // The desktop task's change queue: installed by the shell's application task context
@@ -125,7 +127,9 @@ impl Desktop {
 
         // Architecture: Providing the root group here is conceptually wrong I guess, because it
         // does not exist yet.
-        let mut system = DesktopSystem::new(env, default_size)?;
+        let config_keys = ConfigKeys::from_configuration(&project_set);
+        let mut system =
+            DesktopSystem::new(env, default_size, configuration_document, config_keys)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
@@ -463,7 +467,6 @@ fn primary_project() -> PrimaryProject {
         profile: LaunchProfile {
             name: "Primary / Local".into(),
             mode: LauncherMode::Band,
-            tags: Vec::new(),
             params: Default::default(),
         },
         placement: MatrixPlacement { column: 0, row: 0 },

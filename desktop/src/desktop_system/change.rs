@@ -3,13 +3,13 @@ use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
 use super::KeyboardFocusReason;
+use crate::DesktopTarget;
 use crate::desktop_system::FocusDepth;
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
 };
-use crate::{DesktopTarget, RemoveSlotShiftingPolicy};
 
 pub type Changes = CollectingVec<DesktopChange>;
 
@@ -61,7 +61,7 @@ pub enum Zoom {
     DefaultForFocused,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ProjectChange {
     AddProject {
         id: ProjectId,
@@ -79,11 +79,6 @@ pub enum ProjectChange {
         placement: MatrixPlacement,
     },
     RemoveLauncher(LaunchProfileId),
-    RemoveSlot {
-        project: ProjectId,
-        placement: MatrixPlacement,
-        shifting_policy: RemoveSlotShiftingPolicy,
-    },
     SetStartupProfile(Option<LaunchProfileId>),
 }
 

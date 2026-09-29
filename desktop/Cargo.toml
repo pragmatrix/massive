@@ -23,12 +23,14 @@ anyhow.workspace = true
 derive_more.workspace = true
 euclid.workspace = true
 futures.workspace = true
+kdl.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["time", "sync"] }
 log.workspace = true
 panic-message.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 strum.workspace = true
-tokio = { workspace = true, features = ["time"] }
 uuid.workspace = true
 winit.workspace = true
 

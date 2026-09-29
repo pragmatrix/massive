@@ -60,6 +60,7 @@ use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
+use crate::projects::persistence;
 use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
 use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
 
@@ -208,6 +209,14 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
+    /// The persisted desktop configuration; edited surgically and written on every
+    /// configuration change.
+    #[debug(skip)]
+    persistence: persistence::ConfigurationDocument,
+    /// Maps configuration ids to the document's names for the persistence edits.
+    #[debug(skip)]
+    config_keys: persistence::ConfigKeys,
+
     focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
@@ -244,7 +253,12 @@ impl Aggregates {
 }
 
 impl DesktopSystem {
-    pub fn new(env: DesktopEnvironment, default_panel_size: SizePx) -> Result<Self> {
+    pub fn new(
+        env: DesktopEnvironment,
+        default_panel_size: SizePx,
+        persistence: persistence::ConfigurationDocument,
+        config_keys: persistence::ConfigKeys,
+    ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let (_, location) = identity_location().submit();
@@ -267,6 +281,8 @@ impl DesktopSystem {
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
+            persistence,
+            config_keys,
 
             focus_depth_indicator,
             desktop_presenter,
@@ -299,8 +315,7 @@ impl DesktopSystem {
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
-                let output = self.apply_change(change, instance_manager)?;
-                // TODO: I think Changes should support a DoubleEndedIterator.
+                let output = self.apply_change(change, instance_manager, effects_mode)?; // TODO: I think Changes should support a DoubleEndedIterator.
                 for new_change in output
                     .changes
                     .into_iter()
@@ -312,6 +327,12 @@ impl DesktopSystem {
                 }
                 change_surface.combine(output.surface);
             }
+        }
+
+        // The initial setup loads the configuration from the file, so its changes
+        // must not be written back; after setup, every change persists.
+        if effects_mode != TransactionEffectsMode::Setup {
+            self.persistence.flush();
         }
 
         // Collect deferred measures if the camera can be moved.

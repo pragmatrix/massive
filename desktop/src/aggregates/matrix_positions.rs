@@ -5,7 +5,7 @@ use massive_applications::MoveDirection;
 use crate::Map;
 use crate::projects::{LaunchProfileId, MatrixPlacement};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemoveSlotShiftingPolicy {
     ShiftLeft,
 }
@@ -114,25 +114,29 @@ impl MatrixPositions {
         self.positions.remove(launcher)
     }
 
-    pub fn remove_slot(
-        &mut self,
+    /// The launchers in the same row right of `placement`, each moved one column
+    /// left — the `ShiftLeft` slot-removal shift, without moving anything yet.
+    pub fn shifted_left_launchers(
+        &self,
         launchers: impl IntoIterator<Item = LaunchProfileId>,
         placement: MatrixPlacement,
-        shifting_policy: RemoveSlotShiftingPolicy,
-    ) {
-        match shifting_policy {
-            RemoveSlotShiftingPolicy::ShiftLeft => {
-                for launcher in launchers {
-                    let position = self
-                        .positions
-                        .get_mut(&launcher)
-                        .expect("Matrix position missing for launcher");
-                    if position.row == placement.row && position.column > placement.column {
-                        position.column -= 1;
-                    }
+    ) -> Vec<(LaunchProfileId, MatrixPlacement)> {
+        launchers
+            .into_iter()
+            .filter_map(|launcher| {
+                let position = self.positions.get(&launcher)?;
+                if position.row == placement.row && position.column > placement.column {
+                    return Some((
+                        launcher,
+                        MatrixPlacement {
+                            column: position.column - 1,
+                            row: position.row,
+                        },
+                    ));
                 }
-            }
-        }
+                None
+            })
+            .collect()
     }
 
     pub fn get(&self, launcher: &LaunchProfileId) -> Option<&MatrixPlacement> {
