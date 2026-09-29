@@ -13,4 +13,4 @@ mod parameters;
 /// The file name of the desktop configuration inside the projects directory.
 pub const CONFIG_FILE_NAME: &str = "desktop.kdl";
 
-pub use self::configuration::{ConfigurationDocument, initialize_file};
+pub use self::configuration::{ConfigurationDocument, write_default_config};

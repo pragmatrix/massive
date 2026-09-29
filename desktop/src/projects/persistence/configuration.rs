@@ -3,6 +3,7 @@
 //! transaction.
 
 use std::collections::HashMap;
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -28,7 +29,7 @@ pub struct ConfigurationDocument {
     path: PathBuf,
     /// Whether applied configuration changes have not yet been written to the file
     /// on disk.
-    unwritten_changes: bool,
+    changed: bool,
     /// Maps configuration ids to the document's names for the persistence edits.
     keys: ConfigKeys,
 }
@@ -39,10 +40,10 @@ impl ConfigurationDocument {
     /// id → name resolution as part of the load.
     ///
     /// Any file error — including a missing file — fails: the caller decides the
-    /// no-file policy (see [`initialize_file`]). Project derivation errors fail
-    /// too.
+    /// no-file policy (see [`write_default_config`]). Project derivation errors
+    /// fail too.
     pub fn load(path: &Path) -> Result<(Self, ProjectSet)> {
-        let text = std::fs::read_to_string(path)?;
+        let text = fs::read_to_string(path)?;
         let document = text
             .parse()
             .with_context(|| format!("parsing {}", path.display()))?;
@@ -53,7 +54,7 @@ impl ConfigurationDocument {
         let document = Self {
             document,
             path: path.into(),
-            unwritten_changes: false,
+            changed: false,
             keys: ConfigKeys::registered_from(&project_set),
         };
         Ok((document, project_set))
@@ -62,7 +63,7 @@ impl ConfigurationDocument {
 
 /// Writes the built-in default configuration to the file, for callers that decide
 /// a missing configuration file means "start fresh".
-pub fn initialize_file(path: &Path) -> Result<KdlDocument> {
+pub fn write_default_config(path: &Path) -> Result<KdlDocument> {
     let document = default_document();
     atomic_write(path, &document.to_string())
         .with_context(|| format!("writing the default configuration to {}", path.display()))?;
@@ -75,9 +76,9 @@ impl ConfigurationDocument {
     /// A failed edit is returned without changing the document, so callers can
     /// report that persistence was rejected.
     pub fn apply(&mut self, change: ProjectChange) -> Result<()> {
-        let change = self.keys.translate_change(&change)?;
+        let change = self.keys.map_change(&change)?;
         apply_change(&mut self.document, &change)?;
-        self.unwritten_changes = true;
+        self.changed = true;
         Ok(())
     }
 
@@ -85,15 +86,15 @@ impl ConfigurationDocument {
     /// disk.
     ///
     /// Called at the end of a transaction, so its several changes persist as one
-    /// file write. A write failure is logged and leaves `unwritten_changes` set, so
-    /// the next flush retries it.
+    /// file write. A write failure is logged and leaves `changed` set, so the next
+    /// flush retries it.
     pub fn flush(&mut self) {
-        if !self.unwritten_changes {
+        if !self.changed {
             return;
         }
         let text = self.document.to_string();
         match atomic_write(&self.path, &text) {
-            Ok(()) => self.unwritten_changes = false,
+            Ok(()) => self.changed = false,
             Err(error) => log::warn!(
                 "Failed to persist configuration to {}: {error:#}",
                 self.path.display()
@@ -203,8 +204,8 @@ impl ConfigKeys {
             .cloned()
     }
 
-    /// Translates a configuration change from live-model ids into document terms.
-    fn translate_change(&mut self, change: &ProjectChange) -> Result<ConfigChange> {
+    /// Maps a live-model change into document terms, registering new names.
+    fn map_change(&mut self, change: &ProjectChange) -> Result<ConfigChange> {
         match change {
             ProjectChange::AddProject { id, properties } => {
                 let name = self.register_project(*id, &properties.name)?;

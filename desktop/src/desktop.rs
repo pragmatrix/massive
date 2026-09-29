@@ -70,7 +70,7 @@ impl Desktop {
                 "No configuration at {}, writing the default configuration",
                 configuration_path.display()
             );
-            persistence::initialize_file(&configuration_path)?;
+            persistence::write_default_config(&configuration_path)?;
         }
         let (configuration_document, project_set) =
             ConfigurationDocument::load(&configuration_path)?;
