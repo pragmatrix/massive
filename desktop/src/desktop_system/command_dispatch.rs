@@ -614,24 +614,7 @@ impl DesktopSystem {
     }
 
     /// Mirrors a configuration change into the persisted KDL document.
-    ///
-    /// Translates the ids of the live model into the document's names and applies
-    /// the change to the in-memory document. The file is written by
-    /// [`DesktopSystem::transact`]'s single flush, so a transaction's several
-    /// changes persist as one file write.
-    pub(crate) fn persist_project_change(&mut self, change: ProjectChange) -> Result<()> {
-        // The startup profile's name is resolved here, because it is read from the
-        // aggregates rather than from the change's payload: a `SetStartupProfile`
-        // change that clears the profile carries no id to look the name up with.
-        let startup_profile_name = if let ProjectChange::SetStartupProfile(id) = change {
-            Some(id.map(|id| self.aggregates.launchers[&id].name().to_owned()))
-        } else {
-            None
-        };
-        let change = self.config_keys.config_change(
-            &change,
-            startup_profile_name.as_ref().map(|name| name.as_deref()),
-        )?;
+    fn persist_project_change(&mut self, change: ProjectChange) -> Result<()> {
         self.persistence.apply(change)?;
         Ok(())
     }

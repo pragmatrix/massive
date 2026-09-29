@@ -24,7 +24,7 @@ use crate::desktop_system::{
 };
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::persistence::{ConfigKeys, ConfigurationDocument};
+use crate::projects::persistence::ConfigurationDocument;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project, ProjectId,
     ProjectProperties, ProjectSet,
@@ -61,10 +61,13 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
-        let projects_dir = env.projects_dir();
-        let configuration_document = ConfigurationDocument::load(projects_dir.as_deref())?;
+        let projects_dir = env
+            .projects_dir()
+            .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
+        let mut configuration_document = ConfigurationDocument::load(&projects_dir)?;
         let project_configuration = configuration_document.configuration()?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
+        configuration_document.register_loaded(&project_set);
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
@@ -125,11 +128,7 @@ impl Desktop {
 
         let primary_project = primary_project();
 
-        // Architecture: Providing the root group here is conceptually wrong I guess, because it
-        // does not exist yet.
-        let config_keys = ConfigKeys::from_configuration(&project_set);
-        let mut system =
-            DesktopSystem::new(env, default_size, configuration_document, config_keys)?;
+        let mut system = DesktopSystem::new(env, default_size, configuration_document)?;
 
         let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 

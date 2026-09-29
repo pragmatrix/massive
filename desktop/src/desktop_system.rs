@@ -213,9 +213,6 @@ pub struct DesktopSystem {
     /// configuration change.
     #[debug(skip)]
     persistence: persistence::ConfigurationDocument,
-    /// Maps configuration ids to the document's names for the persistence edits.
-    #[debug(skip)]
-    config_keys: persistence::ConfigKeys,
 
     focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -257,7 +254,6 @@ impl DesktopSystem {
         env: DesktopEnvironment,
         default_panel_size: SizePx,
         persistence: persistence::ConfigurationDocument,
-        config_keys: persistence::ConfigKeys,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
@@ -282,7 +278,6 @@ impl DesktopSystem {
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
             persistence,
-            config_keys,
 
             focus_depth_indicator,
             desktop_presenter,
