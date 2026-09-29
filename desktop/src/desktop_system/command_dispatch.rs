@@ -199,6 +199,7 @@ impl DesktopSystem {
         let mut changes = Changes::Empty;
         match command {
             ProjectCommand::AddProject { id, name, after } => {
+                let name = self.default_project_name(id, &name);
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
 
@@ -244,7 +245,7 @@ impl DesktopSystem {
                 placement,
             } => {
                 let profile = LaunchProfile {
-                    name: profile.name,
+                    name: self.default_launcher_name(launch_profile_id, &profile.name),
                     ..profile
                 };
                 let mut launchers = self.aggregates.hierarchy.matrix_launchers(project);
@@ -318,7 +319,6 @@ impl DesktopSystem {
     /// use, while a user-chosen name is taken as it is — duplicate names are
     /// allowed. An id the configuration already holds is the boot flow re-applying
     /// the names it parsed, which must pass through unchanged.
-    #[allow(dead_code)]
     fn default_project_name(&self, id: ProjectId, name: &str) -> String {
         if name != DEFAULT_NEW_PROJECT_NAME || self.aggregates.configuration.project(id).is_some() {
             return name.to_string();
@@ -335,7 +335,6 @@ impl DesktopSystem {
 
     /// The launcher counterpart of [`Self::default_project_name`], indexed among the
     /// siblings of the launcher's project.
-    #[allow(dead_code)]
     fn default_launcher_name(&self, id: LaunchProfileId, name: &str) -> String {
         if name != DEFAULT_NEW_LAUNCHER_NAME || self.aggregates.configuration.launcher(id).is_some()
         {
@@ -1017,7 +1016,6 @@ const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
 /// The default name with the lowest index that is not already taken among
 /// `existing`. The index only disambiguates the default name; the number is
 /// reused once a previous holder is renamed or removed.
-#[allow(dead_code)]
 fn indexed_default_name(name: &str, existing: &[&str]) -> String {
     let mut index = 2;
     loop {
