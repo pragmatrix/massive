@@ -19,18 +19,18 @@
 //! ## Shaper exclusivity
 //!
 //! Shaping never touches the manager mutex: a [`ShapingContext`] owns its scratch and
-//! [`ShapingContext::shaper`] takes `&mut self`, so the type system rejects a second live shaper on
+//! its shaping methods take `&mut self`, so the type system rejects a second live shape on
 //! one context (ADR 0006).
 //!
-//! A shaper must not outlive the frame cycle it shaped for: `update_lines`-style call sites hold
-//! one shaper per frame and drop it before anything the frame produced is submitted — the
-//! ordering the renderer's freshness contract rests on.
+//! A session must not outlive the frame cycle it shaped for: `update_lines`-style call sites
+//! hold one context per frame and drop it before anything the frame produced is submitted —
+//! the ordering the renderer's freshness contract rests on.
 //!
 //! ## The published registry (with metrics)
 //!
-//! Every registration — `load_font`, and face resolution from inside a shaper — republishes under
-//! the manager lock, so a published snapshot never lags the known face world and in-session
-//! resolution ([`Shaper::font_data`]) is a plain lock-free map read.
+//! Every registration — `load_font`, and face resolution from inside a session — republishes
+//! under the manager lock, so a published snapshot never lags the known face world and
+//! in-session resolution ([`ShapingContext::font_data`]) is a plain lock-free map read.
 
 use std::fmt;
 use std::sync::Arc;

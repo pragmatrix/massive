@@ -14,7 +14,7 @@ The ADR 0005 published-registry amendment made the *render* path lock-free, but 
 
 ### Shaping contexts everywhere
 
-`FontManager::shaping_context()` creates a `ShapingContext`, and the context itself is the shaping session (ADR 0008 replaced an earlier borrowed-session design: `ShapingContext::shaper()` and a `ShapingSession` trait). There is **no instance variant** of the API: instance, application, and desktop code all shape through an explicit context. The context's session methods take `&mut self` — the authority mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed on the manager. Exclusivity is a property of the context's ownership instead (below).
+`FontManager::new_shaping_context()` creates a `ShapingContext`, and the context itself is the shaping session (ADR 0008 replaced an earlier borrowed-session design: `ShapingContext::shaper()` and a `ShapingSession` trait). There is **no instance variant** of the API: instance, application, and desktop code all shape through an explicit context. The context's session methods take `&mut self` — the authority mutex is registration-only and never held while shaping, so no compile-time borrow gate is needed on the manager. Exclusivity is a property of the context's ownership instead (below).
 
 What a session holds: it does not hold the authority mutex for its duration; it uses the caller's `ShapingContext`, whose scratch is exclusive to that logical owner. Contexts sharing one manager state can shape concurrently.
 
@@ -27,17 +27,27 @@ The context's session methods take `&mut self`, so the scratch stays exclusive t
 ### Contexts are explicit, managers are shared
 
 `FontManager` does not implement `Clone` and owns no shaping scratch. It shares the face
-authority and published registry through internal reference-counted state. Each logical
-owner calls `shaping_context()` to obtain fresh, reusable scratch. `InstanceEnvironment`
-shares the manager configuration through `Arc<FontManager>`, while shaping owners retain
-their own contexts.
+authority and published registry through internal reference-counted state:
+`state: Arc<FontManagerState>` with `FontManagerState { authority: Mutex<FontAuthority>,
+published: Arc<PublishedRegistry> }`, and each `ShapingContext` holds that same `Arc` plus
+its exclusive `Box<dyn EngineScratch>`. Each logical owner calls `new_shaping_context()` to
+obtain fresh, reusable scratch. `InstanceEnvironment` shares the manager configuration
+through `Arc<FontManager>`, while shaping owners retain their own contexts.
 
 ### The manager stops owning shaping contexts
 
 `FontAuthority` keeps only the font-identity machinery; the engines' per-shape scratch moves out to per-context owners. The scratch itself is engine neutral: `ShapingEngine::new_scratch` creates a context's scratch, and an `EngineScratch` trait (`sync`, `shape`) drives it — the manager names no engine type after construction, and the per-engine seeding/sync strategies live entirely in each engine's scratch implementation.
 
 - **Face authority**: the manager remains the *only* `FaceId` issuer (face loading and session-path resolution). A `FaceId` is only meaningful within the manager that registered it — ADR 0005's consequence, now load-bearing across instances.
-- **Published registry**: a shared `Arc<PublishedRegistry>` bundles engine kind with its `ArcSwap<FontRegistry>`. Sessions publish resolved faces through the authority and refresh their snapshot after each shape.
+- **Published registry**: a shared `Arc<PublishedRegistry>` bundles the engine kind with its
+  `ArcSwap<FontRegistry>` under one `Arc`. The outer `Arc` is required — not incidental —
+  because all contexts and renderers must observe the same swap cell, and bundling keeps
+  `kind` and the snapshot from becoming mismatched parallel fields. Sessions publish
+  resolved faces through the authority and refresh their snapshot after each shape.
+- **Render-only registry source**: `FontRegistrySource` is a cheap handle over the same
+  `Arc<PublishedRegistry>` for render-path reads (`engine_kind`, lock-free `registry`). It
+  must not gain the face authority or a shaping scratch — it exists so the renderer never
+  touches the manager or its mutex.
 
 ### Parley: fontique's native shared collection
 
@@ -95,7 +105,8 @@ The renderer's "registry miss is a real bug" stance stays absolute, and the debu
 - **A non-reentrant scratch mutex with a `try_lock` guard** (`shaper()` panicking on a second session). Rejected: the scratch is exclusive to its context and never shared, so the lock only existed to hand out `&mut` from a `&self`, and `&mut self` on `shaper()` rejects the same misuse at compile time while dropping `Mutex`/`MutexGuard` and the panic path from `ShapingContext`.
 - **Keeping derived `Clone` on `FontManager`.** Rejected: the clone's fresh-scratch
   semantics (the whole point — independent, contention-free shaping) were invisible at
-  call sites, so any `.clone()` looked like a cheap share. `detached()` names the split.
+  call sites, so any `.clone()` looked like a cheap share. `new_shaping_context()` names
+  the split.
   A shaper-keyed owner registry (claim scratch by task id) was considered to remove the
   derivation verb entirely; rejected until multiple shapers per owner over time are
   actually needed — it adds eviction and growth bookkeeping the current one-owner/one-scratch
@@ -106,7 +117,36 @@ The renderer's "registry miss is a real bug" stance stays absolute, and the debu
 - Two live sessions on one context are a compile error (the session methods take `&mut self`); contexts
   sharing one manager state shape in parallel because their scratch is independent.
 - Handling a `FontManager` around shares only identity and publication. Calling
-  `shaping_context()` marks every shaping-owner boundary.
+  `new_shaping_context()` marks every shaping-owner boundary.
 - `load_font` mid-run is legal and becomes visible without coordinator knowledge: parley via fontique's version sync, cosmic via registry sync at next sync.
 - Cosmic's per-instance `FontSystem` grows its caches without bound within one lifetime (its internals are not shareable by design) — the same cost every cosmic use pays; instances are long-lived, the cost is per-instance and bounded by workload.
 - The manager's mutex is touched only by registration work (load, resolve, publish); a benchmark gate (`benches/terminal_shaping.rs`) verifies the hot path no longer takes it.
+
+## Implementation status and standing prohibitions (2026-09-29)
+
+Implemented on `task-local-ui-contexts`/`master` (`d0a74e99` and neighbours): shared
+`FontManagerState`, per-context scratch in `ShapingContext`, the `PublishedRegistry` bundle,
+and the `FontAuthority` naming. Coherent session reads hold as designed: `shape` syncs
+before every shape and — when the shape resolved a face — republishes the post-resolution
+snapshot, so `font_data`/`metrics` resolve every face a returned run carries
+(`shaped_faces_resolve_to_font_data`, `a_resolved_pool_face_is_readable_after_the_shape`).
+
+The simplification plan that phrased this work (`docs/font-manager-simplification-plan.md`,
+folded here) set the boundaries this design must not regress:
+
+- **Do not make `FontManager` clonable.** `new_shaping_context()` makes the per-owner
+  shaping boundary visible at call sites; a `Clone` would hide it again.
+- **Do not replace snapshot publication with a mutex or a broadcast list.** One
+  `ArcSwap` cell per publication, swapped under the authority lock, is what keeps renderer
+  reads lock-free and lag-free.
+- **Do not merge the face authority and the per-owner scratch back into one engine object.**
+  The authority is registration work; the scratch is per-owner rendering cache. Merging
+  them re-serializes shaping on the manager mutex — the problem this ADR exists to remove.
+
+One cleanup remains deliberately open at the time of the fold: the engine contract still
+carries `ShapingEngine::shape` and `ShapingEngine::font_data`, which production code no
+longer calls — the canonical engine loads, publishes, seeds scratch, and resolves fallback
+faces (`resolve_face`), and shaping runs through `EngineScratch::shape`. Removing them is a
+follow-up: the `EngineScratch` callback seam is what session shaping actually consumes, and
+the cosmic fallback-abort regression is covered through it (`cosmic_scratch.rs` tests) once
+the trait methods go.

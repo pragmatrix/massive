@@ -16,8 +16,8 @@ use crate::engine::ShapingEngineKind;
 /// process, so the spaces never meet; a foreign id degrades to a graceful `font_data` miss
 /// (the renderer logs and skips the glyph).
 ///
-/// Rasterization resolves a `FaceId` through the engine/manager that produced it back to
-/// concrete font data ([`crate::engine::ShapingEngine::font_data`]).
+/// Rasterization resolves a `FaceId` through the published registry of the manager that
+/// produced it back to concrete font data ([`crate::FontRegistry::font_data`]).
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct FaceId(u64);
 

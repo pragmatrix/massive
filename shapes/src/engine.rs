@@ -4,7 +4,7 @@
 //! cosmic-text): engines translate their own layout output into [`ShapedRun`]s of
 //! engine-neutral [`ShapedGlyph`]s, and the shared data model (`GlyphRun`, `GlyphKey`) stays
 //! engine-agnostic. Rasterization is engine-independent (swash) and resolves glyphs through
-//! [`ShapingEngine::font_data`].
+//! the published [`FontRegistry`].
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -381,9 +381,9 @@ pub trait ShapingEngine: Send {
     /// Shape a single line (the first line of `request.text`) at `font_size` pixels.
     ///
     /// Registration-time method only — the canonical engine inside [`crate::FontManager`] never
-    /// shapes per frame (ADR 0006: per-clone scratch contexts shape; the canonical engine
-    /// loads fonts and, for cosmic, seeds them). Kept on the trait because the manager's
-    /// tests shape through it.
+    /// shapes per frame (ADR 0006: per-context scratch shapes; the canonical engine loads fonts
+    /// and, for cosmic, seeds them). Kept on the trait because the cosmic engine's tests shape
+    /// through it.
     fn shape(&mut self, request: &ShapingRequest<'_>, font_size: f32) -> Option<ShapedRun>;
 
     /// Create this engine's per-context shape-ready scratch (ADR 0006), seeded from the
