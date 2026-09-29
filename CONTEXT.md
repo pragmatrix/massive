@@ -4,6 +4,18 @@ This context defines the interaction and presentation language for desktop insta
 
 ## Language
 
+**Desktop configuration**:
+The set of projects, launchers, their matrix placements, and the startup profile. It persists across sessions.
+_Avoid_: settings, workspace, layout
+
+**Configuration change**:
+A change to the desktop configuration: adding or removing a project or launcher, moving a launcher, or setting the startup profile. The only kind of change that persists across sessions.
+_Avoid_: project change
+
+**Runtime state**:
+The non-persisted desktop state reconstructed every session: running instances, focus, navigation affinity, and window size.
+_Avoid_: session state, ephemeral state
+
 **User state**:
 The system-level interaction mode that decides what the camera follows. Either `Focused` or `Overview`.
 _Avoid_: view mode, camera mode flag
