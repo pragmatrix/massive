@@ -212,11 +212,14 @@ fn node_indent(node: &KdlNode) -> String {
 }
 
 /// Formatting for a freshly constructed node: explicit indent and line terminator,
-/// because stringification only auto-indents formatless nodes.
+/// because stringification only auto-indents formatless nodes. A node with an
+/// explicit format needs `before_children` set for the space before its children
+/// block; for childless nodes the field is never written, so it can stay " " here.
 pub(super) fn fresh_node_format(leading: &str) -> KdlNodeFormat {
     KdlNodeFormat {
         leading: leading.into(),
         terminator: "\n".into(),
+        before_children: " ".into(),
         ..Default::default()
     }
 }
