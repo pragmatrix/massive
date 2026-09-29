@@ -181,6 +181,42 @@ impl DesktopConfiguration {
             .and_then(|project| project.launcher(launcher))
     }
 
+    /// The project's name, `None` when it is not in the configuration.
+    pub fn project_name(&self, project: ProjectId) -> Option<&str> {
+        self.project(project).map(Project::name)
+    }
+
+    /// The launcher's name, `None` when it is not in the configuration.
+    pub fn launcher_name(&self, launcher: LaunchProfileId) -> Option<&str> {
+        self.launcher(launcher).map(Launcher::name)
+    }
+
+    /// How many launchers the configuration defines across all projects.
+    pub fn launcher_count(&self) -> usize {
+        self.projects
+            .iter()
+            .map(|project| project.launchers.len())
+            .sum()
+    }
+
+    /// `name` with a numeric suffix appended while it collides with an existing
+    /// project name.
+    pub fn unique_project_name(&self, name: &str) -> String {
+        let existing: Vec<&str> = self.projects.iter().map(Project::name).collect();
+        unique_name(name, &existing)
+    }
+
+    /// `name` with a numeric suffix appended while it collides with a name of one
+    /// of `project`'s launchers. A project not in the configuration has no
+    /// siblings yet, so the name passes through.
+    pub fn unique_launcher_name(&self, project: ProjectId, name: &str) -> String {
+        let existing: Vec<&str> = self
+            .project(project)
+            .map(|project| project.launchers().iter().map(Launcher::name).collect())
+            .unwrap_or_default();
+        unique_name(name, &existing)
+    }
+
     /// The launcher occupying `placement` in `project`, if any. Placements are
     /// unique per project, so this is a lookup, not a search over ties.
     pub fn launcher_at(
@@ -267,6 +303,22 @@ fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfi
         .flat_map(|project| project.launchers.iter())
         .find(|launcher| launcher.name == name)
         .map(|launcher| launcher.id)
+}
+
+/// Appends a numeric suffix while `name` collides with an existing name, so names
+/// stay unique among siblings — the document view addresses its nodes by name.
+fn unique_name(name: &str, existing: &[&str]) -> String {
+    if !existing.iter().any(|existing| *existing == name) {
+        return name.into();
+    }
+    let mut suffix = 2;
+    loop {
+        let candidate = format!("{name} {suffix}");
+        if !existing.iter().any(|existing| *existing == candidate) {
+            return candidate;
+        }
+        suffix += 1;
+    }
 }
 
 #[derive(Debug)]

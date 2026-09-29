@@ -11,10 +11,11 @@ use log::warn;
 use kdl::{KdlDocument, KdlEntry, KdlNode, KdlNodeFormat, KdlValue};
 use serde_json::Value;
 
-use super::configuration::ConfigChange;
 use super::parameters::{params_node, params_value};
+use crate::desktop_system::change::ProjectChange;
 use crate::projects::{
-    DesktopConfiguration, Launcher, LauncherMode, MatrixPlacement, Params, Project,
+    DesktopConfiguration, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Params,
+    Project, ProjectId,
 };
 
 /// The built-in default configuration, used when no file exists on disk.
@@ -62,25 +63,80 @@ pub(super) fn atomic_write(path: &Path, text: &str) -> Result<()> {
 
 /// Applies a configuration change as surgical node edits, so that user comments and
 /// formatting survive byte-identical.
-pub(super) fn apply_change(document: &mut KdlDocument, change: &ConfigChange) -> Result<()> {
+///
+/// The document is keyed by name, so every change resolves its names from
+/// `configuration`. It must therefore hold the change's projects and launchers —
+/// removals included, which is why the document view is written before the live
+/// model.
+pub(super) fn apply_change(
+    document: &mut KdlDocument,
+    change: &ProjectChange,
+    configuration: &DesktopConfiguration,
+) -> Result<()> {
     match change {
-        ConfigChange::SetStartup(name) => set_startup(document, name),
-        ConfigChange::AddProject { name } => add_project(document, name),
-        ConfigChange::RemoveProject { name } => remove_node(document, "project", name),
-        ConfigChange::AddLauncher {
+        ProjectChange::SetStartupProfile(launcher) => {
+            let name = match launcher {
+                Some(id) => Some(launcher_key(configuration, *id)?.1.to_string()),
+                None => None,
+            };
+            set_startup(document, &name)
+        }
+        ProjectChange::AddProject { name, .. } => add_project(document, name),
+        ProjectChange::RemoveProject(project) => {
+            let name = project_name(configuration, *project)?;
+            remove_node(document, "project", name)
+        }
+        ProjectChange::AddLauncher {
             project,
-            name,
-            mode,
-            params,
+            profile,
             placement,
-        } => add_launcher(document, project, name, *mode, params, *placement),
-        ConfigChange::MoveLauncher {
-            project,
-            name,
+            ..
+        } => {
+            let project = project_name(configuration, *project)?;
+            add_launcher(
+                document,
+                project,
+                &profile.name,
+                profile.mode,
+                &profile.params,
+                *placement,
+            )
+        }
+        ProjectChange::MoveLauncher {
+            launcher,
             placement,
-        } => move_launcher(document, project, name, *placement),
-        ConfigChange::RemoveLauncher { project, name } => remove_launcher(document, project, name),
+        } => {
+            let (project, name) = launcher_key(configuration, *launcher)?;
+            move_launcher(document, project, name, *placement)
+        }
+        ProjectChange::RemoveLauncher(launcher) => {
+            let (project, name) = launcher_key(configuration, *launcher)?;
+            remove_launcher(document, project, name)
+        }
     }
+}
+
+/// The project's name, or an error when it is not in the configuration.
+fn project_name(configuration: &DesktopConfiguration, project: ProjectId) -> Result<&str> {
+    configuration
+        .project_name(project)
+        .with_context(|| format!("project {project:?} is not in the configuration"))
+}
+
+/// A launcher's owning project's name and its own name, or an error when the
+/// launcher is not in the configuration.
+fn launcher_key<'a>(
+    configuration: &'a DesktopConfiguration,
+    launcher: LaunchProfileId,
+) -> Result<(&'a str, &'a str)> {
+    let name = configuration
+        .launcher_name(launcher)
+        .with_context(|| format!("launcher {launcher:?} is not in the configuration"))?;
+    let project = configuration
+        .project_of_launcher(launcher)
+        .map(Project::name)
+        .with_context(|| format!("launcher {launcher:?} has no owning project"))?;
+    Ok((project, name))
 }
 
 fn set_startup(document: &mut KdlDocument, name: &Option<String>) -> Result<()> {

@@ -199,6 +199,7 @@ impl DesktopSystem {
         let mut changes = Changes::Empty;
         match command {
             ProjectCommand::AddProject { id, name, after } => {
+                let name = self.aggregates.configuration.unique_project_name(&name);
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
 
@@ -228,6 +229,13 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
+                let profile = LaunchProfile {
+                    name: self
+                        .aggregates
+                        .configuration
+                        .unique_launcher_name(project, &profile.name),
+                    ..profile
+                };
                 let mut launchers = self.aggregates.hierarchy.matrix_launchers(project);
                 if let Some(launcher) = launchers.find(|launcher| {
                     self.aggregates.configuration.placement_of(*launcher) == Some(placement)
@@ -496,18 +504,16 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                // A setup change only updates the live model; it must not mirror into
-                // the persisted document.
-                let persisted_change = if effects_mode != TransactionEffectsMode::Setup {
-                    Some(project_change.clone())
-                } else {
-                    None
-                };
-                let output = self.apply_project_change(project_change)?;
-                if let Some(persisted_change) = persisted_change {
-                    self.persist_project_change(persisted_change)?;
+                // The document view is written before the live model: its edits address
+                // nodes by name and the configuration must still hold those names —
+                // removals included — so a rejected write also leaves the live model
+                // untouched. A setup change only updates the live model; it must not
+                // mirror into the persisted document.
+                if effects_mode != TransactionEffectsMode::Setup {
+                    self.configuration
+                        .apply(project_change.clone(), &self.aggregates.configuration)?;
                 }
-                return Ok(output);
+                return self.apply_project_change(project_change);
             }
         }
 
@@ -619,12 +625,6 @@ impl DesktopSystem {
         }
 
         Ok(ChangeOutput::default())
-    }
-
-    /// Mirrors a configuration change into the persisted KDL document.
-    fn persist_project_change(&mut self, change: ProjectChange) -> Result<()> {
-        self.configuration.apply(change)?;
-        Ok(())
     }
 
     fn apply_instance_submission(
