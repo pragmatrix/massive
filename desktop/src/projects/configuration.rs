@@ -25,7 +25,7 @@ pub struct DesktopConfiguration {
 }
 
 impl DesktopConfiguration {
-    /// Builds the aggregate from parsed projects and the named startup profile.
+    /// Builds the aggregate from parsed projects and the named startup launcher.
     ///
     /// Fails when no launcher exists at all: the session boots into a
     /// configuration-defined launcher, so an empty configuration has nothing to
@@ -296,7 +296,7 @@ impl DesktopConfiguration {
     }
 }
 
-/// Resolves the startup profile's id by name among all launchers.
+/// Resolves the startup launcher's id by name among all launchers.
 fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfileId> {
     projects
         .iter()

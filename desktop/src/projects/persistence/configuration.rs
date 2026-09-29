@@ -9,7 +9,7 @@ use anyhow::{Context, Result, ensure};
 use kdl::KdlDocument;
 
 use super::document::{apply_change, atomic_write, configuration_from_document, default_document};
-use crate::desktop_system::change::ProjectChange;
+use crate::desktop_system::change::ConfigurationChange;
 use crate::projects::DesktopConfiguration;
 
 /// The document view of the desktop configuration: the parsed KDL document, kept
@@ -79,7 +79,7 @@ impl ConfigurationDocument {
     /// untouched too.
     pub fn apply(
         &mut self,
-        change: ProjectChange,
+        change: ConfigurationChange,
         configuration: &DesktopConfiguration,
     ) -> Result<()> {
         self.reject_emptying_removal(&change, configuration)?;
@@ -93,14 +93,14 @@ impl ConfigurationDocument {
     /// Checked before any edit, so the document stays untouched on rejection.
     fn reject_emptying_removal(
         &self,
-        change: &ProjectChange,
+        change: &ConfigurationChange,
         configuration: &DesktopConfiguration,
     ) -> Result<()> {
         let removals = match change {
-            ProjectChange::RemoveLauncher(launcher) => {
+            ConfigurationChange::RemoveLauncher(launcher) => {
                 configuration.launcher(*launcher).is_some() as usize
             }
-            ProjectChange::RemoveProject(project) => configuration
+            ConfigurationChange::RemoveProject(project) => configuration
                 .project(*project)
                 .map(|project| project.launchers().len())
                 .unwrap_or(0),
@@ -160,7 +160,10 @@ project "only" {
         let launcher = configuration.projects()[0].launchers()[0].id();
 
         let error = document
-            .apply(ProjectChange::RemoveLauncher(launcher), &configuration)
+            .apply(
+                ConfigurationChange::RemoveLauncher(launcher),
+                &configuration,
+            )
             .expect_err("removing the last launcher must be rejected");
 
         assert!(
@@ -183,7 +186,7 @@ project "only" {
         let project = configuration.projects()[0].id();
 
         let error = document
-            .apply(ProjectChange::RemoveProject(project), &configuration)
+            .apply(ConfigurationChange::RemoveProject(project), &configuration)
             .expect_err("removing the last project must be rejected");
 
         assert!(

@@ -4,7 +4,7 @@ use serde_json::json;
 
 use super::change::Zoom;
 use super::change::set_focus;
-use super::change::{Changes, DesktopChange, ProjectChange, TopologyChange};
+use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange};
 use super::navigation::focus_depth_from_target;
 use super::{
     ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason,
@@ -217,7 +217,7 @@ impl DesktopSystem {
                     .into(),
                     under: project_target,
                 };
-                changes <<= ProjectChange::AddProject { id, name };
+                changes <<= ConfigurationChange::AddProject { id, name };
             }
             ProjectCommand::RemoveProject(project_id) => {
                 changes += self.plan_project_removal_focus(project_id);
@@ -246,7 +246,7 @@ impl DesktopSystem {
                         massive_applications::MoveDirection::Right,
                     )?;
                 }
-                changes <<= ProjectChange::AddLauncher {
+                changes <<= ConfigurationChange::AddLauncher {
                     project,
                     id: launch_profile_id,
                     profile,
@@ -289,8 +289,8 @@ impl DesktopSystem {
                     Some(RemoveSlotShiftingPolicy::ShiftLeft),
                 );
             }
-            ProjectCommand::SetStartupProfile(launch_profile_id) => {
-                changes <<= ProjectChange::SetStartupProfile(launch_profile_id)
+            ProjectCommand::SetStartupLauncher(launch_profile_id) => {
+                changes <<= ConfigurationChange::SetStartupLauncher(launch_profile_id)
             }
         }
 
@@ -319,7 +319,7 @@ impl DesktopSystem {
             changes += self.plan_remove_launcher(project, launcher, None);
         }
 
-        changes <<= ProjectChange::RemoveProject(project);
+        changes <<= ConfigurationChange::RemoveProject(project);
         changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
         changes
     }
@@ -347,14 +347,14 @@ impl DesktopSystem {
             .placement_of(launcher)
             .expect("Matrix position missing for launcher");
         changes <<= TopologyChange::Remove(launcher.into());
-        changes <<= ProjectChange::RemoveLauncher(launcher);
+        changes <<= ConfigurationChange::RemoveLauncher(launcher);
         if shifting_policy == Some(RemoveSlotShiftingPolicy::ShiftLeft) {
             for (launcher, placement) in self
                 .aggregates
                 .configuration
                 .shifted_left_launchers(project, placement)
             {
-                changes <<= ProjectChange::MoveLauncher {
+                changes <<= ConfigurationChange::MoveLauncher {
                     launcher,
                     placement,
                 };
@@ -560,19 +560,19 @@ impl DesktopSystem {
         }
     }
 
-    fn apply_project_change(&mut self, change: ProjectChange) -> Result<ChangeOutput> {
+    fn apply_project_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
         match change {
-            ProjectChange::AddProject { id, name } => {
+            ConfigurationChange::AddProject { id, name } => {
                 let parent_location = self.desktop_presenter.location.clone();
                 let presenter = ProjectPresenter::new(name.clone(), parent_location);
                 self.aggregates.projects.insert(id, presenter)?;
                 self.aggregates.configuration.add_project(id, name);
             }
-            ProjectChange::RemoveProject(project) => {
+            ConfigurationChange::RemoveProject(project) => {
                 self.aggregates.projects.remove(&project)?;
                 self.aggregates.configuration.remove_project(project);
             }
-            ProjectChange::AddLauncher {
+            ConfigurationChange::AddLauncher {
                 project,
                 id,
                 profile,
@@ -601,7 +601,7 @@ impl DesktopSystem {
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
             }
-            ProjectChange::MoveLauncher {
+            ConfigurationChange::MoveLauncher {
                 launcher,
                 placement,
             } => {
@@ -613,7 +613,7 @@ impl DesktopSystem {
                     project,
                 )));
             }
-            ProjectChange::RemoveLauncher(launch_profile_id) => {
+            ConfigurationChange::RemoveLauncher(launch_profile_id) => {
                 self.aggregates.launchers.remove(&launch_profile_id)?;
                 self.aggregates
                     .configuration
@@ -621,7 +621,7 @@ impl DesktopSystem {
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain it. Only this dispatch must handle it.
-            ProjectChange::SetStartupProfile(_) => {}
+            ConfigurationChange::SetStartupLauncher(_) => {}
         }
 
         Ok(ChangeOutput::default())
@@ -854,12 +854,12 @@ impl DesktopSystem {
                     .launcher_at(current_project, placement);
                 let mut changes = Changes::Empty;
                 if let Some(swapped_launcher) = swapped_launcher {
-                    changes <<= ProjectChange::MoveLauncher {
+                    changes <<= ConfigurationChange::MoveLauncher {
                         launcher: swapped_launcher,
                         placement: current_placement,
                     };
                 }
-                changes <<= ProjectChange::MoveLauncher {
+                changes <<= ConfigurationChange::MoveLauncher {
                     launcher,
                     placement,
                 };
@@ -914,7 +914,7 @@ impl DesktopSystem {
 
         let mut changes = Changes::Empty;
         for (launcher, placement) in shifted_launchers {
-            changes <<= ProjectChange::MoveLauncher {
+            changes <<= ConfigurationChange::MoveLauncher {
                 launcher,
                 placement,
             };

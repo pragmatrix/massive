@@ -12,7 +12,7 @@ use kdl::{KdlDocument, KdlEntry, KdlNode, KdlNodeFormat, KdlValue};
 use serde_json::Value;
 
 use super::parameters::{params_node, params_value};
-use crate::desktop_system::change::ProjectChange;
+use crate::desktop_system::change::ConfigurationChange;
 use crate::projects::{
     DesktopConfiguration, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Params,
     Project, ProjectId,
@@ -21,7 +21,7 @@ use crate::projects::{
 /// The built-in default configuration, used when no file exists on disk.
 ///
 /// It is also a valid config that can be copied and edited as a starting point.
-const DEFAULT_CONFIG: &str = r#"// Desktop configuration: projects, launchers, and the startup profile.
+const DEFAULT_CONFIG: &str = r#"// Desktop configuration: projects, launchers, and the startup launcher.
 // The terminal persists configuration changes to this file, preserving
 // comments and formatting.
 //
@@ -70,23 +70,23 @@ pub(super) fn atomic_write(path: &Path, text: &str) -> Result<()> {
 /// model.
 pub(super) fn apply_change(
     document: &mut KdlDocument,
-    change: &ProjectChange,
+    change: &ConfigurationChange,
     configuration: &DesktopConfiguration,
 ) -> Result<()> {
     match change {
-        ProjectChange::SetStartupProfile(launcher) => {
+        ConfigurationChange::SetStartupLauncher(launcher) => {
             let name = match launcher {
                 Some(id) => Some(launcher_key(configuration, *id)?.1.to_string()),
                 None => None,
             };
             set_startup(document, &name)
         }
-        ProjectChange::AddProject { name, .. } => add_project(document, name),
-        ProjectChange::RemoveProject(project) => {
+        ConfigurationChange::AddProject { name, .. } => add_project(document, name),
+        ConfigurationChange::RemoveProject(project) => {
             let name = project_name(configuration, *project)?;
             remove_node(document, "project", name)
         }
-        ProjectChange::AddLauncher {
+        ConfigurationChange::AddLauncher {
             project,
             profile,
             placement,
@@ -102,14 +102,14 @@ pub(super) fn apply_change(
                 *placement,
             )
         }
-        ProjectChange::MoveLauncher {
+        ConfigurationChange::MoveLauncher {
             launcher,
             placement,
         } => {
             let (project, name) = launcher_key(configuration, *launcher)?;
             move_launcher(document, project, name, *placement)
         }
-        ProjectChange::RemoveLauncher(launcher) => {
+        ConfigurationChange::RemoveLauncher(launcher) => {
             let (project, name) = launcher_key(configuration, *launcher)?;
             remove_launcher(document, project, name)
         }
@@ -323,7 +323,7 @@ fn set_placement(node: &mut KdlNode, placement: MatrixPlacement) {
 }
 
 /// Parses the configuration out of the document, minting fresh ids and
-/// resolving the startup profile by name.
+/// resolving the startup launcher by name.
 pub(super) fn configuration_from_document(document: &KdlDocument) -> Result<DesktopConfiguration> {
     let mut startup: Option<String> = None;
     let mut projects = Vec::new();

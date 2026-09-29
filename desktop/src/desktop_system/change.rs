@@ -13,7 +13,7 @@ pub type Changes = CollectingVec<DesktopChange>;
 
 #[derive(Debug)]
 pub enum DesktopChange {
-    Project(ProjectChange),
+    Project(ConfigurationChange),
     // Design: SpawnInstance seems to be completely able to run externally outside of the
     // `DesktopSystem`. May introduce something like outside effects that run when transact returns?
     SpawnInstance {
@@ -60,7 +60,7 @@ pub enum Zoom {
 }
 
 #[derive(Debug, Clone)]
-pub enum ProjectChange {
+pub enum ConfigurationChange {
     AddProject {
         id: ProjectId,
         name: String,
@@ -77,7 +77,7 @@ pub enum ProjectChange {
         placement: MatrixPlacement,
     },
     RemoveLauncher(LaunchProfileId),
-    SetStartupProfile(Option<LaunchProfileId>),
+    SetStartupLauncher(Option<LaunchProfileId>),
 }
 
 /// Constructs the change(s) for a focus transition.
@@ -121,8 +121,8 @@ impl From<TopologyChange> for DesktopChange {
     }
 }
 
-impl From<ProjectChange> for DesktopChange {
-    fn from(value: ProjectChange) -> Self {
+impl From<ConfigurationChange> for DesktopChange {
+    fn from(value: ConfigurationChange) -> Self {
         Self::Project(value)
     }
 }

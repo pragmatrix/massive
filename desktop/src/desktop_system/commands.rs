@@ -43,5 +43,5 @@ pub enum ProjectCommand {
         placement: MatrixPlacement,
     },
     RemoveLauncher(LaunchProfileId),
-    SetStartupProfile(Option<LaunchProfileId>),
+    SetStartupLauncher(Option<LaunchProfileId>),
 }

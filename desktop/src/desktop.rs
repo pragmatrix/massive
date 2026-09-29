@@ -128,7 +128,7 @@ impl Desktop {
         let mut system =
             DesktopSystem::new(env, default_size, configuration_document, configuration)?;
 
-        // The session boots into the startup profile the configuration names. The
+        // The session boots into the startup launcher the configuration names. The
         // configuration parse guarantees at least one launcher, and no project
         // command ran yet, so the fallback is the first launcher of it.
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
@@ -457,7 +457,7 @@ struct WindowContext<'a> {
     renderer: &'a mut AsyncWindowRenderer,
 }
 
-/// The launcher the session boots into: the configuration's startup profile, or the
+/// The launcher the session boots into: the configuration's startup launcher, or the
 /// first launcher of the projects when no `startup` node names one. `None` is
 /// unreachable for a parsed configuration, whose parse guarantees at least one
 /// launcher.
@@ -477,7 +477,7 @@ fn configuration_to_commands(
 ) -> CollectingVec<ProjectCommand> {
     let mut commands = CollectingVec::Empty;
 
-    commands.push(ProjectCommand::SetStartupProfile(configuration.startup()));
+    commands.push(ProjectCommand::SetStartupLauncher(configuration.startup()));
 
     for project in configuration.projects() {
         project_commands(project, &mut commands);
