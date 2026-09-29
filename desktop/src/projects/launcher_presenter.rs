@@ -18,7 +18,7 @@ use super::visor_layout;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
 use crate::projects::LaunchProfileId;
 
-use super::configuration::{LaunchProfile, LauncherMode};
+use super::configuration::Params;
 
 // TODO: Need proper color palettes for UI elements.
 // spellcheck: ignore
@@ -32,7 +32,10 @@ const FADING_DURATION: Duration = Duration::from_millis(500);
 
 const STRUCTURAL_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 const COLLAPSED_NON_ANCHOR_Z_OFFSET: f64 = 1.0;
-const CHILD_SPACING: i32 = 0;
+/// Band-mode panels are packed with no per-child spacing; the layout call site
+/// dispatches on the configuration's mode but the spacing value stays with the
+/// presentation geometry it feeds.
+pub(crate) const CHILD_SPACING: i32 = 0;
 
 #[derive(Debug, Clone, Copy)]
 struct VisorLayoutSummary {
@@ -43,11 +46,7 @@ struct VisorLayoutSummary {
 
 #[derive(Debug)]
 pub struct LauncherPresenter {
-    #[allow(unused)]
     id: LaunchProfileId,
-    profile: LaunchProfile,
-    mode: LauncherMode,
-
     movement: Movement<LauncherMovement>,
 
     location: Handle<Location>,
@@ -76,20 +75,18 @@ impl LauncherPresenter {
     pub fn new(
         parent_location: Handle<Location>,
         id: LaunchProfileId,
-        profile: LaunchProfile,
+        name: String,
         size: Size,
     ) -> Self {
         // Ergonomics: I want this to look like `rect.as_shape().with_color(Color::WHITE);`
         let background_shape = background_shape(size.to_rect(), BACKGROUND_COLOR);
-        let mode = profile.mode;
 
         let (our_transform, our_location) =
             identity_location().relative_to(&parent_location).submit();
 
         let background = background_shape.at(&our_location).submit();
 
-        let name = profile
-            .name
+        let name = name
             // Idea: To not waste so much memory here for large fonts, may use a quality index that
             // is automatically applied based on the font, small fonts high quality, large fonts,
             // lower quality, the quality index starts with 1 and is the effective pixel resolution
@@ -121,8 +118,6 @@ impl LauncherPresenter {
 
         Self {
             id,
-            profile,
-            mode,
             movement,
             location: our_location,
             presents_instance: false,
@@ -131,25 +126,9 @@ impl LauncherPresenter {
         }
     }
 
-    pub fn should_render_instance_background(&self) -> bool {
-        match self.mode {
-            LauncherMode::Band => false,
-            LauncherMode::Visor => true,
-        }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.profile.name
-    }
-
-    pub fn includes_overflow_children_in_hit_testing(&self) -> bool {
-        match self.mode {
-            LauncherMode::Band => false,
-            LauncherMode::Visor => true,
-        }
-    }
-
-    pub fn place_panel_children(
+    /// Visor-mode child placement: the mode match lives at the layout call site, leaving
+    /// this method to own the presentation-side anchor and arc geometry.
+    pub fn place_visor_panel_children(
         &self,
         local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
@@ -157,35 +136,25 @@ impl LauncherPresenter {
         expanded: bool,
         default_panel_size: SizePx,
     ) -> Vec<Placement<Transform, 2>> {
-        match self.mode {
-            LauncherMode::Band => place_container_children(
-                LayoutAxis::HORIZONTAL,
-                CHILD_SPACING,
-                local_offset,
-                child_sizes,
-            ),
-            LauncherMode::Visor => {
-                let center_index = self
-                    .focus_anchor_instance
-                    .and_then(|anchor| {
-                        child_instances
-                            .iter()
-                            .position(|&instance| instance == anchor)
-                    })
-                    .unwrap_or_default();
+        let center_index = self
+            .focus_anchor_instance
+            .and_then(|anchor| {
+                child_instances
+                    .iter()
+                    .position(|&instance| instance == anchor)
+            })
+            .unwrap_or_default();
 
-                self.place_visor_panel_children(
-                    local_offset,
-                    child_sizes,
-                    center_index,
-                    expanded,
-                    default_panel_size,
-                )
-            }
-        }
+        self.place_visor_children(
+            local_offset,
+            child_sizes,
+            center_index,
+            expanded,
+            default_panel_size,
+        )
     }
 
-    fn place_visor_panel_children(
+    fn place_visor_children(
         &self,
         local_offset: Offset<2>,
         child_sizes: &[LayoutSize<2>],
@@ -228,24 +197,9 @@ impl LauncherPresenter {
         child_placements
     }
 
-    pub fn panel_measure_size(&self, default_panel_size: SizePx) -> Option<LayoutSize<2>> {
-        match self.mode {
-            LauncherMode::Band => None,
-            LauncherMode::Visor => Some(default_panel_size.into()),
-        }
-    }
-
-    pub fn should_relayout_on_keyboard_focus_change(&self, instance_count: usize) -> bool {
-        matches!(self.mode, LauncherMode::Visor) && instance_count > 1
-    }
-
-    pub fn mode(&self) -> LauncherMode {
-        self.mode
-    }
-
     // Architecture: I don't want the launcher here to directly generate commands. may be
     // LauncherCommand? Not sure.
-    pub fn process(&mut self, event: ViewEvent) -> Result<Commands> {
+    pub fn process(&mut self, event: ViewEvent, params: &Params) -> Result<Commands> {
         let presents_instance = self.presents_instance();
 
         let Some(event) = self.event_manager.add_event(event, Instant::now()) else {
@@ -263,10 +217,11 @@ impl LauncherPresenter {
                 && event.keyboard_modifiers().super_key());
 
         if start_instance {
+            // Shift-click skips the profile's parameters: a user's explicit "open plain".
             let parameters = if event.keyboard_modifiers().shift_key() {
                 InstanceParameters::new()
             } else {
-                self.profile.params.clone()
+                params.clone()
             };
 
             // Usability: Should pass this rectangle?

@@ -15,7 +15,6 @@ const PROJECT_HEADER_ANIMATION_DURATION: Duration = Duration::from_millis(500);
 
 #[derive(Debug)]
 pub struct ProjectPresenter {
-    name: String,
     scene_transform: Handle<Transform>,
     pub header: ProjectHeaderPresenter,
     pub matrix: ProjectMatrixPresenter,
@@ -25,19 +24,14 @@ impl ProjectPresenter {
     pub fn new(name: String, parent_location: Handle<Location>) -> Self {
         let (scene_transform, location) =
             identity_location().relative_to(&parent_location).submit();
-        let header = ProjectHeaderPresenter::new(name.clone(), location.clone());
+        let header = ProjectHeaderPresenter::new(name, location.clone());
         let matrix = ProjectMatrixPresenter::new(location.clone());
 
         Self {
-            name,
             scene_transform,
             header,
             matrix,
         }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
     }
 
     pub fn set_layout(&mut self, layout: SizedTransform) {

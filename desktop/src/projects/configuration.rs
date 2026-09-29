@@ -375,14 +375,10 @@ impl Launcher {
         &self.name
     }
 
-    // Part of the aggregate's query API; consumed as mutation moves off parse in
-    // later plan steps.
-    #[allow(unused)]
     pub fn mode(&self) -> LauncherMode {
         self.mode
     }
 
-    #[allow(unused)]
     pub fn params(&self) -> &Params {
         &self.params
     }

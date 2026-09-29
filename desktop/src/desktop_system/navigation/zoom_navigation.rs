@@ -102,10 +102,12 @@ impl DesktopSystem {
             return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
         }
 
+        // The band/visor camera split follows the configuration's mode; a launcher
+        // outside the configuration falls through to the visor camera, the default mode.
         match self
             .aggregates
-            .launchers
-            .get(&launcher_id)
+            .configuration
+            .launcher(launcher_id)
             .map(|launcher| launcher.mode())
         {
             // Band panels are flat axis-aligned rects (no yaw, z = 0): the simple letterbox fit
@@ -113,8 +115,8 @@ impl DesktopSystem {
             Some(LauncherMode::Band) => {
                 self.camera_for_rect(self.fold_instance_rect(instances), window_size)
             }
-            // The arc camera is visor-specific; a missing presenter falls through to it, the
-            // default mode.
+            // The arc camera is visor-specific; a launcher missing from the configuration falls
+            // through to it, the default mode.
             Some(LauncherMode::Visor) | None => self.camera_for_visor_arc(instances, window_size),
         }
     }

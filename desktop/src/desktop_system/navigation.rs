@@ -284,12 +284,13 @@ fn plan_navigation_candidate(
     let matrix_navigation = MatrixNavigation::new(hierarchy, configuration);
     let target = navigate_from_origin(
         matrix_navigation,
-        launchers,
+        configuration,
         origin,
         direction,
         column_affinity,
     )?;
-    let candidate = normalize_navigation_target(hierarchy, launchers, target, direction);
+    let candidate =
+        normalize_navigation_target(hierarchy, launchers, configuration, target, direction);
     Some(NavigationPlan {
         candidate,
         column_affinity,
@@ -333,7 +334,7 @@ fn navigation_origin_placement(
 
 fn navigate_from_origin(
     matrix_navigation: MatrixNavigation<'_>,
-    launchers: &LauncherMap,
+    configuration: &DesktopConfiguration,
     origin: NavigationOrigin,
     direction: Direction,
     preferred_column: Option<u32>,
@@ -343,7 +344,7 @@ fn navigate_from_origin(
             matrix_navigation.navigate_from_launcher(launcher, direction, preferred_column)
         }
         NavigationOrigin::Child { launcher, index } => matrix_navigation.navigate_from_child(
-            launchers,
+            configuration,
             launcher,
             index,
             direction,
@@ -363,12 +364,13 @@ fn navigate_from_origin(
 fn normalize_navigation_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
+    configuration: &DesktopConfiguration,
     target: DesktopTarget,
     direction: Direction,
 ) -> DesktopTarget {
     let target = match target {
         DesktopTarget::Launcher(launcher_id) => {
-            concrete_navigation_target(topology, launchers, launcher_id, direction)
+            concrete_navigation_target(topology, launchers, configuration, launcher_id, direction)
         }
         _ => target,
     };
@@ -384,13 +386,19 @@ fn normalize_navigation_target(
 fn concrete_navigation_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
+    configuration: &DesktopConfiguration,
     launcher_id: LaunchProfileId,
     direction: Direction,
 ) -> DesktopTarget {
-    let (mode, focus_anchor_instance) = match launchers.get(&launcher_id) {
-        Some(launcher) => (launcher.mode(), launcher.focus_anchor_instance),
-        None => return DesktopTarget::Launcher(launcher_id),
+    // The mode is a configuration question; the anchor is presentation state and stays
+    // on the presenter. A launcher absent from either falls back to itself.
+    let Some(launcher) = launchers.get(&launcher_id) else {
+        return DesktopTarget::Launcher(launcher_id);
     };
+    let mode = configuration
+        .launcher(launcher_id)
+        .map_or(LauncherMode::default(), |launcher| launcher.mode());
+    let focus_anchor_instance = launcher.focus_anchor_instance;
 
     let instances = topology.launcher_instances(launcher_id);
     let preferred_index = match (mode, focus_anchor_instance) {

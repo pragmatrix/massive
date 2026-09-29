@@ -1,9 +1,9 @@
 use massive_applications::InstanceId;
 
 use super::{HorizontalDirection, VerticalDirection};
+use crate::desktop_system::DesktopTarget;
 use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
-use crate::desktop_system::{DesktopTarget, LauncherMap};
 use crate::projects::{DesktopConfiguration, LaunchProfileId, MatrixPlacement, ProjectId};
 
 #[derive(Debug, Clone, Copy)]
@@ -53,13 +53,15 @@ impl<'a> MatrixNavigation<'a> {
 
     pub(super) fn navigate_from_child(
         self,
-        launchers: &LauncherMap,
+        configuration: &DesktopConfiguration,
         launcher_id: LaunchProfileId,
         index: usize,
         direction: Direction,
         preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
-        let _ = launchers.get(&launcher_id)?;
+        // Existence is answered from the configuration aggregate; presenters are not
+        // consulted along this path.
+        let _ = configuration.launcher(launcher_id)?;
         let instances = self.hierarchy.launcher_instances(launcher_id);
         if let Some(horizontal) = direction.horizontal() {
             return horizontal_child_neighbor(&instances, index, horizontal)

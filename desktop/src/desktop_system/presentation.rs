@@ -23,7 +23,7 @@ pub struct OriginationDetails {
 impl DesktopSystem {
     pub(super) fn present_instance(
         &mut self,
-        launcher: LaunchProfileId,
+        launcher_id: LaunchProfileId,
         initial_center_translation: Option<Vector3>,
         instance: InstanceId,
         root: InstanceRoot,
@@ -33,12 +33,21 @@ impl DesktopSystem {
             let launcher = self
                 .aggregates
                 .launchers
-                .get(&launcher)
+                .get(&launcher_id)
                 .expect("Launcher not found");
-            (
-                launcher.should_render_instance_background(),
-                launcher.location(),
-            )
+            // Whether instances draw on the launcher's background is a configuration
+            // (mode) question; the presenter only owns the location and fade state.
+            let render_instance_background = match self
+                .aggregates
+                .configuration
+                .launcher(launcher_id)
+                .expect("Launcher not found")
+                .mode()
+            {
+                crate::projects::LauncherMode::Band => false,
+                crate::projects::LauncherMode::Visor => true,
+            };
+            (render_instance_background, launcher.location())
         };
 
         let presenter = InstancePresenter::new(
@@ -55,7 +64,7 @@ impl DesktopSystem {
         // Inform the launcher to fade out.
         self.aggregates
             .launchers
-            .get_mut(&launcher)
+            .get_mut(&launcher_id)
             .expect("Launcher not found")
             .fade_out();
 

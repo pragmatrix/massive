@@ -5,7 +5,7 @@ use massive_layout::Placement;
 use massive_renderer::RenderGeometry;
 use massive_scene::LocationSpace;
 
-use crate::projects::{LaunchProfileId, LauncherPresenter};
+use crate::projects::{DesktopConfiguration, LaunchProfileId, LauncherMode, LauncherPresenter};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {
@@ -20,6 +20,7 @@ pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     placements: &'a dyn PlacementSource,
     launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
+    configuration: &'a DesktopConfiguration,
     geometry: &'a RenderGeometry,
 }
 
@@ -60,12 +61,14 @@ impl<'a> AggregateHitTester<'a> {
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         placements: &'a dyn PlacementSource,
         launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
+        configuration: &'a DesktopConfiguration,
         geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
             hierarchy,
             placements,
             launchers,
+            configuration,
             geometry,
         }
     }
@@ -96,8 +99,13 @@ impl<'a> AggregateHitTester<'a> {
     fn hit_test_overflow_overlays_with_depth(&self, screen_pos: Point) -> Option<HitTestResult> {
         let mut topmost_hit: Option<HitTestResult> = None;
 
-        for (launcher_id, launcher) in self.launchers.iter() {
-            if !launcher.includes_overflow_children_in_hit_testing() {
+        for launcher_id in self.launchers.keys() {
+            // Only visor launchers let their child panels be hit outside the launcher's
+            // own rect; that policy is a configuration (mode) question.
+            let Some(launcher) = self.configuration.launcher(*launcher_id) else {
+                continue;
+            };
+            if launcher.mode() != LauncherMode::Visor {
                 continue;
             }
 

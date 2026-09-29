@@ -572,10 +572,13 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
+                // Aggregate first, then views: the presenter's construction-time name
+                // glyph reads back from the aggregate the change just landed in.
                 self.aggregates
                     .configuration
                     .add_launcher(project, id, profile.clone(), placement);
 
+                let name = self.aggregates.configuration[id].name().to_string();
                 let matrix_location = self
                     .aggregates
                     .projects
@@ -587,7 +590,7 @@ impl DesktopSystem {
                 let presenter = LauncherPresenter::new(
                     matrix_location,
                     id,
-                    profile,
+                    name,
                     massive_geometry::Size::default(),
                 );
                 self.aggregates.launchers.insert(id, presenter)?;
@@ -763,7 +766,7 @@ impl DesktopSystem {
                             .iter()
                             .find_map(|target| match target {
                                 DesktopTarget::Project(project)
-                                    if self.aggregates.projects[project].name() == name =>
+                                    if self.aggregates.configuration[*project].name() == name =>
                                 {
                                     Some(*project)
                                 }
@@ -814,7 +817,9 @@ impl DesktopSystem {
                             .aggregates
                             .hierarchy
                             .matrix_launchers(current_project)
-                            .find(|launcher| self.aggregates.launchers[launcher].name() == name)
+                            .find(|launcher| {
+                                self.aggregates.configuration[*launcher].name() == name
+                            })
                         else {
                             warn!("Launcher '{name}' not found in the current project");
                             return Ok(ChangeOutput::default());
