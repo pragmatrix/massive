@@ -226,8 +226,6 @@ pub type LauncherMap = Map<LaunchProfileId, LauncherPresenter>;
 struct Aggregates {
     hierarchy: OrderedHierarchy<DesktopTarget>,
 
-    startup_profile: Option<LaunchProfileId>,
-
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: LauncherMap,
@@ -239,7 +237,6 @@ impl Aggregates {
     pub fn new(hierarchy: OrderedHierarchy<DesktopTarget>) -> Self {
         Self {
             hierarchy,
-            startup_profile: None,
             projects: Map::default(),
 
             launchers: Map::default(),

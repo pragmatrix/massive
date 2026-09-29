@@ -605,9 +605,9 @@ impl DesktopSystem {
                     .matrix_positions
                     .remove(&launch_profile_id)?;
             }
-            ProjectChange::SetStartupProfile(launch_profile_id) => {
-                self.aggregates.startup_profile = launch_profile_id;
-            }
+            // The startup launcher is consumed at boot (`Setup`); the runtime model
+            // does not retain it. Only this dispatch must handle it.
+            ProjectChange::SetStartupProfile(_) => {}
         }
 
         Ok(ChangeOutput::default())
