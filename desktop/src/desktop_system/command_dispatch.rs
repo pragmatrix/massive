@@ -15,7 +15,7 @@ use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
-    ProjectPresenter, ProjectProperties,
+    ProjectPresenter,
 };
 use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
 use massive_applications::prelude::*;
@@ -191,11 +191,7 @@ impl DesktopSystem {
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
         let mut changes = Changes::Empty;
         match command {
-            ProjectCommand::AddProject {
-                id,
-                properties,
-                after,
-            } => {
+            ProjectCommand::AddProject { id, name, after } => {
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
 
@@ -213,7 +209,7 @@ impl DesktopSystem {
                     .into(),
                     under: project_target,
                 };
-                changes <<= ProjectChange::AddProject { id, properties };
+                changes <<= ProjectChange::AddProject { id, name };
             }
             ProjectCommand::RemoveProject(project_id) => {
                 changes += self.plan_project_removal_focus(project_id);
@@ -550,9 +546,9 @@ impl DesktopSystem {
 
     fn apply_project_change(&mut self, change: ProjectChange) -> Result<ChangeOutput> {
         match change {
-            ProjectChange::AddProject { id, properties } => {
+            ProjectChange::AddProject { id, name } => {
                 let parent_location = self.desktop_presenter.location.clone();
-                let presenter = ProjectPresenter::new(properties, parent_location);
+                let presenter = ProjectPresenter::new(name, parent_location);
                 self.aggregates.projects.insert(id, presenter)?;
             }
             ProjectChange::RemoveProject(project) => {
@@ -726,9 +722,7 @@ impl DesktopSystem {
                 let commands = [
                     ProjectCommand::AddProject {
                         id: project,
-                        properties: ProjectProperties {
-                            name: DEFAULT_NEW_PROJECT_NAME.to_string(),
-                        },
+                        name: DEFAULT_NEW_PROJECT_NAME.to_string(),
                         after: Some(current_project),
                     },
                     ProjectCommand::AddLauncher {

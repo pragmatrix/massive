@@ -6,13 +6,15 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 
 use kdl::KdlDocument;
 
 use super::document::{apply_change, atomic_write, configuration_from_document, default_document};
 use crate::desktop_system::change::ProjectChange;
-use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, ProjectSet};
+use crate::projects::{
+    DesktopConfiguration, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId,
+};
 
 /// The desktop configuration: the parsed KDL document plus the id → name map thathat
 /// resolves live-model ids into the document's vocabulary.
@@ -40,9 +42,9 @@ impl ConfigurationDocument {
     /// id → name resolution as part of the load.
     ///
     /// Any file error — including a missing file — fails: the caller decides the
-    /// no-file policy (see [`write_default_config`]). Project derivation errors
+    /// no-file policy (see [`write_default_config`]). Configuration parse errors
     /// fail too.
-    pub fn load(path: &Path) -> Result<(Self, ProjectSet)> {
+    pub fn load(path: &Path) -> Result<(Self, DesktopConfiguration)> {
         let text = fs::read_to_string(path)?;
         Self::from_str(path, &text)
     }
@@ -52,21 +54,20 @@ impl ConfigurationDocument {
     /// the parse.
     ///
     /// `path` is kept for later persistence. Parse and derivation errors fail.
-    pub fn from_str(path: &Path, text: &str) -> Result<(Self, ProjectSet)> {
+    pub fn from_str(path: &Path, text: &str) -> Result<(Self, DesktopConfiguration)> {
         let document = text
             .parse()
             .with_context(|| format!("parsing {}", path.display()))?;
-        let project_set = ProjectSet::from_configuration(
-            configuration_from_document(&document)
-                .with_context(|| format!("reading configuration from {}", path.display()))?,
-        )?;
+        let configuration = configuration_from_document(&document)
+            .with_context(|| format!("reading configuration from {}", path.display()))?;
+        let keys = ConfigKeys::registered_from(&configuration);
         let document = Self {
             document,
             path: path.into(),
             changed: false,
-            keys: ConfigKeys::registered_from(&project_set),
+            keys,
         };
-        Ok((document, project_set))
+        Ok((document, configuration))
     }
 }
 
@@ -85,9 +86,33 @@ impl ConfigurationDocument {
     /// A failed edit is returned without changing the document, so callers can
     /// report that persistence was rejected.
     pub fn apply(&mut self, change: ProjectChange) -> Result<()> {
+        self.reject_emptying_removal(&change)?;
         let change = self.keys.map_change(&change)?;
         apply_change(&mut self.document, &change)?;
         self.changed = true;
+        Ok(())
+    }
+
+    /// Rejects a removal that would leave the configuration without any launcher:
+    /// the next session could not boot into a configuration-defined launcher.
+    /// Checked before any edit, so the keys and the document stay untouched on
+    /// rejection.
+    fn reject_emptying_removal(&self, change: &ProjectChange) -> Result<()> {
+        let removals = match change {
+            ProjectChange::RemoveLauncher(id) => self.keys.launchers.contains_key(id) as usize,
+            ProjectChange::RemoveProject(project) => self
+                .keys
+                .launchers
+                .values()
+                .filter(|(owner, _)| owner == project)
+                .count(),
+            _ => return Ok(()),
+        };
+        let remaining = self.keys.launchers.len() - removals;
+        ensure!(
+            remaining > 0,
+            "Configuration must define at least one launcher"
+        );
         Ok(())
     }
 
@@ -130,14 +155,13 @@ impl ConfigKeys {
     ///
     /// The configuration's order matches the document's, so the loaded names are
     /// already unique; registration cannot introduce a collision.
-    fn registered_from(project_set: &ProjectSet) -> Self {
+    fn registered_from(configuration: &DesktopConfiguration) -> Self {
         let mut keys = Self::default();
-        for project in &project_set.projects {
-            keys.projects
-                .insert(project.id, project.properties.name.clone());
-            for launcher in &project.launchers {
+        for project in configuration.projects() {
+            keys.projects.insert(project.id(), project.name().into());
+            for launcher in project.launchers() {
                 keys.launchers
-                    .insert(launcher.id, (project.id, launcher.profile.name.clone()));
+                    .insert(launcher.id(), (project.id(), launcher.name().into()));
             }
         }
         keys
@@ -216,9 +240,9 @@ impl ConfigKeys {
     /// Maps a live-model change into document terms, registering new names.
     fn map_change(&mut self, change: &ProjectChange) -> Result<ConfigChange> {
         match change {
-            ProjectChange::AddProject { id, properties } => {
-                let name = self.register_project(*id, &properties.name)?;
-                Ok(ConfigChange::AddProject { name })
+            ProjectChange::AddProject { id, name } => {
+                let registered = self.register_project(*id, name)?;
+                Ok(ConfigChange::AddProject { name: registered })
             }
             ProjectChange::RemoveProject(project) => {
                 let name = self.remove_project(project)?;
@@ -316,7 +340,7 @@ mod tests {
 
     /// A document and its derived live model, parsed directly from text — no
     /// temp file needed.
-    fn loaded(text: &str) -> Result<(ConfigurationDocument, ProjectSet)> {
+    fn loaded(text: &str) -> Result<(ConfigurationDocument, DesktopConfiguration)> {
         ConfigurationDocument::from_str(Path::new("/config/desktop.kdl"), text)
     }
 
@@ -325,14 +349,14 @@ mod tests {
     /// must define at least one launcher"). Persistence must reject the change.
     #[test]
     fn removing_last_launcher_is_rejected() -> Result<()> {
-        let (mut document, project_set) = loaded(
+        let (mut document, configuration) = loaded(
             r#"
 project "only" {
     launcher "only" column=0 row=0
 }
 "#,
         )?;
-        let launcher = project_set.projects[0].launchers[0].id;
+        let launcher = configuration.projects()[0].launchers()[0].id();
 
         let error = document
             .apply(ProjectChange::RemoveLauncher(launcher))
@@ -348,14 +372,14 @@ project "only" {
     /// Removing the only project cascades its last launcher away — equally rejected.
     #[test]
     fn removing_last_project_is_rejected() -> Result<()> {
-        let (mut document, project_set) = loaded(
+        let (mut document, configuration) = loaded(
             r#"
 project "only" {
     launcher "only" column=0 row=0
 }
 "#,
         )?;
-        let project = project_set.projects[0].id;
+        let project = configuration.projects()[0].id();
 
         let error = document
             .apply(ProjectChange::RemoveProject(project))

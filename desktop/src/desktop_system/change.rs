@@ -7,9 +7,7 @@ use crate::DesktopTarget;
 use crate::desktop_system::FocusDepth;
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{
-    LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
-};
+use crate::projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId};
 
 pub type Changes = CollectingVec<DesktopChange>;
 
@@ -65,7 +63,7 @@ pub enum Zoom {
 pub enum ProjectChange {
     AddProject {
         id: ProjectId,
-        properties: ProjectProperties,
+        name: String,
     },
     RemoveProject(ProjectId),
     AddLauncher {

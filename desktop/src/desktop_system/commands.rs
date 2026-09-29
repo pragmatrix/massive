@@ -5,9 +5,7 @@ use massive_applications::{InstanceId, InstanceParameters};
 use super::Direction;
 use super::change::Zoom;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{
-    LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
-};
+use crate::projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -34,7 +32,7 @@ pub enum DesktopCommand {
 pub enum ProjectCommand {
     AddProject {
         id: ProjectId,
-        properties: ProjectProperties,
+        name: String,
         after: Option<ProjectId>,
     },
     RemoveProject(ProjectId),

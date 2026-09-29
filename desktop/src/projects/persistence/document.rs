@@ -14,7 +14,7 @@ use serde_json::Value;
 use super::configuration::ConfigChange;
 use super::parameters::{params_node, params_value};
 use crate::projects::{
-    LauncherMode, LauncherSpec, MatrixPlacement, ProjectConfiguration, ProjectSpec,
+    DesktopConfiguration, Launcher, LauncherMode, MatrixPlacement, Params, Project,
 };
 
 /// The built-in default configuration, used when no file exists on disk.
@@ -266,9 +266,10 @@ fn set_placement(node: &mut KdlNode, placement: MatrixPlacement) {
     node.insert("row", KdlEntry::new_prop("row", i128::from(placement.row)));
 }
 
-/// Reads the configuration back out of the document.
-pub(super) fn configuration_from_document(document: &KdlDocument) -> Result<ProjectConfiguration> {
-    let mut startup = None;
+/// Parses the configuration out of the document, minting fresh ids and
+/// resolving the startup profile by name.
+pub(super) fn configuration_from_document(document: &KdlDocument) -> Result<DesktopConfiguration> {
+    let mut startup: Option<String> = None;
     let mut projects = Vec::new();
 
     for node in document.nodes() {
@@ -286,24 +287,21 @@ pub(super) fn configuration_from_document(document: &KdlDocument) -> Result<Proj
                 if let Some(children) = node.children() {
                     for child in children.nodes() {
                         match child.name().value() {
-                            "launcher" => launchers.push(launcher_spec(child)?),
+                            "launcher" => launchers.push(launcher(child)?),
                             other => warn!("Ignoring unknown node '{other}' in project '{name}'"),
                         }
                     }
                 }
-                projects.push(ProjectSpec {
-                    name: name.into(),
-                    launchers,
-                });
+                projects.push(Project::new(name.into(), launchers));
             }
             other => warn!("Ignoring unknown top-level node '{other}'"),
         }
     }
 
-    Ok(ProjectConfiguration { startup, projects })
+    DesktopConfiguration::new(projects, startup.as_deref())
 }
 
-fn launcher_spec(node: &KdlNode) -> Result<LauncherSpec> {
+fn launcher(node: &KdlNode) -> Result<Launcher> {
     let name = string_arg(node, "launcher")?;
 
     let column = placement_component(node, "column")?;
@@ -313,7 +311,7 @@ fn launcher_spec(node: &KdlNode) -> Result<LauncherSpec> {
         None => LauncherMode::default(),
     };
 
-    let mut params = serde_json::Map::new();
+    let mut params = Params::new();
     if let Some(children) = node.children() {
         for child in children.nodes() {
             let key = child.name().value();
@@ -323,13 +321,12 @@ fn launcher_spec(node: &KdlNode) -> Result<LauncherSpec> {
         }
     }
 
-    Ok(LauncherSpec {
-        name: name.into(),
-        column,
-        row,
+    Ok(Launcher::new(
+        name.into(),
         mode,
         params,
-    })
+        MatrixPlacement { column, row },
+    ))
 }
 
 fn string_arg<'a>(node: &'a KdlNode, what: &'static str) -> Result<&'a str> {

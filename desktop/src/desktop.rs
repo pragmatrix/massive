@@ -25,7 +25,7 @@ use crate::desktop_system::{
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::persistence::{self, ConfigurationDocument};
-use crate::projects::{LaunchProfileId, Launcher, Project, ProjectId, ProjectSet};
+use crate::projects::{DesktopConfiguration, LaunchProfileId, Launcher, Project, ProjectId};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -58,7 +58,7 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
-        let (configuration_document, project_set) = load_configuration(&env)?;
+        let (configuration_document, configuration) = load_configuration(&env)?;
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
@@ -120,15 +120,13 @@ impl Desktop {
         let mut system = DesktopSystem::new(env, default_size, configuration_document)?;
 
         let project_setup_commands: Commands =
-            project_set_to_commands(&project_set).map(DesktopCommand::Project);
+            configuration_to_commands(&configuration).map(DesktopCommand::Project);
 
         // The session boots into the startup profile the configuration names. The
-        // configuration is guaranteed to define a launcher (see
-        // `ProjectSet::from_configuration`), and no project command ran yet, so the
-        // fallback is the first launcher of the first project.
-        let boot_launcher = boot_launcher(&project_set).expect(
-            "configuration derivation (ProjectSet::from_configuration) guarantees a launcher",
-        );
+        // configuration parse guarantees at least one launcher, and no project
+        // command ran yet, so the fallback is the first launcher of it.
+        let boot_launcher = boot_launcher(&configuration)
+            .expect("configuration parsing guarantees at least one launcher");
 
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
             launcher: boot_launcher,
@@ -368,7 +366,9 @@ impl Desktop {
 /// A missing configuration file means "start fresh": the built-in default
 /// configuration is written first, so every later change has a file to be persisted
 /// to. Any other file error fails and aborts desktop startup.
-fn load_configuration(env: &DesktopEnvironment) -> Result<(ConfigurationDocument, ProjectSet)> {
+fn load_configuration(
+    env: &DesktopEnvironment,
+) -> Result<(ConfigurationDocument, DesktopConfiguration)> {
     let projects_dir = env
         .projects_dir()
         .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
@@ -455,26 +455,28 @@ struct WindowContext<'a> {
 }
 
 /// The launcher the session boots into: the configuration's startup profile, or the
-/// first launcher of the first project when no `startup` node names one. `None` is
-/// unreachable for a configuration-derived set, which guarantees at least one
-/// launcher (see `ProjectSet::from_configuration`).
-fn boot_launcher(project_set: &ProjectSet) -> Option<LaunchProfileId> {
-    project_set.start.or_else(|| {
-        project_set
-            .projects
+/// first launcher of the projects when no `startup` node names one. `None` is
+/// unreachable for a parsed configuration, whose parse guarantees at least one
+/// launcher.
+fn boot_launcher(configuration: &DesktopConfiguration) -> Option<LaunchProfileId> {
+    configuration.startup().or_else(|| {
+        configuration
+            .projects()
             .iter()
-            .flat_map(|project| &project.launchers)
+            .flat_map(|project| project.launchers().iter())
             .next()
-            .map(|launcher| launcher.id)
+            .map(|launcher| launcher.id())
     })
 }
 
-fn project_set_to_commands(project_set: &ProjectSet) -> CollectingVec<ProjectCommand> {
+fn configuration_to_commands(
+    configuration: &DesktopConfiguration,
+) -> CollectingVec<ProjectCommand> {
     let mut commands = CollectingVec::Empty;
 
-    commands.push(ProjectCommand::SetStartupProfile(project_set.start));
+    commands.push(ProjectCommand::SetStartupProfile(configuration.startup()));
 
-    for project in &project_set.projects {
+    for project in configuration.projects() {
         project_commands(project, &mut commands);
     }
 
@@ -483,13 +485,13 @@ fn project_set_to_commands(project_set: &ProjectSet) -> CollectingVec<ProjectCom
 
 fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
     commands.push(ProjectCommand::AddProject {
-        id: project.id,
-        properties: project.properties.clone(),
+        id: project.id(),
+        name: project.name().into(),
         after: None,
     });
 
-    for launcher in &project.launchers {
-        launcher_commands(project.id, launcher, commands);
+    for launcher in project.launchers() {
+        launcher_commands(project.id(), launcher, commands);
     }
 }
 
@@ -500,8 +502,8 @@ fn launcher_commands(
 ) {
     commands.push(ProjectCommand::AddLauncher {
         project,
-        id: launcher.id,
-        profile: launcher.profile.clone(),
-        placement: launcher.placement,
+        id: launcher.id(),
+        profile: launcher.profile(),
+        placement: launcher.placement(),
     })
 }
