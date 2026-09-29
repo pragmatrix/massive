@@ -14,7 +14,7 @@ use super::document::{apply_change, atomic_write, configuration_from_document, d
 use crate::desktop_system::change::ProjectChange;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, ProjectSet};
 
-/// The desktop configuration: the parsed KDL document plus the id → name map that
+/// The desktop configuration: the parsed KDL document plus the id → name map thathat
 /// resolves live-model ids into the document's vocabulary.
 ///
 /// Changes land in memory immediately. The file is written synchronously and
@@ -44,6 +44,15 @@ impl ConfigurationDocument {
     /// fail too.
     pub fn load(path: &Path) -> Result<(Self, ProjectSet)> {
         let text = fs::read_to_string(path)?;
+        Self::from_str(path, &text)
+    }
+
+    /// Parses the configuration from text, deriving the live model from it — the
+    /// document's names are registered for later id → name resolution as part of
+    /// the parse.
+    ///
+    /// `path` is kept for later persistence. Parse and derivation errors fail.
+    pub fn from_str(path: &Path, text: &str) -> Result<(Self, ProjectSet)> {
         let document = text
             .parse()
             .with_context(|| format!("parsing {}", path.display()))?;
@@ -299,4 +308,63 @@ pub(super) enum ConfigChange {
         project: String,
         name: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A document and its derived live model, parsed directly from text — no
+    /// temp file needed.
+    fn loaded(text: &str) -> Result<(ConfigurationDocument, ProjectSet)> {
+        ConfigurationDocument::from_str(Path::new("/config/desktop.kdl"), text)
+    }
+
+    /// Regression: removing the last launcher of the last project emptied the
+    /// persisted configuration, so the next session failed to boot ("Configuration
+    /// must define at least one launcher"). Persistence must reject the change.
+    #[test]
+    fn removing_last_launcher_is_rejected() -> Result<()> {
+        let (mut document, project_set) = loaded(
+            r#"
+project "only" {
+    launcher "only" column=0 row=0
+}
+"#,
+        )?;
+        let launcher = project_set.projects[0].launchers[0].id;
+
+        let error = document
+            .apply(ProjectChange::RemoveLauncher(launcher))
+            .expect_err("removing the last launcher must be rejected");
+
+        assert!(
+            error.to_string().contains("at least one launcher"),
+            "unexpected error: {error:#}"
+        );
+        Ok(())
+    }
+
+    /// Removing the only project cascades its last launcher away — equally rejected.
+    #[test]
+    fn removing_last_project_is_rejected() -> Result<()> {
+        let (mut document, project_set) = loaded(
+            r#"
+project "only" {
+    launcher "only" column=0 row=0
+}
+"#,
+        )?;
+        let project = project_set.projects[0].id;
+
+        let error = document
+            .apply(ProjectChange::RemoveProject(project))
+            .expect_err("removing the last project must be rejected");
+
+        assert!(
+            error.to_string().contains("at least one launcher"),
+            "unexpected error: {error:#}"
+        );
+        Ok(())
+    }
 }
