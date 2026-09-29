@@ -5,12 +5,28 @@ This context defines the interaction and presentation language for desktop insta
 ## Language
 
 **Desktop configuration**:
-The set of projects, launchers, their matrix placements, and the startup profile. It persists across sessions.
+The set of projects, launchers, their matrix placements, and the startup launcher. It persists across sessions.
 _Avoid_: settings, workspace, layout
 
 **Configuration change**:
-A change to the desktop configuration: adding or removing a project or launcher, moving a launcher, or setting the startup profile. The only kind of change that persists across sessions.
+A change to the desktop configuration: adding or removing a project or launcher, moving a launcher, or setting the startup launcher. The only kind of change that persists across sessions.
 _Avoid_: project change
+
+**Project**:
+A named top-level group in the desktop configuration that owns a matrix of launchers. A project exists only while it has at least one launcher; removing a launcher removes its project with it.
+_Avoid_: workspace, section
+
+**Matrix placement**:
+A launcher's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving a launcher shifts the placements of the launchers it displaces.
+_Avoid_: slot, tile, coordinates
+
+**Startup launcher**:
+The launcher the session boots into. Persisted by name in the desktop configuration; resolved to a launcher id on load.
+_Avoid_: startup profile, boot target
+
+**Launcher id**:
+The stable per-session identity of a launcher. Ids are minted fresh every session and never persist; names are the persistence identity.
+_Avoid_: profile id, launch profile
 
 **Runtime state**:
 The non-persisted desktop state reconstructed every session: running instances, focus, navigation affinity, and window size.
