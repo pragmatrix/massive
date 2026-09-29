@@ -1,16 +1,15 @@
 use massive_applications::InstanceId;
 
 use super::{HorizontalDirection, VerticalDirection};
-use crate::MatrixPositions;
 use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
 use crate::desktop_system::{DesktopTarget, LauncherMap};
-use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId};
+use crate::projects::{DesktopConfiguration, LaunchProfileId, MatrixPlacement, ProjectId};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MatrixNavigation<'a> {
     hierarchy: &'a DesktopTopology,
-    positions: &'a MatrixPositions,
+    configuration: &'a DesktopConfiguration,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -20,10 +19,13 @@ struct MatrixEntry<K> {
 }
 
 impl<'a> MatrixNavigation<'a> {
-    pub(super) fn new(hierarchy: &'a DesktopTopology, positions: &'a MatrixPositions) -> Self {
+    pub(super) fn new(
+        hierarchy: &'a DesktopTopology,
+        configuration: &'a DesktopConfiguration,
+    ) -> Self {
         Self {
             hierarchy,
-            positions,
+            configuration,
         }
     }
 
@@ -72,7 +74,7 @@ impl<'a> MatrixNavigation<'a> {
         self,
         launcher_id: LaunchProfileId,
     ) -> Option<(ProjectId, MatrixPlacement)> {
-        let placement = *self.positions.get(&launcher_id)?;
+        let placement = self.configuration.placement_of(launcher_id)?;
         let project_id = self.hierarchy.project_of_launcher(launcher_id);
         Some((project_id, placement))
     }
@@ -81,14 +83,12 @@ impl<'a> MatrixNavigation<'a> {
         self,
         project_id: ProjectId,
     ) -> Vec<MatrixEntry<LaunchProfileId>> {
-        self.hierarchy
-            .matrix_launchers(project_id)
-            .filter_map(|launcher_id| {
-                let placement = *self.positions.get(&launcher_id)?;
-                Some(MatrixEntry {
-                    key: launcher_id,
-                    placement,
-                })
+        self.configuration
+            .launchers_sorted(project_id)
+            .iter()
+            .map(|launcher| MatrixEntry {
+                key: launcher.id(),
+                placement: launcher.placement(),
             })
             .collect()
     }

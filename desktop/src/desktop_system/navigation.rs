@@ -7,8 +7,9 @@ use massive_scene::prelude::*;
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
 use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap};
-use crate::MatrixPositions;
-use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
+use crate::projects::{
+    DesktopConfiguration, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId,
+};
 
 mod matrix_navigation;
 mod zoom_navigation;
@@ -111,7 +112,7 @@ impl DesktopSystem {
         if let Some(plan) = plan_navigation_candidate(
             &self.aggregates.hierarchy,
             &self.aggregates.launchers,
-            &self.aggregates.matrix_positions,
+            &self.aggregates.configuration,
             &self.navigation_control,
             focused,
             direction,
@@ -131,10 +132,8 @@ impl DesktopSystem {
         launcher: LaunchProfileId,
         focused: &DesktopTarget,
     ) -> DesktopTarget {
-        let matrix_navigation = MatrixNavigation::new(
-            &self.aggregates.hierarchy,
-            &self.aggregates.matrix_positions,
-        );
+        let matrix_navigation =
+            MatrixNavigation::new(&self.aggregates.hierarchy, &self.aggregates.configuration);
         let replacement = [Direction::Right, Direction::Down]
             .into_iter()
             .find_map(|direction| {
@@ -274,15 +273,15 @@ impl DesktopSystem {
 fn plan_navigation_candidate(
     hierarchy: &DesktopTopology,
     launchers: &LauncherMap,
-    matrix_positions: &MatrixPositions,
+    configuration: &DesktopConfiguration,
     navigation_control: &NavigationControl,
     from: &DesktopTarget,
     direction: Direction,
 ) -> Option<NavigationPlan> {
     let origin = resolve_navigation_origin(hierarchy, from)?;
-    let origin_placement = navigation_origin_placement(matrix_positions, origin);
+    let origin_placement = navigation_origin_placement(configuration, origin);
     let column_affinity = navigation_control.plan_column_affinity(direction, origin_placement);
-    let matrix_navigation = MatrixNavigation::new(hierarchy, matrix_positions);
+    let matrix_navigation = MatrixNavigation::new(hierarchy, configuration);
     let target = navigate_from_origin(
         matrix_navigation,
         launchers,
@@ -320,7 +319,7 @@ fn resolve_navigation_origin(
 }
 
 fn navigation_origin_placement(
-    matrix_positions: &MatrixPositions,
+    configuration: &DesktopConfiguration,
     origin: NavigationOrigin,
 ) -> Option<MatrixPlacement> {
     match origin {
@@ -328,7 +327,7 @@ fn navigation_origin_placement(
         | NavigationOrigin::Child {
             launcher: launcher_id,
             ..
-        } => matrix_positions.get(&launcher_id).copied(),
+        } => configuration.placement_of(launcher_id),
     }
 }
 

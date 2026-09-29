@@ -176,7 +176,11 @@ impl DesktopLayoutAlgorithm<'_> {
             .matrix_launchers(project_id)
             .zip(child_sizes.iter().copied())
         {
-            let placement = self.aggregates.matrix_positions[&launcher_id];
+            let placement = self
+                .aggregates
+                .configuration
+                .placement_of(launcher_id)
+                .expect("Launcher has no matrix placement");
             let offset = Offset::from([
                 track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
                 track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
@@ -207,7 +211,11 @@ impl DesktopLayoutAlgorithm<'_> {
             .matrix_launchers(project_id)
             .zip(child_sizes.iter().copied())
         {
-            let placement = self.aggregates.matrix_positions[&launcher_id];
+            let placement = self
+                .aggregates
+                .configuration
+                .placement_of(launcher_id)
+                .expect("Launcher has no matrix placement");
             let column = placement.column as usize;
             let row = placement.row as usize;
 

@@ -117,17 +117,20 @@ impl Desktop {
 
         // Initial setup
 
-        let mut system = DesktopSystem::new(env, default_size, configuration_document)?;
-
+        // The boot commands derive from the aggregate while it is still owned
+        // here; `DesktopSystem::new` then takes it over, so the live model's
+        // placements come from this same instance the commands were read from.
         let project_setup_commands: Commands =
             configuration_to_commands(&configuration).map(DesktopCommand::Project);
+        let boot_launcher = boot_launcher(&configuration)
+            .expect("configuration parsing guarantees at least one launcher");
+
+        let mut system =
+            DesktopSystem::new(env, default_size, configuration_document, configuration)?;
 
         // The session boots into the startup profile the configuration names. The
         // configuration parse guarantees at least one launcher, and no project
         // command ran yet, so the fallback is the first launcher of it.
-        let boot_launcher = boot_launcher(&configuration)
-            .expect("configuration parsing guarantees at least one launcher");
-
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
             launcher: boot_launcher,
             instance: primary_instance,

@@ -17,12 +17,19 @@ use crate::projects::{
     LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
     ProjectPresenter,
 };
-use crate::{MatrixPositions, RemoveSlotShiftingPolicy};
+
 use massive_applications::prelude::*;
 use massive_applications::{
     ConfigurationRequest, CreationMode, InstanceChange, InstanceId, InstanceSubmission, ViewChange,
     ViewEvent, ViewRole,
 };
+
+/// Which slot-removal shifting `plan_remove_launcher` emits: the launchers right
+/// of the freed slot move one column left, as explicit `MoveLauncher` changes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RemoveSlotShiftingPolicy {
+    ShiftLeft,
+}
 
 /// The outcome of applying a change: its effects and any follow-up changes.
 #[derive(Debug, Default)]
@@ -222,9 +229,9 @@ impl DesktopSystem {
                 placement,
             } => {
                 let mut launchers = self.aggregates.hierarchy.matrix_launchers(project);
-                if let Some(launcher) = launchers
-                    .find(|launcher| self.aggregates.matrix_positions[launcher] == placement)
-                {
+                if let Some(launcher) = launchers.find(|launcher| {
+                    self.aggregates.configuration.placement_of(*launcher) == Some(placement)
+                }) {
                     changes += self.launcher_shift_sequence(
                         project,
                         launcher,
@@ -310,8 +317,8 @@ impl DesktopSystem {
     }
 
     /// Removes a launcher from the matrix, shifting the launchers right of the freed
-    /// slot one column left (`MatrixPositions::remove_slot`'s `ShiftLeft` policy) as
-    /// explicit move changes, so the file mirrors each launcher's resulting slot.
+    /// slot one column left (the `ShiftLeft` slot-removal policy) as explicit move
+    /// changes, so the file mirrors each launcher's resulting slot.
     fn plan_remove_launcher(
         &self,
         project: ProjectId,
@@ -326,15 +333,18 @@ impl DesktopSystem {
                 DesktopChange::ShutdownInstance(instance),
             ];
         }
-        let placement = self.aggregates.matrix_positions[&launcher];
+        let placement = self
+            .aggregates
+            .configuration
+            .placement_of(launcher)
+            .expect("Matrix position missing for launcher");
         changes <<= TopologyChange::Remove(launcher.into());
         changes <<= ProjectChange::RemoveLauncher(launcher);
         if shifting_policy == Some(RemoveSlotShiftingPolicy::ShiftLeft) {
-            let launchers = self.aggregates.hierarchy.matrix_launchers(project);
             for (launcher, placement) in self
                 .aggregates
-                .matrix_positions
-                .shifted_left_launchers(launchers, placement)
+                .configuration
+                .shifted_left_launchers(project, placement)
             {
                 changes <<= ProjectChange::MoveLauncher {
                     launcher,
@@ -548,11 +558,13 @@ impl DesktopSystem {
         match change {
             ProjectChange::AddProject { id, name } => {
                 let parent_location = self.desktop_presenter.location.clone();
-                let presenter = ProjectPresenter::new(name, parent_location);
+                let presenter = ProjectPresenter::new(name.clone(), parent_location);
                 self.aggregates.projects.insert(id, presenter)?;
+                self.aggregates.configuration.add_project(id, name);
             }
             ProjectChange::RemoveProject(project) => {
                 self.aggregates.projects.remove(&project)?;
+                self.aggregates.configuration.remove_project(project);
             }
             ProjectChange::AddLauncher {
                 project,
@@ -560,10 +572,9 @@ impl DesktopSystem {
                 profile,
                 placement,
             } => {
-                let launchers = self.aggregates.hierarchy.matrix_launchers(project);
                 self.aggregates
-                    .matrix_positions
-                    .place(launchers, id, placement)?;
+                    .configuration
+                    .add_launcher(project, id, profile.clone(), placement);
 
                 let matrix_location = self
                     .aggregates
@@ -586,11 +597,9 @@ impl DesktopSystem {
                 placement,
             } => {
                 let project = self.aggregates.hierarchy.project_of_launcher(launcher);
-                *self
-                    .aggregates
-                    .matrix_positions
-                    .get_mut(&launcher)
-                    .expect("Matrix position missing for launcher") = placement;
+                self.aggregates
+                    .configuration
+                    .move_launcher(launcher, placement);
                 return Ok(ChangeOutput::measures(DesktopTarget::ProjectMatrix(
                     project,
                 )));
@@ -598,8 +607,8 @@ impl DesktopSystem {
             ProjectChange::RemoveLauncher(launch_profile_id) => {
                 self.aggregates.launchers.remove(&launch_profile_id)?;
                 self.aggregates
-                    .matrix_positions
-                    .remove(&launch_profile_id)?;
+                    .configuration
+                    .remove_launcher(launch_profile_id);
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
             // does not retain it. Only this dispatch must handle it.
@@ -775,7 +784,11 @@ impl DesktopSystem {
             }
             ConfigurationRequest::AddLauncher => {
                 let current_launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
-                let current_placement = self.aggregates.matrix_positions[&current_launcher];
+                let current_placement = self
+                    .aggregates
+                    .configuration
+                    .placement_of(current_launcher)
+                    .expect("Focused launcher has no matrix placement");
 
                 let changes = self.plan_project(ProjectCommand::AddLauncher {
                     project: current_project,
@@ -817,8 +830,12 @@ impl DesktopSystem {
             }
             ConfigurationRequest::MoveLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
-                let current_placement = self.aggregates.matrix_positions[&launcher];
-                let placement = MatrixPositions::moved_placement(current_placement, *direction);
+                let current_placement = self
+                    .aggregates
+                    .configuration
+                    .placement_of(launcher)
+                    .expect("Focused launcher has no matrix placement");
+                let placement = current_placement.moved_placement(*direction);
                 let Some(placement) = placement else {
                     warn!(
                         "Ignoring {direction:?} launcher move from matrix position ({}, {})",
@@ -828,9 +845,8 @@ impl DesktopSystem {
                 };
                 let swapped_launcher = self
                     .aggregates
-                    .hierarchy
-                    .matrix_launchers(current_project)
-                    .find(|candidate| self.aggregates.matrix_positions[candidate] == placement);
+                    .configuration
+                    .launcher_at(current_project, placement);
                 let mut changes = Changes::Empty;
                 if let Some(swapped_launcher) = swapped_launcher {
                     changes <<= ProjectChange::MoveLauncher {
@@ -846,7 +862,11 @@ impl DesktopSystem {
             }
             ConfigurationRequest::PushLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
-                let current_placement = self.aggregates.matrix_positions[&launcher];
+                let current_placement = self
+                    .aggregates
+                    .configuration
+                    .placement_of(launcher)
+                    .expect("Focused launcher has no matrix placement");
                 match self.launcher_shift_sequence(current_project, launcher, *direction) {
                     Ok(changes) => Ok(ChangeOutput::changes(changes)),
                     Err(_) => {
@@ -882,11 +902,10 @@ impl DesktopSystem {
         launcher: LaunchProfileId,
         direction: massive_applications::MoveDirection,
     ) -> Result<Changes> {
-        let launchers = self.aggregates.hierarchy.matrix_launchers(project);
         let shifted_launchers = self
             .aggregates
-            .matrix_positions
-            .shifted_launchers(launchers, launcher, direction)?;
+            .configuration
+            .shifted_launchers(project, launcher, direction)?;
 
         let mut changes = Changes::Empty;
         for (launcher, placement) in shifted_launchers {

@@ -61,8 +61,10 @@ use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::persistence;
-use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
-use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
+use crate::projects::{
+    DesktopConfiguration, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
+};
+use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -229,18 +231,21 @@ struct Aggregates {
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: LauncherMap,
-    matrix_positions: MatrixPositions,
+    configuration: DesktopConfiguration,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
 impl Aggregates {
-    pub fn new(hierarchy: OrderedHierarchy<DesktopTarget>) -> Self {
+    pub fn new(
+        hierarchy: OrderedHierarchy<DesktopTarget>,
+        configuration: DesktopConfiguration,
+    ) -> Self {
         Self {
             hierarchy,
             projects: Map::default(),
 
             launchers: Map::default(),
-            matrix_positions: MatrixPositions::default(),
+            configuration,
             instances: Map::default(),
         }
     }
@@ -251,6 +256,7 @@ impl DesktopSystem {
         env: DesktopEnvironment,
         default_panel_size: SizePx,
         configuration: persistence::ConfigurationDocument,
+        aggregate: DesktopConfiguration,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
@@ -278,7 +284,7 @@ impl DesktopSystem {
 
             focus_depth_indicator,
             desktop_presenter,
-            aggregates: Aggregates::new(OrderedHierarchy::default()),
+            aggregates: Aggregates::new(OrderedHierarchy::default(), aggregate),
         };
 
         Ok(system)

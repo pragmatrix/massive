@@ -191,19 +191,17 @@ impl DesktopSystem {
 
     pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
         let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id);
-        let row = self.aggregates.matrix_positions.get(&launcher_id)?.row;
+        let row = self.aggregates.configuration.placement_of(launcher_id)?.row;
         let mut rect: Option<Rect> = None;
 
-        for candidate_launcher in self.aggregates.hierarchy.matrix_launchers(project_id) {
-            let Some(candidate) = self.aggregates.matrix_positions.get(&candidate_launcher) else {
-                continue;
-            };
+        for launcher in self.aggregates.configuration.launchers_sorted(project_id) {
+            let candidate = launcher.placement();
 
             if candidate.row != row {
                 continue;
             }
 
-            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(candidate_launcher));
+            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(launcher.id()));
 
             rect = Some(match rect {
                 Some(existing) => existing.joined(launcher_rect),
