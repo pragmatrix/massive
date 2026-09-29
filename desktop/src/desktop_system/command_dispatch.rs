@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, ensure};
 use log::{debug, warn};
 use serde_json::json;
 
@@ -199,7 +199,6 @@ impl DesktopSystem {
         let mut changes = Changes::Empty;
         match command {
             ProjectCommand::AddProject { id, name, after } => {
-                let name = self.aggregates.configuration.unique_project_name(&name);
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
 
@@ -220,6 +219,21 @@ impl DesktopSystem {
                 changes <<= ConfigurationChange::AddProject { id, name };
             }
             ProjectCommand::RemoveProject(project_id) => {
+                // The session boots into a configuration-defined launcher, so the
+                // last one cannot be removed. Planned here, where the whole command
+                // is still visible, so a rejection emits no change at all.
+                let launchers = self.aggregates.configuration.launcher_count();
+                let removed = self
+                    .aggregates
+                    .configuration
+                    .project(project_id)
+                    .map(|project| project.launchers().len())
+                    .unwrap_or(0);
+                ensure!(
+                    launchers > removed,
+                    "Configuration must define at least one launcher"
+                );
+
                 changes += self.plan_project_removal_focus(project_id);
                 changes += self.plan_remove_project(project_id);
             }
@@ -230,10 +244,7 @@ impl DesktopSystem {
                 placement,
             } => {
                 let profile = LaunchProfile {
-                    name: self
-                        .aggregates
-                        .configuration
-                        .unique_launcher_name(project, &profile.name),
+                    name: profile.name,
                     ..profile
                 };
                 let mut launchers = self.aggregates.hierarchy.matrix_launchers(project);
@@ -265,6 +276,12 @@ impl DesktopSystem {
                     .hierarchy
                     .project_of_launcher(launch_profile_id);
                 if self.aggregates.hierarchy.matrix_launchers(project).count() == 1 {
+                    // Removing the last launcher removes its project, so the
+                    // configuration must hold a launcher beyond this project's.
+                    ensure!(
+                        self.aggregates.configuration.launcher_count() > 1,
+                        "Configuration must define at least one launcher"
+                    );
                     changes += self.plan_project_removal_focus(project);
                     changes += self.plan_remove_project(project);
                     return Ok(changes);
@@ -295,6 +312,99 @@ impl DesktopSystem {
         }
 
         Ok(changes)
+    }
+
+    /// Names a new project: a default name gets the lowest index not already in
+    /// use, while a user-chosen name is taken as it is — duplicate names are
+    /// allowed. An id the configuration already holds is the boot flow re-applying
+    /// the names it parsed, which must pass through unchanged.
+    #[allow(dead_code)]
+    fn default_project_name(&self, id: ProjectId, name: &str) -> String {
+        if name != DEFAULT_NEW_PROJECT_NAME || self.aggregates.configuration.project(id).is_some() {
+            return name.to_string();
+        }
+        let existing: Vec<&str> = self
+            .aggregates
+            .configuration
+            .projects()
+            .iter()
+            .map(|project| project.name())
+            .collect();
+        indexed_default_name(name, &existing)
+    }
+
+    /// The launcher counterpart of [`Self::default_project_name`], indexed among the
+    /// siblings of the launcher's project.
+    #[allow(dead_code)]
+    fn default_launcher_name(&self, id: LaunchProfileId, name: &str) -> String {
+        if name != DEFAULT_NEW_LAUNCHER_NAME || self.aggregates.configuration.launcher(id).is_some()
+        {
+            return name.to_string();
+        }
+        let existing: Vec<&str> = self
+            .aggregates
+            .configuration
+            .project_of_launcher(id)
+            .map(|project| {
+                project
+                    .launchers()
+                    .iter()
+                    .map(|launcher| launcher.name())
+                    .collect()
+            })
+            .unwrap_or_default();
+        indexed_default_name(name, &existing)
+    }
+
+    /// The project owning the keyboard-focused launcher, when it is still in the
+    /// configuration.
+    fn focused_project(&self) -> Option<ProjectId> {
+        let focused = self.event_router.keyboard_focus()?;
+        self.aggregates
+            .hierarchy
+            .project_of_target(focused)
+            .filter(|project| self.aggregates.configuration.project(*project).is_some())
+    }
+
+    /// The project called `name` that sits nearest — in document order — to the
+    /// focused launcher's project. Duplicate names address the nearest, and with no
+    /// focus or name in it the first match answers; `None` when no project is so
+    /// named.
+    fn nearest_project(&self, name: &str) -> Option<ProjectId> {
+        let projects = self.aggregates.configuration.projects();
+        let focused = self
+            .focused_project()
+            .and_then(|project| self.aggregates.configuration.project_index(project));
+        projects
+            .iter()
+            .enumerate()
+            .filter(|(_, project)| project.name() == name)
+            .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id()))
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, id)| id)
+    }
+
+    /// The launcher called `name` in `project` that sits nearest — in matrix
+    /// distance — to the keyboard-focused launcher. Duplicate names address the
+    /// nearest, and with no focused launcher in `project` the first match answers;
+    /// `None` when no launcher of `project` is so named.
+    fn nearest_launcher(&self, project: ProjectId, name: &str) -> Option<LaunchProfileId> {
+        let focused = self
+            .event_router
+            .keyboard_focus()
+            .and_then(|focused| self.aggregates.hierarchy.launcher_of_target(focused))
+            .filter(|launcher| self.aggregates.hierarchy.project_of_launcher(*launcher) == project)
+            .and_then(|launcher| self.aggregates.configuration.launcher_index(launcher));
+        let focused = focused.unwrap_or(0);
+        self.aggregates
+            .configuration
+            .launchers_sorted(project)
+            .iter()
+            .enumerate()
+            .filter(|(_, launcher)| launcher.name() == name)
+            .map(|(index, launcher)| (index.abs_diff(focused), launcher.id()))
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, id)| id)
     }
 
     fn plan_project_removal_focus(&self, project: ProjectId) -> Changes {
@@ -504,14 +614,10 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                // The document view is written before the live model: its edits address
-                // nodes by name and the configuration must still hold those names —
-                // removals included — so a rejected write also leaves the live model
-                // untouched. A setup change only updates the live model; it must not
-                // mirror into the persisted document.
+                // A setup change only updates the live model; it must not mirror into
+                // the persisted document.
                 if effects_mode != TransactionEffectsMode::Setup {
-                    self.configuration
-                        .apply(project_change.clone(), &self.aggregates.configuration)?;
+                    self.configuration.apply(project_change.clone())?;
                 }
                 return self.apply_project_change(project_change);
             }
@@ -758,26 +864,13 @@ impl DesktopSystem {
             }
             ConfigurationRequest::RemoveProject { name } => {
                 let project = match name {
-                    Some(name) => {
-                        let Some(project) = self
-                            .aggregates
-                            .hierarchy
-                            .get_nested(&DesktopTarget::Desktop)
-                            .iter()
-                            .find_map(|target| match target {
-                                DesktopTarget::Project(project)
-                                    if self.aggregates.configuration[*project].name() == name =>
-                                {
-                                    Some(*project)
-                                }
-                                _ => None,
-                            })
-                        else {
+                    Some(name) => match self.nearest_project(name) {
+                        Some(project) => project,
+                        None => {
                             warn!("Project '{name}' not found");
                             return Ok(ChangeOutput::default());
-                        };
-                        project
-                    }
+                        }
+                    },
                     None => current_project,
                 };
 
@@ -813,18 +906,13 @@ impl DesktopSystem {
                 let launcher = match name {
                     Some(name) => {
                         // ADR, stay on the project for now.
-                        let Some(launcher) = self
-                            .aggregates
-                            .hierarchy
-                            .matrix_launchers(current_project)
-                            .find(|launcher| {
-                                self.aggregates.configuration[*launcher].name() == name
-                            })
-                        else {
-                            warn!("Launcher '{name}' not found in the current project");
-                            return Ok(ChangeOutput::default());
-                        };
-                        launcher
+                        match self.nearest_launcher(current_project, name) {
+                            Some(launcher) => launcher,
+                            None => {
+                                warn!("Launcher '{name}' not found in the current project");
+                                return Ok(ChangeOutput::default());
+                            }
+                        }
                     }
                     None => self.aggregates.hierarchy.launcher_of_instance(instance),
                 };
@@ -925,3 +1013,18 @@ impl DesktopSystem {
 
 const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
 const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
+
+/// The default name with the lowest index that is not already taken among
+/// `existing`. The index only disambiguates the default name; the number is
+/// reused once a previous holder is renamed or removed.
+#[allow(dead_code)]
+fn indexed_default_name(name: &str, existing: &[&str]) -> String {
+    let mut index = 2;
+    loop {
+        let candidate = format!("{name} {index}");
+        if !existing.contains(&candidate.as_str()) {
+            return candidate;
+        }
+        index += 1;
+    }
+}
