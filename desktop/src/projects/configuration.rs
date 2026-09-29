@@ -5,9 +5,10 @@ use std::ops::Index;
 
 use anyhow::{Context, Result, bail, ensure};
 use derive_more::{From, Into};
-use massive_applications::MoveDirection;
 use serde_json::{Map, Value};
 use uuid::Uuid;
+
+use massive_applications::MoveDirection;
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
