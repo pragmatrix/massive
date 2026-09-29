@@ -308,7 +308,7 @@ fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfi
 /// Appends a numeric suffix while `name` collides with an existing name, so names
 /// stay unique among siblings — the document view addresses its nodes by name.
 fn unique_name(name: &str, existing: &[&str]) -> String {
-    if !existing.iter().any(|existing| *existing == name) {
+    if !existing.contains(&name) {
         return name.into();
     }
     let mut suffix = 2;
