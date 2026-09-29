@@ -61,19 +61,7 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
-        let projects_dir = env
-            .projects_dir()
-            .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
-        let configuration_path = projects_dir.join(persistence::CONFIG_FILE_NAME);
-        if !configuration_path.exists() {
-            log::info!(
-                "No configuration at {}, writing the default configuration",
-                configuration_path.display()
-            );
-            persistence::write_default_config(&configuration_path)?;
-        }
-        let (configuration_document, project_set) =
-            ConfigurationDocument::load(&configuration_path)?;
+        let (configuration_document, project_set) = load_configuration(&env)?;
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
@@ -373,6 +361,26 @@ impl Desktop {
         }
         Ok(())
     }
+}
+
+/// Loads the desktop configuration from the projects directory.
+///
+/// A missing configuration file means "start fresh": the built-in default
+/// configuration is written first, so every later change has a file to be persisted
+/// to. Any other file error fails and aborts desktop startup.
+fn load_configuration(env: &DesktopEnvironment) -> Result<(ConfigurationDocument, ProjectSet)> {
+    let projects_dir = env
+        .projects_dir()
+        .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
+    let configuration_path = projects_dir.join(persistence::CONFIG_FILE_NAME);
+    if !configuration_path.exists() {
+        log::info!(
+            "No configuration at {}, writing the default configuration",
+            configuration_path.display()
+        );
+        persistence::write_default_config(&configuration_path)?;
+    }
+    ConfigurationDocument::load(&configuration_path)
 }
 
 fn handle_instance_ended(
