@@ -25,10 +25,7 @@ use crate::desktop_system::{
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::persistence::{self, ConfigurationDocument};
-use crate::projects::{
-    LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project, ProjectId,
-    ProjectProperties, ProjectSet,
-};
+use crate::projects::{LaunchProfileId, Launcher, Project, ProjectId, ProjectSet};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -120,17 +117,21 @@ impl Desktop {
 
         // Initial setup
 
-        let primary_project = primary_project();
-
         let mut system = DesktopSystem::new(env, default_size, configuration_document)?;
-
-        let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
 
         let project_setup_commands: Commands =
             project_set_to_commands(&project_set).map(DesktopCommand::Project);
 
+        // The session boots into the startup profile the configuration names. The
+        // configuration is guaranteed to define a launcher (see
+        // `ProjectSet::from_configuration`), and no project command ran yet, so the
+        // fallback is the first launcher of the first project.
+        let boot_launcher = boot_launcher(&project_set).expect(
+            "configuration derivation (ProjectSet::from_configuration) guarantees a launcher",
+        );
+
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
-            launcher: primary_project.primary_launcher,
+            launcher: boot_launcher,
             instance: primary_instance,
             root: Some(primary_root),
             parameters: InstanceParameters::new(),
@@ -140,8 +141,7 @@ impl Desktop {
         let initial_submission_changes: Changes =
             DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
 
-        let commands =
-            primary_project_commands + project_setup_commands + primary_instance_commands;
+        let commands = project_setup_commands + primary_instance_commands;
 
         let window_state = WindowState::from_window(&window);
 
@@ -454,41 +454,19 @@ struct WindowContext<'a> {
     renderer: &'a mut AsyncWindowRenderer,
 }
 
-#[derive(Debug)]
-struct PrimaryProject {
-    primary_launcher: LaunchProfileId,
-    commands: CollectingVec<ProjectCommand>,
-}
-
-fn primary_project() -> PrimaryProject {
-    let mut commands = CollectingVec::default();
-
-    let primary_project = ProjectId::new();
-    let primary_launcher = LaunchProfileId::new();
-
-    commands <<= ProjectCommand::AddProject {
-        id: primary_project,
-        properties: ProjectProperties {
-            name: "Primary / Local".into(),
-        },
-        after: None,
-    };
-
-    commands <<= ProjectCommand::AddLauncher {
-        project: primary_project,
-        id: primary_launcher,
-        profile: LaunchProfile {
-            name: "Primary / Local".into(),
-            mode: LauncherMode::Band,
-            params: Default::default(),
-        },
-        placement: MatrixPlacement { column: 0, row: 0 },
-    };
-
-    PrimaryProject {
-        primary_launcher,
-        commands,
-    }
+/// The launcher the session boots into: the configuration's startup profile, or the
+/// first launcher of the first project when no `startup` node names one. `None` is
+/// unreachable for a configuration-derived set, which guarantees at least one
+/// launcher (see `ProjectSet::from_configuration`).
+fn boot_launcher(project_set: &ProjectSet) -> Option<LaunchProfileId> {
+    project_set.start.or_else(|| {
+        project_set
+            .projects
+            .iter()
+            .flat_map(|project| &project.launchers)
+            .next()
+            .map(|launcher| launcher.id)
+    })
 }
 
 fn project_set_to_commands(project_set: &ProjectSet) -> CollectingVec<ProjectCommand> {

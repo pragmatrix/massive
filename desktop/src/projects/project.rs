@@ -1,5 +1,5 @@
 //! A configuration derived hierarchy with assigned ids.
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, ensure};
 use derive_more::{From, Into};
 use uuid::Uuid;
 
@@ -62,6 +62,11 @@ impl LaunchProfileId {
 }
 
 impl ProjectSet {
+    /// Derives the live model from a configuration.
+    ///
+    /// Fails unless at least one launcher exists: the session boots into a
+    /// configuration-defined launcher, so an empty configuration has nothing to
+    /// start.
     pub fn from_configuration(config: ProjectConfiguration) -> Result<Self> {
         let projects: Vec<_> = config.projects.into_iter().map(convert_project).collect();
 
@@ -77,9 +82,11 @@ impl ProjectSet {
             None => None,
         };
 
+        let empty = projects.iter().all(|project| project.launchers.is_empty());
+        ensure!(!empty, "Configuration must define at least one launcher");
+
         Ok(Self { start, projects })
     }
-
     #[allow(unused)]
     pub fn get_launch_profile(&self, id: LaunchProfileId) -> Option<&LaunchProfile> {
         self.projects

@@ -28,7 +28,11 @@ const DEFAULT_CONFIG: &str = r#"// Desktop configuration: projects, launchers, a
 // to it as spawn parameters, e.g. `command "ssh home"` runs `ssh home`. `mode`
 // selects the launcher presentation and is `visor` unless set to `band`.
 
-startup "default"
+startup "Primary / Local"
+
+project "Primary / Local" {
+    launcher "Primary / Local" column=0 row=0 mode=band
+}
 
 project "default" {
     launcher "default" column=0 row=0
