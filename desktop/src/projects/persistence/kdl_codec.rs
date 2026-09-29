@@ -17,9 +17,6 @@ use crate::projects::{
     LauncherMode, LauncherSpec, MatrixPlacement, ProjectConfiguration, ProjectSpec,
 };
 
-/// The file name of the desktop configuration inside the projects directory.
-pub(super) const CONFIG_FILE_NAME: &str = "desktop.kdl";
-
 /// The built-in default configuration, used when no file exists on disk.
 ///
 /// It is also a valid config that can be copied and edited as a starting point.

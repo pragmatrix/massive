@@ -9,4 +9,7 @@
 mod configuration;
 mod kdl_codec;
 
-pub use self::configuration::ConfigurationDocument;
+/// The file name of the desktop configuration inside the projects directory.
+pub const CONFIG_FILE_NAME: &str = "desktop.kdl";
+
+pub use self::configuration::{ConfigurationDocument, initialize_file};

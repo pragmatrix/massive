@@ -24,7 +24,7 @@ use crate::desktop_system::{
 };
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::persistence::ConfigurationDocument;
+use crate::projects::persistence::{self, ConfigurationDocument};
 use crate::projects::{
     LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project, ProjectId,
     ProjectProperties, ProjectSet,
@@ -64,7 +64,15 @@ impl Desktop {
         let projects_dir = env
             .projects_dir()
             .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
-        let mut configuration_document = ConfigurationDocument::load(&projects_dir)?;
+        let configuration_path = projects_dir.join(persistence::CONFIG_FILE_NAME);
+        if !configuration_path.exists() {
+            log::info!(
+                "No configuration at {}, writing the default configuration",
+                configuration_path.display()
+            );
+            persistence::initialize_file(&configuration_path)?;
+        }
+        let mut configuration_document = ConfigurationDocument::load(&configuration_path)?;
         let project_configuration = configuration_document.configuration()?;
         let project_set = ProjectSet::from_configuration(project_configuration)?;
         configuration_document.register_loaded(&project_set);

@@ -6,10 +6,10 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use log::debug;
 
 use kdl::KdlDocument;
 
+use super::kdl_codec::{apply_change, atomic_write, configuration_from_document, default_document};
 use crate::desktop_system::change::ProjectChange;
 use crate::projects::{
     LaunchProfileId, LauncherMode, MatrixPlacement, ProjectConfiguration, ProjectId, ProjectSet,
@@ -36,36 +36,18 @@ pub struct ConfigurationDocument {
 }
 
 impl ConfigurationDocument {
-    /// Loads the configuration from the projects directory, falling back to the
-    /// built-in default — which is written immediately, so the file always exists
-    /// on disk before the first change is persisted.
+    /// Loads the configuration from the file, expecting it to exist.
     ///
-    /// A file that exists but cannot be read or parsed aborts startup.
-    pub fn load(projects_dir: &Path) -> Result<Self> {
-        let path = projects_dir.join(super::kdl_codec::CONFIG_FILE_NAME);
-        let document = match std::fs::read_to_string(&path) {
-            Ok(text) => text
-                .parse()
-                .with_context(|| format!("parsing {}", path.display()))?,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                debug!(
-                    "No configuration at {}, writing the default configuration",
-                    path.display()
-                );
-                let document = super::kdl_codec::default_document();
-                super::kdl_codec::atomic_write(&path, &document.to_string()).with_context(
-                    || format!("writing the default configuration to {}", path.display()),
-                )?;
-                document
-            }
-            Err(error) => {
-                return Err(error).with_context(|| format!("reading {}", path.display()));
-            }
-        };
-
+    /// Any file error — including a missing file — fails: the caller decides the
+    /// no-file policy (see [`initialize_file`]).
+    pub fn load(path: &Path) -> Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        let document = text
+            .parse()
+            .with_context(|| format!("parsing {}", path.display()))?;
         Ok(Self {
             document,
-            path,
+            path: path.into(),
             unwritten_changes: false,
             keys: ConfigKeys::default(),
         })
@@ -73,9 +55,20 @@ impl ConfigurationDocument {
 
     /// The configuration, resolved from the document.
     pub fn configuration(&self) -> Result<ProjectConfiguration> {
-        super::kdl_codec::configuration_from_document(&self.document)
+        configuration_from_document(&self.document)
     }
+}
 
+/// Writes the built-in default configuration to the file, for callers that decide
+/// a missing configuration file means "start fresh".
+pub fn initialize_file(path: &Path) -> Result<KdlDocument> {
+    let document = default_document();
+    atomic_write(path, &document.to_string())
+        .with_context(|| format!("writing the default configuration to {}", path.display()))?;
+    Ok(document)
+}
+
+impl ConfigurationDocument {
     /// Registers the names of the projects and launchers loaded from the
     /// configuration file.
     ///
@@ -91,7 +84,7 @@ impl ConfigurationDocument {
     /// report that persistence was rejected.
     pub fn apply(&mut self, change: ProjectChange) -> Result<()> {
         let change = self.keys.translate_change(&change)?;
-        super::kdl_codec::apply_change(&mut self.document, &change)?;
+        apply_change(&mut self.document, &change)?;
         self.unwritten_changes = true;
         Ok(())
     }
@@ -107,7 +100,7 @@ impl ConfigurationDocument {
             return;
         }
         let text = self.document.to_string();
-        match super::kdl_codec::atomic_write(&self.path, &text) {
+        match atomic_write(&self.path, &text) {
             Ok(()) => self.unwritten_changes = false,
             Err(error) => log::warn!(
                 "Failed to persist configuration to {}: {error:#}",
