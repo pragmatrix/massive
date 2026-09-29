@@ -15,8 +15,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 - When a comment cites a design decision (an ADR or design doc), cite it and state the code's rationale as it is now — never narrate prior state ("previously X", "no longer", "replaces the old ..."). History belongs in git history and the ADR's context section, not in code comments.
 - State the reason the code is as it is; a contrast with a design that is not visible at that spot ("rather than a mutex", "instead of a runtime check") explains the change, not the code. Keep deliberate history that carries a reason — a dated measurement, a rejected alternative, a `TODO` or open design question.
 - Preserve existing comments during refactors unless inaccurate; update them when their rationale changes.
-- Apply the stepdown rule (reverse topological order) to functions and types alike: high-level callers and dependent types come first, the functions/types they depend on are declared below them, and leaf/helper items sit at the bottom, so reading top-down follows control flow from the aggregate toward the leaves.
-- Exception: constants, mode/switch enums, and defaults belong above the functions and types they are defined for — they are the policy an item reads or selects by, so readers meet them before encountering the behavior that depends on them.
+- Order functions and their calls in stepdown order: high-level callers first and their callees below them (topologically, control and dependency flow from callers toward leaves), while constants, mode/switch enums, and defaults sit above the items they are defined for — they are the policy an item reads or selects by. Order types by importance: public API first, private helpers last.
 - When splitting large modules, extract low-coupling impl blocks first and preserve external imports via local re-exports in the parent module.
 
 ## Design Principles
@@ -54,6 +53,7 @@ Topic-specific conventions (testing, error handling, data loading) live in `.git
 - When refactoring, don't add trait implementations that weren't present; prefer deriving over manual implementation.
 - Unit-test functions that carry logic across a representation change (scalar fields → domain types, loose values → structured types): the old shape's implicit semantics (parameter order, units, corner-vs-origin) don't transfer automatically, and the mistakes compile fine while corrupting downstream behavior.
 - Keep one source of truth for mutable state; avoid mirrored caches and route reads through narrow accessors.
+- When a human-maintained config file is programmatically rewritten, edit a parsed document representation surgically (per-change node edits) instead of regenerating the file, so comments and hand formatting survive automated writes; if ids are unstable across sessions, key the file by stable names and keep an id→node map updated by the same change vocabulary.
 - Represent state with the same lifetime and update boundary as one value, instead of parallel optional fields.
 - When presentation can be derived from authoritative interaction, layout, and environment state, apply it as an immutable value through an ordered effect instead of mirroring mode flags.
 - Filter inexpensive eligibility conditions on source values before constructing derived state requiring mutable access or expensive work.
