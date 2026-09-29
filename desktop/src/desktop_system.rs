@@ -212,7 +212,7 @@ pub struct DesktopSystem {
     /// The persisted desktop configuration; edited surgically and written on every
     /// configuration change.
     #[debug(skip)]
-    persistence: persistence::ConfigurationDocument,
+    configuration: persistence::ConfigurationDocument,
 
     focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -253,7 +253,7 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         default_panel_size: SizePx,
-        persistence: persistence::ConfigurationDocument,
+        configuration: persistence::ConfigurationDocument,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
@@ -277,7 +277,7 @@ impl DesktopSystem {
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
-            persistence,
+            configuration,
 
             focus_depth_indicator,
             desktop_presenter,
@@ -327,7 +327,7 @@ impl DesktopSystem {
         // The initial setup loads the configuration from the file, so its changes
         // must not be written back; after setup, every change persists.
         if effects_mode != TransactionEffectsMode::Setup {
-            self.persistence.flush();
+            self.configuration.flush();
         }
 
         // Collect deferred measures if the camera can be moved.

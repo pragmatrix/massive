@@ -615,7 +615,7 @@ impl DesktopSystem {
 
     /// Mirrors a configuration change into the persisted KDL document.
     fn persist_project_change(&mut self, change: ProjectChange) -> Result<()> {
-        self.persistence.apply(change)?;
+        self.configuration.apply(change)?;
         Ok(())
     }
 
