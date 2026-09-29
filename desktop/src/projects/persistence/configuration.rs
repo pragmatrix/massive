@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 
 use kdl::KdlDocument;
 
-use super::kdl_codec::{apply_change, atomic_write, configuration_from_document, default_document};
+use super::document::{apply_change, atomic_write, configuration_from_document, default_document};
 use crate::desktop_system::change::ProjectChange;
 use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, ProjectSet};
 

@@ -7,7 +7,8 @@
 //! live model aligned with the file.
 
 mod configuration;
-mod kdl_codec;
+mod document;
+mod parameters;
 
 /// The file name of the desktop configuration inside the projects directory.
 pub const CONFIG_FILE_NAME: &str = "desktop.kdl";

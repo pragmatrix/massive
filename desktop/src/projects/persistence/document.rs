@@ -1,6 +1,5 @@
-//! The KDL document <-> configuration-data conversation: applying configuration
-//! changes as surgical node edits, and reading the configuration back out of the
-//! document.
+//! The KDL document's structure: applying configuration changes as surgical node
+//! edits, and reading the configuration back out of the document.
 
 use std::fs;
 use std::io::Write;
@@ -8,11 +7,12 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use log::warn;
-use serde_json::Value;
 
 use kdl::{KdlDocument, KdlEntry, KdlNode, KdlNodeFormat, KdlValue};
+use serde_json::Value;
 
 use super::configuration::ConfigChange;
+use super::parameters::{params_node, params_value};
 use crate::projects::{
     LauncherMode, LauncherSpec, MatrixPlacement, ProjectConfiguration, ProjectSpec,
 };
@@ -213,7 +213,7 @@ fn node_indent(node: &KdlNode) -> String {
 
 /// Formatting for a freshly constructed node: explicit indent and line terminator,
 /// because stringification only auto-indents formatless nodes.
-fn fresh_node_format(leading: &str) -> KdlNodeFormat {
+pub(super) fn fresh_node_format(leading: &str) -> KdlNodeFormat {
     KdlNodeFormat {
         leading: leading.into(),
         terminator: "\n".into(),
@@ -247,39 +247,6 @@ fn launcher_node(
         }
     }
     node
-}
-
-fn params_node(key: &str, value: &Value, indent: String) -> KdlNode {
-    let mut node = KdlNode::new(key);
-    match value {
-        Value::Null => {}
-        Value::Bool(value) => node.push(*value),
-        Value::Number(number) => node.push(number_value(number)),
-        Value::String(value) => node.push(value.as_str()),
-        Value::Array(values) => {
-            for value in values {
-                match value {
-                    Value::String(value) => node.push(value.as_str()),
-                    Value::Bool(value) => node.push(*value),
-                    Value::Number(number) => node.push(number_value(number)),
-                    other => warn!("Skipping unsupported parameter value for '{key}': {other}"),
-                }
-            }
-        }
-        other => warn!("Skipping unsupported parameter value for '{key}': {other}"),
-    }
-    node.set_format(fresh_node_format(&indent));
-    node
-}
-
-fn number_value(number: &serde_json::Number) -> KdlValue {
-    if let Some(integer) = number.as_i64() {
-        KdlValue::from(i128::from(integer))
-    } else if let Some(float) = number.as_f64() {
-        KdlValue::from(float)
-    } else {
-        KdlValue::Null
-    }
 }
 
 /// Updates the `column`/`row` properties of a launcher node in place, preserving the
@@ -356,38 +323,6 @@ fn launcher_spec(node: &KdlNode) -> Result<LauncherSpec> {
         mode,
         params,
     })
-}
-
-fn params_value(node: &KdlNode) -> Value {
-    let values: Vec<Value> = node
-        .entries()
-        .iter()
-        .filter(|entry| entry.name().is_none())
-        .map(|entry| json_value(entry.value()))
-        .collect();
-    match values.as_slice() {
-        [] => Value::Bool(true),
-        [single] => single.clone(),
-        _ => Value::Array(values),
-    }
-}
-
-fn json_value(value: &KdlValue) -> Value {
-    match value {
-        KdlValue::String(value) => Value::String(value.into()),
-        KdlValue::Integer(value) => match i64::try_from(*value) {
-            Ok(value) => Value::Number(value.into()),
-            // Out-of-i64-range integers lose precision as JSON numbers.
-            Err(_) => {
-                serde_json::Number::from_f64(*value as f64).map_or(Value::Null, Value::Number)
-            }
-        },
-        KdlValue::Float(value) => {
-            serde_json::Number::from_f64(*value).map_or(Value::Null, Value::Number)
-        }
-        KdlValue::Bool(value) => Value::Bool(*value),
-        KdlValue::Null => Value::Null,
-    }
 }
 
 fn string_arg<'a>(node: &'a KdlNode, what: &'static str) -> Result<&'a str> {
