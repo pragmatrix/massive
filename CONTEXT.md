@@ -5,24 +5,32 @@ This context defines the interaction and presentation language for desktop insta
 ## Language
 
 **Desktop configuration**:
-The set of projects, launchers, their matrix placements, and the startup launcher. It persists across sessions.
+The set of projects, launchers, their slot placements, and the startup launcher. It persists across sessions.
 _Avoid_: settings, workspace, layout
 
 **Configuration change**:
-A change to the desktop configuration: adding or removing a project or launcher, moving a launcher, or setting the startup launcher. The only kind of change that persists across sessions.
+A change to the desktop configuration: adding or removing a slot or its content, moving slot content, or setting the startup launcher. The only kind of change that persists across sessions.
 _Avoid_: project change
 
 **Project**:
-A named top-level group in the desktop configuration that owns a matrix of launchers. A project exists only while it has at least one launcher; removing a launcher removes its project with it. Project names may repeat.
-_Avoid_: workspace, section
+A named group that owns a matrix of slots. A project exists only while it has at least one slot; removing a launcher removes the slot and, with it, the project. Project names may repeat. Exactly one project is the root; every other project is nested in a slot of another project.
+_Avoid_: workspace, section, top-level group
+
+**Slot**:
+A cell in a project's matrix that hosts either a launcher or a nested project — never both. Slots present one slot level deep when their project is not the focused project: slots render without their contents' contents and nothing deeper is interactive. Presenters are created for non-empty slots.
+_Avoid_: launcher cell, tile, container
 
 **Matrix placement**:
-A launcher's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving a launcher shifts the placements of the launchers it displaces.
-_Avoid_: slot, tile, coordinates
+A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.
+_Avoid_: coordinates
 
 **Startup launcher**:
-The launcher the session boots into. Persisted by name in the desktop configuration; resolved to a launcher id on load, and to the first launcher of that name when several share it.
+The launcher the session boots into. Persisted by address path in the desktop configuration; resolved to a launcher id on load, falling back to the root project's first launcher with a warning when the path no longer resolves.
 _Avoid_: startup profile, boot target
+
+**Address path**:
+The configuration-level address of a slot's content: slash-separated names, resolved segment by segment, picking the nearest match at each level. The invoking instance's project is the implicit base for relative paths; a leading separator addresses from the root.
+_Avoid_: target path, locator
 
 **Launcher id**:
 The stable per-session identity of a launcher. Ids are newly created every session and never persist; names are the persistence identity and may repeat, so a name that addresses one launcher resolves to the nearest match.
@@ -48,6 +56,14 @@ _Avoid_: zoomed out (the `ZoomOut` command name is retained, but the state is "o
 The hierarchy target the camera follows while in `Overview`. Climbs toward the root on each `ZoomOut` and pans among same-level siblings on `Navigate`.
 _Avoid_: camera anchor, zoom target
 
+**Focused project**:
+The project whose depth ladder the overview depth resolves against. Changed by zooming through a project slot: entering a nested project makes it the focused project; zooming out past its Project depth returns to the parent slot and makes the parent the focused project.
+_Avoid_: current project (ambiguous with the invocation base), active project
+
+**Focus depth**:
+One rung of the overview's depth ladder — Project, Row, Slot, Instance, Full Screen — resolved relative to the focused project. The ladder reads outermost first, so a rung's position counts the zoom-ins from the project level. There is no rung above the root project's Project depth; ZoomOut at that floor is a no-op.
+_Avoid_: zoom level (the Zoom commands are retained), Desktop depth (the root is the floor)
+
 **Navigate**:
 Directional movement of keyboard focus (or the overview target) one step from the current position, driven by an arrow key.
 _Avoid_: move, arrow
@@ -61,8 +77,8 @@ The event router's proposal that keyboard focus should change, surfaced from inp
 _Avoid_: pending focus, focus request
 
 **Launcher**:
-A configured entry in the project matrix that hosts one or more running instances. A launcher holds a dynamic set of instances that can be added (or removed) at runtime, so its instance count is not fixed by configuration even when it starts from a single command.
-_Avoid_: profile, slot, tile
+A configured entry that a slot may host; hosts one or more running instances and owns a launcher mode. A launcher holds a dynamic set of instances that can be added (or removed) at runtime, so its instance count is not fixed by configuration even when it starts from a single command.
+_Avoid_: profile, cell
 
 **Instance**:
 A single running application session owned by a launcher. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
