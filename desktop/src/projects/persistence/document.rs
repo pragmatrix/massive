@@ -194,6 +194,15 @@ fn launcher_node_mut<'a>(
 
 fn set_startup(document: &mut KdlDocument, name: &Option<String>) -> Result<()> {
     // Remove every existing node first so `None` leaves the document without one.
+    // A leading comment rides on the first node, so the fresh node inherits the
+    // removed one's leading to keep comments like the file's header block.
+    let leading = document
+        .nodes()
+        .iter()
+        .find(|node| node.name().value() == "startup")
+        .and_then(|node| node.format())
+        .map(|format| format.leading.clone());
+
     document
         .nodes_mut()
         .retain(|node| node.name().value() != "startup");
@@ -201,7 +210,7 @@ fn set_startup(document: &mut KdlDocument, name: &Option<String>) -> Result<()> 
     if let Some(name) = name {
         let mut node = KdlNode::new("startup");
         node.push(name.as_str());
-        node.set_format(fresh_node_format(""));
+        node.set_format(fresh_node_format(leading.as_deref().unwrap_or("")));
         document.nodes_mut().insert(0, node);
     }
     Ok(())

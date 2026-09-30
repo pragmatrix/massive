@@ -188,6 +188,37 @@ project "work" {
         Ok(())
     }
 
+    /// Setting the startup launcher keeps the comments above the `startup` node:
+    /// the default file's header block rides on that node's leading.
+    #[test]
+    fn replacing_the_startup_launcher_keeps_the_comments_above_it() -> Result<()> {
+        let (mut document, configuration) = loaded(
+            r#"
+// the file header
+
+startup "shell"
+
+project "work" {
+    launcher "shell" column=0 row=0
+}
+"#,
+        )?;
+        let launcher = configuration.projects()[0].launchers()[0].id;
+
+        document.apply(ConfigurationChange::SetStartupLauncher(Some(launcher)))?;
+
+        let text = document.document.to_string();
+        assert!(
+            text.contains("// the file header"),
+            "unexpected document: {text}"
+        );
+        assert!(
+            text.contains("startup shell"),
+            "unexpected document: {text}"
+        );
+        Ok(())
+    }
+
     /// Setting the startup launcher writes the node's own name: the change carries
     /// only an id, and the document resolves the name without the aggregate.
     #[test]
