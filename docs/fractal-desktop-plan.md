@@ -119,10 +119,11 @@ Key sub-points that scan of the current code surfaced:
 
 ## 5. Focus depth and navigation
 
-- `FocusDepth`: `{Project, Row, Slot, Instance, InstanceFullScreen}` — read
-  outermost first (rename `Launcher`→`Slot`, drop `Desktop`), so the `u8`
-  discriminant counts zoom-ins from the project level; `ZoomOut` at root
-  Project floor clamps (no-op; repr `0` makes the floor the underflow guard).
+- `FocusDepth`: `{Project, ProjectRow, Slot, Instance, InstanceFullScreen}` —
+  read outermost first (rename `Launcher`→`Slot`, `Row`→`ProjectRow`, drop
+  `Desktop`), so the `u8` discriminant counts zoom-ins from the project level;
+  `ZoomOut` at root Project floor clamps (no-op; repr `0` makes the floor the
+  underflow guard).
 - **No stored focus context (decided):** the focused project is *derived* from
   the currently focused target by walking the ancestor chain to the nearest
   project in the topology — the depth ladder stays relative to that project
@@ -136,7 +137,8 @@ Key sub-points that scan of the current code surfaced:
 - Camera resolution: the camera fits the *scaled* rect of a nested
   presentation directly, like any other content — no composed per-level
   camera math. Focused-project cameras per existing per-depth code.
-- Indicator: 5 labels, `Project / Row / Slot / Instance / Full Screen`.
+- Indicator: 5 labels, `Project / Project Row / Slot / Instance / Full
+  Screen`.
 
 ## 6. Interaction
 
