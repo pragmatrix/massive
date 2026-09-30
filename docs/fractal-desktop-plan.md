@@ -56,6 +56,10 @@ Key sub-points that scan of the current code surfaced:
   mutually exclusive; root = exactly one project.
 - Presenters for newly occupied cells follow the existing presenter kinds (see
   above); no slot-specific runtime state is created.
+- Test fixtures encode the two-level shape (Desktop-rooted project lists in
+  `layout_state.rs`, `navigation.rs`, `matrix_navigation.rs`,
+  `hierarchy_focus.rs` test modules) — step 1 includes wrapping them in the
+  root project, else the build fails mid-step.
 
 ## 2. Configuration aggregate and change vocabulary
 
@@ -89,6 +93,10 @@ Key sub-points that scan of the current code surfaced:
 - The parser must recognize nested `project` nodes first: it currently warns
   and drops them ("Ignoring unknown node" in project), so any migrated file
   silently loses its subtrees until the parser learns the node kind.
+- Boot re-application (`to_commands`) becomes a pre-order DFS from the root:
+  today it emits all projects flat as Desktop-children, which would re-parent
+  nothing under slot content; a slot's parent matrix must exist before the
+  slot is added under it.
 
 ## 4. Layout: full-size nested scenes, scaled presentation
 
@@ -123,6 +131,15 @@ Key sub-points that scan of the current code surfaced:
   the `ChangeSurface` only carries actually-dirtied targets, so a pruned
   subtree that changes nothing costs nothing; the renderer's per-visual
   0-alpha early-out is the standing residual.
+- Prune from below, not at the slot edge: the project target inside a
+  project-occupied slot stays visible (scaled, header included) and the
+  visible=false edge sits at its matrix children's *contents* — otherwise
+  the AND-chain from the slot placement would hide the slot presentation
+  itself.
+- Spacing: each nesting level applies `PROJECT_PADDING` + header spacing in
+  its own container; decide whether the root project's container keeps the
+  old Desktop `SECTION_SPACING` rhythm between top-level cells when step 4
+  lands.
 
 ## 5. Focus depth and navigation
 
@@ -140,9 +157,22 @@ Key sub-points that scan of the current code surfaced:
   project → focus the nested project (entering at its `Project` depth).
 - `ZoomOut` from a nested project lands at the parent's Slot depth; the
   focused project re-derives to the parent.
+- `project_of_target` at the root answers the root project's id (not `None`)
+  — the desktop arm disappears; the derived focused-project walk depends on
+  this at the ladder floor.
+- Keyboard navigation: navigating onto a project slot focuses the nested
+  `Project` target (the focused project re-derives); cross-project vertical
+  overflow becomes sibling-slot navigation through the *parent* slot's
+  sibling sequence (column affinity semantics unchanged).
 - Camera resolution: the camera fits the *scaled* rect of a nested
   presentation directly, like any other content — no composed per-level
   camera math. Focused-project cameras per existing per-depth code.
+- Overview rect math is presentation-scale aware: `target_rect`/
+  `project_rect`/`matrix_row_rect` read origin-space rects that carry the
+  slot's presentation scale; rect math that unions nested bounds must account
+  for the scale, and `with_desktop_width` (Row/Project rect widening for
+  cross-project panning) re-derives its extent from the focused project's
+  parent-matrix width — the root extends to its own width.
 - Indicator: 5 labels, `Project / Row / Slot / Instance / Full Screen`.
 
 ## 6. Interaction
@@ -165,6 +195,9 @@ Key sub-points that scan of the current code surfaced:
   project's subtree is nested into a synthesized launcher-named slot (slot
   name = old project name) appended to the root matrix. Old `startup "name"`
   resolves against the migrated tree, else fallback.
+- The fallback boot launcher is the nearest launcher slot by depth-first walk
+  from the root — not a flat first-across-projects scan — so a root whose
+  slots are all nested projects boots correctly (legal config).
 - Migration is a parse-time transformation of both the aggregate and the
   in-memory document; the file itself is only rewritten on the first
   configuration change (Setup does not flush — existing behavior), so a
@@ -173,9 +206,16 @@ Key sub-points that scan of the current code surfaced:
 
 ## 9. Cleanup
 
-- Remove `Desktop` depth from indicator labels, `zoom_navigation.rs`'s
-  desktop camera, `focus_depth_indicator.rs`, `focus_input.rs` floor clamps;
-  update `command.rs` docs and any `DesktopTarget::Desktop` matches.
+- Remove `DesktopTarget::Desktop` / `FocusDepth::Desktop` matches — the
+  enumerated sites: indicator labels, `zoom_navigation.rs`'s desktop camera
+  arm **and** `with_desktop_width`, `focus_depth_indicator.rs`,
+  `focus_input.rs` floor clamps, `command.rs` docs, plus these semantic
+  special-cases: the layout-space root in `place_children_of` /
+  `absolute_placement` (layout root = parentless target, not the Desktop
+  sentinel), the hit-test root and its origin-space branch, the root
+  `LayoutSpec` wrapper, `project_of_target`/focus-path root arms (see step
+  5), `ResizeAll`/`WindowResized` root measure targets, and
+  `AddProject`'s `parent_target` (step 2).
 
 ## Open issues
 
