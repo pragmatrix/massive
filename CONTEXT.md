@@ -61,8 +61,8 @@ The project whose depth ladder the overview depth resolves against. Changed by z
 _Avoid_: current project (ambiguous with the invocation base), active project
 
 **Focus depth**:
-One rung of the overview's depth ladder — Project, Project Row, Slot, Instance, Full Screen — resolved relative to the focused project. The ladder reads outermost first, so a rung's position counts the zoom-ins from the project level. There is no rung above the root project's Project depth; ZoomOut at that floor is a no-op.
-_Avoid_: zoom level (the Zoom commands are retained), Desktop depth (the root is the floor), Row (the rung names the owning project)
+One rung of the overview's depth ladder — Project, Row, Slot, Instance, Full Screen — resolved relative to the focused project. The ladder reads outermost first, so a rung's position counts the zoom-ins from the project level. There is no rung above the root project's Project depth; ZoomOut at that floor is a no-op.
+_Avoid_: zoom level (the Zoom commands are retained), Desktop depth (the root is the floor)
 
 **Navigate**:
 Directional movement of keyboard focus (or the overview target) one step from the current position, driven by an arrow key.
