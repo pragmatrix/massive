@@ -11,7 +11,7 @@ use massive_layout::{
 
 use super::{Aggregates, DesktopTarget, FocusDepth, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
-use crate::projects::{CHILD_SPACING, LauncherMode, ProjectId};
+use crate::projects::{ProjectId, launcher_mode};
 
 const SECTION_SPACING: u32 = 20;
 const PROJECT_PADDING: u32 = 10;
@@ -92,13 +92,10 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
 
         match id {
             DesktopTarget::Launcher(launcher_id) => {
-                // Only visor launchers take the fixed panel extent; band panels measure
-                // from their children like any other container.
-                let panel_measure: Option<Size<2>> =
-                    match self.aggregates.configuration[*launcher_id].mode {
-                        LauncherMode::Band => None,
-                        LauncherMode::Visor => Some(self.default_panel_size.into()),
-                    };
+                let panel_measure: Option<Size<2>> = launcher_mode::panel_measurement(
+                    self.aggregates.configuration[*launcher_id].mode,
+                    self.default_panel_size,
+                );
                 panel_measure
                     .map(Into::into)
                     .unwrap_or_else(|| self.measure_via_layout_spec(id, &child_sizes).into())
@@ -274,23 +271,17 @@ impl DesktopLayoutAlgorithm<'_> {
             })
             .is_some();
 
-        // The band/visor split is a configuration question; the visor branch stays on the
+        // The pack decision is a mode policy; the visor branch stays on the
         // presenter because it places children around the presenter's focus anchor.
-        match self.aggregates.configuration[*launcher_id].mode {
-            LauncherMode::Band => place_container_children(
-                LayoutAxis::HORIZONTAL,
-                CHILD_SPACING,
-                Offset::default(),
-                child_sizes,
-            ),
-            LauncherMode::Visor => launcher.place_visor_panel_children(
-                Offset::default(),
-                child_sizes,
-                &child_instances,
-                expanded,
-                self.default_panel_size,
-            ),
-        }
+        launcher_mode::place_panel_children(
+            self.aggregates.configuration[*launcher_id].mode,
+            launcher,
+            Offset::default(),
+            child_sizes,
+            &child_instances,
+            expanded,
+            self.default_panel_size,
+        )
     }
 
     fn place_instance_children(

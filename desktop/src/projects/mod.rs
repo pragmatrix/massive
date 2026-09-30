@@ -1,4 +1,5 @@
 mod configuration;
+pub mod launcher_mode;
 mod launcher_presenter;
 pub(crate) mod persistence;
 mod project_presenter;

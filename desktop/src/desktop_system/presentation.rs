@@ -10,7 +10,7 @@ use super::change::{Changes, DesktopChange, TopologyChange};
 use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
-use crate::projects::LaunchProfileId;
+use crate::projects::{LaunchProfileId, launcher_mode};
 
 use super::DesktopSystem;
 
@@ -35,18 +35,13 @@ impl DesktopSystem {
                 .launchers
                 .get(&launcher_id)
                 .expect("Launcher not found");
-            // Whether instances draw on the launcher's background is a configuration
-            // (mode) question; the presenter only owns the location and fade state.
-            let render_instance_background = match self
-                .aggregates
-                .configuration
-                .launcher(launcher_id)
-                .expect("Launcher not found")
-                .mode
-            {
-                crate::projects::LauncherMode::Band => false,
-                crate::projects::LauncherMode::Visor => true,
-            };
+            let render_instance_background = launcher_mode::renders_instance_background(
+                self.aggregates
+                    .configuration
+                    .launcher(launcher_id)
+                    .expect("Launcher not found")
+                    .mode,
+            );
             (render_instance_background, launcher.location())
         };
 

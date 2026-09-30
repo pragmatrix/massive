@@ -5,7 +5,7 @@ use massive_layout::Placement;
 use massive_renderer::RenderGeometry;
 use massive_scene::LocationSpace;
 
-use crate::projects::{DesktopConfiguration, LaunchProfileId, LauncherMode, LauncherPresenter};
+use crate::projects::{DesktopConfiguration, LaunchProfileId, LauncherPresenter, launcher_mode};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {
@@ -100,12 +100,10 @@ impl<'a> AggregateHitTester<'a> {
         let mut topmost_hit: Option<HitTestResult> = None;
 
         for launcher_id in self.launchers.keys() {
-            // Only visor launchers let their child panels be hit outside the launcher's
-            // own rect; that policy is a configuration (mode) question.
             let Some(launcher) = self.configuration.launcher(*launcher_id) else {
                 continue;
             };
-            if launcher.mode != LauncherMode::Visor {
+            if !launcher_mode::includes_overflow_children_in_hit_testing(launcher.mode) {
                 continue;
             }
 

@@ -17,7 +17,7 @@ use crate::desktop_system::change::Zoom;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
-use crate::projects::{LaunchProfileId, LauncherMode};
+use crate::projects::{LaunchProfileId, launcher_mode};
 
 impl DesktopSystem {
     // This processes input events and converts it to a set of commands.
@@ -114,9 +114,9 @@ impl DesktopSystem {
         self.aggregates
             .configuration
             .launcher(launcher_id)
-            // Whether keyboard focus inside the panel re-runs the layout is a configuration
-            // (mode) question, weighted by the presenter-side instance count.
-            .filter(|launcher| launcher.mode == LauncherMode::Visor && instance_count > 1)
+            .filter(|launcher| {
+                launcher_mode::relayouts_on_keyboard_focus(launcher.mode, instance_count)
+            })
             .map(|_| launcher_id)
     }
 
