@@ -416,7 +416,7 @@ fn launcher_commands(
         project,
         id: launcher.id,
         profile: launcher.profile(),
-        placement: launcher.placement(),
+        placement: launcher.matrix_placement(),
     });
 }
 
@@ -524,7 +524,9 @@ impl Launcher {
         }
     }
 
-    pub fn placement(&self) -> MatrixPlacement {
+    /// The launcher's matrix placement, `matrix_` to distinguish it from the
+    /// layout `Placement` other types carry under the same name.
+    pub fn matrix_placement(&self) -> MatrixPlacement {
         self.placement
     }
 

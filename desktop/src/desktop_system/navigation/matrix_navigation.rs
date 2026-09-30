@@ -90,7 +90,7 @@ impl<'a> MatrixNavigation<'a> {
             .iter()
             .map(|launcher| MatrixEntry {
                 key: launcher.id,
-                placement: launcher.placement(),
+                placement: launcher.matrix_placement(),
             })
             .collect()
     }

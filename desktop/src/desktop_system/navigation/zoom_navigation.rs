@@ -65,7 +65,7 @@ impl DesktopSystem {
                 .map(|instance_id| {
                     let presentation = self.resolve_instance_presentation(instance_id, window_size);
                     let transform = self
-                        .matrix_placement_of(&DesktopTarget::Instance(instance_id))
+                        .placement(&DesktopTarget::Instance(instance_id))
                         .transform;
                     let distance =
                         Self::fit_letterbox_distance(presentation.layout_size(), window_size);
@@ -133,7 +133,7 @@ impl DesktopSystem {
         let transforms: Vec<Transform> = instances
             .iter()
             .map(|instance| {
-                self.matrix_placement_of(&DesktopTarget::Instance(*instance))
+                self.placement(&DesktopTarget::Instance(*instance))
                     .transform
             })
             .collect();
@@ -197,7 +197,7 @@ impl DesktopSystem {
         let mut rect: Option<Rect> = None;
 
         for launcher in self.aggregates.configuration.launchers_ordered(project_id) {
-            let candidate = launcher.placement();
+            let candidate = launcher.matrix_placement();
 
             if candidate.row != row {
                 continue;
@@ -239,7 +239,7 @@ impl DesktopSystem {
     }
 
     fn target_rect(&self, target: &DesktopTarget) -> Rect {
-        let placement = self.matrix_placement_of(target);
+        let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
         let local_rect = size.to_rect();
@@ -250,7 +250,7 @@ impl DesktopSystem {
     }
 
     fn target_bounds(&self, target: &DesktopTarget) -> OverviewBounds {
-        let placement = self.matrix_placement_of(target);
+        let placement = self.placement(target);
         let rect_px: RectPx = placement.rect.into();
         let size = Rect::from(rect_px).size();
         // `placement.transform` is anchor-space for this target. Convert to origin-space

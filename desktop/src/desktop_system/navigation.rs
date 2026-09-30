@@ -219,7 +219,7 @@ impl DesktopSystem {
     ) -> Option<PixelCamera> {
         match focus {
             DesktopTarget::Desktop => {
-                let placement = self.matrix_placement_of(&DesktopTarget::Desktop);
+                let placement = self.placement(&DesktopTarget::Desktop);
                 let rect: RectPx = placement.rect.into();
                 let rect: Rect = rect.into();
                 let size = rect.size();
@@ -234,12 +234,12 @@ impl DesktopSystem {
             | DesktopTarget::ProjectHeader(_)
             | DesktopTarget::ProjectMatrix(_)
             | DesktopTarget::Launcher(_) => {
-                let transform = self.matrix_placement_of(focus).transform;
+                let transform = self.placement(focus).transform;
                 Some(Self::camera_from_placement(transform))
             }
             DesktopTarget::Instance(instance_id) => {
                 let transform = self
-                    .matrix_placement_of(&DesktopTarget::Instance(*instance_id))
+                    .placement(&DesktopTarget::Instance(*instance_id))
                     .transform;
                 Some(Self::camera_from_placement(transform))
             }
