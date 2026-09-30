@@ -222,7 +222,9 @@ fn add_project(
     id: ProjectId,
     name: &str,
 ) -> Result<()> {
-    // Match the spacing of the existing projects (blank lines and all).
+    // Match the spacing between the existing projects, without the comments: a
+    // comment rides on the preceding node's leading and belongs to it, so
+    // copying it wholesale would repeat the comment before the appended node.
     let leading = document
         .nodes()
         .iter()
@@ -230,6 +232,7 @@ fn add_project(
         .find(|node| node.name().value() == "project")
         .and_then(|node| node.format())
         .map(|format| format.leading.clone())
+        .map(|leading| whitespace_leading(&leading))
         .unwrap_or_default();
 
     let mut node = KdlNode::new("project");
@@ -279,7 +282,15 @@ fn add_launcher(
     let project_indent = node_indent(project_node);
     let children = project_node.ensure_children();
 
-    let launcher_indent = sibling_leading(children).unwrap_or_else(|| project_indent + "    ");
+    // As in `add_project`: keep the sibling spacing, drop the comment lines —
+    // a comment above the last child belongs to that child, not to the node
+    // appended after it.
+    let launcher_indent = children
+        .nodes()
+        .last()
+        .and_then(|node| node.format())
+        .map(|format| whitespace_leading(&format.leading))
+        .unwrap_or_else(|| project_indent + "    ");
     let mut node = launcher_node(name, mode, params, placement, launcher_indent);
     tags.tag_launcher(id, &mut node);
     children.nodes_mut().push(node);
@@ -322,14 +333,13 @@ fn remove_launcher(
     bail!("launcher {launcher:?} has no document node")
 }
 
-/// The `leading` formatting of the last child, so appended nodes keep the block's
-/// spacing (blank lines and indentation).
-fn sibling_leading(children: &KdlDocument) -> Option<String> {
-    children
-        .nodes()
-        .last()
-        .and_then(|node| node.format())
-        .map(|format| format.leading.clone())
+/// The `leading` of a node without its comment lines: the whitespace-only
+/// spacing to give a node appended after it (blank lines and indentation).
+fn whitespace_leading(leading: &str) -> String {
+    leading
+        .split_inclusive('\n')
+        .filter(|line| !line.trim_start().starts_with("//"))
+        .collect()
 }
 
 /// The indent of a node's own `leading`: the text after its last newline.

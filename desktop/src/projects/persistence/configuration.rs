@@ -112,7 +112,9 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::projects::ProjectId;
+    use crate::projects::{
+        LaunchProfile, LaunchProfileId, LauncherMode, MatrixPlacement, Params, ProjectId,
+    };
 
     /// A document and its derived live model, parsed directly from text — no
     /// temp file needed.
@@ -185,6 +187,80 @@ project "work" {
         let digits = text.matches(|c: char| c.is_ascii_digit()).count();
         assert_eq!(digits, 0, "unexpected document: {text}");
         assert!(text.contains("extra") && !text.contains("work"));
+        Ok(())
+    }
+
+    /// An added launcher copies only the whitespace part of its siblings'
+    /// spacing: a comment riding on the last child's leading belongs to that
+    /// child and must not repeat before the appended node.
+    #[test]
+    fn adding_a_launcher_does_not_copy_the_comments_before_its_sibling() -> Result<()> {
+        let (mut document, configuration) = loaded(
+            r#"
+project "work" {
+    launcher "first" column=0 row=0
+
+    // dedicated to first
+    launcher "second" column=1 row=0
+}
+"#,
+        )?;
+        let project = configuration.projects()[0].id;
+        let launcher = LaunchProfileId::new();
+
+        document.apply(ConfigurationChange::AddLauncher {
+            project,
+            id: launcher,
+            profile: LaunchProfile {
+                name: "third".into(),
+                mode: LauncherMode::Visor,
+                params: Params::new(),
+            },
+            placement: MatrixPlacement { column: 2, row: 0 },
+        })?;
+
+        let text = document.document.to_string();
+        let comment_count = text.matches("// dedicated to first").count();
+        assert_eq!(comment_count, 1, "unexpected document: {text}");
+        assert!(
+            text.matches("launcher ").count() == 3,
+            "unexpected document: {text}"
+        );
+        assert!(text.contains("third"), "unexpected document: {text}");
+        Ok(())
+    }
+
+    /// The same for projects: the comment block above the last project stays
+    /// that project's own; the appended project gets only the blank line.
+    #[test]
+    fn adding_a_project_does_not_copy_the_comments_before_its_sibling() -> Result<()> {
+        let (mut document, _) = loaded(
+            r#"
+project "first" {
+    launcher "a" column=0 row=0
+}
+
+// dedicated to first project
+project "second" {
+    launcher "b" column=0 row=0
+}
+"#,
+        )?;
+        let project_id = ProjectId::new();
+
+        document.apply(ConfigurationChange::AddProject {
+            id: project_id,
+            name: "third".into(),
+        })?;
+
+        let text = document.document.to_string();
+        let comment_count = text.matches("// dedicated to first project").count();
+        assert_eq!(comment_count, 1, "unexpected document: {text}");
+        assert!(
+            text.matches("project ").count() == 3,
+            "unexpected document: {text}"
+        );
+        assert!(text.contains("third"), "unexpected document: {text}");
         Ok(())
     }
 
