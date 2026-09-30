@@ -15,17 +15,14 @@ use massive_applications::{
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
-use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange};
-use crate::desktop_system::{
-    Commands, DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
-};
+use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
+use crate::projects::DesktopConfiguration;
 use crate::projects::persistence::{self, ConfigurationDocument};
-use crate::projects::{DesktopConfiguration, LaunchProfileId, Launcher, Project, ProjectId};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -121,8 +118,9 @@ impl Desktop {
         // here; `DesktopSystem::new` then takes it over, so the live model's
         // placements come from this same instance the commands were read from.
         let project_setup_commands: Commands =
-            configuration_to_commands(&configuration).map(DesktopCommand::Project);
-        let boot_launcher = boot_launcher(&configuration)
+            configuration.to_commands().map(DesktopCommand::Project);
+        let boot_launcher = configuration
+            .boot_launcher()
             .expect("configuration parsing guarantees at least one launcher");
 
         let mut system =
@@ -455,58 +453,4 @@ struct WindowContext<'a> {
     window: &'a ShellWindow,
     presentation_state: &'a mut WindowPresentationState,
     renderer: &'a mut AsyncWindowRenderer,
-}
-
-/// The launcher the session boots into: the configuration's startup launcher, or the
-/// first launcher of the projects when no `startup` node names one. `None` is
-/// unreachable for a parsed configuration, whose parse guarantees at least one
-/// launcher.
-fn boot_launcher(configuration: &DesktopConfiguration) -> Option<LaunchProfileId> {
-    configuration.startup().or_else(|| {
-        configuration
-            .projects()
-            .iter()
-            .flat_map(|project| project.launchers().iter())
-            .next()
-            .map(|launcher| launcher.id)
-    })
-}
-
-fn configuration_to_commands(
-    configuration: &DesktopConfiguration,
-) -> CollectingVec<ProjectCommand> {
-    let mut commands = CollectingVec::Empty;
-
-    commands.push(ProjectCommand::SetStartupLauncher(configuration.startup()));
-
-    for project in configuration.projects() {
-        project_commands(project, &mut commands);
-    }
-
-    commands
-}
-
-fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
-    commands.push(ProjectCommand::AddProject {
-        id: project.id,
-        name: project.name.clone(),
-        after: None,
-    });
-
-    for launcher in project.launchers() {
-        launcher_commands(project.id, launcher, commands);
-    }
-}
-
-fn launcher_commands(
-    project: ProjectId,
-    launcher: &Launcher,
-    commands: &mut CollectingVec<ProjectCommand>,
-) {
-    commands.push(ProjectCommand::AddLauncher {
-        project,
-        id: launcher.id,
-        profile: launcher.profile(),
-        placement: launcher.placement(),
-    })
 }

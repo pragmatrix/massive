@@ -199,7 +199,11 @@ impl DesktopSystem {
         let mut changes = Changes::Empty;
         match command {
             ProjectCommand::AddProject { id, name, after } => {
-                let name = self.default_project_name(id, &name);
+                let name = self.aggregates.configuration.new_project_name(
+                    id,
+                    DEFAULT_NEW_PROJECT_NAME,
+                    &name,
+                );
                 let parent_target = DesktopTarget::Desktop;
                 let project_target = DesktopTarget::Project(id);
 
@@ -245,7 +249,11 @@ impl DesktopSystem {
                 placement,
             } => {
                 let profile = LaunchProfile {
-                    name: self.default_launcher_name(launch_profile_id, &profile.name),
+                    name: self.aggregates.configuration.new_launcher_name(
+                        launch_profile_id,
+                        DEFAULT_NEW_LAUNCHER_NAME,
+                        &profile.name,
+                    ),
                     ..profile
                 };
                 let mut launchers = self.aggregates.hierarchy.matrix_launchers(project);
@@ -315,46 +323,6 @@ impl DesktopSystem {
         Ok(changes)
     }
 
-    /// Names a new project: a default name gets the lowest index not already in
-    /// use, while a user-chosen name is taken as it is — duplicate names are
-    /// allowed. An id the configuration already holds is the boot flow re-applying
-    /// the names it parsed, which must pass through unchanged.
-    fn default_project_name(&self, id: ProjectId, name: &str) -> String {
-        if name != DEFAULT_NEW_PROJECT_NAME || self.aggregates.configuration.project(id).is_some() {
-            return name.to_string();
-        }
-        let existing: Vec<&str> = self
-            .aggregates
-            .configuration
-            .projects()
-            .iter()
-            .map(|project| project.name.as_str())
-            .collect();
-        indexed_default_name(name, &existing)
-    }
-
-    /// The launcher counterpart of [`Self::default_project_name`], indexed among the
-    /// siblings of the launcher's project.
-    fn default_launcher_name(&self, id: LaunchProfileId, name: &str) -> String {
-        if name != DEFAULT_NEW_LAUNCHER_NAME || self.aggregates.configuration.launcher(id).is_some()
-        {
-            return name.to_string();
-        }
-        let existing: Vec<&str> = self
-            .aggregates
-            .configuration
-            .project_of_launcher(id)
-            .map(|project| {
-                project
-                    .launchers()
-                    .iter()
-                    .map(|launcher| launcher.name.as_str())
-                    .collect()
-            })
-            .unwrap_or_default();
-        indexed_default_name(name, &existing)
-    }
-
     /// The project owning the keyboard-focused launcher, when it is still in the
     /// configuration.
     fn focused_project(&self) -> Option<ProjectId> {
@@ -365,45 +333,14 @@ impl DesktopSystem {
             .filter(|project| self.aggregates.configuration.project(*project).is_some())
     }
 
-    /// The project called `name` that sits nearest — in document order — to the
-    /// focused launcher's project. Duplicate names address the nearest, and with no
-    /// focus or name in it the first match answers; `None` when no project is so
-    /// named.
-    fn nearest_project(&self, name: &str) -> Option<ProjectId> {
-        let projects = self.aggregates.configuration.projects();
-        let focused = self
-            .focused_project()
-            .and_then(|project| self.aggregates.configuration.project_index(project));
-        projects
-            .iter()
-            .enumerate()
-            .filter(|(_, project)| project.name == name)
-            .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id))
-            .min_by_key(|(distance, _)| *distance)
-            .map(|(_, id)| id)
-    }
-
-    /// The launcher called `name` in `project` that sits nearest — in matrix
-    /// distance — to the keyboard-focused launcher. Duplicate names address the
-    /// nearest, and with no focused launcher in `project` the first match answers;
-    /// `None` when no launcher of `project` is so named.
-    fn nearest_launcher(&self, project: ProjectId, name: &str) -> Option<LaunchProfileId> {
-        let focused = self
-            .event_router
-            .keyboard_focus()
-            .and_then(|focused| self.aggregates.hierarchy.launcher_of_target(focused))
-            .filter(|launcher| self.aggregates.hierarchy.project_of_launcher(*launcher) == project)
-            .and_then(|launcher| self.aggregates.configuration.launcher_index(launcher));
-        let focused = focused.unwrap_or(0);
+    /// The launcher holding keyboard focus, when it is still in the configuration.
+    fn focused_launcher(&self) -> Option<LaunchProfileId> {
+        let focused = self.event_router.keyboard_focus()?;
+        let launcher = self.aggregates.hierarchy.launcher_of_target(focused)?;
         self.aggregates
             .configuration
-            .launchers_sorted(project)
-            .iter()
-            .enumerate()
-            .filter(|(_, launcher)| launcher.name == name)
-            .map(|(index, launcher)| (index.abs_diff(focused), launcher.id))
-            .min_by_key(|(distance, _)| *distance)
-            .map(|(_, id)| id)
+            .launcher(launcher)
+            .map(|_| launcher)
     }
 
     fn plan_project_removal_focus(&self, project: ProjectId) -> Changes {
@@ -863,13 +800,19 @@ impl DesktopSystem {
             }
             ConfigurationRequest::RemoveProject { name } => {
                 let project = match name {
-                    Some(name) => match self.nearest_project(name) {
-                        Some(project) => project,
-                        None => {
-                            warn!("Project '{name}' not found");
-                            return Ok(ChangeOutput::default());
+                    Some(name) => {
+                        match self
+                            .aggregates
+                            .configuration
+                            .nearest_project(name, self.focused_project())
+                        {
+                            Some(project) => project,
+                            None => {
+                                warn!("Project '{name}' not found");
+                                return Ok(ChangeOutput::default());
+                            }
                         }
-                    },
+                    }
                     None => current_project,
                 };
 
@@ -905,7 +848,11 @@ impl DesktopSystem {
                 let launcher = match name {
                     Some(name) => {
                         // ADR, stay on the project for now.
-                        match self.nearest_launcher(current_project, name) {
+                        match self.aggregates.configuration.nearest_launcher(
+                            current_project,
+                            name,
+                            self.focused_launcher(),
+                        ) {
                             Some(launcher) => launcher,
                             None => {
                                 warn!("Launcher '{name}' not found in the current project");
@@ -1012,17 +959,3 @@ impl DesktopSystem {
 
 const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
 const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
-
-/// The default name with the lowest index that is not already taken among
-/// `existing`. The index only disambiguates the default name; the number is
-/// reused once a previous holder is renamed or removed.
-fn indexed_default_name(name: &str, existing: &[&str]) -> String {
-    let mut index = 2;
-    loop {
-        let candidate = format!("{name} {index}");
-        if !existing.contains(&candidate.as_str()) {
-            return candidate;
-        }
-        index += 1;
-    }
-}

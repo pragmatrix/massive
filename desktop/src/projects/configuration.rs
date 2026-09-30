@@ -9,6 +9,9 @@ use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use massive_applications::MoveDirection;
+use massive_util::CollectingVec;
+
+use crate::desktop_system::ProjectCommand;
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
@@ -49,10 +52,6 @@ impl DesktopConfiguration {
 
     pub fn projects(&self) -> &[Project] {
         &self.projects
-    }
-
-    pub fn startup(&self) -> Option<LaunchProfileId> {
-        self.startup
     }
 
     // --- Mutation API ---
@@ -195,6 +194,110 @@ impl DesktopConfiguration {
             .and_then(|project| project.launcher(launcher))
     }
 
+    /// The launcher the session boots into: the startup launcher, or the first
+    /// launcher of the projects when no `startup` node names one. `None` is
+    /// unreachable for a parsed configuration, whose parse guarantees at least
+    /// one launcher.
+    pub fn boot_launcher(&self) -> Option<LaunchProfileId> {
+        self.startup.or_else(|| {
+            self.projects
+                .iter()
+                .flat_map(|project| project.launchers.iter())
+                .next()
+                .map(|launcher| launcher.id)
+        })
+    }
+
+    /// The boot commands that rebuild the scene from the aggregate: one per
+    /// project and launcher, in document order.
+    pub fn to_commands(&self) -> CollectingVec<ProjectCommand> {
+        let mut commands = CollectingVec::Empty;
+
+        commands.push(ProjectCommand::SetStartupLauncher(self.startup));
+
+        for project in &self.projects {
+            project_commands(project, &mut commands);
+        }
+
+        commands
+    }
+
+    /// Names a new project: a default name gets the lowest index not already in
+    /// use, while a user-chosen name is taken as it is — duplicate names are
+    /// allowed. An id the configuration already holds is the boot flow re-applying
+    /// the names it parsed, which must pass through unchanged.
+    pub fn new_project_name(&self, id: ProjectId, default_name: &str, name: &str) -> String {
+        if name != default_name || self.project(id).is_some() {
+            return name.to_string();
+        }
+        let existing: Vec<&str> = self
+            .projects
+            .iter()
+            .map(|project| project.name.as_str())
+            .collect();
+        indexed_default_name(name, &existing)
+    }
+
+    /// The launcher counterpart of [`Self::new_project_name`], indexed among the
+    /// siblings of the launcher's project.
+    pub fn new_launcher_name(&self, id: LaunchProfileId, default_name: &str, name: &str) -> String {
+        if name != default_name || self.launcher(id).is_some() {
+            return name.to_string();
+        }
+        let existing: Vec<&str> = self
+            .project_of_launcher(id)
+            .map(|project| {
+                project
+                    .launchers
+                    .iter()
+                    .map(|launcher| launcher.name.as_str())
+                    .collect()
+            })
+            .unwrap_or_default();
+        indexed_default_name(name, &existing)
+    }
+
+    /// The project called `name` that sits nearest — in document order — to the
+    /// focused project. Duplicate names address the nearest, and with no focused
+    /// project or name in it the first match answers; `None` when no project is
+    /// so named.
+    pub fn nearest_project(&self, name: &str, focused: Option<ProjectId>) -> Option<ProjectId> {
+        let focused = focused.and_then(|project| self.project_index(project));
+        self.projects
+            .iter()
+            .enumerate()
+            .filter(|(_, project)| project.name == name)
+            .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id))
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, id)| id)
+    }
+
+    /// The launcher called `name` in `project` that sits nearest — in matrix
+    /// distance — to `focused`. Duplicate names address the nearest, and with no
+    /// focused launcher in `project` the first match answers; `None` when no
+    /// launcher of `project` is so named.
+    pub fn nearest_launcher(
+        &self,
+        project: ProjectId,
+        name: &str,
+        focused: Option<LaunchProfileId>,
+    ) -> Option<LaunchProfileId> {
+        let focused = focused
+            .filter(|launcher| {
+                self.project_of_launcher(*launcher)
+                    .is_some_and(|owning| owning.id == project)
+            })
+            .and_then(|launcher| self.launcher_index(launcher))
+            .unwrap_or(0);
+        self.launchers_sorted(project)
+            .iter()
+            .enumerate()
+            .filter(|(_, launcher)| launcher.name == name)
+            .map(|(index, launcher)| (index.abs_diff(focused), launcher.id))
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, id)| id)
+    }
+
     /// How many launchers the configuration defines across all projects.
     pub fn launcher_count(&self) -> usize {
         self.projects
@@ -289,6 +392,45 @@ fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfi
         .flat_map(|project| project.launchers.iter())
         .find(|launcher| launcher.name == name)
         .map(|launcher| launcher.id)
+}
+
+fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
+    commands.push(ProjectCommand::AddProject {
+        id: project.id,
+        name: project.name.clone(),
+        after: None,
+    });
+
+    for launcher in project.launchers() {
+        launcher_commands(project.id, launcher, commands);
+    }
+}
+
+fn launcher_commands(
+    project: ProjectId,
+    launcher: &Launcher,
+    commands: &mut CollectingVec<ProjectCommand>,
+) {
+    commands.push(ProjectCommand::AddLauncher {
+        project,
+        id: launcher.id,
+        profile: launcher.profile(),
+        placement: launcher.placement(),
+    });
+}
+
+/// The default name with the lowest index that is not already taken among
+/// `existing`. The index only disambiguates the default name; the number is
+/// reused once a previous holder is renamed or removed.
+fn indexed_default_name(name: &str, existing: &[&str]) -> String {
+    let mut index = 2;
+    loop {
+        let candidate = format!("{name} {index}");
+        if !existing.contains(&candidate.as_str()) {
+            return candidate;
+        }
+        index += 1;
+    }
 }
 
 #[derive(Debug)]
