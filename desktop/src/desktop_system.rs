@@ -292,6 +292,11 @@ impl DesktopSystem {
 
     // Architecture: Is it really necessary to think in terms of transaction, if we update the
     // effects explicitly?
+    //
+    // Not a transaction yet: a change that fails partway leaves the effects
+    // of the earlier changes applied, so the state may be inconsistent
+    // (including the document mirror, which lands before the apply — see the
+    // `DesktopChange::Project` arm in `apply_change`).
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,

@@ -546,6 +546,11 @@ impl DesktopSystem {
             DesktopChange::Project(project_change) => {
                 // A setup change only updates the live model; it must not mirror into
                 // the persisted document.
+                //
+                // The mirror lands before the live model, so a failure below leaves
+                // the in-memory document carrying an edit the model never applied.
+                // This is one of the partial-failure states described on
+                // `DesktopSystem::transact` — not yet a rollback target.
                 if effects_mode != TransactionEffectsMode::Setup {
                     self.configuration.apply(project_change.clone())?;
                 }
