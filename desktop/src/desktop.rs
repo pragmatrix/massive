@@ -15,19 +15,14 @@ use massive_applications::{
 use massive_input::EventManager;
 use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
-use massive_util::CollectingVec;
 
 use crate::DesktopEnvironment;
 use crate::desktop_system::change::{Changes, DesktopChange};
-use crate::desktop_system::{
-    Commands, DesktopCommand, DesktopSystem, ProjectCommand, TransactionEffectsMode,
-};
+use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{
-    LaunchProfile, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Project,
-    ProjectConfiguration, ProjectId, ProjectProperties, ProjectSet,
-};
+use crate::projects::persistence::{self, ConfigurationDocument};
+use crate::projects::{DesktopConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -60,9 +55,7 @@ impl Desktop {
     pub async fn new(env: DesktopEnvironment, context: ApplicationContext) -> Result<Self> {
         // Load configuration
 
-        let projects_dir = env.projects_dir();
-        let project_configuration = ProjectConfiguration::from_dir(projects_dir.as_deref())?;
-        let project_set = ProjectSet::from_configuration(project_configuration)?;
+        let (configuration_document, configuration) = load_configuration(&env)?;
 
         // The desktop task's change queue: installed by the shell's application task context
         // (ADR 0008). Presenters submit their handles through the ambient accessors.
@@ -121,19 +114,23 @@ impl Desktop {
 
         // Initial setup
 
-        let primary_project = primary_project();
-
-        // Architecture: Providing the root group here is conceptually wrong I guess, because it
-        // does not exist yet.
-        let mut system = DesktopSystem::new(env, default_size)?;
-
-        let primary_project_commands = primary_project.commands.map(DesktopCommand::Project);
-
+        // The boot commands derive from the aggregate while it is still owned
+        // here; `DesktopSystem::new` then takes it over, so the live model's
+        // placements come from this same instance the commands were read from.
         let project_setup_commands: Commands =
-            project_set_to_commands(&project_set).map(DesktopCommand::Project);
+            to_commands(&configuration).map(DesktopCommand::Project);
+        let boot_launcher = configuration
+            .boot_launcher()
+            .expect("configuration parsing guarantees at least one launcher");
 
+        let mut system =
+            DesktopSystem::new(env, default_size, configuration_document, configuration)?;
+
+        // The session boots into the startup launcher the configuration names. The
+        // configuration parse guarantees at least one launcher, and no project
+        // command ran yet, so the fallback is the first launcher of it.
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
-            launcher: primary_project.primary_launcher,
+            launcher: boot_launcher,
             instance: primary_instance,
             root: Some(primary_root),
             parameters: InstanceParameters::new(),
@@ -143,8 +140,7 @@ impl Desktop {
         let initial_submission_changes: Changes =
             DesktopChange::IntegrateInstanceSubmission(primary_instance, initial_submission).into();
 
-        let commands =
-            primary_project_commands + project_setup_commands + primary_instance_commands;
+        let commands = project_setup_commands + primary_instance_commands;
 
         let window_state = WindowState::from_window(&window);
 
@@ -366,6 +362,28 @@ impl Desktop {
     }
 }
 
+/// Loads the desktop configuration from the projects directory.
+///
+/// A missing configuration file means "start fresh": the built-in default
+/// configuration is written first, so every later change has a file to be persisted
+/// to. Any other file error fails and aborts desktop startup.
+fn load_configuration(
+    env: &DesktopEnvironment,
+) -> Result<(ConfigurationDocument, DesktopConfiguration)> {
+    let projects_dir = env
+        .projects_dir()
+        .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
+    let configuration_path = projects_dir.join(persistence::CONFIG_FILE_NAME);
+    if !configuration_path.exists() {
+        log::info!(
+            "No configuration at {}, writing the default configuration",
+            configuration_path.display()
+        );
+        persistence::write_default_config(&configuration_path)?;
+    }
+    ConfigurationDocument::load(&configuration_path)
+}
+
 fn handle_instance_ended(
     system: &mut DesktopSystem,
     instance_manager: &mut InstanceManager,
@@ -435,79 +453,4 @@ struct WindowContext<'a> {
     window: &'a ShellWindow,
     presentation_state: &'a mut WindowPresentationState,
     renderer: &'a mut AsyncWindowRenderer,
-}
-
-#[derive(Debug)]
-struct PrimaryProject {
-    primary_launcher: LaunchProfileId,
-    commands: CollectingVec<ProjectCommand>,
-}
-
-fn primary_project() -> PrimaryProject {
-    let mut commands = CollectingVec::default();
-
-    let primary_project = ProjectId::new();
-    let primary_launcher = LaunchProfileId::new();
-
-    commands <<= ProjectCommand::AddProject {
-        id: primary_project,
-        properties: ProjectProperties {
-            name: "Primary / Local".into(),
-        },
-        after: None,
-    };
-
-    commands <<= ProjectCommand::AddLauncher {
-        project: primary_project,
-        id: primary_launcher,
-        profile: LaunchProfile {
-            name: "Primary / Local".into(),
-            mode: LauncherMode::Band,
-            tags: Vec::new(),
-            params: Default::default(),
-        },
-        placement: MatrixPlacement { column: 0, row: 0 },
-    };
-
-    PrimaryProject {
-        primary_launcher,
-        commands,
-    }
-}
-
-fn project_set_to_commands(project_set: &ProjectSet) -> CollectingVec<ProjectCommand> {
-    let mut commands = CollectingVec::Empty;
-
-    commands.push(ProjectCommand::SetStartupProfile(project_set.start));
-
-    for project in &project_set.projects {
-        project_commands(project, &mut commands);
-    }
-
-    commands
-}
-
-fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
-    commands.push(ProjectCommand::AddProject {
-        id: project.id,
-        properties: project.properties.clone(),
-        after: None,
-    });
-
-    for launcher in &project.launchers {
-        launcher_commands(project.id, launcher, commands);
-    }
-}
-
-fn launcher_commands(
-    project: ProjectId,
-    launcher: &Launcher,
-    commands: &mut CollectingVec<ProjectCommand>,
-) {
-    commands.push(ProjectCommand::AddLauncher {
-        project,
-        id: launcher.id,
-        profile: launcher.profile.clone(),
-        placement: launcher.placement,
-    })
 }

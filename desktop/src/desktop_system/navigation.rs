@@ -7,8 +7,9 @@ use massive_scene::prelude::*;
 use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
 use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap};
-use crate::MatrixPositions;
-use crate::projects::{LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId};
+use crate::projects::{
+    DesktopConfiguration, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId,
+};
 
 mod matrix_navigation;
 mod zoom_navigation;
@@ -111,7 +112,7 @@ impl DesktopSystem {
         if let Some(plan) = plan_navigation_candidate(
             &self.aggregates.hierarchy,
             &self.aggregates.launchers,
-            &self.aggregates.matrix_positions,
+            &self.aggregates.configuration,
             &self.navigation_control,
             focused,
             direction,
@@ -131,10 +132,8 @@ impl DesktopSystem {
         launcher: LaunchProfileId,
         focused: &DesktopTarget,
     ) -> DesktopTarget {
-        let matrix_navigation = MatrixNavigation::new(
-            &self.aggregates.hierarchy,
-            &self.aggregates.matrix_positions,
-        );
+        let matrix_navigation =
+            MatrixNavigation::new(&self.aggregates.hierarchy, &self.aggregates.configuration);
         let replacement = [Direction::Right, Direction::Down]
             .into_iter()
             .find_map(|direction| {
@@ -149,7 +148,7 @@ impl DesktopSystem {
         self.restore_launcher_removal_focus_depth(replacement, focused)
     }
 
-    // Robustness: This parallels `normalize_navigation_target`: both turn a launcher into a
+    // Robustness: This parallels `resolve_navigation_focus_target`: both turn a launcher into a
     // concrete focus target. Keep their instance/view selection policies aligned; they may need
     // to be combined once directional navigation also preserves the original focus depth.
     fn restore_launcher_removal_focus_depth(
@@ -274,23 +273,24 @@ impl DesktopSystem {
 fn plan_navigation_candidate(
     hierarchy: &DesktopTopology,
     launchers: &LauncherMap,
-    matrix_positions: &MatrixPositions,
+    configuration: &DesktopConfiguration,
     navigation_control: &NavigationControl,
     from: &DesktopTarget,
     direction: Direction,
 ) -> Option<NavigationPlan> {
     let origin = resolve_navigation_origin(hierarchy, from)?;
-    let origin_placement = navigation_origin_placement(matrix_positions, origin);
+    let origin_placement = navigation_origin_placement(configuration, origin);
     let column_affinity = navigation_control.plan_column_affinity(direction, origin_placement);
-    let matrix_navigation = MatrixNavigation::new(hierarchy, matrix_positions);
+    let matrix_navigation = MatrixNavigation::new(hierarchy, configuration);
     let target = navigate_from_origin(
         matrix_navigation,
-        launchers,
+        configuration,
         origin,
         direction,
         column_affinity,
     )?;
-    let candidate = normalize_navigation_target(hierarchy, launchers, target, direction);
+    let candidate =
+        resolve_navigation_focus_target(hierarchy, launchers, configuration, target, direction);
     Some(NavigationPlan {
         candidate,
         column_affinity,
@@ -320,7 +320,7 @@ fn resolve_navigation_origin(
 }
 
 fn navigation_origin_placement(
-    matrix_positions: &MatrixPositions,
+    configuration: &DesktopConfiguration,
     origin: NavigationOrigin,
 ) -> Option<MatrixPlacement> {
     match origin {
@@ -328,13 +328,13 @@ fn navigation_origin_placement(
         | NavigationOrigin::Child {
             launcher: launcher_id,
             ..
-        } => matrix_positions.get(&launcher_id).copied(),
+        } => configuration.placement_of(launcher_id),
     }
 }
 
 fn navigate_from_origin(
     matrix_navigation: MatrixNavigation<'_>,
-    launchers: &LauncherMap,
+    configuration: &DesktopConfiguration,
     origin: NavigationOrigin,
     direction: Direction,
     preferred_column: Option<u32>,
@@ -344,7 +344,7 @@ fn navigate_from_origin(
             matrix_navigation.navigate_from_launcher(launcher, direction, preferred_column)
         }
         NavigationOrigin::Child { launcher, index } => matrix_navigation.navigate_from_child(
-            launchers,
+            configuration,
             launcher,
             index,
             direction,
@@ -361,15 +361,16 @@ fn navigate_from_origin(
 // Robustness: This parallels `restore_launcher_removal_focus_depth`, which also resolves a
 // launcher to an instance or view. They may need to be combined when directional navigation and
 // launcher removal use the same focus-depth policy.
-fn normalize_navigation_target(
+fn resolve_navigation_focus_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
+    configuration: &DesktopConfiguration,
     target: DesktopTarget,
     direction: Direction,
 ) -> DesktopTarget {
     let target = match target {
         DesktopTarget::Launcher(launcher_id) => {
-            concrete_navigation_target(topology, launchers, launcher_id, direction)
+            concrete_navigation_target(topology, launchers, configuration, launcher_id, direction)
         }
         _ => target,
     };
@@ -385,13 +386,19 @@ fn normalize_navigation_target(
 fn concrete_navigation_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
+    configuration: &DesktopConfiguration,
     launcher_id: LaunchProfileId,
     direction: Direction,
 ) -> DesktopTarget {
-    let (mode, focus_anchor_instance) = match launchers.get(&launcher_id) {
-        Some(launcher) => (launcher.mode(), launcher.focus_anchor_instance),
-        None => return DesktopTarget::Launcher(launcher_id),
+    // The mode is a configuration question; the anchor is presentation state and stays
+    // on the presenter. A launcher absent from either falls back to itself.
+    let Some(launcher) = launchers.get(&launcher_id) else {
+        return DesktopTarget::Launcher(launcher_id);
     };
+    let mode = configuration
+        .launcher(launcher_id)
+        .map_or(LauncherMode::default(), |launcher| launcher.mode);
+    let focus_anchor_instance = launcher.focus_anchor_instance;
 
     let instances = topology.launcher_instances(launcher_id);
     let preferred_index = match (mode, focus_anchor_instance) {

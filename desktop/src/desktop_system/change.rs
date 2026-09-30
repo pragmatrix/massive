@@ -3,19 +3,17 @@ use massive_geometry::{SizePx, Vector3};
 use massive_util::CollectingVec;
 
 use super::KeyboardFocusReason;
+use crate::DesktopTarget;
 use crate::desktop_system::FocusDepth;
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{
-    LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId, ProjectProperties,
-};
-use crate::{DesktopTarget, RemoveSlotShiftingPolicy};
+use crate::projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId};
 
 pub type Changes = CollectingVec<DesktopChange>;
 
 #[derive(Debug)]
 pub enum DesktopChange {
-    Project(ProjectChange),
+    Project(ConfigurationChange),
     // Design: SpawnInstance seems to be completely able to run externally outside of the
     // `DesktopSystem`. May introduce something like outside effects that run when transact returns?
     SpawnInstance {
@@ -61,11 +59,11 @@ pub enum Zoom {
     DefaultForFocused,
 }
 
-#[derive(Debug)]
-pub enum ProjectChange {
+#[derive(Debug, Clone)]
+pub enum ConfigurationChange {
     AddProject {
         id: ProjectId,
-        properties: ProjectProperties,
+        name: String,
     },
     RemoveProject(ProjectId),
     AddLauncher {
@@ -79,12 +77,7 @@ pub enum ProjectChange {
         placement: MatrixPlacement,
     },
     RemoveLauncher(LaunchProfileId),
-    RemoveSlot {
-        project: ProjectId,
-        placement: MatrixPlacement,
-        shifting_policy: RemoveSlotShiftingPolicy,
-    },
-    SetStartupProfile(Option<LaunchProfileId>),
+    SetStartupLauncher(Option<LaunchProfileId>),
 }
 
 /// Constructs the change(s) for a focus transition.
@@ -128,8 +121,8 @@ impl From<TopologyChange> for DesktopChange {
     }
 }
 
-impl From<ProjectChange> for DesktopChange {
-    fn from(value: ProjectChange) -> Self {
+impl From<ConfigurationChange> for DesktopChange {
+    fn from(value: ConfigurationChange) -> Self {
         Self::Project(value)
     }
 }

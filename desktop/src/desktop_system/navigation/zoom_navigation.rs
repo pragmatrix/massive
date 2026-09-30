@@ -102,19 +102,21 @@ impl DesktopSystem {
             return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
         }
 
+        // The band/visor camera split follows the configuration's mode; a launcher
+        // outside the configuration falls through to the visor camera, the default mode.
         match self
             .aggregates
-            .launchers
-            .get(&launcher_id)
-            .map(|launcher| launcher.mode())
+            .configuration
+            .launcher(launcher_id)
+            .map(|launcher| launcher.mode)
         {
             // Band panels are flat axis-aligned rects (no yaw, z = 0): the simple letterbox fit
             // the rows and projects use.
             Some(LauncherMode::Band) => {
                 self.camera_for_rect(self.fold_instance_rect(instances), window_size)
             }
-            // The arc camera is visor-specific; a missing presenter falls through to it, the
-            // default mode.
+            // The arc camera is visor-specific; a launcher missing from the configuration falls
+            // through to it, the default mode.
             Some(LauncherMode::Visor) | None => self.camera_for_visor_arc(instances, window_size),
         }
     }
@@ -191,19 +193,17 @@ impl DesktopSystem {
 
     pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
         let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id);
-        let row = self.aggregates.matrix_positions.get(&launcher_id)?.row;
+        let row = self.aggregates.configuration.placement_of(launcher_id)?.row;
         let mut rect: Option<Rect> = None;
 
-        for candidate_launcher in self.aggregates.hierarchy.matrix_launchers(project_id) {
-            let Some(candidate) = self.aggregates.matrix_positions.get(&candidate_launcher) else {
-                continue;
-            };
+        for launcher in self.aggregates.configuration.launchers_ordered(project_id) {
+            let candidate = launcher.matrix_placement();
 
             if candidate.row != row {
                 continue;
             }
 
-            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(candidate_launcher));
+            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(launcher.id));
 
             rect = Some(match rect {
                 Some(existing) => existing.joined(launcher_rect),

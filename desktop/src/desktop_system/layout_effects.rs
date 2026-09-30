@@ -60,23 +60,27 @@ impl DesktopSystem {
 
     fn window_title(&self, terminal_title: String) -> String {
         let focused = self.event_router.keyboard_focus();
+        // Window title suffixes are configuration names, read from the aggregate, not
+        // from presenters.
         let launcher = focused
             .and_then(|target| self.aggregates.hierarchy.launcher_of_target(target))
             .map(|id| {
                 self.aggregates
-                    .launchers
-                    .get(&id)
-                    .map(|launcher| launcher.name())
+                    .configuration
+                    .launcher(id)
                     .expect("Focused launcher has no presenter")
+                    .name
+                    .as_str()
             });
         let project = focused
             .and_then(|target| self.aggregates.hierarchy.project_of_target(target))
             .map(|id| {
                 self.aggregates
-                    .projects
-                    .get(&id)
-                    .map(|project| project.name())
+                    .configuration
+                    .project(id)
                     .expect("Focused project has no presenter")
+                    .name
+                    .as_str()
             });
 
         let mut title = if terminal_title.is_empty() {

@@ -10,7 +10,7 @@ use super::change::{Changes, DesktopChange, TopologyChange};
 use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::{InstancePresenter, InstanceRoot};
-use crate::projects::LaunchProfileId;
+use crate::projects::{LaunchProfileId, launcher_mode};
 
 use super::DesktopSystem;
 
@@ -23,7 +23,7 @@ pub struct OriginationDetails {
 impl DesktopSystem {
     pub(super) fn present_instance(
         &mut self,
-        launcher: LaunchProfileId,
+        launcher_id: LaunchProfileId,
         initial_center_translation: Option<Vector3>,
         instance: InstanceId,
         root: InstanceRoot,
@@ -33,12 +33,16 @@ impl DesktopSystem {
             let launcher = self
                 .aggregates
                 .launchers
-                .get(&launcher)
+                .get(&launcher_id)
                 .expect("Launcher not found");
-            (
-                launcher.should_render_instance_background(),
-                launcher.location(),
-            )
+            let render_instance_background = launcher_mode::renders_instance_background(
+                self.aggregates
+                    .configuration
+                    .launcher(launcher_id)
+                    .expect("Launcher not found")
+                    .mode,
+            );
+            (render_instance_background, launcher.location())
         };
 
         let presenter = InstancePresenter::new(
@@ -55,7 +59,7 @@ impl DesktopSystem {
         // Inform the launcher to fade out.
         self.aggregates
             .launchers
-            .get_mut(&launcher)
+            .get_mut(&launcher_id)
             .expect("Launcher not found")
             .fade_out();
 

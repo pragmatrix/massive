@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::warn;
 
-use super::{Commands, DesktopSystem, DesktopTarget};
+use super::{Aggregates, Commands, DesktopSystem, DesktopTarget};
 use crate::event_router::EventTransitions;
 use crate::focus_path::PathResolver;
 use crate::instance_manager::InstanceManager;
@@ -43,12 +43,16 @@ impl DesktopSystem {
         // Route to the appropriate handler based on the last target in the path
         match target {
             DesktopTarget::Launcher(launcher_id) => {
-                let launcher = self
-                    .aggregates
-                    .launchers
-                    .get_mut(&launcher_id)
-                    .expect("Launcher not found");
-                return launcher.process(event);
+                // The configuration (params) and the presenter are separate fields of the
+                // same aggregate struct, so split borrows keep both readable in one call.
+                let Aggregates {
+                    launchers,
+                    configuration,
+                    ..
+                } = &mut self.aggregates;
+                let params = &configuration[launcher_id];
+                let launcher = launchers.get_mut(&launcher_id).expect("Launcher not found");
+                return launcher.process(event, &params.params);
             }
             DesktopTarget::View(view_id) => {
                 let path = self

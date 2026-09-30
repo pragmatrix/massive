@@ -33,7 +33,7 @@ task_local! {
     static CHANGES: AnyCollector;
     static ANIMATION: RefCell<AnimationState>;
     // `Option` so an owning `Shaper` can move the context out and restore it on drop;
-    // `fonts()` borrows the slot in place instead, so a manager read never mints a handle.
+    // `fonts()` borrows the slot in place instead, so a manager read never creates a handle.
     static SHAPER: RefCell<Option<ShapingContext>>;
 }
 

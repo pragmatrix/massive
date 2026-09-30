@@ -60,8 +60,11 @@ use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
-use crate::projects::{LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter};
-use crate::{DesktopEnvironment, EventRouter, Map, MatrixPositions, OrderedHierarchy};
+use crate::projects::persistence;
+use crate::projects::{
+    DesktopConfiguration, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
+};
+use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 /// This enum specifies a unique target inside the navigation and layout history.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -208,6 +211,11 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
+    /// The persisted desktop configuration; edited surgically and written on every
+    /// configuration change.
+    #[debug(skip)]
+    configuration: persistence::ConfigurationDocument,
+
     focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
@@ -220,31 +228,36 @@ pub type LauncherMap = Map<LaunchProfileId, LauncherPresenter>;
 struct Aggregates {
     hierarchy: OrderedHierarchy<DesktopTarget>,
 
-    startup_profile: Option<LaunchProfileId>,
-
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: LauncherMap,
-    matrix_positions: MatrixPositions,
+    configuration: DesktopConfiguration,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
 impl Aggregates {
-    pub fn new(hierarchy: OrderedHierarchy<DesktopTarget>) -> Self {
+    pub fn new(
+        hierarchy: OrderedHierarchy<DesktopTarget>,
+        configuration: DesktopConfiguration,
+    ) -> Self {
         Self {
             hierarchy,
-            startup_profile: None,
             projects: Map::default(),
 
             launchers: Map::default(),
-            matrix_positions: MatrixPositions::default(),
+            configuration,
             instances: Map::default(),
         }
     }
 }
 
 impl DesktopSystem {
-    pub fn new(env: DesktopEnvironment, default_panel_size: SizePx) -> Result<Self> {
+    pub fn new(
+        env: DesktopEnvironment,
+        default_panel_size: SizePx,
+        configuration: persistence::ConfigurationDocument,
+        aggregate: DesktopConfiguration,
+    ) -> Result<Self> {
         // Architecture: This is a direct requirement from the project presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let (_, location) = identity_location().submit();
@@ -267,10 +280,11 @@ impl DesktopSystem {
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
+            configuration,
 
             focus_depth_indicator,
             desktop_presenter,
-            aggregates: Aggregates::new(OrderedHierarchy::default()),
+            aggregates: Aggregates::new(OrderedHierarchy::default(), aggregate),
         };
 
         Ok(system)
@@ -278,6 +292,11 @@ impl DesktopSystem {
 
     // Architecture: Is it really necessary to think in terms of transaction, if we update the
     // effects explicitly?
+    //
+    // Not a transaction yet: a change that fails partway leaves the effects
+    // of the earlier changes applied, so the state may be inconsistent
+    // (including the document mirror, which lands before the apply — see the
+    // `DesktopChange::Project` arm in `apply_change`).
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
@@ -299,8 +318,7 @@ impl DesktopSystem {
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
-                let output = self.apply_change(change, instance_manager)?;
-                // TODO: I think Changes should support a DoubleEndedIterator.
+                let output = self.apply_change(change, instance_manager, effects_mode)?; // TODO: I think Changes should support a DoubleEndedIterator.
                 for new_change in output
                     .changes
                     .into_iter()
@@ -312,6 +330,12 @@ impl DesktopSystem {
                 }
                 change_surface.combine(output.surface);
             }
+        }
+
+        // The initial setup loads the configuration from the file, so its changes
+        // must not be written back; after setup, every change persists.
+        if effects_mode != TransactionEffectsMode::Setup {
+            self.configuration.flush();
         }
 
         // Collect deferred measures if the camera can be moved.

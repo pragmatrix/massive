@@ -6,7 +6,6 @@ mod desktop_presenter;
 mod desktop_system;
 mod event_router;
 mod focus_path;
-mod focus_target;
 mod hit_tester;
 mod instance_manager;
 mod instance_presenter;

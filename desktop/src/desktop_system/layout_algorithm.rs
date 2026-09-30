@@ -11,7 +11,7 @@ use massive_layout::{
 
 use super::{Aggregates, DesktopTarget, FocusDepth, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
-use crate::projects::ProjectId;
+use crate::projects::{ProjectId, launcher_mode};
 
 const SECTION_SPACING: u32 = 20;
 const PROJECT_PADDING: u32 = 10;
@@ -91,10 +91,15 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         let child_sizes: Vec<_> = child_measurements.iter().map(|child| child.size).collect();
 
         match id {
-            DesktopTarget::Launcher(launcher_id) => self.aggregates.launchers[launcher_id]
-                .panel_measure_size(self.default_panel_size)
-                .map(Into::into)
-                .unwrap_or_else(|| self.measure_via_layout_spec(id, &child_sizes).into()),
+            DesktopTarget::Launcher(launcher_id) => {
+                let panel_measure: Option<Size<2>> = launcher_mode::panel_measurement(
+                    self.aggregates.configuration[*launcher_id].mode,
+                    self.default_panel_size,
+                );
+                panel_measure
+                    .map(Into::into)
+                    .unwrap_or_else(|| self.measure_via_layout_spec(id, &child_sizes).into())
+            }
             DesktopTarget::ProjectHeader(project_id) => self.project_header_size(*project_id),
             DesktopTarget::ProjectMatrix(project_id) => self
                 .measure_project_matrix(*project_id, &child_sizes)
@@ -176,7 +181,11 @@ impl DesktopLayoutAlgorithm<'_> {
             .matrix_launchers(project_id)
             .zip(child_sizes.iter().copied())
         {
-            let placement = self.aggregates.matrix_positions[&launcher_id];
+            let placement = self
+                .aggregates
+                .configuration
+                .placement_of(launcher_id)
+                .expect("Launcher has no matrix placement");
             let offset = Offset::from([
                 track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
                 track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
@@ -207,7 +216,11 @@ impl DesktopLayoutAlgorithm<'_> {
             .matrix_launchers(project_id)
             .zip(child_sizes.iter().copied())
         {
-            let placement = self.aggregates.matrix_positions[&launcher_id];
+            let placement = self
+                .aggregates
+                .configuration
+                .placement_of(launcher_id)
+                .expect("Launcher has no matrix placement");
             let column = placement.column as usize;
             let row = placement.row as usize;
 
@@ -258,7 +271,11 @@ impl DesktopLayoutAlgorithm<'_> {
             })
             .is_some();
 
-        launcher.place_panel_children(
+        // The pack decision is a mode policy; the visor branch stays on the
+        // presenter because it places children around the presenter's focus anchor.
+        launcher_mode::place_panel_children(
+            self.aggregates.configuration[*launcher_id].mode,
+            launcher,
             Offset::default(),
             child_sizes,
             &child_instances,
