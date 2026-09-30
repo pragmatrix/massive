@@ -182,8 +182,9 @@ impl DesktopConfiguration {
         self.launcher(launcher).map(|launcher| launcher.placement)
     }
 
-    /// All launchers of the project, sorted by placement (the aggregate invariant).
-    pub fn launchers_sorted(&self, project: ProjectId) -> &[Launcher] {
+    /// All launchers of the project, kept in matrix-placement order (the
+    /// aggregate invariant).
+    pub fn launchers_ordered(&self, project: ProjectId) -> &[Launcher] {
         self.project(project)
             .map(|project| project.launchers.as_slice())
             .unwrap_or(&[])
@@ -289,7 +290,7 @@ impl DesktopConfiguration {
             })
             .and_then(|launcher| self.launcher_index(launcher))
             .unwrap_or(0);
-        self.launchers_sorted(project)
+        self.launchers_ordered(project)
             .iter()
             .enumerate()
             .filter(|(_, launcher)| launcher.name == name)
@@ -366,7 +367,7 @@ impl DesktopConfiguration {
         project: ProjectId,
         placement: MatrixPlacement,
     ) -> Vec<(LaunchProfileId, MatrixPlacement)> {
-        self.launchers_sorted(project)
+        self.launchers_ordered(project)
             .iter()
             .filter(|launcher| {
                 launcher.placement.row == placement.row

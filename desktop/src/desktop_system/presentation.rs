@@ -154,7 +154,7 @@ impl DesktopSystem {
                 target @ (DesktopTarget::Launcher(_)
                 | DesktopTarget::Instance(..)
                 | DesktopTarget::View(_)),
-            ) => Some(self.placement(target)),
+            ) => Some(self.matrix_placement_of(target)),
             _ => None,
         };
 

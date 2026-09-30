@@ -86,7 +86,7 @@ impl<'a> MatrixNavigation<'a> {
         project_id: ProjectId,
     ) -> Vec<MatrixEntry<LaunchProfileId>> {
         self.configuration
-            .launchers_sorted(project_id)
+            .launchers_ordered(project_id)
             .iter()
             .map(|launcher| MatrixEntry {
                 key: launcher.id,

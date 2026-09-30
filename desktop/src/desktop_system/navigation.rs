@@ -148,7 +148,7 @@ impl DesktopSystem {
         self.restore_launcher_removal_focus_depth(replacement, focused)
     }
 
-    // Robustness: This parallels `normalize_navigation_target`: both turn a launcher into a
+    // Robustness: This parallels `resolve_navigation_focus_target`: both turn a launcher into a
     // concrete focus target. Keep their instance/view selection policies aligned; they may need
     // to be combined once directional navigation also preserves the original focus depth.
     fn restore_launcher_removal_focus_depth(
@@ -219,7 +219,7 @@ impl DesktopSystem {
     ) -> Option<PixelCamera> {
         match focus {
             DesktopTarget::Desktop => {
-                let placement = self.placement(&DesktopTarget::Desktop);
+                let placement = self.matrix_placement_of(&DesktopTarget::Desktop);
                 let rect: RectPx = placement.rect.into();
                 let rect: Rect = rect.into();
                 let size = rect.size();
@@ -234,12 +234,12 @@ impl DesktopSystem {
             | DesktopTarget::ProjectHeader(_)
             | DesktopTarget::ProjectMatrix(_)
             | DesktopTarget::Launcher(_) => {
-                let transform = self.placement(focus).transform;
+                let transform = self.matrix_placement_of(focus).transform;
                 Some(Self::camera_from_placement(transform))
             }
             DesktopTarget::Instance(instance_id) => {
                 let transform = self
-                    .placement(&DesktopTarget::Instance(*instance_id))
+                    .matrix_placement_of(&DesktopTarget::Instance(*instance_id))
                     .transform;
                 Some(Self::camera_from_placement(transform))
             }
@@ -290,7 +290,7 @@ fn plan_navigation_candidate(
         column_affinity,
     )?;
     let candidate =
-        normalize_navigation_target(hierarchy, launchers, configuration, target, direction);
+        resolve_navigation_focus_target(hierarchy, launchers, configuration, target, direction);
     Some(NavigationPlan {
         candidate,
         column_affinity,
@@ -361,7 +361,7 @@ fn navigate_from_origin(
 // Robustness: This parallels `restore_launcher_removal_focus_depth`, which also resolves a
 // launcher to an instance or view. They may need to be combined when directional navigation and
 // launcher removal use the same focus-depth policy.
-fn normalize_navigation_target(
+fn resolve_navigation_focus_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
     configuration: &DesktopConfiguration,
