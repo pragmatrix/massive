@@ -21,8 +21,7 @@ interaction (hit testing and focus routing) share this single rule, which is
 what makes the model fractal rather than two ad-hoc behaviors; it generalizes
 to arbitrary nesting depth without new vocabulary. Only the depth ladder
 borrows the slot word. The overview depth ladder reads outermost first —
-`Project, ProjectRow, Slot, Instance, Full Screen` (`Launcher` renamed to
-`Slot`,
+`Project, Row, Slot, Instance, Full Screen` (`Launcher` renamed to `Slot`,
 `Desktop` removed): a rung's position counts the zoom-ins from the project
 level, so the ladder composes across nesting — each zoom-in through a project
 slot descends the newly focused project's ladder. There is no rung above the
