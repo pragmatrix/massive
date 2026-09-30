@@ -50,7 +50,10 @@ impl DesktopConfiguration {
         Ok(Self { projects, startup })
     }
 
-    /// The configuration's projects, in document order.
+    /// The configuration's projects, in document order. Test-only: the tests
+    /// assert against the parsed aggregate, while production reads go through
+    /// the `project`/`launchers_ordered` lookups.
+    #[cfg(test)]
     pub fn projects(&self) -> &[Project] {
         &self.projects
     }
