@@ -68,6 +68,8 @@ Key sub-points that scan of the current code surfaced:
   `reject_emptying_removal` semantics generalize).
 - Startup pointer auto-rewritten on rename/move while the target id exists;
   unresolved at load ⇒ nearest-match then root's first launcher + warning.
+- Undo/Redo stay `todo!()` — deferred by decision until after the model
+  works; the slot change vocabulary must not grow inverses for them yet.
 
 ## 3. KDL document
 
@@ -84,6 +86,9 @@ Key sub-points that scan of the current code surfaced:
 - Persistence tags (`NodeTags`) extend to nested projects; apply change
   surgically as today (ADR 0006/0010 preserved); nearest-match resolution per
   segment for `ConfigurationRequest` targets and `startup`.
+- The parser must recognize nested `project` nodes first: it currently warns
+  and drops them ("Ignoring unknown node" in project), so any migrated file
+  silently loses its subtrees until the parser learns the node kind.
 
 ## 4. Layout: full-size nested scenes, scaled presentation
 
@@ -114,8 +119,10 @@ Key sub-points that scan of the current code surfaced:
   and presenters stay alive, so re-focusing a project just flips visibility
   and fades in.
 - Deferred: true skipping (drop `Measure` targets under pruned projects in
-  the `ChangeSurface` conversion) only removes the residual iteration cost —
-  keep for profiling-driven optimization; see Open issues.
+  the `ChangeSurface` conversion) — *no action*: `Measure` is incremental and
+  the `ChangeSurface` only carries actually-dirtied targets, so a pruned
+  subtree that changes nothing costs nothing; the renderer's per-visual
+  0-alpha early-out is the standing residual.
 
 ## 5. Focus depth and navigation
 
@@ -160,6 +167,11 @@ Key sub-points that scan of the current code surfaced:
   project's subtree is nested into a synthesized launcher-named slot (slot
   name = old project name) appended to the root matrix. Old `startup "name"`
   resolves against the migrated tree, else fallback.
+- Migration is a parse-time transformation of both the aggregate and the
+  in-memory document; the file itself is only rewritten on the first
+  configuration change (Setup does not flush — existing behavior), so a
+  session that changes nothing leaves the file untouched and every boot
+  re-derives the migration idempotently.
 
 ## 9. Cleanup
 
@@ -169,28 +181,15 @@ Key sub-points that scan of the current code surfaced:
 
 ## Open issues
 
-Deferred until the model work (steps 1–6) is in — they touch configuration,
-persistence, and boot, which the model change does not depend on.
+Config/persistence only; deferred until the model work (steps 1–6) is in.
 
-1. **Parser drops nested project nodes** (`persistence/document.rs`:
-   "Ignoring unknown node" in project) — must teach the parser the new node
-   before any migrated file round-trips correctly. First persistence change.
-2. **Pruning "true skip"** — dropping `Measure` targets under pruned
-   (non-focused) projects in the `ChangeSurface` conversion removes the
-   residual per-visual iteration cost; only worth it if profiles show hidden
-   subtrees mattering. Profiling-driven.
-2. **Shift emits per-content moves** — whether the KDL mirror keeps
-   `MoveLauncher`-per-shifted-entry or gains `MoveSlot`; decide when step 2
-   lands.
-3. **Startup auto-rewrite inside transactions** — the document mirror applies
-   changes before the live model with no rollback; a slot cascade failing
-   mid-transaction is worse under nesting. Doc mirror ordering may need
-   fixing before `MoveSlot`/cascades ship.
-4. **Undo/Redo** — pending (`todo!()` in `command_dispatch.rs`); out of scope
-   until after the model works.
-5. **Boot/migration semantics** — flat boot command stream, migration as
-   parse-time view vs. write-back (ADR 0006 comment preservation), `Setup`
-   transaction effects during the first frame with nested projects booting.
-6. **`Undo/Redo` request arms** — `todo!()`; same deferral as 4.
-7. **Address-path resolution in requests** (step 7) — instance→project walk
-   and base resolution; deferred with the CLI work.
+1. **Shift changes in the KDL mirror** — whether shifts of a mixed matrix
+   keep emitting per-content move changes (each shifted entry mirrored into
+   its resulting slot, today's shape) or collapse to a slot-level
+   `MoveSlot`; decide when step 2 lands.
+2. **Document-mirror ordering under cascades** — the document mirror lands
+   before the live model and a failing transaction leaves earlier effects
+   applied (transact documents itself as "not a transaction yet"); slot
+   removal cascades and the startup auto-rewrite widen that partial-failure
+   window. Decide whether the mirror applies after the live model before
+   cascades ship.
