@@ -293,8 +293,8 @@ fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfi
 
 #[derive(Debug)]
 pub struct Project {
-    id: ProjectId,
-    name: String,
+    pub id: ProjectId,
+    pub name: String,
     launchers: Vec<Launcher>,
 }
 
@@ -313,14 +313,6 @@ impl Project {
             name,
             launchers,
         }
-    }
-
-    pub fn id(&self) -> ProjectId {
-        self.id
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
     }
 
     pub fn launchers(&self) -> &[Launcher] {
@@ -365,10 +357,10 @@ impl Index<LaunchProfileId> for DesktopConfiguration {
 }
 #[derive(Debug)]
 pub struct Launcher {
-    id: LaunchProfileId,
-    name: String,
-    mode: LauncherMode,
-    params: Params,
+    pub id: LaunchProfileId,
+    pub name: String,
+    pub mode: LauncherMode,
+    pub params: Params,
     placement: MatrixPlacement,
 }
 
@@ -387,22 +379,6 @@ impl Launcher {
             params,
             placement,
         }
-    }
-
-    pub fn id(&self) -> LaunchProfileId {
-        self.id
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn mode(&self) -> LauncherMode {
-        self.mode
-    }
-
-    pub fn params(&self) -> &Params {
-        &self.params
     }
 
     pub fn placement(&self) -> MatrixPlacement {
@@ -585,6 +561,6 @@ mod tests {
     }
 
     fn project_id_of(configuration: &DesktopConfiguration) -> ProjectId {
-        configuration.projects[0].id()
+        configuration.projects[0].id
     }
 }

@@ -105,7 +105,7 @@ impl<'a> AggregateHitTester<'a> {
             let Some(launcher) = self.configuration.launcher(*launcher_id) else {
                 continue;
             };
-            if launcher.mode() != LauncherMode::Visor {
+            if launcher.mode != LauncherMode::Visor {
                 continue;
             }
 

@@ -108,7 +108,7 @@ impl DesktopSystem {
             .aggregates
             .configuration
             .launcher(launcher_id)
-            .map(|launcher| launcher.mode())
+            .map(|launcher| launcher.mode)
         {
             // Band panels are flat axis-aligned rects (no yaw, z = 0): the simple letterbox fit
             // the rows and projects use.
@@ -203,7 +203,7 @@ impl DesktopSystem {
                 continue;
             }
 
-            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(launcher.id()));
+            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(launcher.id));
 
             rect = Some(match rect {
                 Some(existing) => existing.joined(launcher_rect),

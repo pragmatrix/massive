@@ -397,7 +397,7 @@ fn concrete_navigation_target(
     };
     let mode = configuration
         .launcher(launcher_id)
-        .map_or(LauncherMode::default(), |launcher| launcher.mode());
+        .map_or(LauncherMode::default(), |launcher| launcher.mode);
     let focus_anchor_instance = launcher.focus_anchor_instance;
 
     let instances = topology.launcher_instances(launcher_id);

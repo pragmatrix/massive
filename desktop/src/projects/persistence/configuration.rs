@@ -134,7 +134,7 @@ project "work" {
 }
 "#,
         )?;
-        let second = configuration.projects()[1].id();
+        let second = configuration.projects()[1].id;
 
         document.apply(ConfigurationChange::RemoveProject(second))?;
 
@@ -156,7 +156,7 @@ project "work" {
 }
 "#,
         )?;
-        let second = configuration.projects()[0].launchers()[1].id();
+        let second = configuration.projects()[0].launchers()[1].id;
 
         document.apply(ConfigurationChange::RemoveLauncher(second))?;
 
@@ -172,7 +172,7 @@ project "work" {
     fn tags_do_not_reach_the_file() -> Result<()> {
         let (mut document, configuration) =
             loaded("project \"work\" {\n    launcher \"shell\" column=0 row=0\n}\n")?;
-        let project = configuration.projects()[0].id();
+        let project = configuration.projects()[0].id;
 
         document.apply(ConfigurationChange::AddProject {
             id: ProjectId::new(),
@@ -199,7 +199,7 @@ project "work" {
 }
 "#,
         )?;
-        let launcher = configuration.projects()[0].launchers()[0].id();
+        let launcher = configuration.projects()[0].launchers()[0].id;
 
         document.apply(ConfigurationChange::SetStartupLauncher(Some(launcher)))?;
 

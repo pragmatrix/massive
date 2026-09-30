@@ -328,7 +328,7 @@ impl DesktopSystem {
             .configuration
             .projects()
             .iter()
-            .map(|project| project.name())
+            .map(|project| project.name.as_str())
             .collect();
         indexed_default_name(name, &existing)
     }
@@ -348,7 +348,7 @@ impl DesktopSystem {
                 project
                     .launchers()
                     .iter()
-                    .map(|launcher| launcher.name())
+                    .map(|launcher| launcher.name.as_str())
                     .collect()
             })
             .unwrap_or_default();
@@ -377,8 +377,8 @@ impl DesktopSystem {
         projects
             .iter()
             .enumerate()
-            .filter(|(_, project)| project.name() == name)
-            .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id()))
+            .filter(|(_, project)| project.name == name)
+            .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id))
             .min_by_key(|(distance, _)| *distance)
             .map(|(_, id)| id)
     }
@@ -400,8 +400,8 @@ impl DesktopSystem {
             .launchers_sorted(project)
             .iter()
             .enumerate()
-            .filter(|(_, launcher)| launcher.name() == name)
-            .map(|(index, launcher)| (index.abs_diff(focused), launcher.id()))
+            .filter(|(_, launcher)| launcher.name == name)
+            .map(|(index, launcher)| (index.abs_diff(focused), launcher.id))
             .min_by_key(|(distance, _)| *distance)
             .map(|(_, id)| id)
     }
@@ -689,7 +689,7 @@ impl DesktopSystem {
                     .configuration
                     .add_launcher(project, id, profile.clone(), placement);
 
-                let name = self.aggregates.configuration[id].name().to_string();
+                let name = self.aggregates.configuration[id].name.clone();
                 let matrix_location = self
                     .aggregates
                     .projects

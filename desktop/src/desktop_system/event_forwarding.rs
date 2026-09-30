@@ -52,7 +52,7 @@ impl DesktopSystem {
                 } = &mut self.aggregates;
                 let params = &configuration[launcher_id];
                 let launcher = launchers.get_mut(&launcher_id).expect("Launcher not found");
-                return launcher.process(event, params.params());
+                return launcher.process(event, &params.params);
             }
             DesktopTarget::View(view_id) => {
                 let path = self

@@ -116,7 +116,7 @@ impl DesktopSystem {
             .launcher(launcher_id)
             // Whether keyboard focus inside the panel re-runs the layout is a configuration
             // (mode) question, weighted by the presenter-side instance count.
-            .filter(|launcher| launcher.mode() == LauncherMode::Visor && instance_count > 1)
+            .filter(|launcher| launcher.mode == LauncherMode::Visor && instance_count > 1)
             .map(|_| launcher_id)
     }
 

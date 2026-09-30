@@ -95,7 +95,7 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
                 // Only visor launchers take the fixed panel extent; band panels measure
                 // from their children like any other container.
                 let panel_measure: Option<Size<2>> =
-                    match self.aggregates.configuration[*launcher_id].mode() {
+                    match self.aggregates.configuration[*launcher_id].mode {
                         LauncherMode::Band => None,
                         LauncherMode::Visor => Some(self.default_panel_size.into()),
                     };
@@ -276,7 +276,7 @@ impl DesktopLayoutAlgorithm<'_> {
 
         // The band/visor split is a configuration question; the visor branch stays on the
         // presenter because it places children around the presenter's focus anchor.
-        match self.aggregates.configuration[*launcher_id].mode() {
+        match self.aggregates.configuration[*launcher_id].mode {
             LauncherMode::Band => place_container_children(
                 LayoutAxis::HORIZONTAL,
                 CHILD_SPACING,

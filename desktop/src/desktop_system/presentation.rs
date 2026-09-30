@@ -42,7 +42,7 @@ impl DesktopSystem {
                 .configuration
                 .launcher(launcher_id)
                 .expect("Launcher not found")
-                .mode()
+                .mode
             {
                 crate::projects::LauncherMode::Band => false,
                 crate::projects::LauncherMode::Visor => true,

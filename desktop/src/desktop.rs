@@ -468,7 +468,7 @@ fn boot_launcher(configuration: &DesktopConfiguration) -> Option<LaunchProfileId
             .iter()
             .flat_map(|project| project.launchers().iter())
             .next()
-            .map(|launcher| launcher.id())
+            .map(|launcher| launcher.id)
     })
 }
 
@@ -488,13 +488,13 @@ fn configuration_to_commands(
 
 fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
     commands.push(ProjectCommand::AddProject {
-        id: project.id(),
-        name: project.name().into(),
+        id: project.id,
+        name: project.name.clone(),
         after: None,
     });
 
     for launcher in project.launchers() {
-        launcher_commands(project.id(), launcher, commands);
+        launcher_commands(project.id, launcher, commands);
     }
 }
 
@@ -505,7 +505,7 @@ fn launcher_commands(
 ) {
     commands.push(ProjectCommand::AddLauncher {
         project,
-        id: launcher.id(),
+        id: launcher.id,
         profile: launcher.profile(),
         placement: launcher.placement(),
     })

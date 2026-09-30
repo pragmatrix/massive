@@ -69,7 +69,8 @@ impl DesktopSystem {
                     .configuration
                     .launcher(id)
                     .expect("Focused launcher has no presenter")
-                    .name()
+                    .name
+                    .as_str()
             });
         let project = focused
             .and_then(|target| self.aggregates.hierarchy.project_of_target(target))
@@ -78,7 +79,8 @@ impl DesktopSystem {
                     .configuration
                     .project(id)
                     .expect("Focused project has no presenter")
-                    .name()
+                    .name
+                    .as_str()
             });
 
         let mut title = if terminal_title.is_empty() {

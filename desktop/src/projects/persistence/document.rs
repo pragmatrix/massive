@@ -416,7 +416,7 @@ pub(super) fn parse_configuration(
                         match kind.as_str() {
                             "launcher" => {
                                 let launcher = parse_launcher(child)?;
-                                tags.tag_launcher(launcher.id(), child);
+                                tags.tag_launcher(launcher.id, child);
                                 launchers.push(launcher);
                             }
                             other => {
@@ -426,7 +426,7 @@ pub(super) fn parse_configuration(
                     }
                 }
                 let project = Project::new(name, launchers);
-                tags.tag_project(project.id(), &mut document.nodes_mut()[index]);
+                tags.tag_project(project.id, &mut document.nodes_mut()[index]);
                 projects.push(project);
             }
             other => warn!("Ignoring unknown top-level node '{other}'"),

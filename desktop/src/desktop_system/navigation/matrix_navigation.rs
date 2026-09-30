@@ -89,7 +89,7 @@ impl<'a> MatrixNavigation<'a> {
             .launchers_sorted(project_id)
             .iter()
             .map(|launcher| MatrixEntry {
-                key: launcher.id(),
+                key: launcher.id,
                 placement: launcher.placement(),
             })
             .collect()
