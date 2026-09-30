@@ -50,6 +50,7 @@ impl DesktopConfiguration {
         Ok(Self { projects, startup })
     }
 
+    /// The configuration's projects, in document order.
     pub fn projects(&self) -> &[Project] {
         &self.projects
     }
@@ -207,20 +208,6 @@ impl DesktopConfiguration {
                 .next()
                 .map(|launcher| launcher.id)
         })
-    }
-
-    /// The boot commands that rebuild the scene from the aggregate: one per
-    /// project and launcher, in document order.
-    pub fn to_commands(&self) -> CollectingVec<ProjectCommand> {
-        let mut commands = CollectingVec::Empty;
-
-        commands.push(ProjectCommand::SetStartupLauncher(self.startup));
-
-        for project in &self.projects {
-            project_commands(project, &mut commands);
-        }
-
-        commands
     }
 
     /// Names a new project: a default name gets the lowest index not already in
@@ -393,6 +380,20 @@ fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfi
         .flat_map(|project| project.launchers.iter())
         .find(|launcher| launcher.name == name)
         .map(|launcher| launcher.id)
+}
+
+/// The boot commands that rebuild the scene from the aggregate: one per
+/// project and launcher, in document order.
+pub fn to_commands(configuration: &DesktopConfiguration) -> CollectingVec<ProjectCommand> {
+    let mut commands = CollectingVec::Empty;
+
+    commands.push(ProjectCommand::SetStartupLauncher(configuration.startup));
+
+    for project in &configuration.projects {
+        project_commands(project, &mut commands);
+    }
+
+    commands
 }
 
 fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {

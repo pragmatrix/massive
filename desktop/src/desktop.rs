@@ -21,8 +21,8 @@ use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::DesktopConfiguration;
 use crate::projects::persistence::{self, ConfigurationDocument};
+use crate::projects::{DesktopConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -118,7 +118,7 @@ impl Desktop {
         // here; `DesktopSystem::new` then takes it over, so the live model's
         // placements come from this same instance the commands were read from.
         let project_setup_commands: Commands =
-            configuration.to_commands().map(DesktopCommand::Project);
+            to_commands(&configuration).map(DesktopCommand::Project);
         let boot_launcher = configuration
             .boot_launcher()
             .expect("configuration parsing guarantees at least one launcher");
