@@ -224,23 +224,8 @@ impl DesktopSystem {
                 changes <<= ConfigurationChange::AddProject { id, name };
             }
             ProjectCommand::RemoveProject(project_id) => {
-                // The session boots into a configuration-defined launcher, so the
-                // last one cannot be removed. Planned here, where the whole command
-                // is still visible, so a rejection emits no change at all.
-                let launchers = self.aggregates.configuration.launcher_count();
-                let removed = self
-                    .aggregates
-                    .configuration
-                    .project(project_id)
-                    .map(|project| project.launchers().len())
-                    .unwrap_or(0);
-                ensure!(
-                    launchers > removed,
-                    "Configuration must define at least one launcher"
-                );
-
                 changes += self.plan_project_removal_focus(project_id);
-                changes += self.plan_remove_project(project_id);
+                changes += self.plan_remove_project(project_id)?;
             }
             ProjectCommand::AddLauncher {
                 project,
@@ -285,14 +270,8 @@ impl DesktopSystem {
                     .hierarchy
                     .project_of_launcher(launch_profile_id);
                 if self.aggregates.hierarchy.matrix_launchers(project).count() == 1 {
-                    // Removing the last launcher removes its project, so the
-                    // configuration must hold a launcher beyond this project's.
-                    ensure!(
-                        self.aggregates.configuration.launcher_count() > 1,
-                        "Configuration must define at least one launcher"
-                    );
                     changes += self.plan_project_removal_focus(project);
-                    changes += self.plan_remove_project(project);
+                    changes += self.plan_remove_project(project)?;
                     return Ok(changes);
                 }
 
@@ -359,7 +338,22 @@ impl DesktopSystem {
         Changes::Empty
     }
 
-    fn plan_remove_project(&self, project: ProjectId) -> Changes {
+    /// Removes the project and all its launchers. Refuses when the removal would
+    /// leave the configuration without any launcher: the session boots into a
+    /// configuration-defined launcher, so the last one cannot be removed.
+    fn plan_remove_project(&self, project: ProjectId) -> Result<Changes> {
+        let launchers = self.aggregates.configuration.launcher_count();
+        let removed = self
+            .aggregates
+            .configuration
+            .project(project)
+            .map(|project| project.launchers().len())
+            .unwrap_or(0);
+        ensure!(
+            launchers > removed,
+            "Configuration must define at least one launcher"
+        );
+
         let mut changes = Changes::Empty;
         for launcher in self.aggregates.hierarchy.matrix_launchers(project) {
             changes += self.plan_remove_launcher(project, launcher, None);
@@ -367,7 +361,7 @@ impl DesktopSystem {
 
         changes <<= ConfigurationChange::RemoveProject(project);
         changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
-        changes
+        Ok(changes)
     }
 
     /// Removes a launcher from the matrix, shifting the launchers right of the freed
