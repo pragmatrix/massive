@@ -19,7 +19,7 @@ impl OrderedHierarchy<DesktopTarget> {
             return Some(self.resolve_neighbor_focus_target(&neighbor));
         }
 
-        Some(self.launcher_of_instance(instance).into())
+        Some(DesktopTarget::Launcher(self.launcher_of_instance(instance)))
     }
 
     pub(super) fn resolve_neighbor_for_stopping_instance(
@@ -63,7 +63,7 @@ impl OrderedHierarchy<DesktopTarget> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::projects::LaunchProfileId;
+    use crate::projects::{LaunchProfileId, ProjectId};
     use uuid::Uuid;
 
     fn instance_id() -> InstanceId {
@@ -82,10 +82,23 @@ mod tests {
         instances: &[InstanceId],
     ) -> (OrderedHierarchy<DesktopTarget>, LaunchProfileId) {
         let launcher = launcher_id();
+        let project = ProjectId::new();
 
         let mut hierarchy = OrderedHierarchy::default();
         hierarchy
-            .add(DesktopTarget::Desktop, DesktopTarget::Launcher(launcher))
+            .add_nested(
+                DesktopTarget::Project(project),
+                [
+                    DesktopTarget::ProjectHeader(project),
+                    DesktopTarget::ProjectMatrix(project),
+                ],
+            )
+            .unwrap();
+        hierarchy
+            .add(
+                DesktopTarget::ProjectMatrix(project),
+                DesktopTarget::Launcher(launcher),
+            )
             .unwrap();
 
         for instance in instances {

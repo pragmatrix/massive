@@ -73,7 +73,7 @@ impl DesktopSystem {
                     .as_str()
             });
         let project = focused
-            .and_then(|target| self.aggregates.hierarchy.project_of_target(target))
+            .map(|target| self.aggregates.hierarchy.project_of_target(target))
             .map(|id| {
                 self.aggregates
                     .configuration
@@ -147,6 +147,11 @@ impl DesktopSystem {
     /// This consumes measured child sizes from layout state, computes child placements, and
     /// updates the local placement cache. It emits `ApplyLayout` only for targets whose local
     /// placement changed; camera and hover synchronization follow from `ApplyLayout` itself.
+    ///
+    /// `root`'s own placement is not this pass's to write: it belongs to `root`'s parent, and a
+    /// parent re-places a child only when the child's measured size changed — so a placement
+    /// dropped here (a matrix slot's rect, a presentation scale) would never be restored. Only
+    /// the parentless root, which has no parent, is placed here.
     fn place_layout_effect(&mut self, root: DesktopTarget, window_size: SizePx) -> Result<Effects> {
         let focused_instance = self.focused_path().instance();
         let algorithm = DesktopLayoutAlgorithm {
@@ -158,6 +163,11 @@ impl DesktopSystem {
         };
 
         let children = self.aggregates.hierarchy.children_of(&root);
+        // The exception to "every target is placed by its parent": the parentless root
+        // has no parent to place it.
+        if self.aggregates.hierarchy.parent_of(&root).is_none() {
+            self.layout_state.place_root(&root);
+        }
         let placement_outcomes = self
             .layout_state
             .place_children_of(&root, children, &algorithm);
@@ -218,6 +228,8 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         match target {
+            // The desktop node has no presenter, its layout state is only the
+            // placement bookkeeping the children read through `absolute_placement`.
             DesktopTarget::Desktop => {}
             DesktopTarget::Instance(instance_id) => {
                 self.aggregates

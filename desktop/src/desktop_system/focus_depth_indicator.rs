@@ -20,13 +20,14 @@ const FONT_SIZE: f32 = 36.0;
 const PADDING: (u32, u32) = (16, 12);
 const CORNER_RADIUS: f32 = 8.0;
 const DECAL_ORDER: usize = 10;
-const FOCUS_DEPTH_LABELS: [(FocusDepth, &str); 6] = [
-    (FocusDepth::InstanceFullScreen, "Full Screen"),
-    (FocusDepth::Instance, "Instance"),
-    (FocusDepth::Launcher, "Launcher"),
-    (FocusDepth::Row, "Row"),
+/// The badge label per rung, indexed by `FocusDepth`'s repr, so the array order
+/// must match the declaration order: outermost rung first.
+const FOCUS_DEPTH_LABELS: [(FocusDepth, &str); 5] = [
     (FocusDepth::Project, "Project"),
-    (FocusDepth::Desktop, "Desktop"),
+    (FocusDepth::Row, "Row"),
+    (FocusDepth::Slot, "Slot"),
+    (FocusDepth::Instance, "Instance"),
+    (FocusDepth::InstanceFullScreen, "Full Screen"),
 ];
 
 #[derive(Debug)]

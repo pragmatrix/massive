@@ -5,7 +5,7 @@ use massive_geometry::{
 use massive_scene::prelude::*;
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
-use crate::projects::{LaunchProfileId, LauncherMode};
+use crate::projects::{LaunchProfileId, LauncherMode, ProjectId};
 
 #[derive(Debug, Clone)]
 pub(super) struct OverviewBounds {
@@ -23,13 +23,13 @@ impl OverviewBounds {
 
 pub(crate) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
     match target {
+        DesktopTarget::Desktop => FocusDepth::Project,
         DesktopTarget::View(_) => FocusDepth::Instance,
         DesktopTarget::Instance(_) => FocusDepth::Instance,
-        DesktopTarget::Launcher(_) => FocusDepth::Launcher,
+        DesktopTarget::Launcher(_) => FocusDepth::Slot,
         DesktopTarget::Project(_)
         | DesktopTarget::ProjectHeader(_)
         | DesktopTarget::ProjectMatrix(_) => FocusDepth::Project,
-        DesktopTarget::Desktop => FocusDepth::Desktop,
     }
 }
 
@@ -71,8 +71,8 @@ impl DesktopSystem {
                         Self::fit_letterbox_distance(presentation.layout_size(), window_size);
                     Self::camera_from_placement(transform).with_distance(distance)
                 }),
-            FocusDepth::Instance => self.camera_for_target(target, window_size),
-            FocusDepth::Launcher => self.camera_for_launcher_focus(target, window_size),
+            FocusDepth::Instance => self.camera_for_target(target),
+            FocusDepth::Slot => self.camera_for_launcher_focus(target, window_size),
             FocusDepth::Row => self
                 .aggregates
                 .hierarchy
@@ -80,12 +80,10 @@ impl DesktopSystem {
                 .and_then(|launcher| {
                     self.camera_for_rect(self.matrix_row_rect(launcher)?, window_size)
                 }),
-            FocusDepth::Project => self
-                .aggregates
-                .hierarchy
-                .project_of_target(target)
-                .and_then(|project| self.camera_for_rect(self.project_rect(project), window_size)),
-            FocusDepth::Desktop => self.camera_for_target(&DesktopTarget::Desktop, window_size),
+            FocusDepth::Project => {
+                let project = self.aggregates.hierarchy.project_of_target(target);
+                self.camera_for_rect(self.project_rect(project), window_size)
+            }
         }
     }
 
@@ -99,7 +97,7 @@ impl DesktopSystem {
         let instances = self.aggregates.hierarchy.launcher_instances(launcher_id);
         if instances.len() <= 1 {
             // A launcher with zero or one visor has no arc to union — frame the launcher itself.
-            return self.camera_for_target(&DesktopTarget::Launcher(launcher_id), window_size);
+            return self.camera_for_target(&DesktopTarget::Launcher(launcher_id));
         }
 
         // The band/visor camera split follows the configuration's mode; a launcher
@@ -191,39 +189,48 @@ impl DesktopSystem {
         bounds.expect("Internal error: a launcher with visors must yield bounds")
     }
 
+    /// The bounds of the matrix row the launcher sits in, every assigned slot of
+    /// that row included — a project-assigned slot widens it like a launcher does.
     pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
         let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id);
         let row = self.aggregates.configuration.placement_of(launcher_id)?.row;
         let mut rect: Option<Rect> = None;
 
-        for launcher in self.aggregates.configuration.launchers_ordered(project_id) {
-            let candidate = launcher.matrix_placement();
-
-            if candidate.row != row {
+        for (placement, content) in self.aggregates.configuration.slots_ordered(project_id) {
+            if placement.row != row {
                 continue;
             }
 
-            let launcher_rect = self.target_rect(&DesktopTarget::Launcher(launcher.id));
+            let slot_rect = self.target_rect(&content.target());
 
             rect = Some(match rect {
-                Some(existing) => existing.joined(launcher_rect),
-                None => launcher_rect,
+                Some(existing) => existing.joined(slot_rect),
+                None => slot_rect,
             });
         }
 
-        rect.map(|matrix_row_rect| self.with_desktop_width(matrix_row_rect))
+        rect.map(|matrix_row_rect| self.with_desktop_width(project_id, matrix_row_rect))
     }
 
-    pub(super) fn project_rect(&self, project_id: crate::projects::ProjectId) -> Rect {
+    pub(super) fn project_rect(&self, project_id: ProjectId) -> Rect {
         let root = DesktopTarget::Project(project_id);
         let mut rect = Some(self.target_rect(&root));
         self.extend_rect_with_subtree(&root, &mut rect);
-        self.with_desktop_width(rect.expect("Internal error: project bounds should always exist"))
+        self.with_desktop_width(
+            project_id,
+            rect.expect("Internal error: project bounds should always exist"),
+        )
     }
 
-    fn with_desktop_width(&self, rect: Rect) -> Rect {
-        let desktop_rect = self.target_rect(&DesktopTarget::Desktop);
-        (desktop_rect.left, rect.top, desktop_rect.right, rect.bottom).into()
+    /// Widens `rect` to the matrix that hosts the project, so panning across
+    /// sibling slots stays possible. The root has no parent matrix, so it keeps its
+    /// own width.
+    fn with_desktop_width(&self, project_id: ProjectId, rect: Rect) -> Rect {
+        let Some(parent) = self.aggregates.hierarchy.parent_project_of(project_id) else {
+            return rect;
+        };
+        let parent_rect = self.target_rect(&DesktopTarget::ProjectMatrix(parent));
+        (parent_rect.left, rect.top, parent_rect.right, rect.bottom).into()
     }
 
     fn extend_rect_with_subtree(&self, root: &DesktopTarget, rect: &mut Option<Rect>) {

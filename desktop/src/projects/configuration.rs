@@ -1,20 +1,39 @@
-//! The desktop configuration aggregate: projects with matrix-placed launchers,
-//! each launcher a spawnable profile, and the profile the session boots into.
+//! The desktop configuration aggregate: projects whose matrices hold slots, each
+//! slot a launcher or a nested project, and the launcher the session boots into.
+//!
+//! Projects are stored flat and nest by id link (ADR 0011): a project's slots
+//! name the launchers and projects they host, so no recursive type is needed.
 
+use std::collections::HashSet;
 use std::ops::Index;
 
 use anyhow::{Context, Result, bail, ensure};
 use derive_more::{From, Into};
+use log::warn;
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
 use massive_applications::MoveDirection;
 use massive_util::CollectingVec;
 
-use crate::desktop_system::ProjectCommand;
+use crate::desktop_system::{DesktopTarget, ProjectCommand, SlotShift};
 
 /// Spawn parameters of a launcher: JSON values passed to the spawned application.
 pub type Params = Map<String, Value>;
+
+/// The name the terminal gives the root project it synthesizes.
+pub const ROOT_PROJECT_NAME: &str = "Projects";
+
+/// The default name a project created by an assignment takes when the assignment
+/// names none; a taken name is indexed (see [`DesktopConfiguration::new_project_name`]).
+pub const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+pub enum LauncherMode {
+    Band,
+    #[default]
+    Visor,
+}
 
 /// The canonical desktop configuration: what is parsed from KDL and what the boot
 /// flow derives its commands from. Ids are fresh per session and the document is
@@ -25,29 +44,55 @@ pub struct DesktopConfiguration {
     /// document reads.
     projects: Vec<Project>,
     startup: Option<LaunchProfileId>,
+    startup_path: Option<String>,
 }
 
 impl DesktopConfiguration {
-    /// Builds the aggregate from parsed projects and the named startup launcher.
+    /// Builds the aggregate from the parsed projects. The root project (`Projects`,
+    /// id [`ProjectId::ROOT`]) comes with the parsed slots; the boot command
+    /// re-applies it (see [`DesktopConfiguration::add_project`]).
     ///
-    /// Fails when no launcher exists at all: the session boots into a
-    /// configuration-defined launcher, so an empty configuration has nothing to
-    /// start.
+    /// A configuration whose launchers all sit in nested projects is legal; one
+    /// with no launcher anywhere is not, because the session boots into a
+    /// launcher-backed primary instance.
     pub(super) fn new(projects: Vec<Project>, startup: Option<&str>) -> Result<Self> {
-        let empty = projects.iter().all(|project| project.launchers.is_empty());
-        ensure!(!empty, "Configuration must define at least one launcher");
+        ensure!(
+            projects.iter().any(|project| project.has_launcher()),
+            "Configuration must define at least one launcher"
+        );
 
-        let startup = match startup {
-            Some(name) => {
-                let id = find_launcher_by_name(&projects, name).with_context(|| {
-                    format!("Startup profile '{name}' not found in configuration")
-                })?;
-                Some(id)
-            }
-            None => None,
+        let mut configuration = Self {
+            projects,
+            startup: None,
+            startup_path: startup.map(str::to_owned),
         };
 
-        Ok(Self { projects, startup })
+        configuration.startup = startup.map(|path| {
+            configuration
+                .resolve_launcher_path(ProjectId::ROOT, path)
+                .unwrap_or_else(|| {
+                    let fallback = configuration
+                        .first_launcher_depth_first()
+                        .expect("a launcher exists (checked above)");
+                    warn!("Startup '{path}' does not resolve; falling back to the first launcher");
+                    fallback
+                })
+        });
+
+        Ok(configuration)
+    }
+
+    /// The nested project `project` hosts at `placement`, if any.
+    #[cfg(test)]
+    pub fn child_project_at(
+        &self,
+        project: ProjectId,
+        placement: MatrixPlacement,
+    ) -> Option<ProjectId> {
+        match self.project(project)?.content_at(placement)? {
+            SlotContent::Project(child) => Some(child),
+            SlotContent::Launcher(_) => None,
+        }
     }
 
     /// The configuration's projects, in document order. Test-only: the tests
@@ -61,9 +106,75 @@ impl DesktopConfiguration {
     // --- Mutation API ---
     //
     // Apply-side changes land on the aggregate here so the live model and the
-    // plan/apply logic read positions from one source instead of `MatrixPositions`.
-    // Parse keeps its own construction path (`new`), where placements are absent
-    // from the document and a startup name has not been resolved to an id yet.
+    // plan/apply logic read slot assignment from one source. Parse keeps its own
+    // construction path (`new`), where placements come from the document and a
+    // startup path has not been resolved to an id yet.
+
+    /// Removes the project and every project nested below it: a project cannot
+    /// outlive the slot hosting it. The root is not removable.
+    ///
+    /// Removing a project's last slot does not remove the project — empty projects
+    /// are legal, and only this explicit removal cascades.
+    #[cfg(test)]
+    pub fn remove_project(&mut self, id: ProjectId) {
+        if id == ProjectId::ROOT {
+            return;
+        }
+        let doomed: Vec<ProjectId> = self
+            .projects
+            .iter()
+            .map(|project| project.id)
+            .filter(|candidate| *candidate == id || self.is_in_subtree(id, *candidate))
+            .collect();
+
+        for project in &mut self.projects {
+            project.slots.retain(|slot| {
+                !matches!(slot.content, SlotContent::Project(child) if doomed.contains(&child))
+            });
+        }
+
+        self.projects
+            .retain(|project| !doomed.contains(&project.id));
+    }
+
+    /// Assigns `content` to `project`'s slot at `placement`.
+    ///
+    /// Assigning a project that does not exist creates it — there is no separate
+    /// "add project" operation. Replacing content is a clear plus an assign, so the
+    /// caller clears the slot first.
+    pub fn assign_slot(
+        &mut self,
+        project: ProjectId,
+        placement: MatrixPlacement,
+        content: SlotAssignment,
+    ) {
+        match &content {
+            SlotAssignment::Launcher { id, profile } => {
+                let launcher = Launcher {
+                    id: *id,
+                    name: profile.name.clone(),
+                    mode: profile.mode,
+                    params: profile.params.clone(),
+                    placement,
+                };
+                if let Some(project) = self.project_mut(project) {
+                    project.assign_slot(Slot::launcher(launcher));
+                }
+            }
+            SlotAssignment::Project { id, name } => {
+                // A duplicate id is re-application — the boot Setup transaction
+                // re-applies commands derived from this very aggregate — so it is
+                // ignored, not rejected.
+                if self.project(*id).is_none() {
+                    let name = self.new_project_name(*id, DEFAULT_NEW_PROJECT_NAME, name);
+                    self.add_project(*id, name);
+                }
+                if let Some(project) = self.project_mut(project) {
+                    project.assign_slot(Slot::project(placement, *id));
+                }
+            }
+        }
+    }
 
     /// Adds a project, or accepts one already present: the boot flow parses the
     /// aggregate and then re-applies the same ids as commands (ids are created at
@@ -76,141 +187,257 @@ impl DesktopConfiguration {
         self.projects.push(Project {
             id,
             name,
-            launchers: Vec::new(),
+            slots: Vec::new(),
         });
     }
 
-    pub fn remove_project(&mut self, id: ProjectId) {
-        self.projects.retain(|project| project.id != id);
+    /// Empties `project`'s slot at `placement`. A slot that hosts no content is
+    /// simply absent, so clearing an already empty slot does nothing.
+    pub fn clear_slot(&mut self, project: ProjectId, placement: MatrixPlacement) {
+        if let Some(project) = self.project_mut(project) {
+            project.remove_slot(placement);
+        }
     }
 
-    // A duplicate id is re-application — the boot Setup transaction re-applies
-    // commands derived from this very aggregate — so it is ignored, not rejected.
-    // A duplicate placement is a fresh launcher on a taken slot: both are then
-    // present and the sort order between them stays document-arrival order.
-    pub fn add_launcher(
+    /// Moves the content of `source` to `dest`, returning whether the move
+    /// happened.
+    ///
+    /// Rejected — with no change emitted — when the source slot is empty, when the
+    /// destination is inside the moved project's own subtree, or when the
+    /// destination project is not in the tree.
+    pub fn move_slot(
         &mut self,
-        project: ProjectId,
-        id: LaunchProfileId,
-        profile: LaunchProfile,
-        placement: MatrixPlacement,
-    ) {
-        let Some(project) = self.project_mut(project) else {
-            return;
-        };
-        if project.launchers.iter().any(|launcher| launcher.id == id) {
-            return;
+        source: (ProjectId, MatrixPlacement),
+        dest: (ProjectId, MatrixPlacement),
+    ) -> bool {
+        let (source_project, source_placement) = source;
+        let (dest_project, dest_placement) = dest;
+
+        if source == dest || self.project(dest_project).is_none() {
+            return false;
         }
-        let launcher = Launcher {
-            id,
-            name: profile.name,
-            mode: profile.mode,
-            params: profile.params,
-            placement,
+        let Some(content) = self.content_at(source_project, source_placement) else {
+            return false;
         };
-        let index = project.launchers.partition_point(|existing| {
-            (existing.placement.column, existing.placement.row) < (placement.column, placement.row)
-        });
-        project.launchers.insert(index, launcher);
+        if let SlotContent::Project(moved) = content
+            && self.is_in_subtree(moved, dest_project)
+        {
+            return false;
+        }
+
+        let Some(index) = self
+            .project(source_project)
+            .and_then(|project| project.slot_index(source_placement))
+        else {
+            return false;
+        };
+        let Some(source_project_mut) = self.project_mut(source_project) else {
+            return false;
+        };
+        let mut slot = source_project_mut.slots.remove(index);
+        // The destination and the removed slot are distinct placements, so
+        // re-adding under the new placement cannot collide with the source slot.
+        slot.placement = dest_placement;
+        self.project_mut(dest_project)
+            .expect("the destination project was checked above")
+            .assign_slot(slot);
+        true
     }
 
-    pub fn move_launcher(&mut self, launcher: LaunchProfileId, to: MatrixPlacement) {
-        let Some(existing) = self.launcher_mut(launcher) else {
-            return;
+    /// Whether the content of `source` can move to `dest`.
+    ///
+    /// Rejected when the source slot is empty, when the destination project is not
+    /// in the tree, and when the destination is inside the moved project's own
+    /// subtree — a project cannot be moved into itself.
+    pub fn can_move_slot(
+        &self,
+        source: (ProjectId, MatrixPlacement),
+        dest: (ProjectId, MatrixPlacement),
+    ) -> bool {
+        let (source_project, source_placement) = source;
+        let (dest_project, _) = dest;
+
+        if source == dest || self.project(dest_project).is_none() {
+            return false;
+        }
+        let Some(content) = self.content_at(source_project, source_placement) else {
+            return false;
         };
-        existing.placement = to;
-        if let Some(project) = self.project_of_launcher_mut(launcher) {
+        if let SlotContent::Project(moved) = content
+            && self.is_in_subtree(moved, dest_project)
+        {
+            return false;
+        }
+        true
+    }
+
+    /// The slot holding `launcher`, the inverse of [`Self::launcher_at`].
+    pub fn slot_of_launcher(
+        &self,
+        launcher: LaunchProfileId,
+    ) -> Option<(ProjectId, MatrixPlacement)> {
+        self.projects.iter().find_map(|project| {
             project
-                .launchers
-                .sort_by_key(|launcher| (launcher.placement.column, launcher.placement.row));
-        }
-    }
-
-    pub fn remove_launcher(&mut self, launcher: LaunchProfileId) {
-        if let Some(project) = self.project_of_launcher_mut(launcher) {
-            project.launchers.retain(|existing| existing.id != launcher);
-        }
+                .slot_of_launcher(launcher)
+                .map(|placement| (project.id, placement))
+        })
     }
 
     // --- Query API ---
     //
-    // These replace what `MatrixPositions` exposed: placement lookup, occupancy
-    // checks, and the two shift-sequence computations. They all read the same
-    // `launchers` vec that is kept sorted by placement, so the former map and the
-    // vec never disagree.
+    // Placement lookup, assignment checks, and the two shift-sequence computations.
 
-    pub fn project(&self, id: ProjectId) -> Option<&Project> {
-        self.projects.iter().find(|project| project.id == id)
-    }
-
-    pub fn project_mut(&mut self, id: ProjectId) -> Option<&mut Project> {
-        self.projects.iter_mut().find(|project| project.id == id)
-    }
-
-    /// The project a launcher belongs to, by searching each project's launchers.
-    /// The topology's `project_of_launcher` answers from parent links instead,
-    /// and is the right source when the scene hierarchy is available.
-    pub fn project_of_launcher(&self, launcher: LaunchProfileId) -> Option<&Project> {
-        self.projects
-            .iter()
-            .find(|project| project.launchers.iter().any(|l| l.id == launcher))
-    }
-
-    pub fn project_of_launcher_mut(&mut self, launcher: LaunchProfileId) -> Option<&mut Project> {
-        self.projects
-            .iter_mut()
-            .find(|project| project.launchers.iter().any(|l| l.id == launcher))
-    }
-
-    pub fn launcher_mut(&mut self, launcher: LaunchProfileId) -> Option<&mut Launcher> {
-        self.project_of_launcher_mut(launcher)
-            .and_then(|project| project.launcher_mut(launcher))
-    }
-
-    /// The document-order index of the project, which is what orders the projects
-    /// on screen: `RemoveProject` by name removes the nearest one.
-    pub fn project_index(&self, project: ProjectId) -> Option<usize> {
-        self.projects.iter().position(|p| p.id == project)
-    }
-
-    /// The placement index of the launcher within its project, counting the
-    /// placement-sorted launchers: Manhattan distance between those indexes is the
-    /// matrix distance `RemoveLauncher` by name picks the nearest launcher by.
-    pub fn launcher_index(&self, launcher: LaunchProfileId) -> Option<usize> {
-        let project = self.project_of_launcher(launcher)?;
-        project.launchers.iter().position(|l| l.id == launcher)
-    }
-
-    /// The launcher's placement, `None` when it is not in the configuration.
-    pub fn placement_of(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
-        self.launcher(launcher).map(|launcher| launcher.placement)
-    }
-
-    /// All launchers of the project, kept in matrix-placement order (the
-    /// aggregate invariant).
-    pub fn launchers_ordered(&self, project: ProjectId) -> &[Launcher] {
-        self.project(project)
-            .map(|project| project.launchers.as_slice())
-            .unwrap_or(&[])
-    }
-
-    pub fn launcher(&self, launcher: LaunchProfileId) -> Option<&Launcher> {
-        self.project_of_launcher(launcher)
-            .and_then(|project| project.launcher(launcher))
+    /// Whether `candidate` is `project` or nested below it, following slot links.
+    pub fn is_in_subtree(&self, project: ProjectId, candidate: ProjectId) -> bool {
+        let mut pending = vec![project];
+        let mut visited = HashSet::new();
+        while let Some(current) = pending.pop() {
+            if !visited.insert(current) {
+                continue;
+            }
+            if current == candidate {
+                return true;
+            }
+            if let Some(project) = self.project(current) {
+                pending.extend(project.nested_projects());
+            }
+        }
+        false
     }
 
     /// The launcher the session boots into: the startup launcher, or the first
-    /// launcher of the projects when no `startup` node names one. `None` is
+    /// launcher of the tree when no `startup` node names one. `None` is
     /// unreachable for a parsed configuration, whose parse guarantees at least
     /// one launcher.
     pub fn boot_launcher(&self) -> Option<LaunchProfileId> {
-        self.startup.or_else(|| {
-            self.projects
+        self.startup.or_else(|| self.first_launcher_depth_first())
+    }
+
+    /// The first launcher of a depth-first walk from the root — the fallback the
+    /// startup path and `boot_launcher` share, so a root whose slots are all
+    /// nested projects still boots.
+    pub fn first_launcher_depth_first(&self) -> Option<LaunchProfileId> {
+        let mut current = ProjectId::ROOT;
+        loop {
+            if let Some(launcher) = self.project(current).and_then(|project| {
+                project
+                    .slots()
+                    .iter()
+                    .find_map(|slot| slot.launcher.as_ref())
+            }) {
+                return Some(launcher.id);
+            }
+            let next = self
+                .project(current)
+                .and_then(|project| project.first_nested_project())?;
+            current = next;
+        }
+    }
+
+    pub(crate) fn launcher_address_path(&self, launcher: LaunchProfileId) -> Result<String> {
+        let launcher_record = self
+            .launcher(launcher)
+            .with_context(|| format!("launcher {launcher:?} is not in the configuration"))?;
+        let mut segments = vec![launcher_record.name.clone()];
+        let mut project = self
+            .project_of_launcher(launcher)
+            .context("launcher has no parent project")?
+            .id;
+
+        while project != ProjectId::ROOT {
+            let record = self
+                .project(project)
+                .with_context(|| format!("project {project:?} is not in the configuration"))?;
+            segments.push(record.name.clone());
+            project = self
+                .projects
                 .iter()
-                .flat_map(|project| project.launchers.iter())
-                .next()
-                .map(|launcher| launcher.id)
-        })
+                .find(|candidate| candidate.nested_projects().contains(&record.id))
+                .context("nested project has no parent")?
+                .id;
+        }
+
+        ensure!(
+            segments
+                .iter()
+                .all(|segment| !segment.is_empty() && !segment.contains('/')),
+            "startup address path cannot represent a name containing '/'"
+        );
+        segments.reverse();
+        let path = format!("/{}", segments.join("/"));
+        ensure!(
+            self.resolve_launcher_path(ProjectId::ROOT, &path) == Some(launcher),
+            "startup address path does not resolve to the selected launcher"
+        );
+        Ok(path)
+    }
+
+    /// Resolves a startup address path to a launcher id.
+    ///
+    /// The last segment names the launcher and the segments before it walk the
+    /// project tree; each segment takes the nearest match, so a path that misses
+    /// at one level still resolves within the nearest project. A leading
+    /// separator addresses from the root (the root itself has no name, so the
+    /// first segment is the first root slot); otherwise the path is relative to
+    /// `base`.
+    pub fn resolve_launcher_path(&self, base: ProjectId, path: &str) -> Option<LaunchProfileId> {
+        let (project, last) = self.resolve_path(base, path)?;
+        self.project(project)
+            .and_then(|project| project.launcher_by_name(last))
+    }
+
+    /// Resolves an address path to a project, `None` when no segment resolves.
+    ///
+    /// The path names the project itself, so `labs` resolves to the project
+    /// called `labs` and `labs/shell` resolves to the project `labs` — see
+    /// [`Self::resolve_launcher_path`] for the launcher counterpart.
+    pub fn resolve_project_path(&self, base: ProjectId, path: &str) -> Option<ProjectId> {
+        let (parent, last) = self.resolve_path(base, path)?;
+        self.nearest_child_project(parent, last)
+    }
+
+    /// Walks the leading segments of `path`, returning the project the last
+    /// segment resolved to and the final segment (the addressed content's name).
+    fn resolve_path<'p>(&self, base: ProjectId, path: &'p str) -> Option<(ProjectId, &'p str)> {
+        let mut current = if path.starts_with('/') {
+            ProjectId::ROOT
+        } else {
+            base
+        };
+
+        let mut last = None;
+        for segment in path.split('/').filter(|segment| !segment.is_empty()) {
+            if let Some(previous) = last {
+                // The previous segment addressed a project by name.
+                current = self.nearest_child_project(current, previous)?;
+            }
+            last = Some(segment);
+        }
+
+        let last = last.unwrap_or(ROOT_PROJECT_NAME);
+        Some((current, last))
+    }
+
+    /// The project called `name` nested in `parent`, or `parent` itself when no
+    /// nested project is so named.
+    fn nearest_child_project(&self, parent: ProjectId, name: &str) -> Option<ProjectId> {
+        if self
+            .project(parent)
+            .is_some_and(|project| project.name == name)
+        {
+            return Some(parent);
+        }
+        let children = self
+            .project(parent)
+            .map(|project| project.nested_projects())
+            .unwrap_or_default();
+        children
+            .iter()
+            .find(|child| {
+                self.project(**child)
+                    .is_some_and(|project| project.name == name)
+            })
+            .copied()
     }
 
     /// Names a new project: a default name gets the lowest index not already in
@@ -229,38 +456,24 @@ impl DesktopConfiguration {
         indexed_default_name(name, &existing)
     }
 
-    /// The launcher counterpart of [`Self::new_project_name`], indexed among the
-    /// siblings of the launcher's project.
-    pub fn new_launcher_name(&self, id: LaunchProfileId, default_name: &str, name: &str) -> String {
-        if name != default_name || self.launcher(id).is_some() {
-            return name.to_string();
-        }
-        let existing: Vec<&str> = self
-            .project_of_launcher(id)
-            .map(|project| {
-                project
-                    .launchers
-                    .iter()
-                    .map(|launcher| launcher.name.as_str())
-                    .collect()
-            })
-            .unwrap_or_default();
-        indexed_default_name(name, &existing)
-    }
-
-    /// The project called `name` that sits nearest — in document order — to the
-    /// focused project. Duplicate names address the nearest, and with no focused
-    /// project or name in it the first match answers; `None` when no project is
-    /// so named.
-    pub fn nearest_project(&self, name: &str, focused: Option<ProjectId>) -> Option<ProjectId> {
-        let focused = focused.and_then(|project| self.project_index(project));
+    /// How many launchers the configuration defines across all projects.
+    pub fn launcher_count(&self) -> usize {
         self.projects
             .iter()
-            .enumerate()
-            .filter(|(_, project)| project.name == name)
-            .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id))
-            .min_by_key(|(distance, _)| *distance)
-            .map(|(_, id)| id)
+            .map(|project| project.launchers().len())
+            .sum()
+    }
+
+    /// The launcher assigned to `placement` in `project`, if any. Placements are
+    /// unique per project, so this is a lookup, not a search over ties.
+    #[cfg(test)]
+    pub fn launcher_at(
+        &self,
+        project: ProjectId,
+        placement: MatrixPlacement,
+    ) -> Option<LaunchProfileId> {
+        self.project(project)
+            .and_then(|project| project.launcher_at(placement))
     }
 
     /// The launcher called `name` in `project` that sits nearest — in matrix
@@ -289,139 +502,231 @@ impl DesktopConfiguration {
             .map(|(_, id)| id)
     }
 
-    /// How many launchers the configuration defines across all projects.
-    pub fn launcher_count(&self) -> usize {
+    /// The project called `name` that sits nearest — in document order — to the
+    /// focused project. Duplicate names address the nearest, and with no focused
+    /// project or name in it the first match answers; `None` when no project is
+    /// so named.
+    pub fn nearest_project(&self, name: &str, focused: Option<ProjectId>) -> Option<ProjectId> {
+        let focused = focused.and_then(|project| self.project_index(project));
         self.projects
             .iter()
-            .map(|project| project.launchers.len())
-            .sum()
+            .enumerate()
+            .filter(|(_, project)| project.name == name)
+            .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id))
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, id)| id)
     }
 
-    /// The launcher occupying `placement` in `project`, if any. Placements are
-    /// unique per project, so this is a lookup, not a search over ties.
-    pub fn launcher_at(
+    /// The document-order index of the project, which is what orders the projects
+    /// on screen: `RemoveProject` by name removes the nearest one.
+    pub fn project_index(&self, project: ProjectId) -> Option<usize> {
+        self.projects.iter().position(|p| p.id == project)
+    }
+
+    /// The launchers of `project` that must move for the content at `placement`
+    /// to step `direction`: the contiguous run of assigned slots ahead of it,
+    /// listed so that applying the moves back-to-front stays conflict-free.
+    ///
+    /// The shift is content-agnostic per slot — a project-assigned slot shifts
+    /// like a launcher-assigned one.
+    pub fn shifted_slots(
         &self,
         project: ProjectId,
         placement: MatrixPlacement,
-    ) -> Option<LaunchProfileId> {
-        self.project(project)
-            .and_then(|project| project.launcher_at(placement))
-    }
-
-    /// The launchers of `project` that must move for `launcher` to step
-    /// `direction`: the contiguous run of occupants ahead of it, listed so that
-    /// applying the moves back-to-front stays conflict-free.
-    ///
-    /// Occupancy is answered from placements alone (each project's launchers are
-    /// sorted by placement, and placements are unique per project), so this
-    /// matches what `MatrixPositions::shifted_launchers` computed over the same
-    /// data.
-    pub fn shifted_launchers(
-        &self,
-        project: ProjectId,
-        launcher: LaunchProfileId,
         direction: MoveDirection,
-    ) -> Result<Vec<(LaunchProfileId, MatrixPlacement)>> {
-        let placement = self
-            .placement_of(launcher)
-            .with_context(|| format!("launcher {launcher:?} has no matrix placement"))?;
-
-        let mut run = vec![(launcher, placement)];
+    ) -> Result<Vec<(MatrixPlacement, MatrixPlacement)>> {
+        let mut run = vec![placement];
         loop {
-            let (_, leading) = *run.last().expect("run is never empty");
+            let leading = *run.last().expect("run is never empty");
             let Some(next) = leading.moved_placement(direction) else {
-                bail!("Can't shift launcher beyond the matrix boundary");
+                bail!("Can't shift slot content beyond the matrix boundary");
             };
-            let Some(next_launcher) = self.launcher_at(project, next) else {
+            if self.content_at(project, next).is_none() {
                 break;
-            };
-            run.push((next_launcher, next));
+            }
+            run.push(next);
         }
 
         Ok(run
             .into_iter()
             .rev()
-            .map(|(id, moved)| {
+            .map(|moved| {
                 let placement = moved
                     .moved_placement(direction)
                     .expect("run placement was validated before shifting");
-                (id, placement)
+                (moved, placement)
             })
             .collect())
     }
 
-    /// The launchers right of `placement` in the same row, each moved one column
-    /// left — the shift emitted when a slot is freed by launcher removal.
-    pub fn shifted_left_launchers(
+    /// The assigned slots right of `placement` in the same row, each moved one
+    /// column left — the shift emitted when a slot is freed.
+    pub fn shifted_left_slots(
         &self,
         project: ProjectId,
         placement: MatrixPlacement,
-    ) -> Vec<(LaunchProfileId, MatrixPlacement)> {
-        self.launchers_ordered(project)
-            .iter()
-            .filter(|launcher| {
-                launcher.placement.row == placement.row
-                    && launcher.placement.column > placement.column
+    ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
+        self.slots_ordered(project)
+            .into_iter()
+            .filter(|(candidate, _)| {
+                candidate.row == placement.row && candidate.column > placement.column
             })
-            .map(|launcher| {
+            .map(|(candidate, _)| {
                 (
-                    launcher.id,
+                    candidate,
                     MatrixPlacement {
-                        column: launcher.placement.column - 1,
-                        row: launcher.placement.row,
+                        column: candidate.column - 1,
+                        row: candidate.row,
                     },
                 )
             })
             .collect()
     }
+
+    /// The placement index of the launcher within its project, counting the launchers in
+    /// placement order: Manhattan distance between those indexes is the matrix distance
+    /// `RemoveLauncher` by name picks the nearest launcher by.
+    pub fn launcher_index(&self, launcher: LaunchProfileId) -> Option<usize> {
+        let project = self.project_of_launcher(launcher)?;
+        project.launchers().iter().position(|l| l.id == launcher)
+    }
+
+    /// The launcher's placement, `None` when it is not in the configuration.
+    pub fn placement_of(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
+        self.launcher(launcher).map(|launcher| launcher.placement)
+    }
+
+    /// The content of `project`'s slot at `placement`, `None` when the slot is
+    /// empty. This is the assignment query the shift planner and `AssignSlot`
+    /// validation need; placements are unique per project, so it is a lookup.
+    pub fn content_at(
+        &self,
+        project: ProjectId,
+        placement: MatrixPlacement,
+    ) -> Option<SlotContent> {
+        self.project(project)
+            .and_then(|project| project.content_at(placement))
+    }
+
+    /// All launchers of the project, kept in matrix-placement order (the
+    /// aggregate invariant).
+    pub fn launchers_ordered(&self, project: ProjectId) -> Vec<&Launcher> {
+        self.project(project)
+            .map(|project| project.launchers())
+            .unwrap_or_default()
+    }
+
+    pub fn launcher(&self, launcher: LaunchProfileId) -> Option<&Launcher> {
+        self.project_of_launcher(launcher)
+            .and_then(|project| project.launcher(launcher))
+    }
+
+    /// The project a launcher belongs to, by searching each project's slots. The
+    /// topology's `project_of_launcher` answers from parent links instead, and is
+    /// the right source when the scene hierarchy is available.
+    pub fn project_of_launcher(&self, launcher: LaunchProfileId) -> Option<&Project> {
+        self.projects
+            .iter()
+            .find(|project| project.slot_of_launcher(launcher).is_some())
+    }
+
+    /// Every assigned slot of `project`, in placement order.
+    pub fn slots_ordered(&self, project: ProjectId) -> Vec<(MatrixPlacement, SlotContent)> {
+        self.project(project)
+            .map(|project| {
+                project
+                    .slots
+                    .iter()
+                    .map(|slot| (slot.placement, slot.content))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn project(&self, id: ProjectId) -> Option<&Project> {
+        self.projects.iter().find(|project| project.id == id)
+    }
+
+    pub fn project_mut(&mut self, id: ProjectId) -> Option<&mut Project> {
+        self.projects.iter_mut().find(|project| project.id == id)
+    }
 }
 
-/// Resolves the startup launcher's id by name among all launchers.
-fn find_launcher_by_name(projects: &[Project], name: &str) -> Option<LaunchProfileId> {
-    projects
-        .iter()
-        .flat_map(|project| project.launchers.iter())
-        .find(|launcher| launcher.name == name)
-        .map(|launcher| launcher.id)
-}
-
-/// The boot commands that rebuild the scene from the aggregate: one per
-/// project and launcher, in document order.
+/// The boot commands that rebuild the scene from the aggregate: a pre-order walk
+/// from the root, so a slot's parent project and matrix exist before the slot's
+/// content is assigned under them.
+///
+/// The walk starts with the root project's own `AddProject { under: None }`, which
+/// parents the root project under the `Desktop` target; every other project's
+/// creation is its slot assignment.
 pub fn to_commands(configuration: &DesktopConfiguration) -> CollectingVec<ProjectCommand> {
     let mut commands = CollectingVec::Empty;
 
-    commands.push(ProjectCommand::SetStartupLauncher(configuration.startup));
-
-    for project in &configuration.projects {
-        project_commands(project, &mut commands);
-    }
+    commands.push(ProjectCommand::SetStartupPath(
+        configuration.startup_path.clone(),
+    ));
+    let root_name = configuration
+        .project(ProjectId::ROOT)
+        .map(|project| project.name.clone())
+        .unwrap_or_else(|| ROOT_PROJECT_NAME.to_string());
+    commands.push(ProjectCommand::AddProject {
+        id: ProjectId::ROOT,
+        name: root_name,
+        placement: MatrixPlacement { column: 0, row: 0 },
+        under: None,
+    });
+    assign_slot_commands(configuration, ProjectId::ROOT, &mut commands);
 
     commands
 }
 
-fn project_commands(project: &Project, commands: &mut CollectingVec<ProjectCommand>) {
-    commands.push(ProjectCommand::AddProject {
-        id: project.id,
-        name: project.name.clone(),
-        after: None,
-    });
-
-    for launcher in project.launchers() {
-        launcher_commands(project.id, launcher, commands);
-    }
-}
-
-fn launcher_commands(
+fn assign_slot_commands(
+    configuration: &DesktopConfiguration,
     project: ProjectId,
-    launcher: &Launcher,
     commands: &mut CollectingVec<ProjectCommand>,
 ) {
-    commands.push(ProjectCommand::AddLauncher {
-        project,
-        id: launcher.id,
-        profile: launcher.profile(),
-        placement: launcher.matrix_placement(),
-    });
+    let Some(slots) = configuration
+        .project(project)
+        .map(|project| project.slots.clone())
+    else {
+        return;
+    };
+
+    for slot in slots {
+        let content = match slot.content {
+            SlotContent::Launcher(launcher_id) => {
+                let Some(launcher) = configuration.launcher(launcher_id) else {
+                    continue;
+                };
+                SlotAssignment::Launcher {
+                    id: launcher_id,
+                    profile: launcher.profile(),
+                }
+            }
+            SlotContent::Project(child) => {
+                let Some(child_project) = configuration.project(child) else {
+                    continue;
+                };
+                SlotAssignment::Project {
+                    id: child,
+                    name: child_project.name.clone(),
+                }
+            }
+        };
+
+        commands.push(ProjectCommand::AssignSlot {
+            parent: project,
+            placement: slot.placement,
+            content,
+            // Boot re-applies positions the aggregate already holds, so nothing
+            // is displaced.
+            shift: SlotShift::Keep,
+        });
+
+        if let SlotContent::Project(child) = slot.content {
+            assign_slot_commands(configuration, child, commands);
+        }
+    }
 }
 
 /// The default name with the lowest index that is not already taken among
@@ -438,53 +743,197 @@ fn indexed_default_name(name: &str, existing: &[&str]) -> String {
     }
 }
 
-#[derive(Debug)]
+/// A project's matrix: its assigned slots, kept in placement order so readers can
+/// rely on order without re-reading placements.
+#[derive(Debug, Clone)]
 pub struct Project {
     pub id: ProjectId,
     pub name: String,
-    launchers: Vec<Launcher>,
+    slots: Vec<Slot>,
 }
 
 impl Project {
-    /// Creates the project's id and puts its launchers into sorted order.
+    /// Creates the project's id and puts its slots into placement order.
     ///
-    /// The sort is stable, so launchers sharing a placement keep their document
-    /// order.
-    pub(crate) fn new(name: String, launchers: Vec<Launcher>) -> Self {
-        // Invariant: launchers stay sorted by matrix placement, so consumers can
-        // rely on order without re-reading placements.
-        let mut launchers = launchers;
-        launchers.sort_by_key(|launcher| (launcher.placement.column, launcher.placement.row));
+    /// The sort is stable, so slots sharing a placement keep their document order.
+    pub(crate) fn new(name: String, slots: Vec<Slot>) -> Self {
         Self {
             id: ProjectId::new(),
             name,
-            launchers,
+            slots: sort_slots(slots),
         }
     }
 
-    pub fn launchers(&self) -> &[Launcher] {
-        &self.launchers
+    /// Puts `slot` into the matrix, replacing whatever content is assigned to
+    /// its placement.
+    ///
+    /// An assign into an assigned slot cannot displace the assigned content —
+    /// the shift happens in the plan, before the live model sees the assignment.
+    pub(crate) fn assign_slot(&mut self, slot: Slot) {
+        if let Some(index) = self.slot_index(slot.placement) {
+            self.slots[index] = slot;
+            return;
+        }
+        self.slots.push(slot);
+        self.slots = sort_slots(std::mem::take(&mut self.slots));
+    }
+
+    /// The launcher assigned to `placement`, if the slot holds one.
+    #[cfg(test)]
+    pub fn launcher_at(&self, placement: MatrixPlacement) -> Option<LaunchProfileId> {
+        match self.content_at(placement)? {
+            SlotContent::Launcher(launcher) => Some(launcher),
+            SlotContent::Project(_) => None,
+        }
+    }
+
+    /// The content of the slot at `placement`, `None` when it is empty.
+    pub fn content_at(&self, placement: MatrixPlacement) -> Option<SlotContent> {
+        self.slot_index(placement)
+            .map(|index| self.slots[index].content)
+    }
+
+    pub fn slots(&self) -> &[Slot] {
+        &self.slots
+    }
+
+    /// Whether the project hosts a launcher anywhere in its own matrix. Nested
+    /// projects' launchers are not counted: this answers for one matrix.
+    pub fn has_launcher(&self) -> bool {
+        self.slots
+            .iter()
+            .any(|slot| matches!(slot.content, SlotContent::Launcher(_)))
+    }
+
+    /// The launchers of this project's matrix, in placement order.
+    pub fn launchers(&self) -> Vec<&Launcher> {
+        self.slots
+            .iter()
+            .filter_map(|slot| slot.launcher.as_ref())
+            .collect()
+    }
+
+    /// The ids of the projects nested in this project's matrix, in placement order.
+    pub fn nested_projects(&self) -> Vec<ProjectId> {
+        self.slots
+            .iter()
+            .filter_map(|slot| match slot.content {
+                SlotContent::Project(project) => Some(project),
+                SlotContent::Launcher(_) => None,
+            })
+            .collect()
+    }
+
+    /// The first project nested in this matrix, in placement order — the walk
+    /// `first_launcher_depth_first` follows.
+    pub fn first_nested_project(&self) -> Option<ProjectId> {
+        self.slots.iter().find_map(|slot| match slot.content {
+            SlotContent::Project(project) => Some(project),
+            SlotContent::Launcher(_) => None,
+        })
     }
 
     pub fn launcher(&self, id: LaunchProfileId) -> Option<&Launcher> {
-        self.launchers.iter().find(|launcher| launcher.id == id)
+        self.slots.iter().find_map(|slot| match slot.content {
+            SlotContent::Launcher(launcher) if launcher == id => slot.launcher.as_ref(),
+            _ => None,
+        })
     }
 
+    #[cfg(test)]
     pub fn launcher_mut(&mut self, id: LaunchProfileId) -> Option<&mut Launcher> {
-        self.launchers.iter_mut().find(|launcher| launcher.id == id)
+        self.slots.iter_mut().find_map(|slot| match slot.content {
+            SlotContent::Launcher(launcher) if launcher == id => slot.launcher.as_mut(),
+            _ => None,
+        })
     }
 
-    /// The launcher occupying `placement`, if any.
-    pub fn launcher_at(&self, placement: MatrixPlacement) -> Option<LaunchProfileId> {
-        self.launchers
+    /// The placement of `content` in this project's matrix.
+    pub fn placement_of_content(&self, content: SlotContent) -> Option<MatrixPlacement> {
+        self.slots
             .iter()
-            .find(|launcher| launcher.placement == placement)
-            .map(|launcher| launcher.id)
+            .find(|slot| slot.content == content)
+            .map(|slot| slot.placement)
+    }
+
+    /// The launcher called `name` of this matrix, nearest first in placement
+    /// order — duplicates address the first.
+    pub fn launcher_by_name(&self, name: &str) -> Option<LaunchProfileId> {
+        self.slots.iter().find_map(|slot| match slot.content {
+            SlotContent::Launcher(launcher)
+                if slot.launcher.as_ref().is_some_and(|l| l.name == name) =>
+            {
+                Some(launcher)
+            }
+            _ => None,
+        })
+    }
+
+    /// The slot holding `launcher`.
+    pub fn slot_of_launcher(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
+        self.slots
+            .iter()
+            .find(|slot| slot.content == SlotContent::Launcher(launcher))
+            .map(|slot| slot.placement)
+    }
+
+    /// Empties the slot at `placement`, if it is assigned.
+    pub(crate) fn remove_slot(&mut self, placement: MatrixPlacement) {
+        self.slots.retain(|slot| slot.placement != placement);
+    }
+
+    /// The index of the slot at `placement`.
+    pub fn slot_index(&self, placement: MatrixPlacement) -> Option<usize> {
+        self.slots
+            .iter()
+            .position(|slot| slot.placement == placement)
     }
 }
 
-/// The aggregate keeps launchers sorted by placement, so readers index by id
-/// without caring where the launcher sits in the vec.
+/// Puts slots into placement order: row first, then column, matching the order the
+/// aggregate's readers rely on.
+fn sort_slots(mut slots: Vec<Slot>) -> Vec<Slot> {
+    slots.sort_by_key(|slot| (slot.placement.row, slot.placement.column));
+    slots
+}
+
+/// One assigned slot of a project's matrix.
+///
+/// Slots are implicit (ADR 0011): a slot exists only while it has content, and it
+/// is addressed by its `(project, placement)` key rather than by an id.
+#[derive(Debug, Clone)]
+pub struct Slot {
+    pub placement: MatrixPlacement,
+    pub content: SlotContent,
+    /// The launcher-assigned variant's launcher record. This is the source of the
+    /// launcher records; `content` carries only the id so both kinds of slot read
+    /// the same way.
+    pub(crate) launcher: Option<Launcher>,
+}
+
+impl Slot {
+    /// Builds a launcher-assigned slot, which is how slots are created at parse
+    /// and on assign.
+    pub(crate) fn launcher(launcher: Launcher) -> Self {
+        Self {
+            placement: launcher.placement,
+            content: SlotContent::Launcher(launcher.id),
+            launcher: Some(launcher),
+        }
+    }
+
+    /// Builds a project-assigned slot.
+    pub(crate) fn project(placement: MatrixPlacement, project: ProjectId) -> Self {
+        Self {
+            placement,
+            content: SlotContent::Project(project),
+            launcher: None,
+        }
+    }
+}
+
+/// The aggregate keeps a project's slots sorted by placement, so readers index by
+/// id without caring where in the vec the content sits.
 impl Index<ProjectId> for DesktopConfiguration {
     type Output = Project;
 
@@ -502,7 +951,7 @@ impl Index<LaunchProfileId> for DesktopConfiguration {
             .unwrap_or_else(|| panic!("Launcher {id:?} is not in the configuration"))
     }
 }
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Launcher {
     pub id: LaunchProfileId,
     pub name: String,
@@ -528,12 +977,6 @@ impl Launcher {
         }
     }
 
-    /// The launcher's matrix placement, `matrix_` to distinguish it from the
-    /// layout `Placement` other types carry under the same name.
-    pub fn matrix_placement(&self) -> MatrixPlacement {
-        self.placement
-    }
-
     /// The launcher's profile as carried by `AddLauncher` changes.
     pub fn profile(&self) -> LaunchProfile {
         LaunchProfile {
@@ -551,6 +994,58 @@ pub struct LaunchProfile {
     pub name: String,
     pub mode: LauncherMode,
     pub params: Params,
+}
+
+/// What a slot of a project's matrix hosts: a launcher or a nested project,
+/// never both. A placement that hosts neither is simply empty, so a slot exists
+/// only while it has content.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum SlotContent {
+    Launcher(LaunchProfileId),
+    Project(ProjectId),
+}
+
+impl SlotContent {
+    /// The topology target that presents this slot's content: a launcher-assigned
+    /// slot keeps targeting its launcher, and a project-assigned slot targets the
+    /// nested project itself.
+    ///
+    /// This is the click and camera target of a slot, which is why a nested
+    /// project's content target is the nested `Project` and not the enclosing
+    /// matrix.
+    pub fn target(self) -> DesktopTarget {
+        match self {
+            SlotContent::Launcher(launcher) => DesktopTarget::Launcher(launcher),
+            SlotContent::Project(project) => DesktopTarget::Project(project),
+        }
+    }
+}
+
+/// The content an [`crate::desktop_system::ProjectCommand::AssignSlot`] assigns:
+/// the content itself plus what is needed to create it.
+///
+/// A launcher carries its full profile, because assigning one creates it; a
+/// project carries its name, because assigning a project name creates the nested
+/// project and places it — there is no separate "add project" operation.
+#[derive(Debug, Clone)]
+pub enum SlotAssignment {
+    Launcher {
+        id: LaunchProfileId,
+        profile: LaunchProfile,
+    },
+    Project {
+        id: ProjectId,
+        name: String,
+    },
+}
+
+impl SlotAssignment {
+    pub fn content(&self) -> SlotContent {
+        match self {
+            SlotAssignment::Launcher { id, .. } => SlotContent::Launcher(*id),
+            SlotAssignment::Project { id, .. } => SlotContent::Project(*id),
+        }
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -596,6 +1091,11 @@ impl ProjectId {
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
+
+    /// The root project's fixed id. It is a constant so the boot command can
+    /// name the root before the system exists and the live model can never
+    /// disagree with the aggregate about which project is the root.
+    pub const ROOT: Self = Self(Uuid::nil());
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, From, Into)]
@@ -607,109 +1107,376 @@ impl LaunchProfileId {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
-pub enum LauncherMode {
-    Band,
-    #[default]
-    Visor,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn launcher(id: LaunchProfileId, placement: MatrixPlacement) -> Launcher {
-        Launcher {
-            id,
-            name: format!("{id:?}"),
-            mode: LauncherMode::Visor,
-            params: Default::default(),
-            placement,
-        }
-    }
-
-    fn configuration(
-        entries: impl IntoIterator<Item = (LaunchProfileId, MatrixPlacement)>,
-    ) -> DesktopConfiguration {
-        let entries: Vec<_> = entries.into_iter().collect();
-        let project = Project::new(
-            "only".into(),
-            entries
-                .into_iter()
-                .map(|(id, placement)| launcher(id, placement))
-                .collect(),
-        );
-        DesktopConfiguration {
-            projects: vec![project],
-            startup: None,
-        }
-    }
-
-    // Ported from `MatrixPositions::shifted_launchers` tests when the aggregate
-    // became the one source of matrix placements: these pin the shift-sequence
-    // semantics (reverse order, stop at gaps, boundary errors).
     #[test]
-    fn shifted_launchers_moves_a_contiguous_run_in_reverse_order() {
-        let first = LaunchProfileId::new();
-        let second = LaunchProfileId::new();
-        let third = LaunchProfileId::new();
+    fn shifted_slots_moves_a_contiguous_run_in_reverse_order() {
         let configuration = configuration([
-            (first, MatrixPlacement { column: 1, row: 0 }),
-            (second, MatrixPlacement { column: 2, row: 0 }),
-            (third, MatrixPlacement { column: 3, row: 0 }),
+            ("first", MatrixPlacement { column: 1, row: 0 }),
+            ("second", MatrixPlacement { column: 2, row: 0 }),
+            ("third", MatrixPlacement { column: 3, row: 0 }),
         ]);
 
         let shifted = configuration
-            .shifted_launchers(project_id_of(&configuration), first, MoveDirection::Right)
+            .shifted_slots(
+                root_id_of(&configuration),
+                MatrixPlacement { column: 1, row: 0 },
+                MoveDirection::Right,
+            )
             .unwrap();
 
         assert_eq!(
             shifted,
             vec![
-                (third, MatrixPlacement { column: 4, row: 0 }),
-                (second, MatrixPlacement { column: 3, row: 0 }),
-                (first, MatrixPlacement { column: 2, row: 0 }),
+                (
+                    MatrixPlacement { column: 3, row: 0 },
+                    MatrixPlacement { column: 4, row: 0 }
+                ),
+                (
+                    MatrixPlacement { column: 2, row: 0 },
+                    MatrixPlacement { column: 3, row: 0 }
+                ),
+                (
+                    MatrixPlacement { column: 1, row: 0 },
+                    MatrixPlacement { column: 2, row: 0 }
+                ),
             ]
         );
     }
 
     #[test]
-    fn shifted_launchers_stops_at_the_first_empty_slot() {
-        let first = LaunchProfileId::new();
-        let second = LaunchProfileId::new();
+    fn shifted_slots_stops_at_the_first_empty_slot() {
         let configuration = configuration([
-            (first, MatrixPlacement { column: 1, row: 0 }),
-            (second, MatrixPlacement { column: 3, row: 0 }),
+            ("first", MatrixPlacement { column: 1, row: 0 }),
+            ("second", MatrixPlacement { column: 3, row: 0 }),
         ]);
 
         let shifted = configuration
-            .shifted_launchers(project_id_of(&configuration), first, MoveDirection::Right)
+            .shifted_slots(
+                root_id_of(&configuration),
+                MatrixPlacement { column: 1, row: 0 },
+                MoveDirection::Right,
+            )
             .unwrap();
 
         assert_eq!(
             shifted,
-            vec![(first, MatrixPlacement { column: 2, row: 0 })]
+            vec![(
+                MatrixPlacement { column: 1, row: 0 },
+                MatrixPlacement { column: 2, row: 0 }
+            )]
         );
     }
 
     #[test]
-    fn shifted_launchers_rejects_left_and_up_boundaries() {
-        let launcher = LaunchProfileId::new();
-        let configuration = configuration([(launcher, MatrixPlacement { column: 0, row: 0 })]);
+    fn shifted_slots_rejects_left_and_up_boundaries() {
+        let configuration = configuration([("only", MatrixPlacement { column: 0, row: 0 })]);
 
         assert!(
             configuration
-                .shifted_launchers(project_id_of(&configuration), launcher, MoveDirection::Left)
+                .shifted_slots(
+                    root_id_of(&configuration),
+                    MatrixPlacement { column: 0, row: 0 },
+                    MoveDirection::Left
+                )
                 .is_err()
         );
         assert!(
             configuration
-                .shifted_launchers(project_id_of(&configuration), launcher, MoveDirection::Up)
+                .shifted_slots(
+                    root_id_of(&configuration),
+                    MatrixPlacement { column: 0, row: 0 },
+                    MoveDirection::Up
+                )
                 .is_err()
         );
     }
 
-    fn project_id_of(configuration: &DesktopConfiguration) -> ProjectId {
-        configuration.projects[0].id
+    #[test]
+    fn shifted_left_slots_pulls_the_same_row_left() {
+        let configuration = configuration([
+            ("a", MatrixPlacement { column: 0, row: 0 }),
+            ("b", MatrixPlacement { column: 1, row: 0 }),
+            ("c", MatrixPlacement { column: 2, row: 0 }),
+            ("other-row", MatrixPlacement { column: 0, row: 1 }),
+        ]);
+
+        assert_eq!(
+            configuration.shifted_left_slots(
+                root_id_of(&configuration),
+                MatrixPlacement { column: 0, row: 0 }
+            ),
+            vec![
+                (
+                    MatrixPlacement { column: 1, row: 0 },
+                    MatrixPlacement { column: 0, row: 0 }
+                ),
+                (
+                    MatrixPlacement { column: 2, row: 0 },
+                    MatrixPlacement { column: 1, row: 0 }
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn content_at_classifies_both_kinds_of_slot_content() {
+        let nested = ProjectId::new();
+        let placement = MatrixPlacement { column: 0, row: 0 };
+        let mut configuration = configuration([("only", placement)]);
+        let root = root_id_of(&configuration);
+
+        let existing = configuration.launcher_at(root, placement).unwrap();
+        assert_eq!(
+            configuration.content_at(root, placement),
+            Some(SlotContent::Launcher(existing))
+        );
+
+        configuration.assign_slot(root, placement, nested_assignment(nested));
+        assert_eq!(
+            configuration.content_at(root, placement),
+            Some(SlotContent::Project(nested))
+        );
+    }
+
+    #[test]
+    fn a_move_into_the_moved_subtree_is_rejected() {
+        let placement = MatrixPlacement { column: 0, row: 0 };
+        let nested = ProjectId::new();
+        let mut configuration = configuration([("only", placement)]);
+        let root = root_id_of(&configuration);
+        configuration.assign_slot(root, placement, named_project(nested, "nested"));
+
+        let inner = MatrixPlacement { column: 0, row: 0 };
+        assert!(!configuration.can_move_slot((root, placement), (nested, inner)));
+        assert!(!configuration.move_slot((root, placement), (nested, inner)));
+    }
+
+    #[test]
+    fn assigning_a_project_creates_it_in_the_parent_slot() {
+        let placement = MatrixPlacement { column: 1, row: 0 };
+        let nested = ProjectId::new();
+        let mut configuration = configuration([("only", MatrixPlacement { column: 0, row: 0 })]);
+        let root = root_id_of(&configuration);
+
+        configuration.assign_slot(root, placement, named_project(nested, "labs"));
+
+        assert_eq!(
+            configuration.child_project_at(root, placement),
+            Some(nested)
+        );
+        assert_eq!(
+            configuration
+                .project(nested)
+                .map(|project| project.name.as_str()),
+            Some("labs")
+        );
+        assert_eq!(
+            configuration
+                .project(root)
+                .and_then(|project| { project.placement_of_content(SlotContent::Project(nested)) }),
+            Some(placement)
+        );
+    }
+
+    #[test]
+    fn clearing_a_slot_leaves_the_nested_project_empty_rather_than_removed() {
+        let placement = MatrixPlacement { column: 0, row: 0 };
+        let mut configuration = configuration([("only", placement)]);
+        let root = root_id_of(&configuration);
+        configuration.assign_slot(root, placement, named_project(ProjectId::new(), "labs"));
+
+        configuration.clear_slot(root, placement);
+
+        assert_eq!(configuration.content_at(root, placement), None);
+        assert_eq!(
+            configuration.projects().len(),
+            2,
+            "the nested project stays"
+        );
+    }
+
+    #[test]
+    fn removing_a_project_takes_its_subtree_and_frees_the_parent_slot() {
+        let root_placement = MatrixPlacement { column: 0, row: 0 };
+        let mut configuration = configuration([("only", MatrixPlacement { column: 1, row: 0 })]);
+        let root = root_id_of(&configuration);
+        let labs = ProjectId::new();
+        configuration.assign_slot(root, root_placement, named_project(labs, "labs"));
+        let inner = ProjectId::new();
+        configuration.assign_slot(
+            labs,
+            MatrixPlacement { column: 0, row: 0 },
+            named_project(inner, "inner"),
+        );
+
+        configuration.remove_project(labs);
+
+        assert!(configuration.project(labs).is_none());
+        assert!(configuration.project(inner).is_none());
+        assert_eq!(configuration.content_at(root, root_placement), None);
+    }
+
+    #[test]
+    fn launcher_count_and_first_launcher_walk_nested_projects() {
+        let placement = MatrixPlacement { column: 0, row: 0 };
+        let mut configuration = configuration([("top", MatrixPlacement { column: 0, row: 1 })]);
+        let root = root_id_of(&configuration);
+        let nested = ProjectId::new();
+        configuration.assign_slot(root, placement, named_project(nested, "labs"));
+        configuration.assign_slot(
+            nested,
+            placement,
+            launcher_assignment_for(LaunchProfileId::new()),
+        );
+
+        assert_eq!(configuration.launcher_count(), 2);
+        assert_eq!(
+            configuration.first_launcher_depth_first(),
+            configuration.launcher_at(root, MatrixPlacement { column: 0, row: 1 })
+        );
+    }
+
+    #[test]
+    fn first_launcher_descends_when_the_root_has_none_of_its_own() {
+        let placement = MatrixPlacement { column: 0, row: 0 };
+        let mut configuration = configuration([("top", MatrixPlacement { column: 0, row: 1 })]);
+        let root = root_id_of(&configuration);
+        configuration.clear_slot(root, MatrixPlacement { column: 0, row: 1 });
+        let nested = ProjectId::new();
+        configuration.assign_slot(root, placement, named_project(nested, "labs"));
+        let inner = LaunchProfileId::new();
+        configuration.assign_slot(nested, placement, launcher_assignment_for(inner));
+
+        assert_eq!(configuration.first_launcher_depth_first(), Some(inner));
+    }
+
+    #[test]
+    fn a_startup_address_path_resolves_relative_to_its_base() {
+        let mut configuration =
+            configuration([("root-launcher", MatrixPlacement { column: 0, row: 0 })]);
+        let root = root_id_of(&configuration);
+        let labs = ProjectId::new();
+        configuration.assign_slot(
+            root,
+            MatrixPlacement { column: 0, row: 1 },
+            named_project(labs, "labs"),
+        );
+        let shell = LaunchProfileId::new();
+        configuration.assign_slot(
+            labs,
+            MatrixPlacement { column: 0, row: 0 },
+            launcher_assignment_for(shell),
+        );
+        configuration
+            .project_mut(labs)
+            .and_then(|project| project.launcher_mut(shell))
+            .expect("the launcher was just assigned")
+            .name = "shell".into();
+
+        assert_eq!(
+            configuration.resolve_launcher_path(root, "labs/shell"),
+            Some(shell)
+        );
+        assert_eq!(
+            configuration.resolve_launcher_path(labs, "shell"),
+            Some(shell)
+        );
+        assert_eq!(
+            configuration.resolve_launcher_path(root, "/labs/shell"),
+            Some(shell)
+        );
+        assert_eq!(
+            configuration
+                .launcher_address_path(shell)
+                .expect("the nested launcher has a representable root path"),
+            "/labs/shell"
+        );
+        assert_eq!(configuration.resolve_project_path(root, "labs"), Some(labs));
+        assert_eq!(
+            configuration.resolve_launcher_path(root, "labs/missing"),
+            None
+        );
+    }
+
+    /// The boot command list opens with the root project's own creation so its
+    /// slots' parents exist before the slots are assigned under them.
+    #[test]
+    fn to_commands_starts_with_the_root_add_project() {
+        let configuration = configuration([("shell", MatrixPlacement { column: 0, row: 0 })]);
+
+        let commands = to_commands(&configuration);
+
+        let mut commands = commands.into_iter();
+        assert!(matches!(
+            commands.next(),
+            Some(ProjectCommand::SetStartupPath(None))
+        ));
+        assert!(matches!(
+            commands.next(),
+            Some(ProjectCommand::AddProject {
+                id: ProjectId::ROOT,
+                under: None,
+                ..
+            })
+        ));
+        assert!(matches!(
+            commands.next(),
+            Some(ProjectCommand::AssignSlot {
+                parent: ProjectId::ROOT,
+                ..
+            })
+        ));
+    }
+
+    /// A root project holding the given launchers, with the parent links derived
+    /// the way parsing derives them.
+    fn configuration(
+        entries: impl IntoIterator<Item = (&'static str, MatrixPlacement)>,
+    ) -> DesktopConfiguration {
+        let slots = entries
+            .into_iter()
+            .map(|(name, placement)| Slot::launcher(launcher(name, placement)))
+            .collect();
+        let root = Project::new(ROOT_PROJECT_NAME.into(), slots);
+        let mut configuration = DesktopConfiguration {
+            projects: vec![root],
+            startup: None,
+            startup_path: None,
+        };
+        configuration.projects[0].id = ProjectId::ROOT;
+        configuration
+    }
+
+    fn nested_assignment(id: ProjectId) -> SlotAssignment {
+        named_project(id, "labs")
+    }
+
+    fn launcher(name: &str, placement: MatrixPlacement) -> Launcher {
+        Launcher::new(name.into(), LauncherMode::Visor, Params::new(), placement)
+    }
+
+    fn named_project(id: ProjectId, name: &str) -> SlotAssignment {
+        SlotAssignment::Project {
+            id,
+            name: name.into(),
+        }
+    }
+
+    fn launcher_assignment_for(id: LaunchProfileId) -> SlotAssignment {
+        SlotAssignment::Launcher {
+            id,
+            profile: LaunchProfile {
+                name: format!("{id:?}"),
+                mode: LauncherMode::Visor,
+                params: Params::new(),
+            },
+        }
+    }
+
+    fn root_id_of(_configuration: &DesktopConfiguration) -> ProjectId {
+        ProjectId::ROOT
     }
 }

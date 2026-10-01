@@ -264,7 +264,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn insert_root() {
+    fn missing_id_has_no_parent_and_no_nested() {
         let hierarchy = hierarchy();
 
         assert_eq!(hierarchy.parent(&1), None);

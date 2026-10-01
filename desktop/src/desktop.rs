@@ -127,8 +127,9 @@ impl Desktop {
             DesktopSystem::new(env, default_size, configuration_document, configuration)?;
 
         // The session boots into the startup launcher the configuration names. The
-        // configuration parse guarantees at least one launcher, and no project
-        // command ran yet, so the fallback is the first launcher of it.
+        // configuration parse guarantees at least one launcher, and the fallback
+        // derived here is the first launcher of the parsed aggregate before any
+        // command replays.
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
             launcher: boot_launcher,
             instance: primary_instance,

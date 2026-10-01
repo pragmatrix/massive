@@ -1,11 +1,11 @@
 use derive_more::Debug;
 
-use massive_applications::{InstanceId, InstanceParameters};
+use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId};
+use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
 
 /// The commands the desktop system can execute.
 #[derive(Debug)]
@@ -30,18 +30,35 @@ pub enum DesktopCommand {
 
 #[derive(Debug)]
 pub enum ProjectCommand {
+    /// Creates a project. The root is created by `AddProject { under: None }`,
+    /// which places the project under the `Desktop` target; this is also how an
+    /// `AssignSlot` that names a new project materializes it.
     AddProject {
         id: ProjectId,
         name: String,
-        after: Option<ProjectId>,
+        /// The placement in the host project's matrix. Ignored for
+        /// `under: None` — the root project is not hosted by a matrix.
+        placement: MatrixPlacement,
+        /// The project whose slot will host the new project; `None` for the root
+        /// project under the `Desktop` target.
+        under: Option<ProjectId>,
     },
     RemoveProject(ProjectId),
-    AddLauncher {
-        project: ProjectId,
-        id: LaunchProfileId,
-        profile: LaunchProfile,
+    /// Assigns slot content, displacing the assigned content according to `shift`.
+    AssignSlot {
+        parent: ProjectId,
         placement: MatrixPlacement,
+        content: SlotAssignment,
+        shift: SlotShift,
     },
-    RemoveLauncher(LaunchProfileId),
-    SetStartupLauncher(Option<LaunchProfileId>),
+    ClearSlot {
+        parent: ProjectId,
+        placement: MatrixPlacement,
+        shift: SlotShift,
+    },
+    MoveSlot {
+        source: (ProjectId, MatrixPlacement),
+        dest: (ProjectId, MatrixPlacement),
+    },
+    SetStartupPath(Option<String>),
 }

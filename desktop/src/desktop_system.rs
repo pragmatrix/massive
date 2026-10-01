@@ -36,10 +36,10 @@ use log::warn;
 
 use massive_applications::prelude::*;
 use massive_applications::{InstanceId, ViewId};
-use massive_geometry::{PixelCamera, SizePx};
+use massive_geometry::{PixelCamera, SizePx, Transform};
 use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderPacing;
-use massive_scene::prelude::*;
+use massive_scene::prelude::identity_location;
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
@@ -54,6 +54,7 @@ pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
 pub(crate) use fullscreen::fullscreen_scale;
 pub(crate) use layout_algorithm::place_container_children;
+pub(crate) use massive_applications::SlotShift;
 
 use crate::desktop_presenter::DesktopPresenter;
 use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
@@ -67,10 +68,13 @@ use crate::projects::{
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
 /// This enum specifies a unique target inside the navigation and layout history.
+///
+/// `Desktop` is the hierarchy's virtual root: it is never inserted explicitly and
+/// has no presenter — it only appears as the parent key under which the root
+/// project's target is added.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DesktopTarget {
     Desktop,
-
     Project(ProjectId),
     ProjectHeader(ProjectId),
     ProjectMatrix(ProjectId),
@@ -122,25 +126,31 @@ pub type Commands = CollectingVec<DesktopCommand>;
 /// the system is optional and depends on the currently focused target.
 ///
 /// The system should show when the focus depth is changed, so that the user knows them.
+///
+/// The ladder reads outermost first, so a rung's position counts the zoom-ins from
+/// the focused project's level: `repr` 0 is the root project's `Project` floor,
+/// where zooming out is a no-op.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
 #[repr(u8)]
 pub enum FocusDepth {
-    InstanceFullScreen,
+    Project,
+    Row,
+    Slot,
     #[default]
     Instance,
-    Launcher,
-    Row,
-    Project,
-    Desktop,
+    InstanceFullScreen,
 }
 
 impl FocusDepth {
+    /// Deeper: one rung toward the focused content. `None` at the innermost rung.
     pub fn zoom_in(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_sub(1)?)
+        Self::from_repr((self as u8).checked_add(1)?)
     }
 
+    /// Shallower: one rung toward the project floor. `None` at the floor, which is
+    /// the underflow guard.
     pub fn zoom_out(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_add(1)?)
+        Self::from_repr((self as u8).checked_sub(1)?)
     }
 }
 
@@ -258,7 +268,7 @@ impl DesktopSystem {
         configuration: persistence::ConfigurationDocument,
         aggregate: DesktopConfiguration,
     ) -> Result<Self> {
-        // Architecture: This is a direct requirement from the project presenter. But where does our
+        // Architecture: This is a direct requirement from the desktop presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
         let (_, location) = identity_location().submit();
 

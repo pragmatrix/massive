@@ -66,15 +66,6 @@ impl ConfigurationDocument {
     }
 }
 
-/// Writes the built-in default configuration to the file, for callers that decide
-/// a missing configuration file means "start fresh".
-pub fn write_default_config(path: &Path) -> Result<KdlDocument> {
-    let document = default_document();
-    atomic_write(path, &document.to_string())
-        .with_context(|| format!("writing the default configuration to {}", path.display()))?;
-    Ok(document)
-}
-
 impl ConfigurationDocument {
     /// Applies a configuration change to the in-memory document.
     ///
@@ -107,6 +98,15 @@ impl ConfigurationDocument {
     }
 }
 
+/// Writes the built-in default configuration to the file, for callers that decide
+/// a missing configuration file means "start fresh".
+pub fn write_default_config(path: &Path) -> Result<KdlDocument> {
+    let document = default_document();
+    atomic_write(path, &document.to_string())
+        .with_context(|| format!("writing the default configuration to {}", path.display()))?;
+    Ok(document)
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -114,19 +114,14 @@ mod tests {
     use super::*;
     use crate::projects::{
         LaunchProfile, LaunchProfileId, LauncherMode, MatrixPlacement, Params, ProjectId,
+        SlotAssignment,
     };
 
-    /// A document and its derived live model, parsed directly from text — no
-    /// temp file needed.
-    fn loaded(text: &str) -> Result<(ConfigurationDocument, DesktopConfiguration)> {
-        ConfigurationDocument::from_str(Path::new("/config/desktop.kdl"), text)
-    }
-
-    /// Two projects sharing a name are two nodes: the change's id must remove its
-    /// own project, not the first one the name matches.
+    /// Two projects sharing a name are two nodes: the change addresses the slot,
+    /// so exactly the node the id was tagged on leaves the file.
     #[test]
-    fn removing_a_duplicate_named_project_removes_its_own_node() -> Result<()> {
-        let (mut document, configuration) = loaded(
+    fn clearing_a_duplicate_named_project_removes_its_own_node() -> Result<()> {
+        let (mut document, _configuration) = loaded(
             r#"
 project "work" {
     launcher "first" column=0 row=0
@@ -136,20 +131,29 @@ project "work" {
 }
 "#,
         )?;
-        let second = configuration.projects()[1].id;
+        let root = ProjectId::ROOT;
 
-        document.apply(ConfigurationChange::RemoveProject(second))?;
+        document.apply(ConfigurationChange::ClearSlot {
+            parent: root,
+            placement: root_row(1),
+        })?;
 
         let remaining = document.document.to_string();
-        assert!(remaining.contains("\"first\""));
-        assert!(!remaining.contains("\"second\""));
+        assert!(
+            remaining.contains("\"first\""),
+            "unexpected document: {remaining}"
+        );
+        assert!(
+            !remaining.contains("\"second\""),
+            "unexpected document: {remaining}"
+        );
         Ok(())
     }
 
-    /// The same for launchers: the removed launcher's id decides which of the two
+    /// The same for launchers: the addressed slot decides which of the two
     /// same-named siblings leaves the file.
     #[test]
-    fn removing_a_duplicate_named_launcher_removes_its_own_node() -> Result<()> {
+    fn clearing_a_duplicate_named_launcher_removes_its_own_node() -> Result<()> {
         let (mut document, configuration) = loaded(
             r#"
 project "work" {
@@ -158,13 +162,22 @@ project "work" {
 }
 "#,
         )?;
-        let second = configuration.projects()[0].launchers()[1].id;
+        let work = configuration.projects()[0].id;
 
-        document.apply(ConfigurationChange::RemoveLauncher(second))?;
+        document.apply(ConfigurationChange::ClearSlot {
+            parent: work,
+            placement: MatrixPlacement { column: 1, row: 0 },
+        })?;
 
         let remaining = document.document.to_string();
-        assert!(remaining.contains("\"first\""));
-        assert!(!remaining.contains("\"second\""));
+        assert!(
+            remaining.contains("\"first\""),
+            "unexpected document: {remaining}"
+        );
+        assert!(
+            !remaining.contains("\"second\""),
+            "unexpected document: {remaining}"
+        );
         Ok(())
     }
 
@@ -172,21 +185,31 @@ project "work" {
     /// source span, so the edited document still holds only the configuration.
     #[test]
     fn tags_do_not_reach_the_file() -> Result<()> {
-        let (mut document, configuration) =
+        let (mut document, _configuration) =
             loaded("project \"work\" {\n    launcher \"shell\" column=0 row=0\n}\n")?;
-        let project = configuration.projects()[0].id;
+        let root = ProjectId::ROOT;
 
-        document.apply(ConfigurationChange::AddProject {
-            id: ProjectId::new(),
-            name: "extra".into(),
+        document.apply(ConfigurationChange::AssignSlot {
+            parent: root,
+            placement: root_row(1),
+            content: SlotAssignment::Project {
+                id: ProjectId::new(),
+                name: "extra".into(),
+            },
         })?;
-        document.apply(ConfigurationChange::RemoveProject(project))?;
+        document.apply(ConfigurationChange::ClearSlot {
+            parent: root,
+            placement: root_row(0),
+        })?;
 
-        // A leaked tag shows up as a digit; the remaining project has none.
+        // The remaining node carries its own placement and none of the tags: a
+        // leaked tag would show up as a bare integer argument.
         let text = document.document.to_string();
-        let digits = text.matches(|c: char| c.is_ascii_digit()).count();
-        assert_eq!(digits, 0, "unexpected document: {text}");
-        assert!(text.contains("extra") && !text.contains("work"));
+        assert_eq!(
+            text.trim(),
+            "project extra column=0 row=1",
+            "unexpected document: {text}"
+        );
         Ok(())
     }
 
@@ -205,18 +228,12 @@ project "work" {
 }
 "#,
         )?;
-        let project = configuration.projects()[0].id;
-        let launcher = LaunchProfileId::new();
+        let work = configuration.projects()[0].id;
 
-        document.apply(ConfigurationChange::AddLauncher {
-            project,
-            id: launcher,
-            profile: LaunchProfile {
-                name: "third".into(),
-                mode: LauncherMode::Visor,
-                params: Params::new(),
-            },
+        document.apply(ConfigurationChange::AssignSlot {
+            parent: work,
             placement: MatrixPlacement { column: 2, row: 0 },
+            content: launcher_assignment("third"),
         })?;
 
         let text = document.document.to_string();
@@ -234,7 +251,7 @@ project "work" {
     /// that project's own; the appended project gets only the blank line.
     #[test]
     fn adding_a_project_does_not_copy_the_comments_before_its_sibling() -> Result<()> {
-        let (mut document, _) = loaded(
+        let (mut document, _configuration) = loaded(
             r#"
 project "first" {
     launcher "a" column=0 row=0
@@ -246,11 +263,15 @@ project "second" {
 }
 "#,
         )?;
-        let project_id = ProjectId::new();
+        let root = ProjectId::ROOT;
 
-        document.apply(ConfigurationChange::AddProject {
-            id: project_id,
-            name: "third".into(),
+        document.apply(ConfigurationChange::AssignSlot {
+            parent: root,
+            placement: root_row(2),
+            content: SlotAssignment::Project {
+                id: ProjectId::new(),
+                name: "third".into(),
+            },
         })?;
 
         let text = document.document.to_string();
@@ -264,11 +285,106 @@ project "second" {
         Ok(())
     }
 
+    /// A nested project node parses into a nested project with its own slots, and
+    /// its launchers are reachable from the aggregate.
+    #[test]
+    fn nested_project_nodes_parse_into_nested_projects() -> Result<()> {
+        let (_document, configuration) = loaded(
+            r#"
+launcher "top" column=0 row=0
+
+project "labs" column=0 row=1 {
+    launcher "shell" column=0 row=0
+    project "deep" column=1 row=0 {
+        launcher "inner" column=0 row=0
+    }
+}
+"#,
+        )?;
+
+        let root = ProjectId::ROOT;
+        let labs = configuration
+            .child_project_at(root, root_row(1))
+            .expect("labs is a root slot");
+        let deep = configuration
+            .child_project_at(labs, MatrixPlacement { column: 1, row: 0 })
+            .expect("deep nests inside labs");
+
+        assert_eq!(configuration.launcher_count(), 3);
+        assert_eq!(
+            configuration
+                .project(deep)
+                .map(|project| project.name.as_str()),
+            Some("deep")
+        );
+        Ok(())
+    }
+
+    /// A nested project's node keeps its own children when the file is written
+    /// back: the tags resolve at any depth.
+    #[test]
+    fn a_nested_project_keeps_its_subtree_across_an_edit() -> Result<()> {
+        let (mut document, configuration) = loaded(
+            r#"
+project "labs" column=0 row=0 {
+    launcher "shell" column=0 row=0
+}
+"#,
+        )?;
+        let root = ProjectId::ROOT;
+        let labs = configuration
+            .child_project_at(root, root_row(0))
+            .expect("labs is a root slot");
+
+        document.apply(ConfigurationChange::AssignSlot {
+            parent: labs,
+            placement: MatrixPlacement { column: 1, row: 0 },
+            content: launcher_assignment("extra"),
+        })?;
+
+        let text = document.document.to_string();
+        assert!(text.contains("shell"), "unexpected document: {text}");
+        assert!(text.contains("extra"), "unexpected document: {text}");
+        Ok(())
+    }
+
+    /// An old file without placements migrates to the root slot rows of its former
+    /// flat project list, and its launchers keep their own placements.
+    #[test]
+    fn migration_gives_the_former_project_list_one_row_each() -> Result<()> {
+        let (document, configuration) = loaded(
+            r#"
+project "first" {
+    launcher "a" column=0 row=0
+}
+project "second" {
+    launcher "b" column=0 row=0
+}
+"#,
+        )?;
+
+        let root = ProjectId::ROOT;
+        assert_eq!(
+            configuration.child_project_at(root, root_row(0)),
+            Some(configuration.projects()[0].id)
+        );
+        assert_eq!(
+            configuration.child_project_at(root, root_row(1)),
+            Some(configuration.projects()[1].id)
+        );
+        assert!(
+            document.document.to_string().contains("row=1"),
+            "unexpected document: {}",
+            document.document
+        );
+        Ok(())
+    }
+
     /// Setting the startup launcher keeps the comments above the `startup` node:
     /// the default file's header block rides on that node's leading.
     #[test]
     fn replacing_the_startup_launcher_keeps_the_comments_above_it() -> Result<()> {
-        let (mut document, configuration) = loaded(
+        let (mut document, _) = loaded(
             r#"
 // the file header
 
@@ -279,9 +395,9 @@ project "work" {
 }
 "#,
         )?;
-        let launcher = configuration.projects()[0].launchers()[0].id;
-
-        document.apply(ConfigurationChange::SetStartupLauncher(Some(launcher)))?;
+        document.apply(ConfigurationChange::SetStartupPath(Some(
+            "/work/shell".into(),
+        )))?;
 
         let text = document.document.to_string();
         assert!(
@@ -289,32 +405,60 @@ project "work" {
             "unexpected document: {text}"
         );
         assert!(
-            text.contains("startup shell"),
+            text.contains("startup \"/work/shell\""),
             "unexpected document: {text}"
         );
         Ok(())
     }
 
-    /// Setting the startup launcher writes the node's own name: the change carries
-    /// only an id, and the document resolves the name without the aggregate.
+    /// Setting the startup launcher preserves its address path.
     #[test]
-    fn setting_startup_launcher_writes_the_document_name() -> Result<()> {
-        let (mut document, configuration) = loaded(
+    fn setting_startup_launcher_writes_the_document_path() -> Result<()> {
+        let (mut document, _) = loaded(
             r#"
 project "work" {
     launcher "shell" column=0 row=0
 }
 "#,
         )?;
-        let launcher = configuration.projects()[0].launchers()[0].id;
-
-        document.apply(ConfigurationChange::SetStartupLauncher(Some(launcher)))?;
+        document.apply(ConfigurationChange::SetStartupPath(Some(
+            "/work/shell".into(),
+        )))?;
 
         assert!(
-            document.document.to_string().contains("startup shell"),
+            document
+                .document
+                .to_string()
+                .contains("startup \"/work/shell\""),
             "unexpected document: {}",
             document.document
         );
         Ok(())
+    }
+
+    /// A document and its derived live model, parsed directly from text — no
+    /// temp file needed.
+    fn loaded(text: &str) -> Result<(ConfigurationDocument, DesktopConfiguration)> {
+        ConfigurationDocument::from_str(Path::new("/config/desktop.kdl"), text)
+    }
+
+    /// The root slot placement a top-level node at `index` migrates to: the former
+    /// flat project list keeps its vertical order, one row each.
+    fn root_row(index: u32) -> MatrixPlacement {
+        MatrixPlacement {
+            column: 0,
+            row: index,
+        }
+    }
+
+    fn launcher_assignment(name: &str) -> SlotAssignment {
+        SlotAssignment::Launcher {
+            id: LaunchProfileId::new(),
+            profile: LaunchProfile {
+                name: name.into(),
+                mode: LauncherMode::Visor,
+                params: Params::new(),
+            },
+        }
     }
 }

@@ -83,6 +83,35 @@ impl DesktopLayoutState {
         }
     }
 
+    /// Gives the layout root — the parentless `Desktop` target — its own
+    /// placement: identity at its measured size. Every other target is placed by
+    /// its parent.
+    ///
+    /// Only ever call this for the parentless target. A placed target's placement
+    /// belongs to its parent, and overwriting it is not self-correcting: a parent
+    /// re-places a child only when the child's *measured* size changed, so a rect
+    /// lost here — or the presentation scale a project's matrix slot rides — would
+    /// never come back.
+    pub fn place_root(&mut self, root: &DesktopTarget) {
+        let Some(entry) = self.entries.get(root).copied() else {
+            return;
+        };
+        let size = entry.measured.size;
+        let placement = Placement::new(
+            Transform::default(),
+            LayoutRect::new(Offset::default(), size),
+        );
+        if entry.placement != Some(placement) {
+            self.entries.insert(
+                root.clone(),
+                LayoutEntry {
+                    measured: entry.measured,
+                    placement: Some(placement),
+                },
+            );
+        }
+    }
+
     pub fn missing_child_measures(
         &self,
         target: &DesktopTarget,
@@ -104,26 +133,6 @@ impl DesktopLayoutState {
         children: &[DesktopTarget],
         algorithm: &impl LayoutAlgorithm<DesktopTarget, Transform, 2>,
     ) -> Vec<PlacementUpdate> {
-        if *target == DesktopTarget::Desktop {
-            let size = self
-                .entries
-                .get(target)
-                .expect("Internal error: missing measured layout size for desktop root")
-                .measured
-                .size;
-            let placement = Placement::new(
-                Transform::default(),
-                LayoutRect::new(Offset::default(), size),
-            );
-            self.entries.insert(
-                target.clone(),
-                LayoutEntry {
-                    measured: size.into(),
-                    placement: Some(placement),
-                },
-            );
-        }
-
         if children.is_empty() {
             return Vec::new();
         }
@@ -220,8 +229,10 @@ impl DesktopLayoutState {
         for path_target in path.iter().rev() {
             let placement = self.local_placement(path_target);
             visible = visible && placement.visible;
-            let local_origin_transform = if *path_target == DesktopTarget::Desktop {
-                // Desktop transform is already origin-based (IDENTITY in the common case).
+            // The parentless target is the layout root: its transform is already
+            // origin-based (IDENTITY in the common case).
+            let is_root = topology.parent_of(path_target).is_none();
+            let local_origin_transform = if is_root {
                 placement.transform
             } else {
                 let local_center = Self::layout_local_center(placement.rect.size);
@@ -325,21 +336,8 @@ mod tests {
             id: &DesktopTarget,
             child_measurements: &[MeasuredLayout<2>],
         ) -> MeasuredLayout<2> {
-            let size: LayoutSize<2> = match id {
-                DesktopTarget::Desktop => {
-                    let width = child_measurements
-                        .iter()
-                        .map(|child| child.size[0])
-                        .sum::<u32>();
-                    let height = child_measurements
-                        .iter()
-                        .map(|child| child.size[1])
-                        .max()
-                        .unwrap_or(0);
-                    [width, height].into()
-                }
-                _ => [10, 5].into(),
-            };
+            let size: LayoutSize<2> = [10, 5].into();
+            let _ = (id, child_measurements);
             size.into()
         }
 
@@ -371,9 +369,10 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
+        let root = DesktopTarget::Project(ProjectId::new());
         let project = DesktopTarget::Project(ProjectId::new());
-        topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![project.clone()]);
+        topology.insert_node(root.clone());
+        topology.set_children(root.clone(), vec![project.clone()]);
 
         let algorithm = TestAlgorithm {
             child_offset: Offset::default(),
@@ -381,13 +380,9 @@ mod tests {
         };
 
         state.measure_node(&project, &topology, &algorithm);
-        state.measure_node(&DesktopTarget::Desktop, &topology, &algorithm);
+        state.measure_node(&root, &topology, &algorithm);
 
-        state.place_children_of(
-            &DesktopTarget::Desktop,
-            topology.children_of(&DesktopTarget::Desktop),
-            &algorithm,
-        );
+        state.place_children_of(&root, topology.children_of(&root), &algorithm);
     }
 
     #[test]
@@ -396,16 +391,17 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
+        let root = DesktopTarget::Project(ProjectId::new());
         let project = DesktopTarget::Project(ProjectId::new());
-        topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![project]);
+        topology.insert_node(root.clone());
+        topology.set_children(root.clone(), vec![project]);
 
         let algorithm = TestAlgorithm {
             child_offset: Offset::default(),
             mismatch_child_count: false,
         };
 
-        state.measure_node(&DesktopTarget::Desktop, &topology, &algorithm);
+        state.measure_node(&root, &topology, &algorithm);
     }
 
     #[test]
@@ -413,9 +409,10 @@ mod tests {
         let mut state = DesktopLayoutState::new();
         let mut topology = TestTopology::default();
 
+        let root = DesktopTarget::Project(ProjectId::new());
         let project = DesktopTarget::Project(ProjectId::new());
-        topology.insert_node(DesktopTarget::Desktop);
-        topology.set_children(DesktopTarget::Desktop, vec![project.clone()]);
+        topology.insert_node(root.clone());
+        topology.set_children(root.clone(), vec![project.clone()]);
 
         let initial_algorithm = TestAlgorithm {
             child_offset: [0, 0].into(),
@@ -423,22 +420,15 @@ mod tests {
         };
 
         state.measure_node(&project, &topology, &initial_algorithm);
-        state.measure_node(&DesktopTarget::Desktop, &topology, &initial_algorithm);
-        state.place_children_of(
-            &DesktopTarget::Desktop,
-            topology.children_of(&DesktopTarget::Desktop),
-            &initial_algorithm,
-        );
+        state.measure_node(&root, &topology, &initial_algorithm);
+        state.place_children_of(&root, topology.children_of(&root), &initial_algorithm);
 
         let updated_algorithm = TestAlgorithm {
             child_offset: [7, 3].into(),
             mismatch_child_count: false,
         };
-        let changed = state.place_children_of(
-            &DesktopTarget::Desktop,
-            topology.children_of(&DesktopTarget::Desktop),
-            &updated_algorithm,
-        );
+        let changed =
+            state.place_children_of(&root, topology.children_of(&root), &updated_algorithm);
 
         assert_eq!(changed, vec![PlacementUpdate::ChangedSizeUnchanged]);
 

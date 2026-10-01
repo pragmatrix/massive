@@ -1,7 +1,7 @@
 use massive_geometry::{
     Contains, PerspectiveDivide, Point, Rect, RectPx, SizedTransform, Transform, Vector3, Vector4,
 };
-use massive_layout::Placement;
+use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderGeometry;
 use massive_scene::LocationSpace;
 
@@ -45,10 +45,11 @@ impl HitTester<DesktopTarget> for AggregateHitTester<'_> {
                 .hit_test_hierarchy(screen_pos, &DesktopTarget::Desktop)
                 .map(|hit| (hit.target, hit.local_pos))
                 .or_else(|| {
-                    // Any position inside the window that misses all content maps to the Desktop,
-                    // so the pointer focus is never lost over empty margins. A cleared pointer
-                    // focus (`None`) then means only that pointer feedback is suppressed (keyboard
-                    // navigation active), which is what drives cursor visibility.
+                    // Any position inside the window that misses all content maps to the
+                    // desktop, so the pointer focus is never lost over empty margins. A
+                    // cleared pointer focus (`None`) then means only that pointer feedback is
+                    // suppressed (keyboard navigation active), which is what drives cursor
+                    // visibility.
                     self.hit_test_target_plane(screen_pos, &DesktopTarget::Desktop)
                         .map(|local_pos| (DesktopTarget::Desktop, local_pos))
                 }),
@@ -212,9 +213,10 @@ impl<'a> AggregateHitTester<'a> {
         let rect_px: RectPx = placement.rect.into();
         let local_center = Rect::from(rect_px).size().to_rect().center();
 
-        // Desktop is the layout root and uses an origin-based transform (IDENTITY in the common
-        // case). Derive its origin from the rectangle offset directly.
-        if matches!(target, DesktopTarget::Desktop) {
+        // The layout root — the parentless project — uses an origin-based transform
+        // (IDENTITY in the common case). Derive its origin from the rectangle offset
+        // directly.
+        if self.hierarchy.parent_of(target).is_none() {
             let offset = placement.rect.offset;
             return Transform::from_xy(offset[0] as f64, offset[1] as f64);
         }

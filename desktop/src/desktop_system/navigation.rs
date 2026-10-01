@@ -1,7 +1,7 @@
 use anyhow::Result;
 use log::error;
 
-use massive_geometry::{PixelCamera, Rect, RectPx, Size, SizePx};
+use massive_geometry::{PixelCamera, Size, SizePx};
 use massive_scene::prelude::*;
 
 use super::change::{Changes, DesktopChange, set_focus};
@@ -192,43 +192,42 @@ impl DesktopSystem {
     }
 
     pub(super) fn project_removal_focus(&self, project: ProjectId) -> DesktopTarget {
-        let project_target = DesktopTarget::Project(project);
-        let projects = self
+        // The replacement is a sibling in the parent's matrix; the root has no
+        // siblings to fall back to, so it falls back to the root itself.
+        let parent = self.aggregates.hierarchy.parent_project_of(project);
+        let Some(parent) = parent else {
+            return DesktopTarget::Project(project);
+        };
+
+        let siblings: Vec<DesktopTarget> = self
             .aggregates
-            .hierarchy
-            .get_nested(&DesktopTarget::Desktop);
-        let project_index = projects
+            .configuration
+            .slots_ordered(parent)
+            .into_iter()
+            .map(|(_, content)| content.target())
+            .collect();
+        let project_target = DesktopTarget::Project(project);
+        let project_index = siblings
             .iter()
             .position(|target| target == &project_target)
-            .expect("Project missing from desktop hierarchy");
-        projects
+            .expect("the removed project is assigned to a sibling slot");
+        siblings
             .get(project_index + 1)
             .or_else(|| {
                 project_index
                     .checked_sub(1)
-                    .and_then(|index| projects.get(index))
+                    .and_then(|index| siblings.get(index))
             })
-            .unwrap_or(&DesktopTarget::Desktop)
-            .clone()
+            .cloned()
+            .unwrap_or(DesktopTarget::Project(parent))
     }
 
-    pub(super) fn camera_for_target(
-        &self,
-        focus: &DesktopTarget,
-        window_size: SizePx,
-    ) -> Option<PixelCamera> {
+    pub(super) fn camera_for_target(&self, focus: &DesktopTarget) -> Option<PixelCamera> {
         match focus {
             DesktopTarget::Desktop => {
-                let placement = self.placement(&DesktopTarget::Desktop);
-                let rect: RectPx = placement.rect.into();
-                let rect: Rect = rect.into();
-                let size = rect.size();
-                // The Desktop is the layout root — its transform is T::default() (IDENTITY),
-                // not center-based. Compute the center from the rectangle.
-                let center = rect.center();
-                let center: Transform = (center.x, center.y, 0.0).into();
-                let distance = Self::fit_letterbox_distance(size, window_size);
-                Some(center.to_camera().with_distance(distance))
+                // The desktop node has no presenter to frame; its child (the root
+                // project) carries the camera.
+                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
             }
             DesktopTarget::Project(_)
             | DesktopTarget::ProjectHeader(_)
@@ -244,7 +243,7 @@ impl DesktopSystem {
                 Some(Self::camera_from_placement(transform))
             }
             DesktopTarget::View(_) => {
-                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?, window_size)
+                self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
             }
         }
     }

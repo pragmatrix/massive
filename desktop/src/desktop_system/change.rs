@@ -7,7 +7,7 @@ use crate::DesktopTarget;
 use crate::desktop_system::FocusDepth;
 use crate::event_router::EventTransitions;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::{LaunchProfile, LaunchProfileId, MatrixPlacement, ProjectId};
+use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
 
 pub type Changes = CollectingVec<DesktopChange>;
 
@@ -61,23 +61,33 @@ pub enum Zoom {
 
 #[derive(Debug, Clone)]
 pub enum ConfigurationChange {
+    /// Adds the named project to the aggregate, or accepts one already present
+    /// (see [`DesktopConfiguration::add_project`]). The root project's creation
+    /// command — a nested project is created by assigning it to a slot instead.
     AddProject {
         id: ProjectId,
         name: String,
     },
-    RemoveProject(ProjectId),
-    AddLauncher {
-        project: ProjectId,
-        id: LaunchProfileId,
-        profile: LaunchProfile,
+    /// Assigns `content` to the slot `(parent, placement)`. Replacing content is a
+    /// clear plus an assign; displacement is expanded into `MoveSlot`s by the
+    /// plan, never applied here.
+    AssignSlot {
+        parent: ProjectId,
+        placement: MatrixPlacement,
+        content: SlotAssignment,
+    },
+    /// Empties the slot `(parent, placement)`.
+    ClearSlot {
+        parent: ProjectId,
         placement: MatrixPlacement,
     },
-    MoveLauncher {
-        launcher: LaunchProfileId,
-        placement: MatrixPlacement,
+    /// Moves the content of the source slot to the destination slot. The content
+    /// may move to another project's matrix, but not into its own subtree.
+    MoveSlot {
+        source: (ProjectId, MatrixPlacement),
+        dest: (ProjectId, MatrixPlacement),
     },
-    RemoveLauncher(LaunchProfileId),
-    SetStartupLauncher(Option<LaunchProfileId>),
+    SetStartupPath(Option<String>),
 }
 
 /// Constructs the change(s) for a focus transition.

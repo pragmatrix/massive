@@ -16,7 +16,7 @@ use super::parameters::{params_node, params_value};
 use crate::desktop_system::change::ConfigurationChange;
 use crate::projects::{
     DesktopConfiguration, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Params,
-    Project, ProjectId,
+    Project, ProjectId, ROOT_PROJECT_NAME, Slot, SlotAssignment,
 };
 
 /// The built-in default configuration, used when no file exists on disk.
@@ -68,38 +68,14 @@ pub(super) fn atomic_write(path: &Path, text: &str) -> Result<()> {
 /// stringification never writes, so the document can address its nodes by identity
 /// while the file stays byte-identical. Tags are assigned as nodes are parsed or
 /// added, and the node lookups below resolve a tag back to its node.
+///
+/// Tags are looked up recursively: with the document flat and nesting expressed by
+/// nested `project` nodes, a launcher can sit at any depth.
 #[derive(Debug, Default)]
 pub(super) struct NodeTags {
     projects: HashMap<ProjectId, usize>,
     launchers: HashMap<LaunchProfileId, usize>,
     next: usize,
-}
-
-impl NodeTags {
-    fn next_tag(&mut self) -> usize {
-        self.next += 1;
-        self.next
-    }
-
-    fn tag_project(&mut self, project: ProjectId, node: &mut KdlNode) {
-        let tag = self.next_tag();
-        node.set_span(tag);
-        self.projects.insert(project, tag);
-    }
-
-    fn tag_launcher(&mut self, launcher: LaunchProfileId, node: &mut KdlNode) {
-        let tag = self.next_tag();
-        node.set_span(tag);
-        self.launchers.insert(launcher, tag);
-    }
-
-    fn project_tag(&self, project: ProjectId) -> Option<usize> {
-        self.projects.get(&project).copied()
-    }
-
-    fn launcher_tag(&self, launcher: LaunchProfileId) -> Option<usize> {
-        self.launchers.get(&launcher).copied()
-    }
 }
 
 /// Applies a configuration change as surgical node edits, so that user comments and
@@ -113,86 +89,82 @@ pub(super) fn apply_change(
     change: &ConfigurationChange,
 ) -> Result<()> {
     match change {
-        ConfigurationChange::SetStartupLauncher(launcher) => {
-            let name = match launcher {
-                Some(id) => Some(launcher_name(document, tags, *id)?.to_string()),
-                None => None,
-            };
-            set_startup(document, &name)
+        // The root project has no node of its own — its slots are the document's
+        // top-level nodes — so its creation change mirrors into nothing here.
+        ConfigurationChange::AddProject { .. } => Ok(()),
+        ConfigurationChange::SetStartupPath(path) => set_startup(document, path),
+        ConfigurationChange::AssignSlot {
+            parent,
+            placement,
+            content,
+        } => assign_slot(document, tags, *parent, *placement, content),
+        ConfigurationChange::ClearSlot { parent, placement } => {
+            clear_slot(document, tags, *parent, *placement)
         }
-        ConfigurationChange::AddProject { id, name } => add_project(document, tags, *id, name),
-        ConfigurationChange::RemoveProject(project) => remove_project(document, tags, *project),
-        ConfigurationChange::AddLauncher {
-            project,
-            id,
-            profile,
-            placement,
-        } => add_launcher(
-            document,
-            tags,
-            *project,
-            *id,
-            &profile.name,
-            profile.mode,
-            &profile.params,
-            *placement,
-        ),
-        ConfigurationChange::MoveLauncher {
-            launcher,
-            placement,
-        } => move_launcher(document, tags, *launcher, *placement),
-        ConfigurationChange::RemoveLauncher(launcher) => remove_launcher(document, tags, *launcher),
+        ConfigurationChange::MoveSlot { source, dest } => move_slot(document, tags, *source, *dest),
     }
 }
 
-/// The launcher's name, or an error when the id has no launcher node.
-fn launcher_name<'a>(
-    document: &'a KdlDocument,
-    tags: &NodeTags,
-    launcher: LaunchProfileId,
-) -> Result<&'a str> {
-    let node = launcher_node_of(document, tags, launcher)
-        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
-    string_arg(node, "launcher")
+/// Parses the configuration out of the document, assigning fresh ids, synthesizing
+/// the root project, and resolving the startup launcher by address path.
+///
+/// Each parsed node is tagged as it is parsed, so a later change addresses the
+/// node the id was assigned to — duplicates included. The document is flat: its
+/// top-level `launcher` and `project` nodes are the root project's slots, and
+/// nesting is expressed by nested `project` nodes.
+///
+/// Migration of a file written before nesting existed is part of parsing: a
+/// top-level node without a placement is one of the former flat project list, so
+/// it gets `column=0, row=<document index>`, preserving the vertical order the old
+/// desktop laid it out in. A migrated node keeps the placement it was given, so
+/// re-deriving the tree is idempotent.
+pub(super) fn parse_configuration(
+    document: &mut KdlDocument,
+) -> Result<(DesktopConfiguration, NodeTags)> {
+    let mut tags = NodeTags::default();
+    let mut startup: Option<String> = None;
+    let mut root_slots = Vec::new();
+    let mut projects = Vec::new();
+
+    for index in 0..document.nodes().len() {
+        let kind = document.nodes()[index].name().value().to_string();
+        match kind.as_str() {
+            "startup" => {
+                if startup.is_some() {
+                    warn!("Multiple `startup` nodes; using the first one");
+                    continue;
+                }
+                startup = Some(string_arg(&document.nodes()[index], "startup")?.to_string());
+            }
+            "launcher" => {
+                migrate_placement(document, index);
+                let node = &mut document.nodes_mut()[index];
+                let launcher = parse_launcher(node)?;
+                tags.tag_launcher(launcher.id, node);
+                root_slots.push(Slot::launcher(launcher));
+            }
+            "project" => {
+                migrate_placement(document, index);
+                let node = &mut document.nodes_mut()[index];
+                let placement = node_placement(node);
+                let id = parse_project_node(node, &mut tags, &mut projects)?;
+                tags.tag_project(id, node);
+                root_slots.push(Slot::project(placement, id));
+            }
+            other => warn!("Ignoring unknown top-level node '{other}'"),
+        }
+    }
+
+    let mut root = Project::new(ROOT_PROJECT_NAME.into(), root_slots);
+    root.id = ProjectId::ROOT;
+    projects.push(root);
+
+    let configuration = DesktopConfiguration::new(projects, startup.as_deref())?;
+
+    Ok((configuration, tags))
 }
 
-/// The launcher node the id was tagged on, or an error.
-fn launcher_node_of<'a>(
-    document: &'a KdlDocument,
-    tags: &NodeTags,
-    launcher: LaunchProfileId,
-) -> Result<&'a KdlNode> {
-    let tag = tags
-        .launcher_tag(launcher)
-        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
-    document
-        .nodes()
-        .iter()
-        .filter_map(|node| node.children())
-        .flat_map(|children| children.nodes())
-        .find(|node| node.span().offset() == tag)
-        .with_context(|| format!("launcher {launcher:?} has no document node"))
-}
-
-/// The launcher node the id was tagged on, or an error.
-fn launcher_node_mut<'a>(
-    document: &'a mut KdlDocument,
-    tags: &NodeTags,
-    launcher: LaunchProfileId,
-) -> Result<&'a mut KdlNode> {
-    let tag = tags
-        .launcher_tag(launcher)
-        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
-    document
-        .nodes_mut()
-        .iter_mut()
-        .filter_map(|node| node.children_mut().as_mut())
-        .flat_map(|children| children.nodes_mut())
-        .find(|node| node.span().offset() == tag)
-        .with_context(|| format!("launcher {launcher:?} has no document node"))
-}
-
-fn set_startup(document: &mut KdlDocument, name: &Option<String>) -> Result<()> {
+fn set_startup(document: &mut KdlDocument, path: &Option<String>) -> Result<()> {
     // Remove every existing node first so `None` leaves the document without one.
     // A leading comment rides on the first node, so the fresh node inherits the
     // removed one's leading to keep comments like the file's header block.
@@ -207,130 +179,220 @@ fn set_startup(document: &mut KdlDocument, name: &Option<String>) -> Result<()> 
         .nodes_mut()
         .retain(|node| node.name().value() != "startup");
 
-    if let Some(name) = name {
+    if let Some(path) = path {
         let mut node = KdlNode::new("startup");
-        node.push(name.as_str());
+        node.push(path.as_str());
         node.set_format(fresh_node_format(leading.as_deref().unwrap_or("")));
         document.nodes_mut().insert(0, node);
     }
     Ok(())
 }
 
-fn add_project(
+/// Assigns `content` to `parent`'s slot at `placement`, replacing whatever the
+/// slot held: replacing content is a clear plus an assign, never in place.
+fn assign_slot(
     document: &mut KdlDocument,
     tags: &mut NodeTags,
-    id: ProjectId,
-    name: &str,
-) -> Result<()> {
-    // Match the spacing between the existing projects, without the comments: a
-    // comment rides on the preceding node's leading and belongs to it, so
-    // copying it wholesale would repeat the comment before the appended node.
-    let leading = document
-        .nodes()
-        .iter()
-        .rev()
-        .find(|node| node.name().value() == "project")
-        .and_then(|node| node.format())
-        .map(|format| format.leading.clone())
-        .map(|leading| whitespace_leading(&leading))
-        .unwrap_or_default();
-
-    let mut node = KdlNode::new("project");
-    node.push(name);
-    node.set_format(fresh_node_format(&leading));
-    tags.tag_project(id, &mut node);
-    document.nodes_mut().push(node);
-    Ok(())
-}
-
-fn remove_project(
-    document: &mut KdlDocument,
-    tags: &mut NodeTags,
-    project: ProjectId,
-) -> Result<()> {
-    let tag = tags
-        .project_tag(project)
-        .with_context(|| format!("project {project:?} is not in the document"))?;
-    let index = document
-        .nodes()
-        .iter()
-        .position(|node| node.span().offset() == tag)
-        .with_context(|| format!("project {project:?} has no document node"))?;
-    document.nodes_mut().remove(index);
-    Ok(())
-}
-
-#[allow(clippy::too_many_arguments)]
-fn add_launcher(
-    document: &mut KdlDocument,
-    tags: &mut NodeTags,
-    project: ProjectId,
-    id: LaunchProfileId,
-    name: &str,
-    mode: LauncherMode,
-    params: &serde_json::Map<String, Value>,
+    parent: ProjectId,
     placement: MatrixPlacement,
+    content: &SlotAssignment,
 ) -> Result<()> {
-    let project_tag = tags
-        .project_tag(project)
-        .with_context(|| format!("project {project:?} is not in the document"))?;
-    let project_node = document
-        .nodes_mut()
-        .iter_mut()
-        .find(|node| node.span().offset() == project_tag)
-        .with_context(|| format!("project {project:?} has no document node"))?;
-    let project_indent = node_indent(project_node);
-    let children = project_node.ensure_children();
-
-    // As in `add_project`: keep the sibling spacing, drop the comment lines —
-    // a comment above the last child belongs to that child, not to the node
-    // appended after it.
-    let launcher_indent = children
+    let host = slot_host_mut(document, tags, parent)?;
+    let host_indent = host
         .nodes()
         .last()
         .and_then(|node| node.format())
         .map(|format| whitespace_leading(&format.leading))
-        .unwrap_or_else(|| project_indent + "    ");
-    let mut node = launcher_node(name, mode, params, placement, launcher_indent);
-    tags.tag_launcher(id, &mut node);
-    children.nodes_mut().push(node);
+        .unwrap_or_default();
+
+    remove_slot_node(host, placement, tags);
+
+    let node = match content {
+        SlotAssignment::Launcher { id, profile } => {
+            let mut node = launcher_node(
+                &profile.name,
+                profile.mode,
+                &profile.params,
+                placement,
+                host_indent,
+            );
+            tags.tag_launcher(*id, &mut node);
+            node
+        }
+        SlotAssignment::Project { id, name } => {
+            let mut node = project_node(name, placement, host_indent);
+            tags.tag_project(*id, &mut node);
+            node
+        }
+    };
+    host.nodes_mut().push(node);
     Ok(())
 }
 
-fn move_launcher(
-    document: &mut KdlDocument,
-    tags: &NodeTags,
-    launcher: LaunchProfileId,
-    placement: MatrixPlacement,
-) -> Result<()> {
-    let node = launcher_node_mut(document, tags, launcher)?;
-    set_placement(node, placement);
-    Ok(())
-}
-
-fn remove_launcher(
+/// Empties `parent`'s slot at `placement`.
+fn clear_slot(
     document: &mut KdlDocument,
     tags: &mut NodeTags,
-    launcher: LaunchProfileId,
+    parent: ProjectId,
+    placement: MatrixPlacement,
 ) -> Result<()> {
-    let tag = tags
-        .launcher_tag(launcher)
-        .with_context(|| format!("launcher {launcher:?} is not in the document"))?;
-    for project in document.nodes_mut() {
-        let Some(children) = project.children_mut().as_mut() else {
-            continue;
-        };
-        if let Some(index) = children
-            .nodes()
-            .iter()
-            .position(|node| node.span().offset() == tag)
-        {
-            children.nodes_mut().remove(index);
-            tags.launchers.remove(&launcher);
-            return Ok(());
+    let host = slot_host_mut(document, tags, parent)?;
+    remove_slot_node(host, placement, tags);
+    Ok(())
+}
+
+/// Moves the node assigned to the source slot to the destination slot, keeping the
+/// node itself so its tag and its subtree survive.
+fn move_slot(
+    document: &mut KdlDocument,
+    tags: &mut NodeTags,
+    source: (ProjectId, MatrixPlacement),
+    dest: (ProjectId, MatrixPlacement),
+) -> Result<()> {
+    let (source_parent, source_placement) = source;
+    let (dest_parent, dest_placement) = dest;
+
+    let source_host = slot_host_mut(document, tags, source_parent)?;
+    let Some(index) = slot_child_index(source_host, source_placement) else {
+        bail!("the source slot is empty");
+    };
+    let mut node = source_host.nodes_mut().remove(index);
+
+    let dest_host = slot_host_mut(document, tags, dest_parent)?;
+    remove_slot_node(dest_host, dest_placement, tags);
+    set_placement(&mut node, dest_placement);
+    dest_host.nodes_mut().push(node);
+    Ok(())
+}
+
+/// Gives a top-level node without a placement the row of its document position, so
+/// the former flat project list keeps the vertical order it was laid out in.
+fn migrate_placement(document: &mut KdlDocument, index: usize) {
+    let node = &mut document.nodes_mut()[index];
+    if node.get("row").is_some() {
+        return;
+    }
+    node.insert("row", KdlEntry::new_prop("row", index as i128));
+    node.insert("column", KdlEntry::new_prop("column", 0));
+}
+
+/// Parses a `project` node and everything nested inside it, returning the new
+/// project's id. The caller tags the node, so a project is tagged by its parent —
+/// or by the top-level loop for a root slot.
+fn parse_project_node(
+    node: &mut KdlNode,
+    tags: &mut NodeTags,
+    projects: &mut Vec<Project>,
+) -> Result<ProjectId> {
+    let name = string_arg(node, "project")?.to_string();
+    let mut slots = Vec::new();
+
+    if let Some(children) = node.children_mut() {
+        for child in children.nodes_mut() {
+            let kind = child.name().value().to_string();
+            match kind.as_str() {
+                "launcher" => {
+                    let launcher = parse_launcher(child)?;
+                    tags.tag_launcher(launcher.id, child);
+                    slots.push(Slot::launcher(launcher));
+                }
+                "project" => {
+                    let placement = node_placement(child);
+                    let id = parse_project_node(child, tags, projects)?;
+                    tags.tag_project(id, child);
+                    slots.push(Slot::project(placement, id));
+                }
+                other => warn!("Ignoring unknown node '{other}' in project '{name}'"),
+            }
         }
     }
-    bail!("launcher {launcher:?} has no document node")
+
+    let project = Project::new(name, slots);
+    let id = project.id;
+    projects.push(project);
+    Ok(id)
+}
+
+fn parse_launcher(node: &KdlNode) -> Result<Launcher> {
+    let name = string_arg(node, "launcher")?;
+
+    let column = placement_component(node, "column")?;
+    let row = placement_component(node, "row")?;
+    let mode = match node.get("mode") {
+        Some(value) => mode_from_value(value)?,
+        None => LauncherMode::default(),
+    };
+
+    let mut params = Params::new();
+    if let Some(children) = node.children() {
+        for child in children.nodes() {
+            let key = child.name().value();
+            if params.insert(key.into(), params_value(child)).is_some() {
+                warn!("Duplicate parameter '{key}'; using the last one");
+            }
+        }
+    }
+
+    Ok(Launcher::new(
+        name.into(),
+        mode,
+        params,
+        MatrixPlacement { column, row },
+    ))
+}
+
+fn slot_host_mut<'a>(
+    document: &'a mut KdlDocument,
+    tags: &NodeTags,
+    parent: ProjectId,
+) -> Result<&'a mut KdlDocument> {
+    // The synthesized root has no node of its own, so its slots are the document's
+    // top-level nodes.
+    if parent == ProjectId::ROOT {
+        return Ok(document);
+    }
+    Ok(project_node_mut(document, tags, parent)?.ensure_children())
+}
+
+/// Removes the node assigned to `placement` and untags it, so its id no longer
+/// addresses a node.
+fn remove_slot_node(host: &mut KdlDocument, placement: MatrixPlacement, tags: &mut NodeTags) {
+    let Some(index) = slot_child_index(host, placement) else {
+        return;
+    };
+    let node = host.nodes_mut().remove(index);
+    tags.untag(&node);
+}
+
+/// The index of the child assigned to `placement` in a slot host's children.
+fn slot_child_index(host: &KdlDocument, placement: MatrixPlacement) -> Option<usize> {
+    host.nodes()
+        .iter()
+        .position(|node| node_placement(node) == placement)
+}
+
+/// The placement a slot node carries in its `column`/`row` properties, defaulting
+/// to the origin as the parser does.
+fn node_placement(node: &KdlNode) -> MatrixPlacement {
+    let component = |key: &str| {
+        node.get(key)
+            .and_then(KdlValue::as_integer)
+            .and_then(|value| u32::try_from(value).ok())
+            .unwrap_or(0)
+    };
+    MatrixPlacement {
+        column: component("column"),
+        row: component("row"),
+    }
+}
+
+fn project_node(name: &str, placement: MatrixPlacement, indent: String) -> KdlNode {
+    let mut node = KdlNode::new("project");
+    node.push(name);
+    node.push(KdlEntry::new_prop("column", i128::from(placement.column)));
+    node.push(KdlEntry::new_prop("row", i128::from(placement.row)));
+    node.set_format(fresh_node_format(&indent));
+    node
 }
 
 /// The `leading` of a node without its comment lines: the whitespace-only
@@ -340,30 +402,6 @@ fn whitespace_leading(leading: &str) -> String {
         .split_inclusive('\n')
         .filter(|line| !line.trim_start().starts_with("//"))
         .collect()
-}
-
-/// The indent of a node's own `leading`: the text after its last newline.
-fn node_indent(node: &KdlNode) -> String {
-    node.format()
-        .map(|format| format.leading.clone())
-        .map(|leading| match leading.rsplit_once('\n') {
-            Some((_, indent)) => indent.to_string(),
-            None => leading,
-        })
-        .unwrap_or_default()
-}
-
-/// Formatting for a freshly constructed node: explicit indent and line terminator,
-/// because stringification only auto-indents formatless nodes. A node with an
-/// explicit format needs `before_children` set for the space before its children
-/// block; for childless nodes the field is never written, so it can stay " " here.
-pub(super) fn fresh_node_format(leading: &str) -> KdlNodeFormat {
-    KdlNodeFormat {
-        leading: leading.into(),
-        terminator: "\n".into(),
-        before_children: " ".into(),
-        ..Default::default()
-    }
 }
 
 fn launcher_node(
@@ -404,86 +442,17 @@ fn set_placement(node: &mut KdlNode, placement: MatrixPlacement) {
     node.insert("row", KdlEntry::new_prop("row", i128::from(placement.row)));
 }
 
-/// Parses the configuration out of the document, assigning fresh ids and
-/// resolving the startup launcher by name.
-///
-/// Each parsed node is tagged as it is parsed, so a later change addresses the
-/// node the id was assigned to — duplicates included.
-pub(super) fn parse_configuration(
-    document: &mut KdlDocument,
-) -> Result<(DesktopConfiguration, NodeTags)> {
-    let mut tags = NodeTags::default();
-    let mut startup: Option<String> = None;
-    let mut projects = Vec::new();
-
-    for index in 0..document.nodes().len() {
-        let kind = document.nodes()[index].name().value().to_string();
-        match kind.as_str() {
-            "startup" => {
-                if startup.is_some() {
-                    warn!("Multiple `startup` nodes; using the first one");
-                    continue;
-                }
-                startup = Some(string_arg(&document.nodes()[index], "startup")?.to_string());
-            }
-            "project" => {
-                let name = string_arg(&document.nodes()[index], "project")?.to_string();
-                let mut launchers = Vec::new();
-                if let Some(children) = document.nodes_mut()[index].children_mut() {
-                    for child in children.nodes_mut() {
-                        let kind = child.name().value().to_string();
-                        match kind.as_str() {
-                            "launcher" => {
-                                let launcher = parse_launcher(child)?;
-                                tags.tag_launcher(launcher.id, child);
-                                launchers.push(launcher);
-                            }
-                            other => {
-                                warn!("Ignoring unknown node '{other}' in project '{name}'")
-                            }
-                        }
-                    }
-                }
-                let project = Project::new(name, launchers);
-                tags.tag_project(project.id, &mut document.nodes_mut()[index]);
-                projects.push(project);
-            }
-            other => warn!("Ignoring unknown top-level node '{other}'"),
-        }
+/// Formatting for a freshly constructed node: explicit indent and line terminator,
+/// because stringification only auto-indents formatless nodes. A node with an
+/// explicit format needs `before_children` set for the space before its children
+/// block; for childless nodes the field is never written, so it can stay " " here.
+pub(super) fn fresh_node_format(leading: &str) -> KdlNodeFormat {
+    KdlNodeFormat {
+        leading: leading.into(),
+        terminator: "\n".into(),
+        before_children: " ".into(),
+        ..Default::default()
     }
-
-    Ok((
-        DesktopConfiguration::new(projects, startup.as_deref())?,
-        tags,
-    ))
-}
-
-fn parse_launcher(node: &KdlNode) -> Result<Launcher> {
-    let name = string_arg(node, "launcher")?;
-
-    let column = placement_component(node, "column")?;
-    let row = placement_component(node, "row")?;
-    let mode = match node.get("mode") {
-        Some(value) => mode_from_value(value)?,
-        None => LauncherMode::default(),
-    };
-
-    let mut params = Params::new();
-    if let Some(children) = node.children() {
-        for child in children.nodes() {
-            let key = child.name().value();
-            if params.insert(key.into(), params_value(child)).is_some() {
-                warn!("Duplicate parameter '{key}'; using the last one");
-            }
-        }
-    }
-
-    Ok(Launcher::new(
-        name.into(),
-        mode,
-        params,
-        MatrixPlacement { column, row },
-    ))
 }
 
 fn string_arg<'a>(node: &'a KdlNode, what: &'static str) -> Result<&'a str> {
@@ -518,5 +487,94 @@ fn mode_from_value(value: &KdlValue) -> Result<LauncherMode> {
         "band" => Ok(LauncherMode::Band),
         "visor" => Ok(LauncherMode::Visor),
         other => bail!("Unknown launcher mode '{other}' (expected `band` or `visor`)"),
+    }
+}
+
+fn project_node_mut<'a>(
+    document: &'a mut KdlDocument,
+    tags: &NodeTags,
+    project: ProjectId,
+) -> Result<&'a mut KdlNode> {
+    let tag = tags
+        .project_tag(project)
+        .with_context(|| format!("project {project:?} is not in the document"))?;
+    let path = node_path_of(document, tag)
+        .with_context(|| format!("project {project:?} has no document node"))?;
+    node_at_path_mut(document, &path)
+        .with_context(|| format!("project {project:?} has no document node"))
+}
+
+/// The index path from the document's top level to the node carrying `tag`,
+/// descending into `project` children.
+///
+/// Paths, not references, are what the mutable lookups hand out: two `&mut` nodes
+/// of one document cannot be held at once, but two paths can.
+fn node_path_of(document: &KdlDocument, tag: usize) -> Option<Vec<usize>> {
+    find_node_path(document.nodes(), tag)
+}
+
+fn node_at_path_mut<'a>(document: &'a mut KdlDocument, path: &[usize]) -> Option<&'a mut KdlNode> {
+    let (&first, rest) = path.split_first()?;
+    let mut node = document.nodes_mut().get_mut(first)?;
+    for &index in rest {
+        node = node.children_mut().as_mut()?.nodes_mut().get_mut(index)?;
+    }
+    Some(node)
+}
+
+fn find_node_path(nodes: &[KdlNode], tag: usize) -> Option<Vec<usize>> {
+    for (index, node) in nodes.iter().enumerate() {
+        if !is_slot_node(node) {
+            continue;
+        }
+        if node.span().offset() == tag {
+            return Some(vec![index]);
+        }
+        let Some(children) = node.children() else {
+            continue;
+        };
+        if let Some(rest) = find_node_path(children.nodes(), tag) {
+            let mut path = vec![index];
+            path.extend(rest);
+            return Some(path);
+        }
+    }
+    None
+}
+
+/// The kinds of node a slot may host, and the only nodes that carry identity
+/// tags. Restricting the search to these keeps a `startup` node's parse span from
+/// being mistaken for a tag.
+fn is_slot_node(node: &KdlNode) -> bool {
+    matches!(node.name().value(), "project" | "launcher")
+}
+
+impl NodeTags {
+    fn tag_project(&mut self, project: ProjectId, node: &mut KdlNode) {
+        let tag = self.next_tag();
+        node.set_span(tag);
+        self.projects.insert(project, tag);
+    }
+
+    fn tag_launcher(&mut self, launcher: LaunchProfileId, node: &mut KdlNode) {
+        let tag = self.next_tag();
+        node.set_span(tag);
+        self.launchers.insert(launcher, tag);
+    }
+
+    /// Forgets the id a removed node carried, so a later lookup cannot resolve it.
+    fn untag(&mut self, node: &KdlNode) {
+        let tag = node.span().offset();
+        self.projects.retain(|_, value| *value != tag);
+        self.launchers.retain(|_, value| *value != tag);
+    }
+
+    fn project_tag(&self, project: ProjectId) -> Option<usize> {
+        self.projects.get(&project).copied()
+    }
+
+    fn next_tag(&mut self) -> usize {
+        self.next += 1;
+        self.next
     }
 }

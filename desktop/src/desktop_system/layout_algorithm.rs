@@ -11,9 +11,8 @@ use massive_layout::{
 
 use super::{Aggregates, DesktopTarget, FocusDepth, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
-use crate::projects::{ProjectId, launcher_mode};
+use crate::projects::{MatrixPlacement, ProjectId, SlotContent, launcher_mode};
 
-const SECTION_SPACING: u32 = 20;
 const PROJECT_PADDING: u32 = 10;
 const PROJECT_HEADER_MIN_HEIGHT: u32 = 24;
 const PROJECT_HEADER_SPACING: u32 = 10;
@@ -172,34 +171,120 @@ impl DesktopLayoutAlgorithm<'_> {
         project_id: ProjectId,
         child_sizes: &[Size<2>],
     ) -> Vec<Placement<Transform, 2>> {
-        let (columns, rows) = self.project_matrix_tracks(project_id, child_sizes);
-        let mut placements = Vec::with_capacity(child_sizes.len());
+        let slots = self.project_matrix_slots(project_id, child_sizes);
+        let (columns, rows) = matrix_tracks(&slots);
+        let mut placements = Vec::with_capacity(slots.len());
 
-        for (launcher_id, child_size) in self
-            .aggregates
-            .hierarchy
-            .matrix_launchers(project_id)
-            .zip(child_sizes.iter().copied())
-        {
-            let placement = self
-                .aggregates
-                .configuration
-                .placement_of(launcher_id)
-                .expect("Launcher has no matrix placement");
+        for slot in &slots {
             let offset = Offset::from([
-                track_offset(&columns, placement.column as usize, MATRIX_COLUMN_SPACING),
-                track_offset(&rows, placement.row as usize, MATRIX_ROW_SPACING),
+                track_offset(
+                    &columns,
+                    slot.placement.column as usize,
+                    MATRIX_COLUMN_SPACING,
+                ),
+                track_offset(&rows, slot.placement.row as usize, MATRIX_ROW_SPACING),
             ]);
-            let rect: RectPx = LayoutRect::new(offset, child_size).into();
-            let center = rect.center().to_f64();
-            let transform = Transform::from_xy(center.x, center.y);
+            let slot_rect: RectPx = LayoutRect::new(offset, slot.size).into();
+
+            // A project-assigned slot presents the nested project's own scene scaled to
+            // fit the slot. The placement rect is that scene's layout space, not the
+            // slot: `apply_layout` and `target_rect` pair the rect with the transform
+            // (presented extent = rect * scale), so the children lay out in the
+            // scene's own size and the scale rides the placement transform into the
+            // slot rect, propagated by `absolute_placement`.
+            //
+            // Assigning the slot rect here instead would apply the scale twice: the
+            // children would already be laid out at the slot's size and then scaled
+            // again, overflowing it.
+            let (layout_size, scale) = match slot.content {
+                SlotContent::Launcher(_) => (slot.size, 1.0),
+                SlotContent::Project(nested) => {
+                    let scene = self.project_scene_size(nested);
+                    (scene, presentation_scale(slot.size, scene))
+                }
+            };
+
+            let center = slot_rect.center().to_f64();
+            let transform = Transform::new(
+                Vector3::new(center.x, center.y, 0.0),
+                Quaternion::IDENTITY,
+                scale,
+            );
             placements.push(Placement::new(
                 transform,
-                LayoutRect::new(offset, child_size),
+                LayoutRect::new(offset, layout_size),
             ));
         }
 
         placements
+    }
+
+    /// A project's matrix slots in child order: the content, the slot's measured
+    /// size, and where it sits. A project-assigned slot measures like an instance
+    /// panel, because its content is presented scaled rather than at its own layout
+    /// size — deriving the slot's size from the nested scene would collapse the
+    /// presentation scale to 1.
+    fn project_matrix_slots(
+        &self,
+        project_id: ProjectId,
+        child_sizes: &[Size<2>],
+    ) -> Vec<MatrixSlot> {
+        self.aggregates
+            .hierarchy
+            .matrix_slots(project_id)
+            .into_iter()
+            .zip(child_sizes.iter().copied())
+            .map(|(content, measured)| {
+                let size = match content {
+                    SlotContent::Launcher(_) => measured,
+                    SlotContent::Project(_) => self.default_panel_size.into(),
+                };
+                MatrixSlot {
+                    content,
+                    size,
+                    placement: self
+                        .aggregates
+                        .configuration
+                        .project(project_id)
+                        .and_then(|project| project.placement_of_content(content))
+                        .expect("slot content has a matrix placement"),
+                }
+            })
+            .collect()
+    }
+
+    /// The size a nested project's own scene occupies at scale 1: its header and
+    /// matrix plus the project's padding, exactly as the project lays itself out
+    /// when it is the focused project.
+    fn project_scene_size(&self, project_id: ProjectId) -> Size<2> {
+        let header = self.project_header_size(project_id).size;
+        let slots = self.project_matrix_slots(
+            project_id,
+            &self
+                .aggregates
+                .hierarchy
+                .matrix_slots(project_id)
+                .into_iter()
+                .map(|content| self.measure_slot_content(content))
+                .collect::<Vec<_>>(),
+        );
+        let matrix = matrix_size(&slots);
+
+        let width = max(header[0], matrix[0]) + 2 * PROJECT_PADDING;
+        let height = header[1] + PROJECT_HEADER_SPACING + matrix[1] + 2 * PROJECT_PADDING;
+        [width, height].into()
+    }
+
+    /// What a slot's content measures when it lays itself out at full size.
+    fn measure_slot_content(&self, content: SlotContent) -> Size<2> {
+        match content {
+            SlotContent::Launcher(launcher_id) => launcher_mode::panel_measurement(
+                self.aggregates.configuration[launcher_id].mode,
+                self.default_panel_size,
+            )
+            .unwrap_or_else(|| self.default_panel_size.into()),
+            SlotContent::Project(nested) => self.project_scene_size(nested),
+        }
     }
 
     fn project_matrix_tracks(
@@ -207,35 +292,7 @@ impl DesktopLayoutAlgorithm<'_> {
         project_id: ProjectId,
         child_sizes: &[Size<2>],
     ) -> (Vec<u32>, Vec<u32>) {
-        let mut columns = Vec::new();
-        let mut rows = Vec::new();
-
-        for (launcher_id, child_size) in self
-            .aggregates
-            .hierarchy
-            .matrix_launchers(project_id)
-            .zip(child_sizes.iter().copied())
-        {
-            let placement = self
-                .aggregates
-                .configuration
-                .placement_of(launcher_id)
-                .expect("Launcher has no matrix placement");
-            let column = placement.column as usize;
-            let row = placement.row as usize;
-
-            if columns.len() <= column {
-                columns.resize(column + 1, 0);
-            }
-            if rows.len() <= row {
-                rows.resize(row + 1, 0);
-            }
-
-            columns[column] = max(columns[column], child_size[0]);
-            rows[row] = max(rows[row], child_size[1]);
-        }
-
-        (columns, rows)
+        matrix_tracks(&self.project_matrix_slots(project_id, child_sizes))
     }
 
     fn project_header_size(&self, project_id: ProjectId) -> MeasuredLayout<2> {
@@ -346,11 +403,9 @@ impl DesktopLayoutAlgorithm<'_> {
 
     fn resolve_layout_spec(&self, target: &DesktopTarget) -> LayoutSpec {
         match target {
-            DesktopTarget::Desktop => LayoutAxis::VERTICAL
-                .to_container()
-                .spacing(SECTION_SPACING)
-                .padding((0, 0))
-                .into(),
+            // The desktop node lays out everything it contains vertically; the
+            // root project is its only child.
+            DesktopTarget::Desktop => LayoutAxis::VERTICAL.to_container().into(),
             DesktopTarget::Project(_) => LayoutAxis::VERTICAL
                 .to_container()
                 .spacing(PROJECT_HEADER_SPACING)
@@ -373,6 +428,56 @@ impl DesktopLayoutAlgorithm<'_> {
             DesktopTarget::View(_) => self.default_panel_size.into(),
         }
     }
+}
+
+/// One assigned slot of a project's matrix, as the layout sees it: what it hosts,
+/// its measured size, and its matrix placement.
+struct MatrixSlot {
+    content: SlotContent,
+    size: Size<2>,
+    placement: MatrixPlacement,
+}
+
+/// The column and row tracks of a matrix: each track the largest slot in it.
+fn matrix_tracks(slots: &[MatrixSlot]) -> (Vec<u32>, Vec<u32>) {
+    let mut columns = Vec::new();
+    let mut rows = Vec::new();
+
+    for slot in slots {
+        let column = slot.placement.column as usize;
+        let row = slot.placement.row as usize;
+
+        if columns.len() <= column {
+            columns.resize(column + 1, 0);
+        }
+        if rows.len() <= row {
+            rows.resize(row + 1, 0);
+        }
+
+        columns[column] = max(columns[column], slot.size[0]);
+        rows[row] = max(rows[row], slot.size[1]);
+    }
+
+    (columns, rows)
+}
+
+/// The size the tracks span, column and row spacing included.
+fn matrix_size(slots: &[MatrixSlot]) -> Size<2> {
+    let (columns, rows) = matrix_tracks(slots);
+    [
+        tracks_span(&columns, MATRIX_COLUMN_SPACING),
+        tracks_span(&rows, MATRIX_ROW_SPACING),
+    ]
+    .into()
+}
+
+/// The uniform scale that fits a `scene` uniformly into a `slot`-sized area: the
+/// smaller of the two axis ratios, so the scene never overflows the area.
+pub fn presentation_scale(slot: Size<2>, scene: Size<2>) -> f64 {
+    if scene[0] == 0 || scene[1] == 0 {
+        return 1.0;
+    }
+    (slot[0] as f64 / scene[0] as f64).min(slot[1] as f64 / scene[1] as f64)
 }
 
 fn tracks_span(tracks: &[u32], spacing: u32) -> u32 {
@@ -436,4 +541,25 @@ fn expand_cross_axis_child_sizes(
             child_size
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presentation_scale_fits_the_scene_into_the_slot_uniformly() {
+        let slot: Size<2> = [300, 200].into();
+
+        // Height-limited: the 3:1 scene is wider than the slot by more, so the
+        // height ratio wins and the scene never overflows horizontally either.
+        assert_eq!(presentation_scale(slot, [600, 400].into()), 0.5);
+        assert_eq!(presentation_scale(slot, [300, 800].into()), 0.25);
+        assert_eq!(presentation_scale(slot, [150, 100].into()), 2.0);
+    }
+
+    #[test]
+    fn presentation_scale_of_an_empty_scene_is_one() {
+        assert_eq!(presentation_scale([300, 200].into(), [0, 0].into()), 1.0);
+    }
 }

@@ -4,7 +4,9 @@ use super::{HorizontalDirection, VerticalDirection};
 use crate::desktop_system::DesktopTarget;
 use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
-use crate::projects::{DesktopConfiguration, LaunchProfileId, MatrixPlacement, ProjectId};
+use crate::projects::{
+    DesktopConfiguration, LaunchProfileId, MatrixPlacement, ProjectId, SlotContent,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MatrixNavigation<'a> {
@@ -36,19 +38,31 @@ impl<'a> MatrixNavigation<'a> {
         preferred_column: Option<u32>,
     ) -> Option<DesktopTarget> {
         let (project_id, origin_placement) = self.launcher_matrix_position(launcher_id)?;
+        self.navigate_from_matrix_slot(project_id, origin_placement, direction, preferred_column)
+    }
+
+    /// Navigates from an assigned slot of `project`'s matrix. A project-assigned
+    /// slot's target is the nested project itself, so the neighbor is whatever the
+    /// destination slot hosts.
+    pub(super) fn navigate_from_matrix_slot(
+        self,
+        project_id: ProjectId,
+        origin_placement: MatrixPlacement,
+        direction: Direction,
+        preferred_column: Option<u32>,
+    ) -> Option<DesktopTarget> {
         let entries = self.create_project_matrix_entries(project_id);
-        let target =
-            select_matrix_neighbor(&entries, origin_placement, direction, preferred_column)
-                .or_else(|| {
-                    direction.vertical().and_then(|vertical| {
-                        self.cross_project_vertical_neighbor(
-                            project_id,
-                            preferred_column.unwrap_or(origin_placement.column),
-                            vertical,
-                        )
-                    })
-                })?;
-        Some(DesktopTarget::Launcher(target))
+        select_matrix_neighbor(&entries, origin_placement, direction, preferred_column).or_else(
+            || {
+                direction.vertical().and_then(|vertical| {
+                    self.cross_project_vertical_neighbor(
+                        project_id,
+                        preferred_column.unwrap_or(origin_placement.column),
+                        vertical,
+                    )
+                })
+            },
+        )
     }
 
     pub(super) fn navigate_from_child(
@@ -84,13 +98,13 @@ impl<'a> MatrixNavigation<'a> {
     fn create_project_matrix_entries(
         self,
         project_id: ProjectId,
-    ) -> Vec<MatrixEntry<LaunchProfileId>> {
+    ) -> Vec<MatrixEntry<DesktopTarget>> {
         self.configuration
-            .launchers_ordered(project_id)
-            .iter()
-            .map(|launcher| MatrixEntry {
-                key: launcher.id,
-                placement: launcher.matrix_placement(),
+            .slots_ordered(project_id)
+            .into_iter()
+            .map(|(placement, content)| MatrixEntry {
+                key: content.target(),
+                placement,
             })
             .collect()
     }
@@ -100,15 +114,17 @@ impl<'a> MatrixNavigation<'a> {
         project_id: ProjectId,
         origin_column: u32,
         direction: VerticalDirection,
-    ) -> Option<LaunchProfileId> {
-        let project_targets = self.hierarchy.get_nested(&DesktopTarget::Desktop);
-        let project_ids: Vec<_> = project_targets
-            .iter()
-            .filter_map(|target| {
-                let DesktopTarget::Project(id) = target else {
-                    return None;
-                };
-                Some(*id)
+    ) -> Option<DesktopTarget> {
+        // Sibling projects are the projects nested beside `project_id` in its
+        // parent's matrix, so vertical overflow stays within the parent.
+        let parent = self.hierarchy.parent_project_of(project_id)?;
+        let project_ids: Vec<_> = self
+            .configuration
+            .slots_ordered(parent)
+            .into_iter()
+            .filter_map(|(_, content)| match content {
+                SlotContent::Project(id) => Some(id),
+                SlotContent::Launcher(_) => None,
             })
             .collect();
 
@@ -143,7 +159,7 @@ fn horizontal_child_neighbor(
     }
 }
 
-fn select_matrix_neighbor<K: Copy>(
+fn select_matrix_neighbor<K: Clone>(
     entries: &[MatrixEntry<K>],
     origin: MatrixPlacement,
     direction: Direction,
@@ -165,7 +181,7 @@ fn select_matrix_neighbor<K: Copy>(
     None
 }
 
-fn select_row_neighbor<K: Copy>(
+fn select_row_neighbor<K: Clone>(
     entries: &[MatrixEntry<K>],
     origin: MatrixPlacement,
     direction: HorizontalDirection,
@@ -177,18 +193,18 @@ fn select_row_neighbor<K: Copy>(
                 entry.placement.row == origin.row && entry.placement.column < origin.column
             })
             .max_by_key(|entry| entry.placement.column)
-            .map(|entry| entry.key),
+            .map(|entry| entry.key.clone()),
         HorizontalDirection::Right => entries
             .iter()
             .filter(|entry| {
                 entry.placement.row == origin.row && entry.placement.column > origin.column
             })
             .min_by_key(|entry| entry.placement.column)
-            .map(|entry| entry.key),
+            .map(|entry| entry.key.clone()),
     }
 }
 
-fn select_column_neighbor<K: Copy>(
+fn select_column_neighbor<K: Clone>(
     entries: &[MatrixEntry<K>],
     origin_row: u32,
     column: u32,
@@ -214,10 +230,10 @@ fn select_column_neighbor<K: Copy>(
             let distance = u32::abs_diff(entry.placement.column, column);
             (distance, entry.placement.column)
         })
-        .map(|entry| entry.key)
+        .map(|entry| entry.key.clone())
 }
 
-fn select_cross_project_vertical_entry<K: Copy>(
+fn select_cross_project_vertical_entry<K: Clone>(
     entries: &[MatrixEntry<K>],
     origin_column: u32,
     direction: VerticalDirection,
@@ -233,7 +249,7 @@ fn select_cross_project_vertical_entry<K: Copy>(
     select_row_boundary_nearest_column(entries, origin_column, direction)
 }
 
-fn select_column_boundary<K: Copy>(
+fn select_column_boundary<K: Clone>(
     entries: &[MatrixEntry<K>],
     column: u32,
     direction: VerticalDirection,
@@ -243,16 +259,16 @@ fn select_column_boundary<K: Copy>(
             .iter()
             .filter(|entry| entry.placement.column == column)
             .max_by_key(|entry| entry.placement.row)
-            .map(|entry| entry.key),
+            .map(|entry| entry.key.clone()),
         VerticalDirection::Down => entries
             .iter()
             .filter(|entry| entry.placement.column == column)
             .min_by_key(|entry| entry.placement.row)
-            .map(|entry| entry.key),
+            .map(|entry| entry.key.clone()),
     }
 }
 
-fn select_row_boundary_nearest_column<K: Copy>(
+fn select_row_boundary_nearest_column<K: Clone>(
     entries: &[MatrixEntry<K>],
     origin_column: u32,
     direction: VerticalDirection,
@@ -269,7 +285,7 @@ fn select_row_boundary_nearest_column<K: Copy>(
             let distance = u32::abs_diff(entry.placement.column, origin_column);
             (distance, entry.placement.column)
         })
-        .map(|entry| entry.key)
+        .map(|entry| entry.key.clone())
 }
 
 #[cfg(test)]
@@ -277,7 +293,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn matrix_horizontal_navigation_skips_empty_cells() {
+    fn matrix_horizontal_navigation_skips_empty_slots() {
         let entries = sample_entries();
 
         let left = select_matrix_neighbor(&entries, (2, 0).into(), Direction::Left, None);
@@ -288,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn matrix_vertical_navigation_skips_empty_cells() {
+    fn matrix_vertical_navigation_skips_empty_slots() {
         let entries = sample_entries();
 
         let down = select_matrix_neighbor(&entries, (0, 0).into(), Direction::Down, None);
