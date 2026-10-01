@@ -68,7 +68,8 @@ impl DesktopSystem {
                         .placement(&DesktopTarget::Instance(instance_id))
                         .transform;
                     let distance =
-                        Self::fit_letterbox_distance(presentation.layout_size(), window_size);
+                        Self::fit_letterbox_distance(presentation.layout_size(), window_size)
+                            * transform.scale;
                     Self::camera_from_placement(transform).with_distance(distance)
                 }),
             FocusDepth::Instance => self.camera_for_target(target),

@@ -252,7 +252,9 @@ impl DesktopSystem {
     /// at the pixel-perfect distance.
     pub(super) fn camera_from_placement(transform: Transform) -> PixelCamera {
         let look_at = Transform::new(transform.translate, transform.rotate, 1.0);
-        look_at.to_camera()
+        look_at.to_camera().with_distance(
+            PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY) * transform.scale,
+        )
     }
 
     /// The letterboxing camera distance that fits `size` within the window.
@@ -440,6 +442,17 @@ fn select_concrete_instance_index(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn focused_scaled_content_keeps_its_local_pixel_scale() {
+        let scale = 0.25;
+        let camera = DesktopSystem::camera_from_placement(Transform::from_scale(scale));
+
+        assert_eq!(
+            camera.distance,
+            PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY) * scale
+        );
+    }
 
     #[test]
     fn concrete_instance_selection_prefers_directional_edge() {
