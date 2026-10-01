@@ -192,7 +192,7 @@ project "work" {
         document.apply(ConfigurationChange::AssignSlot {
             parent: root,
             placement: root_row(1),
-            content: SlotAssignment::Project {
+            assignment: SlotAssignment::Project {
                 id: ProjectId::new(),
                 name: "extra".into(),
             },
@@ -233,7 +233,7 @@ project "work" {
         document.apply(ConfigurationChange::AssignSlot {
             parent: work,
             placement: MatrixPlacement { column: 2, row: 0 },
-            content: launcher_assignment("third"),
+            assignment: launcher_assignment("third"),
         })?;
 
         let text = document.document.to_string();
@@ -268,7 +268,7 @@ project "second" {
         document.apply(ConfigurationChange::AssignSlot {
             parent: root,
             placement: root_row(2),
-            content: SlotAssignment::Project {
+            assignment: SlotAssignment::Project {
                 id: ProjectId::new(),
                 name: "third".into(),
             },
@@ -339,7 +339,7 @@ project "labs" column=0 row=0 {
         document.apply(ConfigurationChange::AssignSlot {
             parent: labs,
             placement: MatrixPlacement { column: 1, row: 0 },
-            content: launcher_assignment("extra"),
+            assignment: launcher_assignment("extra"),
         })?;
 
         let text = document.document.to_string();

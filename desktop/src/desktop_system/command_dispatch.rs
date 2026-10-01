@@ -231,7 +231,7 @@ impl DesktopSystem {
                         changes <<= ConfigurationChange::AssignSlot {
                             parent,
                             placement,
-                            content: SlotAssignment::Project {
+                            assignment: SlotAssignment::Project {
                                 id,
                                 name: name.clone(),
                             },
@@ -318,7 +318,7 @@ impl DesktopSystem {
                 changes <<= ConfigurationChange::AssignSlot {
                     parent,
                     placement,
-                    content: content.clone(),
+                    assignment: content.clone(),
                 };
                 changes <<= TopologyChange::Add {
                     what: content.content().target(),
@@ -688,16 +688,16 @@ impl DesktopSystem {
             ConfigurationChange::AssignSlot {
                 parent,
                 placement,
-                content,
+                assignment,
             } => {
-                let name = match &content {
+                let name = match &assignment {
                     SlotAssignment::Launcher { profile, .. } => profile.name.clone(),
                     SlotAssignment::Project { name, .. } => name.clone(),
                 };
-                let target = content.content();
+                let target = assignment.content();
                 self.aggregates
                     .configuration
-                    .assign_slot(parent, placement, content);
+                    .assign_slot(parent, placement, assignment);
                 match target {
                     SlotContent::Launcher(id) => {
                         self.ensure_launcher_presenter(parent, id, name)?;

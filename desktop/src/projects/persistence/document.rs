@@ -96,8 +96,8 @@ pub(super) fn apply_change(
         ConfigurationChange::AssignSlot {
             parent,
             placement,
-            content,
-        } => assign_slot(document, tags, *parent, *placement, content),
+            assignment,
+        } => assign_slot(document, tags, *parent, *placement, assignment),
         ConfigurationChange::ClearSlot { parent, placement } => {
             clear_slot(document, tags, *parent, *placement)
         }

@@ -68,13 +68,13 @@ pub enum ConfigurationChange {
         id: ProjectId,
         name: String,
     },
-    /// Assigns `content` to the slot `(parent, placement)`. Replacing content is a
+    /// Assigns `assignment` to the slot `(parent, placement)`. Replacing content is a
     /// clear plus an assign; displacement is expanded into `MoveSlot`s by the
     /// plan, never applied here.
     AssignSlot {
         parent: ProjectId,
         placement: MatrixPlacement,
-        content: SlotAssignment,
+        assignment: SlotAssignment,
     },
     /// Empties the slot `(parent, placement)`.
     ClearSlot {
