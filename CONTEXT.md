@@ -5,19 +5,19 @@ This context defines the interaction and presentation language for desktop insta
 ## Language
 
 **Desktop configuration**:
-The set of projects, launchers, their slot placements, and the startup launcher. It persists across sessions.
+The set of projects, their slots (each hosting a launcher or a nested project), and the startup launcher. It persists across sessions and names no root project — the terminal synthesizes one.
 _Avoid_: settings, workspace, layout
 
 **Configuration change**:
-A change to the desktop configuration: adding or removing a slot or its content, moving slot content, or setting the startup launcher. The only kind of change that persists across sessions.
+A change to the desktop configuration: assigning or clearing a slot's content, moving slot content, or setting the startup launcher. Replacing content is a clear plus an assign, never in place. The only kind of change that persists across sessions.
 _Avoid_: project change
 
 **Project**:
-A named group that owns a matrix of slots. A project exists only while it has at least one slot; removing a launcher removes the slot and, with it, the project. Project names may repeat. Exactly one project is the root; every other project is nested in a slot of another project.
+A named group that owns a matrix of slots. A project with no slots is empty and still valid; assigning a project name into a slot creates one. Project names may repeat. Exactly one project is the root — synthesized by the terminal and named `Projects` — and every other project is nested in a slot of another project.
 _Avoid_: workspace, section, top-level group
 
 **Slot**:
-A cell in a project's matrix that hosts either a launcher or a nested project — never both. Slots present one slot level deep when their project is not the focused project: slots render without their contents' contents and nothing deeper is interactive. Presenters are created for non-empty slots.
+A cell in a project's matrix that hosts either a launcher or a nested project — never both. Slots are implicit: one exists only while a launcher or nested project occupies it, so an unoccupied cell is empty and a project may have no slots. Target behavior, deferred: a project that is not the focused project presents exactly one slot level deep — its slots render without their contents' contents, and nothing deeper is interactive.
 _Avoid_: launcher cell, tile, container
 
 **Matrix placement**:
@@ -25,11 +25,11 @@ A slot's (column, row) position in its project's matrix. Placements are unique w
 _Avoid_: coordinates
 
 **Startup launcher**:
-The launcher the session boots into. Persisted by address path in the desktop configuration; resolved to a launcher id on load, falling back to the root project's first launcher with a warning when the path no longer resolves.
+The launcher the session boots into. Persisted by address path in the desktop configuration; resolved to a launcher id on load, falling back to the nearest depth-first launcher from the root with a warning when the path no longer resolves.
 _Avoid_: startup profile, boot target
 
 **Address path**:
-The configuration-level address of a slot's content: slash-separated names, resolved segment by segment, picking the nearest match at each level. The invoking instance's project is the implicit base for relative paths; a leading separator addresses from the root.
+The configuration-level address of a slot's content: slash-separated names resolved segment by segment, picking the nearest match at each level. The invoking instance's project is the implicit base for relative paths; a leading separator addresses from the root, which itself has no name.
 _Avoid_: target path, locator
 
 **Launcher id**:
