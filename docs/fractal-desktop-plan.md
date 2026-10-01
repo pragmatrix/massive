@@ -186,6 +186,13 @@ Key sub-points that the scan of the current code surfaced:
   already uses for position/size, and `absolute_placement` propagates it to
   everything below — hover rects and hit-test transforms scale with it for
   free. The nested project's presenter must not apply it a second time.
+- A nested project's presenter node hangs under the *matrix location* of the
+  project that hosts its slot, because its layout transform is relative to that
+  matrix — the same relation the launcher and instance nodes already have. Only
+  the root project hangs under the desktop location. Attaching a nested project
+  to the desktop instead drops the hosting matrix's origin, so the scene draws
+  the project (and everything below it) offset from the placement the camera,
+  the hover outline and hit testing read.
 - Rect math derives from `placement.rect` (origin space), never from
   `transform.scale`: `to_origin_space`/`to_anchor_space` only round-trip at
   scale 1. `target_rect`/`project_rect`/`matrix_row_rect` therefore read rects
@@ -219,9 +226,10 @@ Key sub-points that the scan of the current code surfaced:
   overflow becomes sibling-slot navigation through the *parent* slot's sibling
   sequence (column affinity semantics unchanged); a `Project` target becomes a
   navigation origin.
-- Camera resolution: the camera fits the *scaled* rect of a nested
-  presentation directly, like any other content — no composed per-level
-  camera math. Focused-project cameras per existing per-depth code.
+- Camera resolution: project-overview cameras fit the *scaled* rect of a
+  nested presentation directly. Deeper target cameras compensate for the
+  target placement's composed scale so focused content returns to its local
+  pixel scale; no per-level scale reconstruction is needed.
 - Indicator: 5 labels, `Project / Row / Slot / Instance / Full Screen` (the
   label array is indexed by repr, so it must match the new declaration order).
 
