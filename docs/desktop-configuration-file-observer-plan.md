@@ -47,7 +47,7 @@ which is exactly what an external edit breaks: today the session neither sees
 the edit nor recovers from the resulting divergence.
 
 The live aggregate keeps each project's launchers sorted by placement and
-answers occupancy and shift queries from placements alone
+answers assignment and shift queries from placements alone
 (`massive/desktop/src/projects/configuration.rs`). The delta application must
 keep that invariant, which is why additions are ordered after removals.
 

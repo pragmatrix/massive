@@ -9,16 +9,20 @@ The set of projects, their slots (each hosting a launcher or a nested project), 
 _Avoid_: settings, workspace, layout
 
 **Configuration change**:
-A change to the desktop configuration: assigning or clearing a slot's content, moving slot content, or setting the startup launcher. Replacing content is a clear plus an assign, never in place. The only kind of change that persists across sessions.
+A change to the desktop configuration: adding the root project, assigning or clearing a slot's content, moving slot content, or setting the startup launcher. Replacing content is a clear plus an assign, never in place. The only kind of change that persists across sessions.
 _Avoid_: project change
 
+**Desktop**:
+The hierarchy's virtual root target. It is never inserted explicitly, has no presenter, and only parents the root project's target — the one node every hit-test miss maps to. Not to be confused with a depth: `FocusDepth::Desktop` no longer exists, the ladder tops out at the root project's Project depth.
+_Avoid_: desktop depth, root project (the root project hangs *below* it)
+
 **Project**:
-A named group that owns a matrix of slots. A project with no slots is empty and still valid; assigning a project name into a slot creates one. Project names may repeat. Exactly one project is the root — synthesized by the terminal and named `Projects` — and every other project is nested in a slot of another project.
+A named group that owns a matrix of slots. A project with no slots is empty and still valid; assigning a project name into a slot creates one. Project names may repeat. Exactly one project is the root — synthesized by the terminal with the fixed id `ProjectId::ROOT` and named `Projects`, created by the boot flow's first command (`AddProject { under: None }`) — and every other project is nested in a slot of another project.
 _Avoid_: workspace, section, top-level group
 
 **Slot**:
-A cell in a project's matrix that hosts either a launcher or a nested project — never both. Slots are implicit: one exists only while a launcher or nested project occupies it, so an unoccupied cell is empty and a project may have no slots. Target behavior, deferred: a project that is not the focused project presents exactly one slot level deep — its slots render without their contents' contents, and nothing deeper is interactive.
-_Avoid_: launcher cell, tile, container
+A matrix slot: a position in a project's matrix that hosts either a launcher or a nested project — never both. Slots are implicit: one exists only while a launcher or a nested project is assigned to it, so a cleared slot is empty and a project may have no slots. Target behavior, deferred: a project that is not the focused project presents exactly one slot level deep — its slots render without their contents' contents, and nothing deeper is interactive.
+_Avoid_: cell, launcher cell, tile, container, occupied
 
 **Matrix placement**:
 A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.

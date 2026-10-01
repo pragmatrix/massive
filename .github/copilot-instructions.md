@@ -9,6 +9,7 @@ Update it whenever you learn something new about the project's patterns, convent
 - Use [README.md](../README.md) for example entry points and expected demo behavior instead of inferring from code paths.
 - Treat [examples/code/rust-analyzer](../examples/code/rust-analyzer) and [examples/markdown/inlyne](../examples/markdown/inlyne) as imported upstream projects; do not modify them unless explicitly asked.
 - Prefer changes in first-party crates listed in [Cargo.toml](../Cargo.toml) workspace members. Keep changes scoped to the relevant crate; avoid cross-crate refactors unless the task explicitly requires them.
+- `ConfigurationRequest` is the terminal/CLI boundary: keep its variants aligned with command intent and translate them to the desktop's slot-based `ProjectCommand`s in [command_dispatch.rs](../desktop/src/desktop_system/command_dispatch.rs).
 - Prefer `cargo build` for broad compile validation. If a task is scoped to one crate, prefer crate-targeted validation before workspace-wide commands.
 - Keep submodule `mod.rs` files limited to child-module declarations and re-exports; place implementation bodies in named sibling modules.
 - Demo runs from [README.md](../README.md): `cargo run --release --example code` and `cargo run --release --example markdown`.
