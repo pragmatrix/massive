@@ -682,7 +682,7 @@ impl DesktopSystem {
     fn apply_project_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
         match change {
             ConfigurationChange::AddProject { id, name } => {
-                self.ensure_project_presenter(id, name.clone())?;
+                self.insert_project_presenter(None, id, name.clone())?;
                 self.aggregates.configuration.add_project(id, name);
             }
             ConfigurationChange::AssignSlot {
@@ -700,10 +700,10 @@ impl DesktopSystem {
                     .assign_slot(parent, placement, assignment);
                 match target {
                     SlotContent::Launcher(id) => {
-                        self.ensure_launcher_presenter(parent, id, name)?;
+                        self.insert_launcher_presenter(parent, id, name)?;
                     }
                     SlotContent::Project(id) => {
-                        self.ensure_project_presenter(id, name)?;
+                        self.insert_project_presenter(Some(parent), id, name)?;
                     }
                 }
             }
@@ -739,31 +739,37 @@ impl DesktopSystem {
         Ok(ChangeOutput::default())
     }
 
-    fn ensure_project_presenter(&mut self, id: ProjectId, name: String) -> Result<()> {
-        if self.aggregates.projects.get(&id).is_some() {
-            return Ok(());
-        }
-        let location = self.desktop_presenter.location.clone();
+    /// Inserts the projector presenter for a newly created project. The plan
+    /// guarantees the id does not exist yet — `AddProject` only creates the root,
+    /// and every nested project arrives via `AssignSlot` with a fresh id — so an
+    /// existing presenter is an invariant violation and fails loudly here.
+    fn insert_project_presenter(
+        &mut self,
+        parent: Option<ProjectId>,
+        id: ProjectId,
+        name: String,
+    ) -> Result<()> {
+        // A nested project's scene node hangs under the matrix that hosts its slot:
+        // its layout transform is relative to that matrix. Only the root project is
+        // placed in the desktop's own space.
+        let location = match parent {
+            Some(parent) => self.aggregates.project_matrix_location(parent),
+            None => self.desktop_presenter.location.clone(),
+        };
         let presenter = ProjectPresenter::new(name, location);
         self.aggregates.projects.insert(id, presenter)
     }
 
-    fn ensure_launcher_presenter(
+    /// Inserts the launcher presenter for a newly assigned launcher. `AssignSlot`
+    /// never re-assigns an existing launcher id, so an existing presenter is an
+    /// invariant violation and fails loudly here.
+    fn insert_launcher_presenter(
         &mut self,
         parent: ProjectId,
         id: LaunchProfileId,
         name: String,
     ) -> Result<()> {
-        if self.aggregates.launchers.get(&id).is_some() {
-            return Ok(());
-        }
-        let matrix_location = self
-            .aggregates
-            .projects
-            .get(&parent)
-            .with_context(|| format!("project {parent:?} has no presenter"))?
-            .matrix
-            .location();
+        let matrix_location = self.aggregates.project_matrix_location(parent);
         let presenter =
             LauncherPresenter::new(matrix_location, id, name, massive_geometry::Size::default());
         self.aggregates.launchers.insert(id, presenter)
@@ -1193,7 +1199,7 @@ mod tests {
     use std::path::Path;
 
     use massive_animation::{AnimationCoordinator, MovementRuntime};
-    use massive_geometry::SizePx;
+    use massive_geometry::{Rect, RectPx, SizePx};
     use massive_layout::LayoutTopology;
     use massive_renderer::{FontManager, ShapingEngineKind};
     use massive_scene::{AnyCollector, SceneChange};
@@ -1209,40 +1215,9 @@ mod tests {
     const CONFIG: &str =
         "startup \"shell\"\nlauncher \"shell\" column=0 row=0 { command \"echo\" }\n";
 
-    fn task_context() -> TaskContext {
-        TaskContext::new(
-            AnyCollector::for_type::<SceneChange>(),
-            AnimationCoordinator::new(),
-            MovementRuntime::default(),
-            FontManager::system(ShapingEngineKind::available()[0])
-                .expect("system fonts are available")
-                .new_shaping_context(),
-        )
-    }
-
-    fn system() -> (
-        DesktopSystem,
-        UnboundedReceiver<(InstanceId, InstanceSubmission)>,
-    ) {
-        let (_sender, receiver) = unbounded_channel();
-        let environment = DesktopEnvironment {
-            primary_application: "terminal".into(),
-            applications: crate::application_registry::ApplicationRegistry::new(Vec::new()),
-            projects_dir: None,
-        };
-        let (document, aggregate) =
-            ConfigurationDocument::from_str(Path::new("/config/desktop.kdl"), CONFIG).unwrap();
-        let system =
-            DesktopSystem::new(environment, SizePx::new(800, 600), document, aggregate).unwrap();
-        (system, receiver)
-    }
-
-    fn instance_manager(
-        _receiver: &UnboundedReceiver<(InstanceId, InstanceSubmission)>,
-    ) -> InstanceManager {
-        let (sender, _receiver) = unbounded_channel();
-        InstanceManager::new(InstanceEnvironment::new(sender, 1.0))
-    }
+    /// The startup launcher nested in a project, so it sits inside a project slot.
+    const NESTED_PROJECT_CONFIG: &str =
+        "startup \"shell\"\nproject \"labs\" {\n    launcher \"shell\" column=0 row=0\n}\n";
 
     #[tokio::test]
     async fn add_project_under_none_creates_the_root_under_desktop() -> Result<()> {
@@ -1273,6 +1248,132 @@ mod tests {
             assert!(hierarchy.exists(&DesktopTarget::Desktop));
             assert!(system.aggregates.projects.get(&ProjectId::ROOT).is_some());
 
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn startup_setup_snaps_camera_to_the_focused_instance() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let (mut system, receiver) = system();
+            let mut instance_manager = instance_manager(&receiver);
+            let launcher = system
+                .aggregates
+                .configuration
+                .boot_launcher()
+                .expect("the test configuration has a startup launcher");
+            let frame = massive_applications::begin_frame();
+            for command in crate::projects::to_commands(&system.aggregates.configuration) {
+                let changes = system.plan(DesktopCommand::Project(command))?;
+                system.transact(
+                    changes,
+                    &mut instance_manager,
+                    TransactionEffectsMode::Setup,
+                    SizePx::new(800, 600),
+                )?;
+            }
+
+            let instance = uuid::Uuid::new_v4().into();
+            let start = system.plan(DesktopCommand::StartInstance {
+                launcher,
+                instance,
+                root: Some(InstanceRoot::new()),
+                parameters: Default::default(),
+            })?;
+            let mut submission_changes = massive_util::ChangeSet::default();
+            submission_changes.push(InstanceChange::CreateView(
+                massive_applications::ViewCreationInfo {
+                    id: uuid::Uuid::new_v4().into(),
+                    role: ViewRole::Primary,
+                    extents: massive_geometry::BoxPx::new(
+                        massive_geometry::PointPx::new(0, 0),
+                        massive_geometry::PointPx::new(800, 600),
+                    ),
+                },
+            ));
+            let initial_submission = InstanceSubmission::new(
+                submission_changes,
+                massive_renderer::RenderPacing::default(),
+            );
+            let mut changes: Changes = start;
+            changes <<= DesktopChange::IntegrateInstanceSubmission(instance, initial_submission);
+            system.transact(
+                changes,
+                &mut instance_manager,
+                TransactionEffectsMode::Setup,
+                SizePx::new(800, 600),
+            )?;
+
+            assert_eq!(
+                system.event_router.keyboard_focus(),
+                Some(&DesktopTarget::View(
+                    system.aggregates.instances[&instance]
+                        .primary_view_id()
+                        .expect("the initial submission created a primary view")
+                ))
+            );
+            assert_eq!(system.focus_depth, FocusDepth::Instance);
+            let focused = system.event_router.keyboard_focus().unwrap();
+            let expected = system.resolve_camera_for_target_or_ancestor(
+                focused,
+                system.focus_depth,
+                SizePx::new(800, 600),
+            );
+            assert_eq!(
+                *system.camera(),
+                expected,
+                "setup should snap to the focused instance camera without an initial transition"
+            );
+
+            drop(frame.submission::<SceneChange>());
+            Ok(())
+        })
+        .await
+    }
+
+    /// The camera and the hover read a target's absolute placement, so the scene must
+    /// resolve that target to the same transform — a project nested in a parent slot
+    /// included.
+    #[tokio::test]
+    async fn nested_project_launcher_scene_transform_matches_its_placement() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let (mut system, receiver) = system_from(NESTED_PROJECT_CONFIG);
+            let mut instance_manager = instance_manager(&receiver);
+            let frame = massive_applications::begin_frame();
+            for command in crate::projects::to_commands(&system.aggregates.configuration) {
+                let changes = system.plan(DesktopCommand::Project(command))?;
+                system.transact(
+                    changes,
+                    &mut instance_manager,
+                    TransactionEffectsMode::Setup,
+                    SizePx::new(800, 600),
+                )?;
+            }
+
+            let launcher = system
+                .aggregates
+                .configuration
+                .boot_launcher()
+                .expect("the test configuration has a startup launcher");
+            let location = system.aggregates.launchers[&launcher].location();
+            let resolved = massive_scene::TransformResolver::default()
+                .resolve(&location.to_ref())
+                .transform;
+
+            let placement = system.placement(&DesktopTarget::Launcher(launcher));
+            let rect_px: RectPx = placement.rect.into();
+            let local_center = Rect::from(rect_px).size().to_rect().center();
+            let expected = placement.transform.to_origin_space(local_center);
+
+            assert_eq!(resolved.scale, expected.scale);
+            let offset = resolved.translate - expected.translate;
+            assert!(
+                offset.x.abs() < 0.001 && offset.y.abs() < 0.001 && offset.z.abs() < 0.001,
+                "the scene draws the launcher at {resolved:?}, but the model places it at {expected:?}"
+            );
+
+            drop(frame.submission::<SceneChange>());
             Ok(())
         })
         .await
@@ -1351,5 +1452,49 @@ mod tests {
             Ok(())
         })
         .await
+    }
+
+    fn task_context() -> TaskContext {
+        TaskContext::new(
+            AnyCollector::for_type::<SceneChange>(),
+            AnimationCoordinator::new(),
+            MovementRuntime::default(),
+            FontManager::system(ShapingEngineKind::available()[0])
+                .expect("system fonts are available")
+                .new_shaping_context(),
+        )
+    }
+
+    fn system() -> (
+        DesktopSystem,
+        UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    ) {
+        system_from(CONFIG)
+    }
+
+    fn system_from(
+        config: &str,
+    ) -> (
+        DesktopSystem,
+        UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    ) {
+        let (_sender, receiver) = unbounded_channel();
+        let environment = DesktopEnvironment {
+            primary_application: "terminal".into(),
+            applications: crate::application_registry::ApplicationRegistry::new(Vec::new()),
+            projects_dir: None,
+        };
+        let (document, aggregate) =
+            ConfigurationDocument::from_str(Path::new("/config/desktop.kdl"), config).unwrap();
+        let system =
+            DesktopSystem::new(environment, SizePx::new(800, 600), document, aggregate).unwrap();
+        (system, receiver)
+    }
+
+    fn instance_manager(
+        _receiver: &UnboundedReceiver<(InstanceId, InstanceSubmission)>,
+    ) -> InstanceManager {
+        let (sender, _receiver) = unbounded_channel();
+        InstanceManager::new(InstanceEnvironment::new(sender, 1.0))
     }
 }
