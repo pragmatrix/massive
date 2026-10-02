@@ -61,18 +61,15 @@ pub enum Zoom {
 
 #[derive(Debug, Clone)]
 pub enum ConfigurationChange {
-    /// Adds the named project to the aggregate, or accepts one already present
-    /// (see [`DesktopConfiguration::add_project`]). The root project's creation
-    /// command — a nested project is created by assigning it to a slot instead.
-    AddProject {
-        id: ProjectId,
-        name: String,
-    },
     /// Assigns `assignment` to the slot `(parent, placement)`. Replacing content is a
     /// clear plus an assign; displacement is expanded into `MoveSlot`s by the
     /// plan, never applied here.
+    ///
+    /// A `None` parent creates the assigned project instead of slotting it: the
+    /// root project is hosted by the `Desktop` target, not a matrix (see
+    /// [`DesktopConfiguration::assign_slot`]).
     AssignSlot {
-        parent: ProjectId,
+        parent: Option<ProjectId>,
         placement: MatrixPlacement,
         assignment: SlotAssignment,
     },

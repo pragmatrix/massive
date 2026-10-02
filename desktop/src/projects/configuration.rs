@@ -9,6 +9,7 @@ use std::ops::Index;
 
 use anyhow::{Context, Result, bail, ensure};
 use derive_more::{From, Into};
+use indexmap::IndexMap;
 use log::warn;
 use serde_json::{Map, Value};
 use uuid::Uuid;
@@ -28,6 +29,10 @@ pub const ROOT_PROJECT_NAME: &str = "Projects";
 /// names none; a taken name is indexed (see [`DesktopConfiguration::new_project_name`]).
 pub const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
 
+/// The default name a launcher created by an assignment takes. The parse also
+/// gives a launcher-less configuration a launcher under this name (ADR 0012).
+pub const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
 pub enum LauncherMode {
     Band,
@@ -40,9 +45,10 @@ pub enum LauncherMode {
 /// keyed by name, so the two representations only meet during parse and persist.
 #[derive(Debug)]
 pub struct DesktopConfiguration {
-    /// Document order is preserved, so boot commands build the scene like the
-    /// document reads.
-    projects: Vec<Project>,
+    /// Insertion order is the document order, so boot commands build the scene
+    /// like the document reads; ids are unique, which the map's key type makes
+    /// structural rather than a discipline every call site re-checks.
+    projects: IndexMap<ProjectId, Project>,
     startup: Option<LaunchProfileId>,
     startup_path: Option<String>,
 }
@@ -52,31 +58,28 @@ impl DesktopConfiguration {
     /// id [`ProjectId::ROOT`]) comes with the parsed slots; the boot command
     /// re-applies it (see [`DesktopConfiguration::add_project`]).
     ///
-    /// A configuration whose launchers all sit in nested projects is legal; one
-    /// with no launcher anywhere is not, because the session boots into a
-    /// launcher-backed primary instance.
+    /// A configuration whose launchers all sit in nested projects is legal, and so
+    /// is one with no launcher anywhere: a separate step adds a launcher to the
+    /// root when the file defines none (ADR 0012).
     pub(super) fn new(projects: Vec<Project>, startup: Option<&str>) -> Result<Self> {
-        ensure!(
-            projects.iter().any(|project| project.has_launcher()),
-            "Configuration must define at least one launcher"
-        );
-
+        let projects: IndexMap<ProjectId, Project> = projects
+            .into_iter()
+            .map(|project| (project.id, project))
+            .collect();
         let mut configuration = Self {
             projects,
             startup: None,
             startup_path: startup.map(str::to_owned),
         };
 
-        configuration.startup = startup.map(|path| {
-            configuration
-                .resolve_launcher_path(ProjectId::ROOT, path)
-                .unwrap_or_else(|| {
-                    let fallback = configuration
-                        .first_launcher_depth_first()
-                        .expect("a launcher exists (checked above)");
+        configuration.startup = startup.and_then(|path| {
+            match configuration.resolve_launcher_path(ProjectId::ROOT, path) {
+                Some(launcher) => Some(launcher),
+                None => {
                     warn!("Startup '{path}' does not resolve; falling back to the first launcher");
-                    fallback
-                })
+                    configuration.first_launcher_depth_first()
+                }
+            }
         });
 
         Ok(configuration)
@@ -99,8 +102,8 @@ impl DesktopConfiguration {
     /// assert against the parsed aggregate, while production reads go through
     /// the `project`/`launchers_ordered` lookups.
     #[cfg(test)]
-    pub fn projects(&self) -> &[Project] {
-        &self.projects
+    pub fn projects(&self) -> impl ExactSizeIterator<Item = &Project> {
+        self.projects.values()
     }
 
     // --- Mutation API ---
@@ -122,81 +125,89 @@ impl DesktopConfiguration {
         }
         let doomed: Vec<ProjectId> = self
             .projects
-            .iter()
+            .values()
             .map(|project| project.id)
             .filter(|candidate| *candidate == id || self.is_in_subtree(id, *candidate))
             .collect();
 
-        for project in &mut self.projects {
-            project.slots.retain(|slot| {
-                !matches!(slot.content, SlotContent::Project(child) if doomed.contains(&child))
-            });
+        for project in self.projects.values_mut() {
+            project
+                .slots
+                .retain(|slot| {
+                    !matches!(slot.content, SlotContent::Project(child) if doomed.contains(&child))
+                });
         }
 
         self.projects
-            .retain(|project| !doomed.contains(&project.id));
+            .retain(|project_id, _| !doomed.contains(project_id));
     }
 
-    /// Assigns `content` to `project`'s slot at `placement`.
+    /// Assigns `content` to `parent`'s slot at `placement`.
     ///
     /// Assigning a project that does not exist creates it — there is no separate
-    /// "add project" operation. Replacing content is a clear plus an assign, so the
-    /// caller clears the slot first.
+    /// "add project" operation. A `None` parent creates the root the same way:
+    /// the root is hosted by the `Desktop` target, not a matrix, so nothing is
+    /// slotted. Replacing content is a clear plus an assign, so the caller clears
+    /// the slot first.
     pub fn assign_slot(
         &mut self,
-        project: ProjectId,
+        parent: Option<ProjectId>,
         placement: MatrixPlacement,
         content: SlotAssignment,
     ) {
-        match &content {
+        match content {
             SlotAssignment::Launcher { id, profile } => {
+                let parent = parent.expect("a launcher is always assigned into a project's slot");
                 let launcher = Launcher {
-                    id: *id,
+                    id,
                     name: profile.name.clone(),
                     mode: profile.mode,
                     params: profile.params.clone(),
                     placement,
                 };
-                if let Some(project) = self.project_mut(project) {
-                    project.assign_slot(Slot::launcher(launcher));
-                }
+                let project = self
+                    .project_mut(parent)
+                    .expect("the parent project of a launcher exists");
+                project.assign_slot(Slot::launcher(launcher));
             }
             SlotAssignment::Project { id, name } => {
                 // A duplicate id is re-application — the boot Setup transaction
                 // re-applies commands derived from this very aggregate — so it is
                 // ignored, not rejected.
-                if self.project(*id).is_none() {
-                    let name = self.new_project_name(*id, DEFAULT_NEW_PROJECT_NAME, name);
-                    self.add_project(*id, name);
+                if self.project(id).is_none() {
+                    let name = self.new_project_name(id, DEFAULT_NEW_PROJECT_NAME, &name);
+                    self.add_project(id, name);
                 }
-                if let Some(project) = self.project_mut(project) {
-                    project.assign_slot(Slot::project(placement, *id));
+                if let Some(parent) = parent {
+                    self.project_mut(parent)
+                        .expect("the parent project of the assignment exists")
+                        .assign_slot(Slot::project(placement, id));
                 }
             }
         }
     }
 
-    /// Adds a project, or accepts one already present: the boot flow parses the
-    /// aggregate and then re-applies the same ids as commands (ids are created at
-    /// parse, so the id equality carries the "is already applied" fact).
+    /// Adds a project with no slots. A duplicate id never reaches here: the
+    /// caller ignores it as re-application. Insertion keeps the document order
+    /// the IndexMap records.
     pub fn add_project(&mut self, id: ProjectId, name: String) {
-        if let Some(project) = self.project_mut(id) {
-            project.name = name;
-            return;
-        }
-        self.projects.push(Project {
+        let replaced = self.projects.insert(
             id,
-            name,
-            slots: Vec::new(),
-        });
+            Project {
+                id,
+                name,
+                slots: Vec::new(),
+            },
+        );
+        debug_assert!(replaced.is_none(), "duplicate project id {id:?}");
     }
 
     /// Empties `project`'s slot at `placement`. A slot that hosts no content is
     /// simply absent, so clearing an already empty slot does nothing.
     pub fn clear_slot(&mut self, project: ProjectId, placement: MatrixPlacement) {
-        if let Some(project) = self.project_mut(project) {
-            project.remove_slot(placement);
-        }
+        self.project_mut(project)
+            .expect("the project hosting the slot exists")
+            .remove_slot(placement);
     }
 
     /// Moves the content of `source` to `dest`, returning whether the move
@@ -276,7 +287,7 @@ impl DesktopConfiguration {
         &self,
         launcher: LaunchProfileId,
     ) -> Option<(ProjectId, MatrixPlacement)> {
-        self.projects.iter().find_map(|project| {
+        self.projects.values().find_map(|project| {
             project
                 .slot_of_launcher(launcher)
                 .map(|placement| (project.id, placement))
@@ -307,8 +318,8 @@ impl DesktopConfiguration {
 
     /// The launcher the session boots into: the startup launcher, or the first
     /// launcher of the tree when no `startup` node names one. `None` is
-    /// unreachable for a parsed configuration, whose parse guarantees at least
-    /// one launcher.
+    /// unreachable for a loaded configuration: the load gives a launcher-less one
+    /// a launcher (ADR 0012).
     pub fn boot_launcher(&self) -> Option<LaunchProfileId> {
         self.startup.or_else(|| self.first_launcher_depth_first())
     }
@@ -351,7 +362,7 @@ impl DesktopConfiguration {
             segments.push(record.name.clone());
             project = self
                 .projects
-                .iter()
+                .values()
                 .find(|candidate| candidate.nested_projects().contains(&record.id))
                 .context("nested project has no parent")?
                 .id;
@@ -450,16 +461,24 @@ impl DesktopConfiguration {
         }
         let existing: Vec<&str> = self
             .projects
-            .iter()
+            .values()
             .map(|project| project.name.as_str())
             .collect();
         indexed_default_name(name, &existing)
     }
 
+    /// Whether any project's matrix hosts a launcher. The load gives a
+    /// launcher-less configuration one, so a loaded configuration answers `true`
+    /// (ADR 0012).
+    pub fn has_launcher(&self) -> bool {
+        self.projects.values().any(|project| project.has_launcher())
+    }
+
     /// How many launchers the configuration defines across all projects.
+    #[cfg(test)]
     pub fn launcher_count(&self) -> usize {
         self.projects
-            .iter()
+            .values()
             .map(|project| project.launchers().len())
             .sum()
     }
@@ -509,7 +528,7 @@ impl DesktopConfiguration {
     pub fn nearest_project(&self, name: &str, focused: Option<ProjectId>) -> Option<ProjectId> {
         let focused = focused.and_then(|project| self.project_index(project));
         self.projects
-            .iter()
+            .values()
             .enumerate()
             .filter(|(_, project)| project.name == name)
             .map(|(index, project)| (index.abs_diff(focused.unwrap_or(index)), project.id))
@@ -520,7 +539,7 @@ impl DesktopConfiguration {
     /// The document-order index of the project, which is what orders the projects
     /// on screen: `RemoveProject` by name removes the nearest one.
     pub fn project_index(&self, project: ProjectId) -> Option<usize> {
-        self.projects.iter().position(|p| p.id == project)
+        self.projects.get_index_of(&project)
     }
 
     /// The launchers of `project` that must move for the content at `placement`
@@ -626,7 +645,7 @@ impl DesktopConfiguration {
     /// the right source when the scene hierarchy is available.
     pub fn project_of_launcher(&self, launcher: LaunchProfileId) -> Option<&Project> {
         self.projects
-            .iter()
+            .values()
             .find(|project| project.slot_of_launcher(launcher).is_some())
     }
 
@@ -644,11 +663,11 @@ impl DesktopConfiguration {
     }
 
     pub fn project(&self, id: ProjectId) -> Option<&Project> {
-        self.projects.iter().find(|project| project.id == id)
+        self.projects.get(&id)
     }
 
     pub fn project_mut(&mut self, id: ProjectId) -> Option<&mut Project> {
-        self.projects.iter_mut().find(|project| project.id == id)
+        self.projects.get_mut(&id)
     }
 }
 
@@ -656,9 +675,9 @@ impl DesktopConfiguration {
 /// from the root, so a slot's parent project and matrix exist before the slot's
 /// content is assigned under them.
 ///
-/// The walk starts with the root project's own `AddProject { under: None }`, which
-/// parents the root project under the `Desktop` target; every other project's
-/// creation is its slot assignment.
+/// The walk starts with the root project's own `AssignSlot { parent: None }`,
+/// which parents the root project under the `Desktop` target; every other
+/// project's creation is its slot assignment.
 pub fn to_commands(configuration: &DesktopConfiguration) -> CollectingVec<ProjectCommand> {
     let mut commands = CollectingVec::Empty;
 
@@ -669,11 +688,15 @@ pub fn to_commands(configuration: &DesktopConfiguration) -> CollectingVec<Projec
         .project(ProjectId::ROOT)
         .map(|project| project.name.clone())
         .unwrap_or_else(|| ROOT_PROJECT_NAME.to_string());
-    commands.push(ProjectCommand::AddProject {
-        id: ProjectId::ROOT,
-        name: root_name,
+    commands.push(ProjectCommand::AssignSlot {
+        parent: None,
         placement: MatrixPlacement { column: 0, row: 0 },
-        under: None,
+        content: SlotAssignment::Project {
+            id: ProjectId::ROOT,
+            name: root_name,
+        },
+        // Ignored for the parentless root creation.
+        shift: SlotShift::default(),
     });
     assign_slot_commands(configuration, ProjectId::ROOT, &mut commands);
 
@@ -715,7 +738,7 @@ fn assign_slot_commands(
         };
 
         commands.push(ProjectCommand::AssignSlot {
-            parent: project,
+            parent: Some(project),
             placement: slot.placement,
             content,
             // Boot re-applies positions the aggregate already holds, so nothing
@@ -1234,7 +1257,7 @@ mod tests {
             Some(SlotContent::Launcher(existing))
         );
 
-        configuration.assign_slot(root, placement, nested_assignment(nested));
+        configuration.assign_slot(Some(root), placement, nested_assignment(nested));
         assert_eq!(
             configuration.content_at(root, placement),
             Some(SlotContent::Project(nested))
@@ -1247,7 +1270,7 @@ mod tests {
         let nested = ProjectId::new();
         let mut configuration = configuration([("only", placement)]);
         let root = root_id_of(&configuration);
-        configuration.assign_slot(root, placement, named_project(nested, "nested"));
+        configuration.assign_slot(Some(root), placement, named_project(nested, "nested"));
 
         let inner = MatrixPlacement { column: 0, row: 0 };
         assert!(!configuration.can_move_slot((root, placement), (nested, inner)));
@@ -1261,7 +1284,7 @@ mod tests {
         let mut configuration = configuration([("only", MatrixPlacement { column: 0, row: 0 })]);
         let root = root_id_of(&configuration);
 
-        configuration.assign_slot(root, placement, named_project(nested, "labs"));
+        configuration.assign_slot(Some(root), placement, named_project(nested, "labs"));
 
         assert_eq!(
             configuration.child_project_at(root, placement),
@@ -1286,13 +1309,17 @@ mod tests {
         let placement = MatrixPlacement { column: 0, row: 0 };
         let mut configuration = configuration([("only", placement)]);
         let root = root_id_of(&configuration);
-        configuration.assign_slot(root, placement, named_project(ProjectId::new(), "labs"));
+        configuration.assign_slot(
+            Some(root),
+            placement,
+            named_project(ProjectId::new(), "labs"),
+        );
 
         configuration.clear_slot(root, placement);
 
         assert_eq!(configuration.content_at(root, placement), None);
         assert_eq!(
-            configuration.projects().len(),
+            configuration.projects().count(),
             2,
             "the nested project stays"
         );
@@ -1304,10 +1331,10 @@ mod tests {
         let mut configuration = configuration([("only", MatrixPlacement { column: 1, row: 0 })]);
         let root = root_id_of(&configuration);
         let labs = ProjectId::new();
-        configuration.assign_slot(root, root_placement, named_project(labs, "labs"));
+        configuration.assign_slot(Some(root), root_placement, named_project(labs, "labs"));
         let inner = ProjectId::new();
         configuration.assign_slot(
-            labs,
+            Some(labs),
             MatrixPlacement { column: 0, row: 0 },
             named_project(inner, "inner"),
         );
@@ -1325,9 +1352,9 @@ mod tests {
         let mut configuration = configuration([("top", MatrixPlacement { column: 0, row: 1 })]);
         let root = root_id_of(&configuration);
         let nested = ProjectId::new();
-        configuration.assign_slot(root, placement, named_project(nested, "labs"));
+        configuration.assign_slot(Some(root), placement, named_project(nested, "labs"));
         configuration.assign_slot(
-            nested,
+            Some(nested),
             placement,
             launcher_assignment_for(LaunchProfileId::new()),
         );
@@ -1346,9 +1373,9 @@ mod tests {
         let root = root_id_of(&configuration);
         configuration.clear_slot(root, MatrixPlacement { column: 0, row: 1 });
         let nested = ProjectId::new();
-        configuration.assign_slot(root, placement, named_project(nested, "labs"));
+        configuration.assign_slot(Some(root), placement, named_project(nested, "labs"));
         let inner = LaunchProfileId::new();
-        configuration.assign_slot(nested, placement, launcher_assignment_for(inner));
+        configuration.assign_slot(Some(nested), placement, launcher_assignment_for(inner));
 
         assert_eq!(configuration.first_launcher_depth_first(), Some(inner));
     }
@@ -1360,19 +1387,20 @@ mod tests {
         let root = root_id_of(&configuration);
         let labs = ProjectId::new();
         configuration.assign_slot(
-            root,
+            Some(root),
             MatrixPlacement { column: 0, row: 1 },
             named_project(labs, "labs"),
         );
         let shell = LaunchProfileId::new();
         configuration.assign_slot(
-            labs,
+            Some(labs),
             MatrixPlacement { column: 0, row: 0 },
             launcher_assignment_for(shell),
         );
         configuration
             .project_mut(labs)
-            .and_then(|project| project.launcher_mut(shell))
+            .expect("the launcher was just assigned")
+            .launcher_mut(shell)
             .expect("the launcher was just assigned")
             .name = "shell".into();
 
@@ -1401,10 +1429,10 @@ mod tests {
         );
     }
 
-    /// The boot command list opens with the root project's own creation so its
-    /// slots' parents exist before the slots are assigned under them.
+    /// The boot command list opens with the root project's parentless assignment
+    /// so its slots' parents exist before the slots are assigned under them.
     #[test]
-    fn to_commands_starts_with_the_root_add_project() {
+    fn to_commands_starts_with_the_root_parentless_assign_slot() {
         let configuration = configuration([("shell", MatrixPlacement { column: 0, row: 0 })]);
 
         let commands = to_commands(&configuration);
@@ -1416,16 +1444,19 @@ mod tests {
         ));
         assert!(matches!(
             commands.next(),
-            Some(ProjectCommand::AddProject {
-                id: ProjectId::ROOT,
-                under: None,
+            Some(ProjectCommand::AssignSlot {
+                parent: None,
+                content: SlotAssignment::Project {
+                    id: ProjectId::ROOT,
+                    ..
+                },
                 ..
             })
         ));
         assert!(matches!(
             commands.next(),
             Some(ProjectCommand::AssignSlot {
-                parent: ProjectId::ROOT,
+                parent: Some(ProjectId::ROOT),
                 ..
             })
         ));
@@ -1440,14 +1471,13 @@ mod tests {
             .into_iter()
             .map(|(name, placement)| Slot::launcher(launcher(name, placement)))
             .collect();
-        let root = Project::new(ROOT_PROJECT_NAME.into(), slots);
-        let mut configuration = DesktopConfiguration {
-            projects: vec![root],
+        let mut root = Project::new(ROOT_PROJECT_NAME.into(), slots);
+        root.id = ProjectId::ROOT;
+        DesktopConfiguration {
+            projects: IndexMap::from([(root.id, root)]),
             startup: None,
             startup_path: None,
-        };
-        configuration.projects[0].id = ProjectId::ROOT;
-        configuration
+        }
     }
 
     fn nested_assignment(id: ProjectId) -> SlotAssignment {

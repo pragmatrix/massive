@@ -30,23 +30,14 @@ pub enum DesktopCommand {
 
 #[derive(Debug)]
 pub enum ProjectCommand {
-    /// Creates a project. The root is created by `AddProject { under: None }`,
-    /// which places the project under the `Desktop` target; this is also how an
-    /// `AssignSlot` that names a new project materializes it.
-    AddProject {
-        id: ProjectId,
-        name: String,
-        /// The placement in the host project's matrix. Ignored for
-        /// `under: None` — the root project is not hosted by a matrix.
-        placement: MatrixPlacement,
-        /// The project whose slot will host the new project; `None` for the root
-        /// project under the `Desktop` target.
-        under: Option<ProjectId>,
-    },
-    RemoveProject(ProjectId),
     /// Assigns slot content, displacing the assigned content according to `shift`.
+    ///
+    /// A `None` parent creates the assigned project instead — there is no separate
+    /// "add project" operation. The root is assigned to the `Desktop` target, which
+    /// hosts no slots, so `placement` and `shift` are ignored; only
+    /// [`ProjectId::ROOT`] may be assigned there, exactly once.
     AssignSlot {
-        parent: ProjectId,
+        parent: Option<ProjectId>,
         placement: MatrixPlacement,
         content: SlotAssignment,
         shift: SlotShift,

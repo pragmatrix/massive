@@ -121,15 +121,15 @@ impl Desktop {
             to_commands(&configuration).map(DesktopCommand::Project);
         let boot_launcher = configuration
             .boot_launcher()
-            .expect("configuration parsing guarantees at least one launcher");
+            .expect("the configuration load gives a launcher-less configuration one");
 
         let mut system =
             DesktopSystem::new(env, default_size, configuration_document, configuration)?;
 
         // The session boots into the startup launcher the configuration names. The
-        // configuration parse guarantees at least one launcher, and the fallback
-        // derived here is the first launcher of the parsed aggregate before any
-        // command replays.
+        // load gives a launcher-less configuration one, and the fallback derived
+        // here is the first launcher of the loaded aggregate before any command
+        // replays.
         let primary_instance_commands: Commands = [DesktopCommand::StartInstance {
             launcher: boot_launcher,
             instance: primary_instance,

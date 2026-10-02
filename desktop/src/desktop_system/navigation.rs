@@ -191,13 +191,15 @@ impl DesktopSystem {
         }
     }
 
+    /// The focus replacement when a nested `project` leaves its parent's matrix: the
+    /// next sibling, else the previous, else the parent project. Only nested
+    /// projects are cleared, so a parent always exists.
     pub(super) fn project_removal_focus(&self, project: ProjectId) -> DesktopTarget {
-        // The replacement is a sibling in the parent's matrix; the root has no
-        // siblings to fall back to, so it falls back to the root itself.
-        let parent = self.aggregates.hierarchy.parent_project_of(project);
-        let Some(parent) = parent else {
-            return DesktopTarget::Project(project);
-        };
+        let parent = self
+            .aggregates
+            .hierarchy
+            .parent_project_of(project)
+            .expect("a removed project is nested in its parent's matrix");
 
         let siblings: Vec<DesktopTarget> = self
             .aggregates

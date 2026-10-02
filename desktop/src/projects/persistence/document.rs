@@ -15,8 +15,9 @@ use serde_json::Value;
 use super::parameters::{params_node, params_value};
 use crate::desktop_system::change::ConfigurationChange;
 use crate::projects::{
-    DesktopConfiguration, LaunchProfileId, Launcher, LauncherMode, MatrixPlacement, Params,
-    Project, ProjectId, ROOT_PROJECT_NAME, Slot, SlotAssignment,
+    DEFAULT_NEW_LAUNCHER_NAME, DesktopConfiguration, LaunchProfile, LaunchProfileId, Launcher,
+    LauncherMode, MatrixPlacement, Params, Project, ProjectId, ROOT_PROJECT_NAME, Slot,
+    SlotAssignment,
 };
 
 /// The built-in default configuration, used when no file exists on disk.
@@ -89,15 +90,17 @@ pub(super) fn apply_change(
     change: &ConfigurationChange,
 ) -> Result<()> {
     match change {
-        // The root project has no node of its own — its slots are the document's
-        // top-level nodes — so its creation change mirrors into nothing here.
-        ConfigurationChange::AddProject { .. } => Ok(()),
         ConfigurationChange::SetStartupPath(path) => set_startup(document, path),
         ConfigurationChange::AssignSlot {
             parent,
             placement,
             assignment,
-        } => assign_slot(document, tags, *parent, *placement, assignment),
+        } => match parent {
+            // The root project has no node of its own — its slots are the document's
+            // top-level nodes — so its creation change mirrors into nothing here.
+            None => Ok(()),
+            Some(parent) => assign_slot(document, tags, *parent, *placement, assignment),
+        },
         ConfigurationChange::ClearSlot { parent, placement } => {
             clear_slot(document, tags, *parent, *placement)
         }
@@ -162,6 +165,52 @@ pub(super) fn parse_configuration(
     let configuration = DesktopConfiguration::new(projects, startup.as_deref())?;
 
     Ok((configuration, tags))
+}
+
+/// Gives a configuration that defines no launcher one in the root project, so the
+/// session can boot (ADR 0012). The launcher enters the document as a real node,
+/// so the first rewrite persists it and a re-parse finds it instead of adding a
+/// second one.
+pub(super) fn ensure_launcher(
+    document: &mut KdlDocument,
+    tags: &mut NodeTags,
+    configuration: &mut DesktopConfiguration,
+) {
+    if configuration.has_launcher() {
+        return;
+    }
+    warn!("Configuration defines no launcher; adding one to the root project");
+
+    let placement = MatrixPlacement {
+        column: 0,
+        row: configuration
+            .slots_ordered(ProjectId::ROOT)
+            .iter()
+            .map(|(placement, _)| placement.row)
+            .max()
+            .map_or(0, |row| row + 1),
+    };
+    let profile = LaunchProfile {
+        name: DEFAULT_NEW_LAUNCHER_NAME.into(),
+        mode: LauncherMode::Visor,
+        params: Params::new(),
+    };
+    let id = LaunchProfileId::new();
+    let mut node = launcher_node(
+        &profile.name,
+        profile.mode,
+        &profile.params,
+        placement,
+        String::new(),
+    );
+    tags.tag_launcher(id, &mut node);
+    document.nodes_mut().push(node);
+
+    configuration.assign_slot(
+        Some(ProjectId::ROOT),
+        placement,
+        SlotAssignment::Launcher { id, profile },
+    );
 }
 
 fn set_startup(document: &mut KdlDocument, path: &Option<String>) -> Result<()> {

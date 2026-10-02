@@ -52,7 +52,10 @@ node**, and duplicates are allowed.
 - The "at least one launcher" invariant moves to the planner (`plan_project`),
   where the whole command is visible and a rejection emits no change at all. This
   closes the half-applied transaction and removes the document's last piece of
-  policy.
+  policy. Superseded by
+  [ADR 0012](./0012-a-configuration-without-a-launcher-is-given-one-at-load.md):
+  the invariant is dissolved — the parse gives a configuration without a launcher
+  one — so the planner no longer rejects on its account.
 
 ## Considered options
 

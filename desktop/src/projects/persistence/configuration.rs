@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use kdl::KdlDocument;
 
 use super::document::{
-    NodeTags, apply_change, atomic_write, default_document, parse_configuration,
+    NodeTags, apply_change, atomic_write, default_document, ensure_launcher, parse_configuration,
 };
 use crate::desktop_system::change::ConfigurationChange;
 use crate::projects::DesktopConfiguration;
@@ -54,8 +54,9 @@ impl ConfigurationDocument {
         let mut document: KdlDocument = text
             .parse()
             .with_context(|| format!("parsing {}", path.display()))?;
-        let (configuration, tags) = parse_configuration(&mut document)
+        let (mut configuration, mut tags) = parse_configuration(&mut document)
             .with_context(|| format!("reading configuration from {}", path.display()))?;
+        ensure_launcher(&mut document, &mut tags, &mut configuration);
         let document = Self {
             document,
             tags,
@@ -162,7 +163,7 @@ project "work" {
 }
 "#,
         )?;
-        let work = configuration.projects()[0].id;
+        let work = configuration.projects().next().expect("the root exists").id;
 
         document.apply(ConfigurationChange::ClearSlot {
             parent: work,
@@ -190,7 +191,7 @@ project "work" {
         let root = ProjectId::ROOT;
 
         document.apply(ConfigurationChange::AssignSlot {
-            parent: root,
+            parent: Some(root),
             placement: root_row(1),
             assignment: SlotAssignment::Project {
                 id: ProjectId::new(),
@@ -228,10 +229,10 @@ project "work" {
 }
 "#,
         )?;
-        let work = configuration.projects()[0].id;
+        let work = configuration.projects().next().expect("the root exists").id;
 
         document.apply(ConfigurationChange::AssignSlot {
-            parent: work,
+            parent: Some(work),
             placement: MatrixPlacement { column: 2, row: 0 },
             assignment: launcher_assignment("third"),
         })?;
@@ -266,7 +267,7 @@ project "second" {
         let root = ProjectId::ROOT;
 
         document.apply(ConfigurationChange::AssignSlot {
-            parent: root,
+            parent: Some(root),
             placement: root_row(2),
             assignment: SlotAssignment::Project {
                 id: ProjectId::new(),
@@ -337,7 +338,7 @@ project "labs" column=0 row=0 {
             .expect("labs is a root slot");
 
         document.apply(ConfigurationChange::AssignSlot {
-            parent: labs,
+            parent: Some(labs),
             placement: MatrixPlacement { column: 1, row: 0 },
             assignment: launcher_assignment("extra"),
         })?;
@@ -366,11 +367,11 @@ project "second" {
         let root = ProjectId::ROOT;
         assert_eq!(
             configuration.child_project_at(root, root_row(0)),
-            Some(configuration.projects()[0].id)
+            Some(configuration.projects().next().expect("one root slot").id)
         );
         assert_eq!(
             configuration.child_project_at(root, root_row(1)),
-            Some(configuration.projects()[1].id)
+            Some(configuration.projects().nth(1).expect("two root slots").id)
         );
         assert!(
             document.document.to_string().contains("row=1"),
@@ -432,6 +433,47 @@ project "work" {
                 .contains("startup \"/work/shell\""),
             "unexpected document: {}",
             document.document
+        );
+        Ok(())
+    }
+
+    /// A file that defines no launcher still boots: the parse adds a launcher to
+    /// the root, and because the added launcher is a real document node, the first
+    /// rewrite persists it and a re-parse finds it instead of adding a second one
+    /// (ADR 0012).
+    #[test]
+    fn a_launcher_less_configuration_gains_a_persisted_launcher() -> Result<()> {
+        let (mut document, configuration) = loaded(
+            r#"
+project "work" column=0 row=0 {
+    project "deep" column=1 row=0
+}
+"#,
+        )?;
+
+        assert_eq!(configuration.launcher_count(), 1);
+        assert!(configuration.boot_launcher().is_some());
+        assert!(
+            document
+                .document
+                .to_string()
+                .contains("launcher \"New Launcher\""),
+            "unexpected document: {}",
+            document.document
+        );
+
+        // An unrelated change rewrites the document, which persists the added
+        // launcher node.
+        document.apply(ConfigurationChange::SetStartupPath(Some(
+            "/work/deep/New Launcher".into(),
+        )))?;
+        let written = document.document.to_string();
+
+        let (_, reparsed) = loaded(&written)?;
+        assert_eq!(
+            reparsed.launcher_count(),
+            1,
+            "re-parsing must not add a second launcher: {written}"
         );
         Ok(())
     }

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail, ensure};
+use anyhow::{Context, Result, bail};
 use log::{debug, warn};
 use serde_json::json;
 
@@ -14,8 +14,9 @@ use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
-    LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId,
-    ProjectPresenter, SlotAssignment, SlotContent,
+    DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
+    LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment,
+    SlotContent,
 };
 
 use massive_applications::prelude::*;
@@ -214,88 +215,15 @@ impl DesktopSystem {
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
         let mut changes = Changes::Empty;
         match command {
-            ProjectCommand::AddProject {
-                id,
-                name,
-                placement,
-                under,
-            } => {
-                let name = self.aggregates.configuration.new_project_name(
-                    id,
-                    DEFAULT_NEW_PROJECT_NAME,
-                    &name,
-                );
-                let project_target = DesktopTarget::Project(id);
-                let topology_parent = match under {
-                    Some(parent) => {
-                        changes <<= ConfigurationChange::AssignSlot {
-                            parent,
-                            placement,
-                            assignment: SlotAssignment::Project {
-                                id,
-                                name: name.clone(),
-                            },
-                        };
-                        DesktopTarget::ProjectMatrix(parent)
-                    }
-                    None => {
-                        if id != ProjectId::ROOT
-                            || self
-                                .aggregates
-                                .hierarchy
-                                .exists(&DesktopTarget::Project(ProjectId::ROOT))
-                        {
-                            bail!(
-                                "Internal error (plan AddProject): the root project is created exactly once, as `AddProject {{ under: None }}` with id {:?}",
-                                ProjectId::ROOT
-                            );
-                        }
-                        changes <<= ConfigurationChange::AddProject {
-                            id,
-                            name: name.clone(),
-                        };
-                        DesktopTarget::Desktop
-                    }
-                };
-                changes <<= TopologyChange::Add {
-                    what: project_target.clone(),
-                    under: topology_parent,
-                    after: None,
-                };
-                changes <<= TopologyChange::AddNested {
-                    what: [
-                        DesktopTarget::ProjectHeader(id),
-                        DesktopTarget::ProjectMatrix(id),
-                    ]
-                    .into(),
-                    under: project_target,
-                };
-            }
-            ProjectCommand::RemoveProject(project_id) => {
-                changes += self.plan_project_removal_focus(project_id);
-                changes += self.plan_remove_project_content_checked(project_id)?;
-                if let Some(parent) = self.aggregates.hierarchy.parent_project_of(project_id)
-                    && let Some(placement) =
-                        self.aggregates
-                            .configuration
-                            .project(parent)
-                            .and_then(|project| {
-                                project.placement_of_content(SlotContent::Project(project_id))
-                            })
-                {
-                    changes += self.plan_project(ProjectCommand::ClearSlot {
-                        parent,
-                        placement,
-                        shift: SlotShift::default(),
-                    })?;
-                }
-            }
             ProjectCommand::AssignSlot {
                 parent,
                 placement,
                 content,
                 shift,
             } => {
+                let Some(parent) = parent else {
+                    return self.plan_root_creation(placement, content);
+                };
                 // The parsed aggregate already has boot slots, while the topology
                 // starts empty; only displace occupants that are live in the scene.
                 let assigned = self
@@ -316,7 +244,7 @@ impl DesktopSystem {
                 }
 
                 changes <<= ConfigurationChange::AssignSlot {
-                    parent,
+                    parent: Some(parent),
                     placement,
                     assignment: content.clone(),
                 };
@@ -356,6 +284,62 @@ impl DesktopSystem {
         Ok(changes)
     }
 
+    /// Creating the root is a parentless assignment of [`ProjectId::ROOT`] under
+    /// the `Desktop` target: the root is hosted by no project and lives in no
+    /// slot, so `placement` is carried through but never slotted.
+    fn plan_root_creation(
+        &self,
+        placement: MatrixPlacement,
+        content: SlotAssignment,
+    ) -> Result<Changes> {
+        let (id, name) = match content {
+            SlotAssignment::Project { id, name } => (id, name),
+            // Only boot plans a parentless assignment, and it only creates the root.
+            SlotAssignment::Launcher { .. } => {
+                panic!("a launcher is always assigned into a project's slot")
+            }
+        };
+        if id != ProjectId::ROOT
+            || self
+                .aggregates
+                .hierarchy
+                .exists(&DesktopTarget::Project(ProjectId::ROOT))
+        {
+            bail!(
+                "Internal error (plan AssignSlot): the root project is created exactly once, as `AssignSlot {{ parent: None }}` with id {:?}",
+                ProjectId::ROOT
+            );
+        }
+        let name =
+            self.aggregates
+                .configuration
+                .new_project_name(id, DEFAULT_NEW_PROJECT_NAME, &name);
+
+        let mut changes: Changes = Changes::Empty;
+        changes <<= ConfigurationChange::AssignSlot {
+            parent: None,
+            placement,
+            assignment: SlotAssignment::Project {
+                id,
+                name: name.clone(),
+            },
+        };
+        changes <<= TopologyChange::Add {
+            what: DesktopTarget::Project(id),
+            under: DesktopTarget::Desktop,
+            after: None,
+        };
+        changes <<= TopologyChange::AddNested {
+            what: [
+                DesktopTarget::ProjectHeader(id),
+                DesktopTarget::ProjectMatrix(id),
+            ]
+            .into(),
+            under: DesktopTarget::Project(id),
+        };
+        Ok(changes)
+    }
+
     fn slot_shift_sequence(
         &self,
         project: ProjectId,
@@ -387,6 +371,9 @@ impl DesktopSystem {
         };
 
         let mut changes = Changes::Empty;
+        // Retarget focus before the content leaves the topology, so the removal does
+        // not fall back to the generic parent retarget.
+        changes += self.clear_slot_focus(content);
         match content {
             SlotContent::Launcher(launcher) => {
                 changes += self.plan_remove_launcher_instances(launcher);
@@ -413,6 +400,27 @@ impl DesktopSystem {
         }
 
         Ok(changes)
+    }
+
+    /// Retargets keyboard focus when the cleared slot holds it, so the removal does
+    /// not leave the router pointing at a target about to leave the topology: the
+    /// removed content gets a neighbouring replacement instead of its parent.
+    fn clear_slot_focus(&self, content: SlotContent) -> Changes {
+        let Some(focused) = self.event_router.keyboard_focus() else {
+            return Changes::Empty;
+        };
+        if !self
+            .aggregates
+            .hierarchy
+            .path_contains_target(Some(focused), &content.target())
+        {
+            return Changes::Empty;
+        }
+        let replacement = match content {
+            SlotContent::Launcher(launcher) => self.launcher_removal_focus(launcher, focused),
+            SlotContent::Project(project) => self.project_removal_focus(project),
+        };
+        set_focus(Some(replacement), KeyboardFocusReason::InputTransition)
     }
 
     fn plan_remove_launcher_instances(&self, launcher: LaunchProfileId) -> Changes {
@@ -442,43 +450,6 @@ impl DesktopSystem {
             }
         }
         changes
-    }
-
-    fn plan_remove_project_content_checked(&self, project: ProjectId) -> Result<Changes> {
-        ensure!(
-            self.aggregates.configuration.launcher_count()
-                > self.launcher_count_of_subtree(project),
-            "Configuration must define at least one launcher"
-        );
-        Ok(self.plan_remove_project_content(project))
-    }
-
-    fn launcher_count_of_subtree(&self, project: ProjectId) -> usize {
-        self.aggregates
-            .configuration
-            .slots_ordered(project)
-            .into_iter()
-            .map(|(_, content)| match content {
-                SlotContent::Launcher(_) => 1,
-                SlotContent::Project(nested) => self.launcher_count_of_subtree(nested),
-            })
-            .sum()
-    }
-
-    fn plan_project_removal_focus(&self, project: ProjectId) -> Changes {
-        let project_target = DesktopTarget::Project(project);
-        if self
-            .aggregates
-            .hierarchy
-            .path_contains_target(self.event_router.keyboard_focus(), &project_target)
-        {
-            return set_focus(
-                Some(self.project_removal_focus(project)),
-                KeyboardFocusReason::InputTransition,
-            );
-        }
-
-        Changes::Empty
     }
 
     pub fn apply_change(
@@ -681,10 +652,6 @@ impl DesktopSystem {
 
     fn apply_project_change(&mut self, change: ConfigurationChange) -> Result<ChangeOutput> {
         match change {
-            ConfigurationChange::AddProject { id, name } => {
-                self.insert_project_presenter(None, id, name.clone())?;
-                self.aggregates.configuration.add_project(id, name);
-            }
             ConfigurationChange::AssignSlot {
                 parent,
                 placement,
@@ -700,10 +667,16 @@ impl DesktopSystem {
                     .assign_slot(parent, placement, assignment);
                 match target {
                     SlotContent::Launcher(id) => {
-                        self.insert_launcher_presenter(parent, id, name)?;
+                        // A `None` parent creates the root project, and a launcher
+                        // is always assigned into a project's slot.
+                        self.insert_launcher_presenter(
+                            parent.expect("a launcher assignment always names a parent project"),
+                            id,
+                            name,
+                        )?;
                     }
                     SlotContent::Project(id) => {
-                        self.insert_project_presenter(Some(parent), id, name)?;
+                        self.insert_project_presenter(parent, id, name)?;
                     }
                 }
             }
@@ -740,9 +713,10 @@ impl DesktopSystem {
     }
 
     /// Inserts the projector presenter for a newly created project. The plan
-    /// guarantees the id does not exist yet — `AddProject` only creates the root,
-    /// and every nested project arrives via `AssignSlot` with a fresh id — so an
-    /// existing presenter is an invariant violation and fails loudly here.
+    /// guarantees the id does not exist yet — the root is created by a parentless
+    /// `AssignSlot`, and every nested project arrives via `AssignSlot` with a
+    /// fresh id — so an existing presenter is an invariant violation and fails
+    /// loudly here.
     fn insert_project_presenter(
         &mut self,
         parent: Option<ProjectId>,
@@ -881,7 +855,7 @@ impl DesktopSystem {
                 };
 
                 let changes = self.plan_project(ProjectCommand::AssignSlot {
-                    parent,
+                    parent: Some(parent),
                     placement: MatrixPlacement {
                         column: current_placement.column + 1,
                         row: current_placement.row,
@@ -917,7 +891,7 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 };
                 let changes = self.plan_project(ProjectCommand::AssignSlot {
-                    parent,
+                    parent: Some(parent),
                     placement: MatrixPlacement {
                         column: *column,
                         row: *row,
@@ -949,7 +923,7 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 };
                 let changes = self.plan_project(ProjectCommand::AssignSlot {
-                    parent,
+                    parent: Some(parent),
                     placement: MatrixPlacement {
                         column: *column,
                         row: *row,
@@ -984,23 +958,31 @@ impl DesktopSystem {
                     None => current_project,
                 };
 
-                if self.aggregates.configuration.project(project).is_none() {
-                    warn!("Project is not in the configuration");
-                    return Ok(ChangeOutput::default());
-                }
-                if self
-                    .aggregates
-                    .hierarchy
-                    .parent_project_of(project)
-                    .is_none()
-                {
+                // The root is hosted by the `Desktop` target rather than a slot, so
+                // it has no parent project to be cleared from.
+                if project == ProjectId::ROOT {
                     warn!("The root project cannot be removed");
                     return Ok(ChangeOutput::default());
                 }
+                let parent = self
+                    .aggregates
+                    .hierarchy
+                    .parent_project_of(project)
+                    .expect("a non-root project hangs under its parent's matrix");
+                let placement = self
+                    .aggregates
+                    .configuration
+                    .project(parent)
+                    .and_then(|parent| parent.placement_of_content(SlotContent::Project(project)))
+                    .expect("the parent project holds the nested project in a slot");
 
-                Ok(ChangeOutput::changes(
-                    self.plan_project(ProjectCommand::RemoveProject(project))?,
-                ))
+                Ok(ChangeOutput::changes(self.plan_project(
+                    ProjectCommand::ClearSlot {
+                        parent,
+                        placement,
+                        shift: SlotShift::default(),
+                    },
+                )?))
             }
             ConfigurationRequest::RemoveLauncher { name } => {
                 let launcher = match name {
@@ -1026,24 +1008,13 @@ impl DesktopSystem {
                     return Ok(ChangeOutput::default());
                 };
 
-                let mut changes = Changes::Empty;
-                if let Some(focused) = self.event_router.keyboard_focus()
-                    && self
-                        .aggregates
-                        .hierarchy
-                        .path_contains_target(Some(focused), &DesktopTarget::Launcher(launcher))
-                {
-                    changes += set_focus(
-                        Some(self.launcher_removal_focus(launcher, focused)),
-                        KeyboardFocusReason::InputTransition,
-                    );
-                }
-                changes += self.plan_project(ProjectCommand::ClearSlot {
-                    parent,
-                    placement,
-                    shift: SlotShift::default(),
-                })?;
-                Ok(ChangeOutput::changes(changes))
+                Ok(ChangeOutput::changes(self.plan_project(
+                    ProjectCommand::ClearSlot {
+                        parent,
+                        placement,
+                        shift: SlotShift::default(),
+                    },
+                )?))
             }
             ConfigurationRequest::MoveLauncher { direction } => {
                 let launcher = self.aggregates.hierarchy.launcher_of_instance(instance);
@@ -1191,9 +1162,6 @@ impl DesktopSystem {
     }
 }
 
-const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
-const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -1220,16 +1188,19 @@ mod tests {
         "startup \"shell\"\nproject \"labs\" {\n    launcher \"shell\" column=0 row=0\n}\n";
 
     #[tokio::test]
-    async fn add_project_under_none_creates_the_root_under_desktop() -> Result<()> {
+    async fn a_parentless_assign_slot_creates_the_root_under_desktop() -> Result<()> {
         task_context::with_context(task_context(), async {
             let (mut system, receiver) = system();
             let mut instance_manager = instance_manager(&receiver);
 
-            let changes = system.plan(DesktopCommand::Project(ProjectCommand::AddProject {
-                id: ProjectId::ROOT,
-                name: crate::projects::ROOT_PROJECT_NAME.into(),
+            let changes = system.plan(DesktopCommand::Project(ProjectCommand::AssignSlot {
+                parent: None,
                 placement: MatrixPlacement { column: 0, row: 0 },
-                under: None,
+                content: SlotAssignment::Project {
+                    id: ProjectId::ROOT,
+                    name: crate::projects::ROOT_PROJECT_NAME.into(),
+                },
+                shift: SlotShift::default(),
             }))?;
             system.transact(
                 changes,
@@ -1380,16 +1351,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_second_parentless_add_project_is_rejected() -> Result<()> {
+    async fn a_second_parentless_assign_slot_is_rejected() -> Result<()> {
         task_context::with_context(task_context(), async {
             let (mut system, receiver) = system();
             let mut instance_manager = instance_manager(&receiver);
 
-            let changes = system.plan(DesktopCommand::Project(ProjectCommand::AddProject {
-                id: ProjectId::ROOT,
-                name: crate::projects::ROOT_PROJECT_NAME.into(),
+            let changes = system.plan(DesktopCommand::Project(ProjectCommand::AssignSlot {
+                parent: None,
                 placement: MatrixPlacement { column: 0, row: 0 },
-                under: None,
+                content: SlotAssignment::Project {
+                    id: ProjectId::ROOT,
+                    name: crate::projects::ROOT_PROJECT_NAME.into(),
+                },
+                shift: SlotShift::default(),
             }))?;
             system.transact(
                 changes,
@@ -1401,14 +1375,17 @@ mod tests {
             for id in [ProjectId::ROOT, ProjectId::new()] {
                 assert!(
                     system
-                        .plan(DesktopCommand::Project(ProjectCommand::AddProject {
-                            id,
-                            name: "again".into(),
+                        .plan(DesktopCommand::Project(ProjectCommand::AssignSlot {
+                            parent: None,
                             placement: MatrixPlacement { column: 0, row: 0 },
-                            under: None,
+                            content: SlotAssignment::Project {
+                                id,
+                                name: "again".into(),
+                            },
+                            shift: SlotShift::default(),
                         }))
                         .is_err(),
-                    "a second parentless AddProject must be rejected"
+                    "a second parentless AssignSlot must be rejected"
                 );
             }
 
