@@ -18,7 +18,7 @@ use super::visor_layout;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
 use crate::projects::LaunchProfileId;
 
-use super::configuration::Params;
+use super::runtime_configuration::Params;
 
 // TODO: Need proper color palettes for UI elements.
 // spellcheck: ignore

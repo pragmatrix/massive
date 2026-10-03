@@ -102,12 +102,13 @@ mirror both receive deterministic changes.
 
 ## The file is flat; the root is synthesized
 
-The KDL document does not name the root. Its top-level `launcher` and `project`
-nodes are the root project's slots, and nesting is expressed by nested `project`
-nodes; the terminal creates the root ([`ProjectId::ROOT`], named `Projects`) when
-the document is loaded — the boot flow's first command re-applies it, and the
-parse pre-builds it in the aggregate because the slot assignments derive from
-it. Migration of a file written before this decision is a parse-time step: every
+The configuration document does not name the root. Its top-level `launcher` and
+`project` entries are the root project's slots, and nesting is expressed by
+nested `project` nodes; the terminal creates the root ([`ProjectId::ROOT`], named
+`Projects`) when the document is loaded — the boot flow's first command
+re-applies it, and the parse pre-builds it in the aggregate because the slot
+assignments derive from it. (The document format is now JSON, derived from the
+aggregate — see [ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md).) Migration of a file written before this decision is a parse-time step: every
 former top-level project becomes a root slot at `column=0, row=<document index>`
 — preserving the vertical order the old desktop laid them out in — with its own
 launchers untouched inside it. The file is rewritten only on the first

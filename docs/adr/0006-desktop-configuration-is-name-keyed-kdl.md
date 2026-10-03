@@ -1,5 +1,8 @@
 # Desktop configuration is a name-keyed KDL file, edited surgically and persisted on change
 
+> **Superseded by [ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md):
+> the configuration is stored as JSON, derived from the aggregate at every flush.**
+
 The desktop configuration (projects, launchers, placements, startup profile) is
 the only state that persists across sessions; everything else is runtime state
 reconstructed per session. It lives in `~/.massive/desktop.kdl` keyed by name —

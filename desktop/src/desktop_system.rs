@@ -64,7 +64,7 @@ use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::persistence;
 use crate::projects::{
-    DesktopConfiguration, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
+    RuntimeConfiguration, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 
@@ -222,10 +222,10 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
-    /// The persisted desktop configuration; edited surgically and written on every
-    /// configuration change.
+    /// The persisted desktop configuration; derived from the aggregate and
+    /// written on every configuration change.
     #[debug(skip)]
-    configuration: persistence::ConfigurationDocument,
+    configuration: persistence::ConfigurationPersistence,
 
     focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -242,14 +242,14 @@ struct Aggregates {
     // presenters
     projects: Map<ProjectId, ProjectPresenter>,
     launchers: LauncherMap,
-    configuration: DesktopConfiguration,
+    configuration: RuntimeConfiguration,
     instances: Map<InstanceId, InstancePresenter>,
 }
 
 impl Aggregates {
     pub fn new(
         hierarchy: OrderedHierarchy<DesktopTarget>,
-        configuration: DesktopConfiguration,
+        configuration: RuntimeConfiguration,
     ) -> Self {
         Self {
             hierarchy,
@@ -266,8 +266,8 @@ impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         default_panel_size: SizePx,
-        configuration: persistence::ConfigurationDocument,
-        aggregate: DesktopConfiguration,
+        configuration: persistence::ConfigurationPersistence,
+        aggregate: RuntimeConfiguration,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the desktop presenter. But where does our
         // root location actually come from, shouldn't it be provided by the caller.
@@ -346,7 +346,7 @@ impl DesktopSystem {
         // The initial setup loads the configuration from the file, so its changes
         // must not be written back; after setup, every change persists.
         if effects_mode != TransactionEffectsMode::Setup {
-            self.configuration.flush();
+            self.configuration.persist(&self.aggregates.configuration);
         }
 
         // Collect deferred measures if the camera can be moved.

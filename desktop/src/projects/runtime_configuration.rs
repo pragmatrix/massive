@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail, ensure};
 use derive_more::{From, Into};
 use indexmap::IndexMap;
 use log::warn;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use uuid::Uuid;
 
@@ -33,18 +34,26 @@ pub const DEFAULT_NEW_PROJECT_NAME: &str = "New Project";
 /// gives a launcher-less configuration a launcher under this name (ADR 0012).
 pub const DEFAULT_NEW_LAUNCHER_NAME: &str = "New Launcher";
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default)]
+/// The launcher presentation a slot's panel uses. Serialized as the lowercase
+/// variant name, `visor` the default.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum LauncherMode {
     Band,
     #[default]
     Visor,
 }
 
-/// The canonical desktop configuration: what is parsed from KDL and what the boot
-/// flow derives its commands from. Ids are fresh per session and the document is
-/// keyed by name, so the two representations only meet during parse and persist.
+/// The canonical desktop configuration: what is parsed from the configuration
+/// document and what the boot flow derives its commands from. Ids are fresh per
+/// session and the document is keyed by name, so the two representations only
+/// meet during parse and persist.
+///
+/// The document is the JSON file the configuration persists to
+/// ([`crate::projects::persistence::PersistedConfiguration`]); it is derived from this
+/// aggregate when persisted (ADR 0013).
 #[derive(Debug)]
-pub struct DesktopConfiguration {
+pub struct RuntimeConfiguration {
     /// Insertion order is the document order, so boot commands build the scene
     /// like the document reads; ids are unique, which the map's key type makes
     /// structural rather than a discipline every call site re-checks.
@@ -53,7 +62,7 @@ pub struct DesktopConfiguration {
     startup_path: Option<String>,
 }
 
-impl DesktopConfiguration {
+impl RuntimeConfiguration {
     /// Builds the aggregate from the parsed projects. The root project (`Projects`,
     /// id [`ProjectId::ROOT`]) comes with the parsed slots; the boot command
     /// re-applies it (see [`DesktopConfiguration::add_project`]).
@@ -61,7 +70,7 @@ impl DesktopConfiguration {
     /// A configuration whose launchers all sit in nested projects is legal, and so
     /// is one with no launcher anywhere: a separate step adds a launcher to the
     /// root when the file defines none (ADR 0012).
-    pub(super) fn new(projects: Vec<Project>, startup: Option<&str>) -> Result<Self> {
+    pub(super) fn new(projects: Vec<Project>, startup: Option<&str>) -> Self {
         let projects: IndexMap<ProjectId, Project> = projects
             .into_iter()
             .map(|project| (project.id, project))
@@ -82,7 +91,7 @@ impl DesktopConfiguration {
             }
         });
 
-        Ok(configuration)
+        configuration
     }
 
     /// The nested project `project` hosts at `placement`, if any.
@@ -92,9 +101,9 @@ impl DesktopConfiguration {
         project: ProjectId,
         placement: MatrixPlacement,
     ) -> Option<ProjectId> {
-        match self.project(project)?.content_at(placement)? {
-            SlotContent::Project(child) => Some(child),
-            SlotContent::Launcher(_) => None,
+        match self.project(project)?.ids_at(placement)? {
+            SlotIds::Project(child) => Some(child),
+            SlotIds::Launcher(_) => None,
         }
     }
 
@@ -134,7 +143,7 @@ impl DesktopConfiguration {
             project
                 .slots
                 .retain(|slot| {
-                    !matches!(slot.content, SlotContent::Project(child) if doomed.contains(&child))
+                    !matches!(slot.ids(), SlotIds::Project(child) if doomed.contains(&child))
                 });
         }
 
@@ -163,12 +172,11 @@ impl DesktopConfiguration {
                     name: profile.name.clone(),
                     mode: profile.mode,
                     params: profile.params.clone(),
-                    placement,
                 };
                 let project = self
                     .project_mut(parent)
                     .expect("the parent project of a launcher exists");
-                project.assign_slot(Slot::launcher(launcher));
+                project.assign_slot(Slot::launcher(placement, launcher));
             }
             SlotAssignment::Project { id, name } => {
                 // A duplicate id is re-application — the boot Setup transaction
@@ -227,10 +235,10 @@ impl DesktopConfiguration {
         if source == dest || self.project(dest_project).is_none() {
             return false;
         }
-        let Some(content) = self.content_at(source_project, source_placement) else {
+        let Some(content) = self.ids_at(source_project, source_placement) else {
             return false;
         };
-        if let SlotContent::Project(moved) = content
+        if let SlotIds::Project(moved) = content
             && self.is_in_subtree(moved, dest_project)
         {
             return false;
@@ -271,10 +279,10 @@ impl DesktopConfiguration {
         if source == dest || self.project(dest_project).is_none() {
             return false;
         }
-        let Some(content) = self.content_at(source_project, source_placement) else {
+        let Some(content) = self.ids_at(source_project, source_placement) else {
             return false;
         };
-        if let SlotContent::Project(moved) = content
+        if let SlotIds::Project(moved) = content
             && self.is_in_subtree(moved, dest_project)
         {
             return false;
@@ -324,19 +332,33 @@ impl DesktopConfiguration {
         self.startup.or_else(|| self.first_launcher_depth_first())
     }
 
+    /// The startup address path as the configuration was loaded with, `None`
+    /// when no startup launcher is set. The path is what persists; the resolved
+    /// launcher id is fresh per session and not serialized.
+    pub fn startup_path(&self) -> Option<&str> {
+        self.startup_path.as_deref()
+    }
+
+    /// Records the startup address path. The resolved launcher id is left as it
+    /// is: the path is what the document carries, and the id is re-resolved at
+    /// the next load.
+    pub fn set_startup_path(&mut self, path: Option<String>) {
+        self.startup_path = path;
+    }
+
     /// The first launcher of a depth-first walk from the root — the fallback the
     /// startup path and `boot_launcher` share, so a root whose slots are all
     /// nested projects still boots.
     pub fn first_launcher_depth_first(&self) -> Option<LaunchProfileId> {
         let mut current = ProjectId::ROOT;
         loop {
-            if let Some(launcher) = self.project(current).and_then(|project| {
-                project
-                    .slots()
-                    .iter()
-                    .find_map(|slot| slot.launcher.as_ref())
+            if let Some(launcher_id) = self.project(current).and_then(|project| {
+                project.slots().iter().find_map(|slot| match &slot.content {
+                    SlotPayload::Launcher(launcher) => Some(launcher.id),
+                    SlotPayload::Project(_) => None,
+                })
             }) {
-                return Some(launcher.id);
+                return Some(launcher_id);
             }
             let next = self
                 .project(current)
@@ -479,7 +501,7 @@ impl DesktopConfiguration {
     pub fn launcher_count(&self) -> usize {
         self.projects
             .values()
-            .map(|project| project.launchers().len())
+            .map(|project| project.launchers().count())
             .sum()
     }
 
@@ -513,7 +535,6 @@ impl DesktopConfiguration {
             .and_then(|launcher| self.launcher_index(launcher))
             .unwrap_or(0);
         self.launchers_ordered(project)
-            .iter()
             .enumerate()
             .filter(|(_, launcher)| launcher.name == name)
             .map(|(index, launcher)| (index.abs_diff(focused), launcher.id))
@@ -560,7 +581,7 @@ impl DesktopConfiguration {
             let Some(next) = leading.moved_placement(direction) else {
                 bail!("Can't shift slot content beyond the matrix boundary");
             };
-            if self.content_at(project, next).is_none() {
+            if self.ids_at(project, next).is_none() {
                 break;
             }
             run.push(next);
@@ -586,7 +607,6 @@ impl DesktopConfiguration {
         placement: MatrixPlacement,
     ) -> Vec<(MatrixPlacement, MatrixPlacement)> {
         self.slots_ordered(project)
-            .into_iter()
             .filter(|(candidate, _)| {
                 candidate.row == placement.row && candidate.column > placement.column
             })
@@ -607,32 +627,31 @@ impl DesktopConfiguration {
     /// `RemoveLauncher` by name picks the nearest launcher by.
     pub fn launcher_index(&self, launcher: LaunchProfileId) -> Option<usize> {
         let project = self.project_of_launcher(launcher)?;
-        project.launchers().iter().position(|l| l.id == launcher)
+        project
+            .launchers()
+            .position(|l| l.id == launcher)
     }
 
-    /// The launcher's placement, `None` when it is not in the configuration.
+    /// The launcher's placement: where its hosting slot sits.
     pub fn placement_of(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
-        self.launcher(launcher).map(|launcher| launcher.placement)
+        self.slot_of_launcher(launcher).map(|(_, placement)| placement)
     }
 
-    /// The content of `project`'s slot at `placement`, `None` when the slot is
+    /// The ids of `project`'s slot at `placement`, `None` when the slot is
     /// empty. This is the assignment query the shift planner and `AssignSlot`
     /// validation need; placements are unique per project, so it is a lookup.
-    pub fn content_at(
-        &self,
-        project: ProjectId,
-        placement: MatrixPlacement,
-    ) -> Option<SlotContent> {
+    pub fn ids_at(&self, project: ProjectId, placement: MatrixPlacement) -> Option<SlotIds> {
         self.project(project)
-            .and_then(|project| project.content_at(placement))
+            .and_then(|project| project.ids_at(placement))
     }
 
     /// All launchers of the project, kept in matrix-placement order (the
     /// aggregate invariant).
-    pub fn launchers_ordered(&self, project: ProjectId) -> Vec<&Launcher> {
-        self.project(project)
-            .map(|project| project.launchers())
-            .unwrap_or_default()
+    pub fn launchers_ordered(
+        &self,
+        project: ProjectId,
+    ) -> impl Iterator<Item = &Launcher> + '_ {
+        self.project(project).into_iter().flat_map(|project| project.launchers())
     }
 
     pub fn launcher(&self, launcher: LaunchProfileId) -> Option<&Launcher> {
@@ -649,17 +668,16 @@ impl DesktopConfiguration {
             .find(|project| project.slot_of_launcher(launcher).is_some())
     }
 
-    /// Every assigned slot of `project`, in placement order.
-    pub fn slots_ordered(&self, project: ProjectId) -> Vec<(MatrixPlacement, SlotContent)> {
+    /// Every assigned slot of `project`, in placement order. `MatrixPlacement`
+    /// and `SlotIds` are both `Copy`, so the items are values without a
+    /// collection to build first.
+    pub fn slots_ordered(
+        &self,
+        project: ProjectId,
+    ) -> impl Iterator<Item = (MatrixPlacement, SlotIds)> + '_ {
         self.project(project)
-            .map(|project| {
-                project
-                    .slots
-                    .iter()
-                    .map(|slot| (slot.placement, slot.content))
-                    .collect()
-            })
-            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|project| project.slots.iter().map(|slot| (slot.placement, slot.ids())))
     }
 
     pub fn project(&self, id: ProjectId) -> Option<&Project> {
@@ -678,7 +696,7 @@ impl DesktopConfiguration {
 /// The walk starts with the root project's own `AssignSlot { parent: None }`,
 /// which parents the root project under the `Desktop` target; every other
 /// project's creation is its slot assignment.
-pub fn to_commands(configuration: &DesktopConfiguration) -> CollectingVec<ProjectCommand> {
+pub fn to_commands(configuration: &RuntimeConfiguration) -> CollectingVec<ProjectCommand> {
     let mut commands = CollectingVec::Empty;
 
     commands.push(ProjectCommand::SetStartupPath(
@@ -698,43 +716,31 @@ pub fn to_commands(configuration: &DesktopConfiguration) -> CollectingVec<Projec
         // Ignored for the parentless root creation.
         shift: SlotShift::default(),
     });
-    assign_slot_commands(configuration, ProjectId::ROOT, &mut commands);
+    subtree_commands(configuration, ProjectId::ROOT, &mut commands);
 
     commands
 }
 
-fn assign_slot_commands(
-    configuration: &DesktopConfiguration,
+/// Emits one `AssignSlot` command per assigned slot of `project`, then recurses
+/// into nested projects — the per-project step of the pre-order walk
+/// [`to_commands`] performs. Every slot's launcher and every nested project
+/// exists by the aggregate's id-link invariant, so a missing one is a broken
+/// invariant that panics through the `Index` impls — not a slot to skip.
+fn subtree_commands(
+    configuration: &RuntimeConfiguration,
     project: ProjectId,
     commands: &mut CollectingVec<ProjectCommand>,
 ) {
-    let Some(slots) = configuration
-        .project(project)
-        .map(|project| project.slots.clone())
-    else {
-        return;
-    };
-
-    for slot in slots {
-        let content = match slot.content {
-            SlotContent::Launcher(launcher_id) => {
-                let Some(launcher) = configuration.launcher(launcher_id) else {
-                    continue;
-                };
-                SlotAssignment::Launcher {
-                    id: launcher_id,
-                    profile: launcher.profile(),
-                }
-            }
-            SlotContent::Project(child) => {
-                let Some(child_project) = configuration.project(child) else {
-                    continue;
-                };
-                SlotAssignment::Project {
-                    id: child,
-                    name: child_project.name.clone(),
-                }
-            }
+    for slot in configuration[project].slots() {
+        let content = match &slot.content {
+            SlotPayload::Launcher(launcher) => SlotAssignment::Launcher {
+                id: launcher.id,
+                profile: launcher.profile(),
+            },
+            SlotPayload::Project(child) => SlotAssignment::Project {
+                id: *child,
+                name: configuration[*child].name.clone(),
+            },
         };
 
         commands.push(ProjectCommand::AssignSlot {
@@ -746,8 +752,8 @@ fn assign_slot_commands(
             shift: SlotShift::Keep,
         });
 
-        if let SlotContent::Project(child) = slot.content {
-            assign_slot_commands(configuration, child, commands);
+        if let SlotPayload::Project(child) = &slot.content {
+            subtree_commands(configuration, *child, commands);
         }
     }
 }
@@ -804,16 +810,15 @@ impl Project {
     /// The launcher assigned to `placement`, if the slot holds one.
     #[cfg(test)]
     pub fn launcher_at(&self, placement: MatrixPlacement) -> Option<LaunchProfileId> {
-        match self.content_at(placement)? {
-            SlotContent::Launcher(launcher) => Some(launcher),
-            SlotContent::Project(_) => None,
+        match self.ids_at(placement)? {
+            SlotIds::Launcher(launcher) => Some(launcher),
+            SlotIds::Project(_) => None,
         }
     }
 
     /// The content of the slot at `placement`, `None` when it is empty.
-    pub fn content_at(&self, placement: MatrixPlacement) -> Option<SlotContent> {
-        self.slot_index(placement)
-            .map(|index| self.slots[index].content)
+    pub fn ids_at(&self, placement: MatrixPlacement) -> Option<SlotIds> {
+        self.slot_index(placement).map(|index| self.slots[index].ids())
     }
 
     pub fn slots(&self) -> &[Slot] {
@@ -825,24 +830,25 @@ impl Project {
     pub fn has_launcher(&self) -> bool {
         self.slots
             .iter()
-            .any(|slot| matches!(slot.content, SlotContent::Launcher(_)))
+            .any(|slot| matches!(slot.content, SlotPayload::Launcher(_)))
     }
 
     /// The launchers of this project's matrix, in placement order.
-    pub fn launchers(&self) -> Vec<&Launcher> {
-        self.slots
-            .iter()
-            .filter_map(|slot| slot.launcher.as_ref())
-            .collect()
+    pub fn launchers(&self) -> impl Iterator<Item = &Launcher> {
+        self.slots.iter().filter_map(|slot| match &slot.content {
+            SlotPayload::Launcher(launcher) => Some(launcher),
+            SlotPayload::Project(_) => None,
+        })
     }
 
     /// The ids of the projects nested in this project's matrix, in placement order.
     pub fn nested_projects(&self) -> Vec<ProjectId> {
         self.slots
             .iter()
-            .filter_map(|slot| match slot.content {
-                SlotContent::Project(project) => Some(project),
-                SlotContent::Launcher(_) => None,
+            .map(|slot| slot.ids())
+            .filter_map(|content| match content {
+                SlotIds::Project(project) => Some(project),
+                SlotIds::Launcher(_) => None,
             })
             .collect()
     }
@@ -850,44 +856,40 @@ impl Project {
     /// The first project nested in this matrix, in placement order — the walk
     /// `first_launcher_depth_first` follows.
     pub fn first_nested_project(&self) -> Option<ProjectId> {
-        self.slots.iter().find_map(|slot| match slot.content {
-            SlotContent::Project(project) => Some(project),
-            SlotContent::Launcher(_) => None,
+        self.slots.iter().find_map(|slot| match slot.ids() {
+            SlotIds::Project(project) => Some(project),
+            SlotIds::Launcher(_) => None,
         })
     }
 
     pub fn launcher(&self, id: LaunchProfileId) -> Option<&Launcher> {
-        self.slots.iter().find_map(|slot| match slot.content {
-            SlotContent::Launcher(launcher) if launcher == id => slot.launcher.as_ref(),
+        self.slots.iter().find_map(|slot| match &slot.content {
+            SlotPayload::Launcher(launcher) if launcher.id == id => Some(launcher),
             _ => None,
         })
     }
 
     #[cfg(test)]
     pub fn launcher_mut(&mut self, id: LaunchProfileId) -> Option<&mut Launcher> {
-        self.slots.iter_mut().find_map(|slot| match slot.content {
-            SlotContent::Launcher(launcher) if launcher == id => slot.launcher.as_mut(),
+        self.slots.iter_mut().find_map(|slot| match &mut slot.content {
+            SlotPayload::Launcher(launcher) if launcher.id == id => Some(launcher),
             _ => None,
         })
     }
 
-    /// The placement of `content` in this project's matrix.
-    pub fn placement_of_content(&self, content: SlotContent) -> Option<MatrixPlacement> {
+    /// The placement of the slot whose ids match `content`.
+    pub fn placement_of_content(&self, content: SlotIds) -> Option<MatrixPlacement> {
         self.slots
             .iter()
-            .find(|slot| slot.content == content)
+            .find(|slot| slot.ids() == content)
             .map(|slot| slot.placement)
     }
 
     /// The launcher called `name` of this matrix, nearest first in placement
     /// order — duplicates address the first.
     pub fn launcher_by_name(&self, name: &str) -> Option<LaunchProfileId> {
-        self.slots.iter().find_map(|slot| match slot.content {
-            SlotContent::Launcher(launcher)
-                if slot.launcher.as_ref().is_some_and(|l| l.name == name) =>
-            {
-                Some(launcher)
-            }
+        self.slots.iter().find_map(|slot| match &slot.content {
+            SlotPayload::Launcher(launcher) if launcher.name == name => Some(launcher.id),
             _ => None,
         })
     }
@@ -896,7 +898,7 @@ impl Project {
     pub fn slot_of_launcher(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
         self.slots
             .iter()
-            .find(|slot| slot.content == SlotContent::Launcher(launcher))
+            .find(|slot| slot.ids() == SlotIds::Launcher(launcher))
             .map(|slot| slot.placement)
     }
 
@@ -923,25 +925,22 @@ fn sort_slots(mut slots: Vec<Slot>) -> Vec<Slot> {
 /// One assigned slot of a project's matrix.
 ///
 /// Slots are implicit (ADR 0011): a slot exists only while it has content, and it
-/// is addressed by its `(project, placement)` key rather than by an id.
+/// is addressed by its `(project, placement)` key rather than by an id. The
+/// placement is `Slot`'s own field — the launcher payload carries none — so a
+/// moved slot cannot diverge from its content.
 #[derive(Debug, Clone)]
 pub struct Slot {
     pub placement: MatrixPlacement,
-    pub content: SlotContent,
-    /// The launcher-assigned variant's launcher record. This is the source of the
-    /// launcher records; `content` carries only the id so both kinds of slot read
-    /// the same way.
-    pub(crate) launcher: Option<Launcher>,
+    pub content: SlotPayload,
 }
 
 impl Slot {
     /// Builds a launcher-assigned slot, which is how slots are created at parse
     /// and on assign.
-    pub(crate) fn launcher(launcher: Launcher) -> Self {
+    pub(crate) fn launcher(placement: MatrixPlacement, launcher: Launcher) -> Self {
         Self {
-            placement: launcher.placement,
-            content: SlotContent::Launcher(launcher.id),
-            launcher: Some(launcher),
+            placement,
+            content: SlotPayload::Launcher(launcher),
         }
     }
 
@@ -949,15 +948,23 @@ impl Slot {
     pub(crate) fn project(placement: MatrixPlacement, project: ProjectId) -> Self {
         Self {
             placement,
-            content: SlotContent::Project(project),
-            launcher: None,
+            content: SlotPayload::Project(project),
+        }
+    }
+
+    /// The content's ids, for readers that only discriminate — the cheap
+    /// `Copy` projection of the payload.
+    pub fn ids(&self) -> SlotIds {
+        match &self.content {
+            SlotPayload::Launcher(launcher) => SlotIds::Launcher(launcher.id),
+            SlotPayload::Project(project) => SlotIds::Project(*project),
         }
     }
 }
 
 /// The aggregate keeps a project's slots sorted by placement, so readers index by
 /// id without caring where in the vec the content sits.
-impl Index<ProjectId> for DesktopConfiguration {
+impl Index<ProjectId> for RuntimeConfiguration {
     type Output = Project;
 
     fn index(&self, id: ProjectId) -> &Project {
@@ -966,7 +973,7 @@ impl Index<ProjectId> for DesktopConfiguration {
     }
 }
 
-impl Index<LaunchProfileId> for DesktopConfiguration {
+impl Index<LaunchProfileId> for RuntimeConfiguration {
     type Output = Launcher;
 
     fn index(&self, id: LaunchProfileId) -> &Launcher {
@@ -980,23 +987,17 @@ pub struct Launcher {
     pub name: String,
     pub mode: LauncherMode,
     pub params: Params,
-    placement: MatrixPlacement,
 }
 
 impl Launcher {
-    /// Creates the launcher's id.
-    pub(crate) fn new(
-        name: String,
-        mode: LauncherMode,
-        params: Params,
-        placement: MatrixPlacement,
-    ) -> Self {
+    /// Creates the launcher's id. The launcher carries no placement: the slot
+    /// holding it records where it sits.
+    pub(crate) fn new(name: String, mode: LauncherMode, params: Params) -> Self {
         Self {
             id: LaunchProfileId::new(),
             name,
             mode,
             params,
-            placement,
         }
     }
 
@@ -1021,25 +1022,32 @@ pub struct LaunchProfile {
 
 /// What a slot of a project's matrix hosts: a launcher or a nested project,
 /// never both. A placement that hosts neither is simply empty, so a slot exists
-/// only while it has content.
+/// only while it has content. The launcher record rides inside the variant —
+/// there is no second parallel field the two could disagree in.
+#[derive(Debug, Clone)]
+pub enum SlotPayload {
+    Launcher(Launcher),
+    Project(ProjectId),
+}
+
+impl SlotPayload {
+}
+
+/// The `Copy` id-level view of a [`SlotPayload`], for readers that only match on
+/// which kind of content a slot holds.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SlotContent {
+pub enum SlotIds {
     Launcher(LaunchProfileId),
     Project(ProjectId),
 }
 
-impl SlotContent {
-    /// The topology target that presents this slot's content: a launcher-assigned
-    /// slot keeps targeting its launcher, and a project-assigned slot targets the
-    /// nested project itself.
-    ///
-    /// This is the click and camera target of a slot, which is why a nested
-    /// project's content target is the nested `Project` and not the enclosing
-    /// matrix.
+impl SlotIds {
+    /// The topology target that presents this content, mirroring
+    /// [`SlotPayload::target`].
     pub fn target(self) -> DesktopTarget {
         match self {
-            SlotContent::Launcher(launcher) => DesktopTarget::Launcher(launcher),
-            SlotContent::Project(project) => DesktopTarget::Project(project),
+            SlotIds::Launcher(launcher) => DesktopTarget::Launcher(launcher),
+            SlotIds::Project(project) => DesktopTarget::Project(project),
         }
     }
 }
@@ -1063,10 +1071,10 @@ pub enum SlotAssignment {
 }
 
 impl SlotAssignment {
-    pub fn content(&self) -> SlotContent {
+    pub fn content(&self) -> SlotIds {
         match self {
-            SlotAssignment::Launcher { id, .. } => SlotContent::Launcher(*id),
-            SlotAssignment::Project { id, .. } => SlotContent::Project(*id),
+            SlotAssignment::Launcher { id, .. } => SlotIds::Launcher(*id),
+            SlotAssignment::Project { id, .. } => SlotIds::Project(*id),
         }
     }
 }
@@ -1245,7 +1253,7 @@ mod tests {
     }
 
     #[test]
-    fn content_at_classifies_both_kinds_of_slot_content() {
+    fn ids_at_classifies_both_kinds_of_slot_content() {
         let nested = ProjectId::new();
         let placement = MatrixPlacement { column: 0, row: 0 };
         let mut configuration = configuration([("only", placement)]);
@@ -1253,14 +1261,14 @@ mod tests {
 
         let existing = configuration.launcher_at(root, placement).unwrap();
         assert_eq!(
-            configuration.content_at(root, placement),
-            Some(SlotContent::Launcher(existing))
+            configuration.ids_at(root, placement),
+            Some(SlotIds::Launcher(existing))
         );
 
         configuration.assign_slot(Some(root), placement, nested_assignment(nested));
         assert_eq!(
-            configuration.content_at(root, placement),
-            Some(SlotContent::Project(nested))
+            configuration.ids_at(root, placement),
+            Some(SlotIds::Project(nested))
         );
     }
 
@@ -1299,7 +1307,7 @@ mod tests {
         assert_eq!(
             configuration
                 .project(root)
-                .and_then(|project| { project.placement_of_content(SlotContent::Project(nested)) }),
+                .and_then(|project| { project.placement_of_content(SlotIds::Project(nested)) }),
             Some(placement)
         );
     }
@@ -1317,7 +1325,7 @@ mod tests {
 
         configuration.clear_slot(root, placement);
 
-        assert_eq!(configuration.content_at(root, placement), None);
+        assert_eq!(configuration.ids_at(root, placement), None);
         assert_eq!(
             configuration.projects().count(),
             2,
@@ -1343,7 +1351,7 @@ mod tests {
 
         assert!(configuration.project(labs).is_none());
         assert!(configuration.project(inner).is_none());
-        assert_eq!(configuration.content_at(root, root_placement), None);
+        assert_eq!(configuration.ids_at(root, root_placement), None);
     }
 
     #[test]
@@ -1466,14 +1474,16 @@ mod tests {
     /// the way parsing derives them.
     fn configuration(
         entries: impl IntoIterator<Item = (&'static str, MatrixPlacement)>,
-    ) -> DesktopConfiguration {
+    ) -> RuntimeConfiguration {
         let slots = entries
             .into_iter()
-            .map(|(name, placement)| Slot::launcher(launcher(name, placement)))
+            .map(|(name, placement)| {
+                Slot::launcher(placement, launcher(name))
+            })
             .collect();
         let mut root = Project::new(ROOT_PROJECT_NAME.into(), slots);
         root.id = ProjectId::ROOT;
-        DesktopConfiguration {
+        RuntimeConfiguration {
             projects: IndexMap::from([(root.id, root)]),
             startup: None,
             startup_path: None,
@@ -1484,8 +1494,8 @@ mod tests {
         named_project(id, "labs")
     }
 
-    fn launcher(name: &str, placement: MatrixPlacement) -> Launcher {
-        Launcher::new(name.into(), LauncherMode::Visor, Params::new(), placement)
+    fn launcher(name: &str) -> Launcher {
+        Launcher::new(name.into(), LauncherMode::Visor, Params::new())
     }
 
     fn named_project(id: ProjectId, name: &str) -> SlotAssignment {
@@ -1506,7 +1516,7 @@ mod tests {
         }
     }
 
-    fn root_id_of(_configuration: &DesktopConfiguration) -> ProjectId {
+    fn root_id_of(_configuration: &RuntimeConfiguration) -> ProjectId {
         ProjectId::ROOT
     }
 }

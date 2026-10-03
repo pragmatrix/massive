@@ -8,7 +8,7 @@ use super::change::{Changes, DesktopChange, set_focus};
 use super::topology::DesktopTopology;
 use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap};
 use crate::projects::{
-    DesktopConfiguration, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId,
+    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration,
 };
 
 mod matrix_navigation;
@@ -205,7 +205,6 @@ impl DesktopSystem {
             .aggregates
             .configuration
             .slots_ordered(parent)
-            .into_iter()
             .map(|(_, content)| content.target())
             .collect();
         let project_target = DesktopTarget::Project(project);
@@ -276,7 +275,7 @@ impl DesktopSystem {
 fn plan_navigation_candidate(
     hierarchy: &DesktopTopology,
     launchers: &LauncherMap,
-    configuration: &DesktopConfiguration,
+    configuration: &RuntimeConfiguration,
     navigation_control: &NavigationControl,
     from: &DesktopTarget,
     direction: Direction,
@@ -323,7 +322,7 @@ fn resolve_navigation_origin(
 }
 
 fn navigation_origin_placement(
-    configuration: &DesktopConfiguration,
+    configuration: &RuntimeConfiguration,
     origin: NavigationOrigin,
 ) -> Option<MatrixPlacement> {
     match origin {
@@ -337,7 +336,7 @@ fn navigation_origin_placement(
 
 fn navigate_from_origin(
     matrix_navigation: MatrixNavigation<'_>,
-    configuration: &DesktopConfiguration,
+    configuration: &RuntimeConfiguration,
     origin: NavigationOrigin,
     direction: Direction,
     preferred_column: Option<u32>,
@@ -367,7 +366,7 @@ fn navigate_from_origin(
 fn resolve_navigation_focus_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
-    configuration: &DesktopConfiguration,
+    configuration: &RuntimeConfiguration,
     target: DesktopTarget,
     direction: Direction,
 ) -> DesktopTarget {
@@ -389,7 +388,7 @@ fn resolve_navigation_focus_target(
 fn concrete_navigation_target(
     topology: &DesktopTopology,
     launchers: &LauncherMap,
-    configuration: &DesktopConfiguration,
+    configuration: &RuntimeConfiguration,
     launcher_id: LaunchProfileId,
     direction: Direction,
 ) -> DesktopTarget {

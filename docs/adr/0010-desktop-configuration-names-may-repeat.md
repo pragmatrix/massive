@@ -2,6 +2,12 @@
 
 ## Status: accepted
 
+> The tag mechanism is superseded by
+> [ADR 0013](./0013-desktop-configuration-is-json-derived-from-the-aggregate.md):
+> the document is derived from the aggregate, so changes address ids directly
+> and no per-node identity lives in the file. The duplicate-name and
+> nearest-match decisions below still hold.
+
 ## Problem
 
 The desktop configuration's KDL document (ADR 0006) is keyed by name, and every

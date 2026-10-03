@@ -5,13 +5,13 @@ use crate::desktop_system::DesktopTarget;
 use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
 use crate::projects::{
-    DesktopConfiguration, LaunchProfileId, MatrixPlacement, ProjectId, SlotContent,
+    RuntimeConfiguration, LaunchProfileId, MatrixPlacement, ProjectId, SlotIds,
 };
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MatrixNavigation<'a> {
     hierarchy: &'a DesktopTopology,
-    configuration: &'a DesktopConfiguration,
+    configuration: &'a RuntimeConfiguration,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -23,7 +23,7 @@ struct MatrixEntry<K> {
 impl<'a> MatrixNavigation<'a> {
     pub(super) fn new(
         hierarchy: &'a DesktopTopology,
-        configuration: &'a DesktopConfiguration,
+        configuration: &'a RuntimeConfiguration,
     ) -> Self {
         Self {
             hierarchy,
@@ -67,7 +67,7 @@ impl<'a> MatrixNavigation<'a> {
 
     pub(super) fn navigate_from_child(
         self,
-        configuration: &DesktopConfiguration,
+        configuration: &RuntimeConfiguration,
         launcher_id: LaunchProfileId,
         index: usize,
         direction: Direction,
@@ -101,7 +101,6 @@ impl<'a> MatrixNavigation<'a> {
     ) -> Vec<MatrixEntry<DesktopTarget>> {
         self.configuration
             .slots_ordered(project_id)
-            .into_iter()
             .map(|(placement, content)| MatrixEntry {
                 key: content.target(),
                 placement,
@@ -121,10 +120,9 @@ impl<'a> MatrixNavigation<'a> {
         let project_ids: Vec<_> = self
             .configuration
             .slots_ordered(parent)
-            .into_iter()
             .filter_map(|(_, content)| match content {
-                SlotContent::Project(id) => Some(id),
-                SlotContent::Launcher(_) => None,
+                SlotIds::Project(id) => Some(id),
+                SlotIds::Launcher(_) => None,
             })
             .collect();
 

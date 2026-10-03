@@ -16,7 +16,7 @@ use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
     DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
     LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment,
-    SlotContent,
+    SlotIds,
 };
 
 use massive_applications::prelude::*;
@@ -229,7 +229,7 @@ impl DesktopSystem {
                 let assigned = self
                     .aggregates
                     .configuration
-                    .content_at(parent, placement)
+                    .ids_at(parent, placement)
                     .filter(|previous| self.aggregates.hierarchy.exists(&previous.target()));
                 if assigned.is_some() {
                     match shift {
@@ -253,7 +253,7 @@ impl DesktopSystem {
                     under: DesktopTarget::ProjectMatrix(parent),
                     after: None,
                 };
-                if let SlotContent::Project(project) = content.content() {
+                if let SlotIds::Project(project) = content.content() {
                     changes <<= TopologyChange::AddNested {
                         what: [
                             DesktopTarget::ProjectHeader(project),
@@ -366,7 +366,7 @@ impl DesktopSystem {
         placement: MatrixPlacement,
         shift: SlotShift,
     ) -> Result<Changes> {
-        let Some(content) = self.aggregates.configuration.content_at(parent, placement) else {
+        let Some(content) = self.aggregates.configuration.ids_at(parent, placement) else {
             return Ok(Changes::Empty);
         };
 
@@ -375,11 +375,11 @@ impl DesktopSystem {
         // not fall back to the generic parent retarget.
         changes += self.clear_slot_focus(content);
         match content {
-            SlotContent::Launcher(launcher) => {
+            SlotIds::Launcher(launcher) => {
                 changes += self.plan_remove_launcher_instances(launcher);
                 changes <<= TopologyChange::Remove(DesktopTarget::Launcher(launcher));
             }
-            SlotContent::Project(project) => {
+            SlotIds::Project(project) => {
                 changes += self.plan_remove_project_content(project);
                 changes <<= TopologyChange::Remove(DesktopTarget::Project(project));
             }
@@ -405,7 +405,7 @@ impl DesktopSystem {
     /// Retargets keyboard focus when the cleared slot holds it, so the removal does
     /// not leave the router pointing at a target about to leave the topology: the
     /// removed content gets a neighbouring replacement instead of its parent.
-    fn clear_slot_focus(&self, content: SlotContent) -> Changes {
+    fn clear_slot_focus(&self, content: SlotIds) -> Changes {
         let Some(focused) = self.event_router.keyboard_focus() else {
             return Changes::Empty;
         };
@@ -417,8 +417,8 @@ impl DesktopSystem {
             return Changes::Empty;
         }
         let replacement = match content {
-            SlotContent::Launcher(launcher) => self.launcher_removal_focus(launcher, focused),
-            SlotContent::Project(project) => self.project_removal_focus(project),
+            SlotIds::Launcher(launcher) => self.launcher_removal_focus(launcher, focused),
+            SlotIds::Project(project) => self.project_removal_focus(project),
         };
         set_focus(Some(replacement), KeyboardFocusReason::InputTransition)
     }
@@ -439,11 +439,11 @@ impl DesktopSystem {
         let mut changes = Changes::Empty;
         for slot in self.aggregates.configuration.slots_ordered(project) {
             match slot.1 {
-                SlotContent::Launcher(launcher) => {
+                SlotIds::Launcher(launcher) => {
                     changes += self.plan_remove_launcher_instances(launcher);
                     changes <<= TopologyChange::Remove(DesktopTarget::Launcher(launcher));
                 }
-                SlotContent::Project(nested) => {
+                SlotIds::Project(nested) => {
                     changes += self.plan_remove_project_content(nested);
                     changes <<= TopologyChange::Remove(DesktopTarget::Project(nested));
                 }
@@ -593,17 +593,14 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                // A setup change only updates the live model; it must not mirror into
-                // the persisted document.
-                //
-                // The mirror lands before the live model, so a failure below leaves
-                // the in-memory document carrying an edit the model never applied.
-                // This is one of the partial-failure states described on
-                // `DesktopSystem::transact` — not yet a rollback target.
+                let output = self.apply_project_change(project_change)?;
+                // A setup change only updates the live model; it must not mark the
+                // file pending — setup's changes are the ones the file already
+                // carries.
                 if effects_mode != TransactionEffectsMode::Setup {
-                    self.configuration.apply(project_change.clone())?;
+                    self.configuration.mark_pending();
                 }
-                return self.apply_project_change(project_change);
+                return Ok(output);
             }
         }
 
@@ -666,7 +663,7 @@ impl DesktopSystem {
                     .configuration
                     .assign_slot(parent, placement, assignment);
                 match target {
-                    SlotContent::Launcher(id) => {
+                    SlotIds::Launcher(id) => {
                         // A `None` parent creates the root project, and a launcher
                         // is always assigned into a project's slot.
                         self.insert_launcher_presenter(
@@ -675,18 +672,18 @@ impl DesktopSystem {
                             name,
                         )?;
                     }
-                    SlotContent::Project(id) => {
+                    SlotIds::Project(id) => {
                         self.insert_project_presenter(parent, id, name)?;
                     }
                 }
             }
             ConfigurationChange::ClearSlot { parent, placement } => {
-                if let Some(content) = self.aggregates.configuration.content_at(parent, placement) {
+                if let Some(content) = self.aggregates.configuration.ids_at(parent, placement) {
                     match content {
-                        SlotContent::Launcher(launcher) => {
+                        SlotIds::Launcher(launcher) => {
                             self.aggregates.launchers.remove(&launcher)?;
                         }
-                        SlotContent::Project(project) => {
+                        SlotIds::Project(project) => {
                             self.aggregates.projects.remove(&project)?;
                         }
                     }
@@ -705,8 +702,11 @@ impl DesktopSystem {
                 return Ok(output);
             }
             // The startup launcher is consumed at boot (`Setup`); the runtime model
-            // does not retain it. Only this dispatch must handle it.
-            ConfigurationChange::SetStartupPath(_) => {}
+            // does not retain the resolved launcher. The path is what persists, so
+            // the aggregate records it and the document derives from it.
+            ConfigurationChange::SetStartupPath(path) => {
+                self.aggregates.configuration.set_startup_path(path);
+            }
         }
 
         Ok(ChangeOutput::default())
@@ -973,7 +973,7 @@ impl DesktopSystem {
                     .aggregates
                     .configuration
                     .project(parent)
-                    .and_then(|parent| parent.placement_of_content(SlotContent::Project(project)))
+                    .and_then(|parent| parent.placement_of_content(SlotIds::Project(project)))
                     .expect("the parent project holds the nested project in a slot");
 
                 Ok(ChangeOutput::changes(self.plan_project(
@@ -1046,7 +1046,7 @@ impl DesktopSystem {
                 if self
                     .aggregates
                     .configuration
-                    .content_at(parent, placement)
+                    .ids_at(parent, placement)
                     .is_some()
                 {
                     let temporary = self.next_free_root_slot(parent);
@@ -1135,7 +1135,7 @@ impl DesktopSystem {
         while self
             .aggregates
             .configuration
-            .content_at(project, MatrixPlacement { column: 0, row })
+            .ids_at(project, MatrixPlacement { column: 0, row })
             .is_some()
         {
             row += 1;
@@ -1175,17 +1175,27 @@ mod tests {
     use super::*;
     use crate::desktop_environment::DesktopEnvironment;
     use crate::instance_manager::InstanceManager;
-    use crate::projects::persistence::ConfigurationDocument;
+    use crate::projects::persistence::{ConfigurationPersistence, parse_configuration};
     use massive_applications::task_context::{self, TaskContext};
     use massive_applications::{InstanceEnvironment, InstanceSubmission};
     use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
 
-    const CONFIG: &str =
-        "startup \"shell\"\nlauncher \"shell\" column=0 row=0 { command \"echo\" }\n";
+    const CONFIG: &str = r#"{
+        "startup": "/shell",
+        "slots": [
+            { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor", "params": { "command": "echo" } } }
+        ]
+    }"#;
 
     /// The startup launcher nested in a project, so it sits inside a project slot.
-    const NESTED_PROJECT_CONFIG: &str =
-        "startup \"shell\"\nproject \"labs\" {\n    launcher \"shell\" column=0 row=0\n}\n";
+    const NESTED_PROJECT_CONFIG: &str = r#"{
+        "startup": "/labs/shell",
+        "slots": [
+            { "at": [0, 0], "project": { "name": "labs", "slots": [
+                { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } }
+            ] } }
+        ]
+    }"#;
 
     #[tokio::test]
     async fn a_parentless_assign_slot_creates_the_root_under_desktop() -> Result<()> {
@@ -1400,9 +1410,11 @@ mod tests {
             let (mut system, receiver) = system();
             let mut instance_manager = instance_manager(&receiver);
 
-            let (_, aggregate) = ConfigurationDocument::from_str(
-                Path::new("/config/desktop.kdl"),
-                "project \"work\" {\n    launcher \"shell\" column=0 row=0\n}\n",
+            let aggregate = parse_configuration(
+                Path::new("/config/desktop.json"),
+                r#"{ "slots": [ { "at": [0, 0], "project": { "name": "work", "slots": [
+                    { "at": [0, 0], "launcher": { "name": "shell", "mode": "visor" } }
+                ] } } ] }"#,
             )?;
             for command in crate::projects::to_commands(&aggregate) {
                 let changes = system.plan(DesktopCommand::Project(command))?;
@@ -1461,8 +1473,9 @@ mod tests {
             applications: crate::application_registry::ApplicationRegistry::new(Vec::new()),
             projects_dir: None,
         };
-        let (document, aggregate) =
-            ConfigurationDocument::from_str(Path::new("/config/desktop.kdl"), config).unwrap();
+        let path = Path::new("/config/desktop.json");
+        let aggregate = parse_configuration(path, config).unwrap();
+        let document = ConfigurationPersistence::new(path);
         let system =
             DesktopSystem::new(environment, SizePx::new(800, 600), document, aggregate).unwrap();
         (system, receiver)

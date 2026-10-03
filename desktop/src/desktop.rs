@@ -1,4 +1,5 @@
 use std::convert::Infallible;
+use std::fs;
 use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
@@ -21,8 +22,8 @@ use crate::desktop_system::change::{Changes, DesktopChange};
 use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceRoot;
-use crate::projects::persistence::{self, ConfigurationDocument};
-use crate::projects::{DesktopConfiguration, to_commands};
+use crate::projects::persistence::{self, ConfigurationPersistence};
+use crate::projects::{RuntimeConfiguration, to_commands};
 use crate::window_state::WindowPresentationState;
 use crate::window_state::WindowState;
 
@@ -370,7 +371,7 @@ impl Desktop {
 /// to. Any other file error fails and aborts desktop startup.
 fn load_configuration(
     env: &DesktopEnvironment,
-) -> Result<(ConfigurationDocument, DesktopConfiguration)> {
+) -> Result<(ConfigurationPersistence, RuntimeConfiguration)> {
     let projects_dir = env
         .projects_dir()
         .with_context(|| "Could not resolve the projects directory (no home directory?)")?;
@@ -382,7 +383,13 @@ fn load_configuration(
         );
         persistence::write_default_config(&configuration_path)?;
     }
-    ConfigurationDocument::load(&configuration_path)
+    let text = fs::read_to_string(&configuration_path)
+        .with_context(|| format!("reading {}", configuration_path.display()))?;
+    let configuration = persistence::parse_configuration(&configuration_path, &text)?;
+    Ok((
+        ConfigurationPersistence::new(&configuration_path),
+        configuration,
+    ))
 }
 
 fn handle_instance_ended(

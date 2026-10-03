@@ -5,7 +5,7 @@ use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderGeometry;
 use massive_scene::LocationSpace;
 
-use crate::projects::{DesktopConfiguration, LaunchProfileId, LauncherPresenter, launcher_mode};
+use crate::projects::{RuntimeConfiguration, LaunchProfileId, LauncherPresenter, launcher_mode};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {
@@ -20,7 +20,7 @@ pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     placements: &'a dyn PlacementSource,
     launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
-    configuration: &'a DesktopConfiguration,
+    configuration: &'a RuntimeConfiguration,
     geometry: &'a RenderGeometry,
 }
 
@@ -62,7 +62,7 @@ impl<'a> AggregateHitTester<'a> {
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         placements: &'a dyn PlacementSource,
         launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
-        configuration: &'a DesktopConfiguration,
+        configuration: &'a RuntimeConfiguration,
         geometry: &'a RenderGeometry,
     ) -> Self {
         Self {

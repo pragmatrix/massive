@@ -23,7 +23,6 @@ anyhow.workspace = true
 derive_more.workspace = true
 euclid.workspace = true
 futures.workspace = true
-kdl.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["time", "sync"] }
 log.workspace = true

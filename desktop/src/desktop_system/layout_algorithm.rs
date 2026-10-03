@@ -11,7 +11,7 @@ use massive_layout::{
 
 use super::{Aggregates, DesktopTarget, FocusDepth, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
-use crate::projects::{MatrixPlacement, ProjectId, SlotContent, launcher_mode};
+use crate::projects::{MatrixPlacement, ProjectId, SlotIds, launcher_mode};
 
 const PROJECT_PADDING: u32 = 10;
 const PROJECT_HEADER_MIN_HEIGHT: u32 = 24;
@@ -197,8 +197,8 @@ impl DesktopLayoutAlgorithm<'_> {
             // children would already be laid out at the slot's size and then scaled
             // again, overflowing it.
             let (layout_size, scale) = match slot.content {
-                SlotContent::Launcher(_) => (slot.size, 1.0),
-                SlotContent::Project(nested) => {
+                SlotIds::Launcher(_) => (slot.size, 1.0),
+                SlotIds::Project(nested) => {
                     let scene = self.project_scene_size(nested);
                     (scene, presentation_scale(slot.size, scene))
                 }
@@ -236,8 +236,8 @@ impl DesktopLayoutAlgorithm<'_> {
             .zip(child_sizes.iter().copied())
             .map(|(content, measured)| {
                 let size = match content {
-                    SlotContent::Launcher(_) => measured,
-                    SlotContent::Project(_) => self.default_panel_size.into(),
+                    SlotIds::Launcher(_) => measured,
+                    SlotIds::Project(_) => self.default_panel_size.into(),
                 };
                 MatrixSlot {
                     content,
@@ -276,14 +276,14 @@ impl DesktopLayoutAlgorithm<'_> {
     }
 
     /// What a slot's content measures when it lays itself out at full size.
-    fn measure_slot_content(&self, content: SlotContent) -> Size<2> {
+    fn measure_slot_content(&self, content: SlotIds) -> Size<2> {
         match content {
-            SlotContent::Launcher(launcher_id) => launcher_mode::panel_measurement(
+            SlotIds::Launcher(launcher_id) => launcher_mode::panel_measurement(
                 self.aggregates.configuration[launcher_id].mode,
                 self.default_panel_size,
             )
             .unwrap_or_else(|| self.default_panel_size.into()),
-            SlotContent::Project(nested) => self.project_scene_size(nested),
+            SlotIds::Project(nested) => self.project_scene_size(nested),
         }
     }
 
@@ -433,7 +433,7 @@ impl DesktopLayoutAlgorithm<'_> {
 /// One assigned slot of a project's matrix, as the layout sees it: what it hosts,
 /// its measured size, and its matrix placement.
 struct MatrixSlot {
-    content: SlotContent,
+    content: SlotIds,
     size: Size<2>,
     placement: MatrixPlacement,
 }
