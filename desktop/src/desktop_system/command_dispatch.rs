@@ -14,9 +14,8 @@ use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
 use crate::instance_presenter::InstanceRoot;
 use crate::projects::{
-    DEFAULT_NEW_LAUNCHER_NAME, DEFAULT_NEW_PROJECT_NAME, LaunchProfile, LaunchProfileId,
-    LauncherMode, LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment,
-    SlotIds,
+    DEFAULT_NEW_LAUNCHER_NAME, LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter,
+    MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotIds,
 };
 
 use massive_applications::prelude::*;
@@ -310,19 +309,11 @@ impl DesktopSystem {
                 ProjectId::ROOT
             );
         }
-        let name =
-            self.aggregates
-                .configuration
-                .new_project_name(id, DEFAULT_NEW_PROJECT_NAME, &name);
-
         let mut changes: Changes = Changes::Empty;
         changes <<= ConfigurationChange::AssignSlot {
             parent: None,
             placement,
-            assignment: SlotAssignment::Project {
-                id,
-                name: name.clone(),
-            },
+            assignment: SlotAssignment::Project { id, name },
         };
         changes <<= TopologyChange::Add {
             what: DesktopTarget::Project(id),
