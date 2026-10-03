@@ -11,7 +11,9 @@ use massive_layout::{
 
 use super::{Aggregates, DesktopTarget, FocusDepth, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
-use crate::projects::{MatrixPlacement, ProjectId, SlotIds, launcher_mode};
+use crate::projects::{
+    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotIds, launcher_mode,
+};
 
 const PROJECT_PADDING: u32 = 10;
 const PROJECT_HEADER_MIN_HEIGHT: u32 = 24;
@@ -59,6 +61,18 @@ pub struct DesktopLayoutAlgorithm<'a> {
     pub window_size: SizePx,
 }
 
+impl DesktopLayoutAlgorithm<'_> {
+    /// The mode of a launcher, resolved through the topology's parent links and
+    /// the hosting matrix.
+    fn launcher_mode(&self, launcher_id: LaunchProfileId) -> LauncherMode {
+        let project = self.aggregates.hierarchy.project_of_launcher(launcher_id);
+        self.aggregates.configuration[project]
+            .launcher(launcher_id)
+            .expect("the hosting matrix holds the launcher")
+            .mode
+    }
+}
+
 impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_> {
     fn place_children(
         &self,
@@ -92,7 +106,7 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
         match id {
             DesktopTarget::Launcher(launcher_id) => {
                 let panel_measure: Option<Size<2>> = launcher_mode::panel_measurement(
-                    self.aggregates.configuration[*launcher_id].mode,
+                    self.launcher_mode(*launcher_id),
                     self.default_panel_size,
                 );
                 panel_measure
@@ -279,7 +293,7 @@ impl DesktopLayoutAlgorithm<'_> {
     fn measure_slot_content(&self, content: SlotIds) -> Size<2> {
         match content {
             SlotIds::Launcher(launcher_id) => launcher_mode::panel_measurement(
-                self.aggregates.configuration[launcher_id].mode,
+                self.launcher_mode(launcher_id),
                 self.default_panel_size,
             )
             .unwrap_or_else(|| self.default_panel_size.into()),
@@ -331,7 +345,7 @@ impl DesktopLayoutAlgorithm<'_> {
         // The pack decision is a mode policy; the visor branch stays on the
         // presenter because it places children around the presenter's focus anchor.
         launcher_mode::place_panel_children(
-            self.aggregates.configuration[*launcher_id].mode,
+            self.launcher_mode(*launcher_id),
             launcher,
             Offset::default(),
             child_sizes,
