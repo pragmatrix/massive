@@ -772,8 +772,11 @@ fn indexed_default_name(name: &str, existing: &[&str]) -> String {
     }
 }
 
-/// A project's matrix: its assigned slots, kept in placement order so readers can
-/// rely on order without re-reading placements.
+/// A project's matrix: its assigned slots.
+///
+/// The vector is kept sorted by placement (`sort_slots`): the shift computations
+/// and nearest-by-name picks read slots in placement order, so readers can rely
+/// on order without re-sorting.
 #[derive(Debug, Clone)]
 pub struct Project {
     pub id: ProjectId,
@@ -785,11 +788,12 @@ impl Project {
     /// Creates the project's id and puts its slots into placement order.
     ///
     /// The sort is stable, so slots sharing a placement keep their document order.
-    pub(crate) fn new(name: String, slots: Vec<Slot>) -> Self {
+    pub(crate) fn new(name: String, mut slots: Vec<Slot>) -> Self {
+        sort_slots(&mut slots);
         Self {
             id: ProjectId::new(),
             name,
-            slots: sort_slots(slots),
+            slots,
         }
     }
 
@@ -804,7 +808,7 @@ impl Project {
             return;
         }
         self.slots.push(slot);
-        self.slots = sort_slots(std::mem::take(&mut self.slots));
+        sort_slots(&mut self.slots);
     }
 
     /// The launcher assigned to `placement`, if the slot holds one.
@@ -917,9 +921,8 @@ impl Project {
 
 /// Puts slots into placement order: row first, then column, matching the order the
 /// aggregate's readers rely on.
-fn sort_slots(mut slots: Vec<Slot>) -> Vec<Slot> {
+fn sort_slots(slots: &mut [Slot]) {
     slots.sort_by_key(|slot| (slot.placement.row, slot.placement.column));
-    slots
 }
 
 /// One assigned slot of a project's matrix.
