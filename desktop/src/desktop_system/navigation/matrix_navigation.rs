@@ -4,9 +4,7 @@ use super::{HorizontalDirection, VerticalDirection};
 use crate::desktop_system::DesktopTarget;
 use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
-use crate::projects::{
-    RuntimeConfiguration, LaunchProfileId, MatrixPlacement, ProjectId, SlotIds,
-};
+use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotIds};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MatrixNavigation<'a> {

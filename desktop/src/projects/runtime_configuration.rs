@@ -140,18 +140,18 @@ impl RuntimeConfiguration {
             .collect();
 
         for project in self.projects.values_mut() {
-            project
-                .slots
-                .retain(|slot| {
-                    !matches!(slot.ids(), SlotIds::Project(child) if doomed.contains(&child))
-                });
+            project.slots.retain(
+                |slot| !matches!(slot.ids(), SlotIds::Project(child) if doomed.contains(&child)),
+            );
         }
 
         self.projects
             .retain(|project_id, _| !doomed.contains(project_id));
     }
 
-    /// Assigns `content` to `parent`'s slot at `placement`.
+    /// Assigns `content` to `parent`'s slot at `placement`, returning the host
+    /// the content was assigned into — `None` when the assignment created a
+    /// hostless project (the root).
     ///
     /// Assigning a project that does not exist creates it — there is no separate
     /// "add project" operation. A `None` parent creates the root the same way:
@@ -475,10 +475,10 @@ impl RuntimeConfiguration {
             .copied()
     }
 
-    /// Names a new project: a default name gets the lowest index not already in
-    /// use, while a user-chosen name is taken as it is — duplicate names are
-    /// allowed. An id the configuration already holds is the boot flow re-applying
-    /// the names it parsed, which must pass through unchanged.
+    /// Names a newly assigned project: a default name gets the lowest index not
+    /// already in use, while a user-chosen name is taken as it is — duplicate
+    /// names are allowed. An id the configuration already holds is the boot flow
+    /// re-applying the names it parsed, which must pass through unchanged.
     pub fn new_project_name(&self, id: ProjectId, default_name: &str, name: &str) -> String {
         if name != default_name || self.project(id).is_some() {
             return name.to_string();
@@ -629,14 +629,13 @@ impl RuntimeConfiguration {
     /// `RemoveLauncher` by name picks the nearest launcher by.
     pub fn launcher_index(&self, launcher: LaunchProfileId) -> Option<usize> {
         let project = self.project_of_launcher(launcher)?;
-        project
-            .launchers()
-            .position(|l| l.id == launcher)
+        project.launchers().position(|l| l.id == launcher)
     }
 
     /// The launcher's placement: where its hosting slot sits.
     pub fn placement_of(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
-        self.slot_of_launcher(launcher).map(|(_, placement)| placement)
+        self.slot_of_launcher(launcher)
+            .map(|(_, placement)| placement)
     }
 
     /// The ids of `project`'s slot at `placement`, `None` when the slot is
@@ -649,11 +648,10 @@ impl RuntimeConfiguration {
 
     /// All launchers of the project, kept in matrix-placement order (the
     /// aggregate invariant).
-    pub fn launchers_ordered(
-        &self,
-        project: ProjectId,
-    ) -> impl Iterator<Item = &Launcher> + '_ {
-        self.project(project).into_iter().flat_map(|project| project.launchers())
+    pub fn launchers_ordered(&self, project: ProjectId) -> impl Iterator<Item = &Launcher> + '_ {
+        self.project(project)
+            .into_iter()
+            .flat_map(|project| project.launchers())
     }
 
     pub fn launcher(&self, launcher: LaunchProfileId) -> Option<&Launcher> {
@@ -677,9 +675,12 @@ impl RuntimeConfiguration {
         &self,
         project: ProjectId,
     ) -> impl Iterator<Item = (MatrixPlacement, SlotIds)> + '_ {
-        self.project(project)
-            .into_iter()
-            .flat_map(|project| project.slots.iter().map(|slot| (slot.placement, slot.ids())))
+        self.project(project).into_iter().flat_map(|project| {
+            project
+                .slots
+                .iter()
+                .map(|slot| (slot.placement, slot.ids()))
+        })
     }
 
     pub fn project(&self, id: ProjectId) -> Option<&Project> {
@@ -824,7 +825,8 @@ impl Project {
 
     /// The content of the slot at `placement`, `None` when it is empty.
     pub fn ids_at(&self, placement: MatrixPlacement) -> Option<SlotIds> {
-        self.slot_index(placement).map(|index| self.slots[index].ids())
+        self.slot_index(placement)
+            .map(|index| self.slots[index].ids())
     }
 
     pub fn slots(&self) -> &[Slot] {
@@ -877,10 +879,12 @@ impl Project {
 
     #[cfg(test)]
     pub fn launcher_mut(&mut self, id: LaunchProfileId) -> Option<&mut Launcher> {
-        self.slots.iter_mut().find_map(|slot| match &mut slot.content {
-            SlotPayload::Launcher(launcher) if launcher.id == id => Some(launcher),
-            _ => None,
-        })
+        self.slots
+            .iter_mut()
+            .find_map(|slot| match &mut slot.content {
+                SlotPayload::Launcher(launcher) if launcher.id == id => Some(launcher),
+                _ => None,
+            })
     }
 
     /// The placement of the slot whose ids match `content`.
@@ -1035,8 +1039,7 @@ pub enum SlotPayload {
     Project(ProjectId),
 }
 
-impl SlotPayload {
-}
+impl SlotPayload {}
 
 /// The `Copy` id-level view of a [`SlotPayload`], for readers that only match on
 /// which kind of content a slot holds.
@@ -1482,9 +1485,7 @@ mod tests {
     ) -> RuntimeConfiguration {
         let slots = entries
             .into_iter()
-            .map(|(name, placement)| {
-                Slot::launcher(placement, launcher(name))
-            })
+            .map(|(name, placement)| Slot::launcher(placement, launcher(name)))
             .collect();
         let mut root = Project::new(ROOT_PROJECT_NAME.into(), slots);
         root.id = ProjectId::ROOT;

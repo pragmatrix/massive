@@ -64,7 +64,7 @@ use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
 use crate::projects::persistence;
 use crate::projects::{
-    RuntimeConfiguration, LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter,
+    LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
 };
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
 

@@ -185,10 +185,7 @@ mod tests {
 
         assert_eq!(
             topology.matrix_slots(project),
-            vec![
-                SlotIds::Launcher(launcher),
-                SlotIds::Project(nested),
-            ]
+            vec![SlotIds::Launcher(launcher), SlotIds::Project(nested),]
         );
     }
 

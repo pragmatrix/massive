@@ -5,7 +5,7 @@ use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderGeometry;
 use massive_scene::LocationSpace;
 
-use crate::projects::{RuntimeConfiguration, LaunchProfileId, LauncherPresenter, launcher_mode};
+use crate::projects::{LaunchProfileId, LauncherPresenter, RuntimeConfiguration, launcher_mode};
 use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {

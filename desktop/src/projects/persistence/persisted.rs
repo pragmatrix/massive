@@ -232,12 +232,10 @@ fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Ve
                         params: launcher.params.clone(),
                     })
                 }
-                SlotPayload::Project(child) => {
-                    PersistedSlotContent::Project(PersistedProject {
-                        name: configuration[*child].name.clone(),
-                        slots: project_slots(configuration, *child),
-                    })
-                }
+                SlotPayload::Project(child) => PersistedSlotContent::Project(PersistedProject {
+                    name: configuration[*child].name.clone(),
+                    slots: project_slots(configuration, *child),
+                }),
             },
         })
         .collect()
