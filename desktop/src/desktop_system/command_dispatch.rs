@@ -654,28 +654,16 @@ impl DesktopSystem {
                 placement,
                 assignment,
             } => {
-                let name = match &assignment {
-                    SlotAssignment::Launcher { profile, .. } => profile.name.clone(),
-                    SlotAssignment::Project { name, .. } => name.clone(),
-                };
                 let target = assignment.content();
-                self.aggregates
+                // The presenter is built from what the aggregate stored, not what
+                // the payload claimed: the host comes back from the mutation, the
+                // stored name is read from the aggregate (it may have been
+                // re-indexed to stay unique).
+                let host = self
+                    .aggregates
                     .configuration
                     .assign_slot(parent, placement, assignment);
-                match target {
-                    SlotIds::Launcher(id) => {
-                        // A `None` parent creates the root project, and a launcher
-                        // is always assigned into a project's slot.
-                        self.insert_launcher_presenter(
-                            parent.expect("a launcher assignment always names a parent project"),
-                            id,
-                            name,
-                        )?;
-                    }
-                    SlotIds::Project(id) => {
-                        self.insert_project_presenter(parent, id, name)?;
-                    }
-                }
+                self.insert_slot_presenter(target, host)?;
             }
             ConfigurationChange::ClearSlot { parent, placement } => {
                 if let Some(content) = self.aggregates.configuration.ids_at(parent, placement) {
@@ -712,6 +700,28 @@ impl DesktopSystem {
         Ok(ChangeOutput::default())
     }
 
+    /// Builds the presenter for newly assigned slot content. The host is the
+    /// one `assign_slot` returned — no re-search over the aggregate. The stored
+    /// name is read back from the aggregate, so the builder sees what was
+    /// actually stored rather than what the change payload claimed.
+    ///
+    /// A launcher always has a hosting project (`None` is an invariant
+    /// violation); the root project is hosted by the desktop itself and takes
+    /// the desktop location instead of a matrix's.
+    fn insert_slot_presenter(&mut self, content: SlotIds, host: Option<ProjectId>) -> Result<()> {
+        match content {
+            SlotIds::Launcher(id) => {
+                let parent = host.context(format!("a launcher is hosted by a project: {id:?}"))?;
+                let name = self.aggregates.configuration[id].name.clone();
+                self.insert_launcher_presenter(parent, id, name)
+            }
+            SlotIds::Project(id) => {
+                let name = self.aggregates.configuration[id].name.clone();
+                self.insert_project_presenter(host, id, name)
+            }
+        }
+    }
+
     /// Inserts the projector presenter for a newly created project. The plan
     /// guarantees the id does not exist yet — the root is created by a parentless
     /// `AssignSlot`, and every nested project arrives via `AssignSlot` with a
@@ -719,15 +729,15 @@ impl DesktopSystem {
     /// loudly here.
     fn insert_project_presenter(
         &mut self,
-        parent: Option<ProjectId>,
+        host: Option<ProjectId>,
         id: ProjectId,
         name: String,
     ) -> Result<()> {
         // A nested project's scene node hangs under the matrix that hosts its slot:
-        // its layout transform is relative to that matrix. Only the root project is
-        // placed in the desktop's own space.
-        let location = match parent {
-            Some(parent) => self.aggregates.project_matrix_location(parent),
+        // its layout transform is relative to that matrix. The root project — with
+        // no host — is placed in the desktop's own space.
+        let location = match host.map(|parent| self.aggregates.project_matrix_location(parent)) {
+            Some(location) => location,
             None => self.desktop_presenter.location.clone(),
         };
         let presenter = ProjectPresenter::new(name, location);

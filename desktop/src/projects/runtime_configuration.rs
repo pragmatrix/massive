@@ -163,7 +163,7 @@ impl RuntimeConfiguration {
         parent: Option<ProjectId>,
         placement: MatrixPlacement,
         content: SlotAssignment,
-    ) {
+    ) -> Option<ProjectId> {
         match content {
             SlotAssignment::Launcher { id, profile } => {
                 let parent = parent.expect("a launcher is always assigned into a project's slot");
@@ -177,6 +177,7 @@ impl RuntimeConfiguration {
                     .project_mut(parent)
                     .expect("the parent project of a launcher exists");
                 project.assign_slot(Slot::launcher(placement, launcher));
+                Some(parent)
             }
             SlotAssignment::Project { id, name } => {
                 // A duplicate id is re-application — the boot Setup transaction
@@ -191,6 +192,7 @@ impl RuntimeConfiguration {
                         .expect("the parent project of the assignment exists")
                         .assign_slot(Slot::project(placement, id));
                 }
+                parent
             }
         }
     }
