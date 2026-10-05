@@ -9,9 +9,9 @@ pub struct ChangeSurface {
     /// A remeasure is required.
     pub size_invalid: TargetSet,
     pub window_size_changed: bool,
-    /// A configuration change was applied to the aggregate; the transaction's
-    /// caller persists it (ADR 0013).
+    /// A configuration change was applied to the aggregate; the transaction emits persistence.
     pub configuration_changed: bool,
+    pub window_fullscreen_changed: bool,
 }
 
 impl ChangeSurface {
@@ -27,5 +27,6 @@ impl ChangeSurface {
         self.size_invalid += other.size_invalid;
         self.window_size_changed |= other.window_size_changed;
         self.configuration_changed |= other.configuration_changed;
+        self.window_fullscreen_changed |= other.window_fullscreen_changed;
     }
 }

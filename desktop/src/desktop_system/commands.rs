@@ -20,7 +20,7 @@ pub enum DesktopCommand {
         instance: InstanceId,
         root: Option<InstanceRoot>,
         parameters: InstanceParameters,
-        /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T`)
+        /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T` or `Shift+Cmd+Enter`)
         /// carries its own temporary Full Screen Mode.
         kind: InstanceKind,
     },
@@ -29,10 +29,8 @@ pub enum DesktopCommand {
     Navigate(Direction),
 
     Zoom(Zoom),
-    /// Toggles Full Screen Mode on the focused target (ADR 0014): a launcher's
-    /// mode when a launcher or base instance is focused, an assistant instance's
-    /// own when one is focused.
-    ToggleFullScreenMode,
+    /// Routes a fullscreen request to the focused instance or the native window.
+    ToggleFullScreen,
 }
 
 #[derive(Debug)]

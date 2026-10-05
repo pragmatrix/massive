@@ -10,7 +10,10 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::{DesktopCommand, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
+use super::{
+    DesktopCommand, DesktopSystem, DesktopTarget, Direction, FocusDepth, KeyboardFocusReason,
+    focus_depth_for_target,
+};
 use crate::EventTransition;
 use crate::desktop_system::change::Zoom;
 use crate::event_router::{EventTransitions, ProcessOutcome};
@@ -189,7 +192,8 @@ impl DesktopSystem {
         &self,
         event: &Event<ViewEvent>,
     ) -> Option<DesktopKeyboardShortcut> {
-        // Catch `CMD+t`, `CMD+w`, `CMD+Enter` if a launcher or an instance has the keyboard focus.
+        // Cmd+Enter focuses a launcher slot or instance, then starts only from a launcher.
+        // Cmd+T starts from either, and Cmd+W closes an instance.
 
         if let ViewEvent::KeyboardInput {
             event: key_event, ..
@@ -200,16 +204,23 @@ impl DesktopSystem {
             // Design: Extract this part into (match `desktop_cmd_key`?)
             let focused_path = self.focused_path();
 
+            if !key_event.repeat
+                && key_event.logical_key == Key::Named(NamedKey::Enter)
+                && let Some(focused_target) = focused_path.last()
+                && let Some(shortcut) = cmd_enter_shortcut(focused_target, self.focus_depth)
+            {
+                return Some(shortcut);
+            }
+
             // Simplify: Instance should probably return the launcher, too now.
             if !key_event.repeat
                 && let Some(focused_target) = focused_path.last()
+                && supports_instance_start_key(&key_event.logical_key, focused_target)
             {
-                // `Cmd+T` starts an instance: on a launcher it starts the launcher's
-                // first base instance, inside an instance another one of the same
-                // launcher. `Shift` results in `T` and makes the new instance an
-                // assistant: it spawns without the launcher's configured parameters
-                // (in-instance) and carries its own temporary Full Screen Mode
-                // (ADR 0014).
+                // `Cmd+T` starts the focused launcher's first base instance or another instance
+                // of the focused instance's launcher; `Cmd+Enter` starts only from a launcher.
+                // `Shift` makes the new instance an assistant: it spawns without the launcher's
+                // configured parameters and carries its own temporary Full Screen Mode (ADR 0014).
                 let kind = if event.device_states().is_shift() {
                     InstanceKind::Assistant
                 } else {
@@ -228,10 +239,7 @@ impl DesktopSystem {
                     _ => None,
                 };
 
-                if let Some((launcher_id, instance)) = start_target
-                    && let Key::Character(c) = &key_event.logical_key
-                    && c.as_str().eq_ignore_ascii_case("t")
-                {
+                if let Some((launcher_id, instance)) = start_target {
                     // `Shift` drops the parameters intentionally (the assistant
                     // "open plain"); otherwise the spawn inherits what the
                     // focused object would start with: the launcher's configured
@@ -268,14 +276,6 @@ impl DesktopSystem {
                 }
             }
 
-            if !key_event.repeat && key_event.logical_key == Key::Named(NamedKey::Enter) {
-                // `Cmd+Enter` toggles Full Screen Mode on whatever is focused
-                // (ADR 0014): a launcher's or base instance's launcher mode, an
-                // assistant's own. The plan re-commits the Instance focus depth
-                // when needed, keeping the zoom-back role the key had before.
-                return Some(DesktopKeyboardShortcut::ToggleFullScreenMode);
-            }
-
             if let Some(direction) = match &key_event.logical_key {
                 Key::Named(NamedKey::ArrowLeft) => Some(Direction::Left),
                 Key::Named(NamedKey::ArrowRight) => Some(Direction::Right),
@@ -302,6 +302,30 @@ impl DesktopSystem {
     }
 }
 
+fn supports_instance_start_key(key: &Key, target: &DesktopTarget) -> bool {
+    match key {
+        Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => matches!(
+            target,
+            DesktopTarget::Launcher(_) | DesktopTarget::Instance(_) | DesktopTarget::View(_)
+        ),
+        Key::Named(NamedKey::Enter) => matches!(target, DesktopTarget::Launcher(_)),
+        _ => false,
+    }
+}
+
+fn cmd_enter_shortcut(
+    target: &DesktopTarget,
+    current_depth: FocusDepth,
+) -> Option<DesktopKeyboardShortcut> {
+    let target_depth = focus_depth_for_target(target)?;
+    // A launcher already at Slot depth must reach the instance-start branch below.
+    if current_depth != target_depth {
+        return Some(DesktopKeyboardShortcut::Zoom(Zoom::Reset));
+    }
+    matches!(target, DesktopTarget::Instance(_) | DesktopTarget::View(_))
+        .then_some(DesktopKeyboardShortcut::Consumed)
+}
+
 fn targets_affected_by_keyboard_focus_change<T>(this: &EventTransitions<T>) -> Vec<&T> {
     let mut touched = Vec::new();
 
@@ -324,34 +348,94 @@ pub enum DesktopKeyboardShortcut {
     NewInstance {
         launcher: LaunchProfileId,
         parameters: InstanceParameters,
-        /// `Shift+Cmd+T`: start an assistant instance, which carries its own
+        /// `Shift+Cmd+T` or `Shift+Cmd+Enter`: start an assistant instance, which carries its own
         /// temporary Full Screen Mode (ADR 0014).
         kind: InstanceKind,
     },
+    Consumed,
     CloseInstance(InstanceId),
     Zoom(Zoom),
-    ToggleFullScreenMode,
     Navigate(Direction),
 }
 
 impl DesktopKeyboardShortcut {
-    pub fn into_command(self) -> DesktopCommand {
+    pub fn into_command(self) -> Option<DesktopCommand> {
         match self {
             Self::NewInstance {
                 launcher,
                 parameters,
                 kind,
-            } => DesktopCommand::StartInstance {
+            } => Some(DesktopCommand::StartInstance {
                 launcher,
                 instance: Uuid::new_v4().into(),
                 root: None,
                 parameters,
                 kind,
-            },
-            Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
-            Self::Navigate(direction) => DesktopCommand::Navigate(direction),
-            Self::Zoom(change) => DesktopCommand::Zoom(change),
-            Self::ToggleFullScreenMode => DesktopCommand::ToggleFullScreenMode,
+            }),
+            Self::Consumed => None,
+            Self::CloseInstance(instance) => Some(DesktopCommand::StopInstance(instance)),
+            Self::Navigate(direction) => Some(DesktopCommand::Navigate(direction)),
+            Self::Zoom(change) => Some(DesktopCommand::Zoom(change)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cmd_enter_starts_an_instance_only_from_a_launcher() {
+        let launcher = DesktopTarget::Launcher(Uuid::new_v4().into());
+        let instance = DesktopTarget::Instance(InstanceId::from(Uuid::new_v4()));
+        let view = DesktopTarget::View(massive_applications::ViewId::new());
+
+        assert!(supports_instance_start_key(
+            &Key::Named(NamedKey::Enter),
+            &launcher
+        ));
+        assert!(!supports_instance_start_key(
+            &Key::Named(NamedKey::Enter),
+            &instance
+        ));
+        assert!(!supports_instance_start_key(
+            &Key::Named(NamedKey::Enter),
+            &view
+        ));
+        assert!(supports_instance_start_key(
+            &Key::Character("t".into()),
+            &instance
+        ));
+    }
+
+    #[test]
+    fn cmd_enter_focuses_first_and_is_consumed_at_instance_depth() {
+        let launcher = DesktopTarget::Launcher(Uuid::new_v4().into());
+        let instance = DesktopTarget::Instance(InstanceId::from(Uuid::new_v4()));
+        let view = DesktopTarget::View(massive_applications::ViewId::new());
+
+        assert!(matches!(
+            cmd_enter_shortcut(&launcher, FocusDepth::Project),
+            Some(DesktopKeyboardShortcut::Zoom(Zoom::Reset))
+        ));
+        assert!(cmd_enter_shortcut(&launcher, FocusDepth::Slot).is_none());
+        assert!(matches!(
+            cmd_enter_shortcut(&instance, FocusDepth::Slot),
+            Some(DesktopKeyboardShortcut::Zoom(Zoom::Reset))
+        ));
+        assert!(matches!(
+            cmd_enter_shortcut(&instance, FocusDepth::Instance),
+            Some(DesktopKeyboardShortcut::Consumed)
+        ));
+        assert!(
+            cmd_enter_shortcut(&instance, FocusDepth::Instance)
+                .and_then(DesktopKeyboardShortcut::into_command)
+                .is_none()
+        );
+        assert!(
+            cmd_enter_shortcut(&view, FocusDepth::Instance)
+                .and_then(DesktopKeyboardShortcut::into_command)
+                .is_none()
+        );
     }
 }

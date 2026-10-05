@@ -18,10 +18,8 @@ use massive_renderer::RenderPacing;
 use massive_shell::{ApplicationContext, AsyncWindowRenderer, ShellWindow};
 
 use crate::DesktopEnvironment;
-use crate::desktop_system::change::{Changes, DesktopChange};
-use crate::desktop_system::{
-    Commands, ConfigurationChanged, DesktopCommand, DesktopSystem, TransactionEffectsMode,
-};
+use crate::desktop_system::change::{Changes, DesktopChange, DesktopSystemEffect};
+use crate::desktop_system::{Commands, DesktopCommand, DesktopSystem, TransactionEffectsMode};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::persistence::{self, ConfigurationPersistence};
@@ -211,6 +209,10 @@ impl Desktop {
                 DesktopEvent::ApplicationEvents(events) => {
                     for event in events {
                         match event {
+                            ApplicationEvent::FullscreenRequested => {
+                                let changes = self.system.plan(DesktopCommand::ToggleFullScreen)?;
+                                self.transact_and_persist(changes)?;
+                            }
                             ApplicationEvent::View(_, ViewEvent::CloseRequested) => {
                                 return Ok(());
                             }
@@ -236,8 +238,10 @@ impl Desktop {
 
                                     let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
-                                            let command = keyboard_cmd.into_command();
-                                            self.system.plan(command)?
+                                            match keyboard_cmd.into_command() {
+                                                Some(command) => self.system.plan(command)?,
+                                                None => Changes::Empty,
+                                            }
                                         } else {
                                             self.system.process_input_event(
                                                 &input_event,
@@ -383,12 +387,16 @@ impl Desktop {
     /// Transacts the changes, and persists the aggregate when they applied a
     /// configuration change (ADR 0013).
     fn transact_and_persist(&mut self, changes: impl Into<Changes>) -> Result<()> {
-        let changed = self
+        let output = self
             .system
             .transact(changes, &mut self.instance_manager, None)?;
-        if changed == ConfigurationChanged::Yes {
-            self.configuration_document
-                .persist(self.system.configuration());
+        for effect in output.effects {
+            match effect {
+                DesktopSystemEffect::ToggleWindowFullScreen => self.window.toggle_fullscreen()?,
+                DesktopSystemEffect::PersistConfiguration => self
+                    .configuration_document
+                    .persist(self.system.configuration()),
+            }
         }
         Ok(())
     }

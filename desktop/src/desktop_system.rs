@@ -44,7 +44,7 @@ use massive_scene::{Handle, Location};
 use massive_util::CollectingVec;
 
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
-use change::{Changes, DesktopChange};
+use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
 use focus_depth_indicator::FocusDepthIndicatorPresenter;
 use layout_algorithm::DesktopLayoutAlgorithm;
@@ -156,6 +156,15 @@ impl FocusDepth {
     }
 }
 
+/// The target depth used by Cmd+Enter for launcher and instance targets.
+pub(super) fn focus_depth_for_target(target: &DesktopTarget) -> Option<FocusDepth> {
+    match target {
+        DesktopTarget::Launcher(_) => Some(FocusDepth::Slot),
+        DesktopTarget::Instance(_) | DesktopTarget::View(_) => Some(FocusDepth::Instance),
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyboardFocusReason {
     InputTransition,
@@ -207,12 +216,11 @@ impl TransactionEffectsMode {
     }
 }
 
-/// Whether a transaction applied a change to the persistent configuration:
-/// its caller persists the aggregate only then (ADR 0013).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigurationChanged {
-    Yes,
-    No,
+/// Host-facing effects emitted by a completed desktop transaction.
+#[derive(Debug)]
+pub struct TransactionOutput {
+    /// Effects that require capabilities owned by the desktop host.
+    pub effects: Vec<DesktopSystemEffect>,
 }
 
 #[derive(Debug)]
@@ -334,16 +342,15 @@ impl DesktopSystem {
     // of the earlier changes applied, so the state may be inconsistent
     // (including the document mirror, which lands before the apply — see the
     // `DesktopChange::Project` arm in `apply_change`).
-    /// Applies `changes` to completion. Reports [`ConfigurationChanged`] so
-    /// the caller persists the aggregate (ADR 0013): persistence lives
-    /// outside the system, and the setup flow replays changes the parsed
-    /// file already carries — it persists nothing.
+    /// Applies `changes` to completion and returns effects for the host to execute.
+    /// Configuration persistence remains outside the system (ADR 0013); setup
+    /// transactions emit no persistence effect because they replay parsed state.
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
-    ) -> Result<ConfigurationChanged> {
+    ) -> Result<TransactionOutput> {
         let changes = changes.into();
         let previous_focus_depth = self.focus_depth;
         let window_size = self.window_state.inner_size;
@@ -356,6 +363,7 @@ impl DesktopSystem {
         // Run changes to completion and combine everything into a `ChangeSurface`.
 
         let mut change_surface = ChangeSurface::default();
+        let mut system_effects = Vec::new();
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
@@ -373,11 +381,14 @@ impl DesktopSystem {
             }
         }
 
-        // A setup transaction's changes are the ones the parsed configuration
-        // file already carries: it updates the live model but reports no
-        // configuration change to persist (ADR 0013).
-        let configuration_changed =
-            change_surface.configuration_changed && effects_mode != TransactionEffectsMode::Setup;
+        if change_surface.window_fullscreen_changed {
+            system_effects.push(DesktopSystemEffect::ToggleWindowFullScreen);
+        }
+
+        // A setup transaction replays configuration already on disk and never persists it (ADR 0013).
+        if change_surface.configuration_changed && effects_mode != TransactionEffectsMode::Setup {
+            system_effects.push(DesktopSystemEffect::PersistConfiguration);
+        }
 
         // Collect deferred measures if the camera can be moved.
 
@@ -385,7 +396,14 @@ impl DesktopSystem {
         // For example, focus layout effects.
         //
         // Design: may replace deferred_* with a ChangeSurface (a "deferred" ChangeSurface?).
-        let camera_mode = effects_mode.camera_presentation_mode();
+        // Fullscreen transitions expose intermediate sizes; animating here makes the camera visibly leave the focused content.
+        let camera_mode = if change_surface.window_size_changed
+            && effects_mode == TransactionEffectsMode::Normal
+        {
+            CameraPresentationMode::Snap
+        } else {
+            effects_mode.camera_presentation_mode()
+        };
         if camera_mode.permit_camera_moves() {
             self.sync_focused_launcher_anchor();
             change_surface.size_invalid += mem::take(&mut self.deferred_focus_launcher_measures)
@@ -431,10 +449,8 @@ impl DesktopSystem {
         self.desktop_presenter
             .set_hover_placement(self.hover_placement());
 
-        Ok(if configuration_changed {
-            ConfigurationChanged::Yes
-        } else {
-            ConfigurationChanged::No
+        Ok(TransactionOutput {
+            effects: system_effects,
         })
     }
 

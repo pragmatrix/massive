@@ -24,32 +24,32 @@ the instance transform, `camera_from_placement` resolves a focused full-screen
 instance as pixel-perfect at that scale automatically; no camera or depth work
 is involved.
 
-`Cmd+Enter` toggles Full Screen Mode on whatever is focused: on a base
-instance (or launcher) it toggles the launcher's mode, on an assistant instance
-its own. It is a no-op on a launcher without instances. When the focus depth is
-not already `Instance`, the toggle also re-commits `FocusDepth::Instance` — the
-toggle zooms back to the instance level as a side effect. Nothing else ever
-changes Full Screen Mode: not focus transitions, not navigation, not zoom, not
-window resize.
+The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever
+the window is windowed, regardless of focus. Once the native window is fullscreen,
+the action toggles Full Screen Mode only when focus depth is `Instance` and
+keyboard focus resolves to an instance: a base instance
+toggles its launcher's mode, and an assistant toggles its own. In every other
+focus state, the action exits native window fullscreen. `Cmd+Enter` starts an
+instance like `Cmd+T`; starting an instance always commits `FocusDepth::Instance`
+and focuses the new instance. Focus transitions, navigation, and window resize never
+change Full Screen Mode.
 
 ## Considered options
 
 Keeping the `InstanceFullScreen` depth as a camera Focus Depth was the rejected
-alternative: it
-tied a presentation preference to camera zoom, forced reset arms into every
-focus-transition path, and made fullscreen transient (lost on focus change,
-resize, and restart) — the opposite of what the state means. Repurposing
-`Cmd+Enter` as the toggle reuses the key users already associate with
-full-sizing the focused object and retires `Zoom::DefaultForFocused`, whose
-only practical use was reaching the fullscreen depth.
+alternative: it tied a presentation preference to camera zoom, forced reset
+arms into every focus-transition path, and made fullscreen transient (lost on
+focus change, resize, and restart) — the opposite of what the state means.
+Routing the standard fullscreen menu action by focus depth keeps content scaling
+separate from native window fullscreen while preserving `Cmd+Enter` for
+starting an instance.
 
 ## Consequences
 
 - `FocusDepth` loses its innermost variant; the depth indicator labels and the
   camera's fullscreen letterbox arm go with it.
-- The `CommitFocusDepth(FocusDepth::default())` resets on instance
-  start/stop/present and the resize-exits-fullscreen arm are deleted.
-- Zoom remains `Ctrl+Cmd+↑/↓`; starting instances is `Cmd+T` /
-  `Shift+Cmd+T`. `Cmd+T` works on a focused launcher to start its first
-  instance; the launcher presenter's `Cmd+Enter`-starts-instance branch is
-  removed (the launcher presenter keeps click-to-start).
+- Starting an instance commits `FocusDepth::Instance`; stopping an instance and
+  resizing the window leave focus depth unchanged.
+- Zoom remains `Ctrl+Cmd+↑/↓`; starting instances is `Cmd+T` / `Cmd+Enter`,
+  with `Shift` starting an assistant. Both keyboard shortcuts work on a focused
+  launcher to start its first instance; the launcher presenter keeps click-to-start.

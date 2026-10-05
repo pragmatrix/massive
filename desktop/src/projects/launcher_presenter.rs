@@ -212,10 +212,9 @@ impl LauncherPresenter {
 
         // Can't go on focus here, we might focus launchers by other means (for example cursor
         // navigation).
-        // `Cmd+Enter` no longer starts an instance here: it toggles Full Screen Mode at
-        // the desktop level (ADR 0014). `Cmd+T` is the keyboard start path; the click
-        // stays the launcher's own. Shift-click skips the profile's parameters: a
-        // user's explicit "open plain".
+        // `Cmd+T` and `Cmd+Enter` start instances from the keyboard; the click stays
+        // the launcher's own. Shift-click skips the profile's parameters: a user's
+        // explicit "open plain".
         let start_instance = event.detect_click(MouseButton::Left).is_some();
 
         if start_instance {

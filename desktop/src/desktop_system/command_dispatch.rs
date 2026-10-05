@@ -10,7 +10,7 @@ use super::change::{
 };
 use super::{
     ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason,
-    ProjectCommand,
+    ProjectCommand, focus_depth_for_target,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -148,6 +148,7 @@ impl DesktopSystem {
                         under: launcher.into(),
                     }),
                 ];
+                changes <<= DesktopChange::CommitFocusDepth(FocusDepth::Instance);
                 changes += set_focus(
                     Some(DesktopTarget::Instance(instance)),
                     KeyboardFocusReason::PresentInstance,
@@ -179,6 +180,16 @@ impl DesktopSystem {
                 ];
 
                 return Ok(changes);
+            }
+            DesktopCommand::Zoom(Zoom::Reset) => {
+                let Some(focus_depth) = self
+                    .event_router
+                    .keyboard_focus()
+                    .and_then(focus_depth_for_target)
+                else {
+                    return Ok([].into());
+                };
+                return Ok(DesktopChange::CommitFocusDepth(focus_depth).into());
             }
             DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
             DesktopCommand::Zoom(Zoom::In) => {
@@ -214,26 +225,25 @@ impl DesktopSystem {
                     return Ok(DesktopChange::CommitFocusDepth(focus_depth).into());
                 }
             }
-            DesktopCommand::ToggleFullScreenMode => return self.plan_toggle_full_screen_mode(),
+            DesktopCommand::ToggleFullScreen => {
+                if self.window_state.is_fullscreen
+                    && self.focus_depth == FocusDepth::Instance
+                    && self.focused_path().instance().is_some()
+                {
+                    return self.plan_toggle_full_screen_mode();
+                }
+                return Ok(DesktopChange::ToggleWindowFullScreen.into());
+            }
         }
 
         Ok([].into())
     }
 
-    /// Plans `ToggleFullScreenMode` (ADR 0014): `Cmd+Enter` on whatever is
-    /// focused. A launcher (or one of its base instances) resolves to the
-    /// launcher's mode toggle; an assistant instance to its own. A launcher
-    /// without instances is a no-op. When the focus depth is not already
-    /// `Instance`, the toggle also re-commits it.
+    /// Plans `ToggleFullScreenMode` (ADR 0014): a base instance resolves to its
+    /// launcher's mode; an assistant instance resolves to its own. A launcher
+    /// without instances is a no-op.
     fn plan_toggle_full_screen_mode(&self) -> Result<Changes> {
         let mut changes: Changes = Changes::Empty;
-
-        // Cmd+Enter keeps the removed `InstanceFullScreen` Focus Depth's
-        // zoom-back role: re-commit the Instance Focus Depth when not there
-        // already (ADR 0014).
-        if self.focus_depth != FocusDepth::Instance {
-            changes <<= DesktopChange::CommitFocusDepth(FocusDepth::Instance);
-        }
 
         match self.event_router.keyboard_focus() {
             Some(DesktopTarget::Launcher(launcher))
@@ -626,6 +636,11 @@ impl DesktopSystem {
                 self.window_state = window_state;
                 let mut output = ChangeOutput::default();
                 output.surface.window_size_changed = true;
+                return Ok(output);
+            }
+            DesktopChange::ToggleWindowFullScreen => {
+                let mut output = ChangeOutput::default();
+                output.surface.window_fullscreen_changed = true;
                 return Ok(output);
             }
             DesktopChange::ResizeAll(size_px) => {
@@ -1268,6 +1283,7 @@ mod tests {
     use super::*;
     use crate::desktop_environment::DesktopEnvironment;
     use crate::desktop_system::TransactionEffectsMode;
+    use crate::desktop_system::change::DesktopSystemEffect;
     use crate::instance_manager::InstanceManager;
     use crate::instance_presenter::InstanceKind;
     use crate::projects::persistence::parse_configuration;
@@ -1404,7 +1420,7 @@ mod tests {
         .await
     }
 
-    /// Regression (ADR 0014): `Cmd+Enter` must rescale the focused instance's
+    /// Regression (ADR 0014): toggling Full Screen Mode must rescale the focused instance's
     /// view in the same transaction, not only after focus moved away and back.
     /// The fullscreen scale lives on the instance's view placement, so the
     /// toggle must invalidate the whole launcher subtree (views included), not
@@ -1422,11 +1438,11 @@ mod tests {
                 system.transact(changes, &mut instance_manager, TransactionEffectsMode::Setup)?;
             }
 
-            // A 1000×800 window on the 800×600 panel: the fullscreen toggle
+            // A native fullscreen 1000×800 window on the 800×600 panel: the fullscreen toggle
             // frames content at the window, so the tests need the larger state
             // committed through its change.
             system.transact(
-                DesktopChange::WindowResized(WindowState::new(SizePx::new(1000, 800), false)),
+                DesktopChange::WindowResized(WindowState::new(SizePx::new(1000, 800), true)),
                 &mut instance_manager,
                 TransactionEffectsMode::Setup,
             )?;
@@ -1476,7 +1492,7 @@ mod tests {
                 .scale;
 
             // Toggle through the live command path, like the desktop loop does.
-            let changes = system.plan(DesktopCommand::ToggleFullScreenMode)?;
+            let changes = system.plan(DesktopCommand::ToggleFullScreen)?;
             system.transact(
                 changes,
                 &mut instance_manager,
@@ -1542,7 +1558,7 @@ mod tests {
                 .rect
                 .size;
 
-            let changes = system.plan(DesktopCommand::ToggleFullScreenMode)?;
+            let changes = system.plan(DesktopCommand::ToggleFullScreen)?;
             system.transact(
                 changes,
                 &mut instance_manager,
@@ -1692,6 +1708,96 @@ mod tests {
                 .expect("the boot replay assigned the parsed project slot");
             assert!(matches!(nested_slot, DesktopTarget::Project(_)));
 
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn fullscreen_request_enters_native_fullscreen_before_toggling_instance_mode()
+    -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
+            let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+            assert_eq!(system.focus_depth, FocusDepth::Instance);
+            assert_eq!(system.focused_path().instance(), Some(instance));
+
+            let changes = system.plan(DesktopCommand::ToggleFullScreen)?;
+            assert!(matches!(
+                changes,
+                Changes::One(DesktopChange::ToggleWindowFullScreen)
+            ), "a windowed native window must enter fullscreen regardless of instance focus: {changes:?}");
+            let output = system.transact(
+                changes,
+                &mut instance_manager,
+                TransactionEffectsMode::Normal,
+            )?;
+            assert!(matches!(
+                output.effects.as_slice(),
+                [DesktopSystemEffect::ToggleWindowFullScreen]
+            ));
+
+            system.transact(
+                DesktopChange::WindowResized(WindowState::new(SizePx::new(1000, 800), true)),
+                &mut instance_manager,
+                TransactionEffectsMode::Setup,
+            )?;
+            let changes = system.plan(DesktopCommand::ToggleFullScreen)?;
+            assert!(matches!(
+                changes,
+                Changes::One(DesktopChange::ToggleFullScreenMode(
+                    ToggleFullScreenModeTarget::Launcher(target)
+                )) if target == launcher
+            ));
+            let output = system.transact(
+                changes,
+                &mut instance_manager,
+                TransactionEffectsMode::Normal,
+            )?;
+            assert!(matches!(
+                output.effects.as_slice(),
+                [crate::desktop_system::change::DesktopSystemEffect::PersistConfiguration]
+            ));
+
+            drop(frame.submission::<SceneChange>());
+            Ok(())
+        })
+        .await
+    }
+
+    #[tokio::test]
+    async fn native_fullscreen_resize_keeps_the_presented_camera_on_the_focused_instance()
+    -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
+            let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+            deliver_view(&mut system, &mut instance_manager, instance)?;
+            let focused = system.event_router.keyboard_focus().cloned();
+
+            for window_state in [
+                WindowState::new(SizePx::new(1000, 864), false),
+                WindowState::new(SizePx::new(2560, 1440), true),
+            ] {
+                system.transact(
+                    DesktopChange::WindowResized(window_state),
+                    &mut instance_manager,
+                    Option::<TransactionEffectsMode>::None,
+                )?;
+                assert_eq!(system.event_router.keyboard_focus(), focused.as_ref());
+                assert_eq!(system.focus_depth, FocusDepth::Instance);
+                let desired = system
+                    .resolve_desired_camera()
+                    .expect("the instance is focused");
+                assert_eq!(
+                    *system.camera(),
+                    desired,
+                    "native resize must present the focused camera without an intermediate zoom"
+                );
+            }
+
+            drop(frame.submission::<SceneChange>());
             Ok(())
         })
         .await

@@ -12,6 +12,15 @@ use crate::window_state::WindowState;
 
 pub type Changes = CollectingVec<DesktopChange>;
 
+/// An effect that the host application executes after the desktop system commits its changes.
+#[derive(Debug)]
+pub enum DesktopSystemEffect {
+    /// Ask the shell to toggle its native window fullscreen state.
+    ToggleWindowFullScreen,
+    /// Persist the live configuration after a transaction.
+    PersistConfiguration,
+}
+
 #[derive(Debug)]
 pub enum DesktopChange {
     Project(ConfigurationChange),
@@ -46,6 +55,8 @@ pub enum DesktopChange {
     /// The constructor seeds the state, so a resize event commits only
     /// updates.
     WindowResized(WindowState),
+    /// Requests the desktop shell to toggle native window fullscreen.
+    ToggleWindowFullScreen,
     ResizeAll(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
@@ -70,6 +81,7 @@ pub struct InstancePresentation {
 pub enum Zoom {
     In,
     Out,
+    Reset,
 }
 
 /// What `ToggleFullScreenMode` resolves to when planned. An assistant instance

@@ -85,11 +85,11 @@ A configured entry that a slot may host; hosts one or more running instances and
 _Avoid_: profile, cell
 
 **Base instance**:
-An instance a launcher starts with the launcher's configured parameters — through the launcher's start action, or with `Cmd+T` while one of the launcher's instances has keyboard focus. All base instances of a launcher follow the launcher's Full Screen Mode together; the assistant instance is the other kind.
+An instance a launcher starts with the launcher's configured parameters — through the launcher's start action, or with `Cmd+T` / `Cmd+Enter` while one of the launcher's instances has keyboard focus. All base instances of a launcher follow the launcher's Full Screen Mode together; the assistant instance is the other kind.
 _Avoid_: default instance, primary instance
 
 **Assistant instance**:
-An instance created through the assistant entry point: `Shift+Cmd+T` starts one without the launcher's configured parameters. An assistant owns a temporary Full Screen Mode of its own, unaffected by its launcher's; unlike the launcher's, it never persists.
+An instance created through the assistant entry point: `Shift+Cmd+T` / `Shift+Cmd+Enter` starts one without the launcher's configured parameters. An assistant owns a temporary Full Screen Mode of its own, unaffected by its launcher's; unlike the launcher's, it never persists.
 _Avoid_: aux instance, sidecar, secondary instance
 
 **Instance**:
@@ -97,7 +97,7 @@ A single running application session owned by a launcher. Multiple instances of 
 _Avoid_: session, tab, process
 
 **Full Screen Mode**:
-An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. Toggled with `Cmd+Enter` on whatever is focused: a launcher's base instance toggles the launcher's mode, an assistant toggles its own; on a launcher (or nothing toggleable) it is a no-op that only re-commits the Instance focus depth when the depth is not already `Instance`. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
+An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when focus depth is `Instance` and keyboard focus resolves to an instance: a base instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` starts an instance like `Cmd+T`; starting an instance always commits focus depth to `Instance` and focuses the new instance. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
 _Avoid_: fullscreen flag, fullscreen presentation, zoom level, full screen launcher
 
 **Close request**:
