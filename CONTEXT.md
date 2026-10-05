@@ -28,6 +28,14 @@ _Avoid_: cell, launcher cell, tile, container, occupied
 A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.
 _Avoid_: coordinates
 
+**Intrinsic project scene**:
+A project's layout in its own pixel coordinates, including the presentation of its children but excluding presentation scaling assigned by its parent.
+_Avoid_: slot size, presented extent
+
+**Shared project scale**:
+The uniform presentation scale a parent assigns to all its direct nested projects, across every column. It is determined by the widest intrinsic project scene relative to the preferred default panel width, never enlarges projects, and does not constrain their presented heights.
+_Avoid_: per-slot zoom, camera zoom, viewport resize
+
 **Startup launcher**:
 The launcher the session boots into. Persisted by address path in the desktop configuration; resolved to a launcher id on load, falling back to the nearest depth-first launcher from the root with a warning when the path no longer resolves.
 _Avoid_: startup profile, boot target

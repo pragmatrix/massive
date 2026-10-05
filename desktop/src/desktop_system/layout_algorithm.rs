@@ -3,7 +3,7 @@ use std::cmp::max;
 use derive_more::From;
 
 use massive_applications::InstanceId;
-use massive_geometry::{Point, Quaternion, RectPx, SizePx, Transform, Vector3};
+use massive_geometry::{Point, Quaternion, Rect, RectPx, SizePx, Transform, Vector3};
 use massive_layout::{
     LayoutAlgorithm, LayoutAxis, MeasuredLayout, Offset, Placement, Rect as LayoutRect, Size,
     Thickness,
@@ -178,10 +178,8 @@ impl DesktopLayoutAlgorithm<'_> {
     }
 
     fn measure_project_matrix(&self, project_id: ProjectId, child_sizes: &[Size<2>]) -> Size<2> {
-        let (columns, rows) = self.project_matrix_tracks(project_id, child_sizes);
-        let matrix_width = tracks_span(&columns, MATRIX_COLUMN_SPACING);
-        let matrix_height = tracks_span(&rows, MATRIX_ROW_SPACING);
-        [matrix_width, matrix_height].into()
+        // Shared presented extents keep measured matrix bounds consistent with placement.
+        matrix_size(&self.project_matrix_slots(project_id, child_sizes))
     }
 
     fn place_project_matrix_children(
@@ -202,64 +200,52 @@ impl DesktopLayoutAlgorithm<'_> {
                 ),
                 track_offset(&rows, slot.placement.row as usize, MATRIX_ROW_SPACING),
             ]);
-            let slot_rect: RectPx = LayoutRect::new(offset, slot.size).into();
-
-            // A project-assigned slot presents the nested project's own scene scaled to
-            // fit the slot. The placement rect is that scene's layout space, not the
-            // slot: `apply_layout` and `target_rect` pair the rect with the transform
-            // (presented extent = rect * scale), so the children lay out in the
-            // scene's own size and the scale rides the placement transform into the
-            // slot rect, propagated by `absolute_placement`.
-            //
-            // Assigning the slot rect here instead would apply the scale twice: the
-            // children would already be laid out at the slot's size and then scaled
-            // again, overflowing it.
-            let (layout_size, scale) = match slot.content {
-                SlotIds::Launcher(_) => (slot.size, 1.0),
-                SlotIds::Project(nested) => {
-                    let scene = self.project_scene_size(nested);
-                    (scene, presentation_scale(slot.size, scene))
-                }
-            };
-
-            let center = slot_rect.center().to_f64();
-            let transform = Transform::new(
-                Vector3::new(center.x, center.y, 0.0),
-                Quaternion::IDENTITY,
-                scale,
-            );
+            let rect: RectPx = LayoutRect::new(offset, slot.layout_size).into();
+            let rect = Rect::from(rect);
+            // The exact scaled center preserves left alignment despite rounded track extents.
+            let center = rect.origin() + (rect.size() * slot.scale).center();
+            let transform = Transform::new(center.with_z(0.0), Quaternion::IDENTITY, slot.scale);
+            // Intrinsic rectangles keep presentation scaling from resizing the child scene.
             placements.push(Placement::new(
                 transform,
-                LayoutRect::new(offset, layout_size),
+                LayoutRect::new(offset, slot.layout_size),
             ));
         }
 
         placements
     }
 
-    /// A project's matrix slots in child order: the content, the slot's measured
-    /// size, and where it sits. A project-assigned slot measures like an instance
-    /// panel, because its content is presented scaled rather than at its own layout
-    /// size — deriving the slot's size from the nested scene would collapse the
-    /// presentation scale to 1.
+    /// Cached intrinsic measurements keep parent scaling independent of child layout.
     fn project_matrix_slots(
         &self,
         project_id: ProjectId,
         child_sizes: &[Size<2>],
     ) -> Vec<MatrixSlot> {
-        self.aggregates
-            .hierarchy
-            .matrix_slots(project_id)
+        let contents = self.aggregates.hierarchy.matrix_slots(project_id);
+        // ADR 0015: a parent-wide scale preserves the relative sizes of sibling projects.
+        let widest_project = contents
+            .iter()
+            .zip(child_sizes)
+            .filter_map(|(content, size)| matches!(content, SlotIds::Project(_)).then_some(size[0]))
+            .max()
+            .unwrap_or(0);
+        let project_scale = presentation_scale(self.default_panel_size.width, widest_project);
+
+        contents
             .into_iter()
             .zip(child_sizes.iter().copied())
             .map(|(content, measured)| {
-                let size = match content {
-                    SlotIds::Launcher(_) => measured,
-                    SlotIds::Project(_) => self.default_panel_size.into(),
+                let scale = match content {
+                    SlotIds::Launcher(_) => 1.0,
+                    SlotIds::Project(_) => project_scale,
                 };
+                let size = SizePx::new(measured[0], measured[1]).to_f64();
+                // Round outward so integer tracks contain the full fractional presented extent.
+                let size = (size * scale).ceil().to_u32();
                 MatrixSlot {
-                    content,
-                    size,
+                    layout_size: measured,
+                    size: size.into(),
+                    scale,
                     placement: self
                         .aggregates
                         .configuration
@@ -269,48 +255,6 @@ impl DesktopLayoutAlgorithm<'_> {
                 }
             })
             .collect()
-    }
-
-    /// The size a nested project's own scene occupies at scale 1: its header and
-    /// matrix plus the project's padding, exactly as the project lays itself out
-    /// when it is the focused project.
-    fn project_scene_size(&self, project_id: ProjectId) -> Size<2> {
-        let header = self.project_header_size(project_id).size;
-        let slots = self.project_matrix_slots(
-            project_id,
-            &self
-                .aggregates
-                .hierarchy
-                .matrix_slots(project_id)
-                .into_iter()
-                .map(|content| self.measure_slot_content(content))
-                .collect::<Vec<_>>(),
-        );
-        let matrix = matrix_size(&slots);
-
-        let width = max(header[0], matrix[0]) + 2 * PROJECT_PADDING;
-        let height = header[1] + PROJECT_HEADER_SPACING + matrix[1] + 2 * PROJECT_PADDING;
-        [width, height].into()
-    }
-
-    /// What a slot's content measures when it lays itself out at full size.
-    fn measure_slot_content(&self, content: SlotIds) -> Size<2> {
-        match content {
-            SlotIds::Launcher(launcher_id) => launcher_mode::panel_measurement(
-                self.launcher_mode(launcher_id),
-                self.default_panel_size,
-            )
-            .unwrap_or_else(|| self.default_panel_size.into()),
-            SlotIds::Project(nested) => self.project_scene_size(nested),
-        }
-    }
-
-    fn project_matrix_tracks(
-        &self,
-        project_id: ProjectId,
-        child_sizes: &[Size<2>],
-    ) -> (Vec<u32>, Vec<u32>) {
-        matrix_tracks(&self.project_matrix_slots(project_id, child_sizes))
     }
 
     fn project_header_size(&self, project_id: ProjectId) -> MeasuredLayout<2> {
@@ -451,11 +395,12 @@ impl DesktopLayoutAlgorithm<'_> {
     }
 }
 
-/// One assigned slot of a project's matrix, as the layout sees it: what it hosts,
-/// its measured size, and its matrix placement.
+/// Separate intrinsic and presented sizes keep child layout independent of parent track allocation.
+#[derive(Debug)]
 struct MatrixSlot {
-    content: SlotIds,
+    layout_size: Size<2>,
     size: Size<2>,
+    scale: f64,
     placement: MatrixPlacement,
 }
 
@@ -492,13 +437,12 @@ fn matrix_size(slots: &[MatrixSlot]) -> Size<2> {
     .into()
 }
 
-/// The uniform scale that fits a `scene` uniformly into a `slot`-sized area: the
-/// smaller of the two axis ratios, so the scene never overflows the area.
-pub fn presentation_scale(slot: Size<2>, scene: Size<2>) -> f64 {
-    if scene[0] == 0 || scene[1] == 0 {
+/// ADR 0015: width-only shrinking preserves readability without penalizing tall projects.
+pub fn presentation_scale(preferred_width: u32, scene_width: u32) -> f64 {
+    if scene_width <= preferred_width {
         return 1.0;
     }
-    (slot[0] as f64 / scene[0] as f64).min(slot[1] as f64 / scene[1] as f64)
+    preferred_width as f64 / scene_width as f64
 }
 
 fn tracks_span(tracks: &[u32], spacing: u32) -> u32 {
@@ -569,18 +513,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn presentation_scale_fits_the_scene_into_the_slot_uniformly() {
-        let slot: Size<2> = [300, 200].into();
-
-        // Height-limited: the 3:1 scene is wider than the slot by more, so the
-        // height ratio wins and the scene never overflows horizontally either.
-        assert_eq!(presentation_scale(slot, [600, 400].into()), 0.5);
-        assert_eq!(presentation_scale(slot, [300, 800].into()), 0.25);
-        assert_eq!(presentation_scale(slot, [150, 100].into()), 2.0);
+    fn presentation_scale_fits_width_without_enlarging() {
+        assert_eq!(presentation_scale(300, 600), 0.5);
+        assert_eq!(presentation_scale(300, 300), 1.0);
+        assert_eq!(presentation_scale(300, 150), 1.0);
     }
 
     #[test]
     fn presentation_scale_of_an_empty_scene_is_one() {
-        assert_eq!(presentation_scale([300, 200].into(), [0, 0].into()), 1.0);
+        assert_eq!(presentation_scale(300, 0), 1.0);
     }
 }
