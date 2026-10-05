@@ -44,6 +44,25 @@ pub enum LauncherMode {
     Visor,
 }
 
+/// The Full Screen Mode shared by a launcher's base instances (ADR 0014).
+/// Serialized as the lowercase variant name, `regular` the default.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FullScreenMode {
+    #[default]
+    Regular,
+    FullScreen,
+}
+
+impl FullScreenMode {
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Regular => Self::FullScreen,
+            Self::FullScreen => Self::Regular,
+        }
+    }
+}
+
 /// The canonical desktop configuration: what is parsed from the configuration
 /// document and what the boot flow derives its commands from. Ids are fresh per
 /// session and the document is keyed by name, so the two representations only
@@ -172,6 +191,7 @@ impl RuntimeConfiguration {
                     name: profile.name.clone(),
                     mode: profile.mode,
                     params: profile.params.clone(),
+                    full_screen_mode: profile.full_screen_mode,
                 };
                 let project = self
                     .project_mut(parent)
@@ -659,6 +679,14 @@ impl RuntimeConfiguration {
             .and_then(|project| project.launcher(launcher))
     }
 
+    /// Mutable access to a launcher record, for Full Screen Mode changes
+    /// (ADR 0014). The launcher lives in its slot's payload.
+    pub fn launcher_mut(&mut self, launcher: LaunchProfileId) -> Option<&mut Launcher> {
+        self.projects
+            .values_mut()
+            .find_map(|project| project.launcher_mut(launcher))
+    }
+
     /// The project a launcher belongs to, by searching each project's slots. The
     /// topology's `project_of_launcher` answers from parent links instead, and is
     /// the right source when the scene hierarchy is available.
@@ -877,7 +905,6 @@ impl Project {
         })
     }
 
-    #[cfg(test)]
     pub fn launcher_mut(&mut self, id: LaunchProfileId) -> Option<&mut Launcher> {
         self.slots
             .iter_mut()
@@ -996,6 +1023,9 @@ pub struct Launcher {
     pub name: String,
     pub mode: LauncherMode,
     pub params: Params,
+    /// The Full Screen Mode all of the launcher's base instances follow
+    /// (ADR 0014). Persisted with the configuration.
+    pub full_screen_mode: FullScreenMode,
 }
 
 impl Launcher {
@@ -1007,6 +1037,7 @@ impl Launcher {
             name,
             mode,
             params,
+            full_screen_mode: FullScreenMode::default(),
         }
     }
 
@@ -1016,7 +1047,15 @@ impl Launcher {
             name: self.name.clone(),
             mode: self.mode,
             params: self.params.clone(),
+            full_screen_mode: self.full_screen_mode,
         }
+    }
+
+    /// Sets the Full Screen Mode the launcher's base instances follow
+    /// (ADR 0014). Returns `Self` for parse-time chaining.
+    pub(crate) fn with_full_screen_mode(mut self, full_screen_mode: FullScreenMode) -> Self {
+        self.full_screen_mode = full_screen_mode;
+        self
     }
 }
 
@@ -1027,6 +1066,7 @@ pub struct LaunchProfile {
     pub name: String,
     pub mode: LauncherMode,
     pub params: Params,
+    pub full_screen_mode: FullScreenMode,
 }
 
 /// What a slot of a project's matrix hosts: a launcher or a nested project,
@@ -1518,6 +1558,7 @@ mod tests {
                 name: format!("{id:?}"),
                 mode: LauncherMode::Visor,
                 params: Params::new(),
+                full_screen_mode: FullScreenMode::Regular,
             },
         }
     }

@@ -10,13 +10,13 @@ use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
-use super::navigation::focus_depth_from_target;
 use super::{DesktopCommand, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason};
 use crate::EventTransition;
 use crate::desktop_system::change::Zoom;
 use crate::event_router::{EventTransitions, ProcessOutcome};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
+use crate::instance_presenter::InstanceKind;
 use crate::projects::{LaunchProfileId, launcher_mode};
 
 impl DesktopSystem {
@@ -189,7 +189,7 @@ impl DesktopSystem {
         &self,
         event: &Event<ViewEvent>,
     ) -> Option<DesktopKeyboardShortcut> {
-        // Catch `CMD+t` and `CMD+w` if an instance has the keyboard focus.
+        // Catch `CMD+t`, `CMD+w`, `CMD+Enter` if a launcher or an instance has the keyboard focus.
 
         if let ViewEvent::KeyboardInput {
             event: key_event, ..
@@ -202,51 +202,78 @@ impl DesktopSystem {
 
             // Simplify: Instance should probably return the launcher, too now.
             if !key_event.repeat
-                && let Some(instance) = focused_path.instance()
+                && let Some(focused_target) = focused_path.last()
             {
-                let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance);
-                match &key_event.logical_key {
-                    // Shift results in `T`.
-                    Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => {
-                        // Design: I don't like that a) this policy is decided here, and b) that we
-                        // pull the parameters here, too.
-                        let parameters = if event.device_states().is_shift() {
-                            Default::default()
-                        } else {
-                            self.aggregates
+                // `Cmd+T` starts an instance: on a launcher it starts the launcher's
+                // first base instance, inside an instance another one of the same
+                // launcher. `Shift` results in `T` and makes the new instance an
+                // assistant: it spawns without the launcher's configured parameters
+                // (in-instance) and carries its own temporary Full Screen Mode
+                // (ADR 0014).
+                let kind = if event.device_states().is_shift() {
+                    InstanceKind::Assistant
+                } else {
+                    InstanceKind::Base
+                };
+                let start_target = match focused_target {
+                    DesktopTarget::Launcher(launcher_id) => Some((*launcher_id, None)),
+                    DesktopTarget::Instance(_) | DesktopTarget::View(_) => {
+                        focused_path.instance().map(|instance| {
+                            (
+                                self.aggregates.hierarchy.launcher_of_instance(instance),
+                                Some(instance),
+                            )
+                        })
+                    }
+                    _ => None,
+                };
+
+                if let Some((launcher_id, instance)) = start_target
+                    && let Key::Character(c) = &key_event.logical_key
+                    && c.as_str().eq_ignore_ascii_case("t")
+                {
+                    // `Shift` drops the parameters intentionally (the assistant
+                    // "open plain"); otherwise the spawn inherits what the
+                    // focused object would start with: the launcher's configured
+                    // parameters from launcher focus, the focused instance's own
+                    // from instance focus.
+                    let parameters = match kind {
+                        InstanceKind::Base => match instance {
+                            Some(instance) => self
+                                .aggregates
                                 .instances
                                 .get(&instance)
                                 .expect("Focused instance has no presenter")
                                 .parameters()
-                                .clone()
-                        };
-                        return Some(DesktopKeyboardShortcut::NewInstance {
-                            launcher: launcher_id,
-                            parameters,
-                        });
-                    }
-                    Key::Character(c) if c.as_str() == "w" => {
-                        // Architecture: Shouldn't this just end the current view, and let the
-                        // instance decide then?
-                        return Some(DesktopKeyboardShortcut::CloseInstance(instance));
-                    }
-                    _ => {}
+                                .clone(),
+                            None => self.aggregates.configuration[launcher_id].params.clone(),
+                        },
+                        InstanceKind::Assistant => Default::default(),
+                    };
+                    return Some(DesktopKeyboardShortcut::NewInstance {
+                        launcher: launcher_id,
+                        parameters,
+                        kind,
+                    });
+                }
+
+                if kind == InstanceKind::Base
+                    && let Some(instance) = focused_path.instance()
+                    && let Key::Character(c) = &key_event.logical_key
+                    && c.as_str() == "w"
+                {
+                    // Architecture: Shouldn't this just end the current view, and let the
+                    // instance decide then?
+                    return Some(DesktopKeyboardShortcut::CloseInstance(instance));
                 }
             }
 
-            if !key_event.repeat
-                && key_event.logical_key == Key::Named(NamedKey::Enter)
-                && let Some(keyboard_focus) = self.event_router.keyboard_focus()
-            {
-                // Architecture: When we issue ResetZoom redundantly, we could capture the
-                // `Cmd+Enter` in situations in which it needs to be delivered to the
-                // `LauncherPresenter`. Therefore, we test upfront if the ResetZoom is needed.
-                let current_level = self.focus_depth;
-                let keyboard_focus_level = focus_depth_from_target(keyboard_focus);
-
-                if current_level != keyboard_focus_level {
-                    return Some(DesktopKeyboardShortcut::Zoom(Zoom::DefaultForFocused));
-                }
+            if !key_event.repeat && key_event.logical_key == Key::Named(NamedKey::Enter) {
+                // `Cmd+Enter` toggles Full Screen Mode on whatever is focused
+                // (ADR 0014): a launcher's or base instance's launcher mode, an
+                // assistant's own. The plan re-commits the Instance focus depth
+                // when needed, keeping the zoom-back role the key had before.
+                return Some(DesktopKeyboardShortcut::ToggleFullScreenMode);
             }
 
             if let Some(direction) = match &key_event.logical_key {
@@ -297,9 +324,13 @@ pub enum DesktopKeyboardShortcut {
     NewInstance {
         launcher: LaunchProfileId,
         parameters: InstanceParameters,
+        /// `Shift+Cmd+T`: start an assistant instance, which carries its own
+        /// temporary Full Screen Mode (ADR 0014).
+        kind: InstanceKind,
     },
     CloseInstance(InstanceId),
     Zoom(Zoom),
+    ToggleFullScreenMode,
     Navigate(Direction),
 }
 
@@ -309,15 +340,18 @@ impl DesktopKeyboardShortcut {
             Self::NewInstance {
                 launcher,
                 parameters,
+                kind,
             } => DesktopCommand::StartInstance {
                 launcher,
                 instance: Uuid::new_v4().into(),
                 root: None,
                 parameters,
+                kind,
             },
             Self::CloseInstance(instance) => DesktopCommand::StopInstance(instance),
             Self::Navigate(direction) => DesktopCommand::Navigate(direction),
             Self::Zoom(change) => DesktopCommand::Zoom(change),
+            Self::ToggleFullScreenMode => DesktopCommand::ToggleFullScreenMode,
         }
     }
 }

@@ -62,12 +62,12 @@ use crate::desktop_system::change_surface::{ChangeSurface, TargetSet};
 use crate::focus_path::{FocusPath, PathResolver};
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::{InstancePresenter, ViewWindowState};
-use crate::projects::persistence;
+use crate::projects::FullScreenMode;
 use crate::projects::{
     LaunchProfileId, LauncherPresenter, ProjectId, ProjectPresenter, RuntimeConfiguration,
 };
+use crate::window_state::WindowState;
 use crate::{DesktopEnvironment, EventRouter, Map, OrderedHierarchy};
-
 /// This enum specifies a unique target inside the navigation and layout history.
 ///
 /// `Desktop` is the hierarchy's virtual root: it is never inserted explicitly and
@@ -128,9 +128,11 @@ pub type Commands = CollectingVec<DesktopCommand>;
 ///
 /// The system should show when the focus depth is changed, so that the user knows them.
 ///
-/// The ladder reads outermost first, so a rung's position counts the zoom-ins from
-/// the focused project's level: `repr` 0 is the root project's `Project` floor,
+/// The Focus Depths read outermost first, so a Focus Depth's position counts the zoom-ins from
+/// the focused project's level: `repr` 0 is the root project's `Project` depth,
 /// where zooming out is a no-op.
+/// Full-screen presentation is not a Focus Depth: ADR 0014 makes it Full Screen Mode,
+/// a per-launcher content scale the overview's Focus Depths know nothing about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
 #[repr(u8)]
 pub enum FocusDepth {
@@ -139,17 +141,16 @@ pub enum FocusDepth {
     Slot,
     #[default]
     Instance,
-    InstanceFullScreen,
 }
 
 impl FocusDepth {
-    /// Deeper: one rung toward the focused content. `None` at the innermost rung.
+    /// Deeper: one Focus Depth toward the focused content. `None` at the innermost depth.
     pub fn zoom_in(self) -> Option<Self> {
         Self::from_repr((self as u8).checked_add(1)?)
     }
 
-    /// Shallower: one rung toward the project floor. `None` at the floor, which is
-    /// the underflow guard.
+    /// Shallower: one Focus Depth toward the project level. `None` beyond the
+    /// Project depth, which is the underflow guard.
     pub fn zoom_out(self) -> Option<Self> {
         Self::from_repr((self as u8).checked_sub(1)?)
     }
@@ -206,11 +207,24 @@ impl TransactionEffectsMode {
     }
 }
 
+/// Whether a transaction applied a change to the persistent configuration:
+/// its caller persists the aggregate only then (ADR 0013).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigurationChanged {
+    Yes,
+    No,
+}
+
 #[derive(Debug)]
 pub struct DesktopSystem {
     env: DesktopEnvironment,
 
     default_panel_size: SizePx,
+    /// The window state, committed by `DesktopChange::WindowResized` — the
+    /// constructor seeds it from the default panel size (ADR 0014: the spawn
+    /// path reads the inner size to seed a fullscreen instance's application
+    /// canvas).
+    window_state: WindowState,
 
     event_router: EventRouter<DesktopTarget>,
     camera: CameraPresentation,
@@ -221,11 +235,6 @@ pub struct DesktopSystem {
 
     #[debug(skip)]
     layout_state: DesktopLayoutState,
-
-    /// The persisted desktop configuration; derived from the aggregate and
-    /// written on every configuration change.
-    #[debug(skip)]
-    configuration: persistence::ConfigurationPersistence,
 
     focus_depth_indicator: FocusDepthIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
@@ -260,13 +269,30 @@ impl Aggregates {
             instances: Map::default(),
         }
     }
+
+    /// The Full Screen Mode `instance` currently presents in: an assistant's
+    /// temporary mode, or its launcher's mode shared by its base instances.
+    /// Every caller passes an instance of the live topology, whose launcher and
+    /// its configuration record are invariants — layout, camera, and hover reads
+    /// all run after the transaction's topology changes are applied.
+    pub(super) fn instance_full_screen_mode(&self, instance: InstanceId) -> FullScreenMode {
+        if let Some(mode) = self
+            .instances
+            .get(&instance)
+            .and_then(|presenter| presenter.full_screen_mode())
+        {
+            mode
+        } else {
+            let launcher = self.hierarchy.launcher_of_instance(instance);
+            self.configuration[launcher].full_screen_mode
+        }
+    }
 }
 
 impl DesktopSystem {
     pub fn new(
         env: DesktopEnvironment,
         default_panel_size: SizePx,
-        configuration: persistence::ConfigurationPersistence,
         aggregate: RuntimeConfiguration,
     ) -> Result<Self> {
         // Architecture: This is a direct requirement from the desktop presenter. But where does our
@@ -284,6 +310,7 @@ impl DesktopSystem {
             env,
 
             default_panel_size,
+            window_state: WindowState::new(default_panel_size, false),
 
             event_router,
             camera: CameraPresentation::new(PixelCamera::default()),
@@ -291,7 +318,6 @@ impl DesktopSystem {
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
-            configuration,
 
             focus_depth_indicator,
             desktop_presenter,
@@ -308,15 +334,19 @@ impl DesktopSystem {
     // of the earlier changes applied, so the state may be inconsistent
     // (including the document mirror, which lands before the apply — see the
     // `DesktopChange::Project` arm in `apply_change`).
+    /// Applies `changes` to completion. Reports [`ConfigurationChanged`] so
+    /// the caller persists the aggregate (ADR 0013): persistence lives
+    /// outside the system, and the setup flow replays changes the parsed
+    /// file already carries — it persists nothing.
     pub fn transact(
         &mut self,
         changes: impl Into<Changes>,
         instance_manager: &mut InstanceManager,
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
-        window_size: SizePx,
-    ) -> Result<()> {
+    ) -> Result<ConfigurationChanged> {
         let changes = changes.into();
         let previous_focus_depth = self.focus_depth;
+        let window_size = self.window_state.inner_size;
         // For live transactions the gesture mode is derived from the current pointer-button state;
         // callers only pass an explicit mode for setup.
         let effects_mode = effects_mode
@@ -329,7 +359,7 @@ impl DesktopSystem {
         {
             let mut changes: VecDeque<DesktopChange> = changes.into_iter().collect();
             while let Some(change) = changes.pop_front() {
-                let output = self.apply_change(change, instance_manager, effects_mode)?; // TODO: I think Changes should support a DoubleEndedIterator.
+                let output = self.apply_change(change, instance_manager)?; // TODO: I think Changes should support a DoubleEndedIterator.
                 for new_change in output
                     .changes
                     .into_iter()
@@ -343,11 +373,11 @@ impl DesktopSystem {
             }
         }
 
-        // The initial setup loads the configuration from the file, so its changes
-        // must not be written back; after setup, every change persists.
-        if effects_mode != TransactionEffectsMode::Setup {
-            self.configuration.persist(&self.aggregates.configuration);
-        }
+        // A setup transaction's changes are the ones the parsed configuration
+        // file already carries: it updates the live model but reports no
+        // configuration change to persist (ADR 0013).
+        let configuration_changed =
+            change_surface.configuration_changed && effects_mode != TransactionEffectsMode::Setup;
 
         // Collect deferred measures if the camera can be moved.
 
@@ -378,13 +408,13 @@ impl DesktopSystem {
         // Convert the change surface to effects.
         let effects = convert_change_surface_to_effects(change_surface);
 
-        // Window size is needed to resolve layout and camera focus for presenters that
-        // must fit into the window.
-        self.run_effects_to_completion(effects_mode, effects, window_size, instance_manager)?;
+        // Layout and camera focus for presenters that must fit into the window
+        // read the size from the system's window state.
+        self.run_effects_to_completion(effects_mode, effects, instance_manager)?;
 
         // Resolve camera intent after all effects were run, when all placements are final.
         if update_camera {
-            let desired = self.resolve_desired_camera(window_size);
+            let desired = self.resolve_desired_camera();
             self.camera.set_desired(desired);
         }
 
@@ -399,20 +429,39 @@ impl DesktopSystem {
 
         // Update the hover target.
         {
-            let hover_target = self
-                .event_router
-                .pointer_focus()
-                .or_else(|| self.event_router.keyboard_focus());
+            // While a fullscreen instance is focused, its view covers the whole
+            // window, so the pointer physically sits on the focused view's area
+            // whatever it pointed at before — tracking pointer focus would box
+            // the obscured instance behind the fullscreen one. Keyboard focus is
+            // the honest anchor there (ADR 0014).
+            let hover_target = if self.focused_path().instance().is_some_and(|instance| {
+                self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
+            }) {
+                self.event_router.keyboard_focus()
+            } else {
+                self.event_router
+                    .pointer_focus()
+                    .or_else(|| self.event_router.keyboard_focus())
+            };
 
             // Sync the hover rect.
             self.sync_hover_with_target(hover_target.cloned().as_ref());
         }
 
-        Ok(())
+        Ok(if configuration_changed {
+            ConfigurationChanged::Yes
+        } else {
+            ConfigurationChanged::No
+        })
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {
         self.aggregates.instances.contains_key(instance)
+    }
+
+    /// The live configuration aggregate, for the caller's persistence (ADR 0013).
+    pub fn configuration(&self) -> &RuntimeConfiguration {
+        &self.aggregates.configuration
     }
 
     pub fn camera(&mut self) -> &PixelCamera {

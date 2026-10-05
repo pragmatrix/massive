@@ -35,9 +35,9 @@ use log::warn;
 use serde::{Deserialize, Serialize};
 
 use crate::projects::{
-    DEFAULT_NEW_LAUNCHER_NAME, LaunchProfile, LaunchProfileId, Launcher, LauncherMode,
-    MatrixPlacement, Params, Project, ProjectId, ROOT_PROJECT_NAME, RuntimeConfiguration, Slot,
-    SlotAssignment, SlotPayload,
+    DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, Launcher,
+    LauncherMode, MatrixPlacement, Params, Project, ProjectId, ROOT_PROJECT_NAME,
+    RuntimeConfiguration, Slot, SlotAssignment, SlotPayload,
 };
 
 /// The document form of [`crate::projects::DesktopConfiguration`]: the startup
@@ -77,6 +77,15 @@ pub struct PersistedLauncher {
     pub mode: LauncherMode,
     #[serde(default, skip_serializing_if = "Params::is_empty")]
     pub params: Params,
+    /// The launcher's Full Screen Mode, shared by its base instances (ADR 0014).
+    #[serde(default, skip_serializing_if = "full_screen_mode_is_regular")]
+    pub full_screen_mode: FullScreenMode,
+}
+
+/// The `skip_serializing_if` predicate shape serde expects (by reference): the
+/// regular Full Screen Mode is the default and stays out of the document.
+fn full_screen_mode_is_regular(mode: &FullScreenMode) -> bool {
+    *mode == FullScreenMode::Regular
 }
 
 /// A project node: the fractal unit of the document. The name is required — the
@@ -169,7 +178,8 @@ fn persisted_slots(slots: &[PersistedSlot], projects: &mut Vec<Project>) -> Vec<
                     launcher.name.clone(),
                     launcher.mode,
                     launcher.params.clone(),
-                ),
+                )
+                .with_full_screen_mode(launcher.full_screen_mode),
             )),
             PersistedSlotContent::Project(project) => {
                 let nested = persisted_slots(&project.slots, projects);
@@ -205,6 +215,7 @@ fn ensure_launcher(configuration: &mut RuntimeConfiguration) {
         name: DEFAULT_NEW_LAUNCHER_NAME.into(),
         mode: LauncherMode::Visor,
         params: Params::new(),
+        full_screen_mode: FullScreenMode::Regular,
     };
     let id = LaunchProfileId::new();
     configuration.assign_slot(
@@ -230,6 +241,7 @@ fn project_slots(configuration: &RuntimeConfiguration, project: ProjectId) -> Ve
                         name: launcher.name.clone(),
                         mode: launcher.mode,
                         params: launcher.params.clone(),
+                        full_screen_mode: launcher.full_screen_mode,
                     })
                 }
                 SlotPayload::Project(child) => PersistedSlotContent::Project(PersistedProject {
@@ -259,6 +271,7 @@ mod tests {
                         name: "shell".into(),
                         mode: LauncherMode::Visor,
                         params: Params::new(),
+                        full_screen_mode: FullScreenMode::Regular,
                     }),
                 },
                 PersistedSlot {
@@ -273,6 +286,7 @@ mod tests {
                                 params: [("command".into(), Value::String("just".into()))]
                                     .into_iter()
                                     .collect(),
+                                full_screen_mode: FullScreenMode::Regular,
                             }),
                         }],
                     }),

@@ -5,17 +5,17 @@ use massive_geometry::{PixelCamera, Size, SizePx};
 use massive_scene::prelude::*;
 
 use super::change::{Changes, DesktopChange, set_focus};
+use super::fullscreen::fullscreen_scale;
 use super::topology::DesktopTopology;
 use super::{DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason, LauncherMap};
 use crate::projects::{
-    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration,
+    FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, RuntimeConfiguration,
 };
 
 mod matrix_navigation;
 mod zoom_navigation;
 
 use matrix_navigation::MatrixNavigation;
-pub(crate) use zoom_navigation::focus_depth_from_target;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HorizontalDirection {
@@ -241,7 +241,31 @@ impl DesktopSystem {
                 let transform = self
                     .placement(&DesktopTarget::Instance(*instance_id))
                     .transform;
-                Some(Self::camera_from_placement(transform))
+                // Full Screen Mode (ADR 0014): the view presents window-resolution
+                // content scaled by the fullscreen factor into its panel, so the
+                // camera dollies in by that factor — the content maps 1:1 onto the
+                // screen, the pixel-aligned fullscreen camera. The panel camera
+                // would render the content letterboxed at the panel scale.
+                //
+                // Only while the instance HAS its primary view: the instance
+                // target brieflly exists view-less between StartInstance and the
+                // view's first submission, and framing that empty panel at the
+                // fullscreen distance shows 1/0.75-scaled content for one
+                // commit — the "grow, then settle back" bounce on Cmd+T.
+                if self.aggregates.instance_full_screen_mode(*instance_id)
+                    == FullScreenMode::FullScreen
+                    && self.aggregates.view_of_instance(*instance_id).is_some()
+                {
+                    let content_scale =
+                        fullscreen_scale(self.default_panel_size, self.window_state.inner_size);
+                    Some(Self::camera_from_placement(transform).with_distance(
+                        PixelCamera::pixel_perfect_distance(PixelCamera::DEFAULT_FOVY)
+                            * transform.scale
+                            * content_scale,
+                    ))
+                } else {
+                    Some(Self::camera_from_placement(transform))
+                }
             }
             DesktopTarget::View(_) => {
                 self.camera_for_target(self.aggregates.hierarchy.parent(focus)?)
@@ -307,10 +331,9 @@ fn resolve_navigation_origin(
         DesktopTarget::Launcher(launcher_id) => Some(NavigationOrigin::Launcher(*launcher_id)),
         DesktopTarget::Instance(instance_id) => {
             let launcher = hierarchy.launcher_of_instance(*instance_id);
-            let instances = hierarchy.launcher_instances(launcher);
-            let index = instances
-                .iter()
-                .position(|instance| instance == instance_id)?;
+            let index = hierarchy
+                .launcher_instances(launcher)
+                .position(|instance| instance == *instance_id)?;
             Some(NavigationOrigin::Child { launcher, index })
         }
         DesktopTarget::View(_) => {
@@ -402,7 +425,7 @@ fn concrete_navigation_target(
         .map_or(LauncherMode::default(), |launcher| launcher.mode);
     let focus_anchor_instance = launcher.focus_anchor_instance;
 
-    let instances = topology.launcher_instances(launcher_id);
+    let instances: Vec<_> = topology.launcher_instances(launcher_id).collect();
     let preferred_index = match (mode, focus_anchor_instance) {
         (LauncherMode::Visor, Some(focused)) => {
             instances.iter().position(|instance| *instance == focused)

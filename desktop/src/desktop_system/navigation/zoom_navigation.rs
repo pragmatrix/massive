@@ -1,7 +1,5 @@
 use massive_applications::InstanceId;
-use massive_geometry::{
-    BoundaryRect, Centroid, PixelCamera, Quaternion, Rect, RectPx, SizePx, Vector3,
-};
+use massive_geometry::{BoundaryRect, Centroid, PixelCamera, Quaternion, Rect, RectPx, Vector3};
 use massive_scene::prelude::*;
 
 use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
@@ -21,27 +19,14 @@ impl OverviewBounds {
     }
 }
 
-pub(crate) fn focus_depth_from_target(target: &DesktopTarget) -> FocusDepth {
-    match target {
-        DesktopTarget::Desktop => FocusDepth::Project,
-        DesktopTarget::View(_) => FocusDepth::Instance,
-        DesktopTarget::Instance(_) => FocusDepth::Instance,
-        DesktopTarget::Launcher(_) => FocusDepth::Slot,
-        DesktopTarget::Project(_)
-        | DesktopTarget::ProjectHeader(_)
-        | DesktopTarget::ProjectMatrix(_) => FocusDepth::Project,
-    }
-}
-
 impl DesktopSystem {
     pub(crate) fn resolve_camera_for_target_or_ancestor(
         &self,
         target: &DesktopTarget,
         mut depth: FocusDepth,
-        window_size: SizePx,
     ) -> PixelCamera {
         loop {
-            if let Some(camera) = self.resolve_camera_focus_and_depth(target, depth, window_size) {
+            if let Some(camera) = self.resolve_camera_focus_and_depth(target, depth) {
                 return camera;
             }
 
@@ -55,47 +40,30 @@ impl DesktopSystem {
         &self,
         target: &DesktopTarget,
         depth: FocusDepth,
-        window_size: SizePx,
     ) -> Option<PixelCamera> {
         match depth {
-            FocusDepth::InstanceFullScreen => self
-                .aggregates
-                .hierarchy
-                .instance_of_target(target)
-                .map(|instance_id| {
-                    let presentation = self.resolve_instance_presentation(instance_id, window_size);
-                    let transform = self
-                        .placement(&DesktopTarget::Instance(instance_id))
-                        .transform;
-                    let distance =
-                        Self::fit_letterbox_distance(presentation.layout_size(), window_size)
-                            * transform.scale;
-                    Self::camera_from_placement(transform).with_distance(distance)
-                }),
             FocusDepth::Instance => self.camera_for_target(target),
-            FocusDepth::Slot => self.camera_for_launcher_focus(target, window_size),
+            FocusDepth::Slot => self.camera_for_launcher_focus(target),
             FocusDepth::Row => self
                 .aggregates
                 .hierarchy
                 .launcher_of_target(target)
-                .and_then(|launcher| {
-                    self.camera_for_rect(self.matrix_row_rect(launcher)?, window_size)
-                }),
+                .and_then(|launcher| self.camera_for_rect(self.matrix_row_rect(launcher)?)),
             FocusDepth::Project => {
                 let project = self.aggregates.hierarchy.project_of_target(target);
-                self.camera_for_rect(self.project_rect(project), window_size)
+                self.camera_for_rect(self.project_rect(project))
             }
         }
     }
 
-    fn camera_for_launcher_focus(
-        &self,
-        target: &DesktopTarget,
-        window_size: SizePx,
-    ) -> Option<PixelCamera> {
+    fn camera_for_launcher_focus(&self, target: &DesktopTarget) -> Option<PixelCamera> {
         let launcher_id = self.aggregates.hierarchy.launcher_of_target(target)?;
 
-        let instances = self.aggregates.hierarchy.launcher_instances(launcher_id);
+        let instances: Vec<_> = self
+            .aggregates
+            .hierarchy
+            .launcher_instances(launcher_id)
+            .collect();
         if instances.len() <= 1 {
             // A launcher with zero or one visor has no arc to union — frame the launcher itself.
             return self.camera_for_target(&DesktopTarget::Launcher(launcher_id));
@@ -111,12 +79,10 @@ impl DesktopSystem {
         {
             // Band panels are flat axis-aligned rects (no yaw, z = 0): the simple letterbox fit
             // the rows and projects use.
-            Some(LauncherMode::Band) => {
-                self.camera_for_rect(self.fold_instance_rect(instances), window_size)
-            }
+            Some(LauncherMode::Band) => self.camera_for_rect(self.fold_instance_rect(instances)),
             // The arc camera is visor-specific; a launcher missing from the configuration falls
             // through to it, the default mode.
-            Some(LauncherMode::Visor) | None => self.camera_for_visor_arc(instances, window_size),
+            Some(LauncherMode::Visor) | None => self.camera_for_visor_arc(instances),
         }
     }
 
@@ -124,11 +90,7 @@ impl DesktopSystem {
     // an off-center focus fans the other panels to one side and their panel yaws average to a
     // nonzero angle. Use that mean yaw (≈0 when focus is centered) to rotate the camera toward
     // the bulk, keeping the fit centered on the union of all visors.
-    fn camera_for_visor_arc(
-        &self,
-        instances: Vec<InstanceId>,
-        window_size: SizePx,
-    ) -> Option<PixelCamera> {
+    fn camera_for_visor_arc(&self, instances: Vec<InstanceId>) -> Option<PixelCamera> {
         let transforms: Vec<Transform> = instances
             .iter()
             .map(|instance| {
@@ -145,15 +107,10 @@ impl DesktopSystem {
             / transforms.len() as f64;
 
         let bounds = self.fold_instance_bounds(instances);
-        self.camera_for_bounds(bounds, mean_yaw, window_size)
+        self.camera_for_bounds(bounds, mean_yaw)
     }
 
-    fn camera_for_bounds(
-        &self,
-        bounds: OverviewBounds,
-        mean_yaw: f64,
-        window_size: SizePx,
-    ) -> Option<PixelCamera> {
+    fn camera_for_bounds(&self, bounds: OverviewBounds, mean_yaw: f64) -> Option<PixelCamera> {
         // Point the camera at the 3D centroid of the visor corners (which carries the arc's z
         // offset, not the flat z=0 plane), rotated by the panels' mean yaw so it looks toward the
         // arc's bulk. The whole-set fit then measures projected extent around that center. An
@@ -161,18 +118,19 @@ impl DesktopSystem {
         let centroid = bounds.points.centroid()?;
         let look_at = Transform::new(centroid, Quaternion::from_rotation_y(mean_yaw), 1.0);
         let camera = look_at.to_camera();
-        let distance = camera.fit_distance_for_points(&bounds.points, window_size)?;
+        let distance =
+            camera.fit_distance_for_points(&bounds.points, self.window_state.inner_size)?;
         Some(camera.with_distance(distance))
     }
 
-    fn camera_for_rect(&self, rect: Rect, window_size: SizePx) -> Option<PixelCamera> {
+    fn camera_for_rect(&self, rect: Rect) -> Option<PixelCamera> {
         if rect.is_empty() {
             return None;
         }
 
         let center = rect.center();
         let center: Transform = (center.x, center.y, 0.0).into();
-        let distance = Self::fit_letterbox_distance(rect.size(), window_size);
+        let distance = Self::fit_letterbox_distance(rect.size(), self.window_state.inner_size);
         Some(center.to_camera().with_distance(distance))
     }
 

@@ -13,7 +13,7 @@ A change to the desktop configuration: adding the root project, assigning or cle
 _Avoid_: project change
 
 **Desktop**:
-The hierarchy's virtual root target. It is never inserted explicitly, has no presenter, and only parents the root project's target — the one node every hit-test miss maps to. Not to be confused with a depth: `FocusDepth::Desktop` no longer exists, the ladder tops out at the root project's Project depth.
+The hierarchy's virtual root target. It is never inserted explicitly, has no presenter, and only parents the root project's target — the one node every hit-test miss maps to. Not to be confused with a depth: `FocusDepth::Desktop` no longer exists, the root project's Project depth is the outermost Focus Depth.
 _Avoid_: desktop depth, root project (the root project hangs *below* it)
 
 **Project**:
@@ -61,12 +61,12 @@ The hierarchy target the camera follows while in `Overview`. Climbs toward the r
 _Avoid_: camera anchor, zoom target
 
 **Focused project**:
-The project whose depth ladder the overview depth resolves against. Changed by zooming through a project slot: entering a nested project makes it the focused project; zooming out past its Project depth returns to the parent slot and makes the parent the focused project.
+The project whose Focus Depths the overview depth resolves against. Changed by zooming through a project slot: entering a nested project makes it the focused project; zooming out past its Project depth returns to the parent slot and makes the parent the focused project.
 _Avoid_: current project (ambiguous with the invocation base), active project
 
 **Focus depth**:
-One rung of the overview's depth ladder — Project, Row, Slot, Instance, Full Screen — resolved relative to the focused project. The ladder reads outermost first, so a rung's position counts the zoom-ins from the project level. There is no rung above the root project's Project depth; ZoomOut at that floor is a no-op.
-_Avoid_: zoom level (the Zoom commands are retained), Desktop depth (the root is the floor)
+One Focus Depth of the overview — Project, Row, Slot, Instance — resolved relative to the focused project. The depths read outermost first, so a Focus Depth's position counts the zoom-ins from the project level. There is no depth beyond the root project's Project depth; ZoomOut there is a no-op.
+_Avoid_: zoom level (the Zoom commands are retained), Desktop depth (the root is the outermost depth)
 
 **Navigate**:
 Directional movement of keyboard focus (or the overview target) one step from the current position, driven by an arrow key.
@@ -84,9 +84,21 @@ _Avoid_: pending focus, focus request
 A configured entry that a slot may host; hosts one or more running instances and owns a launcher mode. A launcher holds a dynamic set of instances that can be added (or removed) at runtime, so its instance count is not fixed by configuration even when it starts from a single command.
 _Avoid_: profile, cell
 
+**Base instance**:
+An instance a launcher starts with the launcher's configured parameters — through the launcher's start action, or with `Cmd+T` while one of the launcher's instances has keyboard focus. All base instances of a launcher follow the launcher's Full Screen Mode together; the assistant instance is the other kind.
+_Avoid_: default instance, primary instance
+
+**Assistant instance**:
+An instance created through the assistant entry point: `Shift+Cmd+T` starts one without the launcher's configured parameters. An assistant owns a temporary Full Screen Mode of its own, unaffected by its launcher's; unlike the launcher's, it never persists.
+_Avoid_: aux instance, sidecar, secondary instance
+
 **Instance**:
 A single running application session owned by a launcher. Multiple instances of the same launcher can coexist, are presented by the visor, and appear or disappear dynamically as the user opens or closes them.
 _Avoid_: session, tab, process
+
+**Full Screen Mode**:
+An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. Toggled with `Cmd+Enter` on whatever is focused: a launcher's base instance toggles the launcher's mode, an assistant toggles its own; on a launcher (or nothing toggleable) it is a no-op that only re-commits the Instance focus depth when the depth is not already `Instance`. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
+_Avoid_: fullscreen flag, fullscreen presentation, zoom level, full screen launcher
 
 **Close request**:
 A window-lifecycle signal that asks the application to end. It is delivered to every live instance regardless of keyboard focus because closing the application is not a focus-targeted interaction.

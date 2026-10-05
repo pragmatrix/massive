@@ -46,6 +46,7 @@ impl ConfigurationPersistence {
     /// The document is derived from the aggregate, so there is no edit step and
     /// nothing to resolve — the call cannot fail, and the change itself is not
     /// needed.
+    #[cfg(test)]
     pub fn mark_pending(&mut self) {
         self.changed = true;
     }

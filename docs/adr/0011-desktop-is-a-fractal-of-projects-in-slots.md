@@ -5,8 +5,8 @@
 The desktop previously had exactly two levels: the `Desktop` (the implicit root
 that fit all projects) holding top-level projects, each project owning a matrix
 of launchers. The model now recurses: exactly one project is the root, and
-`FocusDepth::Desktop` is removed — the top of the depth ladder is the root
-project's `Project` depth. A project's matrix
+`FocusDepth::Desktop` is removed — the root project's `Project` depth is the
+outermost Focus Depth. A project's matrix
 is filled by **slots**, and each slot hosts either a launcher or another nested
 project — never both. Nested projects are single-parented and appear in exactly
 one placement. A launcher keeps its existing meaning: the configured profile
@@ -37,17 +37,21 @@ A project that is not the focused project presents exactly one slot level deep:
 its slots render (a launcher slot without its instances, a project slot without
 its nested slots) and the slots are only clickable — a click is a zoom-in
 gesture. Nothing deeper is rendered or interactive. The focused project itself
-behaves as before at every depth of its ladder. Rendering (content pruning) and
+behaves as before at every Focus Depth. Rendering (content pruning) and
 interaction (hit testing and focus routing) share this single rule, which is
 what makes the model fractal rather than two ad-hoc behaviors; it generalizes
-to arbitrary nesting depth without new vocabulary. Only the depth ladder
-borrows the slot word. The overview depth ladder reads outermost first —
+to arbitrary nesting depth without new vocabulary. Only the Focus Depth
+borrows the slot word. The overview Focus Depths read outermost first —
 `Project, Row, Slot, Instance, Full Screen` (`Launcher` renamed to `Slot`,
-`Desktop` removed): a rung's position counts the zoom-ins from the project
-level, so the ladder composes across nesting — each zoom-in through a project
-slot descends the newly focused project's ladder. There is no rung above the
-root project's Project depth, and `ZoomOut` at that floor is a no-op (clamped;
-repr `0` makes the floor the underflow guard).
+`Desktop` removed): a Focus Depth's position counts the zoom-ins from the project
+level, so the depths compose across nesting — each zoom-in through a project
+slot switches to the newly focused project's Focus Depth sequence. There is no
+depth beyond the root project's Project depth, and `ZoomOut` there is a no-op
+(clamped; repr `0` makes it the underflow guard).
+
+*Update:* the `Full Screen` depth is superseded by
+[ADR 0014](0014-fullscreen-mode-is-per-launcher-content-scaling.md) — the
+Focus Depths read `Project, Row, Slot, Instance`.
 
 ## Nested projects render scaled, at full layout size
 
@@ -132,8 +136,8 @@ to the nearest depth-first launcher from the root when it does not resolve.
   root project (a hit-test miss produces a `Desktop` target), and the exception
   arm logs, so situations that reach it stay observable.
 - `project_of_target` answering the root for every target keeps the derived
-  focused project and the depth ladder dependent on a project being found at
-  the ladder floor.
+  focused project and the depth sequence dependent on a project being found
+  at the root.
 - Rect math reads the placement rect (origin space), not the placement
   transform's scale: `to_origin_space`/`to_anchor_space` only round-trip at
   scale 1. This includes the overview bounds and the row/project rect widening.

@@ -72,8 +72,9 @@ impl OrderedHierarchy<DesktopTarget> {
     /// its shape apart from the by-design miss case.
     ///
     /// Every other target is live or misses: unlike the shallower walk helpers,
-    /// whose `None`s steer the camera walk between rungs, this is the ladder floor,
-    /// so a target the topology does not hold is an invariant violation.
+    /// whose `None`s steer the camera walk between Focus Depths, this walk
+    /// must answer with a project, so a target the topology does not hold is
+    /// an invariant violation.
     pub fn project_of_target(&self, target: &DesktopTarget) -> ProjectId {
         match target {
             DesktopTarget::Desktop => {
@@ -100,14 +101,16 @@ impl OrderedHierarchy<DesktopTarget> {
     }
 
     /// The instances of a launcher, in the launcher's child order.
-    pub fn launcher_instances(&self, launcher_id: LaunchProfileId) -> Vec<InstanceId> {
+    pub fn launcher_instances<'a>(
+        &'a self,
+        launcher_id: LaunchProfileId,
+    ) -> impl Iterator<Item = InstanceId> + 'a {
         self.get_nested(&DesktopTarget::Launcher(launcher_id))
             .iter()
             .filter_map(|target| match target {
                 DesktopTarget::Instance(instance_id) => Some(*instance_id),
                 _ => None,
             })
-            .collect()
     }
 
     /// The matrix children of `project`, classified as slot contents.

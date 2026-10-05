@@ -6,8 +6,9 @@ use super::KeyboardFocusReason;
 use crate::DesktopTarget;
 use crate::desktop_system::FocusDepth;
 use crate::event_router::EventTransitions;
-use crate::instance_presenter::InstanceRoot;
+use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
+use crate::window_state::WindowState;
 
 pub type Changes = CollectingVec<DesktopChange>;
 
@@ -23,13 +24,7 @@ pub enum DesktopChange {
     },
     // Design: This could also be done as an external effect.
     ShutdownInstance(InstanceId),
-    PresentInstance {
-        launcher: LaunchProfileId,
-        initial_center_translation: Option<Vector3>,
-        instance: InstanceId,
-        root: InstanceRoot,
-        parameters: InstanceParameters,
-    },
+    PresentInstance(InstancePresentation),
     HideInstance {
         launcher: LaunchProfileId,
         instance: InstanceId,
@@ -44,19 +39,46 @@ pub enum DesktopChange {
     CommitNavigationAffinity(Option<u32>),
     /// Commit the focus depth.
     CommitFocusDepth(FocusDepth),
-    WindowResized,
+    /// Toggles the Full Screen Mode of the focused launcher (its base instances)
+    /// or, when an assistant instance is focused, of that instance (ADR 0014).
+    ToggleFullScreenMode(ToggleFullScreenModeTarget),
+    /// The window state changed; commits it as the system's window state.
+    /// The constructor seeds the state, so a resize event commits only
+    /// updates.
+    WindowResized(WindowState),
     ResizeAll(SizePx),
     Topology(TopologyChange),
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
 }
 
+/// The payload of [`DesktopChange::PresentInstance`]: everything introducing a
+/// new instance to the scene carries as one group.
+#[derive(Debug)]
+pub struct InstancePresentation {
+    pub launcher: LaunchProfileId,
+    pub initial_center_translation: Option<Vector3>,
+    pub instance: InstanceId,
+    pub root: InstanceRoot,
+    pub parameters: InstanceParameters,
+    /// The instance kind (ADR 0014): an assistant carries its own temporary
+    /// Full Screen Mode, a base instance follows its launcher's.
+    pub kind: InstanceKind,
+}
+
 #[derive(Debug)]
 pub enum Zoom {
     In,
     Out,
-    /// Focus on the currently keyboard focused object.
-    DefaultForFocused,
+}
+
+/// What `ToggleFullScreenMode` resolves to when planned. An assistant instance
+/// toggles its own temporary mode; a launcher toggles the mode shared by all of
+/// its base instances.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToggleFullScreenModeTarget {
+    Launcher(LaunchProfileId),
+    AssistantInstance(InstanceId),
 }
 
 #[derive(Debug, Clone)]

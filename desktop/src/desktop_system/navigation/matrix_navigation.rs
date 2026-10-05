@@ -74,7 +74,7 @@ impl<'a> MatrixNavigation<'a> {
         // Existence is answered from the configuration aggregate; presenters are not
         // consulted along this path.
         let _ = configuration.launcher(launcher_id)?;
-        let instances = self.hierarchy.launcher_instances(launcher_id);
+        let instances: Vec<_> = self.hierarchy.launcher_instances(launcher_id).collect();
         if let Some(horizontal) = direction.horizontal() {
             return horizontal_child_neighbor(&instances, index, horizontal)
                 .map(DesktopTarget::Instance)

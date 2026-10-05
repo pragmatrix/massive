@@ -148,8 +148,8 @@ Key sub-points that the scan of the current code surfaced:
 - `DesktopTarget::Desktop` is restored as the hierarchy's root — a *virtual*
   node: never inserted up front, no presenter, materialized implicitly as the
   parent key of the root project's `TopologyChange::Add`. `FocusDepth::Desktop`
-  stays removed; the depth ladder tops out at the root project's `Project`
-  depth.
+  stays removed; the root project's `Project` depth is the outermost Focus
+  Depth.
 - The root project is one special nested project with a **fixed id**
   (`ProjectId::ROOT`, the nil UUID): created by the boot flow's first command,
   `AddProject { id: ProjectId::ROOT, name: "Projects", under: None }` through
@@ -205,11 +205,11 @@ Key sub-points that the scan of the current code surfaced:
 - `FocusDepth`: `{Project, Row, Slot, Instance, InstanceFullScreen}` — read
   outermost first (rename `Launcher`→`Slot`, drop `Desktop`), so the `u8`
   discriminant counts zoom-ins from the project level; `ZoomOut` at root
-  Project floor clamps (no-op; repr `0` makes the floor the underflow guard).
+  Project depth clamps (no-op; repr `0` makes it the underflow guard).
 - **No stored focus context (decided):** the focused project is *derived* from
   the currently focused target by walking the ancestor chain to the nearest
-  project in the topology — the depth ladder stays relative to that project
-  and the existing single `focus_depth` field carries the rung. Entering a
+  project in the topology — the Focus Depths stay relative to that project
+  and the existing single `focus_depth` field carries the Focus Depth. Entering a
   nested project is a focus change (its target resolves to the project depth
   via the existing nearest-depth walk), not a state change.
 - `zoom_in` at Slot depth branches on slot content: launcher → `Instance`,
@@ -219,8 +219,8 @@ Key sub-points that the scan of the current code surfaced:
 - `project_of_target` answers the root project's id for `Desktop` too — its one
   documented exception: `Desktop` goes *down*, not up (its only child is the
   root project), the exception arm logs, and the derived focused-project walk
-  depends on a project being found at the ladder floor; the camera walk's
-  `expect` stays the repr-0 floor.
+  depends on a project being found at the root; the camera walk's
+  `expect` stays the repr-0 underflow guard.
 - Keyboard navigation: navigating onto a project slot focuses the nested
   `Project` target (the focused project re-derives); cross-project vertical
   overflow becomes sibling-slot navigation through the *parent* slot's sibling

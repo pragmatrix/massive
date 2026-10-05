@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 use anyhow::Result;
 use uuid::Uuid;
 use winit::event::MouseButton;
-use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
@@ -16,6 +15,7 @@ use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
 use super::visor_layout;
 use crate::desktop_system::{Commands, DesktopCommand, place_container_children};
+use crate::instance_presenter::InstanceKind;
 use crate::projects::LaunchProfileId;
 
 use super::runtime_configuration::Params;
@@ -212,12 +212,13 @@ impl LauncherPresenter {
 
         // Can't go on focus here, we might focus launchers by other means (for example cursor
         // navigation).
-        let start_instance = event.detect_click(MouseButton::Left).is_some()
-            || (event.event().pressed_key() == Some(&Key::Named(NamedKey::Enter))
-                && event.keyboard_modifiers().super_key());
+        // `Cmd+Enter` no longer starts an instance here: it toggles Full Screen Mode at
+        // the desktop level (ADR 0014). `Cmd+T` is the keyboard start path; the click
+        // stays the launcher's own. Shift-click skips the profile's parameters: a
+        // user's explicit "open plain".
+        let start_instance = event.detect_click(MouseButton::Left).is_some();
 
         if start_instance {
-            // Shift-click skips the profile's parameters: a user's explicit "open plain".
             let parameters = if event.keyboard_modifiers().shift_key() {
                 InstanceParameters::new()
             } else {
@@ -230,6 +231,7 @@ impl LauncherPresenter {
                 instance: Uuid::new_v4().into(),
                 root: None,
                 parameters,
+                kind: InstanceKind::Base,
             }
             .into());
         }

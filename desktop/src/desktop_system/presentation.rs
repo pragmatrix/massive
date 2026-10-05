@@ -2,14 +2,14 @@ use anyhow::Result;
 use anyhow::bail;
 use log::warn;
 
-use massive_applications::{InstanceId, InstanceParameters, ViewCreationInfo};
+use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_geometry::Vector3;
 
 use super::DesktopTarget;
-use super::change::{Changes, DesktopChange, TopologyChange};
+use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
 use crate::instance_manager::ViewPath;
-use crate::instance_presenter::{InstancePresenter, InstanceRoot};
+use crate::instance_presenter::InstancePresenter;
 use crate::projects::{LaunchProfileId, launcher_mode};
 
 use super::DesktopSystem;
@@ -21,14 +21,15 @@ pub struct OriginationDetails {
 }
 
 impl DesktopSystem {
-    pub(super) fn present_instance(
-        &mut self,
-        launcher_id: LaunchProfileId,
-        initial_center_translation: Option<Vector3>,
-        instance: InstanceId,
-        root: InstanceRoot,
-        parameters: InstanceParameters,
-    ) -> Result<()> {
+    pub(super) fn present_instance(&mut self, presentation: InstancePresentation) -> Result<()> {
+        let InstancePresentation {
+            launcher: launcher_id,
+            initial_center_translation,
+            instance,
+            root,
+            parameters,
+            kind,
+        } = presentation;
         let (render_instance_background, launcher_location) = {
             let launcher = self
                 .aggregates
@@ -45,12 +46,15 @@ impl DesktopSystem {
             (render_instance_background, launcher.location())
         };
 
+        // An assistant owns a temporary Full Screen Mode, starting regular; a
+        // base instance is `None` and follows its launcher's mode (ADR 0014).
         let presenter = InstancePresenter::new(
             initial_center_translation,
             render_instance_background,
             root,
             parameters,
             launcher_location,
+            kind,
         );
 
         self.aggregates.instances.insert(instance, presenter)?;

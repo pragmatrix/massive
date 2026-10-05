@@ -9,10 +9,11 @@ use massive_layout::{
     Thickness,
 };
 
-use super::{Aggregates, DesktopTarget, FocusDepth, fullscreen_scale};
+use super::{Aggregates, DesktopTarget, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
 use crate::projects::{
-    LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotIds, launcher_mode,
+    FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotIds,
+    launcher_mode,
 };
 
 const PROJECT_PADDING: u32 = 10;
@@ -57,11 +58,17 @@ pub struct DesktopLayoutAlgorithm<'a> {
     pub aggregates: &'a Aggregates,
     pub default_panel_size: SizePx,
     pub focused_instance: Option<InstanceId>,
-    pub focus_depth: FocusDepth,
     pub window_size: SizePx,
 }
 
 impl DesktopLayoutAlgorithm<'_> {
+    /// Whether `instance` presents in Full Screen Mode (ADR 0014): the content
+    /// scale follows the instance's mode — a base instance's launcher mode, an
+    /// assistant's temporary one — independent of camera or focus depth.
+    fn is_instance_full_screen(&self, instance: InstanceId) -> bool {
+        self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
+    }
+
     /// The mode of a launcher, resolved through the topology's parent links and
     /// the hosting matrix.
     fn launcher_mode(&self, launcher_id: LaunchProfileId) -> LauncherMode {
@@ -126,10 +133,7 @@ impl LayoutAlgorithm<DesktopTarget, Transform, 2> for DesktopLayoutAlgorithm<'_>
                     .aggregates
                     .hierarchy
                     .instance_of_target(id)
-                    .is_some_and(|inst| {
-                        self.focused_instance == Some(inst)
-                            && self.focus_depth == FocusDepth::InstanceFullScreen
-                    });
+                    .is_some_and(|inst| self.is_instance_full_screen(inst));
                 let size_px = if is_fullscreen {
                     self.window_size
                 } else {
@@ -329,7 +333,11 @@ impl DesktopLayoutAlgorithm<'_> {
         };
 
         let launcher = &self.aggregates.launchers[launcher_id];
-        let child_instances = self.aggregates.hierarchy.launcher_instances(*launcher_id);
+        let child_instances: Vec<_> = self
+            .aggregates
+            .hierarchy
+            .launcher_instances(*launcher_id)
+            .collect();
 
         // Performance: This don't need to be computed on non-visor launchers (but we might remove
         // bands anyway). The visor only collapses when one of its instances holds keyboard focus.
@@ -361,8 +369,7 @@ impl DesktopLayoutAlgorithm<'_> {
         parent_size: Size<2>,
         child_measurements: &[MeasuredLayout<2>],
     ) -> Vec<Placement<Transform, 2>> {
-        let is_fullscreen = self.focused_instance == Some(instance_id)
-            && self.focus_depth == FocusDepth::InstanceFullScreen;
+        let is_fullscreen = self.is_instance_full_screen(instance_id);
         let center = Point::new(parent_size[0] as f64 * 0.5, parent_size[1] as f64 * 0.5);
 
         child_measurements

@@ -4,7 +4,7 @@ use massive_applications::{InstanceId, InstanceParameters, SlotShift};
 
 use super::Direction;
 use super::change::Zoom;
-use crate::instance_presenter::InstanceRoot;
+use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
 
 /// The commands the desktop system can execute.
@@ -20,12 +20,19 @@ pub enum DesktopCommand {
         instance: InstanceId,
         root: Option<InstanceRoot>,
         parameters: InstanceParameters,
+        /// The instance kind (ADR 0014): an `Assistant` (`Shift+Cmd+T`)
+        /// carries its own temporary Full Screen Mode.
+        kind: InstanceKind,
     },
     StopInstance(InstanceId),
 
     Navigate(Direction),
 
     Zoom(Zoom),
+    /// Toggles Full Screen Mode on the focused target (ADR 0014): a launcher's
+    /// mode when a launcher or base instance is focused, an assistant instance's
+    /// own when one is focused.
+    ToggleFullScreenMode,
 }
 
 #[derive(Debug)]

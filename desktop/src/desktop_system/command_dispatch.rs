@@ -4,18 +4,20 @@ use serde_json::json;
 
 use super::change::Zoom;
 use super::change::set_focus;
-use super::change::{Changes, ConfigurationChange, DesktopChange, TopologyChange};
-use super::navigation::focus_depth_from_target;
+use super::change::{
+    Changes, ConfigurationChange, DesktopChange, InstancePresentation, ToggleFullScreenModeTarget,
+    TopologyChange,
+};
 use super::{
     ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, FocusDepth, KeyboardFocusReason,
-    ProjectCommand, TransactionEffectsMode,
+    ProjectCommand,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
-use crate::instance_presenter::InstanceRoot;
+use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{
-    DEFAULT_NEW_LAUNCHER_NAME, LaunchProfile, LaunchProfileId, LauncherMode, LauncherPresenter,
-    MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotIds,
+    DEFAULT_NEW_LAUNCHER_NAME, FullScreenMode, LaunchProfile, LaunchProfileId, LauncherMode,
+    LauncherPresenter, MatrixPlacement, ProjectId, ProjectPresenter, SlotAssignment, SlotIds,
 };
 
 use massive_applications::prelude::*;
@@ -87,6 +89,7 @@ impl DesktopSystem {
                 instance,
                 root,
                 parameters,
+                kind,
             } => {
                 let originator_instance = self.focused_path().instance();
                 let originating_details = originator_instance
@@ -103,10 +106,26 @@ impl DesktopSystem {
                 };
 
                 let mut changes: Changes = if spawn {
+                    // The spawned application's `size_px` seeds its canvas: a
+                    // fullscreen base instance presents at the window, not the
+                    // panel, so it must start at the window resolution or its
+                    // first frames render panel-sized and reflow on Resized
+                    // (ADR 0014).
+                    let initial_size_px = match kind.initial_full_screen_mode(
+                        self.aggregates.configuration[launcher].full_screen_mode,
+                    ) {
+                        FullScreenMode::FullScreen => self.window_state.inner_size,
+                        FullScreenMode::Regular => self.default_panel_size,
+                    };
+                    let mut spawn_parameters = parameters.clone();
+                    spawn_parameters.insert(
+                        "size_px".to_string(),
+                        json!([initial_size_px.width, initial_size_px.height]),
+                    );
                     vec![DesktopChange::SpawnInstance {
                         instance,
                         root: root.clone(),
-                        parameters: parameters.clone(),
+                        parameters: spawn_parameters,
                     }]
                 } else {
                     Vec::new()
@@ -114,14 +133,15 @@ impl DesktopSystem {
                 .into();
 
                 changes += [
-                    DesktopChange::PresentInstance {
+                    DesktopChange::PresentInstance(InstancePresentation {
                         launcher,
                         initial_center_translation: originating_details
                             .and_then(|od| od.initial_center_translation),
                         instance,
                         root,
                         parameters,
-                    },
+                        kind,
+                    }),
                     DesktopChange::Topology(TopologyChange::Insert {
                         what: instance.into(),
                         at_index: insertion_pos,
@@ -132,7 +152,6 @@ impl DesktopSystem {
                     Some(DesktopTarget::Instance(instance)),
                     KeyboardFocusReason::PresentInstance,
                 );
-                changes <<= DesktopChange::CommitFocusDepth(FocusDepth::default());
 
                 return Ok(changes);
             }
@@ -158,7 +177,6 @@ impl DesktopSystem {
                     DesktopChange::HideInstance { launcher, instance },
                     DesktopChange::ShutdownInstance(instance),
                 ];
-                changes <<= DesktopChange::CommitFocusDepth(FocusDepth::default());
 
                 return Ok(changes);
             }
@@ -196,19 +214,70 @@ impl DesktopSystem {
                     return Ok(DesktopChange::CommitFocusDepth(focus_depth).into());
                 }
             }
-            DesktopCommand::Zoom(Zoom::DefaultForFocused) => {
-                if let Some(keyboard_focus) = self.event_router.keyboard_focus() {
-                    let current_level = self.focus_depth;
-                    let focus_level = focus_depth_from_target(keyboard_focus);
-
-                    if current_level != focus_level {
-                        return Ok(DesktopChange::CommitFocusDepth(focus_level).into());
-                    }
-                }
-            }
+            DesktopCommand::ToggleFullScreenMode => return self.plan_toggle_full_screen_mode(),
         }
 
         Ok([].into())
+    }
+
+    /// Plans `ToggleFullScreenMode` (ADR 0014): `Cmd+Enter` on whatever is
+    /// focused. A launcher (or one of its base instances) resolves to the
+    /// launcher's mode toggle; an assistant instance to its own. A launcher
+    /// without instances is a no-op. When the focus depth is not already
+    /// `Instance`, the toggle also re-commits it.
+    fn plan_toggle_full_screen_mode(&self) -> Result<Changes> {
+        let mut changes: Changes = Changes::Empty;
+
+        // Cmd+Enter keeps the removed `InstanceFullScreen` Focus Depth's
+        // zoom-back role: re-commit the Instance Focus Depth when not there
+        // already (ADR 0014).
+        if self.focus_depth != FocusDepth::Instance {
+            changes <<= DesktopChange::CommitFocusDepth(FocusDepth::Instance);
+        }
+
+        match self.event_router.keyboard_focus() {
+            Some(DesktopTarget::Launcher(launcher))
+                if self
+                    .aggregates
+                    .hierarchy
+                    .launcher_instances(*launcher)
+                    .next()
+                    .is_some() =>
+            {
+                changes <<= DesktopChange::ToggleFullScreenMode(
+                    ToggleFullScreenModeTarget::Launcher(*launcher),
+                );
+            }
+            Some(target @ (DesktopTarget::Instance(_) | DesktopTarget::View(_))) => {
+                let instance = match target {
+                    DesktopTarget::Instance(instance) => Some(*instance),
+                    DesktopTarget::View(_) => self.aggregates.hierarchy.instance_of_target(target),
+                    _ => None,
+                };
+                let toggle = instance.map(|instance| {
+                    // An assistant toggles its own temporary mode; a base
+                    // instance toggles its launcher's mode (ADR 0014).
+                    if self
+                        .aggregates
+                        .instances
+                        .get(&instance)
+                        .is_some_and(|presenter| presenter.kind() == InstanceKind::Assistant)
+                    {
+                        ToggleFullScreenModeTarget::AssistantInstance(instance)
+                    } else {
+                        ToggleFullScreenModeTarget::Launcher(
+                            self.aggregates.hierarchy.launcher_of_instance(instance),
+                        )
+                    }
+                });
+                if let Some(toggle) = toggle {
+                    changes <<= DesktopChange::ToggleFullScreenMode(toggle);
+                }
+            }
+            _ => {}
+        }
+
+        Ok(changes)
     }
 
     fn plan_project(&self, command: ProjectCommand) -> Result<Changes> {
@@ -447,7 +516,6 @@ impl DesktopSystem {
         &mut self,
         change: DesktopChange,
         instance_manager: &mut InstanceManager,
-        effects_mode: TransactionEffectsMode,
     ) -> Result<ChangeOutput> {
         match change {
             DesktopChange::SpawnInstance {
@@ -483,20 +551,8 @@ impl DesktopSystem {
                     warn!("Failed to shutdown instance, it may be gone already: {e}");
                 };
             }
-            DesktopChange::PresentInstance {
-                launcher,
-                initial_center_translation,
-                instance,
-                root,
-                parameters,
-            } => {
-                self.present_instance(
-                    launcher,
-                    initial_center_translation,
-                    instance,
-                    root,
-                    parameters,
-                )?;
+            DesktopChange::PresentInstance(presentation) => {
+                self.present_instance(presentation)?;
             }
             DesktopChange::HideInstance { launcher, instance } => {
                 self.hide_instance(launcher, instance)?;
@@ -526,20 +582,50 @@ impl DesktopSystem {
                     return Ok(output);
                 }
             }
-            DesktopChange::WindowResized => {
+            DesktopChange::ToggleFullScreenMode(target) => {
+                let changed_targets: Vec<DesktopTarget> = match target {
+                    ToggleFullScreenModeTarget::Launcher(launcher) => {
+                        let mode = self.aggregates.configuration[launcher].full_screen_mode;
+                        self.aggregates
+                            .configuration
+                            .launcher_mut(launcher)
+                            .expect(
+                                "the hierarchy's launcher of a focused target is in the configuration",
+                            )
+                            .full_screen_mode = mode.toggled();
+
+                        let mut targets = vec![DesktopTarget::Launcher(launcher)];
+                        for instance in self.aggregates.hierarchy.launcher_instances(launcher) {
+                            targets.extend(self.instance_view_targets(instance));
+                        }
+                        targets
+                    }
+                    ToggleFullScreenModeTarget::AssistantInstance(instance) => {
+                        self.toggle_assistant_full_screen_mode(instance);
+
+                        self.instance_view_targets(instance)
+                    }
+                };
+
+                // The fullscreen scale lives on the views' placements AND their
+                // measurements (panel size vs window size), so the toggle must
+                // measure the views: the Instance measure treats already-measured
+                // children as valid, and Place(Instance) computed from a stale
+                // window-size view measurement dead-ends the visor layout until
+                // the next focus or rotation re-measures.
+                // The live mode toggle is a configuration change the caller
+                // persists (ADR 0013; 0014).
+                let mut output = ChangeOutput::default();
+                output.surface.configuration_changed = true;
+                for changed_target in changed_targets {
+                    output.measure(changed_target);
+                }
+                return Ok(output);
+            }
+            DesktopChange::WindowResized(window_state) => {
+                self.window_state = window_state;
                 let mut output = ChangeOutput::default();
                 output.surface.window_size_changed = true;
-                // A window resize only affects the presentation of instances if we are in
-                // [`FocusDepth::InstanceFullScreen`] and an instance is focused.
-                if self.focus_depth == FocusDepth::InstanceFullScreen
-                    && let Some(instance) = self.focused_path().instance()
-                {
-                    // Design: Somehow this is not a directly affected by a focus change. So there
-                    // is a discrepancy between "updating the presentation" and a target affected by
-                    // a focus change (somehow the target should probably decide about this if it's
-                    // "presentation" is affected?).
-                    output.measure(DesktopTarget::Instance(instance));
-                }
                 return Ok(output);
             }
             DesktopChange::ResizeAll(size_px) => {
@@ -584,13 +670,8 @@ impl DesktopSystem {
                 return self.apply_instance_submission(instance_id, instance_submission);
             }
             DesktopChange::Project(project_change) => {
-                let output = self.apply_project_change(project_change)?;
-                // A setup change only updates the live model; it must not mark the
-                // file pending — setup's changes are the ones the file already
-                // carries.
-                if effects_mode != TransactionEffectsMode::Setup {
-                    self.configuration.mark_pending();
-                }
+                let mut output = self.apply_project_change(project_change)?;
+                output.surface.configuration_changed = true;
                 return Ok(output);
             }
         }
@@ -867,6 +948,7 @@ impl DesktopSystem {
                             name: DEFAULT_NEW_LAUNCHER_NAME.to_string(),
                             mode: LauncherMode::Visor,
                             params: Default::default(),
+                            full_screen_mode: Default::default(),
                         },
                     },
                     shift: SlotShift::default(),
@@ -935,6 +1017,7 @@ impl DesktopSystem {
                             name: name.clone(),
                             mode: LauncherMode::Visor,
                             params: Default::default(),
+                            full_screen_mode: Default::default(),
                         },
                     },
                     shift: *shift,
@@ -1114,15 +1197,7 @@ impl DesktopSystem {
                 ))
             }
             ConfigurationRequest::Resize { size_px } => {
-                let mut changes = Changes::Empty;
-
-                // If we are in fullscreen, show the changes by resetting the zoom level, otherwise
-                // the user would see nothing.
-                if self.focus_depth == FocusDepth::InstanceFullScreen {
-                    changes <<= DesktopChange::CommitFocusDepth(FocusDepth::Instance);
-                }
-
-                changes <<= DesktopChange::ResizeAll((*size_px).into());
+                let changes = DesktopChange::ResizeAll((*size_px).into()).into();
 
                 Ok(ChangeOutput::changes(changes))
             }
@@ -1161,6 +1236,23 @@ impl DesktopSystem {
             .launcher(launcher)
             .map(|_| launcher)
     }
+
+    /// The layout targets a change to `instance`'s presentation must measure:
+    /// the instance itself plus its primary view, when it has one. The view's
+    /// *measurement* (panel vs window size) and its placement both depend on
+    /// Full Screen Mode, so a toggle must invalidate both.
+    fn instance_view_targets(&self, instance: InstanceId) -> Vec<DesktopTarget> {
+        let mut targets = vec![DesktopTarget::Instance(instance)];
+        if let Some(view) = self
+            .aggregates
+            .instances
+            .get(&instance)
+            .and_then(|presenter| presenter.primary_view_id())
+        {
+            targets.push(DesktopTarget::View(view));
+        }
+        targets
+    }
 }
 
 #[cfg(test)]
@@ -1175,8 +1267,11 @@ mod tests {
 
     use super::*;
     use crate::desktop_environment::DesktopEnvironment;
+    use crate::desktop_system::TransactionEffectsMode;
     use crate::instance_manager::InstanceManager;
-    use crate::projects::persistence::{ConfigurationPersistence, parse_configuration};
+    use crate::instance_presenter::InstanceKind;
+    use crate::projects::persistence::parse_configuration;
+    use crate::window_state::WindowState;
     use massive_applications::task_context::{self, TaskContext};
     use massive_applications::{InstanceEnvironment, InstanceSubmission};
     use tokio::sync::mpsc::{UnboundedReceiver, unbounded_channel};
@@ -1217,7 +1312,6 @@ mod tests {
                 changes,
                 &mut instance_manager,
                 TransactionEffectsMode::Setup,
-                SizePx::new(800, 600),
             )?;
 
             let hierarchy = &system.aggregates.hierarchy;
@@ -1252,7 +1346,6 @@ mod tests {
                     changes,
                     &mut instance_manager,
                     TransactionEffectsMode::Setup,
-                    SizePx::new(800, 600),
                 )?;
             }
 
@@ -1262,6 +1355,7 @@ mod tests {
                 instance,
                 root: Some(InstanceRoot::new()),
                 parameters: Default::default(),
+                kind: InstanceKind::Base,
             })?;
             let mut submission_changes = massive_util::ChangeSet::default();
             submission_changes.push(InstanceChange::CreateView(
@@ -1284,7 +1378,6 @@ mod tests {
                 changes,
                 &mut instance_manager,
                 TransactionEffectsMode::Setup,
-                SizePx::new(800, 600),
             )?;
 
             assert_eq!(
@@ -1297,15 +1390,178 @@ mod tests {
             );
             assert_eq!(system.focus_depth, FocusDepth::Instance);
             let focused = system.event_router.keyboard_focus().unwrap();
-            let expected = system.resolve_camera_for_target_or_ancestor(
-                focused,
-                system.focus_depth,
-                SizePx::new(800, 600),
-            );
+            let expected =
+                system.resolve_camera_for_target_or_ancestor(focused, system.focus_depth);
             assert_eq!(
                 *system.camera(),
                 expected,
                 "setup should snap to the focused instance camera without an initial transition"
+            );
+
+            drop(frame.submission::<SceneChange>());
+            Ok(())
+        })
+        .await
+    }
+
+    /// Regression (ADR 0014): `Cmd+Enter` must rescale the focused instance's
+    /// view in the same transaction, not only after focus moved away and back.
+    /// The fullscreen scale lives on the instance's view placement, so the
+    /// toggle must invalidate the whole launcher subtree (views included), not
+    /// just the launcher's own measurement.
+    #[tokio::test]
+    async fn toggling_full_screen_mode_rescales_the_focused_view_in_place() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let (mut system, receiver) = system();
+            let mut instance_manager = instance_manager(&receiver);
+            let frame = massive_applications::begin_frame();
+            for command in crate::projects::to_commands(&system.aggregates.configuration) {
+                // Tests at panel size: the system's constructor already
+                // committed the 800×600 window state.
+                let changes = system.plan(DesktopCommand::Project(command))?;
+                system.transact(changes, &mut instance_manager, TransactionEffectsMode::Setup)?;
+            }
+
+            // A 1000×800 window on the 800×600 panel: the fullscreen toggle
+            // frames content at the window, so the tests need the larger state
+            // committed through its change.
+            system.transact(
+                DesktopChange::WindowResized(WindowState::new(SizePx::new(1000, 800), false)),
+                &mut instance_manager,
+                TransactionEffectsMode::Setup,
+            )?;
+
+            let launcher = system
+                .aggregates
+                .configuration
+                .boot_launcher()
+                .expect("the test configuration has a startup launcher");
+            let instance = uuid::Uuid::new_v4().into();
+            let start = system.plan(DesktopCommand::StartInstance {
+                launcher,
+                instance,
+                root: Some(InstanceRoot::new()),
+                parameters: Default::default(),
+                kind: InstanceKind::Base,
+            })?;
+            let mut submission_changes = massive_util::ChangeSet::default();
+            submission_changes.push(InstanceChange::CreateView(
+                massive_applications::ViewCreationInfo {
+                    id: uuid::Uuid::new_v4().into(),
+                    role: ViewRole::Primary,
+                    extents: massive_geometry::BoxPx::new(
+                        massive_geometry::PointPx::new(0, 0),
+                        massive_geometry::PointPx::new(800, 600),
+                    ),
+                },
+            ));
+            let initial_submission = InstanceSubmission::new(
+                submission_changes,
+                massive_renderer::RenderPacing::default(),
+            );
+            let mut changes: Changes = start;
+            changes <<= DesktopChange::IntegrateInstanceSubmission(instance, initial_submission);
+            system.transact(
+                changes,
+                &mut instance_manager,
+                TransactionEffectsMode::Setup
+)?;
+
+            let view = system.aggregates.instances[&instance]
+                .primary_view_id()
+                .expect("the initial submission created a primary view");
+            let scale_before = system
+                .placement(&DesktopTarget::View(view))
+                .transform
+                .scale;
+
+            // Toggle through the live command path, like the desktop loop does.
+            let changes = system.plan(DesktopCommand::ToggleFullScreenMode)?;
+            system.transact(
+                changes,
+                &mut instance_manager,
+                Option::<TransactionEffectsMode>::None
+)?;
+
+            let scale_after = system
+                .placement(&DesktopTarget::View(view))
+                .transform
+                .scale;
+
+            assert!(
+                system.aggregates.configuration[launcher].full_screen_mode
+                    == crate::projects::FullScreenMode::FullScreen,
+                "the toggle flipped the launcher's Full Screen Mode"
+            );
+            assert!(
+                (scale_after - scale_before).abs() > 0.001,
+                "the focused view must rescale in the toggle transaction: before {scale_before:?}, after {scale_after:?}"
+            );
+
+            // Toggle back off: the visor layout must collapse back onto panel
+            // measurements in the same transaction — not only after the next
+            // focus change or arc rotation (regression: stale view measurement).
+            let instance_b = uuid::Uuid::new_v4().into();
+            let start_b = system.plan(DesktopCommand::StartInstance {
+                launcher,
+                instance: instance_b,
+                root: Some(InstanceRoot::new()),
+                parameters: Default::default(),
+                kind: InstanceKind::Base,
+            })?;
+            let mut submission_b = massive_util::ChangeSet::default();
+            submission_b.push(InstanceChange::CreateView(
+                massive_applications::ViewCreationInfo {
+                    id: uuid::Uuid::new_v4().into(),
+                    role: ViewRole::Primary,
+                    extents: massive_geometry::BoxPx::new(
+                        massive_geometry::PointPx::new(0, 0),
+                        massive_geometry::PointPx::new(800, 600),
+                    ),
+                },
+            ));
+            let mut changes_b: Changes = start_b;
+            changes_b <<= DesktopChange::IntegrateInstanceSubmission(
+                instance_b,
+                InstanceSubmission::new(
+                    submission_b,
+                    massive_renderer::RenderPacing::default(),
+                ),
+            );
+            system.transact(
+                changes_b,
+                &mut instance_manager,
+                Option::<TransactionEffectsMode>::None,
+            )?;
+
+            let view_b = system.aggregates.instances[&instance_b]
+                .primary_view_id()
+                .expect("the second instance created a primary view");
+            let view_b_size_fullscreen = system
+                .placement(&DesktopTarget::View(view_b))
+                .rect
+                .size;
+
+            let changes = system.plan(DesktopCommand::ToggleFullScreenMode)?;
+            system.transact(
+                changes,
+                &mut instance_manager,
+                Option::<TransactionEffectsMode>::None
+)?;
+
+            let view_b_size_after = system
+                .placement(&DesktopTarget::View(view_b))
+                .rect
+                .size;
+            assert!(
+                system.aggregates.configuration[launcher].full_screen_mode
+                    == crate::projects::FullScreenMode::Regular,
+                "the second toggle restored the launcher's Regular mode"
+            );
+            assert!(
+                (view_b_size_after[0] as f64 - 800.0).abs() < 0.01
+                    && view_b_size_fullscreen[0] as f64 >= 1000.0,
+                "the visor view must be measured back to its panel size in the toggle-off transaction: fullscreen {view_b_size_fullscreen:?}, after {view_b_size_after:?}"
             );
 
             drop(frame.submission::<SceneChange>());
@@ -1328,9 +1584,8 @@ mod tests {
                 system.transact(
                     changes,
                     &mut instance_manager,
-                    TransactionEffectsMode::Setup,
-                    SizePx::new(800, 600),
-                )?;
+                    TransactionEffectsMode::Setup
+)?;
             }
 
             let launcher = system
@@ -1380,7 +1635,6 @@ mod tests {
                 changes,
                 &mut instance_manager,
                 TransactionEffectsMode::Setup,
-                SizePx::new(800, 600),
             )?;
 
             for id in [ProjectId::ROOT, ProjectId::new()] {
@@ -1423,7 +1677,6 @@ mod tests {
                     changes,
                     &mut instance_manager,
                     TransactionEffectsMode::Setup,
-                    SizePx::new(800, 600),
                 )?;
             }
 
@@ -1476,9 +1729,7 @@ mod tests {
         };
         let path = Path::new("/config/desktop.json");
         let aggregate = parse_configuration(path, config).unwrap();
-        let document = ConfigurationPersistence::new(path);
-        let system =
-            DesktopSystem::new(environment, SizePx::new(800, 600), document, aggregate).unwrap();
+        let system = DesktopSystem::new(environment, SizePx::new(800, 600), aggregate).unwrap();
         (system, receiver)
     }
 
@@ -1487,5 +1738,205 @@ mod tests {
     ) -> InstanceManager {
         let (sender, _receiver) = unbounded_channel();
         InstanceManager::new(InstanceEnvironment::new(sender, 1.0))
+    }
+
+    /// A diagnostic, not a pinned expectation (remove it once the bounce the
+    /// live app shows is diagnosed): a base instance created in a Full Screen
+    /// launcher must measure, place, and resolve its camera fullscreen from the
+    /// FIRST transaction — without a focus round-trip.
+    #[tokio::test]
+    async fn diagnostic_a_new_base_instance_is_fullscreen_from_its_first_commit() -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let (mut system, receiver) = system();
+            let mut instance_manager = instance_manager(&receiver);
+            let frame = massive_applications::begin_frame();
+            for command in crate::projects::to_commands(&system.aggregates.configuration) {
+                let changes = system.plan(DesktopCommand::Project(command))?;
+                system.transact(changes, &mut instance_manager, TransactionEffectsMode::Setup)?;
+            }
+
+            // A 1000×800 window on the 800×600 panel: fullscreen framing pins
+            // the window size, committed through its change (the constructor's
+            // state is the panel size).
+            system.transact(
+                DesktopChange::WindowResized(WindowState::new(SizePx::new(1000, 800), false)),
+                &mut instance_manager,
+                TransactionEffectsMode::Setup,
+            )?;
+
+            let launcher = system
+                .aggregates
+                .configuration
+                .boot_launcher()
+                .expect("the test configuration has a startup launcher");
+            // Make the launcher fullscreen BEFORE the instance exists.
+            {
+                let mode = system.aggregates.configuration[launcher].full_screen_mode;
+                system
+                    .aggregates
+                    .configuration
+                    .launcher_mut(launcher)
+                    .unwrap()
+                    .full_screen_mode = mode.toggled();
+            }
+
+            let instance = uuid::Uuid::new_v4().into();
+            // A real spawn: root None, so plan emits SpawnInstance with the
+            // seed parameters whose `size_px` this diagnostic pins.
+            let start = system.plan(DesktopCommand::StartInstance {
+                launcher,
+                instance,
+                root: None,
+                parameters: Default::default(),
+                kind: InstanceKind::Base,
+            })?;
+            let spawn_parameters = start.iter().find_map(|change| match change {
+                DesktopChange::SpawnInstance { parameters, .. } => Some(parameters.clone()),
+                _ => None,
+            });
+            println!("DIAG spawn parameters: {spawn_parameters:?}");
+            let seed = spawn_parameters
+                .and_then(|parameters| parameters.get("size_px").cloned())
+                .expect("SpawnInstance seeds the application canvas size");
+            assert_eq!(
+                seed,
+                serde_json::json!([1000, 800]),
+                "a fullscreen launcher's spawned instance must start at window resolution, not panel"
+            );
+
+            // The plan's SpawnInstance would hit the (empty) test application
+            // registry; this diagnostic presents the instance itself, with a
+            // real root, in the live two-transaction shape.
+            let root = InstanceRoot::new();
+            let presentation_changes: Changes = [
+                DesktopChange::PresentInstance(InstancePresentation {
+                    launcher,
+                    initial_center_translation: None,
+                    instance,
+                    root,
+                    parameters: Default::default(),
+                    kind: InstanceKind::Base,
+                }),
+                DesktopChange::Topology(TopologyChange::Insert {
+                    what: instance.into(),
+                    at_index: 0,
+                    under: launcher.into(),
+                }),
+            ]
+            .into();
+            let mut start: Changes = presentation_changes;
+            start += set_focus(
+                Some(DesktopTarget::Instance(instance)),
+                KeyboardFocusReason::PresentInstance,
+            );
+            // Live shape: the StartInstance transaction runs BEFORE the view's
+            // submission arrives.
+            system.transact(start, &mut instance_manager, TransactionEffectsMode::Setup)?;
+
+            let pre_view_instance_placement = system.placement(&DesktopTarget::Instance(instance));
+            let pre_view_camera = system.resolve_desired_camera();
+
+            // A view-less fullscreen instance must not yet doll the camera to
+            // the fullscreen distance: its placement frames the empty panel, so
+            // the fullscreen framing would render 1/0.75-scaled content for one
+            // commit — the Cmd+T "grow, then settle" bounce.
+            let panel_distance =
+                massive_geometry::PixelCamera::pixel_perfect_distance(
+                    massive_geometry::PixelCamera::DEFAULT_FOVY,
+                );
+            let pre_view_distance = pre_view_camera
+                .expect("a focused instance resolves a camera")
+                .distance;
+            assert!(
+                (pre_view_distance - panel_distance).abs() < 1e-6,
+                "a view-less fullscreen instance must frame at the panel distance: expected {panel_distance}, got {pre_view_distance}"
+            );
+
+            let mut submission_changes = massive_util::ChangeSet::default();
+            submission_changes.push(InstanceChange::CreateView(
+                massive_applications::ViewCreationInfo {
+                    id: uuid::Uuid::new_v4().into(),
+                    role: ViewRole::Primary,
+                    extents: massive_geometry::BoxPx::new(
+                        massive_geometry::PointPx::new(0, 0),
+                        massive_geometry::PointPx::new(800, 600),
+                    ),
+                },
+            ));
+            let initial_submission = InstanceSubmission::new(
+                submission_changes,
+                massive_renderer::RenderPacing::default(),
+            );
+            let changes: Changes = DesktopChange::IntegrateInstanceSubmission(
+                instance,
+                initial_submission,
+            )
+            .into();
+            system.transact(
+                changes,
+                &mut instance_manager,
+                TransactionEffectsMode::Setup
+)?;
+
+            let view = system.aggregates.instances[&instance]
+                .primary_view_id()
+                .expect("the initial submission created a primary view");
+
+            // First commit state.
+            let first_view_placement = system.placement(&DesktopTarget::View(view));
+            let inst_target = DesktopTarget::Instance(instance);
+            let first_instance_placement = system.placement(&inst_target);
+            let first_camera = system.resolve_desired_camera();
+
+            // Focus round-trip: away, then back.
+            let launcher_target = DesktopTarget::Launcher(launcher);
+            system.transact(
+                set_focus(Some(launcher_target), KeyboardFocusReason::InputTransition),
+                &mut instance_manager,
+                Option::<TransactionEffectsMode>::None,
+            )?;
+            system.transact(
+                set_focus(
+                    Some(DesktopTarget::View(view)),
+                    KeyboardFocusReason::InputTransition,
+                ),
+                &mut instance_manager,
+                Option::<TransactionEffectsMode>::None,
+            )?;
+
+            let after_view_placement = system.placement(&DesktopTarget::View(view));
+            let after_instance_placement = system.placement(&inst_target);
+            let after_camera = system.resolve_desired_camera();
+
+            // The focused fullscreen instance resolves the pixel-aligned
+            // fullscreen camera: the panel pixel-perfect distance dollied in by
+            // the fullscreen content factor (window 1000x800 over panel
+            // 800x600 → the min fit 0.75 applied to distance... inverse: fit
+            // factor divides distance by the letterbox scale).
+            let panel_distance =
+                massive_geometry::PixelCamera::pixel_perfect_distance(
+                    massive_geometry::PixelCamera::DEFAULT_FOVY,
+                );
+            let fullscreen_distance = panel_distance * (600.0 / 800.0);
+            let distance = after_camera.expect("a focused instance resolves a camera").distance;
+            assert!(
+                (distance - fullscreen_distance).abs() < 1e-6,
+                "the focused fullscreen instance must use the pixel-aligned fullscreen camera: expected {fullscreen_distance}, got {distance}"
+            );
+
+            println!(
+                "DIAG pre-view: instance {pre_view_instance_placement:?}\n  camera {pre_view_camera:?}"
+            );
+            println!(
+                "DIAG first: view {first_view_placement:?}\n  instance {first_instance_placement:?}\n  camera {first_camera:?}"
+            );
+            println!(
+                "DIAG after roundtrip: view {after_view_placement:?}\n  instance {after_instance_placement:?}\n  camera {after_camera:?}"
+            );
+
+            drop(frame.submission::<SceneChange>());
+            Ok(())
+        })
+        .await
     }
 }
