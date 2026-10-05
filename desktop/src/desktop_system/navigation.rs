@@ -247,14 +247,13 @@ impl DesktopSystem {
                 // screen, the pixel-aligned fullscreen camera. The panel camera
                 // would render the content letterboxed at the panel scale.
                 //
-                // Only while the instance HAS its primary view: the instance
-                // target brieflly exists view-less between StartInstance and the
-                // view's first submission, and framing that empty panel at the
-                // fullscreen distance shows 1/0.75-scaled content for one
-                // commit — the "grow, then settle back" bounce on Cmd+T.
+                // The fullscreen camera applies from the instance's first commit,
+                // view-less included: the instance target exists between
+                // StartInstance and the view's first submission, and framing that
+                // commit at the panel distance dollies the camera out — then back
+                // in when the view arrives — the `Cmd+T` zoom-out bounce.
                 if self.aggregates.instance_full_screen_mode(*instance_id)
                     == FullScreenMode::FullScreen
-                    && self.aggregates.view_of_instance(*instance_id).is_some()
                 {
                     let content_scale =
                         fullscreen_scale(self.default_panel_size, self.window_state.inner_size);

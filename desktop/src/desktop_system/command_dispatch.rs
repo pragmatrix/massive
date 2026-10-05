@@ -1740,63 +1740,138 @@ mod tests {
         InstanceManager::new(InstanceEnvironment::new(sender, 1.0))
     }
 
-    /// A diagnostic, not a pinned expectation (remove it once the bounce the
-    /// live app shows is diagnosed): a base instance created in a Full Screen
-    /// launcher must measure, place, and resolve its camera fullscreen from the
-    /// FIRST transaction — without a focus round-trip.
-    #[tokio::test]
-    async fn diagnostic_a_new_base_instance_is_fullscreen_from_its_first_commit() -> Result<()> {
-        task_context::with_context(task_context(), async {
-            let (mut system, receiver) = system();
-            let mut instance_manager = instance_manager(&receiver);
-            let frame = massive_applications::begin_frame();
-            for command in crate::projects::to_commands(&system.aggregates.configuration) {
-                let changes = system.plan(DesktopCommand::Project(command))?;
-                system.transact(changes, &mut instance_manager, TransactionEffectsMode::Setup)?;
-            }
-
-            // A 1000×800 window on the 800×600 panel: fullscreen framing pins
-            // the window size, committed through its change (the constructor's
-            // state is the panel size).
+    /// A system booted from `config` in a 1000×800 window, its startup launcher
+    /// in Full Screen Mode. On the 800×600 panel, fullscreen framing pins the
+    /// window size and scales content by 0.75.
+    fn fullscreen_system(
+        config: &str,
+    ) -> Result<(DesktopSystem, InstanceManager, LaunchProfileId)> {
+        let (mut system, receiver) = system_from(config);
+        let mut instance_manager = instance_manager(&receiver);
+        for command in crate::projects::to_commands(&system.aggregates.configuration) {
+            let changes = system.plan(DesktopCommand::Project(command))?;
             system.transact(
-                DesktopChange::WindowResized(WindowState::new(SizePx::new(1000, 800), false)),
+                changes,
                 &mut instance_manager,
                 TransactionEffectsMode::Setup,
             )?;
+        }
+        system.transact(
+            DesktopChange::WindowResized(WindowState::new(SizePx::new(1000, 800), false)),
+            &mut instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
 
-            let launcher = system
-                .aggregates
-                .configuration
-                .boot_launcher()
-                .expect("the test configuration has a startup launcher");
-            // Make the launcher fullscreen BEFORE the instance exists.
-            {
-                let mode = system.aggregates.configuration[launcher].full_screen_mode;
-                system
-                    .aggregates
-                    .configuration
-                    .launcher_mut(launcher)
-                    .unwrap()
-                    .full_screen_mode = mode.toggled();
-            }
+        let launcher = system
+            .aggregates
+            .configuration
+            .boot_launcher()
+            .expect("the test configuration has a startup launcher");
+        let launcher_config = system
+            .aggregates
+            .configuration
+            .launcher_mut(launcher)
+            .unwrap();
+        launcher_config.full_screen_mode = launcher_config.full_screen_mode.toggled();
+        Ok((system, instance_manager, launcher))
+    }
 
-            let instance = uuid::Uuid::new_v4().into();
+    /// The live StartInstance commit: a focused base instance whose view has not
+    /// arrived yet.
+    fn start_instance(
+        system: &mut DesktopSystem,
+        instance_manager: &mut InstanceManager,
+        launcher: LaunchProfileId,
+        index: usize,
+    ) -> Result<InstanceId> {
+        let instance = uuid::Uuid::new_v4().into();
+        let mut changes: Changes = [
+            DesktopChange::PresentInstance(InstancePresentation {
+                launcher,
+                initial_center_translation: None,
+                instance,
+                root: InstanceRoot::new(),
+                parameters: Default::default(),
+                kind: InstanceKind::Base,
+            }),
+            DesktopChange::Topology(TopologyChange::Insert {
+                what: instance.into(),
+                at_index: index,
+                under: launcher.into(),
+            }),
+        ]
+        .into();
+        changes += set_focus(
+            Some(DesktopTarget::Instance(instance)),
+            KeyboardFocusReason::PresentInstance,
+        );
+        system.transact(changes, instance_manager, TransactionEffectsMode::Setup)?;
+        Ok(instance)
+    }
+
+    /// The instance's first submission, which creates its primary view.
+    fn deliver_view(
+        system: &mut DesktopSystem,
+        instance_manager: &mut InstanceManager,
+        instance: InstanceId,
+    ) -> Result<()> {
+        let mut submission = massive_util::ChangeSet::default();
+        submission.push(InstanceChange::CreateView(
+            massive_applications::ViewCreationInfo {
+                id: uuid::Uuid::new_v4().into(),
+                role: ViewRole::Primary,
+                extents: massive_geometry::BoxPx::new(
+                    massive_geometry::PointPx::new(0, 0),
+                    massive_geometry::PointPx::new(800, 600),
+                ),
+            },
+        ));
+        system.transact(
+            DesktopChange::IntegrateInstanceSubmission(
+                instance,
+                InstanceSubmission::new(submission, massive_renderer::RenderPacing::default()),
+            ),
+            instance_manager,
+            TransactionEffectsMode::Setup,
+        )?;
+        Ok(())
+    }
+
+    fn camera_distance(system: &DesktopSystem) -> f64 {
+        system
+            .resolve_desired_camera()
+            .expect("a focused instance resolves a camera")
+            .distance
+    }
+
+    /// A base instance created in a Full Screen launcher spawns at window
+    /// resolution and frames fullscreen from its view-less first commit;
+    /// framing it at the panel distance dollies the camera out and back in when
+    /// the view arrives (the `Cmd+T` zoom-out bounce).
+    #[tokio::test]
+    async fn a_new_base_instance_in_a_fullscreen_launcher_frames_fullscreen_from_its_first_commit()
+    -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
+
             // A real spawn: root None, so plan emits SpawnInstance with the
-            // seed parameters whose `size_px` this diagnostic pins.
+            // seed parameters whose `size_px` this test pins.
             let start = system.plan(DesktopCommand::StartInstance {
                 launcher,
-                instance,
+                instance: uuid::Uuid::new_v4().into(),
                 root: None,
                 parameters: Default::default(),
                 kind: InstanceKind::Base,
             })?;
-            let spawn_parameters = start.iter().find_map(|change| match change {
-                DesktopChange::SpawnInstance { parameters, .. } => Some(parameters.clone()),
-                _ => None,
-            });
-            println!("DIAG spawn parameters: {spawn_parameters:?}");
-            let seed = spawn_parameters
-                .and_then(|parameters| parameters.get("size_px").cloned())
+            let seed = start
+                .iter()
+                .find_map(|change| match change {
+                    DesktopChange::SpawnInstance { parameters, .. } => {
+                        parameters.get("size_px").cloned()
+                    }
+                    _ => None,
+                })
                 .expect("SpawnInstance seeds the application canvas size");
             assert_eq!(
                 seed,
@@ -1805,133 +1880,83 @@ mod tests {
             );
 
             // The plan's SpawnInstance would hit the (empty) test application
-            // registry; this diagnostic presents the instance itself, with a
-            // real root, in the live two-transaction shape.
-            let root = InstanceRoot::new();
-            let presentation_changes: Changes = [
-                DesktopChange::PresentInstance(InstancePresentation {
-                    launcher,
-                    initial_center_translation: None,
-                    instance,
-                    root,
-                    parameters: Default::default(),
-                    kind: InstanceKind::Base,
-                }),
-                DesktopChange::Topology(TopologyChange::Insert {
-                    what: instance.into(),
-                    at_index: 0,
-                    under: launcher.into(),
-                }),
-            ]
-            .into();
-            let mut start: Changes = presentation_changes;
-            start += set_focus(
-                Some(DesktopTarget::Instance(instance)),
-                KeyboardFocusReason::PresentInstance,
+            // registry, so the instance is presented directly.
+            let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+
+            let panel_distance = massive_geometry::PixelCamera::pixel_perfect_distance(
+                massive_geometry::PixelCamera::DEFAULT_FOVY,
             );
-            // Live shape: the StartInstance transaction runs BEFORE the view's
-            // submission arrives.
-            system.transact(start, &mut instance_manager, TransactionEffectsMode::Setup)?;
-
-            let pre_view_instance_placement = system.placement(&DesktopTarget::Instance(instance));
-            let pre_view_camera = system.resolve_desired_camera();
-
-            // A view-less fullscreen instance must not yet doll the camera to
-            // the fullscreen distance: its placement frames the empty panel, so
-            // the fullscreen framing would render 1/0.75-scaled content for one
-            // commit — the Cmd+T "grow, then settle" bounce.
-            let panel_distance =
-                massive_geometry::PixelCamera::pixel_perfect_distance(
-                    massive_geometry::PixelCamera::DEFAULT_FOVY,
-                );
-            let pre_view_distance = pre_view_camera
-                .expect("a focused instance resolves a camera")
-                .distance;
-            assert!(
-                (pre_view_distance - panel_distance).abs() < 1e-6,
-                "a view-less fullscreen instance must frame at the panel distance: expected {panel_distance}, got {pre_view_distance}"
-            );
-
-            let mut submission_changes = massive_util::ChangeSet::default();
-            submission_changes.push(InstanceChange::CreateView(
-                massive_applications::ViewCreationInfo {
-                    id: uuid::Uuid::new_v4().into(),
-                    role: ViewRole::Primary,
-                    extents: massive_geometry::BoxPx::new(
-                        massive_geometry::PointPx::new(0, 0),
-                        massive_geometry::PointPx::new(800, 600),
-                    ),
-                },
-            ));
-            let initial_submission = InstanceSubmission::new(
-                submission_changes,
-                massive_renderer::RenderPacing::default(),
-            );
-            let changes: Changes = DesktopChange::IntegrateInstanceSubmission(
-                instance,
-                initial_submission,
-            )
-            .into();
-            system.transact(
-                changes,
-                &mut instance_manager,
-                TransactionEffectsMode::Setup
-)?;
-
-            let view = system.aggregates.instances[&instance]
-                .primary_view_id()
-                .expect("the initial submission created a primary view");
-
-            // First commit state.
-            let first_view_placement = system.placement(&DesktopTarget::View(view));
-            let inst_target = DesktopTarget::Instance(instance);
-            let first_instance_placement = system.placement(&inst_target);
-            let first_camera = system.resolve_desired_camera();
-
-            // Focus round-trip: away, then back.
-            let launcher_target = DesktopTarget::Launcher(launcher);
-            system.transact(
-                set_focus(Some(launcher_target), KeyboardFocusReason::InputTransition),
-                &mut instance_manager,
-                Option::<TransactionEffectsMode>::None,
-            )?;
-            system.transact(
-                set_focus(
-                    Some(DesktopTarget::View(view)),
-                    KeyboardFocusReason::InputTransition,
-                ),
-                &mut instance_manager,
-                Option::<TransactionEffectsMode>::None,
-            )?;
-
-            let after_view_placement = system.placement(&DesktopTarget::View(view));
-            let after_instance_placement = system.placement(&inst_target);
-            let after_camera = system.resolve_desired_camera();
-
-            // The focused fullscreen instance resolves the pixel-aligned
-            // fullscreen camera: the panel pixel-perfect distance dollied in by
-            // the fullscreen content factor (window 1000x800 over panel
-            // 800x600 → the min fit 0.75 applied to distance... inverse: fit
-            // factor divides distance by the letterbox scale).
-            let panel_distance =
-                massive_geometry::PixelCamera::pixel_perfect_distance(
-                    massive_geometry::PixelCamera::DEFAULT_FOVY,
-                );
             let fullscreen_distance = panel_distance * (600.0 / 800.0);
-            let distance = after_camera.expect("a focused instance resolves a camera").distance;
+            let view_less_distance = camera_distance(&system);
             assert!(
-                (distance - fullscreen_distance).abs() < 1e-6,
-                "the focused fullscreen instance must use the pixel-aligned fullscreen camera: expected {fullscreen_distance}, got {distance}"
+                (view_less_distance - fullscreen_distance).abs() < 1e-6,
+                "a view-less fullscreen instance must frame at the fullscreen distance: expected {fullscreen_distance}, got {view_less_distance}"
             );
 
-            println!(
-                "DIAG pre-view: instance {pre_view_instance_placement:?}\n  camera {pre_view_camera:?}"
+            deliver_view(&mut system, &mut instance_manager, instance)?;
+            let view_distance = camera_distance(&system);
+            assert!(
+                (view_distance - fullscreen_distance).abs() < 1e-6,
+                "the fullscreen instance keeps the fullscreen distance once its view arrives: expected {fullscreen_distance}, got {view_distance}"
             );
-            println!(
-                "DIAG first: view {first_view_placement:?}\n  instance {first_instance_placement:?}\n  camera {first_camera:?}"
+
+            drop(frame.submission::<SceneChange>());
+            Ok(())
+        })
+        .await
+    }
+
+    /// Regression: `Cmd+T` on a fullscreen launcher must not bounce the camera
+    /// (dolly out to the panel distance) or the hover (jump to the view-less
+    /// instance's panel rect) while the new instance waits for its first view.
+    /// The new instance is focused one commit before its view exists; both the
+    /// camera and the hover must resolve the fullscreen framing from that first
+    /// commit, so the transition is a single move, not a grow-then-settle.
+    #[tokio::test]
+    async fn cmd_t_on_a_fullscreen_instance_keeps_camera_and_hover_stable() -> Result<()> {
+        cmd_t_keeps_camera_and_hover_stable(CONFIG).await
+    }
+
+    /// The same, zoomed out: the launcher sits in a nested project's slot, so the
+    /// instance's placement carries the slot's presentation scale, which the
+    /// fullscreen hover rect must keep.
+    #[tokio::test]
+    async fn cmd_t_in_a_nested_slot_keeps_camera_and_hover_stable() -> Result<()> {
+        cmd_t_keeps_camera_and_hover_stable(NESTED_PROJECT_CONFIG).await
+    }
+
+    async fn cmd_t_keeps_camera_and_hover_stable(config: &str) -> Result<()> {
+        task_context::with_context(task_context(), async {
+            let frame = massive_applications::begin_frame();
+            let (mut system, mut instance_manager, launcher) = fullscreen_system(config)?;
+
+            // Instance A's framing is the baseline: in a nested slot it carries
+            // the slot scale.
+            let instance_a = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
+            deliver_view(&mut system, &mut instance_manager, instance_a)?;
+            let distance = camera_distance(&system);
+
+            // `Cmd+T`: instance B is focused one commit before its view exists.
+            let instance_b = start_instance(&mut system, &mut instance_manager, launcher, 1)?;
+            let view_less_distance = camera_distance(&system);
+            assert!(
+                (view_less_distance - distance).abs() < 1e-6,
+                "the camera must not zoom out while the new instance is view-less: expected {distance}, got {view_less_distance}"
             );
-            println!(
-                "DIAG after roundtrip: view {after_view_placement:?}\n  instance {after_instance_placement:?}\n  camera {after_camera:?}"
+            let view_less_hover = system
+                .hover_placement()
+                .expect("the view-less fullscreen instance anchors the hover");
+
+            deliver_view(&mut system, &mut instance_manager, instance_b)?;
+            let view_distance = camera_distance(&system);
+            assert!(
+                (view_distance - distance).abs() < 1e-6,
+                "the camera must not move once the view arrives: expected {distance}, got {view_distance}"
+            );
+            assert_eq!(
+                system.hover_placement(),
+                Some(view_less_hover),
+                "the hover must present the same rect before and after the view arrives"
             );
 
             drop(frame.submission::<SceneChange>());

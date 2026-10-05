@@ -428,25 +428,8 @@ impl DesktopSystem {
         }
 
         // Update the hover target.
-        {
-            // While a fullscreen instance is focused, its view covers the whole
-            // window, so the pointer physically sits on the focused view's area
-            // whatever it pointed at before — tracking pointer focus would box
-            // the obscured instance behind the fullscreen one. Keyboard focus is
-            // the honest anchor there (ADR 0014).
-            let hover_target = if self.focused_path().instance().is_some_and(|instance| {
-                self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
-            }) {
-                self.event_router.keyboard_focus()
-            } else {
-                self.event_router
-                    .pointer_focus()
-                    .or_else(|| self.event_router.keyboard_focus())
-            };
-
-            // Sync the hover rect.
-            self.sync_hover_with_target(hover_target.cloned().as_ref());
-        }
+        self.desktop_presenter
+            .set_hover_placement(self.hover_placement());
 
         Ok(if configuration_changed {
             ConfigurationChanged::Yes
