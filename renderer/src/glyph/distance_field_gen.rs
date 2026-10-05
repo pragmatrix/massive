@@ -1,16 +1,17 @@
+//! Ported from Skia Milestone 115.
+//!
+//!
+//!  Copyright 2014 Google Inc.
+//!
+//!  Use of this source code is governed by a BSD-style license that can be
+//!  found in the LICENSE file.
 #![allow(clippy::needless_range_loop)]
 #![allow(unsafe_op_in_unsafe_fn)]
 
-// Ported from Skia Milestone 115.
-
-//
-//  Copyright 2014 Google Inc.
-//
-//  Use of this source code is governed by a BSD-style license that can be
-//  found in the LICENSE file.
+use std::f32::consts;
+use std::{mem, slice};
 
 use bitflags::bitflags;
-use std::{f32, mem, slice};
 
 // the max magnitude for the distance field
 // distance values are limited to the range (-SK_DistanceFieldMagnitude, SK_DistanceFieldMagnitude]
@@ -191,13 +192,13 @@ unsafe fn init_distances(data: *mut DFData, mut edges: *const u8, width: usize, 
                 // if you're inside, gradient points away from edge
                 let mut curr_grad = Point {
                     x: (*prev_data.offset(1)).alpha - (*prev_data.offset(-1)).alpha
-                        + (*curr_data.offset(1)).alpha * f32::consts::SQRT_2
-                        - (*curr_data.offset(-1)).alpha * f32::consts::SQRT_2
+                        + (*curr_data.offset(1)).alpha * consts::SQRT_2
+                        - (*curr_data.offset(-1)).alpha * consts::SQRT_2
                         + (*next_data.offset(1)).alpha
                         - (*next_data.offset(-1)).alpha,
                     y: (*next_data.offset(-1)).alpha - (*prev_data.offset(-1)).alpha
-                        + (*next_data).alpha * f32::consts::SQRT_2
-                        - (*prev_data).alpha * f32::consts::SQRT_2
+                        + (*next_data).alpha * consts::SQRT_2
+                        - (*prev_data).alpha * consts::SQRT_2
                         + (*next_data.offset(1)).alpha
                         - (*prev_data.offset(1)).alpha,
                 };
