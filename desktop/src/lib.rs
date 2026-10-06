@@ -19,5 +19,10 @@ pub use application_registry::{Application, RuntimeKind};
 pub use desktop::Desktop;
 pub use desktop_environment::*;
 pub use desktop_system::DesktopTarget;
-pub use event_router::{EventRouter, EventTransition, HitTester};
+pub use event_router::EventRouter;
+pub use event_router::HitTester;
+pub use event_router::{
+    KeyboardFocusChange, PointerFocusChange, PointerFocusTarget, RouterOutput, RouterStep,
+};
 pub use massive_shapes::{FontPolicy, ShapingEngineKind};
+pub use targeted_event::EventTransition;

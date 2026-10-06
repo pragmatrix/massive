@@ -4,7 +4,9 @@ use super::{HorizontalDirection, VerticalDirection};
 use crate::desktop_system::DesktopTarget;
 use crate::desktop_system::Direction;
 use crate::desktop_system::topology::DesktopTopology;
-use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotIds};
+use crate::projects::{
+    LaunchProfileId, MatrixPlacement, ProjectId, RuntimeConfiguration, SlotContent,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct MatrixNavigation<'a> {
@@ -119,8 +121,8 @@ impl<'a> MatrixNavigation<'a> {
             .configuration
             .slots_ordered(parent)
             .filter_map(|(_, content)| match content {
-                SlotIds::Project(id) => Some(id),
-                SlotIds::Launcher(_) => None,
+                SlotContent::Project(id) => Some(id),
+                SlotContent::Launcher(_) => None,
             })
             .collect();
 

@@ -12,7 +12,7 @@ use massive_layout::{
 use super::{Aggregates, DesktopTarget, fullscreen_scale};
 use crate::layout::{ContainerBuilder, ToContainer};
 use crate::projects::{
-    FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotIds,
+    FullScreenMode, LaunchProfileId, LauncherMode, MatrixPlacement, ProjectId, SlotContent,
     launcher_mode,
 };
 
@@ -226,7 +226,9 @@ impl DesktopLayoutAlgorithm<'_> {
         let widest_project = contents
             .iter()
             .zip(child_sizes)
-            .filter_map(|(content, size)| matches!(content, SlotIds::Project(_)).then_some(size[0]))
+            .filter_map(|(content, size)| {
+                matches!(content, SlotContent::Project(_)).then_some(size[0])
+            })
             .max()
             .unwrap_or(0);
         let project_scale = presentation_scale(self.default_panel_size.width, widest_project);
@@ -236,8 +238,8 @@ impl DesktopLayoutAlgorithm<'_> {
             .zip(child_sizes.iter().copied())
             .map(|(content, measured)| {
                 let scale = match content {
-                    SlotIds::Launcher(_) => 1.0,
-                    SlotIds::Project(_) => project_scale,
+                    SlotContent::Launcher(_) => 1.0,
+                    SlotContent::Project(_) => project_scale,
                 };
                 let size = SizePx::new(measured[0], measured[1]).to_f64();
                 // Round outward so integer tracks contain the full fractional presented extent.

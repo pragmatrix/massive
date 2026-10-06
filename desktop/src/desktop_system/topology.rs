@@ -3,7 +3,7 @@ use log::error;
 use massive_applications::InstanceId;
 use massive_layout::LayoutTopology;
 
-use crate::projects::{LaunchProfileId, ProjectId, SlotIds};
+use crate::projects::{LaunchProfileId, ProjectId, SlotContent};
 use crate::{DesktopTarget, OrderedHierarchy};
 
 pub type DesktopTopology = OrderedHierarchy<DesktopTarget>;
@@ -123,12 +123,12 @@ impl OrderedHierarchy<DesktopTarget> {
     ///
     /// The *placement* of each slot is configuration data, not topology state; see
     /// `DesktopConfiguration::placement_of_content`.
-    pub fn matrix_slots(&self, project: ProjectId) -> Vec<SlotIds> {
+    pub fn matrix_slots(&self, project: ProjectId) -> Vec<SlotContent> {
         self.get_nested(&DesktopTarget::ProjectMatrix(project))
             .iter()
             .map(|target| match target {
-                DesktopTarget::Launcher(launcher_id) => SlotIds::Launcher(*launcher_id),
-                DesktopTarget::Project(project_id) => SlotIds::Project(*project_id),
+                DesktopTarget::Launcher(launcher_id) => SlotContent::Launcher(*launcher_id),
+                DesktopTarget::Project(project_id) => SlotContent::Project(*project_id),
                 other => panic!(
                     "project matrix children must be launcher or project targets, found {other:?}"
                 ),
@@ -188,7 +188,10 @@ mod tests {
 
         assert_eq!(
             topology.matrix_slots(project),
-            vec![SlotIds::Launcher(launcher), SlotIds::Project(nested),]
+            vec![
+                SlotContent::Launcher(launcher),
+                SlotContent::Project(nested),
+            ]
         );
     }
 

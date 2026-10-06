@@ -10,7 +10,7 @@ use massive_scene::LocationSpace;
 use massive_scene::prelude::*;
 use massive_shapes::{GlyphRun, IntoShape, Shape, Size as SizeExt};
 
-use super::FocusDepth;
+use super::FramingLevel;
 
 const INDICATOR_DURATION: Duration = Duration::from_millis(1375);
 const FADE_IN_END: f32 = 125.0 / 1375.0;
@@ -19,27 +19,27 @@ const MARGIN: f64 = 16.0;
 const FONT_SIZE: f32 = 36.0;
 const PADDING: (u32, u32) = (16, 12);
 const CORNER_RADIUS: f32 = 8.0;
-const DECAL_ORDER: usize = 10;
-/// The badge label per Focus Depth, indexed by `FocusDepth`'s repr, so the array order
-/// must match the declaration order: outermost depth first.
-const FOCUS_DEPTH_LABELS: [(FocusDepth, &str); 4] = [
-    (FocusDepth::Project, "Project"),
-    (FocusDepth::Row, "Row"),
-    (FocusDepth::Slot, "Slot"),
-    (FocusDepth::Instance, "Instance"),
+// The renderer draws decal layers in ascending order, so the maximum stays above other visuals.
+const DECAL_ORDER: usize = usize::MAX;
+/// The badge label per derived camera framing level, ordered from outermost to innermost.
+const FRAMING_LEVEL_LABELS: [(FramingLevel, &str); 4] = [
+    (FramingLevel::Project, "Project"),
+    (FramingLevel::Row, "Row"),
+    (FramingLevel::Slot, "Slot"),
+    (FramingLevel::Instance, "Instance"),
 ];
 
 #[derive(Debug)]
-pub struct FocusDepthIndicatorPresenter {
+pub struct FramingLevelIndicatorPresenter {
     scene_transform: Handle<Transform>,
-    movement: Movement<FocusDepthIndicatorMovement>,
+    movement: Movement<FramingLevelIndicatorMovement>,
     size: SizePx,
     presentation: Option<SizePx>,
 }
 
-impl FocusDepthIndicatorPresenter {
+impl FramingLevelIndicatorPresenter {
     pub fn new() -> Self {
-        let (badges, size) = FocusDepthIndicatorMovement::create_badges();
+        let (badges, size) = FramingLevelIndicatorMovement::create_badges();
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
         let (scene_transform, location) =
@@ -50,7 +50,7 @@ impl FocusDepthIndicatorPresenter {
             .with_decal_order(DECAL_ORDER)
             .submit();
         let movement = movement(
-            FocusDepthIndicatorMovement::new(badges),
+            FramingLevelIndicatorMovement::new(badges),
             move |movement, progress| movement.apply(progress, &location, &visual),
         )
         .mount();
@@ -63,9 +63,9 @@ impl FocusDepthIndicatorPresenter {
         }
     }
 
-    pub fn show(&mut self, focus_depth: FocusDepth) {
+    pub fn show(&mut self, framing_level: FramingLevel) {
         self.movement.modify(move |movement, context| {
-            movement.show(context, focus_depth);
+            movement.show(context, framing_level);
         });
     }
 
@@ -86,40 +86,40 @@ impl FocusDepthIndicatorPresenter {
 }
 
 #[derive(Debug)]
-struct FocusDepthIndicatorMovement {
-    badges: [FocusDepthBadge; FOCUS_DEPTH_LABELS.len()],
-    focus_depth: FocusDepth,
+struct FramingLevelIndicatorMovement {
+    badges: [FramingLevelBadge; FRAMING_LEVEL_LABELS.len()],
+    framing_level: FramingLevel,
     timeline: Animated<f32>,
 }
 
-impl FocusDepthIndicatorMovement {
-    fn new(badges: [FocusDepthBadge; FOCUS_DEPTH_LABELS.len()]) -> Self {
+impl FramingLevelIndicatorMovement {
+    fn new(badges: [FramingLevelBadge; FRAMING_LEVEL_LABELS.len()]) -> Self {
         Self {
             badges,
-            focus_depth: FocusDepth::default(),
+            framing_level: FramingLevel::default(),
             timeline: 1.0.into(),
         }
     }
 
-    fn create_badges() -> ([FocusDepthBadge; FOCUS_DEPTH_LABELS.len()], SizePx) {
-        let glyph_runs = FOCUS_DEPTH_LABELS.map(|(_, label)| {
+    fn create_badges() -> ([FramingLevelBadge; FRAMING_LEVEL_LABELS.len()], SizePx) {
+        let glyph_runs = FRAMING_LEVEL_LABELS.map(|(_, label)| {
             label
                 .size(FONT_SIZE)
                 .shape()
-                .expect("FocusDepth labels must produce glyphs")
+                .expect("Framing-level labels must produce glyphs")
         });
         let (horizontal_padding, vertical_padding) = PADDING;
         let width = glyph_runs
             .iter()
             .map(|glyph_run| glyph_run.metrics.width)
             .max()
-            .expect("FocusDepth labels must not be empty")
+            .expect("Framing-level labels must not be empty")
             + horizontal_padding * 2;
         let height = glyph_runs
             .iter()
             .map(|glyph_run| glyph_run.metrics.size().height)
             .max()
-            .expect("FocusDepth labels must not be empty")
+            .expect("Framing-level labels must not be empty")
             + vertical_padding * 2;
         let size = SizePx::new(width, height);
         let badges = glyph_runs.map(|mut glyph_run| {
@@ -128,14 +128,14 @@ impl FocusDepthIndicatorMovement {
                 vertical_padding as f64,
                 0.0,
             );
-            FocusDepthBadge { glyph_run, size }
+            FramingLevelBadge { glyph_run, size }
         });
 
         (badges, size)
     }
 
-    fn show(&mut self, context: &mut dyn AnimationAllocator, focus_depth: FocusDepth) {
-        self.focus_depth = focus_depth;
+    fn show(&mut self, context: &mut dyn AnimationAllocator, framing_level: FramingLevel) {
+        self.framing_level = framing_level;
         self.timeline.snap(0.0);
         self.timeline
             .animate_with(context, 1.0, INDICATOR_DURATION, Interpolation::Linear);
@@ -156,18 +156,18 @@ impl FocusDepthIndicatorMovement {
                 .interpolate(Interpolation::CubicOut);
             1.0 - fade_progress
         };
-        let shapes = self.badges[self.focus_depth as usize].shapes(alpha);
+        let shapes = self.badges[self.framing_level as usize].shapes(alpha);
         visual.update_if_changed(Visual::new(location, shapes).with_decal_order(DECAL_ORDER));
     }
 }
 
 #[derive(Debug)]
-struct FocusDepthBadge {
+struct FramingLevelBadge {
     glyph_run: GlyphRun,
     size: SizePx,
 }
 
-impl FocusDepthBadge {
+impl FramingLevelBadge {
     fn shapes(&self, alpha: f32) -> Arc<[Shape]> {
         if alpha == 0.0 {
             return Arc::default();

@@ -238,10 +238,7 @@ impl Desktop {
 
                                     let input_changes: Changes =
                                         if let Some(keyboard_cmd) = keyboard_shortcut {
-                                            match keyboard_cmd.into_command() {
-                                                Some(command) => self.system.plan(command)?,
-                                                None => Changes::Empty,
-                                            }
+                                            self.system.plan(keyboard_cmd)?
                                         } else {
                                             self.system.process_input_event(
                                                 &input_event,

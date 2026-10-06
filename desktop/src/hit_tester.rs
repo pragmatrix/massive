@@ -5,8 +5,8 @@ use massive_layout::{LayoutTopology, Placement};
 use massive_renderer::RenderGeometry;
 use massive_scene::LocationSpace;
 
-use crate::projects::{LaunchProfileId, LauncherPresenter, RuntimeConfiguration, launcher_mode};
-use crate::{DesktopTarget, HitTester, Map, OrderedHierarchy};
+use crate::projects::{RuntimeConfiguration, launcher_mode};
+use crate::{DesktopTarget, HitTester, OrderedHierarchy};
 
 pub(crate) trait PlacementSource {
     fn placement(
@@ -19,7 +19,6 @@ pub(crate) trait PlacementSource {
 pub(crate) struct AggregateHitTester<'a> {
     hierarchy: &'a OrderedHierarchy<DesktopTarget>,
     placements: &'a dyn PlacementSource,
-    launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
     configuration: &'a RuntimeConfiguration,
     geometry: &'a RenderGeometry,
 }
@@ -61,14 +60,12 @@ impl<'a> AggregateHitTester<'a> {
     pub fn new(
         hierarchy: &'a OrderedHierarchy<DesktopTarget>,
         placements: &'a dyn PlacementSource,
-        launchers: &'a Map<LaunchProfileId, LauncherPresenter>,
         configuration: &'a RuntimeConfiguration,
         geometry: &'a RenderGeometry,
     ) -> Self {
         Self {
             hierarchy,
             placements,
-            launchers,
             configuration,
             geometry,
         }
@@ -100,15 +97,12 @@ impl<'a> AggregateHitTester<'a> {
     fn hit_test_overflow_overlays_with_depth(&self, screen_pos: Point) -> Option<HitTestResult> {
         let mut topmost_hit: Option<HitTestResult> = None;
 
-        for launcher_id in self.launchers.keys() {
-            let Some(launcher) = self.configuration.launcher(*launcher_id) else {
-                continue;
-            };
+        for launcher in self.configuration.launchers() {
             if !launcher_mode::includes_overflow_children_in_hit_testing(launcher.mode) {
                 continue;
             }
 
-            let launcher_target = DesktopTarget::Launcher(*launcher_id);
+            let launcher_target = DesktopTarget::Launcher(launcher.id);
             if !self.hierarchy.exists(&launcher_target) {
                 continue;
             }

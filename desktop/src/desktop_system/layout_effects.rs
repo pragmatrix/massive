@@ -281,6 +281,6 @@ impl DesktopSystem {
     }
     pub(super) fn resolve_desired_camera(&self) -> Option<PixelCamera> {
         let focused = self.event_router.keyboard_focus()?;
-        Some(self.resolve_camera_for_target_or_ancestor(focused, self.focus_depth))
+        Some(self.resolve_camera_for_target_at_steps(focused, self.zoom_out_steps))
     }
 }

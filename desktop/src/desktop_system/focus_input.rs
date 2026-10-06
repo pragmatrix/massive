@@ -2,25 +2,25 @@ use std::collections::HashSet;
 
 use anyhow::Result;
 use uuid::Uuid;
-use winit::event::ElementState;
+use winit::event::{ElementState, KeyEvent};
 use winit::keyboard::{Key, NamedKey};
 
-use massive_applications::{InstanceId, InstanceParameters, ViewEvent};
+use massive_applications::ViewEvent;
 use massive_input::Event;
 use massive_renderer::RenderGeometry;
 
 use super::change::{Changes, DesktopChange, set_focus};
 use super::{
-    DesktopCommand, DesktopSystem, DesktopTarget, Direction, FocusDepth, KeyboardFocusReason,
-    focus_depth_for_target,
+    DesktopCommand, DesktopFocusPath, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason,
+    ZoomOutSteps,
 };
-use crate::EventTransition;
 use crate::desktop_system::change::Zoom;
-use crate::event_router::{EventTransitions, ProcessOutcome};
+use crate::event_router::{KeyboardFocusChange, RouterStep};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceKind;
 use crate::projects::{LaunchProfileId, launcher_mode};
+use crate::targeted_event::EventTransition;
 
 impl DesktopSystem {
     // This processes input events and converts it to a set of commands.
@@ -32,33 +32,26 @@ impl DesktopSystem {
         let hit_tester = AggregateHitTester::new(
             &self.aggregates.hierarchy,
             &self.layout_state,
-            &self.aggregates.launchers,
             &self.aggregates.configuration,
             render_geometry,
         );
 
-        let changes = match self.event_router.process(event, &hit_tester)? {
-            ProcessOutcome::Transitions(transitions) => {
-                DesktopChange::ForwardEvents(transitions).into()
-            }
-            ProcessOutcome::Focus(target) => {
-                // The event router does not apply focus changes, we do.
-                // Architecture: This should probably be done for pointer focus, too? Just for symmetry?
-                if let Some(target) = target {
-                    let t = target.target;
-                    let mut changes: Changes =
-                        set_focus(Some(t.clone()), KeyboardFocusReason::InputTransition);
-
-                    if let Some(event) = target.event {
-                        changes <<=
-                            DesktopChange::ForwardEvents(EventTransition::Send(t, event).into())
-                    }
-                    changes
-                } else {
-                    set_focus(None, KeyboardFocusReason::InputTransition)
+        let output = self.event_router.process(event, &hit_tester)?;
+        let mut changes = Changes::Empty;
+        for step in output.steps {
+            match step {
+                RouterStep::PointerFocusChanged(change) => {
+                    changes <<= DesktopChange::ForwardEvents(EventTransition::from(change).into());
+                }
+                RouterStep::RequestKeyboardFocus { target } => {
+                    changes += set_focus(target, KeyboardFocusReason::InputTransition);
+                }
+                RouterStep::DeliverInput { target, event } => {
+                    changes <<=
+                        DesktopChange::ForwardEvents(EventTransition::Send(target, event).into());
                 }
             }
-        };
+        }
 
         Ok(changes)
     }
@@ -67,25 +60,32 @@ impl DesktopSystem {
         &mut self,
         target: impl Into<Option<&'a DesktopTarget>>,
         instance_manager: &InstanceManager,
-        _reason: KeyboardFocusReason,
     ) -> Result<()> {
-        let transitions = self.event_router.focus(target.into());
+        let focus_change = self.event_router.focus(target.into());
+        if let Some(focused) = self.event_router.keyboard_focus() {
+            self.zoom_out_steps = self
+                .zoom_out_steps
+                .clamp_to(self.available_zoom_out_steps(focused));
+        }
 
         // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
         // measures now and let `transact` drain them once buttons are released. The camera move
         // itself is driven by `transact` observing the focus change, not queued here.
         // Navigation affinity resets are emitted as `SetNavigationAffinity(None)` sibling changes
         // by `set_focus_change`, not applied here.
-        if !targets_affected_by_keyboard_focus_change(&transitions).is_empty() {
-            let measures = self.launcher_measures_for_focus_change(&transitions);
+        if let Some(change) = focus_change {
+            let measures = self.launcher_measures_for_focus_change(&change);
             self.deferred_focus_launcher_measures.extend(measures);
-        }
 
-        // Invariant: Forwarding focus/unfocus transitions never produces commands.
-        assert!(
-            self.forward_event_transitions(transitions, instance_manager)?
+            // Invariant: Forwarding focus/unfocus transitions never produces commands.
+            assert!(
+                self.forward_event_transitions(
+                    EventTransition::from(change).into(),
+                    instance_manager
+                )?
                 .is_empty()
-        );
+            );
+        }
 
         Ok(())
     }
@@ -94,9 +94,9 @@ impl DesktopSystem {
     /// affected targets. The camera move itself follows from `transact` observing the focus change.
     fn launcher_measures_for_focus_change(
         &self,
-        transitions: &EventTransitions<DesktopTarget>,
+        change: &KeyboardFocusChange<DesktopTarget>,
     ) -> HashSet<LaunchProfileId> {
-        targets_affected_by_keyboard_focus_change(transitions)
+        targets_affected_by_keyboard_focus_change(change)
             .iter()
             .filter_map(|target| self.focus_target_launcher_for_layout(target))
             .collect()
@@ -149,11 +149,14 @@ impl DesktopSystem {
             .aggregates
             .hierarchy
             .path_contains_target(self.event_router.pointer_focus(), target)
+            && let Some(change) = self.event_router.unfocus_pointer()
         {
-            let transitions = self.event_router.unfocus_pointer()?;
             assert!(
-                self.forward_event_transitions(transitions, instance_manager)?
-                    .is_empty()
+                self.forward_event_transitions(
+                    EventTransition::from(change).into(),
+                    instance_manager
+                )?
+                .is_empty()
             );
         }
         Ok(())
@@ -175,11 +178,7 @@ impl DesktopSystem {
             .path_contains_target(self.event_router.keyboard_focus(), target)
         {
             let parent = self.aggregates.hierarchy.parent(target).cloned();
-            self.focus(
-                parent.as_ref(),
-                instance_manager,
-                KeyboardFocusReason::InputTransition,
-            )?;
+            self.focus(parent.as_ref(), instance_manager)?;
         }
         Ok(())
     }
@@ -191,110 +190,113 @@ impl DesktopSystem {
     pub fn match_desktop_keyboard_shortcut(
         &self,
         event: &Event<ViewEvent>,
-    ) -> Option<DesktopKeyboardShortcut> {
+    ) -> Option<DesktopCommand> {
         // Cmd+Enter focuses a launcher slot or instance, then starts only from a launcher.
         // Cmd+T starts from either, and Cmd+W closes an instance.
 
-        if let ViewEvent::KeyboardInput {
+        let ViewEvent::KeyboardInput {
             event: key_event, ..
         } = event.event()
-            && key_event.state == ElementState::Pressed
-            && event.device_states().is_command()
+        else {
+            return None;
+        };
+        if key_event.state != ElementState::Pressed || !event.device_states().is_command() {
+            return None;
+        }
+
+        let focused_path = self.focused_path();
+        if let Some(focused_target) = focused_path.last()
+            && !key_event.repeat
+            && let Some(shortcut) =
+                self.match_focused_target_shortcut(key_event, event, &focused_path, focused_target)
         {
-            // Design: Extract this part into (match `desktop_cmd_key`?)
-            let focused_path = self.focused_path();
+            return Some(shortcut);
+        }
 
-            if !key_event.repeat
-                && key_event.logical_key == Key::Named(NamedKey::Enter)
-                && let Some(focused_target) = focused_path.last()
-                && let Some(shortcut) = cmd_enter_shortcut(focused_target, self.focus_depth)
-            {
-                return Some(shortcut);
-            }
-
-            // Simplify: Instance should probably return the launcher, too now.
-            if !key_event.repeat
-                && let Some(focused_target) = focused_path.last()
-                && supports_instance_start_key(&key_event.logical_key, focused_target)
-            {
-                // `Cmd+T` starts the focused launcher's first base instance or another instance
-                // of the focused instance's launcher; `Cmd+Enter` starts only from a launcher.
-                // `Shift` makes the new instance an assistant: it spawns without the launcher's
-                // configured parameters and carries its own temporary Full Screen Mode (ADR 0014).
-                let kind = if event.device_states().is_shift() {
-                    InstanceKind::Assistant
-                } else {
-                    InstanceKind::Base
-                };
-                let start_target = match focused_target {
-                    DesktopTarget::Launcher(launcher_id) => Some((*launcher_id, None)),
-                    DesktopTarget::Instance(_) | DesktopTarget::View(_) => {
-                        focused_path.instance().map(|instance| {
-                            (
-                                self.aggregates.hierarchy.launcher_of_instance(instance),
-                                Some(instance),
-                            )
-                        })
+        if let Some(direction) = match &key_event.logical_key {
+            Key::Named(NamedKey::ArrowLeft) => Some(Direction::Left),
+            Key::Named(NamedKey::ArrowRight) => Some(Direction::Right),
+            Key::Named(NamedKey::ArrowUp) => Some(Direction::Up),
+            Key::Named(NamedKey::ArrowDown) => Some(Direction::Down),
+            _ => None,
+        } {
+            if event.device_states().is_ctrl() {
+                match direction {
+                    Direction::Up => {
+                        return Some(DesktopCommand::Zoom(Zoom::In));
                     }
-                    _ => None,
-                };
-
-                if let Some((launcher_id, instance)) = start_target {
-                    // `Shift` drops the parameters intentionally (the assistant
-                    // "open plain"); otherwise the spawn inherits what the
-                    // focused object would start with: the launcher's configured
-                    // parameters from launcher focus, the focused instance's own
-                    // from instance focus.
-                    let parameters = match kind {
-                        InstanceKind::Base => match instance {
-                            Some(instance) => self
-                                .aggregates
-                                .instances
-                                .get(&instance)
-                                .expect("Focused instance has no presenter")
-                                .parameters()
-                                .clone(),
-                            None => self.aggregates.configuration[launcher_id].params.clone(),
-                        },
-                        InstanceKind::Assistant => Default::default(),
-                    };
-                    return Some(DesktopKeyboardShortcut::NewInstance {
-                        launcher: launcher_id,
-                        parameters,
-                        kind,
-                    });
-                }
-
-                if kind == InstanceKind::Base
-                    && let Some(instance) = focused_path.instance()
-                    && let Key::Character(c) = &key_event.logical_key
-                    && c.as_str() == "w"
-                {
-                    // Architecture: Shouldn't this just end the current view, and let the
-                    // instance decide then?
-                    return Some(DesktopKeyboardShortcut::CloseInstance(instance));
+                    Direction::Down => {
+                        return Some(DesktopCommand::Zoom(Zoom::Out));
+                    }
+                    _ => {}
                 }
             }
+            return Some(DesktopCommand::Navigate(direction));
+        }
+        None
+    }
 
-            if let Some(direction) = match &key_event.logical_key {
-                Key::Named(NamedKey::ArrowLeft) => Some(Direction::Left),
-                Key::Named(NamedKey::ArrowRight) => Some(Direction::Right),
-                Key::Named(NamedKey::ArrowUp) => Some(Direction::Up),
-                Key::Named(NamedKey::ArrowDown) => Some(Direction::Down),
-                _ => None,
-            } {
-                if event.device_states().is_ctrl() {
-                    match direction {
-                        Direction::Up => {
-                            return Some(DesktopKeyboardShortcut::Zoom(Zoom::In));
-                        }
-                        Direction::Down => {
-                            return Some(DesktopKeyboardShortcut::Zoom(Zoom::Out));
-                        }
-                        _ => {}
-                    }
-                }
-                return Some(DesktopKeyboardShortcut::Navigate(direction));
+    fn match_focused_target_shortcut(
+        &self,
+        key_event: &KeyEvent,
+        event: &Event<ViewEvent>,
+        focused_path: &DesktopFocusPath,
+        focused_target: &DesktopTarget,
+    ) -> Option<DesktopCommand> {
+        // Cmd+Enter
+
+        if key_event.logical_key == Key::Named(NamedKey::Enter) {
+            if self.zoom_out_steps == ZoomOutSteps::ZERO
+                && focused_target.wants_cmd_enter_when_focused()
+            {
+                return None;
+            }
+            return Some(DesktopCommand::Zoom(Zoom::Reset));
+        }
+
+        // Cmd + t
+
+        if supports_instance_start_key(&key_event.logical_key, focused_target) {
+            // `Shift` makes the new instance an assistant: it spawns without the launcher's
+            // configured parameters and carries its own temporary Full Screen Mode (ADR 0014).
+            let shift = event.device_states().is_shift();
+
+            if let Some(instance) = focused_path.instance() {
+                let launcher_id = self.aggregates.hierarchy.launcher_of_instance(instance);
+                // Assistants open plain; base instances inherit the focused instance's parameters.
+                let parameters = match shift {
+                    false => self
+                        .aggregates
+                        .instances
+                        .get(&instance)
+                        .expect("Focused instance has no presenter")
+                        .parameters()
+                        .clone(),
+                    true => Default::default(),
+                };
+                return Some(DesktopCommand::StartInstance {
+                    launcher: launcher_id,
+                    instance: Uuid::new_v4().into(),
+                    root: None,
+                    parameters,
+                    kind: if shift {
+                        InstanceKind::Assistant
+                    } else {
+                        InstanceKind::Base
+                    },
+                });
+            }
+
+            // Cmd + w
+
+            if !shift
+                && let Some(instance) = focused_path.instance()
+                && let Key::Character(c) = &key_event.logical_key
+                && c.as_str() == "w"
+            {
+                // Architecture: Shouldn't this just end the current view, and let the
+                // instance decide then?
+                return Some(DesktopCommand::StopInstance(instance));
             }
         }
 
@@ -304,94 +306,37 @@ impl DesktopSystem {
 
 fn supports_instance_start_key(key: &Key, target: &DesktopTarget) -> bool {
     match key {
-        Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => matches!(
-            target,
-            DesktopTarget::Launcher(_) | DesktopTarget::Instance(_) | DesktopTarget::View(_)
-        ),
-        Key::Named(NamedKey::Enter) => matches!(target, DesktopTarget::Launcher(_)),
+        Key::Character(c) if c.as_str().eq_ignore_ascii_case("t") => {
+            matches!(target, DesktopTarget::Instance(_) | DesktopTarget::View(_))
+        }
         _ => false,
     }
 }
 
-fn cmd_enter_shortcut(
-    target: &DesktopTarget,
-    current_depth: FocusDepth,
-) -> Option<DesktopKeyboardShortcut> {
-    let target_depth = focus_depth_for_target(target)?;
-    // A launcher already at Slot depth must reach the instance-start branch below.
-    if current_depth != target_depth {
-        return Some(DesktopKeyboardShortcut::Zoom(Zoom::Reset));
-    }
-    matches!(target, DesktopTarget::Instance(_) | DesktopTarget::View(_))
-        .then_some(DesktopKeyboardShortcut::Consumed)
-}
-
-fn targets_affected_by_keyboard_focus_change<T>(this: &EventTransitions<T>) -> Vec<&T> {
-    let mut touched = Vec::new();
-
-    for transition in this.iter() {
-        if let EventTransition::ChangeKeyboardFocus { from, to } = transition {
-            if let Some(from) = from.as_ref() {
-                touched.push(from);
-            }
-            if let Some(to) = to.as_ref() {
-                touched.push(to);
-            }
-        }
-    }
-
-    touched
-}
-
-#[derive(Debug)]
-pub enum DesktopKeyboardShortcut {
-    NewInstance {
-        launcher: LaunchProfileId,
-        parameters: InstanceParameters,
-        /// `Shift+Cmd+T` or `Shift+Cmd+Enter`: start an assistant instance, which carries its own
-        /// temporary Full Screen Mode (ADR 0014).
-        kind: InstanceKind,
-    },
-    Consumed,
-    CloseInstance(InstanceId),
-    Zoom(Zoom),
-    Navigate(Direction),
-}
-
-impl DesktopKeyboardShortcut {
-    pub fn into_command(self) -> Option<DesktopCommand> {
-        match self {
-            Self::NewInstance {
-                launcher,
-                parameters,
-                kind,
-            } => Some(DesktopCommand::StartInstance {
-                launcher,
-                instance: Uuid::new_v4().into(),
-                root: None,
-                parameters,
-                kind,
-            }),
-            Self::Consumed => None,
-            Self::CloseInstance(instance) => Some(DesktopCommand::StopInstance(instance)),
-            Self::Navigate(direction) => Some(DesktopCommand::Navigate(direction)),
-            Self::Zoom(change) => Some(DesktopCommand::Zoom(change)),
-        }
-    }
+fn targets_affected_by_keyboard_focus_change<T>(change: &KeyboardFocusChange<T>) -> Vec<&T> {
+    [change.from.as_ref(), change.to.as_ref()]
+        .into_iter()
+        .flatten()
+        .collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use massive_applications::InstanceId;
 
     #[test]
-    fn cmd_enter_starts_an_instance_only_from_a_launcher() {
+    fn launcher_start_keys_are_delegated_to_the_presenter() {
         let launcher = DesktopTarget::Launcher(Uuid::new_v4().into());
         let instance = DesktopTarget::Instance(InstanceId::from(Uuid::new_v4()));
         let view = DesktopTarget::View(massive_applications::ViewId::new());
 
-        assert!(supports_instance_start_key(
+        assert!(!supports_instance_start_key(
             &Key::Named(NamedKey::Enter),
+            &launcher
+        ));
+        assert!(!supports_instance_start_key(
+            &Key::Character("t".into()),
             &launcher
         ));
         assert!(!supports_instance_start_key(
@@ -406,36 +351,5 @@ mod tests {
             &Key::Character("t".into()),
             &instance
         ));
-    }
-
-    #[test]
-    fn cmd_enter_focuses_first_and_is_consumed_at_instance_depth() {
-        let launcher = DesktopTarget::Launcher(Uuid::new_v4().into());
-        let instance = DesktopTarget::Instance(InstanceId::from(Uuid::new_v4()));
-        let view = DesktopTarget::View(massive_applications::ViewId::new());
-
-        assert!(matches!(
-            cmd_enter_shortcut(&launcher, FocusDepth::Project),
-            Some(DesktopKeyboardShortcut::Zoom(Zoom::Reset))
-        ));
-        assert!(cmd_enter_shortcut(&launcher, FocusDepth::Slot).is_none());
-        assert!(matches!(
-            cmd_enter_shortcut(&instance, FocusDepth::Slot),
-            Some(DesktopKeyboardShortcut::Zoom(Zoom::Reset))
-        ));
-        assert!(matches!(
-            cmd_enter_shortcut(&instance, FocusDepth::Instance),
-            Some(DesktopKeyboardShortcut::Consumed)
-        ));
-        assert!(
-            cmd_enter_shortcut(&instance, FocusDepth::Instance)
-                .and_then(DesktopKeyboardShortcut::into_command)
-                .is_none()
-        );
-        assert!(
-            cmd_enter_shortcut(&view, FocusDepth::Instance)
-                .and_then(DesktopKeyboardShortcut::into_command)
-                .is_none()
-        );
     }
 }

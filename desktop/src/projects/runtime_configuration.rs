@@ -120,9 +120,9 @@ impl RuntimeConfiguration {
         project: ProjectId,
         placement: MatrixPlacement,
     ) -> Option<ProjectId> {
-        match self.project(project)?.ids_at(placement)? {
-            SlotIds::Project(child) => Some(child),
-            SlotIds::Launcher(_) => None,
+        match self.project(project)?.content_at(placement)? {
+            SlotContent::Project(child) => Some(child),
+            SlotContent::Launcher(_) => None,
         }
     }
 
@@ -160,7 +160,7 @@ impl RuntimeConfiguration {
 
         for project in self.projects.values_mut() {
             project.slots.retain(
-                |slot| !matches!(slot.ids(), SlotIds::Project(child) if doomed.contains(&child)),
+                |slot| !matches!(slot.ids(), SlotContent::Project(child) if doomed.contains(&child)),
             );
         }
 
@@ -257,10 +257,10 @@ impl RuntimeConfiguration {
         if source == dest || self.project(dest_project).is_none() {
             return false;
         }
-        let Some(content) = self.ids_at(source_project, source_placement) else {
+        let Some(content) = self.content_at(source_project, source_placement) else {
             return false;
         };
-        if let SlotIds::Project(moved) = content
+        if let SlotContent::Project(moved) = content
             && self.is_in_subtree(moved, dest_project)
         {
             return false;
@@ -301,10 +301,10 @@ impl RuntimeConfiguration {
         if source == dest || self.project(dest_project).is_none() {
             return false;
         }
-        let Some(content) = self.ids_at(source_project, source_placement) else {
+        let Some(content) = self.content_at(source_project, source_placement) else {
             return false;
         };
-        if let SlotIds::Project(moved) = content
+        if let SlotContent::Project(moved) = content
             && self.is_in_subtree(moved, dest_project)
         {
             return false;
@@ -518,6 +518,13 @@ impl RuntimeConfiguration {
         self.projects.values().any(|project| project.has_launcher())
     }
 
+    /// All launchers in the configuration, grouped by project document order.
+    pub fn launchers(&self) -> impl Iterator<Item = &Launcher> + '_ {
+        self.projects
+            .values()
+            .flat_map(|project| project.launchers())
+    }
+
     /// How many launchers the configuration defines across all projects.
     #[cfg(test)]
     pub fn launcher_count(&self) -> usize {
@@ -603,7 +610,7 @@ impl RuntimeConfiguration {
             let Some(next) = leading.moved_placement(direction) else {
                 bail!("Can't shift slot content beyond the matrix boundary");
             };
-            if self.ids_at(project, next).is_none() {
+            if self.content_at(project, next).is_none() {
                 break;
             }
             run.push(next);
@@ -658,12 +665,16 @@ impl RuntimeConfiguration {
             .map(|(_, placement)| placement)
     }
 
-    /// The ids of `project`'s slot at `placement`, `None` when the slot is
+    /// The content of `project`'s slot at `placement`, `None` when the slot is
     /// empty. This is the assignment query the shift planner and `AssignSlot`
     /// validation need; placements are unique per project, so it is a lookup.
-    pub fn ids_at(&self, project: ProjectId, placement: MatrixPlacement) -> Option<SlotIds> {
+    pub fn content_at(
+        &self,
+        project: ProjectId,
+        placement: MatrixPlacement,
+    ) -> Option<SlotContent> {
         self.project(project)
-            .and_then(|project| project.ids_at(placement))
+            .and_then(|project| project.content_at(placement))
     }
 
     /// All launchers of the project, kept in matrix-placement order (the
@@ -697,12 +708,12 @@ impl RuntimeConfiguration {
     }
 
     /// Every assigned slot of `project`, in placement order. `MatrixPlacement`
-    /// and `SlotIds` are both `Copy`, so the items are values without a
+    /// and `SlotContent` are both `Copy`, so the items are values without a
     /// collection to build first.
     pub fn slots_ordered(
         &self,
         project: ProjectId,
-    ) -> impl Iterator<Item = (MatrixPlacement, SlotIds)> + '_ {
+    ) -> impl Iterator<Item = (MatrixPlacement, SlotContent)> + '_ {
         self.project(project).into_iter().flat_map(|project| {
             project
                 .slots
@@ -845,14 +856,14 @@ impl Project {
     /// The launcher assigned to `placement`, if the slot holds one.
     #[cfg(test)]
     pub fn launcher_at(&self, placement: MatrixPlacement) -> Option<LaunchProfileId> {
-        match self.ids_at(placement)? {
-            SlotIds::Launcher(launcher) => Some(launcher),
-            SlotIds::Project(_) => None,
+        match self.content_at(placement)? {
+            SlotContent::Launcher(launcher) => Some(launcher),
+            SlotContent::Project(_) => None,
         }
     }
 
     /// The content of the slot at `placement`, `None` when it is empty.
-    pub fn ids_at(&self, placement: MatrixPlacement) -> Option<SlotIds> {
+    pub fn content_at(&self, placement: MatrixPlacement) -> Option<SlotContent> {
         self.slot_index(placement)
             .map(|index| self.slots[index].ids())
     }
@@ -883,8 +894,8 @@ impl Project {
             .iter()
             .map(|slot| slot.ids())
             .filter_map(|content| match content {
-                SlotIds::Project(project) => Some(project),
-                SlotIds::Launcher(_) => None,
+                SlotContent::Project(project) => Some(project),
+                SlotContent::Launcher(_) => None,
             })
             .collect()
     }
@@ -893,8 +904,8 @@ impl Project {
     /// `first_launcher_depth_first` follows.
     pub fn first_nested_project(&self) -> Option<ProjectId> {
         self.slots.iter().find_map(|slot| match slot.ids() {
-            SlotIds::Project(project) => Some(project),
-            SlotIds::Launcher(_) => None,
+            SlotContent::Project(project) => Some(project),
+            SlotContent::Launcher(_) => None,
         })
     }
 
@@ -915,7 +926,7 @@ impl Project {
     }
 
     /// The placement of the slot whose ids match `content`.
-    pub fn placement_of_content(&self, content: SlotIds) -> Option<MatrixPlacement> {
+    pub fn placement_of_content(&self, content: SlotContent) -> Option<MatrixPlacement> {
         self.slots
             .iter()
             .find(|slot| slot.ids() == content)
@@ -935,7 +946,7 @@ impl Project {
     pub fn slot_of_launcher(&self, launcher: LaunchProfileId) -> Option<MatrixPlacement> {
         self.slots
             .iter()
-            .find(|slot| slot.ids() == SlotIds::Launcher(launcher))
+            .find(|slot| slot.ids() == SlotContent::Launcher(launcher))
             .map(|slot| slot.placement)
     }
 
@@ -990,10 +1001,10 @@ impl Slot {
 
     /// The content's ids, for readers that only discriminate — the cheap
     /// `Copy` projection of the payload.
-    pub fn ids(&self) -> SlotIds {
+    pub fn ids(&self) -> SlotContent {
         match &self.content {
-            SlotPayload::Launcher(launcher) => SlotIds::Launcher(launcher.id),
-            SlotPayload::Project(project) => SlotIds::Project(*project),
+            SlotPayload::Launcher(launcher) => SlotContent::Launcher(launcher.id),
+            SlotPayload::Project(project) => SlotContent::Project(*project),
         }
     }
 }
@@ -1084,18 +1095,18 @@ impl SlotPayload {}
 /// The `Copy` id-level view of a [`SlotPayload`], for readers that only match on
 /// which kind of content a slot holds.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum SlotIds {
+pub enum SlotContent {
     Launcher(LaunchProfileId),
     Project(ProjectId),
 }
 
-impl SlotIds {
+impl SlotContent {
     /// The topology target that presents this content, mirroring
     /// [`SlotPayload::target`].
     pub fn target(self) -> DesktopTarget {
         match self {
-            SlotIds::Launcher(launcher) => DesktopTarget::Launcher(launcher),
-            SlotIds::Project(project) => DesktopTarget::Project(project),
+            SlotContent::Launcher(launcher) => DesktopTarget::Launcher(launcher),
+            SlotContent::Project(project) => DesktopTarget::Project(project),
         }
     }
 }
@@ -1119,10 +1130,10 @@ pub enum SlotAssignment {
 }
 
 impl SlotAssignment {
-    pub fn content(&self) -> SlotIds {
+    pub fn content(&self) -> SlotContent {
         match self {
-            SlotAssignment::Launcher { id, .. } => SlotIds::Launcher(*id),
-            SlotAssignment::Project { id, .. } => SlotIds::Project(*id),
+            SlotAssignment::Launcher { id, .. } => SlotContent::Launcher(*id),
+            SlotAssignment::Project { id, .. } => SlotContent::Project(*id),
         }
     }
 }
@@ -1301,7 +1312,7 @@ mod tests {
     }
 
     #[test]
-    fn ids_at_classifies_both_kinds_of_slot_content() {
+    fn content_at_classifies_both_kinds_of_slot_content() {
         let nested = ProjectId::new();
         let placement = MatrixPlacement { column: 0, row: 0 };
         let mut configuration = configuration([("only", placement)]);
@@ -1309,14 +1320,14 @@ mod tests {
 
         let existing = configuration.launcher_at(root, placement).unwrap();
         assert_eq!(
-            configuration.ids_at(root, placement),
-            Some(SlotIds::Launcher(existing))
+            configuration.content_at(root, placement),
+            Some(SlotContent::Launcher(existing))
         );
 
         configuration.assign_slot(Some(root), placement, nested_assignment(nested));
         assert_eq!(
-            configuration.ids_at(root, placement),
-            Some(SlotIds::Project(nested))
+            configuration.content_at(root, placement),
+            Some(SlotContent::Project(nested))
         );
     }
 
@@ -1355,7 +1366,7 @@ mod tests {
         assert_eq!(
             configuration
                 .project(root)
-                .and_then(|project| { project.placement_of_content(SlotIds::Project(nested)) }),
+                .and_then(|project| { project.placement_of_content(SlotContent::Project(nested)) }),
             Some(placement)
         );
     }
@@ -1373,7 +1384,7 @@ mod tests {
 
         configuration.clear_slot(root, placement);
 
-        assert_eq!(configuration.ids_at(root, placement), None);
+        assert_eq!(configuration.content_at(root, placement), None);
         assert_eq!(
             configuration.projects().count(),
             2,
@@ -1399,7 +1410,7 @@ mod tests {
 
         assert!(configuration.project(labs).is_none());
         assert!(configuration.project(inner).is_none());
-        assert_eq!(configuration.ids_at(root, root_placement), None);
+        assert_eq!(configuration.content_at(root, root_placement), None);
     }
 
     #[test]

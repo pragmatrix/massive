@@ -2,7 +2,8 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use uuid::Uuid;
-use winit::event::MouseButton;
+use winit::event::{ElementState, MouseButton};
+use winit::keyboard::{Key, NamedKey};
 
 use massive_animation::{Animated, AnimationAllocator, AnimationProgress, Interpolation, Movement};
 use massive_applications::prelude::*;
@@ -206,19 +207,23 @@ impl LauncherPresenter {
             return Ok(Commands::Empty);
         };
 
-        if presents_instance {
-            return Ok(Commands::Empty);
-        }
-
-        // Can't go on focus here, we might focus launchers by other means (for example cursor
-        // navigation).
-        // `Cmd+T` and `Cmd+Enter` start instances from the keyboard; the click stays
-        // the launcher's own. Shift-click skips the profile's parameters: a user's
-        // explicit "open plain".
-        let start_instance = event.detect_click(MouseButton::Left).is_some();
+        // Focus alone must not launch: navigation can focus a launcher without activating it.
+        let start_shortcut = matches!(
+            event.event(),
+            ViewEvent::KeyboardInput { event: key_event, .. }
+                if key_event.state == ElementState::Pressed
+                    && !key_event.repeat
+                    && event.device_states().is_command()
+                    && (key_event.logical_key == Key::Named(NamedKey::Enter)
+                        || matches!(&key_event.logical_key, Key::Character(key)
+                            if key.as_str().eq_ignore_ascii_case("t")))
+        );
+        let start_instance = start_shortcut
+            || (!presents_instance && event.detect_click(MouseButton::Left).is_some());
 
         if start_instance {
-            let parameters = if event.keyboard_modifiers().shift_key() {
+            let shift = event.keyboard_modifiers().shift_key();
+            let parameters = if shift {
                 InstanceParameters::new()
             } else {
                 params.clone()
@@ -230,7 +235,12 @@ impl LauncherPresenter {
                 instance: Uuid::new_v4().into(),
                 root: None,
                 parameters,
-                kind: InstanceKind::Base,
+                // Shift-click opens plain; only Shift-shortcuts create assistants (ADR 0014).
+                kind: if start_shortcut && shift {
+                    InstanceKind::Assistant
+                } else {
+                    InstanceKind::Base
+                },
             }
             .into());
         }

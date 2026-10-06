@@ -1,9 +1,11 @@
+use std::iter;
+
 use massive_applications::InstanceId;
 use massive_geometry::{BoundaryRect, Centroid, PixelCamera, Quaternion, Rect, RectPx, Vector3};
 use massive_scene::prelude::*;
 
-use crate::desktop_system::{DesktopSystem, DesktopTarget, FocusDepth};
-use crate::projects::{LaunchProfileId, LauncherMode, ProjectId};
+use crate::desktop_system::{DesktopSystem, DesktopTarget, FramingLevel, ZoomOutSteps};
+use crate::projects::{LauncherMode, MatrixPlacement, ProjectId, SlotContent};
 
 #[derive(Debug, Clone)]
 pub(super) struct OverviewBounds {
@@ -19,39 +21,142 @@ impl OverviewBounds {
     }
 }
 
+/// Project and derived frame level used while resolving an outward camera step.
+#[derive(Debug, Clone, Copy)]
+struct FrameContext {
+    project: ProjectId,
+    level: FramingLevel,
+}
+
 impl DesktopSystem {
-    pub(crate) fn resolve_camera_for_target_or_ancestor(
+    pub fn resolve_camera_for_target_at_steps(
         &self,
         target: &DesktopTarget,
-        mut depth: FocusDepth,
+        steps: ZoomOutSteps,
     ) -> PixelCamera {
-        loop {
-            if let Some(camera) = self.resolve_camera_focus_and_depth(target, depth) {
-                return camera;
-            }
+        let frame = self.frame_context_at_steps(target, steps);
+        self.camera_for_frame(target, frame)
+    }
 
-            depth = depth
-                .zoom_out()
-                .expect("Internal error: no camera found for target or ancestor");
+    fn camera_for_frame(&self, target: &DesktopTarget, frame: FrameContext) -> PixelCamera {
+        match frame.level {
+            FramingLevel::Instance => self
+                .camera_for_target(target)
+                .expect("an instance-level focus target must have a camera"),
+            FramingLevel::Slot => {
+                let (content, _) = self
+                    .focus_slot_in_project(frame.project, target)
+                    .expect("a slot frame must lie on the focused target's path");
+                self.camera_for_slot(content)
+                    .expect("a configured project slot must have a camera")
+            }
+            FramingLevel::Row => {
+                let (_, placement) = self
+                    .focus_slot_in_project(frame.project, target)
+                    .expect("a row frame must lie on the focused target's path");
+                let rect = self
+                    .matrix_row_rect_for_project(frame.project, placement.row)
+                    .expect("a row containing the focused target must have bounds");
+                self.camera_for_rect(rect)
+                    .expect("a row containing the focused target must have a camera")
+            }
+            FramingLevel::Project => self
+                .camera_for_rect(self.project_rect(frame.project))
+                .expect("a live project must have camera bounds"),
         }
     }
 
-    fn resolve_camera_focus_and_depth(
+    pub fn available_zoom_out_steps(&self, target: &DesktopTarget) -> usize {
+        self.outer_frames(self.frame_context(target)).count()
+    }
+
+    pub fn focus_frame_level(&self) -> Option<FramingLevel> {
+        self.event_router.keyboard_focus().map(|focused| {
+            self.frame_context_at_steps(focused, self.zoom_out_steps)
+                .level
+        })
+    }
+
+    pub fn navigation_target_at_zoom_steps(
         &self,
         target: &DesktopTarget,
-        depth: FocusDepth,
-    ) -> Option<PixelCamera> {
-        match depth {
-            FocusDepth::Instance => self.camera_for_target(target),
-            FocusDepth::Slot => self.camera_for_launcher_focus(target),
-            FocusDepth::Row => self
-                .aggregates
-                .hierarchy
-                .launcher_of_target(target)
-                .and_then(|launcher| self.camera_for_rect(self.matrix_row_rect(launcher)?)),
-            FocusDepth::Project => {
-                let project = self.aggregates.hierarchy.project_of_target(target);
-                self.camera_for_rect(self.project_rect(project))
+        steps: ZoomOutSteps,
+    ) -> DesktopTarget {
+        let frame = self.frame_context_at_steps(target, steps);
+        if frame.level == FramingLevel::Instance {
+            return target.clone();
+        }
+
+        self.focus_slot_in_project(frame.project, target)
+            .map(|(content, _)| content.target())
+            .or_else(|| {
+                self.last_focused_content(frame.project)
+                    .map(SlotContent::target)
+            })
+            .unwrap_or_else(|| target.clone())
+    }
+
+    fn frame_context_at_steps(&self, target: &DesktopTarget, steps: ZoomOutSteps) -> FrameContext {
+        let frame = self.frame_context(target);
+        self.outer_frames(frame)
+            .take(steps.get())
+            .fold(frame, |_, next| next)
+    }
+
+    fn frame_context(&self, target: &DesktopTarget) -> FrameContext {
+        FrameContext {
+            project: self.aggregates.hierarchy.project_of_target(target),
+            level: initial_frame_level(target),
+        }
+    }
+
+    fn next_outer_frame(&self, frame: FrameContext) -> Option<FrameContext> {
+        let level = match frame.level {
+            FramingLevel::Instance => FramingLevel::Slot,
+            FramingLevel::Slot => FramingLevel::Row,
+            FramingLevel::Row => FramingLevel::Project,
+            FramingLevel::Project => {
+                let project = self.aggregates.hierarchy.parent_project_of(frame.project)?;
+                return Some(FrameContext {
+                    project,
+                    level: FramingLevel::Slot,
+                });
+            }
+        };
+
+        Some(FrameContext { level, ..frame })
+    }
+
+    fn outer_frames(&self, frame: FrameContext) -> impl Iterator<Item = FrameContext> + '_ {
+        iter::successors(self.next_outer_frame(frame), |frame| {
+            self.next_outer_frame(*frame)
+        })
+    }
+
+    fn focus_slot_in_project(
+        &self,
+        project: ProjectId,
+        target: &DesktopTarget,
+    ) -> Option<(SlotContent, MatrixPlacement)> {
+        self.aggregates
+            .configuration
+            .slots_ordered(project)
+            .find_map(|(placement, content)| {
+                self.aggregates
+                    .hierarchy
+                    .path_contains_target(Some(target), &content.target())
+                    .then_some((content, placement))
+            })
+    }
+
+    fn camera_for_slot(&self, content: SlotContent) -> Option<PixelCamera> {
+        match content {
+            SlotContent::Launcher(launcher) => {
+                self.camera_for_launcher_focus(&DesktopTarget::Launcher(launcher))
+            }
+            SlotContent::Project(nested) => {
+                // Parent slots contain the project's full presented subtree.
+                self.camera_for_rect(self.project_rect(nested))
             }
         }
     }
@@ -150,9 +255,7 @@ impl DesktopSystem {
 
     /// The bounds of the matrix row the launcher sits in, every assigned slot of
     /// that row included — a project-assigned slot widens it like a launcher does.
-    pub(super) fn matrix_row_rect(&self, launcher_id: LaunchProfileId) -> Option<Rect> {
-        let project_id = self.aggregates.hierarchy.project_of_launcher(launcher_id);
-        let row = self.aggregates.configuration.placement_of(launcher_id)?.row;
+    fn matrix_row_rect_for_project(&self, project_id: ProjectId, row: u32) -> Option<Rect> {
         let mut rect: Option<Rect> = None;
 
         for (placement, content) in self.aggregates.configuration.slots_ordered(project_id) {
@@ -168,28 +271,14 @@ impl DesktopSystem {
             });
         }
 
-        rect.map(|matrix_row_rect| self.with_desktop_width(project_id, matrix_row_rect))
+        rect
     }
 
     pub(super) fn project_rect(&self, project_id: ProjectId) -> Rect {
         let root = DesktopTarget::Project(project_id);
         let mut rect = Some(self.target_rect(&root));
         self.extend_rect_with_subtree(&root, &mut rect);
-        self.with_desktop_width(
-            project_id,
-            rect.expect("Internal error: project bounds should always exist"),
-        )
-    }
-
-    /// Widens `rect` to the matrix that hosts the project, so panning across
-    /// sibling slots stays possible. The root has no parent matrix, so it keeps its
-    /// own width.
-    fn with_desktop_width(&self, project_id: ProjectId, rect: Rect) -> Rect {
-        let Some(parent) = self.aggregates.hierarchy.parent_project_of(project_id) else {
-            return rect;
-        };
-        let parent_rect = self.target_rect(&DesktopTarget::ProjectMatrix(parent));
-        (parent_rect.left, rect.top, parent_rect.right, rect.bottom).into()
+        rect.expect("Internal error: project bounds should always exist")
     }
 
     fn extend_rect_with_subtree(&self, root: &DesktopTarget, rect: &mut Option<Rect>) {
@@ -259,5 +348,16 @@ impl DesktopSystem {
             .map(|instance| self.target_rect(&DesktopTarget::Instance(*instance)))
             .bounds()
             .expect("Internal error: a launcher with instances must yield rects")
+    }
+}
+
+fn initial_frame_level(target: &DesktopTarget) -> FramingLevel {
+    match target {
+        DesktopTarget::Launcher(_) => FramingLevel::Slot,
+        DesktopTarget::Instance(_) | DesktopTarget::View(_) => FramingLevel::Instance,
+        DesktopTarget::Desktop
+        | DesktopTarget::Project(_)
+        | DesktopTarget::ProjectHeader(_)
+        | DesktopTarget::ProjectMatrix(_) => FramingLevel::Project,
     }
 }

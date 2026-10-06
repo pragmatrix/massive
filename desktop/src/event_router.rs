@@ -4,27 +4,21 @@
 //! This type is generic over `T`, which is the element's type. A target is a reference to a concrete
 //! / typed node in the focus and conceptual hierarchy of display elements.
 
-use std::fmt;
 use std::time::Duration;
+use std::{fmt, mem};
 
 use anyhow::{Result, bail};
 use log::{error, warn};
+
 use winit::event::{DeviceId, ElementState, Modifiers};
 
 use massive_applications::ViewEvent;
 use massive_geometry::{Point, Vector3};
 use massive_input::{DeviceStates, Event};
-use massive_util::CollectingVec;
 
 // Require intentional mouse movement before returning pointer-first feedback after keyboard use.
 const POINTER_FEEDBACK_REENABLE_MIN_DISTANCE_PX: f64 = 24.0;
 const POINTER_FEEDBACK_REENABLE_MAX_DURATION: Duration = Duration::from_millis(200);
-
-#[derive(Debug)]
-pub struct NavigationTarget<T> {
-    pub target: T,
-    pub event: Option<ViewEvent>,
-}
 
 // Detail: The EventRouter works without any knowledge about the relationships between the targets
 // (e.g. their hierarchical structure).
@@ -33,7 +27,7 @@ pub struct EventRouter<T> {
     /// The recently touched target with the cursor / mouse.
     ///
     /// If _any_ button is pressed while moving the cursor, its focus stays on the previous target.
-    pointer_focus: Option<(T, DeviceId)>,
+    pointer_focus: Option<PointerFocusTarget<T>>,
 
     /// The keyboard focus decides to which view and instance the keyboard events are delivered.
     keyboard_focus: Option<T>,
@@ -52,6 +46,47 @@ pub struct EventRouter<T> {
 
     /// Most recent [`DeviceStates`]. This way we can re-hit the pointer anytime.
     device_states: DeviceStates,
+}
+
+/// The previous and next keyboard-focus targets.
+#[derive(Debug)]
+pub struct KeyboardFocusChange<T> {
+    pub from: Option<T>,
+    pub to: Option<T>,
+}
+
+/// Ordered routing decisions for one input event.
+#[derive(Debug)]
+pub struct RouterOutput<T> {
+    pub steps: Vec<RouterStep<T>>,
+}
+
+/// One routing decision; the output order preserves focus and delivery ordering.
+#[derive(Debug)]
+pub enum RouterStep<T> {
+    PointerFocusChanged(PointerFocusChange<T>),
+    RequestKeyboardFocus {
+        /// `None` requests that keyboard focus be cleared.
+        target: Option<T>,
+    },
+    DeliverInput {
+        target: T,
+        event: ViewEvent,
+    },
+}
+
+/// The previous and next pointer-focus owners.
+#[derive(Debug)]
+pub struct PointerFocusChange<T> {
+    pub from: Option<PointerFocusTarget<T>>,
+    pub to: Option<PointerFocusTarget<T>>,
+}
+
+/// A target and device pair identifying the current pointer focus.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PointerFocusTarget<T> {
+    pub target: T,
+    pub device_id: DeviceId,
 }
 
 impl<T: PartialEq + Clone + fmt::Debug> Default for EventRouter<T> {
@@ -98,7 +133,13 @@ where
     }
 
     pub fn pointer_focus(&self) -> Option<&T> {
-        self.pointer_focus.as_ref().map(|(target, _)| target)
+        self.pointer_focus.as_ref().map(|focus| &focus.target)
+    }
+
+    /// The event pointer's last position, absent while keyboard input suppresses pointer feedback.
+    pub fn pointer_position(&self) -> Option<Point> {
+        let focus = self.pointer_focus.as_ref()?;
+        self.device_states.pos(focus.device_id)
     }
 
     pub fn keyboard_modifiers(&self) -> Modifiers {
@@ -110,34 +151,26 @@ where
     }
 
     /// Change focus to the given target.
-    pub fn focus<'a>(&mut self, focus: impl Into<Option<&'a T>>) -> EventTransitions<T>
+    pub fn focus<'a>(&mut self, focus: impl Into<Option<&'a T>>) -> Option<KeyboardFocusChange<T>>
     where
         T: 'a,
     {
-        let mut event_transitions = EventTransitions::default();
-        self.set_keyboard_focus(focus.into().cloned(), &mut event_transitions);
-        event_transitions
+        self.set_keyboard_focus(focus.into().cloned())
     }
 
     pub fn process(
         &mut self,
         input_event: &Event<ViewEvent>,
         hit_tester: &impl HitTester<T>,
-    ) -> Result<ProcessOutcome<T>> {
+    ) -> Result<RouterOutput<T>> {
         let view_event = input_event.event();
 
-        let mut event_transitions = EventTransitions::default();
-        let mut focus_outcome = None;
+        let mut steps = Vec::new();
 
         match view_event {
             ViewEvent::Focused(focused) => {
                 if let Some(target) = self.set_outer_focus(*focused) {
-                    focus_outcome = Some(ProcessOutcome::Focus(target.map(|target| {
-                        NavigationTarget {
-                            target,
-                            event: None,
-                        }
-                    })));
+                    steps.push(RouterStep::RequestKeyboardFocus { target });
                 }
             }
 
@@ -169,22 +202,31 @@ where
                             // re-enable cursor focus.
                             let Some((target, hit_pos)) = hit_tester.hit_test(screen_pos, None)
                         {
-                            self.set_pointer_focus(
-                                Some((target, *device_id)),
-                                &mut event_transitions,
-                            );
+                            if let Some(change) = self.set_pointer_focus(Some(PointerFocusTarget {
+                                target,
+                                device_id: *device_id,
+                            })) {
+                                steps.push(RouterStep::PointerFocusChanged(change));
+                            }
                             Some(hit_pos)
                         } else {
                             None
                         }
                     } else if let Some((target, hit_pos)) = hit_tester.hit_test(screen_pos, None) {
-                        self.set_pointer_focus(Some((target, *device_id)), &mut event_transitions);
+                        if let Some(change) = self.set_pointer_focus(Some(PointerFocusTarget {
+                            target,
+                            device_id: *device_id,
+                        })) {
+                            steps.push(RouterStep::PointerFocusChanged(change));
+                        }
                         Some(hit_pos)
                     } else {
                         // Hit test should always hit Desktop at least, so this branch may never
                         // enter (may be hit_test() should cover this).
                         error!("Internal Error: Unexpected hit test result");
-                        self.set_pointer_focus(None, &mut event_transitions);
+                        if let Some(change) = self.set_pointer_focus(None) {
+                            steps.push(RouterStep::PointerFocusChanged(change));
+                        }
                         None
                     }
                 } else {
@@ -194,7 +236,7 @@ where
                         // Robustness: What if pointer_focus is root?
                         hit_tester.hit_test(
                             screen_pos,
-                            self.pointer_focus.as_ref().map(|(target, _)| target),
+                            self.pointer_focus.as_ref().map(|focus| &focus.target),
                         )
                     {
                         Some(hit)
@@ -204,24 +246,26 @@ where
                         // focus must be reset.
                         // Robustness: Shouldn't a regular hit test be attempted?
                         warn!("Resetting pointer focus, no hit on previous target");
-                        self.set_pointer_focus(None, &mut event_transitions);
+                        if let Some(change) = self.set_pointer_focus(None) {
+                            steps.push(RouterStep::PointerFocusChanged(change));
+                        }
                         None
                     }
                 };
 
                 // If there is a current hit position & pointer focus, forward the event.
-                if let (Some(hit_pos), Some((focused, focused_device))) =
+                if let (Some(hit_pos), Some(focused)) =
                     (hit_pos, &self.pointer_focus)
                     // Keep devices with pressed buttons from moving another device's focus.
-                    && focused_device == device_id
+                    && focused.device_id == *device_id
                 {
-                    event_transitions <<= send(
-                        focused,
-                        ViewEvent::CursorMoved {
-                            device_id: *focused_device,
+                    steps.push(RouterStep::DeliverInput {
+                        target: focused.target.clone(),
+                        event: ViewEvent::CursorMoved {
+                            device_id: focused.device_id,
                             position: (hit_pos.x, hit_pos.y).into(),
                         },
-                    );
+                    });
                 }
             }
 
@@ -239,46 +283,78 @@ where
                 // To get around this, the system must make sure that the camera does not move while
                 // a button is pressed.
                 //
-                // If the pointer focus was cleared (e.g. by keyboard use), hit-test that position
-                // so the click under the mouse counts.
-                if self.pointer_focus.is_none() {
-                    self.hit_test_and_set_pointer_focus(
-                        hit_tester,
-                        *device_id,
-                        &mut event_transitions,
-                    )?;
+                // Geometry can move without pointer motion, so presses re-hit-test.
+                if let Some(screen_pos) = input_event
+                    .device_pos(*device_id)
+                    .or_else(|| self.device_states.pos(*device_id))
+                {
+                    let target = hit_tester
+                        .hit_test(screen_pos, None)
+                        .map(|(target, _)| (target, *device_id));
+                    if let Some(change) = self.set_pointer_focus(
+                        target.map(|(target, device_id)| PointerFocusTarget { target, device_id }),
+                    ) {
+                        steps.push(RouterStep::PointerFocusChanged(change));
+                    }
                 }
 
                 let pressed_target = self
                     .pointer_focus
                     .as_ref()
-                    .filter(|&(_, pointer_device)| *pointer_device == *device_id)
-                    .map(|(target, _)| NavigationTarget {
-                        target: target.clone(),
-                        event: Some(view_event.clone()),
+                    .filter(|focus| focus.device_id == *device_id)
+                    .map(|focus| focus.target.clone());
+                steps.push(RouterStep::RequestKeyboardFocus {
+                    target: pressed_target.clone(),
+                });
+                if let Some(target) = pressed_target {
+                    steps.push(RouterStep::DeliverInput {
+                        target,
+                        event: view_event.clone(),
                     });
-
-                focus_outcome = Some(ProcessOutcome::Focus(pressed_target));
+                }
             }
 
             // Forward to the current pointer focus.
             //
             // Robustness: We might need to update the pointer focus here again with the current
             // screen position. The scene might have changed in the meantime.
-            ViewEvent::MouseInput { device_id, .. } | ViewEvent::MouseWheel { device_id, .. } => {
+            ViewEvent::MouseInput { device_id, .. } => {
                 // If pointer focus is not set, re-set it if the hit tester says so.
-                if self.pointer_focus.is_none() {
-                    self.hit_test_and_set_pointer_focus(
-                        hit_tester,
-                        *device_id,
-                        &mut event_transitions,
-                    )?;
+                if self.pointer_focus.is_none()
+                    && let Some(change) =
+                        self.hit_test_and_set_pointer_focus(hit_tester, *device_id)?
+                {
+                    steps.push(RouterStep::PointerFocusChanged(change));
                 }
 
-                if let Some((pointer_focus, pointer_device)) = &self.pointer_focus
-                    && pointer_device == device_id
+                if let Some(pointer_focus) = &self.pointer_focus
+                    && pointer_focus.device_id == *device_id
                 {
-                    event_transitions <<= send(pointer_focus, view_event.clone());
+                    steps.push(RouterStep::DeliverInput {
+                        target: pointer_focus.target.clone(),
+                        event: view_event.clone(),
+                    });
+                }
+            }
+
+            ViewEvent::MouseWheel { device_id, .. } => {
+                if let Some(pointer_focus) = &self.pointer_focus {
+                    if pointer_focus.device_id == *device_id {
+                        steps.push(RouterStep::DeliverInput {
+                            target: pointer_focus.target.clone(),
+                            event: view_event.clone(),
+                        });
+                    }
+                } else if let Some(screen_pos) = input_event
+                    .device_pos(*device_id)
+                    .or_else(|| self.device_states.pos(*device_id))
+                    && let Some((target, _)) = hit_tester.hit_test(screen_pos, None)
+                {
+                    // Scrolling reaches the surface under the pointer without reenabling hover.
+                    steps.push(RouterStep::DeliverInput {
+                        target,
+                        event: view_event.clone(),
+                    });
                 }
             }
 
@@ -288,18 +364,27 @@ where
             // Keyboard focus
             ViewEvent::KeyboardInput { event, .. } => {
                 if let Some(keyboard_focus) = &self.keyboard_focus {
-                    event_transitions <<= send(keyboard_focus, view_event.clone());
+                    steps.push(RouterStep::DeliverInput {
+                        target: keyboard_focus.clone(),
+                        event: view_event.clone(),
+                    });
                 }
 
                 // Unfocus the cursor when a key is newly pressed.
-                if event.state == ElementState::Pressed && !event.repeat {
-                    self.set_pointer_focus(None, &mut event_transitions);
+                if event.state == ElementState::Pressed
+                    && !event.repeat
+                    && let Some(change) = self.set_pointer_focus(None)
+                {
+                    steps.push(RouterStep::PointerFocusChanged(change));
                 }
             }
 
             ViewEvent::Ime(..) => {
                 if let Some(keyboard_focus) = &self.keyboard_focus {
-                    event_transitions <<= send(keyboard_focus, view_event.clone());
+                    steps.push(RouterStep::DeliverInput {
+                        target: keyboard_focus.clone(),
+                        event: view_event.clone(),
+                    });
                 }
             }
 
@@ -307,12 +392,18 @@ where
                 // Robustness: Not sure if this is the right call, we send modifiers changed to
                 // both, the keyboard focused _and_ if different from the keyboard focus, to the
                 if let Some(keyboard_focus) = &self.keyboard_focus {
-                    event_transitions <<= send(keyboard_focus, view_event.clone());
+                    steps.push(RouterStep::DeliverInput {
+                        target: keyboard_focus.clone(),
+                        event: view_event.clone(),
+                    });
                 }
-                if let Some((pointer_focus, _)) = &self.pointer_focus
-                    && Some(pointer_focus) != self.keyboard_focus.as_ref()
+                if let Some(pointer_focus) = &self.pointer_focus
+                    && Some(&pointer_focus.target) != self.keyboard_focus.as_ref()
                 {
-                    event_transitions <<= send(pointer_focus, view_event.clone());
+                    steps.push(RouterStep::DeliverInput {
+                        target: pointer_focus.target.clone(),
+                        event: view_event.clone(),
+                    });
                 }
             }
 
@@ -330,11 +421,7 @@ where
         // Commit device states.
         self.device_states = input_event.device_states().clone();
 
-        if let Some(outcome) = focus_outcome {
-            return Ok(outcome);
-        }
-
-        Ok(ProcessOutcome::Transitions(event_transitions))
+        Ok(RouterOutput { steps })
     }
 
     /// The pointer focus should be tested again with hit-testing against all targets.
@@ -345,8 +432,7 @@ where
         &mut self,
         hit_tester: &dyn HitTester<T>,
         device_id: DeviceId,
-        transitions: &mut EventTransitions<T>,
-    ) -> Result<()> {
+    ) -> Result<Option<PointerFocusChange<T>>> {
         let target = {
             // This is somehow a shortcut. We just check for the latest Device's position change.
             // Robustness: Support multiple pointers.
@@ -360,7 +446,7 @@ where
             } else {
                 warn!("Resetting pointer focus: No most recent position was found");
                 if self.pointer_focus.is_none() {
-                    return Ok(());
+                    return Ok(None);
                 }
                 bail!(
                     "Internal error: Pointer focus was set, but no most recent position was found"
@@ -368,20 +454,17 @@ where
             }
         };
 
-        self.set_pointer_focus(target.map(|target| (target, device_id)), transitions);
-        Ok(())
+        Ok(self.set_pointer_focus(target.map(|target| PointerFocusTarget { target, device_id })))
     }
 
-    pub fn unfocus_pointer(&mut self) -> Result<EventTransitions<T>> {
-        let mut transitions = EventTransitions::default();
-        self.set_pointer_focus(None, &mut transitions);
-        Ok(transitions)
+    pub fn unfocus_pointer(&mut self) -> Option<PointerFocusChange<T>> {
+        self.set_pointer_focus(None)
     }
 
-    /// Updates outer (window-level) focus state and returns an optional keyboard-focus suggestion.
+    /// Updates outer (window-level) focus state and returns an optional keyboard-focus request.
     ///
     /// Return value meaning:
-    /// - `None`: no keyboard-focus change is suggested (redundant outer-focus event).
+    /// - `None`: no keyboard-focus request is needed (redundant outer-focus event).
     /// - `Some(None)`: clear keyboard focus.
     /// - `Some(Some(target))`: focus the given target.
     fn set_outer_focus(&mut self, focused: bool) -> Option<Option<T>> {
@@ -417,86 +500,29 @@ where
         }
     }
 
-    fn set_keyboard_focus(&mut self, new: Option<T>, transitions: &mut EventTransitions<T>) {
+    fn set_keyboard_focus(&mut self, new: Option<T>) -> Option<KeyboardFocusChange<T>> {
         if self.keyboard_focus == new {
-            return;
+            return None;
         }
 
-        // Idea: Can't this be completely event-sourced, isn't the current state just a reflection of
-        // the events?
-        (*transitions) <<= EventTransition::ChangeKeyboardFocus {
-            from: self.keyboard_focus.clone(),
-            to: new.clone(),
-        };
-
-        // Commit
-        self.keyboard_focus = new;
+        let from = mem::replace(&mut self.keyboard_focus, new.clone());
+        Some(KeyboardFocusChange { from, to: new })
     }
 
     fn set_pointer_focus(
         &mut self,
-        new_focus: Option<(T, DeviceId)>,
-        transitions: &mut EventTransitions<T>,
-    ) {
-        match new_focus {
-            Some((new_target, new_device)) => {
-                if self
-                    .pointer_focus
-                    .as_ref()
-                    .is_some_and(|(focused_target, focused_device)| {
-                        *focused_target == new_target && *focused_device == new_device
-                    })
-                {
-                    return;
-                }
-
-                // Emit the transition before replacing the focused target.
-                (*transitions) <<= EventTransition::ChangePointerFocus {
-                    from: self.pointer_focus.clone(),
-                    to: Some((new_target.clone(), new_device)),
-                };
-
-                // Store the device that established the new focus with its target.
-                self.pointer_focus = Some((new_target, new_device));
-            }
-            None => {
-                let Some(focused) = self.pointer_focus.take() else {
-                    return;
-                };
-
-                (*transitions) <<= EventTransition::ChangePointerFocus {
-                    from: Some(focused),
-                    to: None,
-                };
-            }
+        new_focus: Option<PointerFocusTarget<T>>,
+    ) -> Option<PointerFocusChange<T>> {
+        if self.pointer_focus == new_focus {
+            return None;
         }
+
+        let from = mem::replace(&mut self.pointer_focus, new_focus.clone());
+        Some(PointerFocusChange {
+            from,
+            to: new_focus,
+        })
     }
-}
-
-#[derive(Debug)]
-pub enum ProcessOutcome<T> {
-    Transitions(EventTransitions<T>),
-    Focus(Option<NavigationTarget<T>>),
-}
-
-pub type EventTransitions<T> = CollectingVec<EventTransition<T>>;
-
-fn send<T: Clone>(target: &T, event: ViewEvent) -> EventTransition<T> {
-    EventTransition::Send(target.clone(), event)
-}
-
-#[derive(Debug)]
-pub enum EventTransition<T> {
-    // Send a targeted event.
-    Send(T, ViewEvent),
-    ChangePointerFocus {
-        from: Option<(T, DeviceId)>,
-        to: Option<(T, DeviceId)>,
-    },
-    ChangeKeyboardFocus {
-        from: Option<T>,
-        to: Option<T>,
-    },
 }
 
 // Architecture: The two functions can probably be combined into one. But is this a good thing?

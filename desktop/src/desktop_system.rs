@@ -46,7 +46,7 @@ use massive_util::CollectingVec;
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
 use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
-use focus_depth_indicator::FocusDepthIndicatorPresenter;
+use focus_depth_indicator::FramingLevelIndicatorPresenter;
 use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
@@ -85,6 +85,12 @@ pub enum DesktopTarget {
     View(ViewId),
 }
 
+impl DesktopTarget {
+    pub fn wants_cmd_enter_when_focused(&self) -> bool {
+        matches!(self, Self::Launcher(_))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
     Left,
@@ -121,21 +127,10 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Commands = CollectingVec<DesktopCommand>;
 
-/// What is the user currently focusing on.
-///
-/// As a general rule: The focus depth is always selectable by the user, but the implementation by
-/// the system is optional and depends on the currently focused target.
-///
-/// The system should show when the focus depth is changed, so that the user knows them.
-///
-/// The Focus Depths read outermost first, so a Focus Depth's position counts the zoom-ins from
-/// the focused project's level: `repr` 0 is the root project's `Project` depth,
-/// where zooming out is a no-op.
-/// Full-screen presentation is not a Focus Depth: ADR 0014 makes it Full Screen Mode,
-/// a per-launcher content scale the overview's Focus Depths know nothing about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, strum::EnumCount, strum::FromRepr)]
+/// Camera frame derived from the focused target and its zoom-out offset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
-pub enum FocusDepth {
+pub enum FramingLevel {
     Project,
     Row,
     Slot,
@@ -143,25 +138,37 @@ pub enum FocusDepth {
     Instance,
 }
 
-impl FocusDepth {
-    /// Deeper: one Focus Depth toward the focused content. `None` at the innermost depth.
-    pub fn zoom_in(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_add(1)?)
-    }
-
-    /// Shallower: one Focus Depth toward the project level. `None` beyond the
-    /// Project depth, which is the underflow guard.
-    pub fn zoom_out(self) -> Option<Self> {
-        Self::from_repr((self as u8).checked_sub(1)?)
-    }
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FramingLevelState {
+    zoom_out_steps: ZoomOutSteps,
+    keyboard_focus: Option<DesktopTarget>,
 }
 
-/// The target depth used by Cmd+Enter for launcher and instance targets.
-pub(super) fn focus_depth_for_target(target: &DesktopTarget) -> Option<FocusDepth> {
-    match target {
-        DesktopTarget::Launcher(_) => Some(FocusDepth::Slot),
-        DesktopTarget::Instance(_) | DesktopTarget::View(_) => Some(FocusDepth::Instance),
-        _ => None,
+/// Number of camera framing levels outward from the keyboard-focused target.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ZoomOutSteps(usize);
+
+impl ZoomOutSteps {
+    pub const ZERO: Self = Self(0);
+
+    pub fn is_zero(self) -> bool {
+        self == Self::ZERO
+    }
+
+    pub fn zoom_out(self) -> Self {
+        Self(self.0.saturating_add(1))
+    }
+
+    pub fn zoom_in(self) -> Self {
+        Self(self.0.saturating_sub(1))
+    }
+
+    pub fn clamp_to(self, available_steps: usize) -> Self {
+        Self(self.0.min(available_steps))
+    }
+
+    pub fn get(self) -> usize {
+        self.0
     }
 }
 
@@ -235,8 +242,9 @@ pub struct DesktopSystem {
     window_state: WindowState,
 
     event_router: EventRouter<DesktopTarget>,
+
     camera: CameraPresentation,
-    focus_depth: FocusDepth,
+    zoom_out_steps: ZoomOutSteps,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
@@ -244,7 +252,7 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
-    focus_depth_indicator: FocusDepthIndicatorPresenter,
+    framing_level_indicator: FramingLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
 }
@@ -308,7 +316,7 @@ impl DesktopSystem {
         let (_, location) = identity_location().submit();
 
         let desktop_presenter = DesktopPresenter::new(location);
-        let focus_depth_indicator = FocusDepthIndicatorPresenter::new();
+        let framing_level_indicator = FramingLevelIndicatorPresenter::new();
 
         let event_router = EventRouter::new();
 
@@ -322,12 +330,12 @@ impl DesktopSystem {
 
             event_router,
             camera: CameraPresentation::new(PixelCamera::default()),
-            focus_depth: FocusDepth::default(),
+            zoom_out_steps: ZoomOutSteps::ZERO,
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
 
-            focus_depth_indicator,
+            framing_level_indicator,
             desktop_presenter,
             aggregates: Aggregates::new(OrderedHierarchy::default(), aggregate),
         };
@@ -352,7 +360,7 @@ impl DesktopSystem {
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<TransactionOutput> {
         let changes = changes.into();
-        let previous_focus_depth = self.focus_depth;
+        let previous_framing_level_state = self.framing_level_state();
         let window_size = self.window_state.inner_size;
         // For live transactions the gesture mode is derived from the current pointer-button state;
         // callers only pass an explicit mode for setup.
@@ -418,9 +426,9 @@ impl DesktopSystem {
         // change.
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
-        let focus_depth_changed = self.focus_depth != previous_focus_depth;
-        let update_focus_depth_indicator =
-            focus_depth_changed || change_surface.window_size_changed;
+        let framing_level_changed = self.framing_level_state() != previous_framing_level_state;
+        let update_framing_level_indicator =
+            framing_level_changed || change_surface.window_size_changed;
         let update_camera = change_surface.camera_invalid();
 
         // Convert the change surface to effects.
@@ -438,11 +446,14 @@ impl DesktopSystem {
 
         self.camera.synchronize(camera_mode);
 
-        if update_focus_depth_indicator {
-            self.focus_depth_indicator.sync_layout(window_size);
+        if update_framing_level_indicator {
+            self.framing_level_indicator.sync_layout(window_size);
         }
-        if effects_mode != TransactionEffectsMode::Setup && focus_depth_changed {
-            self.focus_depth_indicator.show(self.focus_depth);
+        if effects_mode != TransactionEffectsMode::Setup
+            && framing_level_changed
+            && let Some(framing_level) = self.focus_frame_level()
+        {
+            self.framing_level_indicator.show(framing_level);
         }
 
         // Update the hover target.
@@ -452,6 +463,13 @@ impl DesktopSystem {
         Ok(TransactionOutput {
             effects: system_effects,
         })
+    }
+
+    fn framing_level_state(&self) -> FramingLevelState {
+        FramingLevelState {
+            zoom_out_steps: self.zoom_out_steps,
+            keyboard_focus: self.event_router.keyboard_focus().cloned(),
+        }
     }
 
     pub fn is_present(&self, instance: &InstanceId) -> bool {

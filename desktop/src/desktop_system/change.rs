@@ -4,13 +4,11 @@ use massive_util::CollectingVec;
 
 use super::KeyboardFocusReason;
 use crate::DesktopTarget;
-use crate::desktop_system::FocusDepth;
-use crate::event_router::EventTransitions;
+use crate::desktop_system::ZoomOutSteps;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
+use crate::targeted_event::EventTransitions;
 use crate::window_state::WindowState;
-
-pub type Changes = CollectingVec<DesktopChange>;
 
 /// An effect that the host application executes after the desktop system commits its changes.
 #[derive(Debug)]
@@ -41,13 +39,12 @@ pub enum DesktopChange {
     SetFocus {
         // None: Completely removes the focus from the application.
         target: Option<DesktopTarget>,
-        reason: KeyboardFocusReason,
     },
     /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
     CommitNavigationAffinity(Option<u32>),
-    /// Commit the focus depth.
-    CommitFocusDepth(FocusDepth),
+    /// Commit the outward camera framing distance.
+    CommitZoomOutSteps(ZoomOutSteps),
     /// Toggles the Full Screen Mode of the focused launcher (its base instances)
     /// or, when an assistant instance is focused, of that instance (ADR 0014).
     ToggleFullScreenMode(ToggleFullScreenModeTarget),
@@ -62,6 +59,8 @@ pub enum DesktopChange {
     ForwardEvents(EventTransitions<DesktopTarget>),
     IntegrateInstanceSubmission(InstanceId, InstanceSubmission),
 }
+
+pub type Changes = CollectingVec<DesktopChange>;
 
 /// The payload of [`DesktopChange::PresentInstance`]: everything introducing a
 /// new instance to the scene carries as one group.
@@ -127,7 +126,7 @@ pub enum ConfigurationChange {
 /// `SetNavigationAffinity(None)` so the reset flows through change application rather than being
 /// applied inline in `focus()`.
 pub fn set_focus(target: Option<DesktopTarget>, reason: KeyboardFocusReason) -> Changes {
-    let mut changes: Changes = DesktopChange::SetFocus { target, reason }.into();
+    let mut changes: Changes = DesktopChange::SetFocus { target }.into();
     if reason.resets_navigation_affinity() {
         changes <<= DesktopChange::CommitNavigationAffinity(None);
     }

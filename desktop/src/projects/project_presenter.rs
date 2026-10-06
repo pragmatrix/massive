@@ -6,6 +6,8 @@ use massive_geometry::{Color, Rect, SizePx, SizedTransform, Transform};
 use massive_scene::prelude::*;
 use massive_shapes::{self as shapes, IntoShape, Shape, Size as SizeExt};
 
+use crate::projects::MatrixPlacement;
+
 const PROJECT_HEADER_FONT_SIZE: f32 = 16.0 * 8.0;
 const PROJECT_HEADER_BACKGROUND_COLOR: Color = Color::rgb_u32(0x1f4d3d);
 const PROJECT_HEADER_BACKGROUND_ALPHA: f32 = 0.65;
@@ -18,6 +20,7 @@ pub struct ProjectPresenter {
     scene_transform: Handle<Transform>,
     pub header: ProjectHeaderPresenter,
     pub matrix: ProjectMatrixPresenter,
+    pub last_focused_placement: Option<MatrixPlacement>,
 }
 
 impl ProjectPresenter {
@@ -31,6 +34,7 @@ impl ProjectPresenter {
             scene_transform,
             header,
             matrix,
+            last_focused_placement: None,
         }
     }
 

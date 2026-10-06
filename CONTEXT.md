@@ -13,7 +13,7 @@ A change to the desktop configuration: adding the root project, assigning or cle
 _Avoid_: project change
 
 **Desktop**:
-The hierarchy's virtual root target. It is never inserted explicitly, has no presenter, and only parents the root project's target — the one node every hit-test miss maps to. Not to be confused with a depth: `FocusDepth::Desktop` no longer exists, the root project's Project depth is the outermost Focus Depth.
+The hierarchy's virtual root target. It is never inserted explicitly, has no presenter, and only parents the root project's target — the one node every hit-test miss maps to. The root project's framing is the outermost camera position.
 _Avoid_: desktop depth, root project (the root project hangs *below* it)
 
 **Project**:
@@ -21,12 +21,16 @@ A named group that owns a matrix of slots. A project with no slots is empty and 
 _Avoid_: workspace, section, top-level group
 
 **Slot**:
-A matrix slot: a position in a project's matrix that hosts either a launcher or a nested project — never both. Slots are implicit: one exists only while a launcher or a nested project is assigned to it, so a cleared slot is empty and a project may have no slots. Target behavior, deferred: a project that is not the focused project presents exactly one slot level deep — its slots render without their contents' contents, and nothing deeper is interactive.
+A matrix slot: a position in a project's matrix that hosts either a launcher or a nested project — never both. Slots are implicit: one exists only while a launcher or a nested project is assigned to it, so a cleared slot is empty and a project may have no slots.
 _Avoid_: cell, launcher cell, tile, container, occupied
 
 **Matrix placement**:
 A slot's (column, row) position in its project's matrix. Placements are unique within a project; adding or moving slot content shifts the placements of the slots it displaces.
 _Avoid_: coordinates
+
+**Project focus slot**:
+The one slot in a project through which the most recently keyboard-focused target descends. Each project on the focus path remembers only its own immediate slot; nested projects continue the path independently. If no remembered slot is available, focus falls back to the first launcher found depth-first in matrix order, or to the project itself when no launcher exists in its subtree.
+_Avoid_: recent instance per project, focus history path
 
 **Intrinsic project scene**:
 A project's layout in its own pixel coordinates, including the presentation of its children but excluding presentation scaling assigned by its parent.
@@ -52,32 +56,32 @@ _Avoid_: profile id, launch profile
 The non-persisted desktop state reconstructed every session: running instances, focus, navigation affinity, and window size.
 _Avoid_: session state, ephemeral state
 
-**User state**:
-The system-level interaction mode that decides what the camera follows. Either `Focused` or `Overview`.
-_Avoid_: view mode, camera mode flag
+**Zoom-out steps**:
+The number of framing levels the camera is moved outward from the keyboard-focused target's innermost available framing. Each step moves one level outward through the target's project hierarchy and then its parent projects. The same count is resolved from the new keyboard target after focus changes and is clamped to the levels available on that target's path. An outward step never decreases camera distance, even when its frame bounds are narrower. Clicking a target resets the count to zero; `Cmd+Enter` resets a positive count to zero and defers its usual action until the next press.
+_Avoid_: zoom level
 
-**Focused**:
-The default user state where the camera follows the keyboard-focused target.
-_Avoid_: normal mode, zoomed-in
+**Keyboard-focused target**:
+The target that receives keyboard input. Navigation and explicit selection can change it; the camera resolves its current zoom-out steps from this target.
+_Avoid_: camera target, hover target
 
-**Overview**:
-A user state where the camera detaches from focus and follows a separate overview target while keyboard focus stays put. `Ctrl+Down` enters or climbs it one hierarchy level per press; `Ctrl+Up` zooms back in one level; any non-navigation command returns to `Focused`.
-_Avoid_: zoomed out (the `ZoomOut` command name is retained, but the state is "overview"), bird's-eye
+**Hover target**:
+The target a click at the pointer would select. For now, descendants remain visible and directly selectable through arbitrary project nesting; clicking a project's header or empty matrix selects that project itself. The target is refreshed when layout or camera changes move content beneath a stationary pointer and is hit-tested again on press. Cursor-motion events are sent only in response to physical cursor movement.
+_Avoid_: keyboard-focused target, camera focus
 
-**Overview target**:
-The hierarchy target the camera follows while in `Overview`. Climbs toward the root on each `ZoomOut` and pans among same-level siblings on `Navigate`.
-_Avoid_: camera anchor, zoom target
+**Hover outline**:
+The rectangle identifying the pointer's click destination. It is absent while pointer feedback is suppressed; keyboard focus has a separate indication and is never substituted as the hover target.
+_Avoid_: focus rectangle, keyboard-focus indicator
 
-**Focused project**:
-The project whose Focus Depths the overview depth resolves against. Changed by zooming through a project slot: entering a nested project makes it the focused project; zooming out past its Project depth returns to the parent slot and makes the parent the focused project.
-_Avoid_: current project (ambiguous with the invocation base), active project
+**Pointer event target**:
+The target receiving pointer events. It changes on physical pointer movement or a click, not merely because camera or layout changes move content beneath a stationary pointer.
+_Avoid_: hover target
 
-**Focus depth**:
-One Focus Depth of the overview — Project, Row, Slot, Instance — resolved relative to the focused project. The depths read outermost first, so a Focus Depth's position counts the zoom-ins from the project level. There is no depth beyond the root project's Project depth; ZoomOut there is a no-op.
-_Avoid_: zoom level (the Zoom commands are retained), Desktop depth (the root is the outermost depth)
+**Keyboard-focused project**:
+The project containing the keyboard-focused target. Project-relative paths and commands use it as their base, regardless of zoom-out steps.
+_Avoid_: current project, camera project
 
 **Navigate**:
-Directional movement of keyboard focus (or the overview target) one step from the current position, driven by an arrow key.
+Directional movement of keyboard focus one step from the current target, driven by an arrow key. At an outward zoom position, navigation selects a concrete slot in the destination row or matrix, using the project's focus slot and the launcher's instance anchor to resolve the concrete target.
 _Avoid_: move, arrow
 
 **Navigate to target**:
@@ -105,7 +109,7 @@ A single running application session owned by a launcher. Multiple instances of 
 _Avoid_: session, tab, process
 
 **Full Screen Mode**:
-An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when focus depth is `Instance` and keyboard focus resolves to an instance: a base instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` starts an instance like `Cmd+T`; starting an instance always commits focus depth to `Instance` and focuses the new instance. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
+An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when zoom-out steps are zero and keyboard focus resolves to an instance: a base instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` resets a positive zoom-out count before its usual action; at zero it starts an instance only from a launcher. `Cmd+T` starts an instance from a launcher or an existing instance. Starting an instance focuses it while preserving the current zoom-out count, clamped to the new focus path. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
 _Avoid_: fullscreen flag, fullscreen presentation, zoom level, full screen launcher
 
 **Close request**:

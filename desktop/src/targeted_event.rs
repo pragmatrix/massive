@@ -1,8 +1,42 @@
 use massive_applications::ViewEvent;
-use winit::event::Modifiers;
+use massive_util::CollectingVec;
+use winit::event::{DeviceId, Modifiers};
 
-use crate::EventTransition;
+use crate::event_router::{KeyboardFocusChange, PointerFocusChange};
 use crate::focus_path::{FocusTransition, PathResolver};
+
+#[derive(Debug)]
+pub enum EventTransition<T> {
+    Send(T, ViewEvent),
+    ChangePointerFocus {
+        from: Option<(T, DeviceId)>,
+        to: Option<(T, DeviceId)>,
+    },
+    ChangeKeyboardFocus {
+        from: Option<T>,
+        to: Option<T>,
+    },
+}
+
+pub type EventTransitions<T> = CollectingVec<EventTransition<T>>;
+
+impl<T> From<KeyboardFocusChange<T>> for EventTransition<T> {
+    fn from(change: KeyboardFocusChange<T>) -> Self {
+        Self::ChangeKeyboardFocus {
+            from: change.from,
+            to: change.to,
+        }
+    }
+}
+
+impl<T> From<PointerFocusChange<T>> for EventTransition<T> {
+    fn from(change: PointerFocusChange<T>) -> Self {
+        Self::ChangePointerFocus {
+            from: change.from.map(|focus| (focus.target, focus.device_id)),
+            to: change.to.map(|focus| (focus.target, focus.device_id)),
+        }
+    }
+}
 
 /// A `TargetedEvent` contains a final target and an event that the target needs to receive.
 ///

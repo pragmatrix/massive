@@ -4,15 +4,14 @@ use log::warn;
 
 use massive_applications::{InstanceId, ViewCreationInfo};
 use massive_geometry::{Transform, Vector3};
-use massive_layout::{Placement, Rect as LayoutRect};
+use massive_layout::Placement;
 
 use super::DesktopTarget;
 use super::change::{Changes, DesktopChange, InstancePresentation, TopologyChange};
 use super::command_dispatch::ChangeOutput;
-use super::fullscreen_scale;
 use crate::instance_manager::ViewPath;
 use crate::instance_presenter::InstancePresenter;
-use crate::projects::{FullScreenMode, LaunchProfileId, launcher_mode};
+use crate::projects::{LaunchProfileId, launcher_mode};
 
 use super::DesktopSystem;
 
@@ -115,7 +114,7 @@ impl DesktopSystem {
         Ok(())
     }
 
-    pub(super) fn present_view(
+    pub fn present_view(
         &mut self,
         instance: InstanceId,
         view_creation_info: &ViewCreationInfo,
@@ -137,7 +136,7 @@ impl DesktopSystem {
         Ok(ChangeOutput::changes(changes))
     }
 
-    pub(super) fn hide_view(&mut self, path: ViewPath) -> Result<ChangeOutput> {
+    pub fn hide_view(&mut self, path: ViewPath) -> Result<ChangeOutput> {
         let Some(instance_presenter) = self.aggregates.instances.get_mut(&path.instance) else {
             warn!("Can't hide view: Instance for view not found");
             // Robustness: Decide if this should return an error.
@@ -154,59 +153,36 @@ impl DesktopSystem {
         Ok(ChangeOutput::changes(changes))
     }
 
-    /// The target the hover outline anchors on for the current focus state.
-    ///
-    /// While a fullscreen instance is focused, its view covers the whole window,
-    /// so the pointer physically sits on the focused view's area whatever it
-    /// pointed at before — tracking pointer focus would box the obscured
-    /// instance behind the fullscreen one. Keyboard focus is the honest anchor
-    /// there (ADR 0014); a view-less fullscreen instance still presents the
-    /// fullscreen rect (see [`Self::instance_presentation`]), so the anchor does
-    /// not bounce while the view is pending.
-    pub(super) fn hover_target(&self) -> Option<&DesktopTarget> {
-        let fullscreen_instance_focused = self.focused_path().instance().is_some_and(|instance| {
-            self.aggregates.instance_full_screen_mode(instance) == FullScreenMode::FullScreen
-        });
-
-        if fullscreen_instance_focused {
-            self.event_router.keyboard_focus()
-        } else {
-            self.event_router
-                .pointer_focus()
-                .or_else(|| self.event_router.keyboard_focus())
-        }
-    }
-
-    /// The hover outline's placement for the current focus state.
-    pub(super) fn hover_placement(&self) -> Option<Placement<Transform, 2>> {
+    /// The hover outline follows pointer focus, or keyboard focus during keyboard navigation.
+    pub fn hover_placement(&self) -> Option<Placement<Transform, 2>> {
         let target = self.hover_target()?;
-        match target {
-            DesktopTarget::Launcher(_) | DesktopTarget::View(_) => Some(self.placement(target)),
-            DesktopTarget::Instance(instance) => Some(self.instance_presentation(*instance)),
+        match &target {
+            DesktopTarget::Project(_)
+            | DesktopTarget::ProjectHeader(_)
+            | DesktopTarget::ProjectMatrix(_)
+            | DesktopTarget::Launcher(_)
+            | DesktopTarget::View(_) => Some(self.placement(&target)),
+            DesktopTarget::Instance(instance) => {
+                Some(self.placement(&DesktopTarget::Instance(*instance)))
+            }
             _ => None,
         }
     }
 
-    /// The placement an instance presents.
-    ///
-    /// A fullscreen instance presents window-resolution content at the fullscreen
-    /// content scale, at its own center (ADR 0014) — whether or not its view
-    /// exists yet. Its raw layout placement is the panel, so anchoring on that
-    /// would bounce the hover onto the empty panel for the view-less commit
-    /// between `Cmd+T`'s StartInstance and the view's first submission.
-    fn instance_presentation(&self, instance: InstanceId) -> Placement<Transform, 2> {
-        let placement = self.placement(&DesktopTarget::Instance(instance));
-        if self.aggregates.instance_full_screen_mode(instance) != FullScreenMode::FullScreen {
-            return placement;
-        }
+    fn hover_target(&self) -> Option<DesktopTarget> {
+        let target = self
+            .event_router
+            .pointer_focus()
+            .or_else(|| self.event_router.keyboard_focus())?
+            .clone();
 
-        let content_scale = fullscreen_scale(self.default_panel_size, self.window_state.inner_size);
-        let transform = Transform::new(
-            placement.transform.translate,
-            placement.transform.rotate,
-            placement.transform.scale * content_scale,
-        );
-        let rect = LayoutRect::new(placement.rect.offset, self.window_state.inner_size.into());
-        Placement::new(transform, rect)
+        // Structural project targets use the parent project as their visible hover target.
+        // Design: This is a policy and needs to be encoded somewhere else.
+        Some(match target {
+            DesktopTarget::ProjectHeader(project) | DesktopTarget::ProjectMatrix(project) => {
+                DesktopTarget::Project(project)
+            }
+            target => target,
+        })
     }
 }
