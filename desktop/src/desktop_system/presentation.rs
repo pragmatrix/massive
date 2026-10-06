@@ -157,15 +157,13 @@ impl DesktopSystem {
     pub fn hover_placement(&self) -> Option<Placement<Transform, 2>> {
         let target = self.hover_target()?;
         match &target {
-            DesktopTarget::Project(_)
+            DesktopTarget::Instance(_)
+            | DesktopTarget::Project(_)
             | DesktopTarget::ProjectHeader(_)
             | DesktopTarget::ProjectMatrix(_)
             | DesktopTarget::Launcher(_)
             | DesktopTarget::View(_) => Some(self.placement(&target)),
-            DesktopTarget::Instance(instance) => {
-                Some(self.placement(&DesktopTarget::Instance(*instance)))
-            }
-            _ => None,
+            DesktopTarget::Desktop => None,
         }
     }
 
