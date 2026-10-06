@@ -4,7 +4,7 @@ use massive_util::CollectingVec;
 
 use super::KeyboardFocusReason;
 use crate::DesktopTarget;
-use crate::desktop_system::ZoomOutSteps;
+use crate::desktop_system::ZoomDepth;
 use crate::instance_presenter::{InstanceKind, InstanceRoot};
 use crate::projects::{LaunchProfileId, MatrixPlacement, ProjectId, SlotAssignment};
 use crate::targeted_event::EventTransitions;
@@ -43,8 +43,8 @@ pub enum DesktopChange {
     /// Commits the navigation column affinity. `None` clears it (used by non-navigation focus
     /// changes via `set_focus_change`).
     CommitNavigationAffinity(Option<u32>),
-    /// Commit the outward camera framing distance.
-    CommitZoomOutSteps(ZoomOutSteps),
+    /// Commits the camera's zoom depth (ADR 0017).
+    CommitZoomDepth(ZoomDepth),
     /// Toggles the Full Screen Mode of the focused launcher (its base instances)
     /// or, when an assistant instance is focused, of that instance (ADR 0014).
     ToggleFullScreenMode(ToggleFullScreenModeTarget),

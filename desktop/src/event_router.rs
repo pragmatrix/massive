@@ -61,6 +61,15 @@ pub struct RouterOutput<T> {
     pub steps: Vec<RouterStep<T>>,
 }
 
+/// What asked for a keyboard focus change.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FocusRequestSource {
+    /// The window gained or lost focus.
+    Window,
+    /// A pointer button was pressed.
+    PointerPress,
+}
+
 /// One routing decision; the output order preserves focus and delivery ordering.
 #[derive(Debug)]
 pub enum RouterStep<T> {
@@ -68,6 +77,7 @@ pub enum RouterStep<T> {
     RequestKeyboardFocus {
         /// `None` requests that keyboard focus be cleared.
         target: Option<T>,
+        source: FocusRequestSource,
     },
     DeliverInput {
         target: T,
@@ -170,7 +180,10 @@ where
         match view_event {
             ViewEvent::Focused(focused) => {
                 if let Some(target) = self.set_outer_focus(*focused) {
-                    steps.push(RouterStep::RequestKeyboardFocus { target });
+                    steps.push(RouterStep::RequestKeyboardFocus {
+                        target,
+                        source: FocusRequestSource::Window,
+                    });
                 }
             }
 
@@ -305,6 +318,7 @@ where
                     .map(|focus| focus.target.clone());
                 steps.push(RouterStep::RequestKeyboardFocus {
                     target: pressed_target.clone(),
+                    source: FocusRequestSource::PointerPress,
                 });
                 if let Some(target) = pressed_target {
                     steps.push(RouterStep::DeliverInput {

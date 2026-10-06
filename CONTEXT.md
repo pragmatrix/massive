@@ -56,12 +56,24 @@ _Avoid_: profile id, launch profile
 The non-persisted desktop state reconstructed every session: running instances, focus, navigation affinity, and window size.
 _Avoid_: session state, ephemeral state
 
-**Zoom-out steps**:
-The number of framing levels the camera is moved outward from the keyboard-focused target's innermost available framing. Each step moves one level outward through the target's project hierarchy and then its parent projects. The same count is resolved from the new keyboard target after focus changes and is clamped to the levels available on that target's path. An outward step never decreases camera distance, even when its frame bounds are narrower. Clicking a target resets the count to zero; `Cmd+Enter` resets a positive count to zero and defers its usual action until the next press.
-_Avoid_: zoom level
+**Zoom depth**:
+The camera's zoom position, counted inward from the root along the keyboard-focused target's zoom chain. Depth 0 frames the root project. A depth is either a number, kept unchanged across focus changes and resolved against each target's chain, or innermost, which frames whatever target is focused fully in. Zooming in to the end of the chain becomes innermost. An outward step never decreases camera distance, even when its frame bounds are narrower. Clicking a target, starting an instance, and `Cmd+Enter` when not fully in set innermost; that `Cmd+Enter` defers its usual action until the next press. A target is fully in when its zoom depth resolves to the end of its zoom chain.
+_Avoid_: zoom-out steps, focus depth
+
+**Zoom chain**:
+The keyboard-focused target's zoom levels ordered from the root inward: the root project, then a row and a slot per nesting level, ending at the target's innermost zoom level. A nested project's own `Project` level merges into the slot hosting it, which frames the same rect.
+_Avoid_: frame chain
+
+**Zoom level**:
+What one entry of a zoom chain frames within its project: `Project`, `Row`, `Slot` or `Instance`. The indicator shows it with the nesting depth of its project, root = 0, e.g. `Row 1`.
+_Avoid_: framing level, focus depth
+
+**Zoom index**:
+A position in a zoom chain, counted from the root; the zoom depth resolves to one on each target's chain.
+_Avoid_: frame index
 
 **Keyboard-focused target**:
-The target that receives keyboard input. Navigation and explicit selection can change it; the camera resolves its current zoom-out steps from this target.
+The target that receives keyboard input. Navigation and explicit selection can change it; the camera resolves the zoom depth along this target's zoom chain.
 _Avoid_: camera target, hover target
 
 **Hover target**:
@@ -77,11 +89,11 @@ The target receiving pointer events. It changes on physical pointer movement or 
 _Avoid_: hover target
 
 **Keyboard-focused project**:
-The project containing the keyboard-focused target. Project-relative paths and commands use it as their base, regardless of zoom-out steps.
+The project containing the keyboard-focused target. Project-relative paths and commands use it as their base, regardless of zoom depth.
 _Avoid_: current project, camera project
 
 **Navigate**:
-Directional movement of keyboard focus one step from the current target, driven by an arrow key. At an outward zoom position, navigation selects a concrete slot in the destination row or matrix, using the project's focus slot and the launcher's instance anchor to resolve the concrete target.
+Directional movement of keyboard focus one step from the current target, driven by an arrow key. Below innermost zoom depth, navigation moves at the framed level's granularity — the framed ancestor stays put until focus leaves it — and selects a concrete slot in the destination row or matrix, using the project's focus slot and the launcher's instance anchor to resolve the concrete target.
 _Avoid_: move, arrow
 
 **Navigate to target**:
@@ -109,8 +121,8 @@ A single running application session owned by a launcher. Multiple instances of 
 _Avoid_: session, tab, process
 
 **Full Screen Mode**:
-An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when zoom-out steps are zero and keyboard focus resolves to an instance: a base instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` resets a positive zoom-out count before its usual action; at zero it starts an instance only from a launcher. `Cmd+T` starts an instance from a launcher or an existing instance. Starting an instance focuses it while preserving the current zoom-out count, clamped to the new focus path. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
-_Avoid_: fullscreen flag, fullscreen presentation, zoom level, full screen launcher
+An instance presentation state that scales the instance's content toward the window instead of its regular panel scale. It exists per launcher — one value shared by all of its base instances, persisted with the desktop configuration — and per assistant instance, where it is temporary. The `Ctrl+Cmd+F` View-menu action first enters native window fullscreen whenever the window is windowed, regardless of focus. Once the native window is fullscreen, the action toggles Full Screen Mode only when keyboard focus is fully in and resolves to an instance: a base instance toggles its launcher's mode, an assistant toggles its own. Otherwise that action exits native window fullscreen. `Cmd+Enter` zooms to innermost before its usual action; when fully in, it starts an instance only from a launcher. `Cmd+T` starts an instance from a launcher or an existing instance. Starting an instance focuses it at innermost zoom depth. Focus, navigation, and resize never change Full Screen Mode. A focused instance presented at its Full Screen scale resolves as pixel-perfect at that scale automatically. Full Screen Mode affects only the instance's content scaling — never the launcher's presentation or the visor layout.
+_Avoid_: fullscreen flag, fullscreen presentation, full screen launcher
 
 **Close request**:
 A window-lifecycle signal that asks the application to end. It is delivered to every live instance regardless of keyboard focus because closing the application is not a focus-targeted interaction.

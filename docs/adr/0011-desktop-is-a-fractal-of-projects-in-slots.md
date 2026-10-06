@@ -53,6 +53,10 @@ depth beyond the root project's Project depth, and `ZoomOut` there is a no-op
 [ADR 0014](0014-fullscreen-mode-is-per-launcher-content-scaling.md) — the
 Focus Depths read `Project, Row, Slot, Instance`.
 
+*Update:* the Focus Depth sequence is superseded by
+[ADR 0017](0017-zoom-depth-is-counted-from-the-root.md) — zoom is a depth
+counted from the root along the focused target's zoom chain.
+
 ## Nested projects render scaled, at full layout size
 
 A nested project is laid out at its own full size — identical layout code at
@@ -141,3 +145,77 @@ to the nearest depth-first launcher from the root when it does not resolve.
 - Rect math reads the placement rect (origin space), not the placement
   transform's scale: `to_origin_space`/`to_anchor_space` only round-trip at
   scale 1. This includes the overview bounds and the row/project rect widening.
+
+## Implementation notes
+
+These record how the model maps onto the runtime and are binding for changes
+to it.
+
+### Slots in the runtime tree
+
+- A matrix's children are **slot entries**, each classifying its content as
+  `Launcher(LaunchProfileId)` or `Project(ProjectId)`, addressed by *(parent
+  `ProjectId`, `MatrixPlacement`)* — the key the shift planner already uses.
+  `DesktopTarget` is unchanged: the hover and click target of a project slot
+  is the nested `Project` target, a launcher slot keeps targeting the
+  launcher.
+- There is no slot presenter: a launcher slot is presented by its
+  `LauncherPresenter`, a project slot by the nested `ProjectPresenter`, and a
+  cleared slot presents nothing.
+- Layout zips a matrix's slot entries against its children, so slot
+  classification preserves the matrix's child order.
+- `Aggregates` keeps flat project, launcher and instance maps; slot content
+  is derived from the configuration or the topology parent, never stored
+  separately. `DesktopConfiguration` keeps projects as a flat list linked by
+  id, so no recursive type is needed.
+
+### Change planning
+
+- Shifts are content-agnostic per slot: project slots shift like launcher
+  slots. `SlotShift` rides the request and the plan and expands into concrete
+  `MoveSlot`s before anything applies: `Shift` on assign moves the assigned
+  content and its contiguous run one column right, `Shift` on clear pulls the
+  row left; `Keep` on assign replaces the content (removing its subtree),
+  `Keep` on clear leaves a gap.
+- `MoveSlot` into the moved subtree's own descendant, into a project outside
+  the tree, or off the matrix edge is rejected with no change emitted.
+- Removing the last slot of a project does not remove the project.
+- Undo and Redo stay unimplemented; the slot vocabulary grows no inverses for
+  them yet.
+- Boot re-applies the configuration as a pre-order walk from the root: a
+  slot's parent project and its matrix exist before the slot is assigned. The
+  root's `placement` is ignored, because no matrix hosts it.
+
+### The root and the virtual `Desktop` target
+
+- `Desktop` is the layout root (`place_root`), measured with a vertical axis
+  and spacing 0 (the root project is its only child), the target `ResizeAll`
+  measures, and the hit-test root. A full-window miss maps to `Desktop`, whose
+  pointer focus must not route into launcher or instance paths.
+- The root renders exactly like a nested project: header, project padding and
+  header spacing.
+
+### Presentation
+
+- A nested project's presenter hangs under the matrix location of the project
+  hosting its slot, because its layout transform is relative to that matrix;
+  only the root project hangs under the desktop location. Attaching it to the
+  desktop drops the hosting matrix's origin and offsets the drawn scene from
+  the placement the camera, hover outline and hit test read.
+- The presentation scale is applied once, by the slot's placement; the nested
+  presenter must not apply it again. Its value is defined by
+  [ADR 0015](0015-nested-projects-share-a-width-derived-presentation-scale.md).
+
+### Requests and CLI
+
+- `ConfigurationRequest` follows the CLI vocabulary: `AssignLauncher` and
+  `AssignProject` (`name`, `column`, `row`, `under`, and a `SlotShift`
+  defaulting to `Shift`), `RemoveLauncher`, `RemoveProject`, directional
+  `MoveLauncher` and `PushLauncher` within the current matrix, `SetStartup`,
+  plus `Resize`, `Undo` and `Redo`. The dispatcher translates them into slot
+  changes.
+- `mt` exposes `add project|launcher NAME COL ROW [--under PATH]`,
+  `remove launcher|project [--name]`, directional `move`/`push`, and
+  `startup [PATH]`. Moves across matrices
+  are deferred.
+

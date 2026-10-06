@@ -15,7 +15,6 @@ mod command_dispatch;
 mod commands;
 mod effects;
 mod event_forwarding;
-mod focus_depth_indicator;
 mod focus_input;
 mod focus_path_ext;
 mod fullscreen;
@@ -26,6 +25,7 @@ mod layout_state;
 mod navigation;
 mod presentation;
 mod topology;
+mod zoom_level_indicator;
 
 use std::collections::{HashSet, VecDeque};
 use std::mem;
@@ -46,10 +46,10 @@ use massive_util::CollectingVec;
 use camera_presentation::{CameraPresentation, CameraPresentationMode};
 use change::{Changes, DesktopChange, DesktopSystemEffect};
 use effects::DesktopEffect;
-use focus_depth_indicator::FramingLevelIndicatorPresenter;
 use layout_algorithm::DesktopLayoutAlgorithm;
 use layout_state::DesktopLayoutState;
 use navigation::NavigationControl;
+use zoom_level_indicator::ZoomLevelIndicatorPresenter;
 
 pub(crate) use commands::{DesktopCommand, ProjectCommand};
 pub(crate) use effects::Effects;
@@ -127,10 +127,10 @@ pub type DesktopFocusPath = FocusPath<DesktopTarget>;
 
 pub type Commands = CollectingVec<DesktopCommand>;
 
-/// Camera frame derived from the focused target and its zoom-out offset.
+/// What a zoom step frames within its project (ADR 0017).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
-pub enum FramingLevel {
+pub enum ZoomLevel {
     Project,
     Row,
     Slot,
@@ -139,36 +139,47 @@ pub enum FramingLevel {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct FramingLevelState {
-    zoom_out_steps: ZoomOutSteps,
+struct ZoomLevelState {
+    zoom_depth: ZoomDepth,
     keyboard_focus: Option<DesktopTarget>,
 }
 
-/// Number of camera framing levels outward from the keyboard-focused target.
+/// Camera zoom position counted inward from the root along the keyboard-focused target's
+/// zoom chain (ADR 0017).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ZoomOutSteps(usize);
+pub enum ZoomDepth {
+    /// Frame index from the root; resolved against each target's chain, never clamped in place.
+    Depth(usize),
+    /// The end of whatever chain the focused target has.
+    #[default]
+    Innermost,
+}
 
-impl ZoomOutSteps {
-    pub const ZERO: Self = Self(0);
-
-    pub fn is_zero(self) -> bool {
-        self == Self::ZERO
+impl ZoomDepth {
+    pub fn zoom_in(self, chain_len: usize) -> Self {
+        let next = self.zoom_index_in(chain_len) + 1;
+        if next >= chain_len.saturating_sub(1) {
+            ZoomDepth::Innermost
+        } else {
+            ZoomDepth::Depth(next)
+        }
     }
 
-    pub fn zoom_out(self) -> Self {
-        Self(self.0.saturating_add(1))
+    /// Zooming out at the root frame keeps the depth unchanged.
+    pub fn zoom_out(self, chain_len: usize) -> Self {
+        match self.zoom_index_in(chain_len) {
+            0 => self,
+            index => ZoomDepth::Depth(index - 1),
+        }
     }
 
-    pub fn zoom_in(self) -> Self {
-        Self(self.0.saturating_sub(1))
-    }
-
-    pub fn clamp_to(self, available_steps: usize) -> Self {
-        Self(self.0.min(available_steps))
-    }
-
-    pub fn get(self) -> usize {
-        self.0
+    /// The zoom index this depth selects on a chain of `chain_len` frames.
+    pub fn zoom_index_in(self, chain_len: usize) -> usize {
+        let innermost = chain_len.saturating_sub(1);
+        match self {
+            ZoomDepth::Depth(depth) => depth.min(innermost),
+            ZoomDepth::Innermost => innermost,
+        }
     }
 }
 
@@ -244,7 +255,7 @@ pub struct DesktopSystem {
     event_router: EventRouter<DesktopTarget>,
 
     camera: CameraPresentation,
-    zoom_out_steps: ZoomOutSteps,
+    zoom_depth: ZoomDepth,
     navigation_control: NavigationControl,
     /// Focus-change measures deferred until pointer buttons are released and the camera unlocks.
     deferred_focus_launcher_measures: HashSet<LaunchProfileId>,
@@ -252,7 +263,7 @@ pub struct DesktopSystem {
     #[debug(skip)]
     layout_state: DesktopLayoutState,
 
-    framing_level_indicator: FramingLevelIndicatorPresenter,
+    zoom_level_indicator: ZoomLevelIndicatorPresenter,
     desktop_presenter: DesktopPresenter,
     aggregates: Aggregates,
 }
@@ -316,7 +327,7 @@ impl DesktopSystem {
         let (_, location) = identity_location().submit();
 
         let desktop_presenter = DesktopPresenter::new(location);
-        let framing_level_indicator = FramingLevelIndicatorPresenter::new();
+        let zoom_level_indicator = ZoomLevelIndicatorPresenter::new();
 
         let event_router = EventRouter::new();
 
@@ -330,12 +341,12 @@ impl DesktopSystem {
 
             event_router,
             camera: CameraPresentation::new(PixelCamera::default()),
-            zoom_out_steps: ZoomOutSteps::ZERO,
+            zoom_depth: ZoomDepth::Innermost,
             navigation_control: NavigationControl::default(),
             deferred_focus_launcher_measures: Default::default(),
             layout_state,
 
-            framing_level_indicator,
+            zoom_level_indicator,
             desktop_presenter,
             aggregates: Aggregates::new(OrderedHierarchy::default(), aggregate),
         };
@@ -360,7 +371,7 @@ impl DesktopSystem {
         effects_mode: impl Into<Option<TransactionEffectsMode>>,
     ) -> Result<TransactionOutput> {
         let changes = changes.into();
-        let previous_framing_level_state = self.framing_level_state();
+        let previous_zoom_level_state = self.zoom_level_state();
         let window_size = self.window_state.inner_size;
         // For live transactions the gesture mode is derived from the current pointer-button state;
         // callers only pass an explicit mode for setup.
@@ -426,9 +437,8 @@ impl DesktopSystem {
         // change.
         change_surface.retain(|target| self.aggregates.hierarchy.exists(target));
 
-        let framing_level_changed = self.framing_level_state() != previous_framing_level_state;
-        let update_framing_level_indicator =
-            framing_level_changed || change_surface.window_size_changed;
+        let zoom_level_changed = self.zoom_level_state() != previous_zoom_level_state;
+        let update_zoom_level_indicator = zoom_level_changed || change_surface.window_size_changed;
         let update_camera = change_surface.camera_invalid();
 
         // Convert the change surface to effects.
@@ -446,14 +456,14 @@ impl DesktopSystem {
 
         self.camera.synchronize(camera_mode);
 
-        if update_framing_level_indicator {
-            self.framing_level_indicator.sync_layout(window_size);
+        if update_zoom_level_indicator {
+            self.zoom_level_indicator.sync_layout(window_size);
         }
         if effects_mode != TransactionEffectsMode::Setup
-            && framing_level_changed
-            && let Some(framing_level) = self.focus_frame_level()
+            && zoom_level_changed
+            && let Some((zoom_level, project_depth)) = self.focused_zoom_level()
         {
-            self.framing_level_indicator.show(framing_level);
+            self.zoom_level_indicator.show(zoom_level, project_depth);
         }
 
         // Update the hover target.
@@ -465,9 +475,9 @@ impl DesktopSystem {
         })
     }
 
-    fn framing_level_state(&self) -> FramingLevelState {
-        FramingLevelState {
-            zoom_out_steps: self.zoom_out_steps,
+    fn zoom_level_state(&self) -> ZoomLevelState {
+        ZoomLevelState {
+            zoom_depth: self.zoom_depth,
             keyboard_focus: self.event_router.keyboard_focus().cloned(),
         }
     }
@@ -633,4 +643,32 @@ fn convert_change_surface_to_effects(surface: ChangeSurface) -> Effects {
         .into_iter()
         .map(DesktopEffect::Measure)
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ZoomDepth;
+
+    #[test]
+    fn zoom_depth_resolves_against_each_chain_without_clamping_in_place() {
+        let depth = ZoomDepth::Depth(4);
+        assert_eq!(depth.zoom_index_in(3), 2);
+        assert_eq!(depth.zoom_index_in(6), 4);
+        assert_eq!(ZoomDepth::Innermost.zoom_index_in(3), 2);
+        assert_eq!(ZoomDepth::Innermost.zoom_index_in(6), 5);
+    }
+
+    #[test]
+    fn zoom_steps_normalize_to_the_resolved_zoom_index() {
+        assert_eq!(ZoomDepth::Innermost.zoom_out(6), ZoomDepth::Depth(4));
+        // A depth beyond a short chain zooms out from the frame it resolves to.
+        assert_eq!(ZoomDepth::Depth(9).zoom_out(3), ZoomDepth::Depth(1));
+        assert_eq!(ZoomDepth::Depth(0).zoom_out(6), ZoomDepth::Depth(0));
+        assert_eq!(ZoomDepth::Innermost.zoom_out(1), ZoomDepth::Innermost);
+
+        assert_eq!(ZoomDepth::Depth(3).zoom_in(6), ZoomDepth::Depth(4));
+        assert_eq!(ZoomDepth::Depth(4).zoom_in(6), ZoomDepth::Innermost);
+        assert_eq!(ZoomDepth::Depth(9).zoom_in(3), ZoomDepth::Innermost);
+        assert_eq!(ZoomDepth::Innermost.zoom_in(6), ZoomDepth::Innermost);
+    }
 }

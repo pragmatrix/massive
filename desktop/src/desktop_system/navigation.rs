@@ -104,7 +104,7 @@ impl DesktopSystem {
     ///
     /// Resolves the navigation candidate from the active matrix in the keyboard-focus path,
     /// then commits focus and column affinity. Camera framing follows the new focus at the same
-    /// zoom-out distance.
+    /// zoom depth (ADR 0017).
     pub(super) fn plan_navigate(&self, direction: Direction) -> Result<Changes> {
         // If nothing is focused (i.e. the whole window does not have the focused), we probably
         // don't want to do anything and this is perhaps even an error.
@@ -113,7 +113,7 @@ impl DesktopSystem {
             return Ok(Changes::Empty);
         };
 
-        let navigation_target = self.navigation_target_at_zoom_steps(focused, self.zoom_out_steps);
+        let navigation_target = self.navigation_target_at_zoom_depth(focused, self.zoom_depth);
         if let Some(mut plan) = plan_navigation_candidate(
             &self.aggregates.hierarchy,
             &self.aggregates.launchers,

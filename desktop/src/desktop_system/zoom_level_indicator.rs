@@ -10,7 +10,7 @@ use massive_scene::LocationSpace;
 use massive_scene::prelude::*;
 use massive_shapes::{GlyphRun, IntoShape, Shape, Size as SizeExt};
 
-use super::FramingLevel;
+use super::ZoomLevel;
 
 const INDICATOR_DURATION: Duration = Duration::from_millis(1375);
 const FADE_IN_END: f32 = 125.0 / 1375.0;
@@ -21,25 +21,27 @@ const PADDING: (u32, u32) = (16, 12);
 const CORNER_RADIUS: f32 = 8.0;
 // The renderer draws decal layers in ascending order, so the maximum stays above other visuals.
 const DECAL_ORDER: usize = usize::MAX;
-/// The badge label per derived camera framing level, ordered from outermost to innermost.
-const FRAMING_LEVEL_LABELS: [(FramingLevel, &str); 4] = [
-    (FramingLevel::Project, "Project"),
-    (FramingLevel::Row, "Row"),
-    (FramingLevel::Slot, "Slot"),
-    (FramingLevel::Instance, "Instance"),
+/// Digits reserved for the project nesting depth so the badge does not resize between depths.
+const RESERVED_DEPTH: &str = "00";
+/// The badge label per zoom level, ordered from outermost to innermost.
+const ZOOM_LEVEL_LABELS: [(ZoomLevel, &str); 4] = [
+    (ZoomLevel::Project, "Project"),
+    (ZoomLevel::Row, "Row"),
+    (ZoomLevel::Slot, "Slot"),
+    (ZoomLevel::Instance, "Instance"),
 ];
 
 #[derive(Debug)]
-pub struct FramingLevelIndicatorPresenter {
+pub struct ZoomLevelIndicatorPresenter {
     scene_transform: Handle<Transform>,
-    movement: Movement<FramingLevelIndicatorMovement>,
+    movement: Movement<ZoomLevelIndicatorMovement>,
     size: SizePx,
     presentation: Option<SizePx>,
 }
 
-impl FramingLevelIndicatorPresenter {
+impl ZoomLevelIndicatorPresenter {
     pub fn new() -> Self {
-        let (badges, size) = FramingLevelIndicatorMovement::create_badges();
+        let size = badge_size();
         // Camera space: the indicator is positioned relative to the camera, so no inverse
         // camera translation is needed to keep it fixed on screen.
         let (scene_transform, location) =
@@ -50,7 +52,7 @@ impl FramingLevelIndicatorPresenter {
             .with_decal_order(DECAL_ORDER)
             .submit();
         let movement = movement(
-            FramingLevelIndicatorMovement::new(badges),
+            ZoomLevelIndicatorMovement::new(),
             move |movement, progress| movement.apply(progress, &location, &visual),
         )
         .mount();
@@ -63,9 +65,14 @@ impl FramingLevelIndicatorPresenter {
         }
     }
 
-    pub fn show(&mut self, framing_level: FramingLevel) {
+    /// Shows the framed level and the nesting depth of the framed project (ADR 0017).
+    pub fn show(&mut self, zoom_level: ZoomLevel, project_depth: usize) {
+        let badge = ZoomLevelBadge::new(
+            &format!("{} {project_depth}", zoom_level_label(zoom_level)),
+            self.size,
+        );
         self.movement.modify(move |movement, context| {
-            movement.show(context, framing_level);
+            movement.show(context, badge);
         });
     }
 
@@ -86,56 +93,21 @@ impl FramingLevelIndicatorPresenter {
 }
 
 #[derive(Debug)]
-struct FramingLevelIndicatorMovement {
-    badges: [FramingLevelBadge; FRAMING_LEVEL_LABELS.len()],
-    framing_level: FramingLevel,
+struct ZoomLevelIndicatorMovement {
+    badge: Option<ZoomLevelBadge>,
     timeline: Animated<f32>,
 }
 
-impl FramingLevelIndicatorMovement {
-    fn new(badges: [FramingLevelBadge; FRAMING_LEVEL_LABELS.len()]) -> Self {
+impl ZoomLevelIndicatorMovement {
+    fn new() -> Self {
         Self {
-            badges,
-            framing_level: FramingLevel::default(),
+            badge: None,
             timeline: 1.0.into(),
         }
     }
 
-    fn create_badges() -> ([FramingLevelBadge; FRAMING_LEVEL_LABELS.len()], SizePx) {
-        let glyph_runs = FRAMING_LEVEL_LABELS.map(|(_, label)| {
-            label
-                .size(FONT_SIZE)
-                .shape()
-                .expect("Framing-level labels must produce glyphs")
-        });
-        let (horizontal_padding, vertical_padding) = PADDING;
-        let width = glyph_runs
-            .iter()
-            .map(|glyph_run| glyph_run.metrics.width)
-            .max()
-            .expect("Framing-level labels must not be empty")
-            + horizontal_padding * 2;
-        let height = glyph_runs
-            .iter()
-            .map(|glyph_run| glyph_run.metrics.size().height)
-            .max()
-            .expect("Framing-level labels must not be empty")
-            + vertical_padding * 2;
-        let size = SizePx::new(width, height);
-        let badges = glyph_runs.map(|mut glyph_run| {
-            glyph_run.translation = Vector3::new(
-                (width - horizontal_padding - glyph_run.metrics.width) as f64,
-                vertical_padding as f64,
-                0.0,
-            );
-            FramingLevelBadge { glyph_run, size }
-        });
-
-        (badges, size)
-    }
-
-    fn show(&mut self, context: &mut dyn AnimationAllocator, framing_level: FramingLevel) {
-        self.framing_level = framing_level;
+    fn show(&mut self, context: &mut dyn AnimationAllocator, badge: ZoomLevelBadge) {
+        self.badge = Some(badge);
         self.timeline.snap(0.0);
         self.timeline
             .animate_with(context, 1.0, INDICATOR_DURATION, Interpolation::Linear);
@@ -156,18 +128,35 @@ impl FramingLevelIndicatorMovement {
                 .interpolate(Interpolation::CubicOut);
             1.0 - fade_progress
         };
-        let shapes = self.badges[self.framing_level as usize].shapes(alpha);
+        let shapes = self
+            .badge
+            .as_ref()
+            .map(|badge| badge.shapes(alpha))
+            .unwrap_or_default();
         visual.update_if_changed(Visual::new(location, shapes).with_decal_order(DECAL_ORDER));
     }
 }
 
 #[derive(Debug)]
-struct FramingLevelBadge {
+struct ZoomLevelBadge {
     glyph_run: GlyphRun,
     size: SizePx,
 }
 
-impl FramingLevelBadge {
+impl ZoomLevelBadge {
+    /// Shapes `label` right-aligned in a badge of `size`.
+    fn new(label: &str, size: SizePx) -> Self {
+        let (horizontal_padding, vertical_padding) = PADDING;
+        let mut glyph_run = shape_label(label);
+        glyph_run.translation = Vector3::new(
+            size.width
+                .saturating_sub(horizontal_padding + glyph_run.metrics.width) as f64,
+            vertical_padding as f64,
+            0.0,
+        );
+        Self { glyph_run, size }
+    }
+
     fn shapes(&self, alpha: f32) -> Arc<[Shape]> {
         if alpha == 0.0 {
             return Arc::default();
@@ -186,4 +175,38 @@ impl FramingLevelBadge {
             .into_shape();
         [background, text].into()
     }
+}
+
+fn zoom_level_label(zoom_level: ZoomLevel) -> &'static str {
+    ZOOM_LEVEL_LABELS
+        .iter()
+        .find_map(|(level, label)| (*level == zoom_level).then_some(*label))
+        .expect("Every zoom level must have a label")
+}
+
+/// The badge fits the widest level label followed by the reserved depth digits.
+fn badge_size() -> SizePx {
+    let glyph_runs =
+        ZOOM_LEVEL_LABELS.map(|(_, label)| shape_label(&format!("{label} {RESERVED_DEPTH}")));
+    let (horizontal_padding, vertical_padding) = PADDING;
+    let width = glyph_runs
+        .iter()
+        .map(|glyph_run| glyph_run.metrics.width)
+        .max()
+        .expect("Zoom-level labels must not be empty")
+        + horizontal_padding * 2;
+    let height = glyph_runs
+        .iter()
+        .map(|glyph_run| glyph_run.metrics.size().height)
+        .max()
+        .expect("Zoom-level labels must not be empty")
+        + vertical_padding * 2;
+    SizePx::new(width, height)
+}
+
+fn shape_label(label: &str) -> GlyphRun {
+    label
+        .size(FONT_SIZE)
+        .shape()
+        .expect("Zoom-level labels must produce glyphs")
 }

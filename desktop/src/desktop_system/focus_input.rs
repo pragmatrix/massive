@@ -12,10 +12,10 @@ use massive_renderer::RenderGeometry;
 use super::change::{Changes, DesktopChange, set_focus};
 use super::{
     DesktopCommand, DesktopFocusPath, DesktopSystem, DesktopTarget, Direction, KeyboardFocusReason,
-    ZoomOutSteps,
+    ZoomDepth,
 };
 use crate::desktop_system::change::Zoom;
-use crate::event_router::{KeyboardFocusChange, RouterStep};
+use crate::event_router::{FocusRequestSource, KeyboardFocusChange, RouterStep};
 use crate::hit_tester::AggregateHitTester;
 use crate::instance_manager::InstanceManager;
 use crate::instance_presenter::InstanceKind;
@@ -43,7 +43,11 @@ impl DesktopSystem {
                 RouterStep::PointerFocusChanged(change) => {
                     changes <<= DesktopChange::ForwardEvents(EventTransition::from(change).into());
                 }
-                RouterStep::RequestKeyboardFocus { target } => {
+                RouterStep::RequestKeyboardFocus { target, source } => {
+                    // Clicking a target frames it fully in (ADR 0017).
+                    if source == FocusRequestSource::PointerPress && target.is_some() {
+                        changes <<= DesktopChange::CommitZoomDepth(ZoomDepth::Innermost);
+                    }
                     changes += set_focus(target, KeyboardFocusReason::InputTransition);
                 }
                 RouterStep::DeliverInput { target, event } => {
@@ -62,11 +66,6 @@ impl DesktopSystem {
         instance_manager: &InstanceManager,
     ) -> Result<()> {
         let focus_change = self.event_router.focus(target.into());
-        if let Some(focused) = self.event_router.keyboard_focus() {
-            self.zoom_out_steps = self
-                .zoom_out_steps
-                .clamp_to(self.available_zoom_out_steps(focused));
-        }
 
         // Focus-change relayout is deferred until the camera unlocks; queue the affected launcher
         // measures now and let `transact` drain them once buttons are released. The camera move
@@ -246,7 +245,7 @@ impl DesktopSystem {
         // Cmd+Enter
 
         if key_event.logical_key == Key::Named(NamedKey::Enter) {
-            if self.zoom_out_steps == ZoomOutSteps::ZERO
+            if self.is_fully_zoomed_in(focused_target, self.zoom_depth)
                 && focused_target.wants_cmd_enter_when_focused()
             {
                 return None;

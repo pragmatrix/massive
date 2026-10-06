@@ -10,7 +10,7 @@ use super::change::{
 };
 use super::{
     ChangeSurface, DesktopCommand, DesktopSystem, DesktopTarget, KeyboardFocusReason,
-    ProjectCommand, ZoomOutSteps,
+    ProjectCommand, ZoomDepth,
 };
 use crate::desktop_system::change_surface::TargetSet;
 use crate::instance_manager::{InstanceManager, ViewPath};
@@ -148,7 +148,7 @@ impl DesktopSystem {
                         under: launcher.into(),
                     }),
                 ];
-                changes <<= DesktopChange::CommitZoomOutSteps(ZoomOutSteps::ZERO);
+                changes <<= DesktopChange::CommitZoomDepth(ZoomDepth::Innermost);
                 changes += set_focus(
                     Some(DesktopTarget::Instance(instance)),
                     KeyboardFocusReason::PresentInstance,
@@ -181,33 +181,28 @@ impl DesktopSystem {
 
                 return Ok(changes);
             }
-            DesktopCommand::Zoom(Zoom::Reset) => {
-                if !self.zoom_out_steps.is_zero() {
-                    return Ok(DesktopChange::CommitZoomOutSteps(ZoomOutSteps::ZERO).into());
-                }
-            }
             DesktopCommand::Navigate(direction) => return self.plan_navigate(direction),
-            DesktopCommand::Zoom(Zoom::In) => {
-                let steps = self.zoom_out_steps.zoom_in();
-                if steps != self.zoom_out_steps {
-                    return Ok(DesktopChange::CommitZoomOutSteps(steps).into());
-                }
-            }
-            DesktopCommand::Zoom(Zoom::Out) => {
+            // Zoom steps move along the keyboard-focused target's frame chain (ADR 0017).
+            DesktopCommand::Zoom(zoom) => {
                 if let Some(focused) = self.event_router.keyboard_focus() {
-                    let steps = self
-                        .zoom_out_steps
-                        .zoom_out()
-                        .clamp_to(self.available_zoom_out_steps(focused));
-                    if steps != self.zoom_out_steps {
-                        return Ok(DesktopChange::CommitZoomOutSteps(steps).into());
+                    let chain_len = self.zoom_chain(focused).len();
+                    let depth = match zoom {
+                        Zoom::In => self.zoom_depth.zoom_in(chain_len),
+                        Zoom::Out => self.zoom_depth.zoom_out(chain_len),
+                        Zoom::Reset => ZoomDepth::Innermost,
+                    };
+                    if depth != self.zoom_depth {
+                        return Ok(DesktopChange::CommitZoomDepth(depth).into());
                     }
                 }
             }
             DesktopCommand::ToggleFullScreen => {
                 if self.window_state.is_fullscreen
-                    && self.zoom_out_steps.is_zero()
                     && self.focused_path().instance().is_some()
+                    && self
+                        .event_router
+                        .keyboard_focus()
+                        .is_some_and(|focused| self.is_fully_zoomed_in(focused, self.zoom_depth))
                 {
                     return self.plan_toggle_full_screen_mode();
                 }
@@ -560,9 +555,9 @@ impl DesktopSystem {
                 self.navigation_control
                     .commit_column_affinity(column_affinity);
             }
-            DesktopChange::CommitZoomOutSteps(steps) => {
-                if self.zoom_out_steps != steps {
-                    self.zoom_out_steps = steps;
+            DesktopChange::CommitZoomDepth(depth) => {
+                if self.zoom_depth != depth {
+                    self.zoom_depth = depth;
 
                     let mut output = ChangeOutput::default();
                     if let Some(focused) = self.event_router.keyboard_focus() {
@@ -1265,8 +1260,8 @@ mod tests {
 
     use super::*;
     use crate::desktop_environment::DesktopEnvironment;
-    use crate::desktop_system::TransactionEffectsMode;
     use crate::desktop_system::change::DesktopSystemEffect;
+    use crate::desktop_system::{TransactionEffectsMode, ZoomLevel};
     use crate::instance_manager::InstanceManager;
     use crate::instance_presenter::InstanceKind;
     use crate::projects::persistence::parse_configuration;
@@ -1355,25 +1350,16 @@ mod tests {
                 TransactionEffectsMode::Setup,
             )?;
 
-            let project_steps = ZoomOutSteps::ZERO
-                .zoom_out()
-                .zoom_out()
-                .zoom_out();
-            let slot_steps = project_steps.zoom_out();
-            let focused_target = DesktopTarget::Instance(instance_a);
-            let project_camera = system.resolve_camera_for_target_at_steps(
-                &focused_target,
-                project_steps,
-            );
-            let slot_camera = system.resolve_camera_for_target_at_steps(&focused_target, slot_steps);
-            assert!(
-                (slot_camera.distance - project_camera.distance).abs() < 1e-6,
-                "a nested project's parent slot must fit the same presented project bounds: project={}, slot={}",
-                project_camera.distance,
-                slot_camera.distance
+            // Root project, root row, root slot (merged with `labs-a`'s project frame), `labs-a`
+            // row, `labs-a` slot, instance.
+            assert_eq!(
+                system
+                    .zoom_chain(&DesktopTarget::Instance(instance_a))
+                    .len(),
+                6
             );
 
-            for _ in 0..4 {
+            for _ in 0..3 {
                 let changes = system.plan(DesktopCommand::Zoom(Zoom::Out))?;
                 system.transact(
                     changes,
@@ -1381,7 +1367,8 @@ mod tests {
                     TransactionEffectsMode::Setup,
                 )?;
             }
-            assert_eq!(system.zoom_out_steps.get(), 4);
+            assert_eq!(system.zoom_depth, ZoomDepth::Depth(2));
+            assert_eq!(system.focused_zoom_level(), Some((ZoomLevel::Slot, 0)));
             assert_eq!(
                 system.event_router.keyboard_focus(),
                 Some(&DesktopTarget::Instance(instance_a))
@@ -1405,7 +1392,12 @@ mod tests {
                 Some(system.placement(&DesktopTarget::Instance(instance_b))),
                 "keyboard navigation must show the focused target's hover rect"
             );
-            assert_eq!(system.zoom_out_steps.get(), 4);
+            assert_eq!(system.zoom_depth, ZoomDepth::Depth(2));
+            assert_eq!(
+                system.focused_zoom_level(),
+                Some((ZoomLevel::Slot, 0)),
+                "navigation keeps framing the root slot level"
+            );
 
             for zoom in [Zoom::In, Zoom::Out] {
                 let changes = system.plan(DesktopCommand::Zoom(zoom))?;
@@ -1435,8 +1427,8 @@ mod tests {
                 TransactionEffectsMode::Setup,
             )?;
             assert_eq!(
-                system.zoom_out_steps,
-                ZoomOutSteps::ZERO,
+                system.zoom_depth,
+                ZoomDepth::Innermost,
                 "starting a new instance resets zoom to its focused target"
             );
             assert_eq!(
@@ -1550,10 +1542,9 @@ mod tests {
                         .expect("the initial submission created a primary view")
                 ))
             );
-            assert_eq!(system.zoom_out_steps, ZoomOutSteps::ZERO);
+            assert_eq!(system.zoom_depth, ZoomDepth::Innermost);
             let focused = system.event_router.keyboard_focus().unwrap();
-            let expected =
-                system.resolve_camera_for_target_at_steps(focused, system.zoom_out_steps);
+            let expected = system.resolve_camera_for_target_at_depth(focused, system.zoom_depth);
             assert_eq!(
                 *system.camera(),
                 expected,
@@ -1866,7 +1857,7 @@ mod tests {
             let frame = massive_applications::begin_frame();
             let (mut system, mut instance_manager, launcher) = fullscreen_system(CONFIG)?;
             let instance = start_instance(&mut system, &mut instance_manager, launcher, 0)?;
-            assert_eq!(system.zoom_out_steps, ZoomOutSteps::ZERO);
+            assert_eq!(system.zoom_depth, ZoomDepth::Innermost);
             assert_eq!(system.focused_path().instance(), Some(instance));
 
             let changes = system.plan(DesktopCommand::ToggleFullScreen)?;
@@ -1932,7 +1923,7 @@ mod tests {
                     Option::<TransactionEffectsMode>::None,
                 )?;
                 assert_eq!(system.event_router.keyboard_focus(), focused.as_ref());
-                assert_eq!(system.zoom_out_steps, ZoomOutSteps::ZERO);
+                assert_eq!(system.zoom_depth, ZoomDepth::Innermost);
                 let desired = system
                     .resolve_desired_camera()
                     .expect("the instance is focused");
